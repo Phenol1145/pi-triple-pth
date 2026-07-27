@@ -11,6 +11,7 @@ function makeSession(overrides: Partial<PoolSession> = {}): PoolSession {
     lastAccess: overrides.lastAccess ?? Date.now(),
     lastCheckpointSeq: overrides.lastCheckpointSeq ?? 0,
     versionSnapshot: overrides.versionSnapshot ?? null,
+    model: overrides.model ?? "test-model",
   };
 }
 
