@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { SessionPool, type PoolSession } from "../../src/core/session-pool.js";
+import { SessionPool, type PoolSession } from "../../src/pth/core/session-pool.js";
 
 function makeSession(overrides: Partial<PoolSession> = {}): PoolSession {
   return {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createBridge } from "../../src/core/async-iterable-bridge.js";
+import { createBridge } from "../../src/pth/core/async-iterable-bridge.js";
 
 describe("AsyncIterableBridge", () => {
   it("push items are received by pull", async () => {

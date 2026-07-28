@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { ToolPlatform } from "../../src/tools/platform.js";
-import { ToolRegistry } from "../../src/tools/registry.js";
+import { ToolPlatform } from "../../src/pth/tools/platform.js";
+import { ToolRegistry } from "../../src/pth/tools/registry.js";
 
 function mockDeps() {
   const registry = new ToolRegistry();
