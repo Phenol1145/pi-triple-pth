@@ -3,11 +3,13 @@ import websocket from "@fastify/websocket";
 import type { Redis } from "ioredis";
 import type { AgentEngine } from "../core/agent-engine.js";
 import type { ToolPlatform } from "../tools/platform.js";
+import type { ProgramStore } from "../programs/store.js";
 import type { Metrics } from "../observability/metrics.js";
 import type { Logger } from "../../shared/observability/logger.js";
 import { createAuthHook } from "./auth.js";
 import { registerSessionRoutes } from "./routes-sessions.js";
 import { registerSelfRoutes } from "./routes-self.js";
+import { registerProgramRoutes } from "./routes-programs.js";
 
 export async function createServer(deps: {
   redis: Redis;
@@ -16,8 +18,9 @@ export async function createServer(deps: {
   metrics: Metrics;
   logger: Logger;
   port?: number;
+  programs?: ProgramStore;
 }) {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
   await app.register(websocket);
   app.addHook("onRequest", createAuthHook(deps.redis));
@@ -28,6 +31,9 @@ export async function createServer(deps: {
   });
 
   registerSessionRoutes(app, deps.engine);
+  if (deps.programs) {
+    registerProgramRoutes(app, deps.engine, deps.programs);
+  }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0");
 
   app.get("/ws", { websocket: true }, (socket, req) => {

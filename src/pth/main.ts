@@ -18,6 +18,7 @@ import { HotReloader } from "./self-modify/hot-reloader.js";
 import { RebuildTrigger } from "./self-modify/rebuild-trigger.js";
 import { createServer } from "./gateway/server.js";
 import fs from "node:fs";
+import path from "node:path";
 
 async function main() {
   const platform = detectPlatform();
@@ -73,8 +74,12 @@ async function main() {
 
   await engine.recoverAll();
 
+  // Program store（pit submit 提交物）
+  const { ProgramStore } = await import("./programs/store.js");
+  const programStore = new ProgramStore(redis, path.join(dataDir, "programs"));
+
   const port = parseInt(process.env.PORT ?? "3000", 10);
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port });
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 

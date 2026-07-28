@@ -29,6 +29,15 @@ export interface CreateSessionOpts {
   provider?: string;
   model?: string;
   thinkingLevel?: string;
+  /** Program context: when set, session is a program run (PTH programs feature) */
+  program?: {
+    root: string;
+    systemPrompt?: string;
+    skills?: string[];
+    tools?: string[];
+    excludeTools?: string[];
+    timeoutSec?: number;
+  };
 }
 
 export type Result<T, E = string> =

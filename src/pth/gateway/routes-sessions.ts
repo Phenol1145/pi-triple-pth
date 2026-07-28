@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AgentEngine } from "../core/agent-engine.js";
+import { writeSSE } from "./sse.js";
 
 export function registerSessionRoutes(app: FastifyInstance, engine: AgentEngine) {
   app.post("/api/v1/sessions", async (req, reply) => {
@@ -19,21 +20,7 @@ export function registerSessionRoutes(app: FastifyInstance, engine: AgentEngine)
     const { text } = req.body as any;
     const sessionId = (req.params as any).id;
 
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
-
-    try {
-      for await (const event of engine.prompt(sessionId, req.auth.tenantId, text)) {
-        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
-      }
-      reply.raw.write("data: [DONE]\n\n");
-    } catch (err) {
-      reply.raw.write(`event: error\ndata: ${JSON.stringify({ error: String(err) })}\n\n`);
-    }
-    reply.raw.end();
+    await writeSSE(reply, engine.prompt(sessionId, req.auth.tenantId, text));
   });
 
   app.post("/api/v1/sessions/:id/abort", async (req, reply) => {

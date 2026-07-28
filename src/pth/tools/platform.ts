@@ -16,6 +16,16 @@ export class ToolPlatform {
     return this.registry.getAllowedTools(tenantId);
   }
 
+  /**
+   * Get effective tools for a program run: program.tools ∩ tenant allowed tools.
+   * Returns tenant-allowed tools when program defines none (full allowlist).
+   */
+  getEffectiveTools(tenantId: string, programTools?: string[]): string[] {
+    const tenantAllowed = this.registry.getAllowedTools(tenantId);
+    if (!programTools || programTools.length === 0) return tenantAllowed;
+    return programTools.filter((t) => tenantAllowed.includes(t));
+  }
+
   /** Return SDK-level ToolDefinition[] for createAgentSession({ customTools }) */
   getSdkToolDefinitions(tenantId: string): any[] {
     return this.registry.getSdkToolDefinitions(tenantId);

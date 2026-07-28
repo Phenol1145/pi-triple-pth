@@ -2,6 +2,7 @@ import {
   createSession as sdkCreateSession,
   SessionManager,
   SDK_EVENTS,
+  DefaultResourceLoader,
   type PlatformAgentSession,
 } from "../../shared/sdk-adapter/index.js";
 import type { SessionPool, PoolSession } from "./session-pool.js";
@@ -19,6 +20,10 @@ import path from "node:path";
 
 export class AgentEngine {
   private agentSessions = new Map<string, PlatformAgentSession>();
+  /** Run workspace dirs for program sessions: sessionId → cwd (for cleanup) */
+  private programRunDirs = new Map<string, string>();
+  /** Timeout timers for program sessions */
+  private programTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
     private pool: SessionPool,
@@ -35,7 +40,71 @@ export class AgentEngine {
     if (!check.ok) return { ok: false, error: check.reason! };
 
     const sessionId = crypto.randomUUID();
-    const cwd = await this.workspaceMgr.ensureWorkspace(opts.tenantId, opts.project);
+
+    // ── Program session: run workspace + resource loader ────────────
+    let cwd: string;
+    let sdkOptions: Record<string, unknown> = {};
+
+    if (opts.program) {
+      const prog = opts.program;
+      // Create run cwd: <workspace>/<tenant>/program-run-<sessionId>
+      const runProject = `program-run-${sessionId}`;
+      cwd = await this.workspaceMgr.ensureWorkspace(opts.tenantId, runProject);
+      this.programRunDirs.set(sessionId, cwd);
+
+      // Materialize program files into run cwd
+      const skillsAbs: string[] = [];
+      if (prog.skills && prog.skills.length > 0) {
+        for (const skillRel of prog.skills) {
+          const src = path.join(prog.root, skillRel);
+          const destName = path.basename(skillRel);
+          const dest = path.join(cwd, destName);
+          if (fs.existsSync(src)) {
+            fs.cpSync(src, dest, { recursive: true });
+            skillsAbs.push(dest);
+          }
+        }
+      }
+
+      // Read system prompt content
+      const appendSystemPrompt: string[] = [];
+      if (prog.systemPrompt) {
+        const promptPath = path.join(prog.root, prog.systemPrompt);
+        if (fs.existsSync(promptPath)) {
+          appendSystemPrompt.push(fs.readFileSync(promptPath, "utf-8"));
+        }
+      }
+
+      // Build resource loader
+      const resourceLoader = new DefaultResourceLoader({
+        cwd,
+        agentDir: process.env.PI_CODING_AGENT_DIR ?? path.join(process.env.HOME ?? "/", ".pi", "agent"),
+        additionalSkillPaths: skillsAbs.length > 0 ? skillsAbs : undefined,
+        appendSystemPrompt: appendSystemPrompt.length > 0 ? appendSystemPrompt : undefined,
+        noContextFiles: true, // prevent ancestor AGENTS.md leak
+      });
+      sdkOptions.resourceLoader = resourceLoader;
+
+      // Effective tools = program tools ∩ tenant allowed
+      const effectiveTools = this.toolPlatform.getEffectiveTools(opts.tenantId, prog.tools);
+      sdkOptions.tools = effectiveTools;
+      if (prog.excludeTools && prog.excludeTools.length > 0) {
+        sdkOptions.excludeTools = prog.excludeTools;
+      }
+
+      // Setup timeout timer
+      if (prog.timeoutSec && prog.timeoutSec > 0) {
+        const ms = Math.min(prog.timeoutSec, 3600) * 1000;
+        const timer = setTimeout(() => {
+          this.abort(sessionId, opts.tenantId).catch(() => {});
+          this.logger.warn({ sessionId, tenantId: opts.tenantId, timeoutSec: prog.timeoutSec, event: "program_timeout_abort" });
+        }, ms);
+        this.programTimeouts.set(sessionId, timer);
+      }
+    } else {
+      cwd = await this.workspaceMgr.ensureWorkspace(opts.tenantId, opts.project);
+    }
+
     const model = this.modelRouter.resolve(opts.provider, opts.model);
 
     const { session } = await sdkCreateSession({
@@ -46,6 +115,7 @@ export class AgentEngine {
       sessionManager: SessionManager.inMemory(cwd),
       tools: this.toolPlatform.getAllowedTools(opts.tenantId),
       customTools: this.toolPlatform.getSdkToolDefinitions(opts.tenantId),
+      ...sdkOptions,
     });
 
     const now = Date.now();
@@ -204,6 +274,14 @@ export class AgentEngine {
     const session = this.agentSessions.get(sessionId);
     if (session) { session.dispose(); this.agentSessions.delete(sessionId); }
     this.pool.remove(sessionId);
+    // Clean up program run workspace
+    const runDir = this.programRunDirs.get(sessionId);
+    if (runDir) {
+      this.programRunDirs.delete(sessionId);
+      fs.rm(runDir, { recursive: true, force: true }, () => {});
+    }
+    const timer = this.programTimeouts.get(sessionId);
+    if (timer) { clearTimeout(timer); this.programTimeouts.delete(sessionId); }
   }
 
   getPool(): SessionPool { return this.pool; }
@@ -216,6 +294,14 @@ export class AgentEngine {
     this.agentSessions.delete(sessionId);
     this.pool.remove(sessionId);
     await this.sessionStore.deleteSession(tenantId, sessionId);
+    // Clean up program run workspace
+    const runDir = this.programRunDirs.get(sessionId);
+    if (runDir) {
+      this.programRunDirs.delete(sessionId);
+      fs.rm(runDir, { recursive: true, force: true }, () => {});
+    }
+    const timer = this.programTimeouts.get(sessionId);
+    if (timer) { clearTimeout(timer); this.programTimeouts.delete(sessionId); }
   }
 
   listSessions(tenantId: string): ManagedSessionInfo[] {
