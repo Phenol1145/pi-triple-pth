@@ -1,4 +1,5 @@
 > PTH（Pi-Triple-Heavy）文档 — agent 联邦平台
+> 双产品全景见顶层 [`ARCHITECTURE.md`](../../ARCHITECTURE.md)。
 # 架构文档
 
 ## 设计哲学
@@ -39,6 +40,7 @@ pi-platform 采用**模块化单体**架构。所有模块在单一 Node.js 进�
 | `server.ts` | Fastify 实例创建、路由注册、WebSocket 注册 |
 | `auth.ts` | Bearer token 认证 hook，读取 Redis `auth:token:{token}` |
 | `routes-sessions.ts` | Session CRUD + SSE prompt |
+| `routes-programs.ts` | ★ agent 程序上传/版本/运行（PTL→PTH 桥服务端） |
 | `routes-self.ts` | 工具列表、版本信息、健康检查 |
 
 认证流程：
@@ -167,6 +169,8 @@ toolRegistry.registerCustomTool("my-tenant", {
 
 #### WorkflowOrchestrator
 
+> ⚠️ **与 PTL pit-flow 的区别**：本节是 PTH 服务端的 BullMQ 集中编排；PTL 的 `pit-flow`（`src/ptl/flow/`）是本地波次并行引擎，两者独立。PTL 程序经 `pit submit` 上传后由 **ProgramStore**（下节）托管，可选走本编排器或直接起 session 运行。
+
 ```
 Orchestrator (App 层状态机)
   ├── 读取 workflow intent 从 Redis
@@ -200,6 +204,20 @@ await orchestrator.execute(reviewFlow, tenantId);
 ```
 
 四种步骤类型中 `agent` 和 `human-approval` 可用，`parallel` 和 `condition` 为 stub。工作流执行获取 Redis 分布式锁，Lua 脚本安全释放，`fencingToken` 防止误删。
+
+#### ProgramStore（PTL→PTH 桥服务端）
+
+`src/pth/programs/` + `gateway/routes-programs.ts` —— 托管 PTL `pit submit` 上传的 agent 程序。
+
+```
+POST   /api/v1/programs              上传程序（tar，INCR 版本号，tar 安全解包 + GC）
+GET    /api/v1/programs              列出程序
+GET    /api/v1/programs/:name        程序详情/版本
+DELETE /api/v1/programs/:name        删除
+POST   /api/v1/programs/:name/run    运行（起一次性 session，SSE 双信封 {seq,type,data} 直推，流结束自动销毁）
+```
+
+程序 = `agent.json` manifest + skills + systemPrompt。运行时通过 `DefaultResourceLoader` 的 `appendSystemPrompt` / `additionalSkillPaths` / `noContextFiles` 注入；工具取 tenant allowlist 交集；每 run 独立 workspace（扁平名 `program-run-<sessionId>`，因 WorkspaceManager 不允许 `/`）。Fastify bodyLimit 提到 6MB 以容纳程序包。
 
 #### Self-Modify（自修改）
 
