@@ -24,6 +24,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Redis } from "ioredis";
 import type { ProgramManifest, Result } from "../programs/types.js";
+import type { AuditWriter } from "../observability/audit.js";
+import { SlotBindingStore, validateSlotId } from "./slot-binding.js";
 
 // ── component types ──────────────────────────────────────────────
 
@@ -185,9 +187,17 @@ function parseTarEntries(buf: Buffer): Result<TarEntry[]> {
 // ── store ──────────────────────────────────────────────────────
 
 export class ComponentStore {
+  /** 空位绑定登记（§5.2——F/WP4 Task 18）；懒初始化：字段初始化器先于构造参数属性赋值执行 */
+  private _slotBindings?: SlotBindingStore;
+  private get slotBindings(): SlotBindingStore {
+    this._slotBindings ??= new SlotBindingStore(this.redis);
+    return this._slotBindings;
+  }
+
   constructor(
     private redis: Redis,
     private dataDir: string,
+    private audit?: AuditWriter,
   ) {}
 
   private componentsDir(): string {
@@ -285,6 +295,13 @@ export class ComponentStore {
       return { ok: false, error: `invalid component type: "${type}"` };
     }
 
+    // 空位绑定 O(1) 登记校验（§5.2：字段良构即可，不做深度语义校验）——
+    // 提前校验，避免 malformed targetSlot 写入部分状态
+    if (manifest.targetSlot !== undefined) {
+      const verr = validateSlotId(manifest.targetSlot);
+      if (verr) return { ok: false, error: `invalid targetSlot: ${verr}` };
+    }
+
     const parseResult = parseTarEntries(archive);
     if (!parseResult.ok) return parseResult;
 
@@ -343,6 +360,30 @@ export class ComponentStore {
 
     // Garbage-collect old versions
     await this.prune(tenantId, type, manifest.name);
+
+    // ── 空位绑定生效（§5.2）：上传携带 targetSlot → slot:{slotId}:binding + 审计 ──
+    if (manifest.targetSlot !== undefined) {
+      const b = await this.slotBindings.bind(
+        tenantId,
+        manifest.targetSlot,
+        type,
+        manifest.name,
+        version,
+      );
+      if (!b.ok) return b;
+      await this.audit?.write({
+        tenantId,
+        actor: "tenant",
+        action: "slot_binding",
+        details: {
+          slotId: manifest.targetSlot,
+          type,
+          name: manifest.name,
+          version,
+          boundAt: b.value.boundAt,
+        },
+      });
+    }
 
     return {
       ok: true,

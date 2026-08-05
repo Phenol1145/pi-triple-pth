@@ -110,7 +110,7 @@ async function main() {
   // components 卷落在 DATA_DIR/components/<tenantId>/<type>/<name>/<version>/；
   // 旧 programs 目录（DATA_DIR/programs/programs/...）不做自动迁移，ProgramStore 读侧双查兼容（plan N4）。
   const { ProgramStore } = await import("./programs/store.js");
-  const programStore = new ProgramStore(redis, dataDir);
+  const programStore = new ProgramStore(redis, dataDir, audit);
   logger.warn({
     event: "component_store_v1_switch",
     detail: "components 卷已生效（DATA_DIR/components）；legacy programs 目录仅读侧兼容，不做自动迁移",

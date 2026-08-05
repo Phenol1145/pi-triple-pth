@@ -13,6 +13,7 @@
 
 import type { Redis } from "ioredis";
 import { ComponentStore } from "../components/store.js";
+import type { AuditWriter } from "../observability/audit.js";
 import type { ProgramManifest, ProgramInfo, ProgramVersion, Result } from "./types.js";
 
 /**
@@ -22,8 +23,8 @@ import type { ProgramManifest, ProgramInfo, ProgramVersion, Result } from "./typ
  * 不做覆写——泛化方法本身已兼容（避免子类覆写篡改基类内部调用）。
  */
 export class ProgramStore extends ComponentStore {
-  constructor(redis: Redis, dataDir: string) {
-    super(redis, dataDir);
+  constructor(redis: Redis, dataDir: string, audit?: AuditWriter) {
+    super(redis, dataDir, audit);
   }
 }
 
