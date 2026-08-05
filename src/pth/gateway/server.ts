@@ -6,11 +6,13 @@ import type { ToolPlatform } from "../tools/platform.js";
 import type { ProgramStore } from "../programs/store.js";
 import type { Metrics } from "../observability/metrics.js";
 import type { Logger } from "../../shared/observability/logger.js";
+import type { SessionStore } from "../storage/interfaces.js";
 import { createAuthHook } from "./auth.js";
 import { registerSessionRoutes } from "./routes-sessions.js";
 import { registerSelfRoutes } from "./routes-self.js";
 import { registerProgramRoutes } from "./routes-programs.js";
 import { registerFallbackRoutes } from "./routes-fallback.js";
+import { registerObserveRoutes } from "./routes-observe.js";
 import type { FallbackRequestStore } from "../fallback/requests.js";
 import type { SandboxHealthMonitor } from "../tools/sandbox-bash.js";
 
@@ -27,6 +29,8 @@ export async function createServer(deps: {
   fallback?: FallbackRequestStore;
   /** F/WP3 Task 13：sandbox 失效降级监控（/health 联动）。可选。 */
   sandboxMonitor?: SandboxHealthMonitor;
+  /** F/WP4 Task 21：Redis 会话痕迹（hub observe 只读观测）。可选——不传则不注册 observe 路由。 */
+  sessionStore?: SessionStore;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
@@ -44,6 +48,9 @@ export async function createServer(deps: {
   }
   if (deps.fallback) {
     registerFallbackRoutes(app, deps.fallback);
+  }
+  if (deps.sessionStore) {
+    registerObserveRoutes(app, deps.sessionStore);
   }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 
