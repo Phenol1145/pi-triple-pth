@@ -10,6 +10,7 @@ import type { ModelRouter } from "../../shared/model-router/router.js";
 import type { WorkspaceManager } from "../../shared/workspace/manager.js";
 import type { SessionStore } from "../storage/interfaces.js";
 import type { ToolPlatform } from "../tools/platform.js";
+import type { AuditWriter } from "../observability/audit.js";
 import type { Logger } from "../../shared/observability/logger.js";
 import type { Metrics } from "../observability/metrics.js";
 import type { AgentEvent, CreateSessionOpts, ManagedSessionInfo, Result, VersionSnapshot } from "./types.js";
@@ -20,6 +21,11 @@ import path from "node:path";
 
 export class AgentEngine {
   private agentSessions = new Map<string, PlatformAgentSession>();
+  /**
+   * SDK SessionManager 引用（对话唯一事实源）。SDK 会话按会话目录持久化 JSONL；
+   * 本 map 供 checkpoint 记录 entryCount 与 recoverAll 校验/续用。
+   */
+  private sessionManagers = new Map<string, SessionManager>();
   /** Run workspace dirs for program sessions: sessionId → cwd (for cleanup) */
   private programRunDirs = new Map<string, string>();
   /** Timeout timers for program sessions */
@@ -33,6 +39,14 @@ export class AgentEngine {
     private toolPlatform: ToolPlatform,
     private logger: Logger,
     private metrics: Metrics,
+    /**
+     * 会话持久化根目录（sessions 卷）。路径推导遵循 DATA_DIR 模式：
+     * compose 注入 DATA_DIR=/data → /data/sessions；本机开发默认 <DATA_DIR>/sessions。
+     * S1：必须显式传 sessionDir 给 SessionManager.create——SDK 默认落 ~/.pi/agent/sessions/ 不可控。
+     */
+    private sessionsDir: string = path.join(process.env.DATA_DIR ?? "./.pi-platform-data", "sessions"),
+    /** 审计（恢复/清理事件）。可选——不传时恢复仅记日志 */
+    private audit?: AuditWriter,
   ) {}
 
   async createSession(opts: CreateSessionOpts): Promise<Result<ManagedSessionInfo>> {
@@ -40,6 +54,9 @@ export class AgentEngine {
     if (!check.ok) return { ok: false, error: check.reason! };
 
     const sessionId = crypto.randomUUID();
+
+    // ── 会话目录：<sessionsDir>/<tenantId>/<sessionId>/（S1：显式 sessionDir 按租户组织+可控清理）──
+    const sessionDir = path.join(this.sessionsDir, opts.tenantId, sessionId);
 
     // ── Program session: run workspace + resource loader ────────────
     let cwd: string;
@@ -107,12 +124,17 @@ export class AgentEngine {
 
     const model = this.modelRouter.resolve(opts.provider, opts.model);
 
+    // 懒落盘认知（S1）：SDK 会话首个 assistant message 才写盘——纯 user 消息窗口内
+    // pool meta（entryCount）与磁盘 JSONL 不一致，以已落盘为准/接受该窗口；
+    // 崩溃时该轮未落盘对话内容丢失（recoverAll 以 messages.length vs entryCount 记 warn 不阻断）。
+    // 传 { id: sessionId }：让 JSONL 文件名与 header.id 携带 PTH sessionId，恢复时可按 id 精确校验。
+    const sessionManager = SessionManager.create(cwd, sessionDir, { id: sessionId });
     const { session } = await sdkCreateSession({
       cwd,
       model,
       thinkingLevel: (opts.thinkingLevel as any) ?? "medium",
       modelRuntime: this.modelRouter.getRuntime(),
-      sessionManager: SessionManager.inMemory(cwd),
+      sessionManager,
       tools: this.toolPlatform.getAllowedTools(opts.tenantId),
       customTools: this.toolPlatform.getSdkToolDefinitions(opts.tenantId),
       ...sdkOptions,
@@ -128,12 +150,19 @@ export class AgentEngine {
       refCount: 0,
       lastAccess: now,
       lastCheckpointSeq: 0,
+      entryCount: 0,
+      sessionDir,
+      cwd,
+      createdAt: now,
+      recoveredFromCrash: false,
+      interrupted: false,
       versionSnapshot: initialSnapshot,
       model: model?.id ?? "unknown",
     };
 
     this.pool.add(poolSession);
     this.agentSessions.set(sessionId, session);
+    this.sessionManagers.set(sessionId, sessionManager);
 
     await this.sessionStore.saveMeta(opts.tenantId, sessionId, {
       version: 1,
@@ -273,6 +302,7 @@ export class AgentEngine {
   evictSession(sessionId: string): void {
     const session = this.agentSessions.get(sessionId);
     if (session) { session.dispose(); this.agentSessions.delete(sessionId); }
+    this.sessionManagers.delete(sessionId);
     this.pool.remove(sessionId);
     // Clean up program run workspace
     const runDir = this.programRunDirs.get(sessionId);
@@ -292,6 +322,7 @@ export class AgentEngine {
     const session = this.agentSessions.get(sessionId);
     if (session) session.dispose();
     this.agentSessions.delete(sessionId);
+    this.sessionManagers.delete(sessionId);
     this.pool.remove(sessionId);
     await this.sessionStore.deleteSession(tenantId, sessionId);
     // Clean up program run workspace
@@ -332,6 +363,7 @@ export class AgentEngine {
       if (agentSession) agentSession.dispose();
     }
     this.agentSessions.clear();
+    this.sessionManagers.clear();
     this.logger.info({ event: "drain_complete" });
   }
 

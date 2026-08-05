@@ -10,7 +10,24 @@ export interface PoolSession {
   state: "idle" | "busy" | "evicting";
   refCount: number;
   lastAccess: number;
+  /**
+   * 平台侧 per-prompt 事件游标（最近一次 prompt 发出的事件数）。
+   * S1：SDK 无 seq 概念（会话 entry 是 string id 树）——此字段与 SDK 条目序列无关，
+   * 字段名保留但语义已变更为平台侧事件计数；对话内容以会话 JSONL 为唯一事实源。
+   */
   lastCheckpointSeq: number;
+  /** SDK 会话消息条数（buildSessionContext().messages.length）——recoverAll 恢复校验基准 */
+  entryCount: number;
+  /** 会话目录（绝对路径）：<sessionsDir>/<tenantId>/<sessionId>/（S1：显式 sessionDir 按租户组织） */
+  sessionDir: string;
+  /** 会话工作目录（recoverAll 时 continueRecent(cwd, sessionDir) 需要） */
+  cwd: string;
+  /** 会话创建时间戳（ms） */
+  createdAt: number;
+  /** 恢复标记：经 recoverAll 从崩溃现场恢复 */
+  recoveredFromCrash: boolean;
+  /** 恢复标记：恢复前处于 busy（in-flight 未持久化已丢，置 interrupted） */
+  interrupted: boolean;
   versionSnapshot: VersionSnapshot | null;
   model: string;
 }
