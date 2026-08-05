@@ -3,6 +3,7 @@ import {
   SessionManager,
   SDK_EVENTS,
   DefaultResourceLoader,
+  type InlineExtension,
   type PlatformAgentSession,
 } from "../../shared/sdk-adapter/index.js";
 import type { SessionPool, PoolSession } from "./session-pool.js";
@@ -29,12 +30,10 @@ export interface ResourceOverlayProvider {
 }
 
 /**
- * 常驻系统会话的编程注入扩展（F/WP5 Task 24，S3 路径 b）。与 SDK InlineExtension 形状一致：
- * 裸 factory 或 {name, factory}。agent-lab 的 default export 是裸 factory（(pi)=>Promise<void>）。
+ * 常驻系统会话的编程注入扩展（F/WP5 Task 24，S3 路径 b——extensionFactories）。
+ * SDK InlineExtension = 裸 factory 或 {name, factory}；agent-lab 的 default export 是裸 factory（(pi)=>Promise<void>）。
  */
-export type SystemExtensionFactory =
-  | ((pi: unknown) => void | Promise<void>)
-  | { name?: string; factory: (pi: unknown) => void | Promise<void>; hidden?: boolean };
+export type SystemExtensionFactory = InlineExtension;
 
 export class AgentEngine {
   private agentSessions = new Map<string, PlatformAgentSession>();
@@ -145,6 +144,9 @@ export class AgentEngine {
         appendSystemPrompt: appendSystemPrompt.length > 0 ? appendSystemPrompt : undefined,
         noContextFiles: true, // prevent ancestor AGENTS.md leak
       });
+      // S3 缺口 1：自建 loader 必须显式 reload（sdk.js 仅在内部默认 loader 时代调 reload）——
+      // 否则扩展加载数为 0。这里不传 extensionFactories：program 会话不注入平台扩展（防泄漏）。
+      await resourceLoader.reload();
       sdkOptions.resourceLoader = resourceLoader;
 
       // Effective tools = program tools ∩ tenant allowed
@@ -169,12 +171,15 @@ export class AgentEngine {
       //（agent-dir 卷为基准，platform 卷为覆盖层）；无覆盖层时保持 SDK 默认行为。
       const overlayPaths = this.getOverlayPaths();
       if (overlayPaths.skills.length > 0 || overlayPaths.prompts.length > 0) {
-        sdkOptions.resourceLoader = new DefaultResourceLoader({
+        const resourceLoader = new DefaultResourceLoader({
           cwd,
           agentDir: this.getAgentDir(),
           additionalSkillPaths: overlayPaths.skills.length > 0 ? overlayPaths.skills : undefined,
           additionalPromptTemplatePaths: overlayPaths.prompts.length > 0 ? overlayPaths.prompts : undefined,
         });
+        // S3 缺口 1：自建 loader 必须显式 reload（sdk.js 仅在内部默认 loader 时代调 reload）
+        await resourceLoader.reload();
+        sdkOptions.resourceLoader = resourceLoader;
       }
     }
 
@@ -363,9 +368,14 @@ export class AgentEngine {
       return;
     }
     const session = this.agentSessions.get(sessionId);
-    if (session) { session.dispose(); this.agentSessions.delete(sessionId); }
+    // 先同步移除映射/池（evict 语义：canCreate 即刻可用），再异步 emit session_shutdown + dispose
+    if (session) this.agentSessions.delete(sessionId);
     this.sessionManagers.delete(sessionId);
     this.pool.remove(sessionId);
+    if (session) {
+      // S3 缺口 3：dispose 前显式 emit session_shutdown（agent-lab 关 DB 防句柄泄漏）——失败仅记日志
+      session.shutdown().catch((err) => this.logger.warn({ sessionId, err: String(err), event: "session_shutdown_failed" }));
+    }
     // Clean up program run workspace
     const runDir = this.programRunDirs.get(sessionId);
     if (runDir) {
@@ -465,20 +475,47 @@ export class AgentEngine {
   }): Promise<Result<ManagedSessionInfo>> {
     const sessionId = opts?.sessionId ?? crypto.randomUUID();
     try {
+      // S3 缺口 5 env 契约：AGENT_LAB_DB_PATH/AGENT_LAB_CONFIG_DIR/PI_AGENT_INSTANCE_ID 在
+      // createSession（loader reload → 扩展 load）前设 process.env——agent-lab load 期同步读取。
+      // 协调者裁决：PTH 单实例内 agent-lab 配置路径全局唯一——设置后不恢复（避免每次会话创建改 env 的竞态）。
+      this.prepareSystemEnv(sessionId);
       const cwd = opts?.cwd ?? (await this.workspaceMgr.ensureWorkspace("system", "system"));
       const sessionDir = opts?.sessionDir ?? path.join(this.sessionsDir, "system", sessionId);
       fs.mkdirSync(sessionDir, { recursive: true });
 
       const model = this.modelRouter.resolve(undefined, undefined);
       const sessionManager = opts?.sessionManager ?? SessionManager.create(cwd, sessionDir, { id: sessionId });
+
+      // S3 缺口 4 + 路径 b：extensionFactories 编程注入 agent-lab + noExtensions:true（防用户 agentDir 扩展泄漏）。
+      // 跨会话复用评估（S3 疑虑）：extensionFactories 每会话执行一次→DB 句柄叠加。常驻系统会话在 PTH
+      // 单实例内唯一（RESERVED + watchdog 重建/recoverAll 恢复均重建——旧进程已退出，SQLite 句柄随进程释放），
+      // 单实例下无叠加问题；若未来允许多常驻会话，须共享 loader/store（DB 句柄单例）。
+      const resourceLoader = new DefaultResourceLoader({
+        cwd,
+        agentDir: this.getAgentDir(),
+        noContextFiles: true, // 常驻会话不需要项目上下文文件（轻量状态化）
+        noExtensions: true,
+        extensionFactories: this.systemExtensionFactories.length > 0 ? [...this.systemExtensionFactories] : undefined,
+      });
+      // S3 缺口 1：自建 loader 必须显式 reload（sdk.js 仅在内部默认 loader 时代调 reload）——否则扩展加载数为 0
+      await resourceLoader.reload();
+
       const { session } = await sdkCreateSession({
         cwd,
         model,
         thinkingLevel: "medium",
         modelRuntime: this.modelRouter.getRuntime(),
         sessionManager,
+        resourceLoader,
         tools: this.toolPlatform.getAllowedTools("system"),
         customTools: this.buildCustomTools("system"),
+      });
+
+      // S3 缺口 2：bindExtensions 绑定扩展运行时 + emit session_start（agent-lab 的 pi.on(session_start) 依赖）。
+      // 参考 print-mode 的 bindExtensions 调用：mode + onError（无 UI——headless 常驻会话）。
+      await session.bindExtensions({
+        mode: "print",
+        onError: (err) => this.logger.warn({ sessionId, err: String(err), event: "system_extension_error" }),
       });
 
       const now = Date.now();
@@ -528,6 +565,18 @@ export class AgentEngine {
     }
   }
 
+  /**
+   * S3 缺口 5 env 契约（agent-lab 扩展加载）：AGENT_LAB_DB_PATH/AGENT_LAB_CONFIG_DIR/PI_AGENT_INSTANCE_ID
+   * 在 createSession 前设 process.env（agent-lab load 期同步读取——config-io.ts:15-29）。
+   * 协调者裁决：PTH 单实例内 agent-lab 配置路径全局唯一——设置后不恢复（每次会话创建改 env 的竞态风险更高）。
+   */
+  private prepareSystemEnv(sessionId: string): void {
+    const dataDir = path.dirname(this.sessionsDir);
+    if (!process.env.AGENT_LAB_DB_PATH) process.env.AGENT_LAB_DB_PATH = path.join(dataDir, "agent-lab", "agent-lab.db");
+    if (!process.env.AGENT_LAB_CONFIG_DIR) process.env.AGENT_LAB_CONFIG_DIR = path.join(dataDir, "agent-lab", "config");
+    process.env.PI_AGENT_INSTANCE_ID = `system-${sessionId}`;
+  }
+
   private toManagedInfo(s: PoolSession): ManagedSessionInfo {
     return {
       sessionId: s.sessionId,
@@ -549,8 +598,15 @@ export class AgentEngine {
       return;
     }
     const session = this.agentSessions.get(sessionId);
-    if (session) session.dispose();
-    this.agentSessions.delete(sessionId);
+    if (session) {
+      // S3 缺口 3：dispose 前显式 emit session_shutdown（agent-lab 关 DB 防句柄泄漏）
+      try {
+        await session.shutdown();
+      } catch (err) {
+        this.logger.warn({ sessionId, err: String(err), event: "session_shutdown_failed" });
+      }
+      this.agentSessions.delete(sessionId);
+    }
     this.sessionManagers.delete(sessionId);
     this.pool.remove(sessionId);
     await this.sessionStore.deleteSession(tenantId, sessionId);
@@ -631,12 +687,15 @@ export class AgentEngine {
           const overlayPaths = this.getOverlayPaths();
           const recoveryOptions: Record<string, unknown> = {};
           if (overlayPaths.skills.length > 0 || overlayPaths.prompts.length > 0) {
-            recoveryOptions.resourceLoader = new DefaultResourceLoader({
+            const resourceLoader = new DefaultResourceLoader({
               cwd: meta.cwd,
               agentDir: this.getAgentDir(),
               additionalSkillPaths: overlayPaths.skills.length > 0 ? overlayPaths.skills : undefined,
               additionalPromptTemplatePaths: overlayPaths.prompts.length > 0 ? overlayPaths.prompts : undefined,
             });
+            // S3 缺口 1：自建 loader 必须显式 reload（否则扩展加载数为 0）
+            await resourceLoader.reload();
+            recoveryOptions.resourceLoader = resourceLoader;
           }
           const { session } = await sdkCreateSession({
             cwd: meta.cwd,
@@ -728,7 +787,14 @@ export class AgentEngine {
       }
       await this.checkpoint(session, session.lastCheckpointSeq);
       const agentSession = this.agentSessions.get(session.sessionId);
-      if (agentSession) agentSession.dispose();
+      if (agentSession) {
+        // S3 缺口 3：dispose 前显式 emit session_shutdown（agent-lab 关 DB 防句柄泄漏——停机前必须完成）
+        try {
+          await agentSession.shutdown();
+        } catch (err) {
+          this.logger.warn({ sessionId: session.sessionId, err: String(err), event: "session_shutdown_failed" });
+        }
+      }
     }
     this.agentSessions.clear();
     this.sessionManagers.clear();

@@ -15,7 +15,8 @@ import { SessionPool, type PoolSession } from "../../src/pth/core/session-pool.j
 
 const sdkMocks = vi.hoisted(() => ({
   createdOptions: [] as any[],
-  reset: () => { sdkMocks.createdOptions.length = 0; },
+  sessions: [] as any[],
+  reset: () => { sdkMocks.createdOptions.length = 0; sdkMocks.sessions.length = 0; },
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
@@ -24,12 +25,26 @@ vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
     ...mod,
     createAgentSession: vi.fn(async (options: any) => {
       sdkMocks.createdOptions.push(options);
+      const sm = options.sessionManager;
+      const subscribers: Array<(ev: any) => void> = [];
       const session = {
-        prompt: async () => {},
+        prompt: async () => {
+          // 模拟 SDK 行为：user+assistant 消息经 SessionManager 落盘，然后发事件（不调用 LLM）
+          if (sm) {
+            sm.appendMessage({ role: "user", content: [{ type: "text", text: "smoke" }], timestamp: Date.now() });
+            sm.appendMessage({ role: "assistant", content: [{ type: "text", text: "ok" }], timestamp: Date.now() });
+          }
+          for (const cb of [...subscribers]) cb({ type: "message_end", message: { role: "assistant", content: [], timestamp: Date.now(), usage: { input: 1, output: 1 } } });
+          for (const cb of [...subscribers]) cb({ type: "agent_end" });
+        },
         abort: async () => {},
-        subscribe: () => () => {},
-        dispose: () => {},
+        subscribe: (cb: (ev: any) => void) => { subscribers.push(cb); return () => {}; },
+        dispose: vi.fn(() => {}),
+        bindExtensions: vi.fn(async () => {}),
+        hasExtensionHandlers: () => true,
+        extensionRunner: { emit: vi.fn(async () => {}) },
       };
+      sdkMocks.sessions.push(session);
       return { session };
     }),
   };
@@ -55,7 +70,7 @@ function mockDeps() {
   };
 }
 
-function makeEngine(tmpDir: string, sessionsDir: string, deps = mockDeps(), maxSessions = 20, redis?: RedisType): { engine: AgentEngine; deps: ReturnType<typeof mockDeps> } {
+function makeEngine(tmpDir: string, sessionsDir: string, deps = mockDeps(), maxSessions = 20, redis?: RedisType, factories: any[] = []): { engine: AgentEngine; deps: ReturnType<typeof mockDeps> } {
   const cwd = path.join(tmpDir, "workspace", "tenant-a", "proj-1");
   fs.mkdirSync(cwd, { recursive: true });
   const modelRouter = { resolve: () => ({ id: "test-model" }), getRuntime: () => ({}) } as any;
@@ -72,7 +87,7 @@ function makeEngine(tmpDir: string, sessionsDir: string, deps = mockDeps(), maxS
     { maxSessions, maxSessionsPerTenant: 5, idleTimeoutMs: 300_000 },
     deps.sessionStore, deps.logger, deps.metrics, redis,
   );
-  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, deps.sessionStore, toolPlatform, deps.logger, deps.metrics, sessionsDir, deps.audit);
+  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, deps.sessionStore, toolPlatform, deps.logger, deps.metrics, sessionsDir, deps.audit, undefined, undefined, factories);
   pool.setOnEvict((sid) => { void engine.evictSession(sid); });
   return { engine, deps };
 }
@@ -333,5 +348,155 @@ describe("recoverAll 优先恢复常驻会话（F/WP5 Task 23）", () => {
 
     await engine.drain();
     fs.rmSync(tmp, { recursive: true, force: true });
+  });
+});
+
+describe("agent-lab 扩展加载进常驻会话（F/WP5 Task 24，S3 三缺口）", () => {
+  let tmpRoot: string;
+  let agentDir: string;
+  let prevEnv: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "reserved-ext-"));
+    agentDir = path.join(tmpRoot, "agent-dir");
+    fs.mkdirSync(agentDir, { recursive: true });
+    prevEnv = {
+      PI_CODING_AGENT_DIR: process.env.PI_CODING_AGENT_DIR,
+      HOME: process.env.HOME,
+      AGENT_LAB_DB_PATH: process.env.AGENT_LAB_DB_PATH,
+      AGENT_LAB_CONFIG_DIR: process.env.AGENT_LAB_CONFIG_DIR,
+      PI_AGENT_INSTANCE_ID: process.env.PI_AGENT_INSTANCE_ID,
+    };
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    process.env.HOME = path.join(tmpRoot, "home");
+    // 缺口 5 契约验证需要引擎默认值生效——清除环境已有设置（afterEach 恢复）
+    delete process.env.AGENT_LAB_DB_PATH;
+    delete process.env.AGENT_LAB_CONFIG_DIR;
+    delete process.env.PI_AGENT_INSTANCE_ID;
+    sdkMocks.reset();
+  });
+
+  afterEach(() => {
+    for (const [k, v] of Object.entries(prevEnv)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("缺口 1+4：loader reload 后扩展注册>0；extensionFactories 注入 + noExtensions 防泄漏", async () => {
+    const sessionsDir = path.join(tmpRoot, "sessions");
+    const factory = vi.fn(async (pi: any) => {
+      pi.on?.("session_start", async () => {});
+      pi.on?.("session_shutdown", async () => {});
+      pi.on?.("agent_end", async () => {});
+    });
+    const { engine } = makeEngine(tmpRoot, sessionsDir, mockDeps(), 20, undefined, [factory]);
+    try {
+      const res = await engine.createSystemSession();
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("unreachable");
+      const sid = res.data.sessionId;
+
+      // factory 已执行一次（loader.reload → loadExtensionFactories）
+      expect(factory).toHaveBeenCalledTimes(1);
+
+      // reload 后扩展注册数 > 0（S3 关键缺口：不调 reload 则为 0）
+      const opts = sdkMocks.createdOptions.find((o: any) => o.sessionManager?.getSessionId() === sid);
+      expect(opts).toBeDefined();
+      const loader = opts.resourceLoader;
+      expect(loader).toBeDefined();
+      const extensions = loader.getExtensions().extensions;
+      expect(extensions.length).toBeGreaterThan(0);
+      expect(extensions[0].handlers.has("session_start")).toBe(true);
+      expect(extensions[0].handlers.has("session_shutdown")).toBe(true);
+    } finally {
+      engine.stopSystemWatchdog();
+      await engine.drain();
+    }
+  });
+
+  it("缺口 2：bindExtensions 调用（emit session_start——agent-lab pi.on(session_start) 依赖）", async () => {
+    const sessionsDir = path.join(tmpRoot, "sessions");
+    const { engine } = makeEngine(tmpRoot, sessionsDir, mockDeps(), 20, undefined, [vi.fn(async () => {})]);
+    try {
+      const res = await engine.createSystemSession();
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("unreachable");
+      const sid = res.data.sessionId;
+      const idx = sdkMocks.createdOptions.findIndex((o: any) => o.sessionManager?.getSessionId() === sid);
+      const sdkSession = sdkMocks.sessions[idx];
+      // 引擎在会话创建后调用 bindExtensions（print mode——无 UI 的 headless 常驻会话）
+      expect(sdkSession.bindExtensions).toHaveBeenCalledTimes(1);
+      expect(sdkSession.bindExtensions).toHaveBeenCalledWith(expect.objectContaining({ mode: "print" }));
+    } finally {
+      engine.stopSystemWatchdog();
+      await engine.drain();
+    }
+  });
+
+  it("缺口 3：dispose 前显式 emit session_shutdown（agent-lab 关 DB 防句柄泄漏）", async () => {
+    const sessionsDir = path.join(tmpRoot, "sessions");
+    const { engine } = makeEngine(tmpRoot, sessionsDir, mockDeps(), 20, undefined, [vi.fn(async () => {})]);
+    let sid = "";
+    let sdkSession: any;
+    try {
+      const res = await engine.createSystemSession();
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("unreachable");
+      sid = res.data.sessionId;
+      const idx = sdkMocks.createdOptions.findIndex((o: any) => o.sessionManager?.getSessionId() === sid);
+      sdkSession = sdkMocks.sessions[idx];
+
+      await engine.drain(); // 停机路径：shutdown() → emit session_shutdown → dispose
+
+      expect(sdkSession.extensionRunner.emit).toHaveBeenCalledWith(expect.objectContaining({ type: "session_shutdown", reason: "quit" }));
+      expect(sdkSession.dispose).toHaveBeenCalledTimes(1);
+      // 顺序：session_shutdown 先于 dispose
+      const emitOrder = sdkSession.extensionRunner.emit.mock.invocationCallOrder[0];
+      const disposeOrder = sdkSession.dispose.mock.invocationCallOrder[0];
+      expect(emitOrder).toBeLessThan(disposeOrder);
+    } finally {
+      engine.stopSystemWatchdog();
+      // drain 已执行；再次 drain 幂等（会话已清空）
+      await engine.drain().catch(() => {});
+    }
+  });
+
+  it("缺口 5：createSession 前 env 注入（AGENT_LAB_DB_PATH/AGENT_LAB_CONFIG_DIR/PI_AGENT_INSTANCE_ID）", async () => {
+    const sessionsDir = path.join(tmpRoot, "sessions");
+    const { engine } = makeEngine(tmpRoot, sessionsDir, mockDeps(), 20, undefined, [vi.fn(async () => {})]);
+    try {
+      const res = await engine.createSystemSession();
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("unreachable");
+      const sid = res.data.sessionId;
+
+      // 协调者裁决：设置后不恢复（PTH 单实例内 agent-lab 配置路径全局唯一）
+      expect(process.env.AGENT_LAB_DB_PATH).toBe(path.join(tmpRoot, "agent-lab", "agent-lab.db"));
+      expect(process.env.AGENT_LAB_CONFIG_DIR).toBe(path.join(tmpRoot, "agent-lab", "config"));
+      expect(process.env.PI_AGENT_INSTANCE_ID).toBe(`system-${sid}`);
+    } finally {
+      engine.stopSystemWatchdog();
+      await engine.drain();
+    }
+  });
+
+  it("常驻会话可 prompt（最小 dispatch 冒烟——mock SDK 层）", async () => {
+    const sessionsDir = path.join(tmpRoot, "sessions");
+    const { engine } = makeEngine(tmpRoot, sessionsDir, mockDeps(), 20, undefined, [vi.fn(async () => {})]);
+    try {
+      const res = await engine.createSystemSession();
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("unreachable");
+      const sid = res.data.sessionId;
+
+      const events: any[] = [];
+      for await (const ev of engine.prompt(sid, "system", "smoke")) events.push(ev);
+      expect(events.length).toBeGreaterThan(0);
+      expect(events[events.length - 1].type).toBe("agent_end");
+    } finally {
+      engine.stopSystemWatchdog();
+      await engine.drain();
+    }
   });
 });

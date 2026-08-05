@@ -92,7 +92,20 @@ async function main() {
   const sandboxBash = createSandboxBashDefinition(sandboxClient);
   // F/WP4 Task 22：hub debug 调试网关——WebSocket → sandbox 行式执行通道（同一 sandbox 容器）
   const debugGateway = createSandboxDebugGatewayFactory(sandboxClient);
-  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit, resourceOverlay, sandboxBash);
+  // S3 路径 b：agent-lab 经 extensionFactories 编程注入常驻系统会话（F/WP5 Task 24）。
+  // 非字面量 import specifier——tsc rootDir=src 不能静态 import extensions/ 下的 .ts（TS5097）；
+  // 运行时同一相对路径在 dev（tsx src/）与 prod（node dist/）都解析到 <pkgroot>/extensions/agent-lab/index.ts
+  // （Node>=22.18 type-stripping 默认开启，可加载 .ts）。失败放行（fail-open）：无 agent-lab 仍可运行。
+  const agentLabSpecifier = "../../extensions/agent-lab/index.ts";
+  const systemExtensionFactories: any[] = [];
+  try {
+    const agentLabModule: any = await import(agentLabSpecifier);
+    if (agentLabModule?.default) systemExtensionFactories.push(agentLabModule.default);
+    logger.info({ event: "agent_lab_loaded", note: "agent-lab 扩展已注入常驻系统会话（extensionFactories）" });
+  } catch (err) {
+    logger.warn({ err: String(err), event: "agent_lab_load_failed", note: "agent-lab 未注入常驻会话——失败放行" });
+  }
+  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit, resourceOverlay, sandboxBash, systemExtensionFactories);
   pool.setOnEvict((sid) => engine.evictSession(sid));
   const orchestrator = new WorkflowOrchestrator(redis, engine, sessionStore, logger, metrics);
 
