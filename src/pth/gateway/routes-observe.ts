@@ -93,8 +93,8 @@ export function registerObserveRoutes(
   // 事件查询——常驻会话 EventLog 代理（F/WP5 Task 28b：评审 I1 拆分子项落地）。
   // 方向与 webhook 相反：pth 主进程 → 常驻会话 → agent-lab DB（EventLog）→ 回传。
   // pth 不直读 agent-lab DB——经常驻会话通道 request/response RPC（engine.querySystemEvents）。
-  // 注意：EventLog 为系统级共享事件流（多租户事件混排），本端点不按 tenant 过滤事件
-  // 本身（事件行结构子集无 tenant 字段）；认证仍要求 Bearer（只读观测面）。
+  // 评审 WP5-R2 I-1：跨租户事件隔离——filter 强制带调用方 tenantId（req.auth.tenantId），
+  // agent-lab 侧按 identity_json.tenantId 过滤；不再"多租户事件混排"。
   app.get("/api/v1/observe/events", async (req, reply) => {
     if (!engine) {
       return reply.status(501).send({
@@ -105,7 +105,7 @@ export function registerObserveRoutes(
     }
     const parsed = parseEventFilter((req.query ?? {}) as Record<string, unknown>);
     if (!parsed.ok) return reply.status(400).send({ error: parsed.error });
-    const r = await engine.querySystemEvents(parsed.filter);
+    const r = await engine.querySystemEvents({ ...parsed.filter, tenantId: req.auth.tenantId });
     if (!r.ok) {
       return reply.status(502).send({ error: `event log query failed: ${r.error}` });
     }

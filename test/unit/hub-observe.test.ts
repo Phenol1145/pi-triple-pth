@@ -234,8 +234,8 @@ describe("hub observe 路由", () => {
       expect(body.count).toBe(2);
       expect(body.events).toHaveLength(2);
       expect(body.events[0].eventType).toBe("scheduled.fire");
-      // 过滤参数透传
-      expect(engine.querySystemEvents).toHaveBeenCalledWith({ eventType: "scheduled.fire", limit: 10 });
+      // 过滤参数透传 + 租户强制注入（评审 WP5-R2 I-1：tenantId 由调用方 auth 派生，调用方不可自选）
+      expect(engine.querySystemEvents).toHaveBeenCalledWith({ eventType: "scheduled.fire", limit: 10, tenantId: "tenant-a" });
     } finally {
       await a.close();
     }

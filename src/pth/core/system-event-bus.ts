@@ -38,6 +38,8 @@ export const COMPONENT_BOUND_CHANNEL = "platform:component-bound";
 /** 事件查询过滤（Task 28b——与 agent-lab EventLog.query 对齐的子集） */
 export interface SystemEventFilter {
   eventType?: string;
+  /** 评审 WP5-R2 I-1：租户隔离——observe 查询按调用方 tenant 过滤事件流 */
+  tenantId?: string;
   since?: number;
   until?: number;
   limit?: number;
