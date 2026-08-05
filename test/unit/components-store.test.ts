@@ -6,7 +6,9 @@ import { gzipSync } from "node:zlib";
 import Fastify from "fastify";
 import { ComponentStore, COMPONENT_TYPES, type ComponentManifest } from "../../src/pth/components/store.js";
 import { ProgramStore } from "../../src/pth/programs/store.js";
+import { FallbackRequestStore } from "../../src/pth/fallback/requests.js";
 import { registerProgramRoutes } from "../../src/pth/gateway/routes-programs.js";
+import { registerFallbackRoutes } from "../../src/pth/gateway/routes-fallback.js";
 
 // ── ustar writer (minimal, for test-only archive creation) ────────
 
@@ -70,6 +72,28 @@ class MockRedis {
   set(key: string, value: string): Promise<"OK"> {
     this.store.set(key, value);
     return Promise.resolve("OK");
+  }
+  // fallback_requests hash 支持（fallback store 用 hset/hget/hgetall/hdel）
+  hset(key: string, field: string, value: string): Promise<number> {
+    const hash = JSON.parse(this.store.get(key) ?? "{}") as Record<string, string>;
+    hash[field] = value;
+    this.store.set(key, JSON.stringify(hash));
+    return Promise.resolve(1);
+  }
+  hget(key: string, field: string): Promise<string | null> {
+    const hash = JSON.parse(this.store.get(key) ?? "{}") as Record<string, string>;
+    return Promise.resolve(hash[field] ?? null);
+  }
+  hgetall(key: string): Promise<Record<string, string>> {
+    const hash = JSON.parse(this.store.get(key) ?? "{}") as Record<string, string>;
+    return Promise.resolve(hash);
+  }
+  hdel(key: string, ...fields: string[]): Promise<number> {
+    const hash = JSON.parse(this.store.get(key) ?? "{}") as Record<string, string>;
+    let n = 0;
+    for (const f of fields) if (delete hash[f]) n++;
+    this.store.set(key, JSON.stringify(hash));
+    return Promise.resolve(n);
   }
   del(key: string | string[]): Promise<number> {
     const keys = Array.isArray(key) ? key : [key];
@@ -302,6 +326,7 @@ describe("ComponentStore routes（POST /api/v1/components）", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pth-comp-route-"));
     redis = new MockRedis();
     store = new ProgramStore(redis as any, tmpDir);
+    const fallback = new FallbackRequestStore(redis as any);
 
     const mockEngine = {
       createSession: async () => ({ ok: true, data: { sessionId: "s1", tenantId, project: "default", state: "idle", model: "unknown", createdAt: "", lastAccess: "" } }),
@@ -312,7 +337,8 @@ describe("ComponentStore routes（POST /api/v1/components）", () => {
     app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
     app.decorateRequest("auth", null);
     app.addHook("onRequest", async (req) => { (req as any).auth = { tenantId, role: "platform-admin" }; });
-    registerProgramRoutes(app, mockEngine, store);
+    registerProgramRoutes(app, mockEngine, store, fallback);
+    registerFallbackRoutes(app, fallback);
     await app.ready();
   });
 
@@ -390,5 +416,99 @@ describe("ComponentStore routes（POST /api/v1/components）", () => {
 
   it("COMPONENT_TYPES 常量齐全", () => {
     expect(COMPONENT_TYPES).toEqual(["agent-program", "scheduler", "optimizer", "memory-pack", "skeleton-update"]);
+  });
+
+  // ── 评审 WP4-R1 修复测试（B-1 透传 / I-1 slotHint 绑定 / I-2 closeWarning）──
+
+  it("agent-program 经 /programs 别名透传 targetSlot+legalAuth（B-1 回归）", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/programs",
+      payload: {
+        manifest: { name: "slotprog", systemPrompt: "PROMPT.md", targetSlot: "slot-a", legalAuth: "legal-ref-1" },
+        archive: gzipB64([
+          { name: "agent.json", content: JSON.stringify({ name: "slotprog", systemPrompt: "PROMPT.md" }) },
+          { name: "PROMPT.md", content: "hi" },
+        ]),
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    // 绑定已建立（B-1：此前 targetSlot 被 validateManifest 剥落——永不抵达 store.save）
+    const binding = await store.slotBindings.get("slot-a");
+    expect(binding.ok).toBe(true);
+    expect(binding.value?.name).toBe("slotprog");
+    expect(binding.value?.legalAuth).toBe("legal-ref-1");
+  });
+
+  it("agent-program 经 /components 上传 targetSlot+legalAuth 透传（B-1 回归）", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/components",
+      payload: {
+        type: "agent-program",
+        manifest: { name: "slotprog2", systemPrompt: "PROMPT.md", targetSlot: "slot-b", legalAuth: "legal-ref-2" },
+        archive: gzipB64([
+          { name: "agent.json", content: JSON.stringify({ name: "slotprog2", systemPrompt: "PROMPT.md" }) },
+          { name: "PROMPT.md", content: "hi" },
+        ]),
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const binding = await store.slotBindings.get("slot-b");
+    expect(binding.ok).toBe(true);
+    expect(binding.value?.name).toBe("slotprog2");
+    expect(binding.value?.legalAuth).toBe("legal-ref-2");
+  });
+
+  it("respond 上传：请求 slotHint 补位建立绑定（I-1）", async () => {
+    // 建单（带 slotHint）
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/v1/fallback-requests",
+      payload: { description: "缺一个 agent", slotHint: "slot-c", urgency: "high" },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const created = JSON.parse(createRes.body) as { requestId: string };
+    // respond 上传（manifest 不带 targetSlot——应自动用请求 slotHint 补位）
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/components",
+      payload: {
+        type: "agent-program",
+        manifest: { name: "respondprog", systemPrompt: "PROMPT.md" },
+        archive: gzipB64([
+          { name: "agent.json", content: JSON.stringify({ name: "respondprog", systemPrompt: "PROMPT.md" }) },
+          { name: "PROMPT.md", content: "hi" },
+        ]),
+        requestId: created.requestId,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body);
+    expect(body.closedRequest).toBe(created.requestId);
+    // slotHint 已补位绑定（I-1：此前"respond 填槽"的 slot 实际从未被绑定）
+    const binding = await store.slotBindings.get("slot-c");
+    expect(binding.ok).toBe(true);
+    expect(binding.value?.name).toBe("respondprog");
+  });
+
+  it("respond 上传：闭合失败返回 closeWarning 而非无提示（I-2 回归）", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/components",
+      payload: {
+        type: "agent-program",
+        manifest: { name: "ghostprog", systemPrompt: "PROMPT.md" },
+        archive: gzipB64([
+          { name: "agent.json", content: JSON.stringify({ name: "ghostprog", systemPrompt: "PROMPT.md" }) },
+          { name: "PROMPT.md", content: "hi" },
+        ]),
+        requestId: "ghost-request-404", // 不存在的请求 → close 失败
+      },
+    });
+    expect(res.statusCode).toBe(201); // 构件仍保存成功
+    const body = JSON.parse(res.body);
+    expect(body.closeWarning).toBeDefined();
+    expect(body.closedRequest).toBe("ghost-request-404");
   });
 });

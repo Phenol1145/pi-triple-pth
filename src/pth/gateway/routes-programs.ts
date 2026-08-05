@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
-function validateManifest(raw: unknown): { ok: true; manifest: ProgramManifest } | { ok: false; error: string } {
+function validateManifest(raw: unknown): { ok: true; manifest: ProgramManifest & { targetSlot?: string; legalAuth?: string } } | { ok: false; error: string } {
   if (!raw || typeof raw !== "object") return { ok: false, error: "manifest must be an object" };
   const m = raw as Record<string, unknown>;
 
@@ -44,6 +44,10 @@ function validateManifest(raw: unknown): { ok: true; manifest: ProgramManifest }
       excludeTools: m.excludeTools as string[] | undefined,
       input: m.input as { schema?: Record<string, unknown> } | undefined,
       timeoutSec: m.timeoutSec as number | undefined,
+      // 评审 WP4-R1 Blocker-1 修复：agent-program 分支必须透传 targetSlot/legalAuth
+      // （此前被 validateManifest 剥落——Task 18/19 对最常用类型经 HTTP 主路径静默失效）
+      targetSlot: m.targetSlot as string | undefined,
+      legalAuth: m.legalAuth as string | undefined,
     },
   };
 }
@@ -165,6 +169,21 @@ async function handleComponentUpload(
     return { status: 413, body: { error: "archive too large (max 2MB)" } };
   }
 
+  // 评审 WP4-R1 I-1 修复：respond 上传若 manifest 无 targetSlot 但请求带 slotHint →
+  // 用 slotHint 补位（store.save 的 bind 逻辑自然执行——"respond 填槽"真正落地）
+  const requestId = body.requestId;
+  let slotHintFromRequest: string | undefined;
+  if (fallback && typeof requestId === "string" && requestId.length > 0) {
+    const req0 = await fallback.get(requestId);
+    if (req0.ok && req0.value.slotHint) {
+      slotHintFromRequest = req0.value.slotHint;
+    }
+  }
+
+  if (manifest.targetSlot === undefined && slotHintFromRequest !== undefined) {
+    manifest.targetSlot = slotHintFromRequest;
+  }
+
   // Decompress gzip
   let tarBuf: Buffer;
   try {
@@ -187,7 +206,6 @@ async function handleComponentUpload(
   };
 
   // ── respond 自动闭合（§5.4）：上传携带 requestId → 保存成功后自动闭合回退请求 ──
-  const requestId = body.requestId;
   if (fallback && typeof requestId === "string" && requestId.length > 0) {
     const close = await fallback.close(requestId, {
       tenantId,
@@ -196,6 +214,7 @@ async function handleComponentUpload(
     });
     if (!close.ok) {
       response.closeWarning = close.error; // 构件已保存成功，闭合失败仅提示
+      response.closedRequest = requestId;
     } else {
       response.closedRequest = requestId;
     }
