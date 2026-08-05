@@ -106,9 +106,15 @@ async function main() {
 
   await engine.recoverAll();
 
-  // Program store（pit submit 提交物）
+  // Program store（pit submit 提交物）/ ComponentStore 泛化（F/WP4 Task 17）：
+  // components 卷落在 DATA_DIR/components/<tenantId>/<type>/<name>/<version>/；
+  // 旧 programs 目录（DATA_DIR/programs/programs/...）不做自动迁移，ProgramStore 读侧双查兼容（plan N4）。
   const { ProgramStore } = await import("./programs/store.js");
-  const programStore = new ProgramStore(redis, path.join(dataDir, "programs"));
+  const programStore = new ProgramStore(redis, dataDir);
+  logger.warn({
+    event: "component_store_v1_switch",
+    detail: "components 卷已生效（DATA_DIR/components）；legacy programs 目录仅读侧兼容，不做自动迁移",
+  });
 
   const port = parseInt(process.env.PORT ?? "3000", 10);
   const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, sandboxMonitor });

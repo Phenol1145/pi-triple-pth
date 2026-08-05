@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import type { AgentEngine } from "../core/agent-engine.js";
 import type { ProgramStore } from "../programs/store.js";
 import type { ProgramManifest } from "../programs/types.js";
+import type { ComponentManifest, ComponentType } from "../components/store.js";
+import { COMPONENT_TYPES } from "../components/store.js";
 import { writeSSE } from "./sse.js";
 import { randomUUID } from "node:crypto";
 
@@ -41,6 +43,145 @@ function validateManifest(raw: unknown): { ok: true; manifest: ProgramManifest }
       excludeTools: m.excludeTools as string[] | undefined,
       input: m.input as { schema?: Record<string, unknown> } | undefined,
       timeoutSec: m.timeoutSec as number | undefined,
+    },
+  };
+}
+
+/**
+ * 构件清单分派校验（F/WP4 Task 17）。
+ * type 缺省 → agent-program（旧 agent.json 原样通过）；agent-program → 原 validateManifest 逻辑；
+ * 其余类型 → 最小校验（name/type 合法、payload 结构骨架校验）。
+ */
+function validateComponentManifest(
+  raw: unknown,
+): { ok: true; manifest: ComponentManifest } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ok: false, error: "manifest must be an object" };
+  }
+  const m = raw as Record<string, unknown>;
+  let type: ComponentType = "agent-program";
+  if (m.type !== undefined) {
+    if (typeof m.type !== "string" || !(COMPONENT_TYPES as readonly string[]).includes(m.type)) {
+      return { ok: false, error: `invalid type: must be one of ${COMPONENT_TYPES.join(" | ")}` };
+    }
+    type = m.type as ComponentType;
+  }
+
+  if (type === "agent-program") {
+    const v = validateManifest(raw);
+    if (!v.ok) return v;
+    return {
+      ok: true,
+      manifest: { type, ...v.manifest },
+    };
+  }
+
+  // 其余类型：最小校验
+  if (typeof m.name !== "string" || !NAME_RE.test(m.name)) {
+    return { ok: false, error: `invalid name: "${m.name}" (must match ${NAME_RE.source})` };
+  }
+  if (m.description !== undefined && typeof m.description !== "string") {
+    return { ok: false, error: "description must be a string" };
+  }
+  if (m.version !== undefined && typeof m.version !== "string") {
+    return { ok: false, error: "version must be a string" };
+  }
+  if (m.payload !== undefined) {
+    if (typeof m.payload !== "object" || m.payload === null || Array.isArray(m.payload)) {
+      return { ok: false, error: "payload must be a JSON object" };
+    }
+  }
+  for (const f of ["targetSlot", "legalAuth"]) {
+    if (m[f] !== undefined && typeof m[f] !== "string") {
+      return { ok: false, error: `${f} must be a string` };
+    }
+  }
+
+  return {
+    ok: true,
+    manifest: {
+      type,
+      name: m.name as string,
+      description: m.description as string | undefined,
+      version: m.version as string | undefined,
+      payload: m.payload as Record<string, unknown> | undefined,
+      targetSlot: m.targetSlot as string | undefined,
+      legalAuth: m.legalAuth as string | undefined,
+    },
+  };
+}
+
+/**
+ * 构件上传共用处理（POST /api/v1/components 与 POST /api/v1/programs 同 handler）。
+ * type 为请求声明类型（/programs 固定 agent-program 兼容别名）。
+ */
+async function handleComponentUpload(
+  store: ProgramStore,
+  tenantId: string,
+  type: ComponentType,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: unknown }> {
+  const manifestRaw0 = body.manifest as unknown;
+
+  // manifest 显式 type 与请求 type 冲突 → 拒绝
+  if (
+    manifestRaw0 &&
+    typeof manifestRaw0 === "object" &&
+    !Array.isArray(manifestRaw0) &&
+    (manifestRaw0 as Record<string, unknown>).type !== undefined &&
+    (manifestRaw0 as Record<string, unknown>).type !== type
+  ) {
+    return { status: 400, body: { error: `manifest type does not match request type "${type}"` } };
+  }
+
+  // 请求 type 为准，注入后分派校验
+  const m = validateComponentManifest(
+    manifestRaw0 && typeof manifestRaw0 === "object" && !Array.isArray(manifestRaw0)
+      ? { ...(manifestRaw0 as Record<string, unknown>), type }
+      : manifestRaw0,
+  );
+  if (!m.ok) {
+    return { status: 400, body: { error: `Invalid manifest: ${m.error}` } };
+  }
+  const manifest = m.manifest;
+
+  // Decode archive
+  const archiveBase64 = body.archive as unknown;
+  if (!archiveBase64 || typeof archiveBase64 !== "string") {
+    return { status: 400, body: { error: "missing archive (base64-encoded tar.gz)" } };
+  }
+  let archive: Buffer;
+  try {
+    archive = Buffer.from(archiveBase64, "base64");
+  } catch {
+    return { status: 400, body: { error: "invalid base64 encoding" } };
+  }
+
+  if (archive.length > 2_097_152) { // 2MB
+    return { status: 413, body: { error: "archive too large (max 2MB)" } };
+  }
+
+  // Decompress gzip
+  let tarBuf: Buffer;
+  try {
+    const { gunzipSync } = await import("node:zlib");
+    tarBuf = gunzipSync(archive);
+  } catch {
+    return { status: 400, body: { error: "archive is not a valid gzip file" } };
+  }
+
+  const result = await store.save(tenantId, manifest, tarBuf);
+  if (!result.ok) {
+    return { status: 400, body: { error: result.error } };
+  }
+
+  return {
+    status: 201,
+    body: {
+      type: result.value.type,
+      name: result.value.name,
+      version: result.value.version,
+      bytes: archive.length,
     },
   };
 }
@@ -85,57 +226,23 @@ export function registerProgramRoutes(
   engine: AgentEngine,
   store: ProgramStore,
 ) {
-  // POST /api/v1/programs — submit
+  // POST /api/v1/components — submit（构件类型分派；/programs 为 agent-program 兼容别名）
+  app.post("/api/v1/components", async (req, reply) => {
+    const tenantId = req.auth.tenantId;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const type = body.type as unknown;
+    if (typeof type !== "string" || !(COMPONENT_TYPES as readonly string[]).includes(type)) {
+      return reply.status(400).send({ error: `Invalid type: must be one of ${COMPONENT_TYPES.join(" | ")}` });
+    }
+    const r = await handleComponentUpload(store, tenantId, type as ComponentType, body);
+    return reply.status(r.status).send(r.body);
+  });
+
+  // POST /api/v1/programs — submit（agent-program 兼容别名）
   app.post("/api/v1/programs", async (req, reply) => {
     const tenantId = req.auth.tenantId;
-    const { manifest: manifestRaw, archive: archiveBase64 } = req.body as any;
-
-    // Validate manifest
-    const m = validateManifest(manifestRaw);
-    if (!m.ok) {
-      return reply.status(400).send({ error: `Invalid manifest: ${m.error}` });
-    }
-    const manifest = m.manifest;
-
-    // Name in URL body must match manifest
-    if (!manifest.name) {
-      return reply.status(400).send({ error: "manifest must include 'name'" });
-    }
-
-    // Decode archive
-    if (!archiveBase64 || typeof archiveBase64 !== "string") {
-      return reply.status(400).send({ error: "missing archive (base64-encoded tar.gz)" });
-    }
-    let archive: Buffer;
-    try {
-      archive = Buffer.from(archiveBase64, "base64");
-    } catch {
-      return reply.status(400).send({ error: "invalid base64 encoding" });
-    }
-
-    if (archive.length > 2_097_152) { // 2MB
-      return reply.status(413).send({ error: "archive too large (max 2MB)" });
-    }
-
-    // Decompress gzip
-    let tarBuf: Buffer;
-    try {
-      const { gunzipSync } = await import("node:zlib");
-      tarBuf = gunzipSync(archive);
-    } catch {
-      return reply.status(400).send({ error: "archive is not a valid gzip file" });
-    }
-
-    const result = await store.save(tenantId, manifest, tarBuf);
-    if (!result.ok) {
-      return reply.status(400).send({ error: result.error });
-    }
-
-    return reply.status(201).send({
-      name: result.value.name,
-      version: result.value.version,
-      bytes: archive.length,
-    });
+    const r = await handleComponentUpload(store, tenantId, "agent-program", (req.body ?? {}) as Record<string, unknown>);
+    return reply.status(r.status).send(r.body);
   });
 
   // GET /api/v1/programs — list
