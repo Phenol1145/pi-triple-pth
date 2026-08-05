@@ -64,9 +64,8 @@ export class AgentEngine {
 
     if (opts.program) {
       const prog = opts.program;
-      // Create run cwd: <workspace>/<tenant>/program-run-<sessionId>
-      const runProject = `program-run-${sessionId}`;
-      cwd = await this.workspaceMgr.ensureWorkspace(opts.tenantId, runProject);
+      // Create run cwd: <workspace>/<tenant>/program-run-<sessionId>（路径推导走 manager 单点——F/WP2 Task 7）
+      cwd = await this.workspaceMgr.ensureProgramRunWorkspace(opts.tenantId, sessionId);
       this.programRunDirs.set(sessionId, cwd);
 
       // Materialize program files into run cwd
@@ -329,7 +328,11 @@ export class AgentEngine {
     const runDir = this.programRunDirs.get(sessionId);
     if (runDir) {
       this.programRunDirs.delete(sessionId);
-      fs.rm(runDir, { recursive: true, force: true }, () => {});
+      await fs.promises.rm(runDir, { recursive: true, force: true });
+    }
+    // F/WP2 Task 7 清理策略：sessions 卷目录随 destroy 清理（evict 保留——可恢复）
+    if (managed.sessionDir) {
+      await fs.promises.rm(managed.sessionDir, { recursive: true, force: true });
     }
     const timer = this.programTimeouts.get(sessionId);
     if (timer) { clearTimeout(timer); this.programTimeouts.delete(sessionId); }

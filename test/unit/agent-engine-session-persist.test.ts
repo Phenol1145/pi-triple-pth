@@ -226,4 +226,30 @@ describe("AgentEngine 持久化 SessionManager 接线（F/WP2 Task 4）", () => 
       fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it("destroySession 清理 sessions 卷目录（F/WP2 Task 7；evict 保留——可恢复）", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pth-persist-"));
+    const sessionsDir = path.join(tmp, "sessions");
+    const engine = makeEngine(tmp, sessionsDir);
+    try {
+      const res = await engine.createSession({ tenantId: "tenant-a", project: "proj-1" });
+      expect(res.ok).toBe(true);
+      if (!res.ok) throw new Error("unreachable");
+      const sid = res.data.sessionId;
+      const opts = sdkMocks.createdOptions[sdkMocks.createdOptions.length - 1];
+      const sessionDir = opts.sessionManager.getSessionDir();
+      // 写盘确保目录有内容（懒落盘：首个 assistant 消息才落盘）
+      opts.sessionManager.appendMessage({ role: "user", content: [{ type: "text", text: "hi" }], timestamp: Date.now() });
+      opts.sessionManager.appendMessage({ role: "assistant", content: [{ type: "text", text: "ok" }], timestamp: Date.now() });
+      expect(fs.existsSync(sessionDir)).toBe(true);
+      expect(listJsonl(sessionDir)).toHaveLength(1);
+
+      await engine.destroySession(sid, "tenant-a");
+      expect(fs.existsSync(sessionDir)).toBe(false); // sessions 卷目录随 destroy 清理
+      // 注意：evictSession 不删 sessionDir——会话可从 Redis meta + JSONL 恢复（与 destroy 语义区分）
+    } finally {
+      await engine.drain();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
