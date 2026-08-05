@@ -13,8 +13,10 @@ import { registerSelfRoutes } from "./routes-self.js";
 import { registerProgramRoutes } from "./routes-programs.js";
 import { registerFallbackRoutes } from "./routes-fallback.js";
 import { registerObserveRoutes } from "./routes-observe.js";
+import { registerDebugRoutes, type DebugGatewayFactory } from "./routes-debug.js";
 import type { FallbackRequestStore } from "../fallback/requests.js";
 import type { SandboxHealthMonitor } from "../tools/sandbox-bash.js";
+import type { AuditWriter } from "../observability/audit.js";
 
 export async function createServer(deps: {
   redis: Redis;
@@ -31,6 +33,10 @@ export async function createServer(deps: {
   sandboxMonitor?: SandboxHealthMonitor;
   /** F/WP4 Task 21：Redis 会话痕迹（hub observe 只读观测）。可选——不传则不注册 observe 路由。 */
   sessionStore?: SessionStore;
+  /** F/WP4 Task 22：hub debug 调试网关工厂（WebSocket → sandbox 调试会话）。可选。 */
+  debugGateway?: DebugGatewayFactory;
+  /** 审计（hub debug 会话审计）。可选。 */
+  audit?: AuditWriter;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
@@ -51,6 +57,9 @@ export async function createServer(deps: {
   }
   if (deps.sessionStore) {
     registerObserveRoutes(app, deps.sessionStore);
+  }
+  if (deps.debugGateway) {
+    registerDebugRoutes(app, { gatewayFactory: deps.debugGateway, audit: deps.audit });
   }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 

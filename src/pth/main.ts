@@ -11,6 +11,7 @@ import { ModelRouter } from "../shared/model-router/router.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { ToolPlatform } from "./tools/platform.js";
 import { SandboxExecClient, SandboxHealthMonitor, createSandboxBashDefinition } from "./tools/sandbox-bash.js";
+import { createSandboxDebugGatewayFactory } from "./gateway/routes-debug.js";
 import { SessionPool } from "./core/session-pool.js";
 import { AgentEngine } from "./core/agent-engine.js";
 import { WorkflowOrchestrator } from "./workflow/orchestrator.js";
@@ -83,11 +84,14 @@ async function main() {
       }
     },
   });
-  const sandboxBash = createSandboxBashDefinition(new SandboxExecClient({
+  const sandboxClient = new SandboxExecClient({
     baseUrl: process.env.SANDBOX_URL ?? "http://localhost:8080",
     secret: process.env.SANDBOX_SHARED_SECRET ?? "",
     monitor: sandboxMonitor,
-  }));
+  });
+  const sandboxBash = createSandboxBashDefinition(sandboxClient);
+  // F/WP4 Task 22：hub debug 调试网关——WebSocket → sandbox 行式执行通道（同一 sandbox 容器）
+  const debugGateway = createSandboxDebugGatewayFactory(sandboxClient);
   const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit, resourceOverlay, sandboxBash);
   pool.setOnEvict((sid) => engine.evictSession(sid));
   const orchestrator = new WorkflowOrchestrator(redis, engine, sessionStore, logger, metrics);
@@ -120,7 +124,7 @@ async function main() {
   });
 
   const port = parseInt(process.env.PORT ?? "3000", 10);
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore });
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 
