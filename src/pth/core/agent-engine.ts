@@ -373,9 +373,17 @@ export class AgentEngine {
           });
         }
         // S1：恢复实例直接传 createAgentSession({sessionManager})
+        // 评审修复（WP2-R1）：恢复路径必须重建与 createSession 一致的安全/配置姿态——
+        // 租户工具白名单（tools/customTools）+ credentialed modelRuntime，否则工具治理绕过+认证脱节。
         const { session } = await sdkCreateSession({
+          cwd: meta.cwd,
           sessionManager,
           model: this.modelRouter.resolve(undefined, meta.model),
+          modelRuntime: this.modelRouter.getRuntime(),
+          // thinkingLevel 不入池元（非安全关键——推理深度非治理面）；恢复用默认 medium
+          thinkingLevel: "medium",
+          tools: this.toolPlatform.getAllowedTools(meta.tenantId),
+          customTools: this.toolPlatform.getSdkToolDefinitions(meta.tenantId),
         });
         this.agentSessions.set(meta.sessionId, session);
         this.sessionManagers.set(meta.sessionId, sessionManager);
