@@ -369,6 +369,7 @@ export class ComponentStore {
         type,
         manifest.name,
         version,
+        manifest.legalAuth,
       );
       if (!b.ok) return b;
       await this.audit?.write({
@@ -381,6 +382,25 @@ export class ComponentStore {
           name: manifest.name,
           version,
           boundAt: b.value.boundAt,
+          ...(manifest.legalAuth !== undefined ? { legalAuth: manifest.legalAuth } : {}),
+        },
+      });
+    }
+
+    // ── legalAuth 声明式登记（§5.3，F/WP4 Task 19）：不拦截不校验，仅登记+审计 ──
+    // 原样落盘：manifest 全量已写 components 卷（definition.json/agent.json）与 Redis；
+    // 此处补审计事件（含 legalAuth 字段）供“谁在何授权下上传了何构件”追溯。
+    if (manifest.legalAuth !== undefined) {
+      await this.audit?.write({
+        tenantId,
+        actor: "tenant",
+        action: "component_upload",
+        details: {
+          type,
+          name: manifest.name,
+          version,
+          legalAuth: manifest.legalAuth,
+          ...(manifest.targetSlot !== undefined ? { targetSlot: manifest.targetSlot } : {}),
         },
       });
     }
