@@ -28,6 +28,14 @@ export interface ResourceOverlayProvider {
   getOverlayPaths(): { skills: string[]; prompts: string[] };
 }
 
+/**
+ * 常驻系统会话的编程注入扩展（F/WP5 Task 24，S3 路径 b）。与 SDK InlineExtension 形状一致：
+ * 裸 factory 或 {name, factory}。agent-lab 的 default export 是裸 factory（(pi)=>Promise<void>）。
+ */
+export type SystemExtensionFactory =
+  | ((pi: unknown) => void | Promise<void>)
+  | { name?: string; factory: (pi: unknown) => void | Promise<void>; hidden?: boolean };
+
 export class AgentEngine {
   private agentSessions = new Map<string, PlatformAgentSession>();
   /**
@@ -39,6 +47,16 @@ export class AgentEngine {
   private programRunDirs = new Map<string, string>();
   /** Timeout timers for program sessions */
   private programTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * 常驻系统会话 id（F/WP5 Task 23，system-governor 雏形）。
+   * RESERVED 标记 + evict 豁免 + recoverAll 优先恢复 + watchdog 崩溃重建。
+   * 轻量状态化（二轮评审 Important 3）：常驻会话不持大状态——EventLog 查询按需、无大缓存。
+   */
+  private systemSessionId: string | null = null;
+  /** watchdog 崩溃重建次数（审计） */
+  private systemRebuildCount = 0;
+  /** watchdog 定时器（unref——不阻止进程退出） */
+  private systemWatchdogTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private pool: SessionPool,
@@ -64,6 +82,12 @@ export class AgentEngine {
      * 可选——不传时保持 SDK 内建 bash（本机开发/未接线场景）。
      */
     private sandboxBash?: SandboxBashDefinition,
+    /**
+     * 常驻系统会话的编程注入扩展（F/WP5 Task 24，S3 路径 b——extensionFactories）。
+     * 由 main.ts 动态 import agent-lab 的 default export（InlineExtension 裸 factory）后传入；
+     * 测试注入 mock factory 保持 hermetic。可选——不传时常驻会话无扩展（仅 RESERVED 机制）。
+     */
+    private systemExtensionFactories: SystemExtensionFactory[] = [],
   ) {}
 
   async createSession(opts: CreateSessionOpts): Promise<Result<ManagedSessionInfo>> {
@@ -332,6 +356,12 @@ export class AgentEngine {
   }
 
   evictSession(sessionId: string): void {
+    const managed = this.pool.get(sessionId);
+    // F/WP5 Task 23：RESERVED 常驻会话豁免驱逐（pool.evictLRU 已跳过，此处为显式调用的防御）
+    if (managed?.reserved) {
+      this.logger.info({ sessionId, event: "evict_skipped_reserved", note: "常驻系统会话豁免驱逐" });
+      return;
+    }
     const session = this.agentSessions.get(sessionId);
     if (session) { session.dispose(); this.agentSessions.delete(sessionId); }
     this.sessionManagers.delete(sessionId);
@@ -348,9 +378,176 @@ export class AgentEngine {
 
   getPool(): SessionPool { return this.pool; }
 
+  // ── 常驻系统会话（F/WP5 Task 23，system-governor 雏形）─────────────────
+
+  /**
+   * 创建（或复用）常驻系统会话。
+   * 幂等：已存在则返回现有会话（main 启动时序 recoverAll → createSystemSession 的安全网）。
+   * 轻量状态化（二轮评审 Important 3）：常驻会话不持大状态——EventLog 查询按需、无大缓存。
+   */
+  async createSystemSession(): Promise<Result<ManagedSessionInfo>> {
+    if (this.isSystemSessionAlive()) {
+      const current = this.pool.get(this.systemSessionId!);
+      return { ok: true, data: this.toManagedInfo(current!) };
+    }
+    return this.buildSystemSession();
+  }
+
+  /** 常驻会话 id（测试/观察用）。未创建/已崩溃返回 null。 */
+  getSystemSessionId(): string | null {
+    return this.systemSessionId;
+  }
+
+  /** watchdog 崩溃重建次数（审计/测试用） */
+  getSystemRebuildCount(): number {
+    return this.systemRebuildCount;
+  }
+
+  /**
+   * 常驻会话 watchdog：周期 health 探测，崩溃（会话丢失/disposed）→ 自动重建。
+   * unref 定时器——不阻止进程退出；重建次数写审计。
+   */
+  startSystemWatchdog(intervalMs = 60_000): void {
+    if (this.systemWatchdogTimer) return;
+    this.systemWatchdogTimer = setInterval(() => {
+      void this.ensureSystemSessionAlive();
+    }, intervalMs);
+    this.systemWatchdogTimer.unref?.();
+  }
+
+  stopSystemWatchdog(): void {
+    if (this.systemWatchdogTimer) {
+      clearInterval(this.systemWatchdogTimer);
+      this.systemWatchdogTimer = null;
+    }
+  }
+
+  /**
+   * 常驻会话 health 探测：缺席即自动重建。返回是否触发重建（测试/诊断用）。
+   * 崩溃检测 = 进程内会话映射/池记录缺失（SDK 会话 dispose/丢失）。
+   */
+  async ensureSystemSessionAlive(): Promise<boolean> {
+    if (this.isSystemSessionAlive()) return false;
+    const previous = this.systemSessionId;
+    this.systemSessionId = null;
+    if (previous) this.systemRebuildCount++;
+    const res = await this.createSystemSession();
+    if (!res.ok) {
+      this.logger.error({ previous, err: res.error, event: "system_session_rebuild_failed" });
+      return false;
+    }
+    if (previous) {
+      await this.audit?.write({
+        tenantId: "system",
+        actor: "system",
+        action: "system_session_rebuilt",
+        details: { previousSessionId: previous, rebuildCount: this.systemRebuildCount, newSessionId: res.data.sessionId },
+      });
+      this.logger.warn({ previous, newSessionId: res.data.sessionId, rebuildCount: this.systemRebuildCount, event: "system_session_rebuilt" });
+    }
+    return true;
+  }
+
+  /** 常驻会话存活判定：id 在池 + SDK 会话在内存映射（进程内单写者，内存即事实） */
+  private isSystemSessionAlive(): boolean {
+    return !!this.systemSessionId && !!this.pool.get(this.systemSessionId) && this.agentSessions.has(this.systemSessionId);
+  }
+
+  /**
+   * 常驻系统会话核心构建（新建/recoverAll 恢复/watchdog 重建共用）。
+   * tenantId="system" 专用（与租户会话隔离）；RESERVED 标记——池驱逐豁免。
+   */
+  private async buildSystemSession(opts?: {
+    sessionId?: string;
+    sessionDir?: string;
+    cwd?: string;
+    sessionManager?: SessionManager;
+  }): Promise<Result<ManagedSessionInfo>> {
+    const sessionId = opts?.sessionId ?? crypto.randomUUID();
+    try {
+      const cwd = opts?.cwd ?? (await this.workspaceMgr.ensureWorkspace("system", "system"));
+      const sessionDir = opts?.sessionDir ?? path.join(this.sessionsDir, "system", sessionId);
+      fs.mkdirSync(sessionDir, { recursive: true });
+
+      const model = this.modelRouter.resolve(undefined, undefined);
+      const sessionManager = opts?.sessionManager ?? SessionManager.create(cwd, sessionDir, { id: sessionId });
+      const { session } = await sdkCreateSession({
+        cwd,
+        model,
+        thinkingLevel: "medium",
+        modelRuntime: this.modelRouter.getRuntime(),
+        sessionManager,
+        tools: this.toolPlatform.getAllowedTools("system"),
+        customTools: this.buildCustomTools("system"),
+      });
+
+      const now = Date.now();
+      const poolSession: PoolSession = {
+        sessionId,
+        tenantId: "system",
+        project: "system",
+        state: "idle",
+        refCount: 0,
+        lastAccess: now,
+        lastCheckpointSeq: 0,
+        entryCount: 0,
+        sessionDir,
+        cwd,
+        createdAt: now,
+        recoveredFromCrash: false,
+        interrupted: false,
+        versionSnapshot: this.computeVersionSnapshot(),
+        model: model?.id ?? "unknown",
+        reserved: true,
+      };
+
+      this.pool.add(poolSession);
+      this.agentSessions.set(sessionId, session);
+      this.sessionManagers.set(sessionId, sessionManager);
+      this.systemSessionId = sessionId;
+
+      await this.sessionStore.saveMeta("system", sessionId, {
+        version: 1,
+        sessionId,
+        tenantId: "system",
+        project: "system",
+        model: model?.id ?? "unknown",
+        thinkingLevel: "medium",
+        status: "active",
+        entryCount: 0,
+        lastEntrySeq: 0,
+        createdAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+      });
+
+      this.logger.info({ sessionId, event: "system_session_created" });
+      return { ok: true, data: this.toManagedInfo(poolSession) };
+    } catch (err) {
+      this.logger.error({ sessionId, err: err instanceof Error ? err.message : String(err), event: "system_session_create_failed" });
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  private toManagedInfo(s: PoolSession): ManagedSessionInfo {
+    return {
+      sessionId: s.sessionId,
+      tenantId: s.tenantId,
+      project: s.project,
+      state: s.state,
+      model: s.model ?? "unknown",
+      createdAt: new Date(s.lastAccess).toISOString(),
+      lastAccess: new Date(s.lastAccess).toISOString(),
+    };
+  }
+
   async destroySession(sessionId: string, tenantId: string): Promise<void> {
     const managed = this.pool.get(sessionId);
     if (!managed || managed.tenantId !== tenantId) return;
+    // F/WP5 Task 23：RESERVED 常驻会话不可销毁——生命周期由 watchdog 管理
+    if (managed.reserved) {
+      this.logger.info({ sessionId, event: "destroy_skipped_reserved", note: "常驻系统会话不可销毁（watchdog 管理）" });
+      return;
+    }
     const session = this.agentSessions.get(sessionId);
     if (session) session.dispose();
     this.agentSessions.delete(sessionId);
@@ -389,6 +586,8 @@ export class AgentEngine {
     // （main.ts:77 先于 :85）——恢复完成前无外部请求可达，Redis Epoch（INCR pool:epoch）判定
     // 冗余，不实现（裁决记录：若未来恢复与 listen 并发化，须补 Epoch+恢复期间新请求拒绝）。
     const metas = await this.pool.loadAllFromRedis();
+    // F/WP5 Task 23：常驻系统会话（reserved）优先恢复——watchdog 依赖系统会话尽早就位
+    metas.sort((a, b) => Number(b.reserved ?? false) - Number(a.reserved ?? false));
     let recovered = 0;
     let failed = 0;
     for (const meta of metas) {
@@ -408,45 +607,63 @@ export class AgentEngine {
             event: "recovery_entry_count_mismatch",
           });
         }
-        // S1：恢复实例直接传 createAgentSession({sessionManager})
-        // 评审修复（WP2-R1）：恢复路径必须重建与 createSession 一致的安全/配置姿态——
-        // 租户工具白名单（tools/customTools）+ credentialed modelRuntime，否则工具治理绕过+认证脱节。
-        // F/WP2 Task 8：恢复会话同样注入已验证的 L1 覆盖层（platform 卷 skills/prompts）。
-        const overlayPaths = this.getOverlayPaths();
-        const recoveryOptions: Record<string, unknown> = {};
-        if (overlayPaths.skills.length > 0 || overlayPaths.prompts.length > 0) {
-          recoveryOptions.resourceLoader = new DefaultResourceLoader({
+        if (meta.reserved) {
+          // F/WP5 Task 23：常驻系统会话走专用构建路径（RESERVED 标记 + watchdog 关联 + 后续扩展接线）
+          const res = await this.buildSystemSession({
+            sessionId: meta.sessionId,
+            sessionDir: meta.sessionDir,
             cwd: meta.cwd,
-            agentDir: this.getAgentDir(),
-            additionalSkillPaths: overlayPaths.skills.length > 0 ? overlayPaths.skills : undefined,
-            additionalPromptTemplatePaths: overlayPaths.prompts.length > 0 ? overlayPaths.prompts : undefined,
+            sessionManager,
           });
+          if (!res.ok) throw new Error(res.error);
+          // 恢复标记：与常规恢复路径一致的清理语义（refCount 归零已由新建保证；busy→interrupted）
+          const restored = this.pool.get(meta.sessionId);
+          if (restored) {
+            restored.recoveredFromCrash = true;
+            restored.interrupted = meta.state === "busy";
+          }
+          this.logger.info({ sessionId: meta.sessionId, event: "system_session_recovered" });
+        } else {
+          // S1：恢复实例直接传 createAgentSession({sessionManager})
+          // 评审修复（WP2-R1）：恢复路径必须重建与 createSession 一致的安全/配置姿态——
+          // 租户工具白名单（tools/customTools）+ credentialed modelRuntime，否则工具治理绕过+认证脱节。
+          // F/WP2 Task 8：恢复会话同样注入已验证的 L1 覆盖层（platform 卷 skills/prompts）。
+          const overlayPaths = this.getOverlayPaths();
+          const recoveryOptions: Record<string, unknown> = {};
+          if (overlayPaths.skills.length > 0 || overlayPaths.prompts.length > 0) {
+            recoveryOptions.resourceLoader = new DefaultResourceLoader({
+              cwd: meta.cwd,
+              agentDir: this.getAgentDir(),
+              additionalSkillPaths: overlayPaths.skills.length > 0 ? overlayPaths.skills : undefined,
+              additionalPromptTemplatePaths: overlayPaths.prompts.length > 0 ? overlayPaths.prompts : undefined,
+            });
+          }
+          const { session } = await sdkCreateSession({
+            cwd: meta.cwd,
+            sessionManager,
+            model: this.modelRouter.resolve(undefined, meta.model),
+            modelRuntime: this.modelRouter.getRuntime(),
+            // thinkingLevel 不入池元（非安全关键——推理深度非治理面）；恢复用默认 medium
+            thinkingLevel: "medium",
+            tools: this.toolPlatform.getAllowedTools(meta.tenantId),
+            customTools: this.buildCustomTools(meta.tenantId),
+            ...recoveryOptions,
+          });
+          this.agentSessions.set(meta.sessionId, session);
+          this.sessionManagers.set(meta.sessionId, sessionManager);
+          // 恢复清理（spec §3.1 第 5 条）：refCount 归零重计；原 busy → interrupted（in-flight
+          // 未持久化已丢，pending dispatch 丢弃+审计标记不重放——平台无持久 pending 注册表，
+          // workflow 层 BullMQ intent 与会话恢复解耦，锁过期重建由 workflow 侧处理）；stale busy→idle
+          const restored: PoolSession = {
+            ...meta,
+            state: "idle",
+            refCount: 0,
+            lastAccess: Date.now(),
+            recoveredFromCrash: true,
+            interrupted: meta.state === "busy",
+          };
+          this.pool.add(restored);
         }
-        const { session } = await sdkCreateSession({
-          cwd: meta.cwd,
-          sessionManager,
-          model: this.modelRouter.resolve(undefined, meta.model),
-          modelRuntime: this.modelRouter.getRuntime(),
-          // thinkingLevel 不入池元（非安全关键——推理深度非治理面）；恢复用默认 medium
-          thinkingLevel: "medium",
-          tools: this.toolPlatform.getAllowedTools(meta.tenantId),
-          customTools: this.buildCustomTools(meta.tenantId),
-          ...recoveryOptions,
-        });
-        this.agentSessions.set(meta.sessionId, session);
-        this.sessionManagers.set(meta.sessionId, sessionManager);
-        // 恢复清理（spec §3.1 第 5 条）：refCount 归零重计；原 busy → interrupted（in-flight
-        // 未持久化已丢，pending dispatch 丢弃+审计标记不重放——平台无持久 pending 注册表，
-        // workflow 层 BullMQ intent 与会话恢复解耦，锁过期重建由 workflow 侧处理）；stale busy→idle
-        const restored: PoolSession = {
-          ...meta,
-          state: "idle",
-          refCount: 0,
-          lastAccess: Date.now(),
-          recoveredFromCrash: true,
-          interrupted: meta.state === "busy",
-        };
-        this.pool.add(restored);
         if (meta.state === "busy") {
           this.logger.warn({ sessionId: meta.sessionId, event: "recovery_interrupted_dispatch_dropped" });
           await this.audit?.write({
@@ -502,6 +719,8 @@ export class AgentEngine {
   }
 
   async drain(): Promise<void> {
+    // F/WP5 Task 23：停机时停止 watchdog（避免 drain 后重建常驻会话）
+    this.stopSystemWatchdog();
     this.logger.info({ event: "drain_start", activeSessions: this.pool.size });
     for (const session of this.pool.listAll()) {
       if (session.state === "busy") {

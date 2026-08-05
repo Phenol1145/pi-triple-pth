@@ -31,6 +31,8 @@ export interface PoolSession {
   interrupted: boolean;
   versionSnapshot: VersionSnapshot | null;
   model: string;
+  /** 常驻系统会话标记（F/WP5 Task 23）：evictLRU 豁免 + recoverAll 优先恢复。可选（默认 false——兼容既有构造点）。 */
+  reserved?: boolean;
 }
 
 export interface SessionPoolConfig {
@@ -84,6 +86,7 @@ export class SessionPool {
       recoveredFromCrash: s.recoveredFromCrash,
       interrupted: s.interrupted,
       model: s.model,
+      reserved: s.reserved ?? false,
     };
   }
 
@@ -105,6 +108,7 @@ export class SessionPool {
       interrupted: !!raw.interrupted,
       versionSnapshot: null,
       model: raw.model ?? "unknown",
+      reserved: !!raw.reserved,
     };
   }
 
@@ -242,8 +246,9 @@ export class SessionPool {
   }
 
   evictLRU(): string | null {
+    // F/WP5 Task 23：RESERVED 常驻会话豁免驱逐（system-governor 雏形）
     const evictable = [...this.sessions.values()]
-      .filter((s) => s.state === "idle")
+      .filter((s) => s.state === "idle" && !s.reserved)
       .sort((a, b) => a.lastAccess - b.lastAccess);
     if (evictable.length === 0) return null;
     const victim = evictable[0];

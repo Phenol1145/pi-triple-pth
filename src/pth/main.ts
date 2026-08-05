@@ -111,6 +111,16 @@ async function main() {
 
   await engine.recoverAll();
 
+  // F/WP5 Task 23：启动时创建常驻系统会话（RESERVED——evict 豁免/优先恢复/watchdog 重建）
+  // 轻量状态化（二轮评审 Important 3）：常驻会话不持大状态，watchdog 缺席即重建。
+  const sysRes = await engine.createSystemSession();
+  if (!sysRes.ok) {
+    logger.warn({ err: sysRes.error, event: "system_session_start_failed", note: "常驻会话启动失败——watchdog 仍会重试" });
+  } else {
+    logger.info({ sessionId: sysRes.data.sessionId, event: "system_session_ready" });
+  }
+  engine.startSystemWatchdog();
+
   // Program store（pit submit 提交物）/ ComponentStore 泛化（F/WP4 Task 17）：
   // components 卷落在 DATA_DIR/components/<tenantId>/<type>/<name>/<version>/；
   // 旧 programs 目录（DATA_DIR/programs/programs/...）不做自动迁移，ProgramStore 读侧双查兼容（plan N4）。
