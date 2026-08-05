@@ -55,7 +55,7 @@ async function main() {
     { maxSessions: 20, maxSessionsPerTenant: 5, idleTimeoutMs: 300_000 },
     sessionStore, logger, metrics, redis,
   );
-  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"));
+  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit);
   pool.setOnEvict((sid) => engine.evictSession(sid));
   const orchestrator = new WorkflowOrchestrator(redis, engine, sessionStore, logger, metrics);
 

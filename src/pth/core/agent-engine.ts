@@ -349,7 +349,100 @@ export class AgentEngine {
 
   async recoverAll(): Promise<void> {
     this.logger.info({ event: "recovery_start" });
-    this.logger.info({ event: "recovery_complete" });
+    // 竞态防护（二轮评审 Important 1）：main.ts 已先 `await engine.recoverAll()` 后 server.listen
+    // （main.ts:77 先于 :85）——恢复完成前无外部请求可达，Redis Epoch（INCR pool:epoch）判定
+    // 冗余，不实现（裁决记录：若未来恢复与 listen 并发化，须补 Epoch+恢复期间新请求拒绝）。
+    const metas = await this.pool.loadAllFromRedis();
+    let recovered = 0;
+    let failed = 0;
+    for (const meta of metas) {
+      if (this.pool.get(meta.sessionId)) {
+        this.logger.debug({ sessionId: meta.sessionId, event: "recovery_skip_in_memory" });
+        continue;
+      }
+      try {
+        const sessionManager = this.reviveSessionManager(meta);
+        // 恢复校验：buildSessionContext().messages.length vs meta.entryCount（不一致记 warn 不阻断——S1）
+        const messageCount = sessionManager.buildSessionContext().messages.length;
+        if (meta.entryCount > 0 && messageCount !== meta.entryCount) {
+          this.logger.warn({
+            sessionId: meta.sessionId,
+            expected: meta.entryCount,
+            actual: messageCount,
+            event: "recovery_entry_count_mismatch",
+          });
+        }
+        // S1：恢复实例直接传 createAgentSession({sessionManager})
+        const { session } = await sdkCreateSession({
+          sessionManager,
+          model: this.modelRouter.resolve(undefined, meta.model),
+        });
+        this.agentSessions.set(meta.sessionId, session);
+        this.sessionManagers.set(meta.sessionId, sessionManager);
+        // 恢复清理（spec §3.1 第 5 条）：refCount 归零重计；原 busy → interrupted（in-flight
+        // 未持久化已丢，pending dispatch 丢弃+审计标记不重放——平台无持久 pending 注册表，
+        // workflow 层 BullMQ intent 与会话恢复解耦，锁过期重建由 workflow 侧处理）；stale busy→idle
+        const restored: PoolSession = {
+          ...meta,
+          state: "idle",
+          refCount: 0,
+          lastAccess: Date.now(),
+          recoveredFromCrash: true,
+          interrupted: meta.state === "busy",
+        };
+        this.pool.add(restored);
+        if (meta.state === "busy") {
+          this.logger.warn({ sessionId: meta.sessionId, event: "recovery_interrupted_dispatch_dropped" });
+          await this.audit?.write({
+            tenantId: meta.tenantId,
+            actor: "system",
+            action: "recovery_interrupted",
+            details: { sessionId: meta.sessionId, note: "busy session recovered as idle; in-flight dispatch dropped, not replayed" },
+          });
+        }
+        recovered++;
+      } catch (err) {
+        failed++;
+        const reason = err instanceof Error ? err.message : String(err);
+        this.logger.error({ sessionId: meta.sessionId, err: reason, event: "recovery_failed" });
+        await this.pool.markUnrecoverable(meta.sessionId, reason);
+        await this.audit?.write({
+          tenantId: meta.tenantId,
+          actor: "system",
+          action: "recovery_unrecoverable",
+          details: { sessionId: meta.sessionId, reason },
+        });
+      }
+    }
+    this.logger.info({ event: "recovery_complete", recovered, failed });
+  }
+
+  /**
+   * 恢复 SDK SessionManager（S1：continueRecent 精确恢复）。
+   * 会话目录无 .jsonl = 懒落盘窗口（纯 user 消息未写盘/从未 prompt）——以 PTH sessionId 重建空会话，
+   * 该轮内容按 S1 接受丢失；有文件但 session id 不匹配 → 抛错（unrecoverable）。
+   */
+  private reviveSessionManager(meta: PoolSession): SessionManager {
+    let hasFile = false;
+    try {
+      hasFile = fs.readdirSync(meta.sessionDir).some((f) => f.endsWith(".jsonl"));
+    } catch {
+      hasFile = false;
+    }
+    if (!hasFile) {
+      this.logger.warn({
+        sessionId: meta.sessionId,
+        event: "recovery_no_session_file",
+        note: "lazy-persist window: session rebuilt empty (unflushed user turn accepted lost)",
+      });
+      return SessionManager.create(meta.cwd, meta.sessionDir, { id: meta.sessionId });
+    }
+    // 会话目录按会话隔离（每会话一目录），continueRecent 取目录内最近文件即目标会话
+    const resumed = SessionManager.continueRecent(meta.cwd, meta.sessionDir);
+    if (resumed.getSessionId() !== meta.sessionId) {
+      throw new Error(`session file id mismatch (expected ${meta.sessionId}, got ${resumed.getSessionId()})`);
+    }
+    return resumed;
   }
 
   async drain(): Promise<void> {
@@ -369,6 +462,9 @@ export class AgentEngine {
 
   private async checkpoint(managed: PoolSession, seq: number): Promise<void> {
     managed.lastCheckpointSeq = seq;
+    // S1：SDK 会话为对话唯一事实源——记录 message 条数供 recoverAll 恢复校验
+    const sm = this.sessionManagers.get(managed.sessionId);
+    if (sm) managed.entryCount = sm.buildSessionContext().messages.length;
     // C9: turn-level version snapshot
     const snapshot = this.computeVersionSnapshot();
     managed.versionSnapshot = snapshot;
