@@ -16,6 +16,7 @@ import { AgentEngine } from "./core/agent-engine.js";
 import { WorkflowOrchestrator } from "./workflow/orchestrator.js";
 import { createIntentWorker } from "./workflow/bullmq-worker.js";
 import { HotReloader, ResourceOverlay } from "./self-modify/hot-reloader.js";
+import { FallbackRequestStore } from "./fallback/requests.js";
 import { createServer } from "./gateway/server.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -111,13 +112,15 @@ async function main() {
   // 旧 programs 目录（DATA_DIR/programs/programs/...）不做自动迁移，ProgramStore 读侧双查兼容（plan N4）。
   const { ProgramStore } = await import("./programs/store.js");
   const programStore = new ProgramStore(redis, dataDir, audit);
+  // F/WP4 Task 20：fallback_requests 回退请求队列（手动建单先行；自动触发留 E）
+  const fallbackStore = new FallbackRequestStore(redis, audit);
   logger.warn({
     event: "component_store_v1_switch",
     detail: "components 卷已生效（DATA_DIR/components）；legacy programs 目录仅读侧兼容，不做自动迁移",
   });
 
   const port = parseInt(process.env.PORT ?? "3000", 10);
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, sandboxMonitor });
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 

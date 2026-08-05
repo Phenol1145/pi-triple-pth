@@ -10,6 +10,8 @@ import { createAuthHook } from "./auth.js";
 import { registerSessionRoutes } from "./routes-sessions.js";
 import { registerSelfRoutes } from "./routes-self.js";
 import { registerProgramRoutes } from "./routes-programs.js";
+import { registerFallbackRoutes } from "./routes-fallback.js";
+import type { FallbackRequestStore } from "../fallback/requests.js";
 import type { SandboxHealthMonitor } from "../tools/sandbox-bash.js";
 
 export async function createServer(deps: {
@@ -19,7 +21,10 @@ export async function createServer(deps: {
   metrics: Metrics;
   logger: Logger;
   port?: number;
+  /** F/WP4 Task 17：构件存储（components 卷）。可选。 */
   programs?: ProgramStore;
+  /** F/WP4 Task 20：fallback_requests 回退请求队列。可选。 */
+  fallback?: FallbackRequestStore;
   /** F/WP3 Task 13：sandbox 失效降级监控（/health 联动）。可选。 */
   sandboxMonitor?: SandboxHealthMonitor;
 }) {
@@ -35,7 +40,10 @@ export async function createServer(deps: {
 
   registerSessionRoutes(app, deps.engine);
   if (deps.programs) {
-    registerProgramRoutes(app, deps.engine, deps.programs);
+    registerProgramRoutes(app, deps.engine, deps.programs, deps.fallback);
+  }
+  if (deps.fallback) {
+    registerFallbackRoutes(app, deps.fallback);
   }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 

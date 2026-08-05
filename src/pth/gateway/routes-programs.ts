@@ -3,6 +3,7 @@ import type { AgentEngine } from "../core/agent-engine.js";
 import type { ProgramStore } from "../programs/store.js";
 import type { ProgramManifest } from "../programs/types.js";
 import type { ComponentManifest, ComponentType } from "../components/store.js";
+import type { FallbackRequestStore } from "../fallback/requests.js";
 import { COMPONENT_TYPES } from "../components/store.js";
 import { writeSSE } from "./sse.js";
 import { randomUUID } from "node:crypto";
@@ -114,12 +115,15 @@ function validateComponentManifest(
 /**
  * 构件上传共用处理（POST /api/v1/components 与 POST /api/v1/programs 同 handler）。
  * type 为请求声明类型（/programs 固定 agent-program 兼容别名）。
+ * fallback：可选——body.requestId 携带时，保存成功后自动闭合回退请求（respond 自动闭合，
+ * spec §5.4：通道复用，非新协议）。闭合失败不影响上传结果（返回 closeWarning 提示）。
  */
 async function handleComponentUpload(
   store: ProgramStore,
   tenantId: string,
   type: ComponentType,
   body: Record<string, unknown>,
+  fallback?: FallbackRequestStore,
 ): Promise<{ status: number; body: unknown }> {
   const manifestRaw0 = body.manifest as unknown;
 
@@ -175,14 +179,31 @@ async function handleComponentUpload(
     return { status: 400, body: { error: result.error } };
   }
 
+  const response: Record<string, unknown> = {
+    type: result.value.type,
+    name: result.value.name,
+    version: result.value.version,
+    bytes: archive.length,
+  };
+
+  // ── respond 自动闭合（§5.4）：上传携带 requestId → 保存成功后自动闭合回退请求 ──
+  const requestId = body.requestId;
+  if (fallback && typeof requestId === "string" && requestId.length > 0) {
+    const close = await fallback.close(requestId, {
+      tenantId,
+      closedBy: tenantId,
+      component: { type: result.value.type, name: result.value.name, version: result.value.version },
+    });
+    if (!close.ok) {
+      response.closeWarning = close.error; // 构件已保存成功，闭合失败仅提示
+    } else {
+      response.closedRequest = requestId;
+    }
+  }
+
   return {
     status: 201,
-    body: {
-      type: result.value.type,
-      name: result.value.name,
-      version: result.value.version,
-      bytes: archive.length,
-    },
+    body: response,
   };
 }
 
@@ -225,6 +246,7 @@ export function registerProgramRoutes(
   app: FastifyInstance,
   engine: AgentEngine,
   store: ProgramStore,
+  fallback?: FallbackRequestStore,
 ) {
   // POST /api/v1/components — submit（构件类型分派；/programs 为 agent-program 兼容别名）
   app.post("/api/v1/components", async (req, reply) => {
@@ -234,14 +256,14 @@ export function registerProgramRoutes(
     if (typeof type !== "string" || !(COMPONENT_TYPES as readonly string[]).includes(type)) {
       return reply.status(400).send({ error: `Invalid type: must be one of ${COMPONENT_TYPES.join(" | ")}` });
     }
-    const r = await handleComponentUpload(store, tenantId, type as ComponentType, body);
+    const r = await handleComponentUpload(store, tenantId, type as ComponentType, body, fallback);
     return reply.status(r.status).send(r.body);
   });
 
   // POST /api/v1/programs — submit（agent-program 兼容别名）
   app.post("/api/v1/programs", async (req, reply) => {
     const tenantId = req.auth.tenantId;
-    const r = await handleComponentUpload(store, tenantId, "agent-program", (req.body ?? {}) as Record<string, unknown>);
+    const r = await handleComponentUpload(store, tenantId, "agent-program", (req.body ?? {}) as Record<string, unknown>, fallback);
     return reply.status(r.status).send(r.body);
   });
 
