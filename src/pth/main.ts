@@ -1,7 +1,7 @@
 import { Redis } from "ioredis";
 import { detectPlatform } from "../shared/platform/index.js";
 import { createLogger } from "../shared/observability/logger.js";
-import { createMetrics } from "./observability/metrics.js";
+import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { AuditWriter } from "./observability/audit.js";
 import { RedisSessionStore } from "./storage/redis-session-store.js";
 import { RedisSettingsStore } from "./storage/redis-settings-store.js";
@@ -23,12 +23,14 @@ import path from "node:path";
 async function main() {
   const platform = detectPlatform();
   const logger = createLogger(process.env.LOG_LEVEL ?? "info");
-  const metrics = createMetrics();
 
   logger.info({ os: platform.os, arch: platform.arch, event: "platform_starting" });
 
   const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
   const redis = new Redis(redisUrl);
+
+  const metrics = createMetrics();
+  startRedisMetrics(redis, metrics);
 
   const sessionStore = new RedisSessionStore(redis);
   const settingsStore = new RedisSettingsStore(redis);

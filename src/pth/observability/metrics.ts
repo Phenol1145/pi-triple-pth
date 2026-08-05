@@ -1,4 +1,5 @@
 import { Registry, Gauge, Histogram, Counter, collectDefaultMetrics } from "prom-client";
+import type { Redis } from "ioredis";
 
 export function createMetrics() {
   const registry = new Registry();
@@ -44,7 +45,45 @@ export function createMetrics() {
     registers: [registry],
   });
 
-  return { registry, sessionsActive, promptDuration, tokensTotal, toolCallsTotal, workflowStepsTotal, selfModifyTotal };
+  const redisUsedMemory = new Gauge({
+    name: "pi_redis_used_memory_bytes",
+    help: "Redis used memory in bytes",
+    registers: [registry],
+  });
+
+  const redisMaxMemory = new Gauge({
+    name: "pi_redis_max_memory_bytes",
+    help: "Redis max memory limit in bytes (0 = unlimited)",
+    registers: [registry],
+  });
+
+  return { registry, sessionsActive, promptDuration, tokensTotal, toolCallsTotal, workflowStepsTotal, selfModifyTotal, redisUsedMemory, redisMaxMemory };
 }
 
 export type Metrics = ReturnType<typeof createMetrics>;
+
+/**
+ * Start periodic Redis memory metrics collection.
+ * Calls INFO memory every 15s and updates used_memory / maxmemory gauges.
+ * Alert threshold (runbook): used_memory > 80% maxmemory → human intervention required.
+ */
+export function startRedisMetrics(redis: Redis, metrics: Metrics, intervalMs = 15_000): NodeJS.Timer {
+  const collect = async () => {
+    try {
+      const info = await redis.info("memory");
+      const lines = info.split("\n");
+      let used = 0;
+      let max = 0;
+      for (const line of lines) {
+        if (line.startsWith("used_memory:")) used = parseInt(line.split(":")[1], 10);
+        if (line.startsWith("maxmemory:")) max = parseInt(line.split(":")[1], 10);
+      }
+      metrics.redisUsedMemory.set(used);
+      metrics.redisMaxMemory.set(max);
+    } catch {
+      // redis unreachable — gauges retain last value; do not crash metrics endpoint
+    }
+  };
+  collect();
+  return setInterval(collect, intervalMs);
+}
