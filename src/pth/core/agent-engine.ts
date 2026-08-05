@@ -8,7 +8,7 @@ import {
   type InlineExtension,
   type PlatformAgentSession,
 } from "../../shared/sdk-adapter/index.js";
-import { EXTERNAL_EVENT_CHANNEL, type ExternalWebhookEvent } from "./system-event-bus.js";
+import { EXTERNAL_EVENT_CHANNEL, OBSERVE_EVENTS_REQUEST_CHANNEL, OBSERVE_EVENTS_RESPONSE_CHANNEL, COMPONENT_BOUND_CHANNEL, type ExternalWebhookEvent, type ComponentBoundEvent, type SystemEventFilter, type SystemEventEntry } from "./system-event-bus.js";
 import type { SessionPool, PoolSession } from "./session-pool.js";
 import type { ModelRouter } from "../../shared/model-router/router.js";
 import type { WorkspaceManager } from "../../shared/workspace/manager.js";
@@ -439,6 +439,52 @@ export class AgentEngine {
     return this.systemEventBus;
   }
 
+  /** 待处理 observe RPC（requestId → 解析器；Task 28b——pth→常驻会话→DB 方向） */
+  private observePending = new Map<
+    string,
+    { resolve: (r: Result<SystemEventEntry[]>) => void; timer: ReturnType<typeof setTimeout>; off: () => void }
+  >();
+
+  /**
+   * 查询常驻会话内 EventLog（Task 28b——方向与 webhook 相反：pth 主进程 →
+   * 常驻会话 → DB）。经 OBSERVE_EVENTS_* 通道 request/response RPC：带 requestId
+   * 关联 + 超时兜底（默认 3s）。常驻会话不可用 → error；超时 → error。
+   * 注意：pth 不直读 agent-lab DB——事件行经常驻会话透传（结构子集）。
+   */
+  async querySystemEvents(
+    filter: SystemEventFilter,
+    timeoutMs = 3000,
+  ): Promise<Result<SystemEventEntry[]>> {
+    const bus = this.systemEventBus;
+    if (!bus || !this.isSystemSessionAlive()) {
+      return { ok: false, error: "system session unavailable" };
+    }
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const p = this.observePending.get(requestId);
+        if (p) {
+          p.off();
+          this.observePending.delete(requestId);
+          resolve({ ok: false, error: "observe events query timeout" });
+        }
+      }, timeoutMs);
+      const off = bus.on(OBSERVE_EVENTS_RESPONSE_CHANNEL, (data) => {
+        const d = data as { requestId?: string; events?: SystemEventEntry[]; error?: string } | undefined;
+        if (!d || d.requestId !== requestId) return;
+        clearTimeout(timer);
+        this.observePending.delete(requestId);
+        if (d.error) {
+          resolve({ ok: false, error: d.error });
+        } else {
+          resolve({ ok: true, data: d.events ?? [] });
+        }
+      });
+      this.observePending.set(requestId, { resolve, timer, off });
+      bus.emit(OBSERVE_EVENTS_REQUEST_CHANNEL, { requestId, filter });
+    });
+  }
+
   /**
    * 转发外部事件到常驻会话（pi.events emit——零引用通道）。
    * 常驻会话存活且总线就绪才转发；否则返回 false（调用方决策——webhook
@@ -448,6 +494,18 @@ export class AgentEngine {
     const bus = this.systemEventBus;
     if (!bus || !this.isSystemSessionAlive()) return false;
     bus.emit(EXTERNAL_EVENT_CHANNEL, { ...evt, receivedAt: Date.now() });
+    return true;
+  }
+
+  /**
+   * 通知常驻会话：scheduler/optimizer 构件空位绑定（Task 28c——Task 18 registry
+   * 接线子项）。pth 经 COMPONENT_BOUND_CHANNEL 告知常驻会话 → agent-lab 注册进
+   * 框架层 registry。返回是否成功投递。
+   */
+  emitComponentBound(binding: ComponentBoundEvent): boolean {
+    const bus = this.systemEventBus;
+    if (!bus || !this.isSystemSessionAlive()) return false;
+    bus.emit(COMPONENT_BOUND_CHANNEL, binding);
     return true;
   }
 

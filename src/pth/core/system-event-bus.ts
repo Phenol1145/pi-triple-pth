@@ -20,6 +20,39 @@ import type { EventBus } from "../../shared/sdk-adapter/index.js";
 /** 外部事件通道名（线协议常量——agent-lab 侧同名定义，见 extensions/agent-lab/index.ts） */
 export const EXTERNAL_EVENT_CHANNEL = "platform:external-event";
 
+/**
+ * 观察 RPC 通道（Task 28b——方向与 webhook 相反：pth 主进程 → 常驻会话 → DB）。
+ * request:  {requestId, filter}   → 常驻会话查 EventLog
+ * response: {requestId, events? | error?} ← 常驻会话回传
+ * 线协议常量——agent-lab 侧同名定义。
+ */
+export const OBSERVE_EVENTS_REQUEST_CHANNEL = "platform:observe-events:request";
+export const OBSERVE_EVENTS_RESPONSE_CHANNEL = "platform:observe-events:response";
+
+/**
+ * 构件绑定通知通道（Task 28c——scheduler/optimizer 空位绑定登记 → 常驻会话注册进框架层 registry）。
+ * 线协议常量——agent-lab 侧同名定义。
+ */
+export const COMPONENT_BOUND_CHANNEL = "platform:component-bound";
+
+/** 事件查询过滤（Task 28b——与 agent-lab EventLog.query 对齐的子集） */
+export interface SystemEventFilter {
+  eventType?: string;
+  since?: number;
+  until?: number;
+  limit?: number;
+}
+
+/** 事件行（结构子集——pth 不直读 agent-lab DB，仅透传常驻会话返回的事件） */
+export interface SystemEventEntry {
+  eventId: string;
+  eventType: string;
+  timestamp: number;
+  sequence?: number;
+  identity: { traceId: string };
+  payload: unknown;
+}
+
 /** 外部 webhook 事件（POST /api/v1/events 转发载荷） */
 export interface ExternalWebhookEvent {
   eventId: string;
@@ -29,4 +62,13 @@ export interface ExternalWebhookEvent {
   source?: string;
   tenantId: string;
   receivedAt: number;
+}
+
+/** 构件绑定通知载荷（Task 28c） */
+export interface ComponentBoundEvent {
+  slotId: string;
+  type: string;
+  name: string;
+  version: number;
+  tenantId: string;
 }

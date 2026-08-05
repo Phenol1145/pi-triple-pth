@@ -128,6 +128,8 @@ async function handleComponentUpload(
   type: ComponentType,
   body: Record<string, unknown>,
   fallback?: FallbackRequestStore,
+  /** F/WP5 Task 28c：scheduler/optimizer 空位绑定通知常驻会话（框架层 registry 接线） */
+  emitComponentBound?: (binding: { slotId: string; type: string; name: string; version: number; tenantId: string }) => boolean,
 ): Promise<{ status: number; body: unknown }> {
   const manifestRaw0 = body.manifest as unknown;
 
@@ -196,6 +198,23 @@ async function handleComponentUpload(
   const result = await store.save(tenantId, manifest, tarBuf);
   if (!result.ok) {
     return { status: 400, body: { error: result.error } };
+  }
+
+  // F/WP5 Task 28c（Task 18 registry 接线子项）：scheduler/optimizer 构件空位绑定
+  // → 通知常驻会话注册进框架层 registry（经 system-event-bus COMPONENT_BOUND_CHANNEL）。
+  // agent-program 走“可装配常驻标记”（绑定记录即可，无框架层 registry）——不通知。
+  if (
+    emitComponentBound &&
+    manifest.targetSlot !== undefined &&
+    (type === "scheduler" || type === "optimizer")
+  ) {
+    emitComponentBound({
+      slotId: manifest.targetSlot,
+      type,
+      name: result.value.name,
+      version: result.value.version,
+      tenantId,
+    });
   }
 
   const response: Record<string, unknown> = {
@@ -267,6 +286,13 @@ export function registerProgramRoutes(
   store: ProgramStore,
   fallback?: FallbackRequestStore,
 ) {
+  // F/WP5 Task 28c：scheduler/optimizer 空位绑定通知常驻会话（框架层 registry 接线）。
+  // 经 engine.emitComponentBound（system-event-bus COMPONENT_BOUND_CHANNEL）投递；
+  // engine 未实现（旧 mock/未接线）时静默跳过——绑定登记与审计仍照常。
+  const emitBound = (engine as { emitComponentBound?: (b: { slotId: string; type: string; name: string; version: number; tenantId: string }) => boolean })
+    .emitComponentBound;
+  const notifyBound = emitBound ? emitBound.bind(engine) : undefined;
+
   // POST /api/v1/components — submit（构件类型分派；/programs 为 agent-program 兼容别名）
   app.post("/api/v1/components", async (req, reply) => {
     const tenantId = req.auth.tenantId;
@@ -275,14 +301,14 @@ export function registerProgramRoutes(
     if (typeof type !== "string" || !(COMPONENT_TYPES as readonly string[]).includes(type)) {
       return reply.status(400).send({ error: `Invalid type: must be one of ${COMPONENT_TYPES.join(" | ")}` });
     }
-    const r = await handleComponentUpload(store, tenantId, type as ComponentType, body, fallback);
+    const r = await handleComponentUpload(store, tenantId, type as ComponentType, body, fallback, notifyBound);
     return reply.status(r.status).send(r.body);
   });
 
   // POST /api/v1/programs — submit（agent-program 兼容别名）
   app.post("/api/v1/programs", async (req, reply) => {
     const tenantId = req.auth.tenantId;
-    const r = await handleComponentUpload(store, tenantId, "agent-program", (req.body ?? {}) as Record<string, unknown>, fallback);
+    const r = await handleComponentUpload(store, tenantId, "agent-program", (req.body ?? {}) as Record<string, unknown>, fallback, notifyBound);
     return reply.status(r.status).send(r.body);
   });
 

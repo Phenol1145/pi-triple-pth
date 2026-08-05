@@ -117,9 +117,18 @@ describe("hub observe 路由", () => {
 
     app = Fastify({ logger: false });
     app.addHook("onRequest", createAuthHook(redis as any));
+    // F/WP5 Task 28b：engine 可选——不传时 /events 保持 501 占位（本文件大部分用例
+    // 测 sessions/trace 不依赖 engine）；事件用例单独构造带 engine 的 app。
     registerObserveRoutes(app, store);
     await app.ready();
   });
+
+  function buildEventsApp(engine: { querySystemEvents: (filter: unknown) => Promise<any> }) {
+    const a = Fastify({ logger: false });
+    a.addHook("onRequest", createAuthHook(redis as any));
+    registerObserveRoutes(a, store, engine as any);
+    return a.ready().then(() => a);
+  }
 
   afterEach(async () => {
     if (app) await app.close();
@@ -194,11 +203,72 @@ describe("hub observe 路由", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("events：EventLog 代理未交付 → 501 + 依赖标注说明（评审 I1）", async () => {
+  it("events：未接线 engine → 501 占位（兼容旧行为）", async () => {
     const res = await app.inject({ method: "GET", url: "/api/v1/observe/events", headers: headersA });
     expect(res.statusCode).toBe(501);
     const body = JSON.parse(res.body);
-    expect(body.error).toMatch(/WP5 Task 23\/24/);
     expect(body.error).toMatch(/Task 28/);
+  });
+
+  it("events：engine 代理 → 200 + 事件列表（经常驻会话通道查询）", async () => {
+    const events = [
+      {
+        eventId: "e1", eventType: "scheduled.fire", timestamp: 1720000000000, sequence: 1,
+        identity: { traceId: "t1" }, payload: { jobId: "j1" },
+      },
+      {
+        eventId: "e2", eventType: "subscription.dispatched", timestamp: 1720000001000, sequence: 2,
+        identity: { traceId: "t2" }, payload: { subscriptionId: "s1" },
+      },
+    ];
+    const engine = {
+      querySystemEvents: vi.fn(async (filter: unknown) => ({ ok: true, data: events })),
+    };
+    const a = await buildEventsApp(engine);
+    try {
+      const res = await a.inject({
+        method: "GET", url: "/api/v1/observe/events?eventType=scheduled.fire&limit=10", headers: headersA,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.count).toBe(2);
+      expect(body.events).toHaveLength(2);
+      expect(body.events[0].eventType).toBe("scheduled.fire");
+      // 过滤参数透传
+      expect(engine.querySystemEvents).toHaveBeenCalledWith({ eventType: "scheduled.fire", limit: 10 });
+    } finally {
+      await a.close();
+    }
+  });
+
+  it("events：过滤参数非法 → 400", async () => {
+    const engine = { querySystemEvents: vi.fn(async () => ({ ok: true, data: [] })) };
+    const a = await buildEventsApp(engine);
+    try {
+      for (const url of [
+        "/api/v1/observe/events?limit=abc",
+        "/api/v1/observe/events?limit=0",
+        "/api/v1/observe/events?since=abc",
+      ]) {
+        const res = await a.inject({ method: "GET", url, headers: headersA });
+        expect(res.statusCode, url).toBe(400);
+      }
+    } finally {
+      await a.close();
+    }
+  });
+
+  it("events：常驻会话不可用 → 502（透传 engine 错误）", async () => {
+    const engine = {
+      querySystemEvents: vi.fn(async () => ({ ok: false, error: "system session unavailable" })),
+    };
+    const a = await buildEventsApp(engine);
+    try {
+      const res = await a.inject({ method: "GET", url: "/api/v1/observe/events", headers: headersA });
+      expect(res.statusCode).toBe(502);
+      expect(JSON.parse(res.body).error).toMatch(/system session unavailable/);
+    } finally {
+      await a.close();
+    }
   });
 });

@@ -57,7 +57,7 @@ export async function createServer(deps: {
     registerFallbackRoutes(app, deps.fallback);
   }
   if (deps.sessionStore) {
-    registerObserveRoutes(app, deps.sessionStore);
+    registerObserveRoutes(app, deps.sessionStore, deps.engine);
   }
   // F/WP5 Task 27：外部事件 webhook 入口（转发常驻会话→agent-lab 订阅派发器）
   registerEventsRoutes(app, deps.engine, deps.audit);
