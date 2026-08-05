@@ -53,7 +53,7 @@ async function main() {
 
   const pool = new SessionPool(
     { maxSessions: 20, maxSessionsPerTenant: 5, idleTimeoutMs: 300_000 },
-    sessionStore, logger, metrics,
+    sessionStore, logger, metrics, redis,
   );
   const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"));
   pool.setOnEvict((sid) => engine.evictSession(sid));
