@@ -3,9 +3,12 @@ import {
   SessionManager,
   SDK_EVENTS,
   DefaultResourceLoader,
+  createEventBus,
+  type EventBus,
   type InlineExtension,
   type PlatformAgentSession,
 } from "../../shared/sdk-adapter/index.js";
+import { EXTERNAL_EVENT_CHANNEL, type ExternalWebhookEvent } from "./system-event-bus.js";
 import type { SessionPool, PoolSession } from "./session-pool.js";
 import type { ModelRouter } from "../../shared/model-router/router.js";
 import type { WorkspaceManager } from "../../shared/workspace/manager.js";
@@ -56,6 +59,14 @@ export class AgentEngine {
   private systemRebuildCount = 0;
   /** watchdog 定时器（unref——不阻止进程退出） */
   private systemWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * 常驻会话共享事件总线（F/WP5 Task 27——webhook 外部事件转发通道）。
+   * pth 主进程持有的 EventBus 实例即常驻会话 agent-lab 看到的 pi.events（见
+   * buildSystemSession：传入 DefaultResourceLoader options.eventBus）——
+   * 零引用转发闭环。每次构建生成新总线（旧总线随旧会话 GC，防 dispose 后
+   * 残留处理器双投递）；测试可注入 override。
+   */
+  private systemEventBus: EventBus | null = null;
 
   constructor(
     private pool: SessionPool,
@@ -87,6 +98,11 @@ export class AgentEngine {
      * 测试注入 mock factory 保持 hermetic。可选——不传时常驻会话无扩展（仅 RESERVED 机制）。
      */
     private systemExtensionFactories: SystemExtensionFactory[] = [],
+    /**
+     * 常驻会话事件总线注入（F/WP5 Task 27）。测试注入 mock 总线断言转发；
+     * 不传时常驻会话构建时自建（每构建新总线——防残留处理器双投递）。
+     */
+    private systemEventBusOverride?: EventBus,
   ) {}
 
   async createSession(opts: CreateSessionOpts): Promise<Result<ManagedSessionInfo>> {
@@ -413,6 +429,28 @@ export class AgentEngine {
     return this.systemRebuildCount;
   }
 
+  // ── 外部事件转发（F/WP5 Task 27——webhook 入口）───────────────────
+
+  /**
+   * 常驻会话共享事件总线实例（测试/诊断用）。未构建常驻会话时为 null。
+   * 注意：每次常驻会话重建（watchdog/recoverAll）会生成新总线。
+   */
+  getSystemEventBus(): EventBus | null {
+    return this.systemEventBus;
+  }
+
+  /**
+   * 转发外部事件到常驻会话（pi.events emit——零引用通道）。
+   * 常驻会话存活且总线就绪才转发；否则返回 false（调用方决策——webhook
+   * 路由按 503 处理，审计仍先落）。返回是否成功投递。
+   */
+  emitExternalEvent(evt: Omit<ExternalWebhookEvent, "receivedAt">): boolean {
+    const bus = this.systemEventBus;
+    if (!bus || !this.isSystemSessionAlive()) return false;
+    bus.emit(EXTERNAL_EVENT_CHANNEL, { ...evt, receivedAt: Date.now() });
+    return true;
+  }
+
   /**
    * 常驻会话 watchdog：周期 health 探测，崩溃（会话丢失/disposed）→ 自动重建。
    * unref 定时器——不阻止进程退出；重建次数写审计。
@@ -490,11 +528,16 @@ export class AgentEngine {
       // 跨会话复用评估（S3 疑虑）：extensionFactories 每会话执行一次→DB 句柄叠加。常驻系统会话在 PTH
       // 单实例内唯一（RESERVED + watchdog 重建/recoverAll 恢复均重建——旧进程已退出，SQLite 句柄随进程释放），
       // 单实例下无叠加问题；若未来允许多常驻会话，须共享 loader/store（DB 句柄单例）。
+      // F/WP5 Task 27：options.eventBus 注入自建总线 → 常驻会话内 agent-lab 的 pi.events === 此实例
+      // （SDK 扩展 API events 即 loader 的共享 EventBus）——pth emit 外部事件、agent-lab on 订阅喂派发器。
+      const systemEventBus = this.systemEventBusOverride ?? createEventBus();
+      this.systemEventBus = systemEventBus;
       const resourceLoader = new DefaultResourceLoader({
         cwd,
         agentDir: this.getAgentDir(),
         noContextFiles: true, // 常驻会话不需要项目上下文文件（轻量状态化）
         noExtensions: true,
+        eventBus: systemEventBus,
         extensionFactories: this.systemExtensionFactories.length > 0 ? [...this.systemExtensionFactories] : undefined,
       });
       // S3 缺口 1：自建 loader 必须显式 reload（sdk.js 仅在内部默认 loader 时代调 reload）——否则扩展加载数为 0

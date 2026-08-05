@@ -13,6 +13,7 @@ import { registerSelfRoutes } from "./routes-self.js";
 import { registerProgramRoutes } from "./routes-programs.js";
 import { registerFallbackRoutes } from "./routes-fallback.js";
 import { registerObserveRoutes } from "./routes-observe.js";
+import { registerEventsRoutes } from "./routes-events.js";
 import { registerDebugRoutes, type DebugGatewayFactory } from "./routes-debug.js";
 import type { FallbackRequestStore } from "../fallback/requests.js";
 import type { SandboxHealthMonitor } from "../tools/sandbox-bash.js";
@@ -58,6 +59,8 @@ export async function createServer(deps: {
   if (deps.sessionStore) {
     registerObserveRoutes(app, deps.sessionStore);
   }
+  // F/WP5 Task 27：外部事件 webhook 入口（转发常驻会话→agent-lab 订阅派发器）
+  registerEventsRoutes(app, deps.engine, deps.audit);
   if (deps.debugGateway) {
     registerDebugRoutes(app, { gatewayFactory: deps.debugGateway, audit: deps.audit });
   }
