@@ -19,6 +19,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+/**
+ * L1 热更注入源（F/WP2 Task 8）：提供已验证的 platform 卷覆盖层路径。
+ * 后续会话的 ResourceLoader 以 agent-dir 卷为基准、platform 卷为覆盖层。
+ */
+export interface ResourceOverlayProvider {
+  getOverlayPaths(): { skills: string[]; prompts: string[] };
+}
+
 export class AgentEngine {
   private agentSessions = new Map<string, PlatformAgentSession>();
   /**
@@ -47,6 +55,8 @@ export class AgentEngine {
     private sessionsDir: string = path.join(process.env.DATA_DIR ?? "./.pi-platform-data", "sessions"),
     /** 审计（恢复/清理事件）。可选——不传时恢复仅记日志 */
     private audit?: AuditWriter,
+    /** L1 热更覆盖层（F/WP2 Task 8）。可选——不传时后续会话不注入 platform 卷 */
+    private overlayProvider?: ResourceOverlayProvider,
   ) {}
 
   async createSession(opts: CreateSessionOpts): Promise<Result<ManagedSessionInfo>> {
@@ -91,11 +101,14 @@ export class AgentEngine {
         }
       }
 
-      // Build resource loader
+      // Build resource loader（F/WP2 Task 8 L1 注入：agent-dir 卷为基准，platform 卷已验证文件为覆盖层）
+      const overlayPaths = this.getOverlayPaths();
+      const additionalSkillPaths = [...overlayPaths.skills, ...skillsAbs];
       const resourceLoader = new DefaultResourceLoader({
         cwd,
-        agentDir: process.env.PI_CODING_AGENT_DIR ?? path.join(process.env.HOME ?? "/", ".pi", "agent"),
-        additionalSkillPaths: skillsAbs.length > 0 ? skillsAbs : undefined,
+        agentDir: this.getAgentDir(),
+        additionalSkillPaths: additionalSkillPaths.length > 0 ? additionalSkillPaths : undefined,
+        additionalPromptTemplatePaths: overlayPaths.prompts.length > 0 ? overlayPaths.prompts : undefined,
         appendSystemPrompt: appendSystemPrompt.length > 0 ? appendSystemPrompt : undefined,
         noContextFiles: true, // prevent ancestor AGENTS.md leak
       });
@@ -119,6 +132,17 @@ export class AgentEngine {
       }
     } else {
       cwd = await this.workspaceMgr.ensureWorkspace(opts.tenantId, opts.project);
+      // L1 注入（F/WP2 Task 8）：有已验证覆盖层时为常规会话显式接线 ResourceLoader
+      //（agent-dir 卷为基准，platform 卷为覆盖层）；无覆盖层时保持 SDK 默认行为。
+      const overlayPaths = this.getOverlayPaths();
+      if (overlayPaths.skills.length > 0 || overlayPaths.prompts.length > 0) {
+        sdkOptions.resourceLoader = new DefaultResourceLoader({
+          cwd,
+          agentDir: this.getAgentDir(),
+          additionalSkillPaths: overlayPaths.skills.length > 0 ? overlayPaths.skills : undefined,
+          additionalPromptTemplatePaths: overlayPaths.prompts.length > 0 ? overlayPaths.prompts : undefined,
+        });
+      }
     }
 
     const model = this.modelRouter.resolve(opts.provider, opts.model);
@@ -378,6 +402,17 @@ export class AgentEngine {
         // S1：恢复实例直接传 createAgentSession({sessionManager})
         // 评审修复（WP2-R1）：恢复路径必须重建与 createSession 一致的安全/配置姿态——
         // 租户工具白名单（tools/customTools）+ credentialed modelRuntime，否则工具治理绕过+认证脱节。
+        // F/WP2 Task 8：恢复会话同样注入已验证的 L1 覆盖层（platform 卷 skills/prompts）。
+        const overlayPaths = this.getOverlayPaths();
+        const recoveryOptions: Record<string, unknown> = {};
+        if (overlayPaths.skills.length > 0 || overlayPaths.prompts.length > 0) {
+          recoveryOptions.resourceLoader = new DefaultResourceLoader({
+            cwd: meta.cwd,
+            agentDir: this.getAgentDir(),
+            additionalSkillPaths: overlayPaths.skills.length > 0 ? overlayPaths.skills : undefined,
+            additionalPromptTemplatePaths: overlayPaths.prompts.length > 0 ? overlayPaths.prompts : undefined,
+          });
+        }
         const { session } = await sdkCreateSession({
           cwd: meta.cwd,
           sessionManager,
@@ -387,6 +422,7 @@ export class AgentEngine {
           thinkingLevel: "medium",
           tools: this.toolPlatform.getAllowedTools(meta.tenantId),
           customTools: this.toolPlatform.getSdkToolDefinitions(meta.tenantId),
+          ...recoveryOptions,
         });
         this.agentSessions.set(meta.sessionId, session);
         this.sessionManagers.set(meta.sessionId, sessionManager);
@@ -490,6 +526,16 @@ export class AgentEngine {
       this.logger.warn({ sessionId: managed.sessionId, seq, err: String(err), event: "version_snapshot_save_failed" });
     });
     this.logger.debug({ sessionId: managed.sessionId, seq, event: "checkpoint" });
+  }
+
+  /** agent-dir 卷（ResourceLoader 基准）：compose 注入 PI_CODING_AGENT_DIR=/data/agent-dir */
+  private getAgentDir(): string {
+    return process.env.PI_CODING_AGENT_DIR ?? path.join(process.env.HOME ?? "/", ".pi", "agent");
+  }
+
+  /** 已验证的 platform 卷覆盖层（F/WP2 Task 8 L1 注入）——空数组 = 未注入 */
+  private getOverlayPaths(): { skills: string[]; prompts: string[] } {
+    return this.overlayProvider?.getOverlayPaths() ?? { skills: [], prompts: [] };
   }
 
   /** C9: Compute a version snapshot hash for turn-level tracking */

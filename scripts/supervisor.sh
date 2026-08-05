@@ -72,13 +72,8 @@ while true; do
   fi
 
   while kill -0 "$PLATFORM_PID" 2>/dev/null; do
-    if [ -f "$PLATFORM_DIR/.rebuild-request" ]; then
-      log "Rebuild request detected."
-      rm -f "$PLATFORM_DIR/.rebuild-request"
-      kill -TERM "$PLATFORM_PID" 2>/dev/null || true
-      wait "$PLATFORM_PID" 2>/dev/null || true
-      break
-    fi
+    # F/WP2 Task 8: `.rebuild-request` 机制废弃（spec §3.4——容器语义下自修改=构件上传，
+    # 非容器内自重建）；容器级更新由人类经 PTL/compose 重建。此文件已从 Dockerfile COPY 移除。
     sleep 2
   done
   wait "$PLATFORM_PID" 2>/dev/null || true

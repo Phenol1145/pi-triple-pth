@@ -10,6 +10,40 @@ export interface ReloadResult {
   errors: Array<{ file: string; error: string }>;
 }
 
+export interface ResourceOverlaySnapshot {
+  /** 已校验通过的 platform 卷 skills 文件（注入 additionalSkillPaths——agent-dir 基准上的覆盖层） */
+  skills: string[];
+  /** 已校验通过的 platform 卷 prompts 文件（注入 additionalPromptTemplatePaths） */
+  prompts: string[];
+}
+
+export type ResourceCategory = "skills" | "prompts" | "config";
+
+/**
+ * L1 热更注入状态（F/WP2 Task 8）：platform 卷变更校验通过后才进入覆盖层，
+ * 后续会话的 ResourceLoader 以 agent-dir 卷为基准、platform 卷为覆盖层。
+ * 校验失败的变更被剔除——错误内容不进后续会话。
+ */
+export class ResourceOverlay {
+  private validatedSkills = new Set<string>();
+  private validatedPrompts = new Set<string>();
+
+  markValidated(category: ResourceCategory, filePath: string): void {
+    if (category === "skills") this.validatedSkills.add(filePath);
+    else if (category === "prompts") this.validatedPrompts.add(filePath);
+    // config：仅校验+记录，无 ResourceLoader 注入面（DefaultResourceLoader 无 config 覆盖层选项）
+  }
+
+  invalidate(category: ResourceCategory, filePath: string): void {
+    if (category === "skills") this.validatedSkills.delete(filePath);
+    else if (category === "prompts") this.validatedPrompts.delete(filePath);
+  }
+
+  getOverlayPaths(): ResourceOverlaySnapshot {
+    return { skills: [...this.validatedSkills], prompts: [...this.validatedPrompts] };
+  }
+}
+
 export class HotReloader {
   private watcher: FSWatcher | null = null;
   private lastGoodHashes = new Map<string, string>();
@@ -20,7 +54,13 @@ export class HotReloader {
     private logger: Logger,
     private metrics: Metrics,
     private onReload: (result: ReloadResult) => void,
+    private overlay?: ResourceOverlay,
   ) {}
+
+  /** L1 注入源（F/WP2 Task 8）：返回当前已验证的 platform 卷覆盖层路径。 */
+  getOverlayPaths(): ResourceOverlaySnapshot {
+    return this.overlay?.getOverlayPaths() ?? { skills: [], prompts: [] };
+  }
 
   start(): void {
     const watchPaths = [
@@ -34,8 +74,9 @@ export class HotReloader {
       awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
     });
 
-    this.watcher.on("change", (filePath: string) => this.handleChange(filePath));
-    this.watcher.on("add", (filePath: string) => this.handleChange(filePath));
+    this.watcher.on("change", (filePath: string) => this.reloadFile(filePath));
+    this.watcher.on("add", (filePath: string) => this.reloadFile(filePath));
+    this.watcher.on("unlink", (filePath: string) => this.handleUnlink(filePath));
 
     this.heartbeatTimer = setInterval(() => {
       this.logger.debug({ event: "watcher_heartbeat" });
@@ -49,9 +90,14 @@ export class HotReloader {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
   }
 
-  private async handleChange(filePath: string): Promise<void> {
+  /**
+   * 单个 platform 卷文件变更（F/WP2 Task 8）：校验通过 → 注入覆盖层（后续会话
+   * ResourceLoader 生效）；校验失败 → 从覆盖层剔除（错误内容不进后续会话）。
+   */
+  async reloadFile(filePath: string): Promise<void> {
     this.logger.info({ file: filePath, event: "file_changed" });
     const result: ReloadResult = { loaded: [], errors: [] };
+    const category = this.categoryOf(filePath);
 
     try {
       const content = await fs.readFile(filePath, "utf-8");
@@ -68,11 +114,35 @@ export class HotReloader {
       this.lastGoodHashes.set(filePath, hash);
       result.loaded.push(filePath);
       this.metrics.selfModifyTotal.inc({ layer: "1" });
+
+      if (category === "skills" || category === "prompts") {
+        this.overlay?.markValidated(category, filePath);
+      }
     } catch (err) {
       result.errors.push({ file: filePath, error: String(err) });
       this.logger.error({ file: filePath, error: String(err), event: "reload_error" });
+      if (category === "skills" || category === "prompts") {
+        this.overlay?.invalidate(category, filePath);
+      }
     }
 
     this.onReload(result);
+  }
+
+  /** 文件删除：从覆盖层与 last-good 记录剔除（防止残留引用注入后续会话）。 */
+  private handleUnlink(filePath: string): void {
+    this.logger.info({ file: filePath, event: "file_unlinked" });
+    this.lastGoodHashes.delete(filePath);
+    const category = this.categoryOf(filePath);
+    if (category === "skills" || category === "prompts") {
+      this.overlay?.invalidate(category, filePath);
+    }
+  }
+
+  private categoryOf(filePath: string): ResourceCategory | null {
+    for (const dir of ["skills", "prompts", "config"] as const) {
+      if (filePath.startsWith(path.join(this.platformDir, dir) + path.sep)) return dir;
+    }
+    return null;
   }
 }

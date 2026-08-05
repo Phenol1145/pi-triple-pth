@@ -14,8 +14,7 @@ import { SessionPool } from "./core/session-pool.js";
 import { AgentEngine } from "./core/agent-engine.js";
 import { WorkflowOrchestrator } from "./workflow/orchestrator.js";
 import { createIntentWorker } from "./workflow/bullmq-worker.js";
-import { HotReloader } from "./self-modify/hot-reloader.js";
-import { RebuildTrigger } from "./self-modify/rebuild-trigger.js";
+import { HotReloader, ResourceOverlay } from "./self-modify/hot-reloader.js";
 import { createServer } from "./gateway/server.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -55,7 +54,10 @@ async function main() {
     { maxSessions: 20, maxSessionsPerTenant: 5, idleTimeoutMs: 300_000 },
     sessionStore, logger, metrics, redis,
   );
-  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit);
+  // L1 热更覆盖层（F/WP2 Task 8）：HotReloader 校验通过 → 覆盖层推进，AgentEngine
+  // 为后续会话的 ResourceLoader 注入（agent-dir 卷为基准，platform 卷为覆盖层）
+  const resourceOverlay = new ResourceOverlay();
+  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit, resourceOverlay);
   pool.setOnEvict((sid) => engine.evictSession(sid));
   const orchestrator = new WorkflowOrchestrator(redis, engine, sessionStore, logger, metrics);
 
@@ -63,11 +65,9 @@ async function main() {
   if (fs.existsSync(platformDir)) {
     const hotReloader = new HotReloader(platformDir, logger, metrics, (result) => {
       logger.info({ loaded: result.loaded, errors: result.errors, event: "hot_reload" });
-    });
+    }, resourceOverlay);
     hotReloader.start();
   }
-
-  const rebuildTrigger = new RebuildTrigger(platformDir, logger, audit);
 
   // BullMQ intent worker (processes intents from workflow)
   createIntentWorker(redisUrl, async (intent) => {
