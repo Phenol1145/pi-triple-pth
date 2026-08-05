@@ -44,6 +44,8 @@ export interface SandboxClientOptions {
   secret: string;
   /** 客户端 HTTP 请求超时默认 ms（sandbox 侧 exec 超时 + 10s 余量优先于本值） */
   timeoutMs?: number;
+  /** 健康监控（F/WP3 Task 13）：记录连续转发失败/成功，驱动 degraded 状态。可选。 */
+  monitor?: SandboxHealthMonitor;
 }
 
 export interface SandboxExecRequest {
@@ -67,6 +69,125 @@ export interface SandboxBashDefinition {
   promptSnippet?: string;
   parameters: unknown;
   execute: (...args: any[]) => Promise<unknown>;
+}
+
+// ─── 失效降级监控（F/WP3 Task 13）────────────────────────────────────
+export interface SandboxHealthOptions {
+  /** 连续转发失败阈值（默认 3）。main.ts 以 env SANDBOX_DEGRADED_THRESHOLD 覆盖。 */
+  failureThreshold?: number;
+  /** 默认探活的 sandbox 基址（fetch <baseUrl>/health；测试可改注入 probe） */
+  baseUrl?: string;
+  /** degraded 后自动探活间隔 ms（默认 15000）——定时器 unref，不阻塞进程退出 */
+  probeIntervalMs?: number;
+  /** /health 探活超时 ms（默认 2000） */
+  probeTimeoutMs?: number;
+  /** 探活实现（默认 fetch <baseUrl>/health；测试注入 stub） */
+  probe?: () => Promise<boolean>;
+  /** 状态变更回调：degraded 进入（true）/退出（false）——main.ts 接线审计事件+日志 */
+  onStateChange?: (degraded: boolean, consecutiveFailures: number) => void;
+}
+
+/**
+ * sandbox 失效降级监控：连续 N 次转发失败（sandbox-unavailable）→ degraded；
+ * 成功或定期探活（/health）通过 → 自动清除。
+ * 设计裁决：仅 `sandbox-unavailable`（不可达/非 2xx）计入失败；`sandbox-timeout`
+ * 表示 sandbox 可达但命令慢，不计入降级（探活以 /health 为准）。
+ */
+export class SandboxHealthMonitor {
+  private consecutiveFailures = 0;
+  private degraded = false;
+  private probeTimer: ReturnType<typeof setTimeout> | null = null;
+  private disposed = false;
+
+  constructor(private opts: SandboxHealthOptions = {}) {}
+
+  get threshold(): number {
+    return this.opts.failureThreshold ?? 3;
+  }
+
+  isDegraded(): boolean {
+    return this.degraded;
+  }
+
+  getConsecutiveFailures(): number {
+    return this.consecutiveFailures;
+  }
+
+  /** 转发失败 → 连续计数；达阈值进入 degraded 并启动自动探活 */
+  recordFailure(): void {
+    if (this.disposed) return;
+    this.consecutiveFailures++;
+    if (!this.degraded && this.consecutiveFailures >= this.threshold) {
+      this.degraded = true;
+      this.opts.onStateChange?.(true, this.consecutiveFailures);
+      this.scheduleProbe();
+    }
+  }
+
+  /** 转发成功 → 清零；若已 degraded 则退出（自动恢复） */
+  recordSuccess(): void {
+    if (this.disposed) return;
+    this.consecutiveFailures = 0;
+    if (this.degraded) this.clearDegraded();
+  }
+
+  /** 立即探活一次（定时器与测试共用）——通过则清除 degraded */
+  async probeNow(): Promise<boolean> {
+    if (this.disposed) return false;
+    const ok = await this.runProbe();
+    if (ok && this.degraded) this.clearDegraded();
+    return ok;
+  }
+
+  /** 停探活定时器（进程退出/测试清理） */
+  dispose(): void {
+    this.disposed = true;
+    if (this.probeTimer) {
+      clearTimeout(this.probeTimer);
+      this.probeTimer = null;
+    }
+  }
+
+  private clearDegraded(): void {
+    if (!this.degraded) return;
+    this.degraded = false;
+    this.consecutiveFailures = 0;
+    if (this.probeTimer) {
+      clearTimeout(this.probeTimer);
+      this.probeTimer = null;
+    }
+    this.opts.onStateChange?.(false, 0);
+  }
+
+  /** degraded 期间周期性探活（递归 setTimeout + unref——不阻塞退出） */
+  private scheduleProbe(): void {
+    if (this.probeTimer || !this.degraded || this.disposed) return;
+    this.probeTimer = setTimeout(async () => {
+      this.probeTimer = null;
+      const ok = await this.runProbe();
+      if (ok) {
+        if (this.degraded) this.clearDegraded();
+      } else if (this.degraded && !this.disposed) {
+        this.scheduleProbe();
+      }
+    }, this.opts.probeIntervalMs ?? 15_000);
+    this.probeTimer.unref?.();
+  }
+
+  private async runProbe(): Promise<boolean> {
+    if (this.opts.probe) return this.opts.probe();
+    const baseUrl = this.opts.baseUrl ?? "";
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), this.opts.probeTimeoutMs ?? 2000);
+      t.unref?.();
+      const res = await fetch(`${baseUrl}/health`, { signal: ctrl.signal });
+      clearTimeout(t);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
 }
 
 // ─── HTTP 转发客户端 ────────────────────────────────────────────────
@@ -101,15 +222,21 @@ export class SandboxExecClient {
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
+        this.opts.monitor?.recordFailure();
         throw new SandboxForwardError(SANDBOX_ERROR_UNAVAILABLE, `sandbox /exec failed: HTTP ${res.status} ${text}`);
       }
-      return (await res.json()) as SandboxExecResult;
+      const result = (await res.json()) as SandboxExecResult;
+      // 转发成功 → 清零连续失败；若已 degraded 则自动恢复（F/WP3 Task 13）
+      this.opts.monitor?.recordSuccess();
+      return result;
     } catch (err) {
       if (signal?.aborted) throw err; // 外部取消——保留 SDK 取消语义，不伪装成 unavailable
       if (ctrl.signal.aborted) {
+        // 超时不计入降级（sandbox 可达但慢）；探活以 /health 为准
         throw new SandboxForwardError(SANDBOX_ERROR_TIMEOUT, `sandbox /exec timed out after ${timeoutMs}ms`);
       }
-      if (err instanceof SandboxForwardError) throw err;
+      if (err instanceof SandboxForwardError) throw err; // 已在上方记录 failure
+      this.opts.monitor?.recordFailure();
       throw new SandboxForwardError(SANDBOX_ERROR_UNAVAILABLE, `sandbox unreachable: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       clearTimeout(abortTimer);

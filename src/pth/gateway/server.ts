@@ -10,6 +10,7 @@ import { createAuthHook } from "./auth.js";
 import { registerSessionRoutes } from "./routes-sessions.js";
 import { registerSelfRoutes } from "./routes-self.js";
 import { registerProgramRoutes } from "./routes-programs.js";
+import type { SandboxHealthMonitor } from "../tools/sandbox-bash.js";
 
 export async function createServer(deps: {
   redis: Redis;
@@ -19,6 +20,8 @@ export async function createServer(deps: {
   logger: Logger;
   port?: number;
   programs?: ProgramStore;
+  /** F/WP3 Task 13：sandbox 失效降级监控（/health 联动）。可选。 */
+  sandboxMonitor?: SandboxHealthMonitor;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
@@ -34,7 +37,7 @@ export async function createServer(deps: {
   if (deps.programs) {
     registerProgramRoutes(app, deps.engine, deps.programs);
   }
-  registerSelfRoutes(app, deps.toolPlatform, "0.1.0");
+  registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 
   app.get("/ws", { websocket: true }, (socket, req) => {
     const tenantId = (req as any).auth?.tenantId;

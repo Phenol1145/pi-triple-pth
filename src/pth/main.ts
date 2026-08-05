@@ -10,7 +10,7 @@ import { WorkspaceManager } from "../shared/workspace/manager.js";
 import { ModelRouter } from "../shared/model-router/router.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { ToolPlatform } from "./tools/platform.js";
-import { SandboxExecClient, createSandboxBashDefinition } from "./tools/sandbox-bash.js";
+import { SandboxExecClient, SandboxHealthMonitor, createSandboxBashDefinition } from "./tools/sandbox-bash.js";
 import { SessionPool } from "./core/session-pool.js";
 import { AgentEngine } from "./core/agent-engine.js";
 import { WorkflowOrchestrator } from "./workflow/orchestrator.js";
@@ -60,9 +60,32 @@ async function main() {
   const resourceOverlay = new ResourceOverlay();
   // F/WP3 Task 11：bash 工具全量转发 sandbox（统一接口名 bash，平台级替换内建）。
   // 共享密钥 env 注入（SANDBOX_SHARED_SECRET）；本地开发未设 env 时默认 localhost:8080 + 空密钥（fail-closed）。
+  // F/WP3 Task 13：失效降级监控——连续 SANDBOX_DEGRADED_THRESHOLD 次转发失败 → degraded；
+  // 定期探活 /health 恢复 → 自动清除。进入/退出写审计事件（tenantId=system 系统级）。
+  const sandboxThreshold = Math.max(1, parseInt(process.env.SANDBOX_DEGRADED_THRESHOLD ?? "3", 10) || 3);
+  const sandboxMonitor = new SandboxHealthMonitor({
+    failureThreshold: sandboxThreshold,
+    baseUrl: process.env.SANDBOX_URL ?? "http://localhost:8080",
+    onStateChange: (degraded, consecutiveFailures) => {
+      if (degraded) {
+        audit.write({
+          tenantId: "system", actor: "system", action: "sandbox_degraded_enter",
+          details: { consecutiveFailures, threshold: sandboxThreshold },
+        });
+        logger.warn({ consecutiveFailures, threshold: sandboxThreshold, event: "sandbox_degraded" });
+      } else {
+        audit.write({
+          tenantId: "system", actor: "system", action: "sandbox_degraded_exit",
+          details: { consecutiveFailures },
+        });
+        logger.info({ event: "sandbox_degraded_recovered" });
+      }
+    },
+  });
   const sandboxBash = createSandboxBashDefinition(new SandboxExecClient({
     baseUrl: process.env.SANDBOX_URL ?? "http://localhost:8080",
     secret: process.env.SANDBOX_SHARED_SECRET ?? "",
+    monitor: sandboxMonitor,
   }));
   const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit, resourceOverlay, sandboxBash);
   pool.setOnEvict((sid) => engine.evictSession(sid));
@@ -88,7 +111,7 @@ async function main() {
   const programStore = new ProgramStore(redis, path.join(dataDir, "programs"));
 
   const port = parseInt(process.env.PORT ?? "3000", 10);
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore });
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, sandboxMonitor });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 
