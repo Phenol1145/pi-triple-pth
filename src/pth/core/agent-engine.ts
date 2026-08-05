@@ -14,6 +14,7 @@ import type { AuditWriter } from "../observability/audit.js";
 import type { Logger } from "../../shared/observability/logger.js";
 import type { Metrics } from "../observability/metrics.js";
 import type { AgentEvent, CreateSessionOpts, ManagedSessionInfo, Result, VersionSnapshot } from "./types.js";
+import type { SandboxBashDefinition } from "../tools/sandbox-bash.js";
 import { createBridge } from "./async-iterable-bridge.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -57,6 +58,12 @@ export class AgentEngine {
     private audit?: AuditWriter,
     /** L1 热更覆盖层（F/WP2 Task 8）。可选——不传时后续会话不注入 platform 卷 */
     private overlayProvider?: ResourceOverlayProvider,
+    /**
+     * 平台级 sandbox bash 工具定义（F/WP3 Task 11）：替换内建 bash。S2 硬约束：仅 customTools
+     * 同名注册（禁用 excludeTools+同名）；由 main.ts 构造（含转发客户端），engine 仅合并。
+     * 可选——不传时保持 SDK 内建 bash（本机开发/未接线场景）。
+     */
+    private sandboxBash?: SandboxBashDefinition,
   ) {}
 
   async createSession(opts: CreateSessionOpts): Promise<Result<ManagedSessionInfo>> {
@@ -161,7 +168,7 @@ export class AgentEngine {
       modelRuntime: this.modelRouter.getRuntime(),
       sessionManager,
       tools: this.toolPlatform.getAllowedTools(opts.tenantId),
-      customTools: this.toolPlatform.getSdkToolDefinitions(opts.tenantId),
+      customTools: this.buildCustomTools(opts.tenantId),
       ...sdkOptions,
     });
 
@@ -423,7 +430,7 @@ export class AgentEngine {
           // thinkingLevel 不入池元（非安全关键——推理深度非治理面）；恢复用默认 medium
           thinkingLevel: "medium",
           tools: this.toolPlatform.getAllowedTools(meta.tenantId),
-          customTools: this.toolPlatform.getSdkToolDefinitions(meta.tenantId),
+          customTools: this.buildCustomTools(meta.tenantId),
           ...recoveryOptions,
         });
         this.agentSessions.set(meta.sessionId, session);
@@ -528,6 +535,19 @@ export class AgentEngine {
       this.logger.warn({ sessionId: managed.sessionId, seq, err: String(err), event: "version_snapshot_save_failed" });
     });
     this.logger.debug({ sessionId: managed.sessionId, seq, event: "checkpoint" });
+  }
+
+  /**
+   * customTools 合并（F/WP3 Task 11）：租户自定义工具 + 平台级 sandbox bash（后写覆盖——
+   * S2 实证注册表后写覆盖；同名冲突时平台级生效）。createSession 与 recoverAll 共用，
+   * 保证恢复路径工具姿态与创建路径一致（WP2-R1 评审修复延续）。
+   */
+  private buildCustomTools(tenantId: string): any[] {
+    const tools = [...this.toolPlatform.getSdkToolDefinitions(tenantId)];
+    if (this.sandboxBash) {
+      tools.push(this.sandboxBash);
+    }
+    return tools;
   }
 
   /** agent-dir 卷（ResourceLoader 基准）：compose 注入 PI_CODING_AGENT_DIR=/data/agent-dir */

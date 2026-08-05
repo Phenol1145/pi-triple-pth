@@ -10,6 +10,7 @@ import { WorkspaceManager } from "../shared/workspace/manager.js";
 import { ModelRouter } from "../shared/model-router/router.js";
 import { ToolRegistry } from "./tools/registry.js";
 import { ToolPlatform } from "./tools/platform.js";
+import { SandboxExecClient, createSandboxBashDefinition } from "./tools/sandbox-bash.js";
 import { SessionPool } from "./core/session-pool.js";
 import { AgentEngine } from "./core/agent-engine.js";
 import { WorkflowOrchestrator } from "./workflow/orchestrator.js";
@@ -57,7 +58,13 @@ async function main() {
   // L1 热更覆盖层（F/WP2 Task 8）：HotReloader 校验通过 → 覆盖层推进，AgentEngine
   // 为后续会话的 ResourceLoader 注入（agent-dir 卷为基准，platform 卷为覆盖层）
   const resourceOverlay = new ResourceOverlay();
-  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit, resourceOverlay);
+  // F/WP3 Task 11：bash 工具全量转发 sandbox（统一接口名 bash，平台级替换内建）。
+  // 共享密钥 env 注入（SANDBOX_SHARED_SECRET）；本地开发未设 env 时默认 localhost:8080 + 空密钥（fail-closed）。
+  const sandboxBash = createSandboxBashDefinition(new SandboxExecClient({
+    baseUrl: process.env.SANDBOX_URL ?? "http://localhost:8080",
+    secret: process.env.SANDBOX_SHARED_SECRET ?? "",
+  }));
+  const engine = new AgentEngine(pool, modelRouter, workspaceMgr, sessionStore, toolPlatform, logger, metrics, path.join(dataDir, "sessions"), audit, resourceOverlay, sandboxBash);
   pool.setOnEvict((sid) => engine.evictSession(sid));
   const orchestrator = new WorkflowOrchestrator(redis, engine, sessionStore, logger, metrics);
 
