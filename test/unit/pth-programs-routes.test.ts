@@ -56,6 +56,9 @@ describe("programs routes", () => {
         yield { seq: 1, type: "message_update", data: { text: "test output" }, timestamp: new Date().toISOString() };
         yield { seq: 2, type: "agent_end", data: {}, terminal: true, timestamp: new Date().toISOString() };
       },
+      destroySession: async (sessionId: string) => {
+        engineSessions.delete(sessionId);
+      },
     } as unknown as AgentEngine;
 
     app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });

@@ -102,6 +102,8 @@ export class AgentEngine {
       }
 
       // Build resource loader（F/WP2 Task 8 L1 注入：agent-dir 卷为基准，platform 卷已验证文件为覆盖层）
+      // 对称性说明（评审 WP2-R2 Important#3）：program 路径无条件构造显式 loader（与常规/recoverAll 的
+      // "仅在有覆盖层时接线"不对称——功能等价：空覆盖层下显式 loader 与 SDK 默认等价），noContextFiles 需保留。
       const overlayPaths = this.getOverlayPaths();
       const additionalSkillPaths = [...overlayPaths.skills, ...skillsAbs];
       const resourceLoader = new DefaultResourceLoader({

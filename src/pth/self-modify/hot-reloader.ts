@@ -74,6 +74,10 @@ export class HotReloader {
       awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
     });
 
+    // 注入边界（评审 WP2-R2 Important#2）：ignoreInitial:true → 启动时平台卷已存在的
+    // skills/prompts 不产生 add 事件、不进入覆盖层；只有运行期发生的变更（写/改/删）才被注入。
+    // 部署文件后须触发一次变更事件（或经 agent-dir 卷）才对新会话生效——勿误以为启动即全量注入。
+
     this.watcher.on("change", (filePath: string) => this.reloadFile(filePath));
     this.watcher.on("add", (filePath: string) => this.reloadFile(filePath));
     this.watcher.on("unlink", (filePath: string) => this.handleUnlink(filePath));
