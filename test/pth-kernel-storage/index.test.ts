@@ -52,7 +52,12 @@ suite("data world assembly", () => {
     const claimed = await dw.tasks.claimTopN("dev-worker", [t.id]);
     expect(claimed.length).toBe(1);
     const tid = await dw.transcripts.create({ taskId: t.id, agentId: "dev-worker", body: [{ type: "result", ok: true }] });
+    // Fix wave Finding #3：transcript create 后验证可查（body 断言）
+    const got = await dw.transcripts.get(tid);
+    expect(got?.body[0].type).toBe("result");
     await dw.tasks.submit("dev-worker", t.id, { ref: tid });
+    // Fix wave Finding #3：submit 后持久化状态必须为 completed
+    expect((await pool.query("SELECT status FROM tasks WHERE id=$1", [t.id])).rows[0].status).toBe("completed");
     await dw.audit.write({ eventType: "task_completed", taskId: t.id, workerId: "dev-worker" });
     const events = await dw.audit.query({ eventType: "task_completed" });
     expect(events.length).toBe(1);

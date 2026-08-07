@@ -30,8 +30,11 @@ export class PgAuditStore {
     if (opts?.eventType) { params.push(opts.eventType); conds.push(`event_type = $${params.length}`); }
     if (opts?.since) { params.push(opts.since); conds.push(`created_at >= $${params.length}`); }
     const where = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
+    // Fix wave Finding #2（SQL 注入面）：LIMIT 数值参数化（不再字符串插值）——
+    // push 到 params 末尾并引用 $N，对齐 task-store-pg.ts 的 `LIMIT $1` 风格。
+    params.push(opts?.limit ?? 100);
     const res = await this.pool.query(
-      `SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ${opts?.limit ?? 100}`,
+      `SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
       params,
     );
     // Finding #1 修复：row 映射显式标注 string 语义（pg int8 无 setTypeParser 时返回 string）
