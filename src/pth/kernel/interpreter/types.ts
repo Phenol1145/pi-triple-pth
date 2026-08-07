@@ -10,7 +10,7 @@ export interface InterpreterResult {
   value?: unknown;
   stdout?: string;
   stderr?: string;
-  error?: { message: string; stack?: string };
+  error?: { message: string; stack?: string; code?: string };
   durationMs: number;
 }
 

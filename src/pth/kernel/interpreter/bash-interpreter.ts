@@ -51,8 +51,13 @@ export class BashInterpreter implements Interpreter {
         durationMs: Date.now() - start,
       };
     } catch (e) {
-      const err = e as Error;
-      return { ok: false, error: { message: err.message, stack: err.stack }, durationMs: Date.now() - start };
+      const err = e as Error & { code?: string };
+      // Finding #2 修复：真实 SandboxExecClient 在 sandbox 不可达/超时时抛 SandboxForwardError
+      // （code = sandbox-unavailable / sandbox-timeout）——结构化 code 随 error 字段透出，
+      // 调用方据此区分不可达与超时（不可仅凭 message 字符串判断）。无 code 字段时保持 v1 形状。
+      const error: InterpreterResult["error"] = { message: err.message, stack: err.stack };
+      if (err.code) error.code = err.code;
+      return { ok: false, error, durationMs: Date.now() - start };
     }
   }
 
