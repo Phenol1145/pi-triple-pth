@@ -31,16 +31,24 @@ export interface MemoryEntry {
  * - `anchors ?| $n::jsonb` 不存在该操作符（jsonb ?| 右操作数为 text[]）→ 改为 `?| $n::text[]` 传原始数组；
  * - write 的 status 参数必须显式 `?? "official"`（测试条目多不传 status；node-pg 把 undefined 序列化为
  *   NULL，而 memory_entries.status 为 NOT NULL → 不默认会直接违反约束）。
- * 遗留差异（待协调者裁决，见 task-4-report）：FS write 对「同 version+同 content」的幂等重落库不递增版本；
- * 本实现 ON CONFLICT 一律递增（brief 骨架语义）。update 仅更新 content/status（brief 骨架），anchors 变更请走 write。
+ * 幂等与 meta 合并（对齐 FS write 路径②③，见 task-4-report fix 段）：
+ * - 路径②「同 version+同 content」幂等重落库不递增版本（watermark 旁路）；判断取调用方声明的版本：
+ *   `meta->>'version' = EXCLUDED.meta->>'version'`（FS 等价：entry.meta.version === existing.meta.version）；
+ * - 路径②③冲突时合并调用方 meta：`memory_entries.meta || EXCLUDED.meta || {version, updatedAt}`
+ *   （FS 等价：{...existing.meta, ...(entry.meta ?? {}), version, updatedAt, hitCount} 整条写回）。
+ * 遗留差异（见 task-4-report 疑虑）：update 仅更新 content/status（brief 骨架），anchors/kind 变更请走 write。
  */
 export class PgMemoryStore {
   constructor(private pool: pg.Pool) {}
 
   /** upsert：id 冲突则版本递增（CAS 语义，对齐 FS 实现）。anchors 必须显式传非空数组（schema CHECK 约束）。 */
   async write(entry: MemoryEntry): Promise<void> {
-    // ON CONFLICT 分支：version/updated_at/meta.version 联动递增；
-    // `memory_entries.version + 1` 在 SET 中均引用旧值 → meta.version 与新 version 列一致。
+    // ON CONFLICT 分支（对齐 FS write 路径②③）：
+    // - 幂等判定：content 与调用方声明版本均相同 → 重落库不递增版本（FS 路径②：entry.meta.version ===
+    //   existing.meta.version && entry.content === existing.content → persist 不递增）；
+    // - meta 合并：memory_entries.meta || EXCLUDED.meta（调用方 meta 整条写回，FS 路径②③ persist(entry) 语义），
+    //   最后强制 version/updatedAt 与列联动（FS：meta={...existing.meta, ...entry.meta, version: next, updatedAt: now}）；
+    // - version 列与 meta.version 引用同一 CASE 表达式（SET 中均引用旧行值）→ 二者保持一致。
     await this.pool.query(
       `INSERT INTO memory_entries (id, kind, anchors, content, rule_ref, idempotency_key, status, promoted_from, meta)
        VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9::jsonb)
@@ -48,9 +56,18 @@ export class PgMemoryStore {
          content = EXCLUDED.content,
          anchors = EXCLUDED.anchors,
          status = EXCLUDED.status,
-         version = memory_entries.version + 1,
+         version = CASE
+           WHEN memory_entries.content = EXCLUDED.content AND memory_entries.meta->>'version' = EXCLUDED.meta->>'version' THEN memory_entries.version
+           ELSE memory_entries.version + 1
+         END,
          updated_at = now(),
-         meta = memory_entries.meta || jsonb_build_object('version', memory_entries.version + 1, 'updatedAt', extract(epoch from now()) * 1000)
+         meta = memory_entries.meta || EXCLUDED.meta || jsonb_build_object(
+           'version', CASE
+             WHEN memory_entries.content = EXCLUDED.content AND memory_entries.meta->>'version' = EXCLUDED.meta->>'version' THEN memory_entries.version
+             ELSE memory_entries.version + 1
+           END,
+           'updatedAt', extract(epoch from now()) * 1000
+         )
        RETURNING id`,
       [
         entry.id,

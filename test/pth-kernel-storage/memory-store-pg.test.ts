@@ -75,4 +75,29 @@ suite("memory store pg", () => {
     const noDrafts = await store.retrieve({ anchors: ["eps"], excludeDrafts: true });
     expect(noDrafts.some((e) => e.id === "e5")).toBe(false);
   });
+
+  it("write idempotent rewrite: same id + same content + same version keeps version (FS 路径②)", async () => {
+    // 对齐 FS write 路径②：entry.meta.version === existing.meta.version && content 相同 → 重落库不递增版本
+    await store.write({ id: "e6", kind: "fact", anchors: ["theta"], content: "idem", meta: { version: 1, sourceTraces: ["t1"] } } as any);
+    await store.write({ id: "e6", kind: "fact", anchors: ["theta"], content: "idem", meta: { version: 1, sourceTraces: ["t1", "t2"] } } as any);
+    const got = await store.get("e6");
+    expect(got?.content).toBe("idem");
+    expect(got?.meta?.version).toBe(1); // 幂等重落库不递增
+    expect(got?.meta?.sourceTraces).toEqual(["t1", "t2"]); // 调用方 meta 整条写回
+  });
+
+  it("write conflict merges caller meta (FS persist 整条写回)", async () => {
+    await store.write({ id: "e7", kind: "fact", anchors: ["zeta"], content: "c1", meta: { sourceTraces: ["t1"] } } as any);
+    await store.write({ id: "e7", kind: "fact", anchors: ["zeta"], content: "c2", meta: { sourceTraces: ["t1", "t2"] } } as any);
+    const got = await store.get("e7");
+    expect(got?.content).toBe("c2");
+    expect(got?.meta?.version).toBe(2);                    // 新状态 → version+1
+    expect(got?.meta?.sourceTraces).toEqual(["t1", "t2"]); // 调用方 meta 保留（旧+新）
+  });
+
+  it("write with empty anchors is rejected by DB CHECK", async () => {
+    await expect(
+      store.write({ id: "e8", kind: "fact", anchors: [], content: "x", meta: {} } as any),
+    ).rejects.toThrow(); // schema CHECK jsonb_array_length(anchors) > 0
+  });
 });
