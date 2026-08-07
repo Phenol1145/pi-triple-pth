@@ -19,9 +19,9 @@ export interface TaskLoopDeps {
  * 语义（裁决 10/11）：peek 只读不锁定先于 claim；claim 即承诺（认领后必 execute 或 reject）；
  *   逐条判别式失败不中断；认领竞态（claimed-by-other）为正常。
  *
- * v1 简化（Spec B §5 注释）：无 assess 智能判断，直接机械认领全部候选；
- *   空转防护（对抗性审核 I4）：整批候选零认领 → 全部 reject（assessed-as-unfit）放回池，
- *   防止 peek/claim 全空导致的无限空转。
+ * v1 裁剪（Spec B §5 标注）：机械认领全部候选，无 assess 智能判断——assess（llm.complete
+ *   自检候选是否可完成）留 v2 注入；空转防护（对抗性审核 I4）：整批候选零认领 → 全部
+ *   reject（assessed-as-unfit）放回池，防止 peek/claim 全空导致的无限空转。
  */
 export class TaskLoop {
   constructor(private deps: TaskLoopDeps) {}

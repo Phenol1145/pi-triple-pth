@@ -1,5 +1,6 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import type { BatchSuggestion } from "./stats.js";
 
 export interface BatchHandle {
   id: string;
@@ -127,9 +128,10 @@ export class BatchManager {
   }
 
   /** v1：统计建议由 stats.suggest 计算（Task 5）；此处接线占位 */
-  async suggest(): Promise<{ action: "add" | "remove" | "keep"; reason: string; data: unknown }> {
+  async suggest(): Promise<BatchSuggestion> {
     const batches = await this.listBatches();
-    // Task 7 集成时接 collectStats（需 taskStore）——v1 简单返回 keep
-    return { action: "keep", reason: "v1 接线占位（Task 7 接入 collectStats）", data: { batchCount: batches.length } };
+    // Task 7 集成时接 collectStats（需 taskStore）——v1 简单返回 keep；
+    // data 填完整形状（契约收敛，Task 5 BatchSuggestion）；pendingCount/idleRatio 为占位值，Task 7 接真实统计。
+    return { action: "keep", reason: "v1 接线占位（Task 7 接入 collectStats）", data: { pendingCount: 0, idleRatio: 1, batchCount: batches.length } };
   }
 }
