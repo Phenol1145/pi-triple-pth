@@ -28,6 +28,8 @@ export interface TaskStore {
   reject(agentId: string, taskId: string, reason: string): Promise<void>;
   submit(agentId: string, taskId: string, outputRef: unknown): Promise<void>;
   publish(input: PublishInput): Promise<Task>;
+  // 跨 spec 扩展（plan Task 5 标注）：负载统计 collectStats 依赖 pending 队列长度。
+  countPending(): Promise<number>;
 }
 
 export class PgTaskStore implements TaskStore {
@@ -85,6 +87,13 @@ export class PgTaskStore implements TaskStore {
       );
       return upd.rows.map(mapRow);
     });
+  }
+
+  async countPending(): Promise<number> {
+    // count(*) 返回 int8 → node-postgres 解析为字符串，必须 Number() 转换（见 Task 1 ledger minor）。
+    const res = await this.pool.query(`SELECT count(*) FROM tasks WHERE status = 'pending'`);
+    // count(*) 返回 int8 → node-postgres 解析为字符串，必须 Number() 转换（见 Task 1 ledger minor）。
+    return Number((res.rows[0] as { count: string }).count);
   }
 
   async reject(agentId: string, taskId: string, reason: string): Promise<void> {

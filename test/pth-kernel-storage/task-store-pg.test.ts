@@ -84,4 +84,18 @@ suite("task store pg", () => {
     const row = await pool.query("SELECT status FROM tasks WHERE id = $1", [t.id]);
     expect(row.rows[0].status).toBe("completed");
   });
+
+  it("countPending counts only pending tasks (relative to current state)", async () => {
+    // 同 suite 前序测试在共享 DB 累积了各种状态的任务，故用相对断言（跨 spec 扩展：Task 5 负载统计依赖）。
+    const before = await store.countPending();
+    const t = await store.publish({ title: "t7", text: "count", createdBy: "me", tags: ["dev"] });
+    expect(await store.countPending()).toBe(before + 1);
+    await store.claimTopN("w1", [t.id]);
+    expect(await store.countPending()).toBe(before); // claimed 不再计入
+    await store.reject("w1", t.id, "back to pending");
+    expect(await store.countPending()).toBe(before + 1); // reject 回 pending 重新计入
+    await store.claimTopN("w1", [t.id]);
+    await store.submit("w1", t.id, { ref: "count-test" });
+    expect(await store.countPending()).toBe(before); // completed 不计入
+  });
 });
