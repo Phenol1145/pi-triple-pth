@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateManifest } from "../../src/ptl/bridge/manifest.js";
+import { validateManifest } from "../../packages/framework/src/bridge/manifest.js";
 
 describe("validateManifest", () => {
   it("完整合法 manifest", () => {

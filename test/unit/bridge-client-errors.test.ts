@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { PthClient } from "../../src/ptl/bridge/client.js";
+import { PthClient } from "../../packages/framework/src/bridge/client.js";
 
 afterEach(() => { vi.restoreAllMocks(); });
 

@@ -18,7 +18,7 @@ import {
 } from "../../src/pth/gateway/routes-debug.js";
 import { AuditWriter } from "../../src/pth/observability/audit.js";
 import { SandboxExecClient, SandboxForwardError } from "../../src/pth/tools/sandbox-bash.js";
-import { connectDebugSession } from "../../src/ptl/bridge/debug.js";
+import { connectDebugSession } from "../../packages/framework/src/bridge/debug.js";
 
 // ── mock Redis（auth get + audit xadd/xtrim）──────
 

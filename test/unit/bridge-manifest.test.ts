@@ -3,7 +3,7 @@ import {
   COMPONENT_TYPES,
   validateComponentManifest,
   validateManifest,
-} from "../../src/ptl/bridge/manifest.js";
+} from "../../packages/framework/src/bridge/manifest.js";
 
 describe("validateComponentManifest", () => {
   it("5 类构件类型齐全", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { writeUstar } from "../../src/ptl/bridge/ustar.js";
+import { writeUstar } from "../../packages/framework/src/bridge/ustar.js";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
