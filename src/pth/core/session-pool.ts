@@ -1,4 +1,4 @@
-import type { Logger } from "../../shared/observability/logger.js";
+import type { Logger } from "@pi-triple/infra";
 import type { Metrics } from "../observability/metrics.js";
 import type { SessionStore } from "../storage/interfaces.js";
 import type { VersionSnapshot } from "./types.js";

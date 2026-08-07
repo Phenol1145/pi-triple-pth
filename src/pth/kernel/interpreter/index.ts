@@ -1,4 +1,4 @@
-import type { ModelRouter } from "../../../shared/model-router/router.js";
+import type { ModelRouter } from "@pi-triple/infra";
 import type { DataWorldAccess } from "../storage/index.js";
 import { TsInterpreter } from "./ts-interpreter.js";
 import { BashInterpreter } from "./bash-interpreter.js";

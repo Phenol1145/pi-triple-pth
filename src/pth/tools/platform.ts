@@ -1,7 +1,7 @@
 import type { ToolRegistry } from "./registry.js";
 import type { AuditWriter } from "../observability/audit.js";
 import type { Metrics } from "../observability/metrics.js";
-import type { Logger } from "../../shared/observability/logger.js";
+import type { Logger } from "@pi-triple/infra";
 import type { ToolCallRequest, ToolResult } from "./types.js";
 
 export class ToolPlatform {

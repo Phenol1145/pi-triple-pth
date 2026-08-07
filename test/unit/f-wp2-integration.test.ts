@@ -6,8 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { AgentEngine } from "../../src/pth/core/agent-engine.js";
 import { SessionPool } from "../../src/pth/core/session-pool.js";
-import { WorkspaceManager } from "../../src/shared/workspace/manager.js";
-import { detectPlatform } from "../../src/shared/platform/index.js";
+import { WorkspaceManager, detectPlatform } from "@pi-triple/infra";
 
 /**
  * F/WP2 Task 9 — WP2 集成验证：持久化不变量端到端。

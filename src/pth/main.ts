@@ -1,13 +1,10 @@
 import { Redis } from "ioredis";
-import { detectPlatform } from "../shared/platform/index.js";
-import { createLogger } from "../shared/observability/logger.js";
+import { detectPlatform, createLogger } from "@pi-triple/infra";
 import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { AuditWriter } from "./observability/audit.js";
 import { RedisSessionStore } from "./storage/redis-session-store.js";
 import { RedisSettingsStore } from "./storage/redis-settings-store.js";
-import { EnvCredentialProvider } from "../shared/credential-provider.js";
-import { WorkspaceManager } from "../shared/workspace/manager.js";
-import { ModelRouter } from "../shared/model-router/router.js";
+import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@pi-triple/infra";
 import { ToolRegistry } from "./tools/registry.js";
 import { ToolPlatform } from "./tools/platform.js";
 import { SandboxExecClient, SandboxHealthMonitor, createSandboxBashDefinition } from "./tools/sandbox-bash.js";

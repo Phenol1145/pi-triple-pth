@@ -15,7 +15,7 @@
  * 同模式——协议字符串，非代码引用）。
  */
 
-import type { EventBus } from "../../shared/sdk-adapter/index.js";
+import type { EventBus } from "@pi-triple/infra";
 
 /** 外部事件通道名（线协议常量——agent-lab 侧同名定义，见 extensions/agent-lab/index.ts） */
 export const EXTERNAL_EVENT_CHANNEL = "platform:external-event";

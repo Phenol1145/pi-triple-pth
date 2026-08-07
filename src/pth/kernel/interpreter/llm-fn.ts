@@ -1,5 +1,5 @@
 import type { Context } from "@earendil-works/pi-ai";
-import type { ModelRouter } from "../../../shared/model-router/router.js";
+import type { ModelRouter } from "@pi-triple/infra";
 
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
