@@ -1,0 +1,104 @@
+import { createContext, runInContext, type Context } from "node:vm";
+import { stripTypeScriptTypes } from "node:module";
+import type { ExecuteOptions, Interpreter, InterpreterResult } from "./types.js";
+
+export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
+
+/**
+ * TS 解释器：node:vm 持久 context + stripTypeScriptTypes。
+ * 能力注入：context 默认空，只注入白名单（构造时传入 capabilities）。
+ * 前置校验（对抗性审核 B5）：import/require 拒绝 + top-level await 包装。
+ */
+export class TsInterpreter implements Interpreter {
+  readonly language = "ts";
+  private context: Context;
+  private capabilities: Record<string, unknown>;
+
+  constructor(deps: { capabilities: Record<string, unknown>; timeoutMs?: number }) {
+    this.capabilities = deps.capabilities;
+    this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+    this.context = createContext({ ...deps.capabilities });
+  }
+
+  private timeoutMs: number;
+  get state(): Record<string, unknown> {
+    return this.context as unknown as Record<string, unknown>;
+  }
+
+  async execute(program: string, opts?: ExecuteOptions): Promise<InterpreterResult> {
+    const start = Date.now();
+    try {
+      const pre = preflight(program);
+      if (!pre.ok) {
+        return { ok: false, error: { message: pre.error }, durationMs: Date.now() - start };
+      }
+      const js = stripTypeScriptTypes(pre.code);
+      const result = runInContext(js, this.context, {
+        timeout: opts?.timeoutMs ?? this.timeoutMs,
+      });
+      return { ok: true, value: await normalize(result), durationMs: Date.now() - start };
+    } catch (e) {
+      const err = e as Error;
+      return { ok: false, error: { message: err.message, stack: err.stack }, durationMs: Date.now() - start };
+    }
+  }
+
+  reset(): void {
+    this.context = createContext({ ...this.capabilities });
+  }
+
+  dispose(): void {
+    // vm context 无显式释放；GC 处理
+  }
+}
+
+/** 前置校验：import/require 拒绝 + top-level await 包装（异步 IIFE） */
+function preflight(program: string): { ok: true; code: string } | { ok: false; error: string } {
+  // import 语句（行首 import 或 import( 动态导入）
+  if (/^\s*import\s/m.test(program) || /import\s*\(/.test(program)) {
+    return { ok: false, error: "import is not allowed in kernel programs — use injected globals (llm/memory/skills/tasks/bash/python)" };
+  }
+  // require 调用
+  if (/\brequire\s*\(/.test(program)) {
+    return { ok: false, error: "require is not allowed in kernel programs — use injected globals (llm/memory/skills/tasks/bash/python)" };
+  }
+  // top-level await：包装为异步 IIFE
+  if (/\bawait\b/.test(program)) {
+    return { ok: true, code: wrapAwait(program) };
+  }
+  return { ok: true, code: program };
+}
+
+/**
+ * top-level await 包装。适配说明（brief 实现缺陷修复）：brief 的块包装
+ * `(async () => { ${program} })()` 对表达式程序（如 `await Promise.resolve(42)`）
+ * 不捕获 completion value，IIFE resolve 为 undefined（测试要求 42）。
+ * 修复：单表达式程序用 return 包装（捕获值）；语句式程序保持块包装
+ * （语句完整执行）。若一律 return 包装，`const r = await f(); r` 会语法错误、
+ * `await g(); await h()` 会静默只执行第一条——故需启发式区分。
+ */
+function wrapAwait(program: string): string {
+  const trimmed = program.trim();
+  // 声明/控制流关键字开头的程序是语句式（块包装保语义）
+  const startsWithStatementKeyword = /^(?:let\b|const\b|var\b|function\b|class\b|if\b|for\b|while\b|do\b|switch\b|try\b|catch\b|finally\b|return\b|throw\b|import\b|export\b|debugger\b|with\b|\{|;)/.test(trimmed);
+  // 含顶层 ; 或换行 => 多语句（块包装保语句完整）；单行模板串内换行属已知边界（不捕获值，仅值丢失不影响执行）
+  const hasTopLevelSeparator = /[\n;]/.test(trimmed);
+  if (!startsWithStatementKeyword && !hasTopLevelSeparator) {
+    return `(async () => { return ${program} })()`;
+  }
+  return `(async () => { ${program} })()`;
+}
+
+/**
+ * 求值结果规范化：undefined → undefined；对象/数组 JSON 序列化友好。
+ * 适配说明（brief 实现缺陷修复）：runInContext 对 async IIFE / async 能力函数
+ * 返回裸 Promise，不 await 则 value 是 Promise 对象——故对 thenable 做解析。
+ */
+async function normalize(value: unknown): Promise<unknown> {
+  if (value === undefined) return undefined;
+  if (typeof value === "bigint") return value.toString();
+  if (value !== null && typeof (value as { then?: unknown }).then === "function") {
+    return await (value as Promise<unknown>);
+  }
+  return value;
+}
