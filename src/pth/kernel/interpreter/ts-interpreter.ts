@@ -8,6 +8,11 @@ export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
  * TS 解释器：node:vm 持久 context + stripTypeScriptTypes。
  * 能力注入：context 默认空，只注入白名单（构造时传入 capabilities）。
  * 前置校验（对抗性审核 B5）：import/require 拒绝 + top-level await 包装。
+ *
+ * 设计级限制（Finding #3，不修代码、固化行为）：context 跨 execute 持久，全局词法绑定
+ * （let/const/class 声明）无法在后续 execute 中重声明——重复 `const s = ...` 抛
+ * "Identifier 's' has already been declared"。需要重新声明应调用 reset() 重建 context
+ * （capabilities 保留）或新建 interpreter。
  */
 export class TsInterpreter implements Interpreter {
   readonly language = "ts";
@@ -33,10 +38,28 @@ export class TsInterpreter implements Interpreter {
         return { ok: false, error: { message: pre.error }, durationMs: Date.now() - start };
       }
       const js = stripTypeScriptTypes(pre.code);
-      const result = runInContext(js, this.context, {
-        timeout: opts?.timeoutMs ?? this.timeoutMs,
+      const timeoutMs = opts?.timeoutMs ?? this.timeoutMs;
+      // Finding #1（Critical 修复）：runInContext 的 timeout 只覆盖同步执行——await 后的异步延续
+      // 不受限，`await new Promise(()=>{})` 永不 resolve 会无限挂起 execute（kernel 线程阻塞 =
+      // 单点 DoS）。异步守卫：Promise.race([执行, 超时 reject])，超时语义与同步 timeout 一致
+      // （opts.timeoutMs ?? this.timeoutMs）。
+      const context = this.context;
+      const runPromise = (async () => {
+        const result = runInContext(js, context, { timeout: timeoutMs });
+        return { ok: true, value: await normalize(result), durationMs: Date.now() - start };
+      })();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const guardPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`script execution timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
       });
-      return { ok: true, value: await normalize(result), durationMs: Date.now() - start };
+      try {
+        return await Promise.race([runPromise, guardPromise]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     } catch (e) {
       const err = e as Error;
       return { ok: false, error: { message: err.message, stack: err.stack }, durationMs: Date.now() - start };
@@ -78,7 +101,10 @@ function preflight(program: string): { ok: true; code: string } | { ok: false; e
  * `await g(); await h()` 会静默只执行第一条——故需启发式区分。
  */
 function wrapAwait(program: string): string {
-  const trimmed = program.trim();
+  // Finding #2（修复）：尾分号剥离。`await Promise.resolve(42);` 的末尾 `;` 会被误判为
+  // 多语句分隔符 → 块包装 → completion value 丢失（测试要求 42）。先剥离末尾空白/分号再判别；
+  // 内部 `;`（真多语句）保留，仍走块包装。
+  const trimmed = program.replace(/[;\s]+$/, "").trim();
   // 声明/控制流关键字开头的程序是语句式（块包装保语义）
   const startsWithStatementKeyword = /^(?:let\b|const\b|var\b|function\b|class\b|if\b|for\b|while\b|do\b|switch\b|try\b|catch\b|finally\b|return\b|throw\b|import\b|export\b|debugger\b|with\b|\{|;)/.test(trimmed);
   // 含顶层 ; 或换行 => 多语句（块包装保语句完整）；单行模板串内换行属已知边界（不捕获值，仅值丢失不影响执行）

@@ -69,4 +69,36 @@ describe("ts interpreter", () => {
     expect(res.ok).toBe(true);
     expect(res.value).toEqual({ content: "ok" });
   });
+
+  it("does not hang forever on never-resolving async code (async timeout guard)", async () => {
+    // Finding #1: runInContext timeout 只覆盖同步执行；await 后的异步延续不受限。
+    // `await new Promise(() => {})` 永不 resolve——execute 必须在 ~timeoutMs 内返回失败而非无限挂起。
+    const itp = new TsInterpreter({ capabilities: {}, timeoutMs: 50 });
+    const start = Date.now();
+    const res = await itp.execute("await new Promise(() => {})", { timeoutMs: 50 });
+    const elapsed = Date.now() - start;
+    expect(res.ok).toBe(false);
+    expect(res.error?.message).toContain("timed out after 50ms");
+    expect(elapsed).toBeGreaterThanOrEqual(40);
+    expect(elapsed).toBeLessThan(5000); // 不无限挂起（vitest testTimeout 90s 兜底）
+  });
+
+  it("captures value of single-expression await with trailing semicolon", async () => {
+    // Finding #2: 尾分号 `await Promise.resolve(42);` 不应被误判为多语句 → 块包装丢值。
+    const itp = new TsInterpreter({ capabilities: {} });
+    const res = await itp.execute("await Promise.resolve(42);");
+    expect(res.ok).toBe(true);
+    expect(res.value).toBe(42);
+  });
+
+  it("duplicate const declaration across executions fails (persistent context semantics)", async () => {
+    // Finding #3（设计级限制，不修代码，固化行为）：vm 持久 context 的全局词法绑定无法重声明。
+    // 需要重新声明应调用 reset()（或换 interpreter）。
+    const itp = new TsInterpreter({ capabilities: {} });
+    const first = await itp.execute("const s = 1");
+    expect(first.ok).toBe(true);
+    const second = await itp.execute("const s = 1");
+    expect(second.ok).toBe(false);
+    expect(second.error?.message).toContain("already been declared");
+  });
 });
