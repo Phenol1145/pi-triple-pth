@@ -169,7 +169,7 @@ toolRegistry.registerCustomTool("my-tenant", {
 
 #### WorkflowOrchestrator
 
-> ⚠️ **与 PTL pit-flow 的区别**：本节是 PTH 服务端的 BullMQ 集中编排；PTL 的 `pit-flow`（`src/ptl/flow/`）是本地波次并行引擎，两者独立。PTL 程序经 `pit hub submit` 上传后由 **ProgramStore**（下节）托管，可选走本编排器或直接起 session 运行。
+> ⚠️ **与 PTL ptl-flow 的区别**：本节是 PTH 服务端的 BullMQ 集中编排；PTL 的 `ptl-flow`（`src/ptl/flow/`）是本地波次并行引擎，两者独立。PTL 程序经 `ptl hub submit` 上传后由 **ProgramStore**（下节）托管，可选走本编排器或直接起 session 运行。
 
 ```
 Orchestrator (App 层状态机)
@@ -207,7 +207,7 @@ await orchestrator.execute(reviewFlow, tenantId);
 
 #### ProgramStore（PTL→PTH 桥服务端）
 
-`src/pth/programs/` + `gateway/routes-programs.ts` —— 托管 PTL `pit hub submit` 上传的 agent 程序。
+`src/pth/programs/` + `gateway/routes-programs.ts` —— 托管 PTL `ptl hub submit` 上传的 agent 程序。
 
 ```
 POST   /api/v1/programs              上传程序（tar，INCR 版本号，tar 安全解包 + GC）

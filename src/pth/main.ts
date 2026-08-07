@@ -134,7 +134,7 @@ async function main() {
   }
   engine.startSystemWatchdog();
 
-  // Program store（pit submit 提交物）/ ComponentStore 泛化（F/WP4 Task 17）：
+  // Program store（ptl submit 提交物）/ ComponentStore 泛化（F/WP4 Task 17）：
   // components 卷落在 DATA_DIR/components/<tenantId>/<type>/<name>/<version>/；
   // 旧 programs 目录（DATA_DIR/programs/programs/...）不做自动迁移，ProgramStore 读侧双查兼容（plan N4）。
   const { ProgramStore } = await import("./programs/store.js");
