@@ -22,6 +22,7 @@ declare namespace pg {
     query(text: string, values?: unknown[]): Promise<QueryResult>;
     connect(): Promise<PoolClient>;
     end(): Promise<void>;
+    on(event: "error", listener: (err: Error) => void): void;
   }
 
   export class PoolClient {
