@@ -61,5 +61,8 @@ suite("transcript + audit stores", () => {
     const claimed = await as.query({ eventType: "task_claimed" });
     expect(claimed.length).toBe(1);
     expect(claimed[0].workerId).toBe("w1");
+    // Finding #1 契约锁定：audit_log.id 为 BIGSERIAL(int8)，pg 默认以 string 返回，
+    // 接口声明为 string —— 真实 pg 上验证运行时类型与声明一致。
+    expect(typeof claimed[0].id).toBe("string");
   });
 });

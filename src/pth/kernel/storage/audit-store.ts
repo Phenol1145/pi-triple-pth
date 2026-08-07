@@ -1,7 +1,9 @@
 import type pg from "pg";
 
 export interface AuditEvent {
-  id: number;
+  // Finding #1 修复（协调者裁决）：audit_log.id 为 BIGSERIAL(int8)，node-postgres 默认以 string 返回
+  // （未设全局 setTypeParser——避免大整型精度风险），故接口声明为 string 而非 number。
+  id: string;
   eventType: string;
   actor?: string;
   taskId?: string;
@@ -32,8 +34,9 @@ export class PgAuditStore {
       `SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ${opts?.limit ?? 100}`,
       params,
     );
+    // Finding #1 修复：row 映射显式标注 string 语义（pg int8 无 setTypeParser 时返回 string）
     return res.rows.map((r: any) => ({
-      id: r.id, eventType: r.event_type, actor: r.actor ?? undefined,
+      id: r.id as string, eventType: r.event_type, actor: r.actor ?? undefined,
       taskId: r.task_id ?? undefined, workerId: r.worker_id ?? undefined,
       sessionId: r.session_id ?? undefined, payload: r.payload, createdAt: r.created_at,
     }));
