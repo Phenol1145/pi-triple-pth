@@ -49,6 +49,26 @@ describe("llm function", () => {
     expect(typeof seenContext.messages[0].timestamp).toBe("number");
   });
 
+  it("converts assistant messages to TextContent array (real-provider compat)", async () => {
+    let seenContext: any;
+    const runtime = mockRuntime(async (_model: any, context: any) => {
+      seenContext = context;
+      return { role: "assistant", content: [{ type: "text", text: "ok" }], api: "a", provider: "p", model: "m", usage: {}, stopReason: "end_turn", timestamp: Date.now() };
+    });
+    const llm = createLlmFn({ modelRouter: mockRouter(runtime) });
+    await llm.complete([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "assistant reply text" },
+    ]);
+    // user 消息保持字符串（pi-ai user 分支兼容字符串）
+    expect(seenContext.messages[0].role).toBe("user");
+    expect(seenContext.messages[0].content).toBe("hi");
+    // assistant 消息 content 必须是 TextContent[] 数组形态（对齐 pi-ai AssistantMessage.content）
+    expect(seenContext.messages[1].role).toBe("assistant");
+    expect(seenContext.messages[1].content).toEqual([{ type: "text", text: "assistant reply text" }]);
+    expect(typeof seenContext.messages[1].timestamp).toBe("number");
+  });
+
   it("extracts text from assistant content array", async () => {
     const runtime = mockRuntime(async () => ({
       role: "assistant",

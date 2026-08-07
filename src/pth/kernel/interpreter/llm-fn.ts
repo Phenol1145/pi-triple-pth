@@ -32,7 +32,8 @@ export interface LlmFn {
  *  1) 返回对象携带 complete 方法（对齐 LlmFn 接口与调用方 llm.complete(...)）。
  *  2) toContext 产出 {role, content, timestamp} 结构消息；pi-ai Context.messages 声明为
  *     Message[]，但 runtime 仅按 {role, content} 结构消费，故在 completeSimple 边界做一次
- *     类型断言（v1 纯文本；assistant 消息 content 为字符串——真实 provider 期望数组，见疑虑）。
+ *     类型断言（v1 纯文本；assistant 消息 content 包为 [{type:"text",text}] 数组形态，对齐
+ *     pi-ai AssistantMessage.content——真实 provider 按数组逐块迭代，字符串会被静默丢弃）。
  *  3) pi-ai Usage 字段为 input/output，而本层公共契约（LlmResult.usage）按 brief 用
  *     inputTokens/outputTokens——映射时兼容两种形状（先取 inputTokens，回退到 input）。
  */
@@ -65,7 +66,10 @@ function toContext(messages: LlmMessage[]): { systemPrompt?: string; messages: u
     ...(systemParts.length > 0 ? { systemPrompt: systemParts.join("\n") } : {}),
     messages: rest.map((m) => ({
       role: m.role,
-      content: m.content,
+      // assistant 消息 content 必须是 TextContent[] 数组形态（对齐 pi-ai AssistantMessage.content）：
+      // 真实 provider（anthropic/google/openai）对 assistant 分支按 content 数组逐块迭代（block.type
+      // 分流），字符串会被逐字符拆解导致空 blocks → 整条消息静默丢弃。user 分支兼容字符串。
+      content: m.role === "assistant" ? [{ type: "text", text: m.content }] : m.content,
       timestamp: Date.now(),
     })),
   };
