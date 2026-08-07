@@ -4,6 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BatchManager } from "../../src/pth/kernel/execution/batch-manager";
 
+/** 轮询等待 pid 进程完全消失（Node 子进程被回收后 kill(pid,0) 抛 ESRCH） */
+async function waitUntilGone(pid: number, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return; // ESRCH：进程已退出并被回收
+    }
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
 describe("batch manager", () => {
   let dir: string;
   let stubPath: string;
@@ -49,4 +62,28 @@ describe("batch manager", () => {
     expect(b?.workers.length).toBeGreaterThan(0);
     await mgr.killBatch(handle.id);
   });
+
+  it("killBatch does not leak the map when the child already exited", async () => {
+    const mgr = new BatchManager({ batchProcessPath: stubPath });
+    const handle = await mgr.spawnBatch();
+    // 外部 SIGKILL 模拟崩溃/并发退出（不经过 killBatch）
+    process.kill(handle.pid, "SIGKILL");
+    // 等子进程完全退出（'exit' 已触发、channel 关闭）。信号致死时 exitCode=null 而
+    // signalCode=SIGKILL——旧实现只查 exitCode 会漏掉 → 挂满 5s SIGKILL 兑底；修复后立即返回。
+    await waitUntilGone(handle.pid);
+    await mgr.killBatch(handle.id);
+    const batches = await mgr.listBatches();
+    expect(batches.some((b) => b.id === handle.id)).toBe(false);
+  }, 3000);  // 短超时：若 killBatch 走 5s SIGKILL 兜底则视为失败
+
+  it("spawnBatch survives an invalid batch process path (no crash, clean recovery)", async () => {
+    const mgr = new BatchManager({ batchProcessPath: join(dir, "does-not-exist.mjs") });
+    // fork 语义：子进程 = node 二进制必然 spawn 成功；无效模块路径由子进程加载失败退出(1)，
+    // 父进程不触发 'error' 事件。断言 = 短超时内不 crash、handle 可被 killBatch 干净回收。
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 100));  // 给子进程加载失败/退出留时间
+    await mgr.killBatch(handle.id);
+    const batches = await mgr.listBatches();
+    expect(batches.some((b) => b.id === handle.id)).toBe(false);
+  }, 3000);
 });

@@ -46,6 +46,32 @@ export class BatchManager {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
       }
     });
+    // Finding #3: 持久 error handler——fork 失败（路径无效）/ IPC 错误不再 crash 主进程。
+    // spawn 阶段失败时 record 未登记（delete 为 no-op）；spawn 成功后的 IPC 错误则从 Map 清理。
+    child.on("error", () => {
+      this.batches.delete(id);
+      child.removeAllListeners("message");
+    });
+    // 等 spawn 或 error 决出。实测（Node 24）：fork 的无效模块路径 → spawn 成功（node 二进制
+    // 必然存在），子进程加载失败退出(1)，父进程不发 'error'；'error' 仅在 IPC/kill 等通道错误时触发。
+    // 该竞态仍为通道类错误提供 spawn 阶段 reject 路径；spawn 成功后的 'error' 由上方持久 handler 清理。
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const onSpawn = () => {
+        if (settled) return;
+        settled = true;
+        child.off("error", onError);
+        resolve();
+      };
+      const onError = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        child.off("spawn", onSpawn);
+        reject(err);
+      };
+      child.once("spawn", onSpawn);
+      child.once("error", onError);
+    });
     this.batches.set(id, record);
     return { id, pid: child.pid!, workers, currentTasks: record.currentTasks, idleRatio: 1 };
   }
@@ -53,14 +79,33 @@ export class BatchManager {
   async killBatch(id: string): Promise<void> {
     const rec = this.batches.get(id);
     if (!rec) return;
-    // 优雅退出：发 shutdown，等 exit（超时 5s 强杀）
-    if (rec.child.connected) {
-      rec.child.send({ type: "shutdown" });
+    // Finding #1: connected 检查通过后、send 前子进程可能并发退出 → send 抛 ERR_IPC_CHANNEL_CLOSED。
+    // try/catch 包裹：抛错不阻断后续清理（delete 仍执行），走退出等待兜底。
+    try {
+      if (rec.child.connected) {
+        rec.child.send({ type: "shutdown" });
+      }
+    } catch {
+      // channel 已关闭：忽略，下方 exitCode/signalCode/exit 事件兜底
     }
+    // 优雅退出：发 shutdown，等 exit（超时 5s 强杀）
     await new Promise<void>((resolve) => {
-      if (rec.child.exitCode !== null) { resolve(); return; }   // 已退出（如崩溃）则直接返回
-      const timer = setTimeout(() => { rec.child.kill("SIGKILL"); resolve(); }, 5000);
-      rec.child.once("exit", () => { clearTimeout(timer); resolve(); });
+      let timer: ReturnType<typeof setTimeout>;
+      const finish = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      timer = setTimeout(() => {
+        rec.child.kill("SIGKILL");
+        finish();
+      }, 5000);
+      // Finding #2: 先挂 exit 监听，再查退出状态——避免"检查 exitCode 后、挂监听前"
+      // 的微任务窗口内子进程退出导致 exit 漏接（挂满 5s SIGKILL 超时）。
+      rec.child.once("exit", finish);
+      // signalCode 覆盖"被信号杀死"场景（exitCode 为 null 但进程已死）
+      if (rec.child.exitCode !== null || rec.child.signalCode !== null) {
+        finish();
+      }
     });
     this.batches.delete(id);
   }
