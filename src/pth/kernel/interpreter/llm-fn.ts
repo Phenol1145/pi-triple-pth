@@ -1,0 +1,94 @@
+import type { Context } from "@earendil-works/pi-ai";
+import type { ModelRouter } from "../../../shared/model-router/router.js";
+
+export interface LlmMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface LlmCompleteOptions {
+  model?: string;
+  provider?: string;
+  thinking?: "off" | "low" | "medium" | "high";
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export interface LlmResult {
+  content: string;
+  model: string;
+  usage?: { inputTokens?: number; outputTokens?: number };
+}
+
+export interface LlmFn {
+  complete(messages: LlmMessage[], opts?: LlmCompleteOptions): Promise<LlmResult>;
+}
+
+/**
+ * llm.complete —— LLM 作为数据处理算法（范式 P4）。
+ * 实现路径（对抗性审核 B1）：ModelRuntime.completeSimple(model, {systemPrompt, messages})。
+ * UserMessage 只需 {role, content, timestamp}（pi-ai 类型已核实）。
+ * 适配说明：
+ *  1) 返回对象携带 complete 方法（对齐 LlmFn 接口与调用方 llm.complete(...)）。
+ *  2) toContext 产出 {role, content, timestamp} 结构消息；pi-ai Context.messages 声明为
+ *     Message[]，但 runtime 仅按 {role, content} 结构消费，故在 completeSimple 边界做一次
+ *     类型断言（v1 纯文本；assistant 消息 content 为字符串——真实 provider 期望数组，见疑虑）。
+ *  3) pi-ai Usage 字段为 input/output，而本层公共契约（LlmResult.usage）按 brief 用
+ *     inputTokens/outputTokens——映射时兼容两种形状（先取 inputTokens，回退到 input）。
+ */
+export function createLlmFn(deps: { modelRouter: ModelRouter; logger?: unknown }): LlmFn {
+  return {
+    async complete(messages, opts) {
+      const model = deps.modelRouter.resolve(opts?.provider, opts?.model);
+      const runtime = deps.modelRouter.getRuntime();
+      const ctx = toContext(messages) as Context;
+      const result = await runtime.completeSimple(model, ctx, { signal: opts?.signal });
+      return {
+        content: extractText(result.content),
+        model: result.model,
+        usage: result.usage
+          ? {
+              inputTokens: usageInput(result.usage),
+              outputTokens: usageOutput(result.usage),
+            }
+          : undefined,
+      };
+    },
+  };
+}
+
+/** messages → pi Context 转换层（v1 纯文本） */
+function toContext(messages: LlmMessage[]): { systemPrompt?: string; messages: unknown[] } {
+  const systemParts = messages.filter((m) => m.role === "system").map((m) => m.content);
+  const rest = messages.filter((m) => m.role !== "system");
+  return {
+    ...(systemParts.length > 0 ? { systemPrompt: systemParts.join("\n") } : {}),
+    messages: rest.map((m) => ({
+      role: m.role,
+      content: m.content,
+      timestamp: Date.now(),
+    })),
+  };
+}
+
+/** pi-ai Usage 的输入 token 数（兼容 brief 测试形状 inputTokens 与真实形状 input） */
+function usageInput(u: { input: number; inputTokens?: number }): number {
+  return u.inputTokens ?? u.input;
+}
+
+/** pi-ai Usage 的输出 token 数（兼容 brief 测试形状 outputTokens 与真实形状 output） */
+function usageOutput(u: { output: number; outputTokens?: number }): number {
+  return u.outputTokens ?? u.output;
+}
+
+/** assistant content（TextContent[]）→ 拼接文本 */
+function extractText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((c) => typeof c === "object" && c !== null && "text" in c && typeof (c as any).text === "string")
+      .map((c) => (c as any).text)
+      .join("");
+  }
+  return String(content ?? "");
+}
