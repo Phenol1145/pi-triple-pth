@@ -71,6 +71,20 @@ describe("kernel routes", () => {
       expect(body.status).toBe("pending");
     });
 
+    it("POST /api/v1/kernel/tasks 直接发布透传 payload（任务链 flow 声明）", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/kernel/tasks",
+        payload: {
+          title: "链任务", text: "code", createdBy: "tester",
+          payload: { flow: { stages: [{ id: "s1", transform: { role: "developer" } }] }, resolvedStages: [] },
+        },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json();
+      expect(body.payload.flow.stages[0].id).toBe("s1");
+    });
+
     it("POST /api/v1/kernel/tasks 缺 title → 400", async () => {
       const res = await app.inject({
         method: "POST",

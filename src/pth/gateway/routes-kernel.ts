@@ -53,7 +53,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
       return reply.status(201).send(task);
     }
 
-    // 直接发布：{title, text, createdBy, tags?}
+    // 直接发布：{title, text, createdBy, tags?, payload?}
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const text = typeof body.text === "string" ? body.text.trim() : "";
     const createdBy = typeof body.createdBy === "string" ? body.createdBy.trim() : "";
@@ -61,7 +61,9 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
       return reply.status(400).send({ error: "title/text/createdBy required" });
     }
     const tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : undefined;
-    const task = await kernel.dataWorld.tasks.publish({ title, text, createdBy, tags });
+    // payload 透传（任务链 flow 声明等路由信息——发布时 payload 即任务自带路由）
+    const payload = (body.payload ?? {}) as Record<string, unknown>;
+    const task = await kernel.dataWorld.tasks.publish({ title, text, createdBy, tags, payload });
     return reply.status(201).send(task);
   });
 

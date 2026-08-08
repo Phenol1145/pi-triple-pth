@@ -1,6 +1,7 @@
 import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
 import { DEFAULT_ROLES } from "./execution/worker-cluster.js";
+import { TaskResolver } from "./execution/task-resolver.js";
 import type pg from "pg";
 
 export interface KernelRuntimeOptions {
@@ -12,6 +13,7 @@ export interface KernelRuntimeOptions {
   env?: Record<string, string>;  // 生产 fork 环境透传（PTH_BATCH_PROCESS/DATABASE_URL 等）
   toolstorePath?: string;  // toolstore 文件通道目录（默认继承主进程 env）
   watchdogIntervalMs?: number; // watchdog 探测周期（默认 30s）
+  resolverIntervalMs?: number; // TaskResolver 解析轮询周期（默认 2s）
 }
 
 export interface KernelWatchdogEvent {
@@ -70,6 +72,8 @@ export interface KernelRuntime {
   dataWorld: ReturnType<typeof createDataWorld>;
   batchManager: BatchManager;
   watchdog: KernelWatchdog;
+  /** TaskResolver（任务池即工作流 T3）：独立解析循环 */
+  resolver: import("./execution/task-resolver.js").TaskResolver;
   shutdown: () => Promise<void>;
 }
 
@@ -113,13 +117,24 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const watchdog = new KernelWatchdog(batchManager);
   watchdog.start(opts.watchdogIntervalMs ?? 30_000);
 
+  // TaskResolver（任务池即工作流 T3）：独立解析循环（2s 轮询，unref 不阻止退出）
+  const resolver = new TaskResolver({ taskStore: dataWorld.tasks, pool });
+  const resolverTimer = setInterval(() => {
+    void resolver.resolveLoop().catch((e) => {
+      console.error(`[resolver] loop error: ${(e as Error).message}`);
+    });
+  }, opts.resolverIntervalMs ?? 2_000);
+  resolverTimer.unref?.();
+
   return {
     pool,
     dataWorld,
     batchManager,
     watchdog,
+    resolver,
     shutdown: async () => {
       watchdog.stop();
+      clearInterval(resolverTimer);
       await pool.end();
     },
   };
