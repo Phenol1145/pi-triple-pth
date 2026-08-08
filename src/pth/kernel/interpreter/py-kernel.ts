@@ -275,8 +275,12 @@ export class PyKernel implements Interpreter {
   }
 
   private kill(): void {
-    if (this.child) {
-      try { this.child.kill("SIGKILL"); } catch { /* ignore */ }
+    const old = this.child;
+    if (old) {
+      // 移除旧会话 handler（防误 reject 新会话 pending）
+      old.removeAllListeners("exit");
+      old.removeAllListeners("error");
+      try { old.kill("SIGKILL"); } catch { /* ignore */ }
       this.child = null;
     }
     this.buffer = "";
