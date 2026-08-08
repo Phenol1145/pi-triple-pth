@@ -1,4 +1,4 @@
-import { mkdir, rename } from "node:fs/promises";
+import { mkdir, rename, cp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { TaskWorkspaceManager } from "./task-loop.js";
 
@@ -18,7 +18,17 @@ export class DefaultTaskWorkspaceManager implements TaskWorkspaceManager {
 
   async archive(taskId: string, dir: string): Promise<{ artifactPath: string }> {
     const artifactPath = join(this.deps.artifactPath, taskId);
-    await rename(dir, artifactPath);    // 整目录 rename（v1；产物指针入 pg）
+    try {
+      await rename(dir, artifactPath);    // 整目录 rename（v1；产物指针入 pg）
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "EXDEV") {
+        // 跨设备（workspaces 卷 → artifacts 目录/另一卷）：fallback 复制+删除
+        await cp(dir, artifactPath, { recursive: true });
+        await rm(dir, { recursive: true, force: true });
+      } else {
+        throw err;
+      }
+    }
     return { artifactPath };
   }
 }
