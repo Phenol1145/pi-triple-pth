@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS tasks (
   artifact_path TEXT,
   transcript_id TEXT
 );
+-- 任务分配正交化（2026-08-08）：assigned_role 发布时确定性路由（flow 显式/tags 语义/hash 分片）
+-- candidates 只查自己的队列——角色间零竞速抢票
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_role TEXT;
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_role, status);
+-- 存量 pending 任务回填：确定性分片（hashtext 内置 hash；与 JS djb2 不同但均匀+确定）
+UPDATE tasks SET assigned_role =
+  (ARRAY['analyst','planner','developer','scout','memory-keeper','acceptor','human-interface'])
+    [abs(hashtext(id)) % 7 + 1]
+WHERE assigned_role IS NULL AND status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_tags ON tasks USING GIN(tags);
 CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at);

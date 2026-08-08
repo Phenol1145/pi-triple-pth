@@ -98,4 +98,43 @@ suite("task store pg", () => {
     await store.submit("w1", t.id, { ref: "count-test" });
     expect(await store.countPending()).toBe(before); // completed 不计入
   });
+  it("terminal reject 终态化（不回池）——坏任务防无限 claim 循环", async () => {
+    const t = await store.publish({ title: "broken", text: "syntax error(", createdBy: "me", tags: ["dev"] });
+    // 第一次 claim → 执行失败 → terminal reject
+    await store.claimTopN("w1", [t.id]);
+    await store.reject("w1", t.id, "execution-failed: syntax", { terminal: true });
+    let row = (await pool.query("SELECT status, rejects FROM tasks WHERE id = $1", [t.id])).rows[0];
+    expect(row.status).toBe("rejected");
+    expect(row.rejects).toHaveLength(1);
+    // 终态后 candidates 不再返回
+    const cands = await store.candidates({ limit: 10 });
+    expect(cands.some((c: { id: string }) => c.id === t.id)).toBe(false);
+    // 普通 reject 仍回池（回归保护）
+    const t2 = await store.publish({ title: "ok", text: "fine", createdBy: "me", tags: ["dev"] });
+    await store.claimTopN("w1", [t2.id]);
+    await store.reject("w1", t2.id, "assessed-as-unfit");
+    row = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t2.id])).rows[0];
+    expect(row.status).toBe("pending");
+  });
+  it("正交化：publish 路由 assigned_role，candidates 只返回自己队列", async () => {
+    // 语义路由：tags 匹配 developer
+    const dev = await store.publish({ title: "code task", text: "fn(){}", createdBy: "me", tags: ["code"] });
+    expect(dev.assigned_role).toBe("developer");
+    // 无主任务：hash 分片（确定性）
+    const noTag = await store.publish({ title: "no tag", text: "x", createdBy: "me" });
+    expect(noTag.assigned_role).toBeTruthy();
+    // candidates(developer) 看到 dev 任务
+    const devCands = await store.candidates("developer");
+    expect(devCands.some((c) => c.id === dev.id)).toBe(true);
+    // candidates(analyst) 看不到 dev 任务
+    const anaCands = await store.candidates("analyst");
+    expect(anaCands.some((c) => c.id === dev.id)).toBe(false);
+    // 无主任务只出现在其分片角色队列
+    const owner = noTag.assigned_role!;
+    const ownerCands = await store.candidates(owner);
+    expect(ownerCands.some((c) => c.id === noTag.id)).toBe(true);
+    const other = owner === "analyst" ? "planner" : "analyst";
+    const otherCands = await store.candidates(other);
+    expect(otherCands.some((c) => c.id === noTag.id)).toBe(false);
+  });
 });

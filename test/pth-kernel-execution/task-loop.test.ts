@@ -46,19 +46,19 @@ describe("task loop", () => {
     expect(kernel.reset).toHaveBeenCalled();
   });
 
-  it("rejects tasks assessed as unfit", async () => {
+  it("正交化：零认领（队列空/全不可认领）直接返回，不再 reject 放回池", async () => {
     const task = { id: "t1", text: "do x", title: "x" };
     const store = mockTaskStore({
       candidates: vi.fn(async () => [task]),
-      claimTopN: vi.fn(async () => []),   // assess 判定不认领
+      claimTopN: vi.fn(async () => []),   // 竞态/不可认领（坏任务 claims_count 超限）
       reject: vi.fn(async () => {}),
     });
-    // 需要 assess 返回 reject——通过 monkey-patch 或让 claimTopN 返回空触发空转防护？
-    // 空转防护：claim/reject 都空 → 全部 reject（对抗性审核 I4）
+    // 任务分配正交化（2026-08-08）：任务只属于自己队列，零认领 = 队列空——
+    // 不存在"更适合的角色"，放回池无意义 → 直接 return 下一轮
     const kernel = mockKernel();
     const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: {} as any });
     await loop.runOnce();
-    expect(store.reject).toHaveBeenCalledWith("developer", "t1", "assessed-as-unfit");
+    expect(store.reject).not.toHaveBeenCalled();
   });
 
   it("does not claim already-claimed tasks (race is normal)", async () => {
@@ -83,7 +83,7 @@ describe("task loop", () => {
     const kernel = mockKernel(async () => { throw new Error("boom"); });
     const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) } as any });
     await loop.runOnce();
-    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-crashed"));
+    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-crashed"), { terminal: true });
     expect(store.submit).not.toHaveBeenCalled();
   });
 
@@ -96,7 +96,7 @@ describe("task loop", () => {
     const kernel = mockKernel(async () => ({ ok: false, error: { message: "Expected ',', got 'string literal'" }, durationMs: 1 }));
     const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) } as any });
     await loop.runOnce();
-    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-failed"));
+    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-failed"), { terminal: true });
     expect(store.submit).not.toHaveBeenCalled();
   });
 

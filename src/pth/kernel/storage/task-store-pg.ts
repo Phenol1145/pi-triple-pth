@@ -1,5 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "./pg.js";
+import { routeTaskRole } from "../execution/role-router.js";
+
+/** 单任务最大认领次数（防坏任务无限 claim→reject 空转的兜底） */
+export const MAX_CLAIMS = 10;
 
 export interface Task {
   id: string;
@@ -11,6 +16,7 @@ export interface Task {
   claims_count: number;
   created_at: Date;
   payload: unknown;
+  assigned_role?: string | null;
 }
 
 export interface PublishInput {
@@ -25,7 +31,7 @@ export interface PublishInput {
 export interface TaskStore {
   candidates(agentId: string, opts?: { limit?: number }): Promise<Task[]>;
   claimTopN(agentId: string, ids: string[]): Promise<Task[]>;
-  reject(agentId: string, taskId: string, reason: string): Promise<void>;
+  reject(agentId: string, taskId: string, reason: string, opts?: { terminal?: boolean }): Promise<void>;
   submit(agentId: string, taskId: string, outputRef: unknown): Promise<void>;
   publish(input: PublishInput): Promise<Task>;
   // 跨 spec 扩展（plan Task 5 标注）：负载统计 collectStats 依赖 pending 队列长度。
@@ -36,25 +42,30 @@ export class PgTaskStore implements TaskStore {
   constructor(private pool: pg.Pool) {}
 
   async publish(input: PublishInput): Promise<Task> {
-    // gen_random_uuid() 在 PG 13+ 内置（无需 pgcrypto），PG16 已验证可用
+    // 任务分配正交化：应用层生成 id（crypto.randomUUID）→ routeTaskRole 确定性路由
+    // （flow 显式 role / tags 语义 / hash 分片兜底）——assigned_role 从出生即确定，零抢票。
+    const id = randomUUID();
+    const assignedRole = routeTaskRole({ id, tags: input.tags, payload: input.payload });
     const res = await this.pool.query(
-      `INSERT INTO tasks (id, title, text, created_by, tags, payload, template_id)
-       VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5, $6)
+      `INSERT INTO tasks (id, title, text, created_by, tags, payload, template_id, assigned_role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [input.title, input.text, input.createdBy, input.tags ?? [], input.payload ?? {}, input.templateId ?? null],
+      [id, input.title, input.text, input.createdBy, input.tags ?? [], input.payload ?? {}, input.templateId ?? null, assignedRole],
     );
     return mapRow(res.rows[0]);
   }
 
   async candidates(agentId: string, opts?: { limit?: number }): Promise<Task[]> {
-    // v1 简化：不按标签过滤（tasks.tags 与模板 label_patterns 的匹配语义交给 TaskLoop assess 阶段智能判断，
-    // 见 Spec B 设计）；返回全部 pending 任务。agentId 预留用于 v2 的按 agent 匹配/reject 排除。
+    // 任务分配正交化：只查自己队列（assigned_role = 自己）——零竞争零抢票。
+    // claims_count < MAX_CLAIMS：坏任务（terminal reject 被绕过）不占队列。
     const res = await this.pool.query(
       `SELECT * FROM tasks
        WHERE status = 'pending'
+         AND assigned_role = $1
+         AND claims_count < $2
        ORDER BY created_at
-       LIMIT $1`,
-      [opts?.limit ?? 10],
+       LIMIT $3`,
+      [agentId, MAX_CLAIMS, opts?.limit ?? 10],
     );
     return res.rows.map(mapRow);
   }
@@ -62,15 +73,17 @@ export class PgTaskStore implements TaskStore {
   async claimTopN(agentId: string, ids: string[]): Promise<Task[]> {
     // 并发原子认领：事务内先 SELECT ... FOR UPDATE SKIP LOCKED 抢占（跳过已被其他事务锁定的行，
     // 不阻塞等待），再 UPDATE 回写。两个并发 claimTopN 抢同一任务时只有一个能锁到行 → 只认领成功一个。
+    // 防御：claims_count >= MAX_CLAIMS 不再认领——即使 terminal reject 被绕过，坏任务最多空转 N 次。
     return withTx(this.pool, async (client) => {
       const sel = await client.query(
         `SELECT id FROM tasks
          WHERE id = ANY($1::text[])
            AND status = 'pending'
            AND (claimed_by IS NULL OR claimed_by = $2)
+           AND claims_count < $3
          ORDER BY id
          FOR UPDATE SKIP LOCKED`,
-        [ids, agentId],
+        [ids, agentId, MAX_CLAIMS],
       );
       if (sel.rows.length === 0) return [];
       const lockedIds = (sel.rows as Array<{ id: string }>).map((r) => r.id);
@@ -96,12 +109,14 @@ export class PgTaskStore implements TaskStore {
     return Number((res.rows[0] as { count: string }).count);
   }
 
-  async reject(agentId: string, taskId: string, reason: string): Promise<void> {
-    // 允许拒绝：未认领（claimed_by IS NULL）或本人已认领的任务；记录原因并释放认领（回到 pending）。
-    // 骨架里 `claimed_by = $2` 的严格匹配会让「未认领先 reject」的测试失败（brief 测试直接对 pending 任务 reject），故放宽。
+  async reject(agentId: string, taskId: string, reason: string, opts: { terminal?: boolean } = {}): Promise<void> {
+    // 允许拒绝：未认领（claimed_by IS NULL）或本人已认领的任务；记录原因并释放认领。
+    // terminal=true：坏任务终态化（status='rejected' 不回池）——执行失败（语法/崩溃）的任务
+    // 永远无法成功，回池会导致无限 claim→reject 空转（摸底实测 claims_count=252）。
+    // 默认（assessed-as-unfit 等软失败）：回到 pending（保持既有语义）。
     await this.pool.query(
       `UPDATE tasks SET
-         status = 'pending',
+         status = ${opts.terminal ? "'rejected'" : "'pending'"},
          claimed_by = NULL,
          rejects = rejects || $3::jsonb,
          updated_at = now()
@@ -135,5 +150,6 @@ function mapRow(row: any): Task {
     claims_count: row.claims_count,
     created_at: row.created_at,
     payload: row.payload,
+    assigned_role: row.assigned_role ?? null,
   };
 }

@@ -26,8 +26,10 @@ export interface TaskLoopDeps {
  *   逐条判别式失败不中断；认领竞态（claimed-by-other）为正常。
  *
  * v1 裁剪（Spec B §5 标注）：机械认领全部候选，无 assess 智能判断——assess（llm.complete
- *   自检候选是否可完成）留 v2 注入；空转防护（对抗性审核 I4）：整批候选零认领 → 全部
- *   reject（assessed-as-unfit）放回池，防止 peek/claim 全空导致的无限空转。
+ *   自检候选是否可完成）留 v2 注入。
+ * 任务分配正交化（2026-08-08）：candidates 只返回 assigned_role = 自己的任务——
+ *   零竞速抢票；零认领 = 自己队列空或全不可认领（坏任务），直接 return 下一轮
+ *   （不再 reject assessed-as-unfit——正交化后不存在"更适合的角色"，放回池无意义）。
  */
 export class TaskLoop {
   constructor(private deps: TaskLoopDeps) {}
@@ -45,15 +47,9 @@ export class TaskLoop {
       if (got.length > 0) claimed.push(got[0]);
     }
 
-    // 3. 空转防护：整批零认领 → 全部 reject 放回池。
-    //    assess 智能判定在 Spec B 集成时注入；v1 由「零认领即视为不可执行」兜底
-    //    （assessed-as-unfit），避免本批次既无认领又无拒绝的无限空转。
-    if (claimed.length === 0) {
-      for (const task of candidates) {
-        await taskStore.reject(role.id, task.id, "assessed-as-unfit");
-      }
-      return;
-    }
+    // 3. 正交化后零认领 = 自己队列空/全不可认领（坏任务）——直接 return 下一轮；
+    //    不再 reject assessed-as-unfit（任务只属于自己，放回池无意义）
+    if (claimed.length === 0) return;
 
     // 4. 执行已认领任务；认领竞态丢失者跳过——竞态为正常，不 reject
     for (const task of claimed) {
