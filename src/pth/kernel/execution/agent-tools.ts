@@ -12,6 +12,7 @@
 
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { AgentToolId } from "./parse-agent-action.js";
+import { buildDoc } from "../extensions/index.js";
 
 export interface AgentToolResult {
   ok: boolean;
@@ -102,17 +103,10 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
 /**
  * 能力函数文档（ts 程序内可用——喂给 LLM 的 system prompt）。
  * 元工具动作 → ts 程序；能力函数 → 程序内 await 调用。
+ * 标准扩展包自动聚合（SPEC 2026-08-09——扩展自声明 doc）
  */
 export const AGENT_CAPABILITY_DOC = `ts 程序内的能力函数（await 调用；组合/联动在程序内完成——结果自动注册 results 对象）：
-- python.execute: {code} —— Python REPL（设 _result = 值 作为返回值；返回 { ok, value, stdout }）
-- bash.execute: {command} —— Bash REPL（返回 { ok, stdout, stderr }）
-- memory.query: {sql} —— 只读 SQL 查记忆库（仅 SELECT；自动 LIMIT）。memory_entries 表：id text, kind text('tool-function'|'task-insight'|'refine-report'|'dev-artifact'|'memory'), anchors jsonb, content text, status text('draft'|'official'|'archived'), version int, hit_count int, ttl_expires_at timestamptz, created_at timestamptz, updated_at timestamptz
-- memory.write: {id?, kind, anchors, content} —— 写入记忆（沉淀）
-- llm.complete: {user, system?, model?} —— 调用子 LLM
-- web.fetchText: {url} —— 只读获取网页文本
-- fs.readText: {path} / fs.list: {dir?} —— 工具文件只读
-- results: ts 核内结果注册表对象——每步工具结果自动注册（results["result_N"] = {tool, value, stdout}）；程序内可读写（results.my_key = ...）
-- context: ts 核内任务工作台对象——跨步骤 KV（context.my_key = ...；后续程序直接读）`;
+${buildDoc()}`;
 
 /** 工具动作描述（元工具面） */
 export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：

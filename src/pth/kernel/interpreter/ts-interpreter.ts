@@ -1,6 +1,7 @@
 import { createContext, runInContext, type Context } from "node:vm";
 import { stripTypeScriptTypes } from "node:module";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
+import { buildSeeds } from "../extensions/index.js";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
 
@@ -22,11 +23,10 @@ export class TsInterpreter implements Interpreter {
   constructor(deps: { capabilities: Record<string, unknown>; timeoutMs?: number }) {
     this.capabilities = deps.capabilities;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+    // 标准扩展包预置对象（results/context/model——ts 核内 agent 状态，内部管理语言语义）
+    const seeds = buildSeeds();
     this.context = createContext({
-      // agent 状态对象（内部管理语言语义——用户裁决 2026-08-09）：
-      // results = 结果注册表（每步工具结果自动注册 + 程序内可写）；context = 任务工作台 KV
-      results: {},
-      context: {},
+      ...seeds,
       ...deps.capabilities,
     });
   }

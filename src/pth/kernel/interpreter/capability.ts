@@ -3,6 +3,7 @@ import type { Interpreter } from "./types.js";
 import type { DataWorldAccess } from "../storage/index.js";
 import type { PgMemoryStore } from "../storage/memory-store-pg.js";
 import type { Toolstore } from "./toolstore.js";
+import { buildExtensions } from "../extensions/index.js";
 
 /**
  * 能力注入：context 默认空，只注入白名单。
@@ -19,7 +20,10 @@ export function buildCapabilities(deps: {
   /** 环境感知（env.inspect）：按语言返回 kernel 状态摘要（LLM 友好版——变量/函数概览） */
   inspect?: (lang?: string) => Promise<unknown>;
 }): Record<string, unknown> {
+  // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
+  const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore });
   return {
+    ...ext.capabilities,
     llm: deps.llm,
     web: createWebCapability(),
     ...(deps.inspect ? { env: { inspect: deps.inspect } } : {}),
@@ -32,11 +36,6 @@ export function buildCapabilities(deps: {
           list: deps.toolstore.list.bind(deps.toolstore),
         } }
       : {}),
-    // Finding F1（Important）修复：memory 整体注入时其方法 retrieve/write/bumpHitCount 均用
-    // this.pool——裸对象注入后若被解构/提取（`const { retrieve } = memory; retrieve()`）this 丢失。
-    // bindAll 为所有函数属性（含原型链类方法）逐个 bind，非函数属性（pool 句柄）不注入 vm（安全边界）。
-    // 记忆查询（收敛 2026-08-09）：memory.query = 受限只读 SQL（与 agent 侧 memory.sql 同源执行器）
-    memory: { ...bindAll(deps.dataWorld.memory), query: deps.dataWorld.queryReadOnly.bind(deps.dataWorld) },
     skills: {
       get: async (name: string) => {
         // v1：skill 数据对象读取（Spec C skills 表——v1 独立表占位）
@@ -53,32 +52,6 @@ export function buildCapabilities(deps: {
     ...(deps.bash ? { bash: deps.bash } : {}),
     ...(deps.python ? { python: deps.python } : {}),
   };
-}
-
-/**
- * bindAll：为对象的所有函数属性逐个 bind 到原对象，返回包装对象（防方法提取丢 this）。
- * 类方法位于 prototype（Object.keys 只能拿到自身可枚举属性），故沿原型链收集
- * （到 Object.prototype 为止；constructor 除外）。非函数属性不拷贝——底层句柄
- * （如 pool）不注入 vm context（与「context 默认空、只注入白名单」的能力模型一致）。
- */
-function bindAll<T extends object>(obj: T): T {
-  const out: Record<string, unknown> = {};
-  const targets: Array<[string, (...args: unknown[]) => unknown]> = [];
-  let proto: object | null = obj;
-  const seen = new Set<string>();
-  while (proto !== null && proto !== Object.prototype) {
-    for (const key of Object.getOwnPropertyNames(proto)) {
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const desc = Object.getOwnPropertyDescriptor(proto, key);
-      if (desc && typeof desc.value === "function" && key !== "constructor") {
-        targets.push([key, desc.value]);
-      }
-    }
-    proto = Object.getPrototypeOf(proto);
-  }
-  for (const [key, fn] of targets) out[key] = fn.bind(obj);
-  return out as T;
 }
 
 /**
