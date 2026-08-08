@@ -157,6 +157,7 @@ async function main() {
         databaseUrl,
         basePath: path.join(dataDir, "workspaces"),
         artifactPath: path.join(dataDir, "artifacts"),
+        toolstorePath: path.join(dataDir, "toolstore"),
         // 生产 fork：dist 编译产物（纯 js，无需 loader/transform-types）；watchdog 30s 探测
       });
       logger.info({ event: "kernel_assembled", note: "PTH kernel 装配成功（pg + dataWorld + BatchManager + watchdog）" });

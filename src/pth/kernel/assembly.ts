@@ -10,6 +10,7 @@ export interface KernelRuntimeOptions {
   batchProcessPath?: string;  // batch-process 入口（默认按运行环境解析：dist 优先，src 兜底）
   execArgv?: string[];    // 生产 fork 透传（TS 源码模式：transform-types + resolve-hook loader）
   env?: Record<string, string>;  // 生产 fork 环境透传（PTH_BATCH_PROCESS/DATABASE_URL 等）
+  toolstorePath?: string;  // toolstore 文件通道目录（默认继承主进程 env）
   watchdogIntervalMs?: number; // watchdog 探测周期（默认 30s）
 }
 
@@ -104,6 +105,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
       DATABASE_URL: opts.databaseUrl,
       PTH_WORKSPACES_PATH: opts.basePath,
       PTH_ARTIFACTS_PATH: opts.artifactPath,
+      // toolstore 文件通道：继承主进程 env（默认 <dataDir>/toolstore）
+      PTH_TOOLSTORE_PATH: opts.toolstorePath ?? process.env.PTH_TOOLSTORE_PATH ?? "",
       ...opts.env,
     },
   });

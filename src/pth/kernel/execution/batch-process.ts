@@ -12,6 +12,7 @@ import { archiveTask, type ArchiveDeps } from "./archive.js";
 import { createKernelModelRouter } from "./model-router.js";
 import { createLlmFn } from "../interpreter/llm-fn.js";
 import { Refiner } from "./refiner.js";
+import { createToolstore } from "../interpreter/toolstore.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -88,12 +89,16 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const intervalMs = deps.intervalMs ?? 1000;
   // 多语言持久 REPL（T1-T3）：KernelManager 路由——python/bash 用持久 kernel
   // （实测 230x vs spawn）；sandbox 生产模式可用 env 切换（PTH_PYTHON_MODE/PTH_BASH_MODE）
+  // toolstore 文件通道（§0.5）：PTH_TOOLSTORE_PATH 或默认 toolstore/（相对工作目录）
+  const toolstoreDir = process.env.PTH_TOOLSTORE_PATH ?? "toolstore";
+  await mkdir(toolstoreDir, { recursive: true }).catch(() => {});
+  const toolstore = createToolstore(toolstoreDir);
   const loops = DEFAULT_ROLES.map((role) => {
     const manager = createKernelManager({
       pythonMode: (process.env.PTH_PYTHON_MODE as any) ?? "kernel",
       bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
     });
-    const kernel = createWorkerKernelWithManager({ llm: createLlmFn({ modelRouter }), dataWorld, manager });
+    const kernel = createWorkerKernelWithManager({ llm: createLlmFn({ modelRouter }), dataWorld, manager, toolstore });
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
     const refineEnabled = process.env.PTH_REFINE !== "off";
     const refiner = refineEnabled ? new Refiner({ llm: createLlmFn({ modelRouter }), memory: dataWorld.memory }) : undefined;

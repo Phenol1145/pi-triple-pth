@@ -87,6 +87,8 @@ export function createWorkerKernelWithManager(deps: {
   llm: LlmFn;
   dataWorld: DataWorldAccess;
   manager: KernelManager;
+  /** toolstore 文件通道（§0.5）：注入 fs.readText */
+  toolstore?: import("./toolstore.js").Toolstore;
 }): {
   ts: TsInterpreter;
   python: Interpreter;
@@ -97,7 +99,7 @@ export function createWorkerKernelWithManager(deps: {
   reset(): void;
   dispose(): void;
 } {
-  const capabilities = buildCapabilities({ llm: deps.llm, dataWorld: deps.dataWorld, bash: deps.manager.bash, python: deps.manager.python });
+  const capabilities = buildCapabilities({ llm: deps.llm, dataWorld: deps.dataWorld, bash: deps.manager.bash, python: deps.manager.python, toolstore: deps.toolstore });
   const ts = new TsInterpreter({ capabilities });
   return {
     ts,

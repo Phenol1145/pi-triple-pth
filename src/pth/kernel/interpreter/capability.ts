@@ -2,6 +2,7 @@ import type { LlmFn } from "./llm-fn.js";
 import type { Interpreter } from "./types.js";
 import type { DataWorldAccess } from "../storage/index.js";
 import type { PgMemoryStore } from "../storage/memory-store-pg.js";
+import type { Toolstore } from "./toolstore.js";
 
 /**
  * 能力注入：context 默认空，只注入白名单。
@@ -13,12 +14,21 @@ export function buildCapabilities(deps: {
   dataWorld: DataWorldAccess;
   bash?: Interpreter;
   python?: Interpreter;
+  /** toolstore 文件通道（§0.5）：注入 fs.readText（只读 toolstore 目录） */
+  toolstore?: Toolstore;
 }): Record<string, unknown> {
   return {
     llm: deps.llm,
     web: createWebCapability(),
     // 召回能力（T6）：后续任务从记忆区召回工具函数/洞察——扁平化闭环（agent 状态 = 记忆文档）
     state: createRecallState(deps.dataWorld.memory),
+    // 文件通道（§0.5）：fs.readText 只读 toolstore + fs.list 枚举可用工具
+    ...(deps.toolstore
+      ? { fs: {
+          readText: deps.toolstore.readText.bind(deps.toolstore),
+          list: deps.toolstore.list.bind(deps.toolstore),
+        } }
+      : {}),
     // Finding F1（Important）修复：memory 整体注入时其方法 retrieve/write/bumpHitCount 均用
     // this.pool——裸对象注入后若被解构/提取（`const { retrieve } = memory; retrieve()`）this 丢失。
     // bindAll 为所有函数属性（含原型链类方法）逐个 bind，非函数属性（pool 句柄）不注入 vm（安全边界）。
