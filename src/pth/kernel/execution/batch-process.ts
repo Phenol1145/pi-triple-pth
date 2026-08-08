@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { createPgPool } from "../storage/pg.js";
 import { applySchema } from "../storage/schema.js";
 import { createDataWorld } from "../storage/index.js";
-import { createWorkerKernel } from "../interpreter/index.js";
+import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../interpreter/index.js";
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
 import { DEFAULT_ROLES } from "./worker-cluster.js";
@@ -10,6 +10,7 @@ import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
 import { archiveTask, type ArchiveDeps } from "./archive.js";
 import { createKernelModelRouter } from "./model-router.js";
+import { createLlmFn } from "../interpreter/llm-fn.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -84,8 +85,14 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   };
 
   const intervalMs = deps.intervalMs ?? 1000;
+  // 多语言持久 REPL（T1-T3）：KernelManager 路由——python/bash 用持久 kernel
+  // （实测 230x vs spawn）；sandbox 生产模式可用 env 切换（PTH_PYTHON_MODE/PTH_BASH_MODE）
   const loops = DEFAULT_ROLES.map((role) => {
-    const kernel = createWorkerKernel({ modelRouter, dataWorld });
+    const manager = createKernelManager({
+      pythonMode: (process.env.PTH_PYTHON_MODE as any) ?? "kernel",
+      bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
+    });
+    const kernel = createWorkerKernelWithManager({ llm: createLlmFn({ modelRouter }), dataWorld, manager });
     return new BatchTaskLoop({ kernel, role, taskStore: dataWorld.tasks, workspaceMgr }, archiveDeps);
   });
 

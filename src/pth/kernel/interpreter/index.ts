@@ -47,3 +47,4 @@ export * from "./bash-interpreter.js";
 export { PythonInterpreter } from "./python-interpreter.js";
 export * from "./llm-fn.js";
 export * from "./capability.js";
+export * from "./kernel-manager.js";
