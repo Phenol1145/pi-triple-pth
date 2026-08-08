@@ -14,6 +14,8 @@ import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
 import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, type AgentToolResult } from "./agent-tools.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
+import { config, configNumber } from "../extensions/perf-params.js";
+import { modelState } from "../extensions/model.js";
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
@@ -95,8 +97,9 @@ async function buildEnvironmentPrelude(caps: Record<string, unknown>): Promise<s
 
 export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Promise<AgentTaskResult> {
   const { llm, kernel, caps } = input;
-  const maxSteps = input.maxSteps ?? Number(process.env.PTH_AGENT_MAX_STEPS ?? DEFAULT_MAX_STEPS);
-  const timeoutMs = input.timeoutMs ?? Number(process.env.PTH_AGENT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+  // 参数走配置中心（Phase 2——perf.set 运行时生效；env 兜底）
+  const maxSteps = input.maxSteps ?? configNumber("PTH_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS);
+  const timeoutMs = input.timeoutMs ?? configNumber("PTH_AGENT_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   const system = buildAgentSystemPrompt(input.role, input.task.title);
   // 静态环境注入（②）：任务开始时拉环境预置（toolstore 文件 + 记忆概览）——LLM 一上来就知道可用资产
   const prelude = await buildEnvironmentPrelude(caps);
@@ -116,7 +119,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     try {
       // LLM 调用超时保护（实测修复 2026-08-09：deepseek-v4-flash 挂起 → 循环冻结——
       // 任务级超时检查在循环头，卡在 await 内永远到不了；单次调用 30s 兜底）
-      const llmTimeoutMs = Number(process.env.PTH_AGENT_LLM_TIMEOUT_MS ?? 30_000);
+      const llmTimeoutMs = configNumber("PTH_AGENT_LLM_TIMEOUT_MS", 30_000);
       const res = await Promise.race([
         llm.complete(
           [
@@ -125,7 +128,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
           ],
           {
             provider: "deepseek",
-            model: process.env.PTH_AGENT_MODEL ?? "deepseek-v4-flash",
+            model: modelState.current?.model ?? config().get("PTH_AGENT_MODEL") ?? "deepseek-v4-flash",
             timeoutMs: llmTimeoutMs,
           },
         ),
@@ -150,7 +153,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     const parsed = parseAgentAction(raw);
     if (!parsed.ok) {
       // 容错：重试一次（PTH_AGENT_RETRY_PARSE 默认 1）
-      const retry = Number(process.env.PTH_AGENT_RETRY_PARSE ?? 1);
+      const retry = configNumber("PTH_AGENT_RETRY_PARSE", 1);
       if (retry > 0) {
         const raw2 = await complete();
         const parsed2 = parseAgentAction(raw2);

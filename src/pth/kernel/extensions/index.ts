@@ -14,6 +14,8 @@ import type { Toolstore } from "../interpreter/toolstore.js";
 export interface ExtContext {
   dataWorld: DataWorldAccess;
   toolstore?: Toolstore;
+  /** 策略目录（perf.publish/apply/list——默认 toolstore/strategies） */
+  strategiesDir?: string;
 }
 
 export interface TsReplExtension {
@@ -29,9 +31,10 @@ export interface TsReplExtension {
 import { memoryExtension } from "./memory.js";
 import { contextExtension } from "./context.js";
 import { modelExtension } from "./model.js";
+import { perfExtension } from "./perf.js";
 
 /** 注册表：新扩展 = 模块 + 加入此数组 */
-export const EXTENSIONS: TsReplExtension[] = [memoryExtension, contextExtension, modelExtension];
+export const EXTENSIONS: TsReplExtension[] = [memoryExtension, contextExtension, modelExtension, perfExtension];
 
 export interface BuiltExtensions {
   /** 合并后的 vm 能力注入（provide 结果） */
