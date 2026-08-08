@@ -10,6 +10,7 @@
  */
 
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { resolveSdkConfigPaths } from "@pi-triple/infra";
 
 export interface KernelRouterLike {
   resolve(provider?: string, model?: string): NonNullable<ReturnType<ModelRuntime["getModel"]>>;
@@ -23,7 +24,7 @@ export async function createKernelModelRouter(opts: {
   provider?: string;
   model?: string;
 } = {}): Promise<KernelRouterLike> {
-  const runtime = await ModelRuntime.create({ allowModelNetwork: false });
+  const runtime = await ModelRuntime.create({ allowModelNetwork: false, ...resolveSdkConfigPaths() });
   const provider = opts.provider ?? process.env.PTH_MODEL_PROVIDER ?? DEFAULT_PROVIDER;
   const model = opts.model ?? process.env.PTH_MODEL ?? DEFAULT_MODEL;
 
