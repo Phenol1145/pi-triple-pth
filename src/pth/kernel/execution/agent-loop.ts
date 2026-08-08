@@ -114,16 +114,23 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   const complete = async (): Promise<string> => {
     const userContent = `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}${toolTrail.length > 0 ? `执行记录：\n${toolTrail.join("\n")}\n\n` : ""}请输出下一个 JSON 动作（完成则输出 done）。`;
     try {
-      const res = await llm.complete(
-        [
-          { role: "system", content: system },
-          { role: "user", content: userContent },
-        ],
-        {
-          provider: "deepseek",
-          model: process.env.PTH_AGENT_MODEL ?? "deepseek-v4-flash",
-        },
-      );
+      // LLM 调用超时保护（实测修复 2026-08-09：deepseek-v4-flash 挂起 → 循环冻结——
+      // 任务级超时检查在循环头，卡在 await 内永远到不了；单次调用 30s 兜底）
+      const llmTimeoutMs = Number(process.env.PTH_AGENT_LLM_TIMEOUT_MS ?? 30_000);
+      const res = await Promise.race([
+        llm.complete(
+          [
+            { role: "system", content: system },
+            { role: "user", content: userContent },
+          ],
+          {
+            provider: "deepseek",
+            model: process.env.PTH_AGENT_MODEL ?? "deepseek-v4-flash",
+            timeoutMs: llmTimeoutMs,
+          },
+        ),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`llm-timeout after ${llmTimeoutMs}ms`)), llmTimeoutMs)),
+      ]);
       return res.content;
     } catch (e) {
       return `__llm_error__:${(e as Error).message}`;
