@@ -22,6 +22,10 @@ export interface BatchStatus {
 export interface BatchManagerDeps {
   batchProcessPath: string;    // batch-process.ts（Task 7 建；v1 测试用 stub）
   workers?: string[];          // v1 全角色 7 个
+  /** 生产 fork 透传（Task 4）：TS 入口需 --experimental-transform-types + resolve-hook loader */
+  execArgv?: string[];
+  /** 生产 fork 环境透传（Task 4）：PTH_BATCH_PROCESS/PTH_TEST_DATABASE_URL 等 */
+  env?: Record<string, string>;
 }
 
 /**
@@ -39,6 +43,8 @@ export class BatchManager {
     const id = randomUUID();
     const workers = this.deps.workers ?? ["analyst", "planner", "developer", "scout", "memory-keeper", "acceptor", "human-interface"];
     const child = fork(this.deps.batchProcessPath, [], {
+      execArgv: this.deps.execArgv,
+      env: this.deps.env ? { ...process.env, ...this.deps.env } : undefined,
       stdio: ["ignore", "inherit", "inherit", "ipc"],
     });
     const record = { id, child, workers, currentTasks: new Map<string, string>() };
@@ -127,7 +133,12 @@ export class BatchManager {
     return out;
   }
 
-  /** v1：统计建议由 stats.suggest 计算（Task 5）；此处接线占位 */
+  /** 存活判定（装配层 watchdog 消费）：batch 仍在运行（exitCode/signalCode 均未决）。 */
+  isBatchAlive(id: string): boolean {
+    const rec = this.batches.get(id);
+    if (!rec) return false;
+    return rec.child.exitCode === null && rec.child.signalCode === null && !rec.child.killed;
+  }
   async suggest(): Promise<BatchSuggestion> {
     const batches = await this.listBatches();
     // Task 7 集成时接 collectStats（需 taskStore）——v1 简单返回 keep；
