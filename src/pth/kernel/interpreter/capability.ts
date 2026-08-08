@@ -1,6 +1,7 @@
 import type { LlmFn } from "./llm-fn.js";
 import type { Interpreter } from "./types.js";
 import type { DataWorldAccess } from "../storage/index.js";
+import type { PgMemoryStore } from "../storage/memory-store-pg.js";
 
 /**
  * 能力注入：context 默认空，只注入白名单。
@@ -16,6 +17,8 @@ export function buildCapabilities(deps: {
   return {
     llm: deps.llm,
     web: createWebCapability(),
+    // 召回能力（T6）：后续任务从记忆区召回工具函数/洞察——扁平化闭环（agent 状态 = 记忆文档）
+    state: createRecallState(deps.dataWorld.memory),
     // Finding F1（Important）修复：memory 整体注入时其方法 retrieve/write/bumpHitCount 均用
     // this.pool——裸对象注入后若被解构/提取（`const { retrieve } = memory; retrieve()`）this 丢失。
     // bindAll 为所有函数属性（含原型链类方法）逐个 bind，非函数属性（pool 句柄）不注入 vm（安全边界）。
@@ -119,6 +122,37 @@ export function createWebCapability(): WebCapability {
       } finally {
         clearTimeout(timer);
       }
+    },
+  };
+}
+
+/**
+ * 召回能力（解释器持久化层 T6）：state.recallFunctions / recallInsights
+ * 后续任务从记忆区召回：
+ *   - 工具函数（tool-function：content=源码，meta.spec=构造文档）——eval 重放或按 spec 重建
+ *   - 经验/洞察（task-insight：content=文本）
+ * 只读（检索记忆），无写——写走 memory 能力（任务代码显式）。
+ */
+export interface RecallState {
+  recallFunctions(anchors: string[], opts?: { limit?: number }): Promise<
+    Array<{ key: string; source: string; spec: unknown }>
+  >;
+  recallInsights(anchors: string[], opts?: { limit?: number }): Promise<string[]>;
+}
+
+export function createRecallState(memory: Pick<PgMemoryStore, "retrieve">): RecallState {
+  return {
+    async recallFunctions(anchors, opts = {}) {
+      const entries = await memory.retrieve({ anchors, kinds: ["tool-function"], status: ["official"] });
+      return entries.slice(0, opts.limit ?? 5).map((e) => ({
+        key: (e.anchors[0] ?? e.id).replace(/^fn-/, ""),
+        source: e.content,
+        spec: e.meta?.spec ?? null,
+      }));
+    },
+    async recallInsights(anchors, opts = {}) {
+      const entries = await memory.retrieve({ anchors, kinds: ["task-insight"], status: ["official"] });
+      return entries.slice(0, opts.limit ?? 10).map((e) => e.content);
     },
   };
 }
