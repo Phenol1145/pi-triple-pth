@@ -13,9 +13,7 @@ export const AGENT_TOOL_IDS = [
   "web.fetchText",
   "fs.readText",
   "fs.list",
-  "state.recallFunctions",
-  "state.recallInsights",
-  "memory.retrieve",
+  "memory.sql",
   "memory.write",
   "done",
 ] as const;

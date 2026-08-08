@@ -22,6 +22,8 @@ export interface AgentToolCtx {
   kernel: WorkerKernel;
   /** capability 白名单（web/state/fs/memory/llm）——与 vm 注入同一份 */
   caps: Record<string, unknown>;
+  /** 受限只读 SQL 执行器（memory.sql 用——batch 注入 pg pool，只允许 SELECT） */
+  sql?: (sql: string) => Promise<unknown>;
 }
 
 export type AgentTool = (ctx: AgentToolCtx, args: Record<string, unknown>) => Promise<AgentToolResult>;
@@ -106,47 +108,6 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     }
   },
 
-  "state.recallFunctions": async (_ctx, args) => {
-    const state = _ctx.caps["state"] as { recallFunctions?(q?: string): Promise<unknown> } | undefined;
-    if (!state?.recallFunctions) return { ok: false, error: "state 能力未注入" };
-    try {
-      const r = await state.recallFunctions(typeof args["query"] === "string" ? args["query"] : undefined);
-      const t = truncate(JSON.stringify(r), 4000);
-      return { ok: true, value: r, stdout: t.text, truncated: t.truncated };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  },
-
-  "state.recallInsights": async (_ctx, args) => {
-    const state = _ctx.caps["state"] as { recallInsights?(q?: string): Promise<unknown> } | undefined;
-    if (!state?.recallInsights) return { ok: false, error: "state 能力未注入" };
-    try {
-      const r = await state.recallInsights(typeof args["query"] === "string" ? args["query"] : undefined);
-      const t = truncate(JSON.stringify(r), 4000);
-      return { ok: true, value: r, stdout: t.text, truncated: t.truncated };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  },
-
-  "memory.retrieve": async (_ctx, args) => {
-    const memory = _ctx.caps["memory"] as { retrieve(opts: unknown): Promise<unknown> } | undefined;
-    if (!memory?.retrieve) return { ok: false, error: "memory 能力未注入" };
-    try {
-      const anchors = args["anchors"];
-      const r = await memory.retrieve({
-        anchors: Array.isArray(anchors) ? anchors : [String(anchors ?? "")],
-        kinds: Array.isArray(args["kinds"]) ? args["kinds"] : undefined,
-        limit: typeof args["limit"] === "number" ? args["limit"] : undefined,
-      });
-      const t = truncate(JSON.stringify(r), 4000);
-      return { ok: true, value: r, stdout: t.text, truncated: t.truncated };
-    } catch (e) {
-      return { ok: false, error: (e as Error).message };
-    }
-  },
-
   "memory.write": async (_ctx, args) => {
     const memory = _ctx.caps["memory"] as { write(opts: unknown): Promise<unknown> } | undefined;
     if (!memory?.write) return { ok: false, error: "memory 能力未注入" };
@@ -163,6 +124,37 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     }
   },
 
+  "memory.sql": async (ctx, args) => {
+    // 记忆收敛（2026-08-09）：查询工具合一——LLM 写只读 SQL 自查询/加载。
+    // 安全（LLM 输入不可信）：①仅 SELECT ②单条语句 ③强制 LIMIT ④错误回填修正。
+    const sql = str(args, "sql");
+    const trimmed = sql.trim();
+    if (!/^select\b/i.test(trimmed)) {
+      return { ok: false, error: "memory.sql 只读：仅允许 SELECT 查询（read-only）" };
+    }
+    if (trimmed.includes(";")) {
+      return { ok: false, error: "memory.sql 仅允许单条语句（single statement only）" };
+    }
+    if (!ctx.sql) return { ok: false, error: "memory.sql 执行器未注入（batch 未配置 pg）" };
+    // 强制 LIMIT：无 LIMIT 追加 50；显式 LIMIT 压到上限 200
+    let safe = trimmed;
+    if (!/\blimit\s+\d+/i.test(safe)) {
+      safe = `${safe} LIMIT 50`;
+    } else {
+      safe = safe.replace(/\blimit\s+\d+/i, (m) => {
+        const n = Math.min(Number(m.replace(/\D/g, "")) || 50, 200);
+        return `LIMIT ${n}`;
+      });
+    }
+    try {
+      const rows = await ctx.sql(safe);
+      const t = truncate(JSON.stringify(rows), 6000);
+      return { ok: true, value: rows, stdout: t.text, truncated: t.truncated };
+    } catch (e) {
+      return { ok: false, error: `SQL 错误：${(e as Error).message}` };
+    }
+  },
+
   // done 由 agent-loop 拦截（不执行）
   done: async () => ({ ok: true, value: null, stdout: "done" }),
 };
@@ -175,6 +167,6 @@ export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON �
 - llm.complete: {user, system?, model?} —— 调用子 LLM
 - web.fetchText: {url} —— 只读获取网页文本
 - fs.readText: {path} / fs.list: {dir?} —— 工具文件只读
-- state.recallFunctions: {query?} / state.recallInsights: {query?} —— 记忆召回
-- memory.retrieve: {anchors, kinds?, limit?} / memory.write: {id?, kind, anchors, content} —— 记忆读写
+- memory.sql: {sql} —— 只读 SQL 查询记忆库 read-only（仅 SELECT；自动 LIMIT 防无界扫描）。memory_entries 表：id text, kind text('tool-function'|'task-insight'|'refine-report'|'dev-artifact'|'memory'), anchors jsonb, content text, status text('draft'|'official'|'archived'), version int, hit_count int, ttl_expires_at timestamptz, created_at timestamptz, updated_at timestamptz
+- memory.write: {id?, kind, anchors, content} —— 写入记忆（沉淀）
 - done: {result, summary?} —— 完成任务，result 为最终产出对象`;
