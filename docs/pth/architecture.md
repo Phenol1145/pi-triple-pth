@@ -1,5 +1,6 @@
 > PTH（Pi-Triple-Heavy）文档 — agent 联邦平台
 > 双产品全景见顶层 [`ARCHITECTURE.md`](../../ARCHITECTURE.md)。
+> **任务内核（任务池/多语言 REPL/记忆闭环/监控）见 [`kernel.md`](./kernel.md)（本文档之外的独立体系）。**
 # 架构文档
 
 ## 设计哲学
