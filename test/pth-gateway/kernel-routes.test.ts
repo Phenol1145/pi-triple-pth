@@ -80,6 +80,46 @@ describe("kernel routes", () => {
       expect(res.statusCode).toBe(400);
     });
 
+    it("POST /api/v1/kernel/tasks 模板发布（recon-doc）→ 201", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/kernel/tasks",
+        payload: { template: "recon-doc", params: { url: "https://go.dev/ref/spec" }, createdBy: "tester" },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json();
+      expect(body.title).toContain("recon-doc");
+      expect(body.text).toContain("web.fetchText");
+    });
+
+    it("POST /api/v1/kernel/tasks 模板缺必填参数 → 400", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/kernel/tasks",
+        payload: { template: "recon-doc", params: {} },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("url");
+    });
+
+    it("POST /api/v1/kernel/tasks 未知模板 → 404", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/kernel/tasks",
+        payload: { template: "nope", params: {} },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it("GET /api/v1/kernel/templates → 模板列表", async () => {
+      const res = await app.inject({ method: "GET", url: "/api/v1/kernel/templates" });
+      expect(res.statusCode).toBe(200);
+      const ids = (res.json() as Array<{ id: string }>).map((t) => t.id);
+      expect(ids).toContain("recon-doc");
+      expect(ids).toContain("memory-maintain");
+      expect(ids).toContain("dev-task");
+    });
+
     it("GET /api/v1/kernel/tasks → 任务列表", async () => {
       const res = await app.inject({ method: "GET", url: "/api/v1/kernel/tasks" });
       expect(res.statusCode).toBe(200);

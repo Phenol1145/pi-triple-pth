@@ -80,6 +80,28 @@ export default async function registerPthTasks(api: ExtensionAPI): Promise<void>
         return `✅ 任务已发布\n  id: ${task.id}\n  status: ${task.status}\n  查看: /pthtask ls`;
       }
 
+      if (cmd.kind === "publish-template") {
+        const res = await request("/api/v1/kernel/tasks", {
+          method: "POST",
+          body: JSON.stringify({
+            template: cmd.template,
+            params: cmd.params,
+            createdBy: "ptl-session",
+            tags: cmd.tags ?? [cmd.template],
+          }),
+        });
+        const task = (await res.json()) as Record<string, unknown>;
+        return `✅ [模板 ${cmd.template}] 任务已发布\n  id: ${task.id}\n  status: ${task.status}\n  查看: /pthtask ls`;
+      }
+
+      if (cmd.kind === "templates") {
+        const res = await request("/api/v1/kernel/templates", { method: "GET" });
+        const templates = (await res.json()) as Array<{ id: string; name: string; description: string }>;
+        if (templates.length === 0) return "暂无模板。";
+        const lines = templates.map((t) => `  ${t.id} — ${t.name}: ${t.description}`);
+        return `PTH 任务模板:\n${lines.join("\n")}\n发布: /pthtask publish --template <id> --url <x> [--anchors a,b]`;
+      }
+
       if (cmd.kind === "ls") {
         const res = await request(`/api/v1/kernel/tasks?limit=${cmd.limit}`, { method: "GET" });
         return renderTasks((await res.json()) as Array<Record<string, unknown>>);

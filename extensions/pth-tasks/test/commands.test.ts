@@ -24,6 +24,21 @@ describe("parsePthtaskArgs", () => {
     assert.equal(parsePthtaskArgs("publish").kind, "help");
   });
 
+  it("publish --template 解析模板与参数", () => {
+    const c = parsePthtaskArgs("publish --template recon-doc --url https://go.dev/ref/spec --anchors go,spec --tags memory");
+    assert.equal(c.kind, "publish-template");
+    if (c.kind === "publish-template") {
+      assert.equal(c.template, "recon-doc");
+      assert.equal(c.params.url, "https://go.dev/ref/spec");
+      assert.equal(c.params.anchors, "go,spec");
+      assert.deepEqual(c.tags, ["memory"]);
+    }
+  });
+
+  it("templates 命令", () => {
+    assert.equal(parsePthtaskArgs("templates").kind, "templates");
+  });
+
   it("ls 默认 limit 20 / 指定 limit", () => {
     assert.equal((parsePthtaskArgs("ls") as { limit: number }).limit, 20);
     assert.equal((parsePthtaskArgs("ls --limit 5") as { limit: number }).limit, 5);

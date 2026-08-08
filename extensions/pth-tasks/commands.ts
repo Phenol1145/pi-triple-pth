@@ -5,6 +5,8 @@
 
 export type PthtaskCommand =
   | { kind: "publish"; desc: string; tags?: string[] }
+  | { kind: "publish-template"; template: string; params: Record<string, string>; tags?: string[] }
+  | { kind: "templates" }
   | { kind: "ls"; limit: number }
   | { kind: "batch"; action: "add" | "remove"; count: number }
   | { kind: "status" }
@@ -15,6 +17,26 @@ export function parsePthtaskArgs(args: string): PthtaskCommand {
   const cmd = argv[0];
   switch (cmd) {
     case "publish": {
+      // --template <id> --key value...
+      const tplIdx = argv.indexOf("--template");
+      if (tplIdx >= 0) {
+        const template = argv[tplIdx + 1];
+        if (!template) return { kind: "help" };
+        const params: Record<string, string> = {};
+        const known = new Set(["--template", "--tags"]);
+        for (let i = tplIdx + 2; i < argv.length; i += 2) {
+          const k = argv[i];
+          const v = argv[i + 1];
+          if (!k || !k.startsWith("--") || v === undefined || known.has(k)) {
+            if (v === undefined) break;
+            continue;
+          }
+          params[k.slice(2)] = v;
+        }
+        const tagsIdx = argv.indexOf("--tags");
+        const tags = tagsIdx >= 0 ? (argv[tagsIdx + 1] ?? "").split(",").map((t) => t.trim()).filter(Boolean) : undefined;
+        return { kind: "publish-template", template, params, tags };
+      }
       const tagsIdx = argv.indexOf("--tags");
       let desc = "";
       let tags: string[] | undefined;
@@ -27,6 +49,8 @@ export function parsePthtaskArgs(args: string): PthtaskCommand {
       if (!desc) return { kind: "help" };
       return { kind: "publish", desc, tags };
     }
+    case "templates":
+      return { kind: "templates" };
     case "ls": {
       const limitIdx = argv.indexOf("--limit");
       const limit = limitIdx >= 0 ? parseInt(argv[limitIdx + 1] ?? "20", 10) || 20 : 20;
@@ -48,10 +72,12 @@ export function parsePthtaskArgs(args: string): PthtaskCommand {
 export function renderHelp(): string {
   return [
     "PTH 任务发布工具",
-    "  /pthtask publish <描述> [--tags a,b]   发布任务",
-    "  /pthtask ls [--limit n]                任务列表",
-    "  /pthtask status                        运行状态全景",
-    "  /pthtask batch add|remove [n]          batch 扩缩容",
+    "  /pthtask publish <描述> [--tags a,b]                 发布任务",
+    "  /pthtask publish --template <id> --key value...     模板发布（recon-doc/memory-maintain/dev-task）",
+    "  /pthtask templates                                  模板列表",
+    "  /pthtask ls [--limit n]                             任务列表",
+    "  /pthtask status                                     运行状态全景",
+    "  /pthtask batch add|remove [n]                       batch 扩缩容",
   ].join("\n");
 }
 

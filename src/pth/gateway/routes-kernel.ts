@@ -17,6 +17,7 @@
 
 import type { FastifyInstance } from "fastify";
 import type { KernelRuntime } from "../kernel/assembly.js";
+import { TASK_TEMPLATES, renderTaskTemplate, validateTemplateParams } from "../kernel/templates.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 
@@ -28,6 +29,31 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   app.post("/api/v1/kernel/tasks", async (req, reply) => {
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
+
+    // 模板发布：{template, params} → 渲染任务 text
+    if (typeof body.template === "string") {
+      const params = (body.params ?? {}) as Record<string, unknown>;
+      const missing = validateTemplateParams(body.template, params);
+      if (missing.includes("unknown-template")) {
+        return reply.status(404).send({ error: `unknown template: ${body.template}` });
+      }
+      if (missing.length > 0) {
+        return reply.status(400).send({ error: `missing required params: ${missing.join(", ")}` });
+      }
+      const rendered = renderTaskTemplate(body.template, params);
+      if (!rendered) return reply.status(404).send({ error: `unknown template: ${body.template}` });
+      const tpl = TASK_TEMPLATES.find((t) => t.id === body.template)!;
+      const task = await kernel.dataWorld.tasks.publish({
+        title: `[${body.template}] ${tpl.name}`,
+        text: rendered,
+        createdBy: typeof body.createdBy === "string" ? body.createdBy : "ptl",
+        tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : [body.template],
+        payload: { template: body.template, params },
+      });
+      return reply.status(201).send(task);
+    }
+
+    // 直接发布：{title, text, createdBy, tags?}
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const text = typeof body.text === "string" ? body.text.trim() : "";
     const createdBy = typeof body.createdBy === "string" ? body.createdBy.trim() : "";
@@ -37,6 +63,17 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     const tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : undefined;
     const task = await kernel.dataWorld.tasks.publish({ title, text, createdBy, tags });
     return reply.status(201).send(task);
+  });
+
+  // ── 模板列表 ──────────────────────────────────────────────
+  app.get("/api/v1/kernel/templates", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    return TASK_TEMPLATES.map((t) => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      params: t.params,
+    }));
   });
 
   app.get("/api/v1/kernel/tasks", async (req, reply) => {
