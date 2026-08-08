@@ -201,7 +201,14 @@ async function main() {
           if (req === "batches") {
             if (!kernelRuntime?.batchManager) return { error: "kernel 未装配" };
             const bs = await kernelRuntime.batchManager.listBatches();
-            return bs.map((b: any) => ({ id: b.id, pid: b.child?.pid, workers: b.workers, tasks: [...b.currentTasks.values()] }));
+            return bs.map((b: any) => ({
+              id: b.id,
+              pid: b.pid ?? b.child?.pid,
+              workers: b.workers,
+              // BatchStatus.currentTasks 是 Record（workerId → taskId）——Object.values 遍历
+              tasks: b.currentTasks && typeof b.currentTasks === "object" ? Object.values(b.currentTasks) : [],
+              idleRatio: b.idleRatio,
+            }));
           }
           return { error: `未知 obs 请求: ${req}` };
         },
