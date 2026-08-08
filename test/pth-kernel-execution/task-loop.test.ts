@@ -84,6 +84,20 @@ describe("task loop", () => {
     const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) } as any });
     await loop.runOnce();
     expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-crashed"));
+    expect(store.submit).not.toHaveBeenCalled();
+  });
+
+  it("rejects task on interpreter ok:false (试运行发现 SyntaxError 误标 completed)", async () => {
+    const task = { id: "t1", text: "do x", title: "x" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const kernel = mockKernel(async () => ({ ok: false, error: { message: "Expected ',', got 'string literal'" }, durationMs: 1 }));
+    const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) } as any });
+    await loop.runOnce();
+    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-failed"));
+    expect(store.submit).not.toHaveBeenCalled();
   });
 
   it("submit passes output ref and archives", async () => {

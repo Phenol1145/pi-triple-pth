@@ -61,6 +61,13 @@ export class TaskLoop {
     kernel.reset();                          // 任务级状态隔离
     try {
       const result = await kernel.ts.execute(task.text, { cwd: ws.dir });
+      if (!result.ok) {
+        // 执行失败（语法/运行时错误——interpreter 返回 ok:false 不抛）：按 reject 处理，
+        // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。
+        await taskStore.reject(role.id, task.id, `execution-failed: ${result.error?.message ?? "unknown"}`);
+        await this.archive(task, ws, result);
+        return;
+      }
       await taskStore.submit(role.id, task.id, { ref: result });
       await this.archive(task, ws, result);
     } catch (e) {
