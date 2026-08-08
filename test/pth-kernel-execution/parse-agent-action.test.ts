@@ -46,9 +46,9 @@ describe("isKnownTool（白名单校验）", () => {
     expect(isKnownTool("python.execute")).toBe(true);
     expect(isKnownTool("bash.execute")).toBe(true);
     expect(isKnownTool("done")).toBe(true);
-    // 能力函数已收敛进 ts 程序（非动作工具）
-    expect(isKnownTool("memory.write")).toBe(false);
-    expect(isKnownTool("llm.complete")).toBe(false);
+    // 能力函数已收敛进 ts 程序——但作为动作输出时自动降级（isKnownTool 放行）
+    expect(isKnownTool("memory.write")).toBe(true);
+    expect(isKnownTool("llm.complete")).toBe(true);
   });
   it("未知工具", () => {
     expect(isKnownTool("rm -rf /")).toBe(false);
