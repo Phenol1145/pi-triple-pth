@@ -75,12 +75,16 @@ export class TaskLoop {
       // Refine（T4）：任务完成后快照+提炼+持久化。kernel.reset 在下一任务才调用——
       // 此刻 context 仍存活，可快照。refine 失败不阻塞任务完成（旁路降级）。
       if (this.deps.refiner) {
-        try {
-          const snap = await this.deps.kernel.snapshot();
-          await this.deps.refiner.refine({ task, snapshot: snap });
-        } catch (e) {
-          // 降级：refine 失败仅记日志，任务已 completed 不受影响（草案 P6）
-          console.error(`[refine] task ${task.id} refine failed: ${(e as Error).message}`);
+        // Per-task refine 开关（P6 增强）：payload.refine = "off" 关闭；缺省跟随全局
+        const taskRefine = ((task.payload ?? {}) as { refine?: string }).refine;
+        if (taskRefine !== "off") {
+          try {
+            const snap = await this.deps.kernel.snapshot();
+            await this.deps.refiner.refine({ task, snapshot: snap });
+          } catch (e) {
+            // 降级：refine 失败仅记日志，任务已 completed 不受影响（草案 P6）
+            console.error(`[refine] task ${task.id} refine failed: ${(e as Error).message}`);
+          }
         }
       }
     } catch (e) {

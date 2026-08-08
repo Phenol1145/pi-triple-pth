@@ -114,3 +114,67 @@ describe("task loop", () => {
     expect(store.submit).toHaveBeenCalled();
   });
 });
+
+describe("task loop refiner 钩子", () => {
+  const role = { id: "developer", labelPatterns: ["code"], prompt: "dev" };
+
+  function runOnceWith(task: any, refiner: any) {
+    const store = {
+      candidates: async () => [task],
+      claimTopN: async () => [task],
+      reject: async () => {},
+      submit: async () => {},
+    };
+    const kernel = {
+      ts: { execute: async () => ({ ok: true, value: "done", durationMs: 1 }) },
+      bash: { execute: async () => ({ ok: true }) },
+      python: { execute: async () => ({ ok: true }) },
+      llm: { complete: async () => ({ content: "ok" }) },
+      dataWorld: {} as any,
+      snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
+      reset: () => {},
+      dispose: () => {},
+    } as any;
+    const loop = new TaskLoop(
+      { kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) }, refiner },
+    );
+    return loop.runOnce();
+  }
+
+  it("payload.refine=off → 不调用 refiner", async () => {
+    const refiner = { refine: vi.fn(async () => ({})) };
+    await runOnceWith({ id: "t1", text: "x", title: "t", payload: { refine: "off" } }, refiner);
+    expect(refiner.refine).not.toHaveBeenCalled();
+  });
+
+  it("无 refine 字段 → 调用 refiner（默认 auto）", async () => {
+    const refiner = { refine: vi.fn(async () => ({})) };
+    await runOnceWith({ id: "t1", text: "x", title: "t", payload: {} }, refiner);
+    expect(refiner.refine).toHaveBeenCalled();
+  });
+
+  it("refine 抛错 → 任务仍 completed（旁路降级）", async () => {
+    const refiner = { refine: vi.fn(async () => { throw new Error("llm down"); }) };
+    const store = {
+      candidates: async () => [{ id: "t1", text: "x", title: "t", payload: {} }],
+      claimTopN: async () => [{ id: "t1", text: "x", title: "t", payload: {} }],
+      reject: vi.fn(async () => {}),
+      submit: vi.fn(async () => {}),
+    };
+    const kernel = {
+      ts: { execute: async () => ({ ok: true, value: "done", durationMs: 1 }) },
+      bash: { execute: async () => ({ ok: true }) },
+      python: { execute: async () => ({ ok: true }) },
+      llm: { complete: async () => ({ content: "ok" }) },
+      dataWorld: {} as any,
+      snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
+      reset: () => {},
+      dispose: () => {},
+    } as any;
+    const loop = new TaskLoop(
+      { kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) }, refiner },
+    );
+    await loop.runOnce();
+    expect(store.submit).toHaveBeenCalled();   // 任务仍提交（completed）
+  });
+});
