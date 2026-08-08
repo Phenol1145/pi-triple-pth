@@ -6,15 +6,9 @@
  */
 
 export const AGENT_TOOL_IDS = [
+  "ts",
   "python.execute",
   "bash.execute",
-  "ts",
-  "llm.complete",
-  "web.fetchText",
-  "fs.readText",
-  "fs.list",
-  "memory.sql",
-  "memory.write",
   "done",
 ] as const;
 

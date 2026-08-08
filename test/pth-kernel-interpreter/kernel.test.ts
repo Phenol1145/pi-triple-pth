@@ -12,6 +12,7 @@ function mockDataWorld() {
     memory: { retrieve: async () => [], write: async () => {} },
     transcripts: {},
     audit: {},
+    queryReadOnly: async () => [],
   } as any;
 }
 
@@ -93,6 +94,7 @@ function mockDataWorldWithThis(records?: Array<{ agentId: string; taskId: string
     },
     transcripts: {},
     audit: {},
+    queryReadOnly: async () => [],
   } as any;
 }
 

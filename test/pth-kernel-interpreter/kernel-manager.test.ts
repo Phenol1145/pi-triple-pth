@@ -65,6 +65,7 @@ describe("createWorkerKernelWithManager（与 worker 集成）", () => {
         write: async () => {}, retrieve: async () => [], bumpHitCount: async () => {},
       },
       transcripts: {}, audit: {},
+    queryReadOnly: async () => [],
     } as any;
     const wk = createWorkerKernelWithManager({ llm, dataWorld, manager: mgr });
 

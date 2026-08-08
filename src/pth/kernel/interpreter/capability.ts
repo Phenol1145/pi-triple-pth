@@ -32,7 +32,8 @@ export function buildCapabilities(deps: {
     // Finding F1（Important）修复：memory 整体注入时其方法 retrieve/write/bumpHitCount 均用
     // this.pool——裸对象注入后若被解构/提取（`const { retrieve } = memory; retrieve()`）this 丢失。
     // bindAll 为所有函数属性（含原型链类方法）逐个 bind，非函数属性（pool 句柄）不注入 vm（安全边界）。
-    memory: bindAll(deps.dataWorld.memory),
+    // 记忆查询（收敛 2026-08-09）：memory.query = 受限只读 SQL（与 agent 侧 memory.sql 同源执行器）
+    memory: { ...bindAll(deps.dataWorld.memory), query: deps.dataWorld.queryReadOnly.bind(deps.dataWorld) },
     skills: {
       get: async (name: string) => {
         // v1：skill 数据对象读取（Spec C skills 表——v1 独立表占位）

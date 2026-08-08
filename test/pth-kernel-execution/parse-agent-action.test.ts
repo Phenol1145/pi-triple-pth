@@ -41,11 +41,14 @@ describe("parseAgentAction（LLM 输出 → 动作解析）", () => {
 });
 
 describe("isKnownTool（白名单校验）", () => {
-  it("已知工具", () => {
+  it("已知工具（元工具收敛后）", () => {
+    expect(isKnownTool("ts")).toBe(true);
     expect(isKnownTool("python.execute")).toBe(true);
     expect(isKnownTool("bash.execute")).toBe(true);
-    expect(isKnownTool("memory.write")).toBe(true);
     expect(isKnownTool("done")).toBe(true);
+    // 能力函数已收敛进 ts 程序（非动作工具）
+    expect(isKnownTool("memory.write")).toBe(false);
+    expect(isKnownTool("llm.complete")).toBe(false);
   });
   it("未知工具", () => {
     expect(isKnownTool("rm -rf /")).toBe(false);

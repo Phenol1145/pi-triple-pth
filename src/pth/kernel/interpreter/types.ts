@@ -38,4 +38,8 @@ export interface Interpreter {
   snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
+  /** ts 核专属：结果注册表写入（agent-loop 工具执行后调用——内部管理语言语义） */
+  registerResult?(key: string, value: unknown): void;
+  /** ts 核专属：读核内对象（results/context——任务尾沉淀等） */
+  readObject?(name: "results" | "context"): Record<string, unknown>;
 }

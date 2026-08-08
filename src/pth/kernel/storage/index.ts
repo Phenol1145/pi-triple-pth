@@ -13,6 +13,8 @@ export interface DataWorldAccess {
   memory: PgMemoryStore;
   transcripts: PgTranscriptStore;
   audit: PgAuditStore;
+  /** 受限只读 SQL（memory.query 能力/agent 工具用）：仅 SELECT 单条语句 + 强制 LIMIT */
+  queryReadOnly(sql: string): Promise<unknown>;
 }
 
 export function createDataWorld(pool: pg.Pool): DataWorldAccess {
@@ -21,7 +23,33 @@ export function createDataWorld(pool: pg.Pool): DataWorldAccess {
     memory: new PgMemoryStore(pool),
     transcripts: new PgTranscriptStore(pool),
     audit: new PgAuditStore(pool),
+    queryReadOnly: (sql: string) => runReadOnlyQuery(pool, sql),
   };
+}
+
+/**
+ * 受限只读 SQL 执行器（memory.query 能力 / agent 查询——LLM/任务代码输入不可信）：
+ * ① 仅 SELECT（前缀校验，大小写不敏感）② 单条语句（禁分号注入）③ 强制 LIMIT（无则 50，显式上限 200）
+ * ④ 禁 pg_catalog/pg_* 系统表探测。
+ */
+export function buildReadOnlyQuery(sql: string): string {
+  const trimmed = sql.trim();
+  if (!/^select\b/i.test(trimmed)) throw new Error("queryReadOnly: 仅允许 SELECT 查询（read-only）");
+  if (trimmed.includes(";")) throw new Error("queryReadOnly: 仅允许单条语句（single statement only）");
+  if (/\bpg_catalog\b|\bpg_\w+\b/i.test(trimmed)) throw new Error("queryReadOnly: 禁止访问 pg 系统表");
+  if (!/\blimit\s+\d+/i.test(trimmed)) {
+    return `${trimmed} LIMIT 50`;
+  }
+  return trimmed.replace(/\blimit\s+\d+/i, (m) => {
+    const n = Math.min(Number(m.replace(/\D/g, "")) || 50, 200);
+    return `LIMIT ${n}`;
+  });
+}
+
+export async function runReadOnlyQuery(pool: pg.Pool, sql: string): Promise<unknown> {
+  const safe = buildReadOnlyQuery(sql);
+  const res = await pool.query(safe);
+  return res.rows;
 }
 
 // --- barrel：存储层统一出口 ---

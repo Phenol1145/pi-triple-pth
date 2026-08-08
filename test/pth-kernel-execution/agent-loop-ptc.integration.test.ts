@@ -16,7 +16,7 @@ describe("PTC 程序模式（真实 vm + kernel 集成）", () => {
     manager = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
     kernel = createWorkerKernelWithManager({
       llm: null as any,
-      dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} } } as any,
+      dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} }, queryReadOnly: async () => [] } as any,
       manager,
       toolstore: null as any,
     });

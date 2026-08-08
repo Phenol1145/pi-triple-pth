@@ -22,12 +22,29 @@ export class TsInterpreter implements Interpreter {
   constructor(deps: { capabilities: Record<string, unknown>; timeoutMs?: number }) {
     this.capabilities = deps.capabilities;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
-    this.context = createContext({ ...deps.capabilities });
+    this.context = createContext({
+      // agent 状态对象（内部管理语言语义——用户裁决 2026-08-09）：
+      // results = 结果注册表（每步工具结果自动注册 + 程序内可写）；context = 任务工作台 KV
+      results: {},
+      context: {},
+      ...deps.capabilities,
+    });
   }
 
   private timeoutMs: number;
   get state(): Record<string, unknown> {
     return this.context as unknown as Record<string, unknown>;
+  }
+
+  /** 结果注册（agent-loop 工具执行后调用）：写入 ts 核内 results 对象 */
+  registerResult(key: string, value: unknown): void {    const results = (this.context as Record<string, unknown>)["results"] as Record<string, unknown>;
+    if (results && typeof results === "object") results[key] = value;
+  }
+
+  /** 读 ts 核内对象（agent-loop 需要时——如任务尾沉淀） */
+  readObject(name: "results" | "context"): Record<string, unknown> {
+    const v = (this.context as Record<string, unknown>)[name];
+    return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
   }
 
   async execute(program: string, opts?: ExecuteOptions): Promise<InterpreterResult> {
@@ -68,7 +85,7 @@ export class TsInterpreter implements Interpreter {
 
   snapshot() {
     // 枚举 context 全局（var/function 可见；const/let 词法绑定不可见）
-    const RESERVED = new Set(["llm", "memory", "web", "tasks", "skills", "bash", "python", "state"]);
+    const RESERVED = new Set(["llm", "memory", "web", "tasks", "skills", "bash", "python", "state", "results", "context", "sql"]);
     const snap: InterpreterSnapshot = { variables: [], functions: [], oversized: [] };
     for (const key of Object.keys(this.context)) {
       if (RESERVED.has(key)) continue;

@@ -12,7 +12,7 @@
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION } from "./agent-tools.js";
+import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC } from "./agent-tools.js";
 import { parseAgentAction } from "./parse-agent-action.js";
 
 export interface AgentTaskInput {
@@ -38,17 +38,20 @@ export type AgentTaskResult =
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-/** 构建 agent system prompt：角色人设 + 工具协议 + PTC 程序模式引导 + 输出要求 */
+/** 构建 agent system prompt：角色人设 + 工具协议 + 能力文档 + PTC 程序模式引导 + 输出要求 */
 export function buildAgentSystemPrompt(role: WorkerRole | undefined, taskTitle: string): string {
   return `你是任务执行 agent${role ? `（${role.prompt}）` : ""}。
 当前任务：${taskTitle}
 
 ${AGENT_TOOLS_DESCRIPTION}
 
+${AGENT_CAPABILITY_DOC}
+
 【程序模式（PTC——优先使用）】
-优先用 ts 工具写【完整程序】一次性组合多个 kernel 完成多步，而不是分步发多个动作：
-- ts 程序运行在 vm 沙箱，可 await 调用 python.execute / bash.execute / llm.complete / web / fs / state / memory
-- 程序内可写 for/if/函数/变量——跨 kernel 传递中间结果（如 python 算完 bash 验证）
+优先用 ts 工具写【完整程序】一次性组合多个 kernel/能力完成多步，而不是分步发多个动作：
+- ts 程序运行在 vm 沙箱，可 await 调用能力函数；程序内可写 for/if/函数/变量——跨步骤传值
+- 结果自动注册 results 对象（results.result_1 引用之前步骤的工具输出）
+- context 对象跨步骤保留（context.my_key = ... 供后续程序读取）
 - 例：{"action":{"tool":"ts","args":{"code":"const py = await python.execute(\"_result = sum(range(1,101))\\\n\"); const b = await bash.execute(\"echo \" + py.value + \" | grep -q . && echo ok\"); return { sum: py.value, verified: b.stdout.includes('ok') };"}}}
 - return 的值 + 程序 stdout 都会回填给你（中间输出可见）
 单 kernel 简单步骤（python.execute / bash.execute）可直接调用；复杂多步组合用 ts 程序。
@@ -156,6 +159,19 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     try {
       const result = await executor({ kernel, caps }, args);
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok });
+      // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用
+      const resultKey = `result_${steps + 1}`;
+      try {
+        kernel.ts.registerResult?.(resultKey, {
+          tool,
+          ok: result.ok,
+          value: result.ok ? result.value : undefined,
+          stdout: (result.stdout ?? "").slice(0, 2000),
+          error: result.ok ? undefined : result.error,
+        });
+      } catch {
+        /* 注册失败不阻断（mock kernel 无 registerResult） */
+      }
       // 轨迹摘要（截断防膨胀）
       const summary = result.ok
         ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
