@@ -55,7 +55,11 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
   ts: async ({ kernel }, args) => {
     const r = await kernel.ts.execute(str(args, "code"), { cwd: "/tmp" });
     if (!r.ok) return { ok: false, error: r.error?.message ?? "ts execute failed" };
-    return { ok: true, value: r.value };
+    // PTC 程序模式：回填 return 值 + stdout（含中间输出——LLM 可诊断多步组合）
+    const out = truncate(r.stdout ?? "", 4000);
+    const value = JSON.stringify(r.value ?? null);
+    const combined = [out.text, value !== "null" ? `返回值: ${value}` : ""].filter(Boolean).join("\n");
+    return { ok: true, value: r.value, stdout: truncate(combined, 4000).text, truncated: out.truncated || (r as { truncated?: boolean }).truncated };
   },
 
   "llm.complete": async ({ kernel }, args) => {

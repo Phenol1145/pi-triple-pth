@@ -99,3 +99,48 @@ describe("runAgentTask（agent 循环）", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("PTC 程序模式（P1）", () => {
+  it("system prompt 包含程序模式引导（ts 组合多 kernel + 示例）", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t");
+    expect(prompt).toContain("程序模式（PTC");
+    expect(prompt).toContain("python.execute");
+    expect(prompt).toContain("bash.execute");
+    expect(prompt).toContain("完整程序");
+  });
+
+  it("ts 工具回填 value + stdout（组合输出）", async () => {
+    const { AGENT_TOOLS } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const kernel = mockKernel();
+    (kernel.ts.execute as any).mockResolvedValueOnce({
+      ok: true, value: { sum: 5050 }, stdout: "中间输出1\n中间输出2", durationMs: 1, language: "ts",
+    });
+    const r = await AGENT_TOOLS.ts({ kernel, caps: CAPS }, { code: "return 1" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual({ sum: 5050 });
+    expect(r.stdout).toContain("中间输出1");
+    expect(r.stdout).toContain("返回值");
+  });
+
+  it("LLM 单步输出 ts 程序（组合 python+bash）→ 一次执行完成多步", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      // LLM 直接写 PTC 程序：一次完成 python 算 + bash 验证（不再分步）
+      '{"action":{"tool":"ts","args":{"code":"const py = await python.execute(\\\"fib\\\"); const b = await bash.execute(\\\"echo check\\\"); return { fib: py.value, checked: true }; "}}}',
+      '{"action":{"tool":"done","args":{"result":{"fib25":75025},"summary":"PTC 一次完成"}}}',
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "算 fib(25) 并验证" },
+      role: { id: "developer", labelPatterns: [], prompt: "你是开发者" },
+      maxSteps: 5,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.steps).toBe(2); // ts 程序一步 + done 一步（vs 旧多步）
+      expect(kernel.ts.execute).toHaveBeenCalledTimes(1);
+      expect(r.value).toEqual({ fib25: 75025 });
+    }
+  });
+});

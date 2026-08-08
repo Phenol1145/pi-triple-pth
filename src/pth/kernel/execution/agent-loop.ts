@@ -38,12 +38,20 @@ export type AgentTaskResult =
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
-/** 构建 agent system prompt：角色人设 + 工具协议 + 输出要求 */
+/** 构建 agent system prompt：角色人设 + 工具协议 + PTC 程序模式引导 + 输出要求 */
 export function buildAgentSystemPrompt(role: WorkerRole | undefined, taskTitle: string): string {
   return `你是任务执行 agent${role ? `（${role.prompt}）` : ""}。
 当前任务：${taskTitle}
 
 ${AGENT_TOOLS_DESCRIPTION}
+
+【程序模式（PTC——优先使用）】
+优先用 ts 工具写【完整程序】一次性组合多个 kernel 完成多步，而不是分步发多个动作：
+- ts 程序运行在 vm 沙箱，可 await 调用 python.execute / bash.execute / llm.complete / web / fs / state / memory
+- 程序内可写 for/if/函数/变量——跨 kernel 传递中间结果（如 python 算完 bash 验证）
+- 例：{"action":{"tool":"ts","args":{"code":"const py = await python.execute(\"_result = sum(range(1,101))\\\n\"); const b = await bash.execute(\"echo \" + py.value + \" | grep -q . && echo ok\"); return { sum: py.value, verified: b.stdout.includes('ok') };"}}}
+- return 的值 + 程序 stdout 都会回填给你（中间输出可见）
+单 kernel 简单步骤（python.execute / bash.execute）可直接调用；复杂多步组合用 ts 程序。
 
 输出要求：每步只输出一个 JSON 对象（可带 brief 思考），不要输出 JSON 以外的多余内容。
 完成任务时输出 {"action":{"tool":"done","args":{"result":<最终产出对象>,"summary":"完成说明"}}}。
