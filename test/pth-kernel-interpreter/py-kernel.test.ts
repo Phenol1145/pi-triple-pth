@@ -86,3 +86,29 @@ describe("PyKernel（持久管道 REPL）", () => {
     expect(r2.value).toBe("alive");
   }, 20_000);
 });
+
+describe("kernel 参数化（懒 spawn / 空闲回收 / ns reset）", () => {
+  it("懒 spawn：构造不 spawn，首次 execute 才起进程", async () => {
+    const k = new PyKernel({ pythonBin: "python3", lazySpawn: true });
+    // @ts-expect-error 内部字段访问（测试探针）
+    expect(k.child).toBeNull();
+    const r = await k.execute("_result = 1 + 1");
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe(2);
+    // @ts-expect-error 内部字段访问
+    expect(k.child).not.toBeNull();
+    await k.reset();
+    k.dispose();
+  });
+
+  it("ns reset：清命名空间不重启进程（变量不残留）", async () => {
+    const k = new PyKernel({ pythonBin: "python3", lazySpawn: true, resetMode: "ns" });
+    await k.execute("x_shared = 42");
+    await k.reset();
+    const r = await k.execute("_result = 'x_shared' in globals()");
+    expect(r.value).toBe(false);  // ns 已清
+    // @ts-expect-error 内部字段访问
+    expect(k.child.exitCode).toBeNull();  // 进程未重启
+    k.dispose();
+  });
+});

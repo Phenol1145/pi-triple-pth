@@ -22,7 +22,7 @@ const DEFAULT_MAX_VALUE_CHARS = 8 * 1024;
 
 // Python 常驻 runtime：逐行读 stdin JSON → 分发 exec/snapshot → 回 JSON。
 // _result 约定：cell 设置全局 _result 即结构化返回值。
-const PY_RUNTIME = `
+export const PY_RUNTIME = `
 import sys, json, io, traceback, inspect
 
 print("__pth_ready__", flush=True)   # 启动就绪信号（防 stdin 写入丢失）
@@ -64,6 +64,11 @@ def main():
             req = json.loads(line)
             if req.get("type") == "snapshot":
                 print(json.dumps({"ok": True, "result": snapshot_globals()}), flush=True)
+                continue
+            if req.get("type") == "clear":
+                # ns reset：清命名空间不重启（进程复用——池化地基）
+                _NAMESPACE.clear()
+                print(json.dumps({"ok": True, "result": None}), flush=True)
                 continue
             code = req.get("code", "")
             out = io.StringIO()
@@ -147,12 +152,29 @@ export class PyKernel implements Interpreter {
   private onStderr?: (line: string) => void;
   private pythonBin: string;
   private timeoutMs: number;
+  private resetMode: "ns" | "restart" = "ns";
+  private lazySpawn = true;
+  private lastUsedAt = Date.now();
+  private idleTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(deps: { pythonBin?: string; timeoutMs?: number; onStderr?: (line: string) => void } = {}) {
+  constructor(deps: {
+    pythonBin?: string;
+    timeoutMs?: number;
+    onStderr?: (line: string) => void;
+    /** 懒 spawn（默认 true）：构造不起进程，首次 execute/snapshot 才 spawn——空闲角色 0 进程 */
+    lazySpawn?: boolean;
+    /** reset 语义（默认 ns）：ns=清命名空间不重启（进程复用）；restart=杀进程重启 */
+    resetMode?: "ns" | "restart";
+    /** 空闲回收（默认 5min）：无调用超时 kill（0=禁用）；execute/snapshot 自动冷备补位 */
+    idleMs?: number;
+  } = {}) {
     this.pythonBin = deps.pythonBin ?? "python3";
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
     this.onStderr = deps.onStderr;
-    this.spawn();
+    this.resetMode = deps.resetMode ?? "ns";
+    this.lazySpawn = deps.lazySpawn ?? true;
+    if (!this.lazySpawn) this.spawn();   // 非懒模式：构造即 spawn（兼容旧行为）
+    if ((deps.idleMs ?? 0) > 0) this.startIdleReaper(deps.idleMs!);
   }
 
   get state(): Record<string, unknown> {
@@ -160,15 +182,25 @@ export class PyKernel implements Interpreter {
     return {} as Record<string, unknown>;
   }
 
-  /** 重启进程（清命名空间——reset 语义） */
+  /** 重启进程（清命名空间——reset 语义；ns 模式=协议清 ns 不重启，restart=杀进程重启） */
   reset(): void {
+    if (this.resetMode === "ns" && this.child && this.child.exitCode === null) {
+      // ns 模式：进程复用，命名空间清空。必须注册 pending entry（防响应错配——
+      // 否则 clear 的响应被后续 execute 的 entry shift 走，execute 拿到 result=null）。
+      void this.call({ type: "clear", timeoutMs: 2_000 }).catch(() => {
+        // clear 失败（管道坏/超时）→ kill 冷备（execute 兜底重新 spawn）
+        this.kill();
+      });
+      return;
+    }
     this.kill();
-    this.spawn();
+    if (!this.lazySpawn) this.spawn();
   }
 
   /** 遍历 globals：可 JSON → variables；函数/类 → functions；超大 → oversized */
   async snapshot(): Promise<InterpreterSnapshot> {
     if (!this.child || this.child.exitCode !== null) this.spawn();
+    this.touch();
     try {
       const msg = await this.call({ type: "snapshot", timeoutMs: 5_000 });
       if (!msg.ok || !msg.result) return { variables: [], functions: [], oversized: [] };
@@ -196,6 +228,7 @@ export class PyKernel implements Interpreter {
     const captureResult = opts?.captureResult ?? true;
 
     if (!this.child || this.child.exitCode !== null) this.spawn();
+    this.touch();
 
     let msg: PyProtocolMsg;
     try {
@@ -252,10 +285,25 @@ export class PyKernel implements Interpreter {
   }
 
   dispose(): void {
+    if (this.idleTimer) clearInterval(this.idleTimer);
     this.kill();
   }
 
   // ── 内部 ─────────────────────────────────────────────────
+
+  /** 空闲回收：超过 idleMs 无调用 kill 进程（execute/snapshot 自动冷备补位） */
+  private startIdleReaper(idleMs: number): void {
+    this.idleTimer = setInterval(() => {
+      if (this.child && this.child.exitCode === null && Date.now() - this.lastUsedAt > idleMs) {
+        this.kill();
+      }
+    }, Math.min(idleMs, 30_000));
+    this.idleTimer.unref?.();
+  }
+
+  private touch(): void {
+    this.lastUsedAt = Date.now();
+  }
 
   private spawn(): void {
     const child = spawn(this.pythonBin, ["-u", "-c", PY_RUNTIME], {
@@ -314,7 +362,7 @@ export class PyKernel implements Interpreter {
   }
 
   /** 单请求：等就绪 → 写入管道 + 等响应；超时 → 抛错（调用方 kill 重启） */
-  private async call(req: { code?: string; type?: "exec" | "snapshot"; timeoutMs: number }): Promise<PyProtocolMsg> {
+  private async call(req: { code?: string; type?: "exec" | "snapshot" | "clear"; timeoutMs: number }): Promise<PyProtocolMsg> {
     const child0 = this.child;
     if (!child0 || !child0.stdin || !child0.stdin.writable) {
       throw new Error("kernel not writable");
@@ -341,6 +389,7 @@ export class PyKernel implements Interpreter {
       this.pending.push(entry);
       const body: Record<string, unknown> = { timeoutMs: req.timeoutMs };
       if (req.type === "snapshot") body.type = "snapshot";
+      else if (req.type === "clear") body.type = "clear";
       else body.code = req.code;
       const child = this.child;
       if (child?.stdin) child.stdin.write(JSON.stringify(body) + "\n");

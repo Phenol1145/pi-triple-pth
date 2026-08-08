@@ -14,6 +14,7 @@ import { createLlmFn } from "../interpreter/llm-fn.js";
 import { Refiner } from "./refiner.js";
 import { createToolstore } from "../interpreter/toolstore.js";
 import { createKernelLogger } from "../logger.js";
+import { loadKernelConfig } from "../interpreter/kernel-config.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -104,6 +105,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const manager = createKernelManager({
       pythonMode: (process.env.PTH_PYTHON_MODE as any) ?? "kernel",
       bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
+      // kernel 参数化（PTH_KERNEL_* env）：懒 spawn / 空闲回收 / reset 模式
+      kernelConfig: loadKernelConfig(process.env),
       // 日志体系 T4：kernel stderr 转发 warn（component=pykernel/bashkernel）
       onKernelStderr: (language, line) => batchLogger.child(language === "python" ? "pykernel" : "bashkernel")?.warn(line.trim()),
       // 性能计量（SPEC L1）：kernel 执行事件 → IPC 转发主进程

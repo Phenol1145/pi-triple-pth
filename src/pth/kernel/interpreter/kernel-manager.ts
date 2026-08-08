@@ -31,6 +31,8 @@ export interface KernelManagerOptions {
   onKernelStderr?: (language: string, line: string) => void;
   /** 性能计量（SPEC L1）：kernel 执行事件（batch 内经 IPC 转发主进程） */
   onKernelMetric?: (metric: { type: string; language: string; durationMs?: number; ok?: boolean; field?: string; count?: number; depth?: number }) => void;
+  /** kernel 参数化（懒 spawn/空闲回收/reset 模式——PTH_KERNEL_* env 加载） */
+  kernelConfig?: import("./kernel-config.js").KernelConfig;
 }
 
 export interface KernelManager {
@@ -54,11 +56,11 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
   const bashMode = opts.bashMode ?? "kernel";
 
   const python: Interpreter = pythonMode === "kernel"
-    ? new PyKernel({ pythonBin: opts.pythonBin, onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("python", l) : undefined })
+    ? new PyKernel({ pythonBin: opts.pythonBin, onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("python", l) : undefined, ...opts.kernelConfig })
     : new PythonInterpreter({ pythonBin: opts.pythonBin });
 
   const bash: Interpreter = bashMode === "kernel"
-    ? new BashKernel({ onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("bash", l) : undefined })
+    ? new BashKernel({ onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("bash", l) : undefined, ...opts.kernelConfig })
     : new BashInterpreter({
         sandbox: opts.sandbox ?? { exec: async () => ({ ok: false, stdout: "", stderr: "sandbox not configured", exitCode: 1, durationMs: 0 }) },
       });

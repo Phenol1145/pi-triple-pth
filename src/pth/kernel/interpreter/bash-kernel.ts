@@ -32,12 +32,25 @@ export class BashKernel implements Interpreter {
   private cwd = DEFAULT_CWD;
   private env: Record<string, string> = {};
   private timeoutMs: number;
+  private lazySpawn = true;
+  private lastUsedAt = Date.now();
+  private idleTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(deps: { timeoutMs?: number; initialCwd?: string; onStderr?: (line: string) => void } = {}) {
+  constructor(deps: {
+    timeoutMs?: number;
+    initialCwd?: string;
+    onStderr?: (line: string) => void;
+    /** 懒 spawn（默认 true）：构造不起进程，首次 execute 才 spawn */
+    lazySpawn?: boolean;
+    /** 空闲回收（默认 5min）：无调用超时 kill（0=禁用） */
+    idleMs?: number;
+  } = {}) {
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS;
     if (deps.initialCwd) this.cwd = deps.initialCwd;
     this.onStderr = deps.onStderr;
-    this.spawn();
+    this.lazySpawn = deps.lazySpawn ?? true;
+    if (!this.lazySpawn) this.spawn();
+    if ((deps.idleMs ?? 0) > 0) this.startIdleReaper(deps.idleMs!);
   }
 
   get state(): Record<string, unknown> {
@@ -48,7 +61,7 @@ export class BashKernel implements Interpreter {
     this.kill();
     this.cwd = DEFAULT_CWD;
     this.env = {};
-    this.spawn();
+    if (!this.lazySpawn) this.spawn();   // 懒模式：execute 兜底重新 spawn
   }
 
   snapshot(): InterpreterSnapshot {
@@ -63,6 +76,7 @@ export class BashKernel implements Interpreter {
     const maxStderr = opts?.maxStderr ?? DEFAULT_MAX_STDERR;
 
     if (!this.child || this.child.exitCode !== null) this.spawn();
+    this.lastUsedAt = Date.now();
 
     try {
       // 等会话就绪（spawn 后立即执行会丢命令）
@@ -97,10 +111,21 @@ export class BashKernel implements Interpreter {
   }
 
   dispose(): void {
+    if (this.idleTimer) clearInterval(this.idleTimer);
     this.kill();
   }
 
   // ── 内部 ─────────────────────────────────────────────────
+
+  /** 空闲回收：超过 idleMs 无调用 kill 进程（execute 自动冷备补位） */
+  private startIdleReaper(idleMs: number): void {
+    this.idleTimer = setInterval(() => {
+      if (this.child && this.child.exitCode === null && Date.now() - this.lastUsedAt > idleMs) {
+        this.kill();
+      }
+    }, Math.min(idleMs, 30_000));
+    this.idleTimer.unref?.();
+  }
 
   private spawn(): void {
     // 非交互模式：bash 读 stdin 逐行执行（不输出提示符，无 job control 噪音）
