@@ -114,3 +114,35 @@ describe("工具面收敛终态", () => {
     expect((check.value as any).value).toEqual({ got: 101 });
   });
 });
+
+describe("env.inspect（环境感知 ②）", () => {
+  it("ts 程序内 inspect 查看 kernel 状态（变量/函数概览）", async () => {
+    const manager2 = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
+    const kernel2 = createWorkerKernelWithManager({
+      llm: null as any,
+      dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} }, queryReadOnly: async () => [] } as any,
+      manager: manager2, toolstore: null as any,
+    });
+    // 先在 python 命名空间造状态
+    await kernel2.python.execute("env_marker = 42");
+    const r = await kernel2.ts.execute('const v = await env.inspect("python"); return { hasMarker: JSON.stringify(v).includes("env_marker"), shape: typeof v };');
+    expect(r.ok).toBe(true);
+    expect((r.value as any).hasMarker).toBe(true);
+    expect((r.value as any).shape).toBe("object");
+    manager2.dispose();
+  });
+
+  it("inspect 不暴露 _ 私有/保留项（摘要安全）", async () => {
+    const manager3 = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
+    const kernel3 = createWorkerKernelWithManager({
+      llm: null as any,
+      dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} }, queryReadOnly: async () => [] } as any,
+      manager: manager3, toolstore: null as any,
+    });
+    await kernel3.python.execute("_private_var = 'secret'; public_var = 1");
+    const r = await kernel3.ts.execute('const v = await env.inspect("python"); return { hasPrivate: JSON.stringify(v).includes("_private_var"), hasPublic: JSON.stringify(v).includes("public_var") };');
+    expect((r.value as any).hasPrivate).toBe(false);
+    expect((r.value as any).hasPublic).toBe(true);
+    manager3.dispose();
+  });
+});

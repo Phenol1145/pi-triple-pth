@@ -16,10 +16,13 @@ export function buildCapabilities(deps: {
   python?: Interpreter;
   /** toolstore 文件通道（§0.5）：注入 fs.readText（只读 toolstore 目录） */
   toolstore?: Toolstore;
+  /** 环境感知（env.inspect）：按语言返回 kernel 状态摘要（LLM 友好版——变量/函数概览） */
+  inspect?: (lang?: string) => Promise<unknown>;
 }): Record<string, unknown> {
   return {
     llm: deps.llm,
     web: createWebCapability(),
+    ...(deps.inspect ? { env: { inspect: deps.inspect } } : {}),
     // 召回能力（T6）：后续任务从记忆区召回工具函数/洞察——扁平化闭环（agent 状态 = 记忆文档）
     state: createRecallState(deps.dataWorld.memory),
     // 文件通道（§0.5）：fs.readText 只读 toolstore + fs.list 枚举可用工具

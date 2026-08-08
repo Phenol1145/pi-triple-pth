@@ -33,6 +33,17 @@ suite("data world assembly", () => {
     await applySchema(pool);
   }, 120_000);
 
+
+  it("queryReadOnly：vm memory.query 全链路（受限 SQL 查询记忆）", async () => {
+    const dw = createDataWorld(pool);
+    await dw.memory.write({ id: "qro-fn", kind: "tool-function", anchors: ["qro"], content: "fn()", status: "official" });
+    const rows = (await dw.queryReadOnly("SELECT kind, content FROM memory_entries WHERE anchors @> '[\"qro\"]'")) as Array<{ kind: string }>;
+    expect(rows.length).toBe(1);
+    expect(rows[0].kind).toBe("tool-function");
+    // 非 SELECT 拒绝（vm 侧同一执行器）
+    await expect(dw.queryReadOnly("DELETE FROM memory_entries")).rejects.toThrow(/read-only/);
+  });
+
   afterAll(async () => {
     await pool.end();
     await container.stop();

@@ -20,6 +20,8 @@ export interface AgentToolResult {
   stderr?: string;
   error?: string;
   truncated?: boolean;
+  /** 输出模式标记（quiet 时轨迹记 [quiet]——agent-loop 用） */
+  quiet?: boolean;
 }
 
 export interface AgentToolCtx {
@@ -41,19 +43,43 @@ function truncate(s: string, max = 2000): { text: string; truncated: boolean } {
   return { text: s.slice(0, max) + `…(截断 ${s.length - max} 字符)`, truncated: true };
 }
 
+/**
+ * 输出模式（③——LLM 控制感知带宽）：
+ *   default     完整（现状）
+ *   value-only  只回 value（省 token——大数据输出场景）
+ *   errors-only 成功只回 ok，失败回完整错误（快速试错）
+ *   quiet       静默（无轨迹——纯状态准备步骤）
+ */
+function applyOutputMode(r: AgentToolResult, mode: unknown): AgentToolResult {
+  if (typeof mode !== "string" || mode === "default") return r;
+  if (mode === "quiet") return { ok: r.ok, quiet: true, value: undefined, stdout: "", stderr: "" };
+  if (mode === "errors-only") {
+    if (r.ok) return { ok: true, value: undefined, stdout: "ok" };
+    return r; // 失败全量（错误信息对修正必要）
+  }
+  if (mode === "value-only") {
+    const v = r.value === undefined ? "" : truncate(JSON.stringify(r.value), 2000).text;
+    return { ok: r.ok, value: r.value, stdout: v, stderr: "" };
+  }
+  return r; // 未知模式按 default
+}
+
 /** 工具表（元工具——id → 执行器） */
 export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
   "python.execute": async ({ kernel }, args) => {
     const r = await kernel.python.execute(str(args, "code"));
     if (!r.ok) return { ok: false, error: r.error?.message ?? "python execute failed" };
     const value = JSON.stringify(r.value ?? null);
-    return { ok: true, value: r.value, stdout: truncate(value, 2000).text };
+    return applyOutputMode({ ok: true, value: r.value, stdout: truncate(value, 2000).text }, args["mode"]);
   },
 
   "bash.execute": async ({ kernel }, args) => {
     const r = await kernel.bash.execute(str(args, "command"));
     const out = truncate(r.stdout ?? "", 4000);
-    return { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, truncated: out.truncated || (r as { truncated?: boolean }).truncated };
+    return applyOutputMode(
+      { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
+      args["mode"],
+    );
   },
 
   ts: async ({ kernel }, args) => {
@@ -63,7 +89,10 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     const out = truncate(r.stdout ?? "", 4000);
     const value = JSON.stringify(r.value ?? null);
     const combined = [out.text, value !== "null" ? `返回值: ${value}` : ""].filter(Boolean).join("\n");
-    return { ok: true, value: r.value, stdout: truncate(combined, 4000).text, truncated: out.truncated || (r as { truncated?: boolean }).truncated };
+    return applyOutputMode(
+      { ok: true, value: r.value, stdout: truncate(combined, 4000).text, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
+      args["mode"],
+    );
   },
 
   // done 由 agent-loop 拦截（不执行）
@@ -87,7 +116,9 @@ export const AGENT_CAPABILITY_DOC = `ts 程序内的能力函数（await 调用�
 
 /** 工具动作描述（元工具面） */
 export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
-- ts: {code} —— 【程序模式（优先）】执行 TypeScript 程序：await 调用 python.execute/bash.execute/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
-- python.execute: {code} —— 单 kernel 快捷（简单步骤不必写程序）
-- bash.execute: {command} —— 单 kernel 快捷
-- done: {result, summary?} —— 完成任务，result 为最终产出对象`;
+- ts: {code, mode?} —— 【程序模式（优先）】执行 TypeScript 程序：await 调用 python.execute/bash.execute/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
+- python.execute: {code, mode?} —— 单 kernel 快捷（简单步骤不必写程序）
+- bash.execute: {command, mode?} —— 单 kernel 快捷
+- done: {result, summary?} —— 完成任务，result 为最终产出对象
+
+输出模式（mode 可选——控制回填带宽）：default=完整；value-only=只回 value（大数据省 token）；errors-only=成功只回 ok 失败回全错（快速试错）；quiet=静默（状态准备不污染轨迹）`;

@@ -143,7 +143,26 @@ export function createWorkerKernelWithManager(deps: {
   reset(): void;
   dispose(): void;
 } {
-  const capabilities = buildCapabilities({ llm: deps.llm, dataWorld: deps.dataWorld, bash: deps.manager.bash, python: deps.manager.python, toolstore: deps.toolstore });
+  const capabilities = buildCapabilities({
+    llm: deps.llm,
+    dataWorld: deps.dataWorld,
+    bash: deps.manager.bash,
+    python: deps.manager.python,
+    toolstore: deps.toolstore,
+    // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
+    inspect: async (lang?: string) => {
+      const snap = lang === "python"
+        ? await deps.manager.python.snapshot()
+        : lang === "bash"
+          ? await deps.manager.bash.snapshot()
+          : await ts.snapshot();
+      return {
+        language: lang ?? "ts",
+        variables: snap.variables.filter((v) => !v.key.startsWith("_")).slice(0, 50).map((v) => ({ key: v.key, type: typeof v.value })),
+        functions: snap.functions.filter((f) => !f.key.startsWith("_")).slice(0, 50).map((f) => ({ key: f.key, source: f.source.slice(0, 200) })),
+      };
+    },
+  });
   const ts = new TsInterpreter({ capabilities });
   return {
     ts,

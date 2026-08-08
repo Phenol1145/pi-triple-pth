@@ -66,11 +66,35 @@ function actionFingerprint(tool: string, args: Record<string, unknown>): string 
   return `${tool}:${JSON.stringify(args)}`;
 }
 
+/** 静态环境注入：toolstore 文件清单 + 记忆概览（失败容忍——不阻断任务） */
+async function buildEnvironmentPrelude(caps: Record<string, unknown>): Promise<string> {
+  const parts: string[] = [];
+  try {
+    const fs = caps["fs"] as { list?(dir?: string): Promise<unknown> } | undefined;
+    if (fs?.list) {
+      const files = await fs.list();
+      const text = JSON.stringify(files);
+      if (text && text !== "[]") parts.push(`toolstore 文件: ${text.slice(0, 1000)}`);
+    }
+  } catch { /* 无 toolstore 容忍 */ }
+  try {
+    const memory = caps["memory"] as { query?(sql: string): Promise<unknown> } | undefined;
+    if (memory?.query) {
+      const rows = await memory.query("SELECT kind, count(*) AS n FROM memory_entries GROUP BY kind ORDER BY n DESC LIMIT 10");
+      const text = JSON.stringify(rows);
+      if (text && text !== "[]") parts.push(`记忆概览: ${text.slice(0, 1000)}`);
+    }
+  } catch { /* 记忆不可用容忍 */ }
+  return parts.join("\n");
+}
+
 export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Promise<AgentTaskResult> {
   const { llm, kernel, caps } = input;
   const maxSteps = input.maxSteps ?? Number(process.env.PTH_AGENT_MAX_STEPS ?? DEFAULT_MAX_STEPS);
   const timeoutMs = input.timeoutMs ?? Number(process.env.PTH_AGENT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
   const system = buildAgentSystemPrompt(input.role, input.task.title);
+  // 静态环境注入（②）：任务开始时拉环境预置（toolstore 文件 + 记忆概览）——LLM 一上来就知道可用资产
+  const prelude = await buildEnvironmentPrelude(caps);
 
   // 消息策略（实测发现 2026-08-08）：deepseek-v4-flash（qwen-token-plan-cn 代理）对
   // system+user+assistant+user 多轮序列返回空 content——agent 循环改为单轮模式：
@@ -83,7 +107,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   let repeatCount = 0;
 
   const complete = async (): Promise<string> => {
-    const userContent = `任务描述：${input.task.text}\n\n${toolTrail.length > 0 ? `执行记录：\n${toolTrail.join("\n")}\n\n` : ""}请输出下一个 JSON 动作（完成则输出 done）。`;
+    const userContent = `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}${toolTrail.length > 0 ? `执行记录：\n${toolTrail.join("\n")}\n\n` : ""}请输出下一个 JSON 动作（完成则输出 done）。`;
     try {
       const res = await llm.complete(
         [
@@ -173,9 +197,11 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
         /* 注册失败不阻断（mock kernel 无 registerResult） */
       }
       // 轨迹摘要（截断防膨胀）
-      const summary = result.ok
-        ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-        : `error: ${result.error ?? "unknown"}`;
+      const summary = result.quiet
+        ? "[quiet] 静默执行（无输出）"
+        : result.ok
+          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
+          : `error: ${result.error ?? "unknown"}`;
       toolTrail.push(`step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}`);
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok}`);
       return undefined;  // 继续循环
