@@ -130,6 +130,8 @@ export function createWorkerKernelWithManager(deps: {
   bash: Interpreter;
   llm: LlmFn;
   dataWorld: DataWorldAccess;
+  /** capability 白名单（web/state/fs/memory）——agent 循环与 vm 注入同一份 */
+  capabilities: Record<string, unknown>;
   snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
@@ -138,6 +140,7 @@ export function createWorkerKernelWithManager(deps: {
   const ts = new TsInterpreter({ capabilities });
   return {
     ts,
+    capabilities,
     python: deps.manager.python,
     bash: deps.manager.bash,
     llm: deps.llm,

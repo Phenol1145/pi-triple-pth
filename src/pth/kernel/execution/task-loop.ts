@@ -2,6 +2,7 @@ import type { WorkerKernel } from "../interpreter/index.js";
 import type { Task, TaskStore } from "../storage/task-store-pg.js";
 import type { WorkerRole } from "./worker-cluster.js";
 import { isNaturalLanguageTask, translateTask } from "./nl-translator.js";
+import { runAgentTask } from "./agent-loop.js";
 
 export interface TaskWorkspaceManager {
   allocate(taskId: string): Promise<{ dir: string; tenant: string }>;
@@ -21,6 +22,8 @@ export interface TaskLoopDeps {
   onTaskMetric?: (m: Record<string, unknown>) => void;
   /** 自然语言任务转译（NL→代码）；undefined = 不转译（NL 任务直接 reject） */
   llm?: import("../interpreter/llm-fn.js").LlmFn;
+  /** agent 循环的 capability 白名单（web/state/fs/memory——与 vm 注入同一份） */
+  agentCaps?: Record<string, unknown>;
 }
 
 /**
@@ -68,22 +71,45 @@ export class TaskLoop {
     kernel.reset();                          // 任务级状态隔离
     try {
       // 自然语言任务（标签为主要凭据：tags 含 "nl" 或 payload.kind="nl"）
-      // LLM 转译 → 执行转译代码；转译失败 → terminal reject（坏任务不回池）
+      // 执行路径：LLM agent 循环（PTH 初衷——LLM 理解+多步工具调用）优先；
+      // PTH_AGENT_MODE=off 或未注入 caps 时回退一次性转译（fast-path）。
       const nlDetected = isNaturalLanguageTask(task);
       let code = task.text;
-      if (nlDetected && this.deps.llm) {
-        const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
-        if (!t.ok) {
-          await taskStore.reject(role.id, task.id, t.error, { terminal: true });
-          taskLogger?.error(t.error);
-          this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-          this.deps.onTaskMetric?.({ type: "reject-reason", reason: "nl-translate-failed" });
-          return;
+      let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
+      if (nlDetected) {
+        const agentMode = process.env.PTH_AGENT_MODE !== "off";
+        if (agentMode && this.deps.llm && this.deps.agentCaps) {
+          const r = await runAgentTask({
+            llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
+            task: { title: task.title, text: task.text },
+            role,
+            onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}`, { durationMs: s.durationMs }),
+          });
+          taskLogger?.info("agent task finished", { ok: r.ok, steps: r.steps });
+          if (!r.ok) {
+            await taskStore.reject(role.id, task.id, r.error, { terminal: true });
+            taskLogger?.error(r.error);
+            this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+            this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(r.error) });
+            return;
+          }
+          agentResult = { value: r.value, summary: r.summary, steps: r.steps };
+        } else if (this.deps.llm) {
+          const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
+          if (!t.ok) {
+            await taskStore.reject(role.id, task.id, t.error, { terminal: true });
+            taskLogger?.error(t.error);
+            this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+            this.deps.onTaskMetric?.({ type: "reject-reason", reason: "nl-translate-failed" });
+            return;
+          }
+          code = t.code;
+          taskLogger?.info("nl task translated", { codeLen: code.length });
         }
-        code = t.code;
-        taskLogger?.info("nl task translated", { codeLen: code.length });
       }
-      const result = await kernel.ts.execute(code, { cwd: ws.dir });
+      const result = agentResult
+        ? { ok: true, value: agentResult.value, stdout: agentResult.summary ?? "", stderr: "", durationMs: Date.now() - execStart, language: "agent" }
+        : await kernel.ts.execute(code, { cwd: ws.dir });
       const execMs = Date.now() - execStart;
       // 性能计量（SPEC L1）：TS 主执行计入 kernel exec（python/bash 由 metered 包装计）
       this.deps.onTaskMetric?.({ type: "exec", language: "ts", durationMs: execMs, ok: result.ok });
