@@ -105,6 +105,11 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const manager = createKernelManager({
       pythonMode: (process.env.PTH_PYTHON_MODE as any) ?? "kernel",
       bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
+      // kernel sandbox 接线：sandbox-kernel 模式连宿主（url/secret 与 bash 转发同源）
+      sandboxKernel: {
+        url: process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080",
+        secret: process.env.SANDBOX_SHARED_SECRET ?? "",
+      },
       // kernel 参数化（PTH_KERNEL_* env）：懒 spawn / 空闲回收 / reset 模式
       kernelConfig: loadKernelConfig(process.env),
       // 日志体系 T4：kernel stderr 转发 warn（component=pykernel/bashkernel）
