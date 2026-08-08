@@ -15,6 +15,7 @@ import { registerFallbackRoutes } from "./routes-fallback.js";
 import { registerObserveRoutes } from "./routes-observe.js";
 import { registerEventsRoutes } from "./routes-events.js";
 import { registerDebugRoutes, type DebugGatewayFactory } from "./routes-debug.js";
+import { registerKernelRoutes } from "./routes-kernel.js";
 import type { FallbackRequestStore } from "../fallback/requests.js";
 import type { SandboxHealthMonitor } from "../tools/sandbox-bash.js";
 import type { AuditWriter } from "../observability/audit.js";
@@ -38,6 +39,8 @@ export async function createServer(deps: {
   debugGateway?: DebugGatewayFactory;
   /** 审计（hub debug 会话审计）。可选。 */
   audit?: AuditWriter;
+  /** PTH kernel 运行时（装配层）——可选；传则注册 /kernel/* 路由。 */
+  kernelRuntime?: import("../kernel/assembly.js").KernelRuntime | null;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
@@ -63,6 +66,11 @@ export async function createServer(deps: {
   registerEventsRoutes(app, deps.engine, deps.audit);
   if (deps.debugGateway) {
     registerDebugRoutes(app, { gatewayFactory: deps.debugGateway, audit: deps.audit });
+  }
+  if (deps.kernelRuntime) {
+    registerKernelRoutes(app, deps.kernelRuntime);
+  } else {
+    registerKernelRoutes(app, null);
   }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 

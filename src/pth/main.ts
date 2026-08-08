@@ -16,6 +16,7 @@ import { createIntentWorker } from "./workflow/bullmq-worker.js";
 import { HotReloader, ResourceOverlay } from "./self-modify/hot-reloader.js";
 import { FallbackRequestStore } from "./fallback/requests.js";
 import { createServer } from "./gateway/server.js";
+import { createKernelRuntime } from "./kernel/assembly.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -144,12 +145,35 @@ async function main() {
   });
 
   const port = parseInt(process.env.PORT ?? "3000", 10);
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit });
+
+  // ── PTH kernel 装配（装配层 Task 2 + 接线 Task 1）──
+  // DATABASE_URL 注入（compose 已配 postgres）→ createKernelRuntime（pg + dataWorld + BatchManager + watchdog）。
+  // fail-open：pg 不可达时 kernelRuntime = null，/kernel/* 路由 503，PTH 其余功能照常。
+  const databaseUrl = process.env.DATABASE_URL;
+  let kernelRuntime: Awaited<ReturnType<typeof createKernelRuntime>> | null = null;
+  if (databaseUrl) {
+    try {
+      kernelRuntime = await createKernelRuntime({
+        databaseUrl,
+        basePath: path.join(dataDir, "workspaces"),
+        artifactPath: path.join(dataDir, "artifacts"),
+        // 生产 fork：dist 编译产物（纯 js，无需 loader/transform-types）；watchdog 30s 探测
+      });
+      logger.info({ event: "kernel_assembled", note: "PTH kernel 装配成功（pg + dataWorld + BatchManager + watchdog）" });
+    } catch (err) {
+      logger.warn({ err: String(err), event: "kernel_assembly_failed", note: "kernel 装配失败——/kernel/* 路由 503，PTH 其余功能照常" });
+    }
+  } else {
+    logger.warn({ event: "kernel_disabled", note: "未设置 DATABASE_URL——kernel 未装配" });
+  }
+
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 
   const shutdown = async (signal: string) => {
     logger.info({ signal, event: "shutdown_start" });
+    if (kernelRuntime) await kernelRuntime.shutdown();
     await engine.drain();
     await server.close();
     await redis.quit();

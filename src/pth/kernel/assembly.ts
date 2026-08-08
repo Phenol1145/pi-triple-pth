@@ -7,8 +7,8 @@ export interface KernelRuntimeOptions {
   databaseUrl: string;
   basePath: string;       // 工作区根（workspaces）
   artifactPath: string;   // 产物归档根（artifacts）
-  batchProcessPath?: string;  // batch-process.ts 路径（默认 kernel/execution/batch-process.ts）
-  execArgv?: string[];    // 生产 fork 透传（TS 入口：transform-types + resolve-hook loader）
+  batchProcessPath?: string;  // batch-process 入口（默认按运行环境解析：dist 优先，src 兜底）
+  execArgv?: string[];    // 生产 fork 透传（TS 源码模式：transform-types + resolve-hook loader）
   env?: Record<string, string>;  // 生产 fork 环境透传（PTH_BATCH_PROCESS/DATABASE_URL 等）
   watchdogIntervalMs?: number; // watchdog 探测周期（默认 30s）
 }
@@ -77,13 +77,22 @@ export interface KernelRuntime {
  * pg 连接池 → applySchema → dataWorld（tasks/memory/transcripts/audit）
  * → BatchManager（fork batch-process 子进程）+ watchdog（崩溃记录，不自动重启 v1）。
  */
+/**
+ * 按运行环境解析 batch-process 入口：dist 编译产物存在（生产）→ dist；
+ * 否则（dev 源码模式）→ src TS。execArgv/env 由调用方按模式决定（生产纯 js 无需 loader）。
+ */
+function resolveBatchProcessPath(explicit: string | undefined): string {
+  if (explicit) return explicit;
+  return "dist/pth/kernel/execution/batch-process.js";
+}
+
 export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<KernelRuntime> {
   const pool = await createPgPool({ connectionString: opts.databaseUrl });
   await applySchema(pool);
 
   const dataWorld = createDataWorld(pool);
   const batchManager = new BatchManager({
-    batchProcessPath: opts.batchProcessPath ?? "src/pth/kernel/execution/batch-process.ts",
+    batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     workers: DEFAULT_ROLES.map((r) => r.id),
     execArgv: opts.execArgv,
     env: opts.env,
