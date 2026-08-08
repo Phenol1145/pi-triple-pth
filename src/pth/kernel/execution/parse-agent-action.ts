@@ -12,6 +12,24 @@ export const AGENT_TOOL_IDS = [
   "done",
 ] as const;
 
+/**
+ * 能力函数（ts 程序内可用）——LLM 若误把它们当动作工具输出，agent-loop 自动降级为 ts 程序执行。
+ * 值 = 包装程序模板（args 注入）
+ */
+export const AGENT_CAPABILITY_AS_ACTION: Record<string, (args: Record<string, unknown>) => string> = {
+  "memory.query": (a) => `return await memory.query(${JSON.stringify(String(a.sql ?? ""))});`,
+  "memory.write": (a) => `return await memory.write(${JSON.stringify(a)});`,
+  "llm.complete": (a) => `return await llm.complete([{ role: "system", content: ${JSON.stringify(String(a.system ?? "你是助手"))} }, { role: "user", content: ${JSON.stringify(String(a.user ?? ""))} }]);`,
+  "web.fetchText": (a) => `return await web.fetchText(${JSON.stringify(String(a.url ?? ""))});`,
+  "fs.readText": (a) => `return await fs.readText(${JSON.stringify(String(a.path ?? ""))});`,
+  "fs.list": (a) => `return await fs.list(${a.dir ? JSON.stringify(String(a.dir)) : "undefined"});`,
+  "env.inspect": (a) => `return await env.inspect(${a.lang ? JSON.stringify(String(a.lang)) : "undefined"});`,
+  "state.recallFunctions": (a) => `return await state.recallFunctions(${a.query ? JSON.stringify(String(a.query)) : "undefined"});`,
+  "state.recallInsights": (a) => `return await state.recallInsights(${a.query ? JSON.stringify(String(a.query)) : "undefined"});`,
+};
+
+export const AGENT_CAPABILITY_IDS = Object.keys(AGENT_CAPABILITY_AS_ACTION);
+
 export type AgentToolId = (typeof AGENT_TOOL_IDS)[number];
 
 export interface AgentAction {
@@ -24,8 +42,9 @@ export type ParseResult =
   | { ok: true; action: AgentAction }
   | { ok: false; error: string };
 
-export function isKnownTool(tool: string): tool is AgentToolId {
-  return (AGENT_TOOL_IDS as readonly string[]).includes(tool);
+export function isKnownTool(tool: string): boolean {
+  // 元工具白名单 + 能力函数名（能力动作由 agent-loop 自动降级为 ts 程序执行）
+  return (AGENT_TOOL_IDS as readonly string[]).includes(tool) || AGENT_CAPABILITY_IDS.includes(tool);
 }
 
 /** 剥离 markdown 代码块围栏（```json / ``` 包裹），返回最内层内容 */
@@ -87,5 +106,5 @@ export function parseAgentAction(output: string): ParseResult {
     return { ok: false, error: `action-parse-failed: 工具 ${tool} 缺少 args 对象` };
   }
   const thought = typeof obj["thought"] === "string" ? obj["thought"] : undefined;
-  return { ok: true, action: { thought, tool, args: args as Record<string, unknown> } };
+  return { ok: true, action: { thought, tool: tool as AgentToolId, args: args as Record<string, unknown> } };
 }

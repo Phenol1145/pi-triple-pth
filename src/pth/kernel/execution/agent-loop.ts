@@ -12,8 +12,8 @@
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC } from "./agent-tools.js";
-import { parseAgentAction } from "./parse-agent-action.js";
+import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, type AgentToolResult } from "./agent-tools.js";
+import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
@@ -59,6 +59,11 @@ ${AGENT_CAPABILITY_DOC}
 输出要求：每步只输出一个 JSON 对象（可带 brief 思考），不要输出 JSON 以外的多余内容。
 完成任务时输出 {"action":{"tool":"done","args":{"result":<最终产出对象>,"summary":"完成说明"}}}。
 如果任务无法完成（信息不足/超出能力），也用 done 提交并说明原因。`;
+}
+
+function truncate(s: string, max = 2000): { text: string; truncated: boolean } {
+  if (s.length <= max) return { text: s, truncated: false };
+  return { text: s.slice(0, max) + `…(截断 ${s.length - max} 字符)`, truncated: true };
 }
 
 /** 动作指纹（防死锁：连续相同动作强制终止） */
@@ -178,6 +183,25 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
 
     const executor = AGENT_TOOLS[tool as keyof typeof AGENT_TOOLS];
     if (!executor) {
+      // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行
+      const wrap = AGENT_CAPABILITY_AS_ACTION[tool];
+      if (wrap) {
+        const code = wrap(args);
+        input.logger?.(`[agent] step=${steps + 1} capability-action ${tool} → ts 程序降级`);
+        const r = await kernel.ts.execute(code, { cwd: "/tmp" });
+        const result: AgentToolResult = r.ok
+          ? { ok: true, value: r.value, stdout: truncate(JSON.stringify(r.value ?? null), 2000).text }
+          : { ok: false, error: r.error?.message ?? "ts execute failed" };
+        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok });
+        try {
+          kernel.ts.registerResult?.(`result_${steps + 1}`, { tool, ok: result.ok, value: result.ok ? result.value : undefined, error: result.ok ? undefined : result.error });
+        } catch { /* mock 容忍 */ }
+        const summary = result.ok
+          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
+          : `error: ${result.error ?? "unknown"}`;
+        toolTrail.push(`step ${steps + 1} [${tool}]: ${summary}`);
+        return undefined;
+      }
       return { ok: false, error: `未知工具 ${tool}`, steps: steps + 1 };
     }
     try {

@@ -146,3 +146,30 @@ describe("env.inspect（环境感知 ②）", () => {
     manager3.dispose();
   });
 });
+
+describe("能力函数动作降级（LLM 误写 memory.query 为动作）", () => {
+  it("memory.query 动作 → 自动转 ts 程序执行", async () => {
+    const manager4 = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
+    const kernel4 = createWorkerKernelWithManager({
+      llm: null as any,
+      dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} }, queryReadOnly: async () => [{ kind: "tool-function" }] } as any,
+      manager: manager4, toolstore: null as any,
+    });
+    let step = 0;
+    const llm: LlmFn = {
+      complete: async () => {
+        step++;
+        if (step === 1) {
+          // LLM 惯性输出旧动作形态（非白名单元工具）
+          return { ok: true, content: '{"action":{"tool":"memory.query","args":{"sql":"SELECT kind FROM memory_entries LIMIT 5"}}}', durationMs: 1, usage: {} };
+        }
+        return { ok: true, content: '{"action":{"tool":"done","args":{"result":{"ok":true},"summary":"done"}}}', durationMs: 1, usage: {} };
+      },
+    } as LlmFn;
+
+    const r = await runAgentTask({ llm, kernel: kernel4, caps: kernel4.capabilities, task: { title: "cap-act", text: "查记忆" }, maxSteps: 5 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.steps).toBe(2); // 降级一步 + done
+    manager4.dispose();
+  });
+});
