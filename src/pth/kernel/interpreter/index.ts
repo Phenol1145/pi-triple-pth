@@ -1,5 +1,6 @@
 import type { ModelRouter } from "@pi-triple/infra";
 import type { DataWorldAccess } from "../storage/index.js";
+import type { InterpreterSnapshot } from "./types.js";
 import { TsInterpreter } from "./ts-interpreter.js";
 import { BashInterpreter } from "./bash-interpreter.js";
 import { PythonInterpreter } from "./python-interpreter.js";
@@ -13,6 +14,8 @@ export interface WorkerKernel {
   python: Interpreter;
   llm: LlmFn;
   dataWorld: DataWorldAccess;
+  /** 聚合快照（T4 refine 输入）：ts + python + bash 三 kernel 状态 */
+  snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
 }
@@ -33,6 +36,16 @@ export function createWorkerKernel(deps: WorkerKernelDeps): WorkerKernel {
   const ts = new TsInterpreter({ capabilities });
   return {
     ts, bash, python, llm, dataWorld: deps.dataWorld,
+    snapshot: async () => {
+      const tsSnap = await ts.snapshot();
+      const pySnap = await python.snapshot();
+      const bSnap = await bash.snapshot();
+      return {
+        variables: [...tsSnap.variables, ...pySnap.variables],
+        functions: [...tsSnap.functions, ...pySnap.functions],
+        oversized: [...tsSnap.oversized, ...pySnap.oversized, ...bSnap.oversized],
+      };
+    },
     reset() { ts.reset(); bash.reset(); python.reset(); },
     dispose() { ts.dispose(); bash.dispose(); python.dispose(); },
   };

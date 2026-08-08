@@ -24,6 +24,13 @@ describe("ts interpreter", () => {
     expect(res.value).toBe(42);
   });
 
+  it("supports top-level return without await（回归：无 await 的 return 任务）", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    const res = await itp.execute("function fib(n){return n<=1?n:fib(n-1)+fib(n-2)}; return { fib10: fib(10) };");
+    expect(res.ok).toBe(true);
+    expect((res.value as { fib10: number }).fib10).toBe(55);
+  });
+
   it("rejects import statements with friendly error", async () => {
     const itp = new TsInterpreter({ capabilities: {} });
     const res = await itp.execute("import { x } from 'y'; x");

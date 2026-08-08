@@ -11,6 +11,7 @@ import { DefaultTaskWorkspaceManager } from "./workspace.js";
 import { archiveTask, type ArchiveDeps } from "./archive.js";
 import { createKernelModelRouter } from "./model-router.js";
 import { createLlmFn } from "../interpreter/llm-fn.js";
+import { Refiner } from "./refiner.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -93,7 +94,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
     });
     const kernel = createWorkerKernelWithManager({ llm: createLlmFn({ modelRouter }), dataWorld, manager });
-    return new BatchTaskLoop({ kernel, role, taskStore: dataWorld.tasks, workspaceMgr }, archiveDeps);
+    // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
+    const refineEnabled = process.env.PTH_REFINE !== "off";
+    const refiner = refineEnabled ? new Refiner({ llm: createLlmFn({ modelRouter }), memory: dataWorld.memory }) : undefined;
+    return new BatchTaskLoop({ kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner }, archiveDeps);
   });
 
   // 每轮：各 worker runOnce（并发）

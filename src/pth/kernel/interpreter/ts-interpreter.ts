@@ -106,8 +106,9 @@ function preflight(program: string): { ok: true; code: string } | { ok: false; e
   if (/\brequire\s*\(/.test(program)) {
     return { ok: false, error: "require is not allowed in kernel programs — use injected globals (llm/memory/skills/tasks/bash/python)" };
   }
-  // top-level await：包装为异步 IIFE
-  if (/\bawait\b/.test(program)) {
+  // 统一包装为异步 IIFE：await（异步延续）与顶层 return 都需要函数上下文。
+  // （试运行发现：无 await 但有 return 的任务代码不被包装 → "Return statement is not allowed"）
+  if (/\bawait\b/.test(program) || /^\s*return\b/m.test(program) || /\breturn\s*\{/.test(program)) {
     return { ok: true, code: wrapAwait(program) };
   }
   return { ok: true, code: program };
@@ -133,7 +134,44 @@ function wrapAwait(program: string): string {
   if (!startsWithStatementKeyword && !hasTopLevelSeparator) {
     return `(async () => { return ${program} })()`;
   }
-  return `(async () => { ${program} })()`;
+  // 块包装 + 自动导出（T4 refine 支持）：顶层 function/var 声明转发到 globalThis
+  // （否则 IIFE 局部声明 snapshot 不可见——试运行发现 fibonacci 提炼为空）。
+  // 关键：导出必须插在 return 之前（return 后的代码是死代码）。
+  const autoExport = extractTopLevelDecls(program)
+    .map((name) => `globalThis.${name} = ${name};`)
+    .join("\n");
+  const withExport = insertBeforeReturn(program, autoExport);
+  return `(async () => { ${withExport} })()`;
+}
+
+/**
+ * 提取顶层声明名（refine 自动导出用）：
+ *   function NAME(...)  /  var NAME = ...  → [NAME]
+ * const/let 不导出（词法绑定，globalThis 转发会抛 TDZ 错误——与 vm 语义一致）。
+ * 正则启发式（非完整 AST）：覆盖常见任务代码形态。
+ */
+function extractTopLevelDecls(program: string): string[] {
+  const names = new Set<string>();
+  const fnRe = /^\s*function\s+([A-Za-z_$][\w$]*)/gm;
+  const varRe = /^\s*var\s+([A-Za-z_$][\w$]*)/gm;
+  for (const m of program.matchAll(fnRe)) names.add(m[1]!);
+  for (const m of program.matchAll(varRe)) names.add(m[1]!);
+  return [...names];
+}
+
+/**
+ * 把导出语句插到最后一个顶层 return 之前（return 后是死代码）。
+ * 无 return → 直接追加尾部。
+ */
+function insertBeforeReturn(program: string, insertion: string): string {
+  const lines = program.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s*return\b/.test(lines[i]!)) {
+      lines.splice(i, 0, insertion);
+      return lines.join("\n");
+    }
+  }
+  return program + "\n" + insertion;
 }
 
 /**

@@ -12,6 +12,8 @@ export interface TaskLoopDeps {
   role: WorkerRole;
   taskStore: TaskStore;
   workspaceMgr: TaskWorkspaceManager;
+  /** Refine 钩子（T4）：任务完成后快照+提炼+持久化。默认 undefined = 不 refine。 */
+  refiner?: Pick<import("./refiner.js").Refiner, "refine">;
 }
 
 /**
@@ -70,6 +72,17 @@ export class TaskLoop {
       }
       await taskStore.submit(role.id, task.id, { ref: result });
       await this.archive(task, ws, result);
+      // Refine（T4）：任务完成后快照+提炼+持久化。kernel.reset 在下一任务才调用——
+      // 此刻 context 仍存活，可快照。refine 失败不阻塞任务完成（旁路降级）。
+      if (this.deps.refiner) {
+        try {
+          const snap = await this.deps.kernel.snapshot();
+          await this.deps.refiner.refine({ task, snapshot: snap });
+        } catch (e) {
+          // 降级：refine 失败仅记日志，任务已 completed 不受影响（草案 P6）
+          console.error(`[refine] task ${task.id} refine failed: ${(e as Error).message}`);
+        }
+      }
     } catch (e) {
       await taskStore.reject(role.id, task.id, `execution-crashed: ${(e as Error).message}`);
     }

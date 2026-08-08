@@ -10,7 +10,7 @@
  *   - 超时 kill + 冷备补位（由 PyKernel/BashKernel 内部实现）
  */
 
-import type { ExecuteOptions, Interpreter, InterpreterResult } from "./types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
 import { TsInterpreter } from "./ts-interpreter.js";
 import { PythonInterpreter } from "./python-interpreter.js";
 import { BashInterpreter } from "./bash-interpreter.js";
@@ -93,6 +93,7 @@ export function createWorkerKernelWithManager(deps: {
   bash: Interpreter;
   llm: LlmFn;
   dataWorld: DataWorldAccess;
+  snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
 } {
@@ -104,6 +105,16 @@ export function createWorkerKernelWithManager(deps: {
     bash: deps.manager.bash,
     llm: deps.llm,
     dataWorld: deps.dataWorld,
+    snapshot: async () => {
+      const tsSnap = await ts.snapshot();
+      const pySnap = await deps.manager.python.snapshot();
+      const bSnap = await deps.manager.bash.snapshot();
+      return {
+        variables: [...tsSnap.variables, ...pySnap.variables],
+        functions: [...tsSnap.functions, ...pySnap.functions],
+        oversized: [...tsSnap.oversized, ...pySnap.oversized, ...bSnap.oversized],
+      };
+    },
     reset() { ts.reset(); deps.manager.reset(); },
     dispose() { ts.dispose(); deps.manager.dispose(); },
   };
