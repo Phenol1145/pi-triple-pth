@@ -75,7 +75,7 @@ export class TaskLoop {
       if (!result.ok) {
         // 执行失败（语法/运行时错误——interpreter 返回 ok:false 不抛）：按 reject 处理，
         // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。
-        await taskStore.reject(role.id, task.id, `execution-failed: ${result.error?.message ?? "unknown"}`);
+        await taskStore.reject(role.id, task.id, `execution-failed: ${result.error?.message ?? "unknown"}`, { terminal: true });
         await this.archive(task, ws, result);
         taskLogger?.error(`task rejected: ${result.error?.message ?? "unknown"}`, { durationMs: execMs });
         // 性能计量（SPEC L2）：状态 + 拒绝原因（前缀分类）+ 阶段耗时
@@ -90,22 +90,27 @@ export class TaskLoop {
       this.deps.onTaskMetric?.({ type: "status", status: "completed" });
       this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
       // Refine（T4）：任务完成后快照+提炼+持久化。kernel.reset 在下一任务才调用——
-      // 此刻 context 仍存活，可快照。refine 失败不阻塞任务完成（旁路降级）。
+      // 此刻 context 仍存活，可快照。
+      // 性能修复（摸底发现）：refine 的 LLM 调用（1-2s）必须在 execute 循环外异步完成——
+      // 否则同角色串行任务被 refine 阻塞（submit 间隔 = 上个任务的 refine 时长）。
+      // snapshot 必须同步 await（下一任务 reset 会清 context）；LLM 提炼 fire-and-forget。
       if (this.deps.refiner) {
         // Per-task refine 开关（P6 增强）：payload.refine = "off" 关闭；缺省跟随全局
         const taskRefine = ((task.payload ?? {}) as { refine?: string }).refine;
         if (taskRefine !== "off") {
           try {
             const snap = await this.deps.kernel.snapshot();
-            await this.deps.refiner.refine({ task, snapshot: snap });
+            void this.deps.refiner.refine({ task, snapshot: snap }).catch((e) => {
+              // 降级：refine 失败仅记日志，任务已 completed 不受影响（草案 P6）
+              taskLogger?.error(`refine failed: ${(e as Error).message}`);
+            });
           } catch (e) {
-            // 降级：refine 失败仅记日志，任务已 completed 不受影响（草案 P6）
-            taskLogger?.error(`refine failed: ${(e as Error).message}`);
+            taskLogger?.error(`refine snapshot failed: ${(e as Error).message}`);
           }
         }
       }
     } catch (e) {
-      await taskStore.reject(role.id, task.id, `execution-crashed: ${(e as Error).message}`);
+      await taskStore.reject(role.id, task.id, `execution-crashed: ${(e as Error).message}`, { terminal: true });
       taskLogger?.error(`task crashed: ${(e as Error).message}`);
       this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
       this.deps.onTaskMetric?.({ type: "reject-reason", reason: "execution-crashed" });
