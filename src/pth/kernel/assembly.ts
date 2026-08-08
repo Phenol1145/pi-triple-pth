@@ -2,6 +2,7 @@ import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
 import { DEFAULT_ROLES } from "./execution/worker-cluster.js";
 import { TaskResolver } from "./execution/task-resolver.js";
+import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { createKernelLogger } from "./logger.js";
 import type pg from "pg";
 
@@ -131,6 +132,39 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   }, opts.resolverIntervalMs ?? 2_000);
   resolverTimer.unref?.();
 
+  // Batch 自动扩缩容（PTH_BATCH_AUTOSCALE=on 默认）：pending 积压→扩容；全 idle→缩容
+  const scalerCfg = loadScalerConfig(process.env);
+  let scalerTimer: ReturnType<typeof setInterval> | null = null;
+  if (scalerCfg.enabled) {
+    const scalerLogger = createKernelLogger();
+    scalerTimer = setInterval(() => {
+      void evaluateAndScale(
+        {
+          countPending: () => dataWorld.tasks.countPending(),
+          batchCount: async () => (await batchManager.listBatches()).length,
+          avgIdleRatio: async () => {
+            const bs = await batchManager.listBatches();
+            if (bs.length === 0) return 1;
+            return bs.reduce((s, b) => s + (b.idleRatio ?? 1), 0) / bs.length;
+          },
+          spawnBatch: () => batchManager.spawnBatch(),
+          killOneIdle: async () => {
+            const bs = await batchManager.listBatches();
+            const idle = bs.find((b) => (b.idleRatio ?? 1) >= 1);
+            if (!idle) return false;
+            await batchManager.killBatch(idle.id);
+            return true;
+          },
+          logger: (msg) => scalerLogger?.info(msg),
+        },
+        { min: scalerCfg.min, max: scalerCfg.max, upThreshold: scalerCfg.upThreshold },
+      ).catch((e) => {
+        scalerLogger?.error(`autoscale loop error: ${(e as Error).message}`);
+      });
+    }, scalerCfg.intervalMs);
+    scalerTimer.unref?.();
+  }
+
   return {
     pool,
     dataWorld,
@@ -140,6 +174,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     shutdown: async () => {
       watchdog.stop();
       clearInterval(resolverTimer);
+      if (scalerTimer) clearInterval(scalerTimer);
       await pool.end();
     },
   };

@@ -104,7 +104,11 @@ export class PgTaskStore implements TaskStore {
 
   async countPending(): Promise<number> {
     // count(*) 返回 int8 → node-postgres 解析为字符串，必须 Number() 转换（见 Task 1 ledger minor）。
-    const res = await this.pool.query(`SELECT count(*) FROM tasks WHERE status = 'pending'`);
+    // 排除冻结坏任务（claims_count >= MAX_CLAIMS——永远不会被执行，不应阻塞自动缩容）。
+    const res = await this.pool.query(
+      `SELECT count(*) FROM tasks WHERE status = 'pending' AND claims_count < $1`,
+      [MAX_CLAIMS],
+    );
     // count(*) 返回 int8 → node-postgres 解析为字符串，必须 Number() 转换（见 Task 1 ledger minor）。
     return Number((res.rows[0] as { count: string }).count);
   }
