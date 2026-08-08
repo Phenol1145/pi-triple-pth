@@ -1,6 +1,7 @@
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { Task, TaskStore } from "../storage/task-store-pg.js";
 import type { WorkerRole } from "./worker-cluster.js";
+import { detectNaturalLanguage, translateTask } from "./nl-translator.js";
 
 export interface TaskWorkspaceManager {
   allocate(taskId: string): Promise<{ dir: string; tenant: string }>;
@@ -18,6 +19,8 @@ export interface TaskLoopDeps {
   logger?: import("../logger.js").KernelLogger;
   /** 性能计量（SPEC L2）：任务事件 → IPC 转发主进程 */
   onTaskMetric?: (m: Record<string, unknown>) => void;
+  /** 自然语言任务转译（NL→代码）；undefined = 不转译（NL 任务直接 reject） */
+  llm?: import("../interpreter/llm-fn.js").LlmFn;
 }
 
 /**
@@ -64,7 +67,24 @@ export class TaskLoop {
     const execStart = Date.now();
     kernel.reset();                          // 任务级状态隔离
     try {
-      const result = await kernel.ts.execute(task.text, { cwd: ws.dir });
+      // 自然语言任务（payload.kind=nl 强制 或 启发式检测）：LLM 转译 → 执行转译代码
+      // 转译失败 → terminal reject（坏任务不回池）
+      const forceNl = ((task.payload ?? {}) as { kind?: string }).kind === "nl";
+      const nlDetected = detectNaturalLanguage(task.text, forceNl);
+      let code = task.text;
+      if (nlDetected && this.deps.llm) {
+        const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
+        if (!t.ok) {
+          await taskStore.reject(role.id, task.id, t.error, { terminal: true });
+          taskLogger?.error(t.error);
+          this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+          this.deps.onTaskMetric?.({ type: "reject-reason", reason: "nl-translate-failed" });
+          return;
+        }
+        code = t.code;
+        taskLogger?.info("nl task translated", { codeLen: code.length });
+      }
+      const result = await kernel.ts.execute(code, { cwd: ws.dir });
       const execMs = Date.now() - execStart;
       // 性能计量（SPEC L1）：TS 主执行计入 kernel exec（python/bash 由 metered 包装计）
       this.deps.onTaskMetric?.({ type: "exec", language: "ts", durationMs: execMs, ok: result.ok });

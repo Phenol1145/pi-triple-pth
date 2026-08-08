@@ -134,6 +134,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     }) : undefined;
     return new BatchTaskLoop({
       kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, logger: batchLogger,
+      // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
+      llm,
       // 性能计量（SPEC L2）：任务事件 → IPC 转发主进程
       onTaskMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "task" } }); } catch { /* IPC 不可用 */ } },
     }, archiveDeps);
