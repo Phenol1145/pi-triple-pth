@@ -22,6 +22,8 @@ export interface SandboxKernelOptions {
   kernelId?: string;
   /** 超时保护（fetch 层，默认 10s——宿主内部有执行超时） */
   requestTimeoutMs?: number;
+  /** acquire 排队等待上限（池满时 FIFO 排队——默认 60s） */
+  acquireTimeoutMs?: number;
 }
 
 export class SandboxKernel implements Interpreter {
@@ -32,6 +34,7 @@ export class SandboxKernel implements Interpreter {
   private secret: string;
   private kernelId: string | null;
   private requestTimeoutMs: number;
+  private acquireTimeoutMs: number;
   private disposed = false;
   private releasePromise: Promise<void> | null = null;
   private acquirePromise: Promise<void> | null = null;
@@ -46,15 +49,16 @@ export class SandboxKernel implements Interpreter {
     this.secret = opts.secret;
     this.kernelId = opts.kernelId ?? null;
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 10_000;
+    this.acquireTimeoutMs = opts.acquireTimeoutMs ?? 60_000;
     if (opts.acquireOnInit !== false) {
       // 懒获取：失败不炸构造（宿主暂不可达/池满排队）——后续 execute 时重试
       void this.acquire().catch(() => {});
     }
   }
 
-  private async call<T>(path: string, body?: unknown): Promise<T> {
+  private async call<T>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.requestTimeoutMs);
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs ?? this.requestTimeoutMs);
     try {
       const res = await fetch(`${this.url}${path}`, {
         method: "POST",
@@ -83,7 +87,7 @@ export class SandboxKernel implements Interpreter {
     if (!this.acquirePromise) {
       this.acquirePromise = (async () => {
         if (this.kernelId) return;
-        const r = await this.call<{ kernelId: string }>("/kernel/acquire", { lang: this.language });
+        const r = await this.call<{ kernelId: string }>("/kernel/acquire", { lang: this.language }, this.acquireTimeoutMs);
         this.kernelId = r.kernelId;
       })();
     }
