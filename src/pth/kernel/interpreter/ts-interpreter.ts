@@ -136,9 +136,9 @@ function wrapAwait(program: string): string {
   }
   // 块包装 + 自动导出（T4 refine 支持）：顶层 function/var 声明转发到 globalThis
   // （否则 IIFE 局部声明 snapshot 不可见——试运行发现 fibonacci 提炼为空）。
-  // 关键：导出必须插在 return 之前（return 后的代码是死代码）。
+  // try-catch 包裹：正则误判的嵌套声明（如函数内 `; var x`）导出失败静默跳过，不破坏任务。
   const autoExport = extractTopLevelDecls(program)
-    .map((name) => `globalThis.${name} = ${name};`)
+    .map((name) => `try { globalThis.${name} = ${name}; } catch {}`)
     .join("\n");
   const withExport = insertBeforeReturn(program, autoExport);
   return `(async () => { ${withExport} })()`;
@@ -152,16 +152,29 @@ function wrapAwait(program: string): string {
  */
 function extractTopLevelDecls(program: string): string[] {
   const names = new Set<string>();
+  // 行首模式（模板渲染任务多行结构）
   const fnRe = /^function\s+([A-Za-z_$][\w$]*)/gm;
   const varRe = /^var\s+([A-Za-z_$][\w$]*)/gm;
+  // 单行模式（压缩/单行任务代码）：声明前是行首/分号/大括号结束——函数内 `{ var` 不匹配（嵌套安全），
+  // 命名函数表达式 `: function f` 不匹配（前缀是冒号），for 循环 `(var` 不匹配
+  const fnOneLine = /(?:^|[;}])\s*function\s+([A-Za-z_$][\w$]*)/g;
+  const varOneLine = /(?:^|[;}])\s*var\s+([A-Za-z_$][\w$]*)/g;
   for (const m of program.matchAll(fnRe)) names.add(m[1]!);
   for (const m of program.matchAll(varRe)) names.add(m[1]!);
+  for (const m of program.matchAll(fnOneLine)) names.add(m[1]!);
+  for (const m of program.matchAll(varOneLine)) names.add(m[1]!);
   return [...names];
 }
 
 /**
  * 把导出语句插到最后一个顶层 return 之前（return 后是死代码）。
  * 无 return → 直接追加尾部。
+ */
+/**
+ * 把导出语句插到最后一个顶层 return 之前（return 后是死代码）。
+ * 优先行首 return（模板渲染任务多行结构）；单行任务代码（return 不在行首）
+ * fallback 到任意位置最后一个 return（\b 词法边界，防误匹配 returnX/嵌套 return）
+ * ——否则导出语句被追加到 return 后成死代码，snapshot 永远为空（perf 摸底发现）。
  */
 function insertBeforeReturn(program: string, insertion: string): string {
   const lines = program.split("\n");
@@ -170,6 +183,14 @@ function insertBeforeReturn(program: string, insertion: string): string {
       lines.splice(i, 0, insertion);
       return lines.join("\n");
     }
+  }
+  // fallback：任意位置最后一个 return（词法边界）——单行/压缩代码
+  let lastIdx = -1;
+  for (const m of program.matchAll(/(?:^|[^A-Za-z0-9_$])return\b/g)) {
+    lastIdx = m.index! + m[0].lastIndexOf("return");
+  }
+  if (lastIdx >= 0) {
+    return program.slice(0, lastIdx) + insertion + "\n" + program.slice(lastIdx);
   }
   return program + "\n" + insertion;
 }

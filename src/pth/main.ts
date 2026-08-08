@@ -177,6 +177,7 @@ async function main() {
             if (t.type === "status") kernelMetrics.taskStatus(String(t.status ?? "?"));
             else if (t.type === "stage") kernelMetrics.taskStage(String(t.stage ?? "?"), Number(t.durationMs ?? 0));
             else if (t.type === "reject-reason") kernelMetrics.taskRejectedReason(String(t.reason ?? "other"));
+            else if (t.type === "exec") kernelMetrics.kernelExec(String(t.language ?? "?"), Number(t.durationMs ?? 0), Boolean(t.ok));
           } else if (t.domain === "refine") {
             if (t.type === "refine-duration") kernelMetrics.refineDuration(Number(t.durationMs ?? 0));
             else if (t.type === "refine-yield") kernelMetrics.refineYield(String(t.kind ?? "?"), Number(t.count ?? 0));

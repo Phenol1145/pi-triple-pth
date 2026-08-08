@@ -70,6 +70,8 @@ export class TaskLoop {
     try {
       const result = await kernel.ts.execute(task.text, { cwd: ws.dir });
       const execMs = Date.now() - execStart;
+      // 性能计量（SPEC L1）：TS 主执行计入 kernel exec（python/bash 由 metered 包装计）
+      this.deps.onTaskMetric?.({ type: "exec", language: "ts", durationMs: execMs, ok: result.ok });
       if (!result.ok) {
         // 执行失败（语法/运行时错误——interpreter 返回 ok:false 不抛）：按 reject 处理，
         // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。

@@ -109,3 +109,26 @@ describe("ts interpreter", () => {
     expect(second.error?.message).toContain("already been declared");
   });
 });
+
+describe("single-line task snapshot export", () => {
+  it("单行任务代码（return 不在行首）函数应进 snapshot——导出非死代码", async () => {
+    const k = new TsInterpreter({ timeoutMs: 5000 });
+    const code = `function quad(n) { return n * n * n * n; } return { result: quad(4) };`;
+    const r = await k.execute(code, { cwd: "/tmp" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual({ result: 256 });
+    const snap = k.snapshot();
+    expect(snap.functions.some(f => f.key === "quad")).toBe(true);
+  });
+
+  it("压缩多语句单行（分号分隔）同样导出", async () => {
+    const k = new TsInterpreter({ timeoutMs: 5000 });
+    const code = `function triple(n) { return n * 3; } var base = 5; return { t: triple(base) };`;
+    const r = await k.execute(code, { cwd: "/tmp" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual({ t: 15 });
+    const snap = k.snapshot();
+    expect(snap.functions.some(f => f.key === "triple")).toBe(true);
+    expect(snap.variables.some(v => v.key === "base")).toBe(true);
+  });
+});

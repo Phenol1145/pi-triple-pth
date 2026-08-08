@@ -115,6 +115,7 @@ export class PgTaskStore implements TaskStore {
       `UPDATE tasks SET
          status = 'completed',
          submitted_at = now(),
+         completed_at = now(),
          updated_at = now(),
          payload = payload || jsonb_build_object('outputRef', $3::jsonb)
        WHERE id = $1 AND claimed_by = $2`,
