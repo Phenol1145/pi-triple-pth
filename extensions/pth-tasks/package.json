@@ -1,0 +1,14 @@
+{
+  "name": "@pi-triple/pth-tasks",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi-Triple pth-tasks — PTH 任务发布工具（/pthtask 命令族：publish/ls/status/batch）",
+  "main": "./index.ts",
+  "keywords": [
+    "pi-extension",
+    "pi-triple",
+    "pth",
+    "tasks"
+  ],
+  "author": "Pi-Triple"
+}
