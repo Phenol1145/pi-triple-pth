@@ -30,6 +30,8 @@ export interface BatchManagerDeps {
   logger?: import("../logger.js").KernelLogger;
   /** 性能计量（SPEC L1）：batch IPC metric 消息 → 主进程 kernelMetrics */
   onMetric?: (m: Record<string, unknown>) => void;
+  /** obs 观测请求解析器（主进程装配：metrics/batches 数据源）——batch obs-req 消息路由 */
+  obsResolver?: (req: string, params: unknown) => Promise<unknown>;
 }
 
 /**
@@ -55,6 +57,16 @@ export class BatchManager {
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
+      } else if (msg?.kind === "obs-req" && this.deps.obsResolver) {
+        // obs 观测请求（batch → 主进程）：解析并回传（obs-resp 契约）
+        const id = String(msg.id ?? "");
+        void this.deps.obsResolver(String(msg.req ?? ""), msg.params)
+          .then((data) => {
+            try { record.child.send({ kind: "obs-resp", id, data }); } catch { /* 子进程已退容忍 */ }
+          })
+          .catch((e: Error) => {
+            try { record.child.send({ kind: "obs-resp", id, data: null, error: e.message }); } catch { /* 同上 */ }
+          });
       } else if (msg?.type === "log" && this.deps.logger) {
         // 日志体系 T3：batch 子进程日志经 IPC 转发 → 主进程统一打标（component/pid）
         const { level, component, msg: logMsg, ctx } = msg as {

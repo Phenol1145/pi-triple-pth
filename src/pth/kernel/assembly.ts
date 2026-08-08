@@ -7,6 +7,8 @@ import { createKernelLogger } from "./logger.js";
 import type pg from "pg";
 
 export interface KernelRuntimeOptions {
+  /** obs 观测请求解析器（batch obs-req → 主进程 metrics/batches 数据） */
+  obsResolver?: (req: string, params: unknown) => Promise<unknown>;
   databaseUrl: string;
   basePath: string;       // 工作区根（workspaces）
   artifactPath: string;   // 产物归档根（artifacts）
@@ -106,6 +108,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     execArgv: opts.execArgv,
     logger: createKernelLogger(),
     onMetric: opts.onMetric,
+    obsResolver: opts.obsResolver,
     // 自动注入 kernel 子进程 env（试运行发现：main.ts 只传 databaseUrl 不传 env，
     // fork 的子进程没有 PTH_BATCH_PROCESS/DATABASE_URL → 不进入 batch 入口 → 立即退出）。
     // 调用方显式传 env 时覆盖（后进覆盖先进）。

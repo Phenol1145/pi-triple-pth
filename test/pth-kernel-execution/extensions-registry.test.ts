@@ -13,7 +13,7 @@ const mockDataWorld = {
 
 describe("ts REPL 标准扩展包", () => {
   it("注册表：memory/context/model/perf 四成员在位", () => {
-    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf"]);
+    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs"]);
   });
 
   it("buildExtensions：能力注入（memory.query 受限 SQL）+ 预置对象（context/results/model）", () => {
@@ -71,7 +71,7 @@ describe("ts REPL 标准扩展包", () => {
 
 describe("model 会话切换 + perf 能力面（Phase 3）", () => {
   it("注册表四成员（perf 加入）", () => {
-    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf"]);
+    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs"]);
   });
 
   it("model.set 切换 → agent-loop 选择链生效（modelState 单例闭环）", async () => {
@@ -146,5 +146,58 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
     expect((analyze.value as any).notes.length).toBeGreaterThan(0);
     manager.dispose();
     fs.rmSync(stratDir, { recursive: true, force: true });
+  });
+});
+
+describe("obs 可监控数据调查（Phase 4）", () => {
+  it("注册表五成员（obs 加入）", () => {
+    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs"]);
+  });
+
+  it("obs.tasks：任务池状态分布（pg 封装 SQL——mock dataWorld）", async () => {
+    const seen: string[] = [];
+    const dw = {
+      memory: { retrieve: async () => [], write: async () => {} },
+      tasks: { candidates: async () => [], submit: async () => {} },
+      queryReadOnly: async (sql: string) => {
+        seen.push(sql);
+        return [{ status: "completed", n: "5" }];
+      },
+    } as any;
+    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const obs = obsExtension.provide!({ dataWorld: dw } as any)["obs"] as any;
+    const r = await obs.tasks({ status: "completed", role: "developer", limit: 10 });
+    expect(r).toEqual([{ status: "completed", n: "5" }]);
+    expect(seen[0]).toContain("WHERE");
+    expect(seen[0]).toContain("status = 'completed'");
+    expect(seen[0]).toContain("LIMIT 10");
+    // 非法 status（注入防护）→ 条件被忽略
+    await obs.tasks({ status: "x'; DROP TABLE tasks; --" });
+    expect(seen[1]).not.toContain("DROP");
+  });
+
+  it("obs.kernels：sandbox URL 未配置 → 明确错误", async () => {
+    delete process.env.PTH_SANDBOX_KERNEL_URL;
+    delete process.env.SANDBOX_URL;
+    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const obs = obsExtension.provide!({ dataWorld: { queryReadOnly: async () => [] } as any } as any)["obs"] as any;
+    const r = await obs.kernels();
+    expect(r.error).toContain("未配置");
+  });
+
+  it("obs.search：SQL 注入转义（单引号翻倍）", async () => {
+    const seen: string[] = [];
+    const dw = { queryReadOnly: async (sql: string) => { seen.push(sql); return []; } } as any;
+    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const obs = obsExtension.provide!({ dataWorld: dw } as any)["obs"] as any;
+    await obs.search({ query: "o'Reilly" });
+    expect(seen[0]).toContain("o''Reilly");
+  });
+
+  it("obs.metrics/batches：IPC 不可用 → 明确错误（非 batch 进程）", async () => {
+    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const obs = obsExtension.provide!({ dataWorld: { queryReadOnly: async () => [] } as any } as any)["obs"] as any;
+    const r = await obs.metrics({ pattern: "pth_" });
+    expect(r.error).toBeDefined();
   });
 });

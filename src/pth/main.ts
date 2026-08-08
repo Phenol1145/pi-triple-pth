@@ -184,6 +184,27 @@ async function main() {
             else if (t.type === "refine-degraded") kernelMetrics.refineDegraded(String(t.reason ?? "?"));
           }
         },
+        // obs 观测请求（batch → 主进程）：metrics（prom registry）/ batches（BatchManager 状态）
+        obsResolver: async (req, params) => {
+          if (req === "metrics") {
+            const pattern = String((params as Record<string, unknown> | undefined)?.["pattern"] ?? "");
+            try {
+              const all = await metrics.registry.getMetricsAsJSON();
+              const list = pattern
+                ? all.filter((m: { name: string }) => m.name.includes(pattern))
+                : all;
+              return list.map((m: { name: string; values: unknown[] }) => ({ name: m.name, values: m.values }));
+            } catch (e) {
+              return { error: (e as Error).message };
+            }
+          }
+          if (req === "batches") {
+            if (!kernelRuntime?.batchManager) return { error: "kernel 未装配" };
+            const bs = await kernelRuntime.batchManager.listBatches();
+            return bs.map((b: any) => ({ id: b.id, pid: b.child?.pid, workers: b.workers, tasks: [...b.currentTasks.values()] }));
+          }
+          return { error: `未知 obs 请求: ${req}` };
+        },
         // 生产 fork：dist 编译产物（纯 js，无需 loader/transform-types）；watchdog 30s 探测
       });
       logger.info({ event: "kernel_assembled", note: "PTH kernel 装配成功（pg + dataWorld + BatchManager + watchdog）" });
