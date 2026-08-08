@@ -91,9 +91,12 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const statusTimer = setInterval(() => {
     process.send?.({ type: "status", tasks: [] });
   }, 2000);
-  // 定时器不作为 keep-alive：pg 连接池句柄维持进程存活（空闲且 DB 断开时进程自然退出）
-  timer.unref();
-  statusTimer.unref();
+  // keep-alive（试运行发现修正）：pg 连接池在 Node 24 下不 hold 事件循环（socket 默认 unref），
+  // 空闲且仅剩 unref 定时器时进程会立即退出——batch 必须保持存活直到主进程显式 shutdown。
+  // 保持定时器引用（不 unref）：进程生命周期与 batch 运行绑定，由 killBatch 的 shutdown 消息
+  // 优雅终止（或 5s SIGKILL 兜底）。
+  void timer;
+  void statusTimer;
 }
 
 // 入口判断：env 标志为主（strip-types/transform-types 下 argv[1] 是绝对路径，endsWith 不可靠），

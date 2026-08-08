@@ -43,9 +43,13 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!kernel) return unavailable(reply);
     const q = (req.query ?? {}) as Record<string, unknown>;
     const limit = typeof q.limit === "string" ? Math.min(Math.max(parseInt(q.limit, 10) || 50, 1), 200) : 50;
-    // v1：candidates 拉取（按 agent 过滤留后续）；status 过滤留后续——列表能力先行
-    const tasks = await kernel.dataWorld.tasks.candidates("any", { limit });
-    return tasks;
+    // 列表返回全部状态（pending/claimed/completed/rejected...），按创建时间倒序——
+    // candidates() 只返回 pending 队列（批处理认领语义），不适合观测列表（试运行发现）。
+    const res = await kernel.pool.query(
+      "SELECT id, title, text, tags, status, claimed_by, claims_count, created_at, payload FROM tasks ORDER BY created_at DESC LIMIT $1",
+      [limit],
+    );
+    return res.rows;
   });
 
   app.get("/api/v1/kernel/tasks/:id", async (req, reply) => {

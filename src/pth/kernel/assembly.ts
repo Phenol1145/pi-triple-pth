@@ -95,7 +95,17 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     workers: DEFAULT_ROLES.map((r) => r.id),
     execArgv: opts.execArgv,
-    env: opts.env,
+    // 自动注入 kernel 子进程 env（试运行发现：main.ts 只传 databaseUrl 不传 env，
+    // fork 的子进程没有 PTH_BATCH_PROCESS/DATABASE_URL → 不进入 batch 入口 → 立即退出）。
+    // 调用方显式传 env 时覆盖（后进覆盖先进）。
+    env: {
+      PTH_BATCH_PROCESS: "1",
+      PTH_TEST_DATABASE_URL: opts.databaseUrl,
+      DATABASE_URL: opts.databaseUrl,
+      PTH_WORKSPACES_PATH: opts.basePath,
+      PTH_ARTIFACTS_PATH: opts.artifactPath,
+      ...opts.env,
+    },
   });
   const watchdog = new KernelWatchdog(batchManager);
   watchdog.start(opts.watchdogIntervalMs ?? 30_000);

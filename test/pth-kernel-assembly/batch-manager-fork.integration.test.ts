@@ -102,6 +102,10 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       const statuses = await manager.listBatches();
       expect(statuses.length).toBe(1);
       expect(manager.isBatchAlive(handle.id)).toBe(true);
+      // keep-alive 回归（试运行发现）：任务完成后 batch 必须仍存活（pg 不 hold 事件循环，
+      // unref 定时器会致进程退出）——等待一个间隔后仍 alive
+      await new Promise((r) => setTimeout(r, 2500));
+      expect(manager.isBatchAlive(handle.id)).toBe(true);
     } finally {
       await manager.killBatch(handle.id);
     }
