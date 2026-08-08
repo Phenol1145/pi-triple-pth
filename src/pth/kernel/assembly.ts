@@ -132,6 +132,22 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   }, opts.resolverIntervalMs ?? 2_000);
   resolverTimer.unref?.();
 
+  // Claim 超时回收（batch 崩溃/重启僵尸认领）：周期扫描回收 claimed_at 超时任务回 pending
+  // 参数：PTH_CLAIM_REAP_MS（扫描周期，默认 30s）/ PTH_CLAIM_TIMEOUT_MS（超时阈值，默认 600s）
+  const claimTimeoutMs = Number(process.env.PTH_CLAIM_TIMEOUT_MS ?? 600_000);
+  const claimReapMs = Number(process.env.PTH_CLAIM_REAP_MS ?? 30_000);
+  const claimReaperTimer = setInterval(() => {
+    void dataWorld.tasks
+      .recoverStaleClaims(claimTimeoutMs)
+      .then((n) => {
+        if (n > 0) console.log(`[claim-reaper] recovered ${n} stale claim(s)`);
+      })
+      .catch((e) => {
+        console.error(`[claim-reaper] loop error: ${(e as Error).message}`);
+      });
+  }, claimReapMs);
+  claimReaperTimer.unref?.();
+
   // Batch 自动扩缩容（PTH_BATCH_AUTOSCALE=on 默认）：pending 积压→扩容；全 idle→缩容
   const scalerCfg = loadScalerConfig(process.env);
   let scalerTimer: ReturnType<typeof setInterval> | null = null;
@@ -174,6 +190,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     shutdown: async () => {
       watchdog.stop();
       clearInterval(resolverTimer);
+      if (claimReaperTimer) clearInterval(claimReaperTimer);
       if (scalerTimer) clearInterval(scalerTimer);
       await pool.end();
     },

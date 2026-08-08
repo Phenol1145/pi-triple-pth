@@ -36,6 +36,8 @@ export interface TaskStore {
   publish(input: PublishInput): Promise<Task>;
   // 跨 spec 扩展（plan Task 5 标注）：负载统计 collectStats 依赖 pending 队列长度。
   countPending(): Promise<number>;
+  /** claim 超时回收：batch 崩溃/重启时僵尸认领（claimed_at 超时）回滚 pending——清 claimed_by/claimed_at */
+  recoverStaleClaims(timeoutMs: number): Promise<number>;
 }
 
 export class PgTaskStore implements TaskStore {
@@ -111,6 +113,22 @@ export class PgTaskStore implements TaskStore {
     );
     // count(*) 返回 int8 → node-postgres 解析为字符串，必须 Number() 转换（见 Task 1 ledger minor）。
     return Number((res.rows[0] as { count: string }).count);
+  }
+
+  async recoverStaleClaims(timeoutMs: number): Promise<number> {
+    // 僵尸认领回收：status='claimed' 且 claimed_at 超时（batch 崩溃/重启时 TaskLoop 被杀，
+    // 无善后路径——认领即承诺但进程死无人履行）。回滚 pending + 清 claimed_by/claimed_at；
+    // claims_count 不重置（坏任务防循环保留——候选查询排除 claims_count >= MAX_CLAIMS）。
+    const res = await this.pool.query(
+      `UPDATE tasks
+       SET status = 'pending', claimed_by = NULL, claimed_at = NULL, updated_at = now()
+       WHERE status = 'claimed'
+         AND claimed_at IS NOT NULL
+         AND claimed_at < now() - make_interval(secs => $1::float8)
+       RETURNING id`,
+      [timeoutMs / 1000],
+    );
+    return res.rowCount ?? 0;
   }
 
   async reject(agentId: string, taskId: string, reason: string, opts: { terminal?: boolean } = {}): Promise<void> {
