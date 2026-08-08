@@ -145,6 +145,47 @@ await memory.write({
 return { done: true, entryId: ${j(entryId)}, stdout: stdout.slice(0, 300) };`;
 };
 
+// ── 模板 3b：dev-task-ts（TS 多语言开发任务）──────────────────
+// description = TS 任务代码（顶层 return 结果）——可调 python/bash/fs/state/llm/memory 能力。
+// 用户代码包成 async 函数体（其 return 被捕获为 __out）；结果自动沉淀记忆（dev-artifact）。
+const DEV_TASK_TS = (p: Record<string, unknown>): string => {
+  const description = String(p.description ?? "");
+  const entryId = String(p.entryId ?? `dev-ts-${Date.now() % 100000}`);
+  const anchors = Array.isArray(p.anchors) ? p.anchors.map(String) : ["dev", "artifact"];
+  return `// 开发任务（TS 多语言）
+const __fn = async () => {
+${autoExportBlock(description)}
+};
+const __out = await __fn();
+// 结果沉淀记忆（dev-artifact）
+await memory.write({
+  id: ${j(entryId)},
+  kind: "dev-artifact",
+  anchors: ${j(anchors)},
+  content: "开发任务输出: " + JSON.stringify(__out ?? null).slice(0, 2000),
+  status: "draft",
+  meta: { provider: "ts", template: "dev-task-ts", task: ${j(entryId)} },
+});
+return { done: true, entryId: ${j(entryId)}, output: __out };`;
+};
+
+/** 在用户代码的最后一个 return 前注入 globalThis 导出（refine 可提炼用户声明的函数/var） */
+function autoExportBlock(code: string): string {
+  const names = new Set<string>();
+  for (const m of code.matchAll(/^\s*function\s+([A-Za-z_$][\w$]*)/gm)) names.add(m[1]!);
+  for (const m of code.matchAll(/^\s*var\s+([A-Za-z_$][\w$]*)/gm)) names.add(m[1]!);
+  if (names.size === 0) return code;
+  const exports = [...names].map((n) => `  globalThis.${n} = ${n};`).join("\n");
+  const lines = code.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s*return\b/.test(lines[i]!)) {
+      lines.splice(i, 0, exports);
+      return lines.join("\n");
+    }
+  }
+  return code + "\n" + exports;
+}
+
 // ── 模板注册表 ───────────────────────────────────────────────
 
 export const TASK_TEMPLATES: TaskTemplate[] = [
@@ -182,6 +223,17 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
       { key: "anchors", required: false, description: "产物记忆锚点" },
     ],
     render: DEV_TASK,
+  },
+  {
+    id: "dev-task-ts",
+    name: "开发任务（TS 多语言）",
+    description: "TS 任务代码（可调 python/bash/fs/state 能力）→ 执行 → 结果沉淀记忆。",
+    params: [
+      { key: "description", required: true, description: "TS 任务代码（顶层 return 结果）" },
+      { key: "entryId", required: false, description: "产物记忆 id（默认 dev-ts-<时间>）" },
+      { key: "anchors", required: false, description: "产物记忆锚点（默认 [dev, artifact]）" },
+    ],
+    render: DEV_TASK_TS,
   },
 ];
 

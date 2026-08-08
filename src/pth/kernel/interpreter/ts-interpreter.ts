@@ -147,13 +147,13 @@ function wrapAwait(program: string): string {
 /**
  * 提取顶层声明名（refine 自动导出用）：
  *   function NAME(...)  /  var NAME = ...  → [NAME]
- * const/let 不导出（词法绑定，globalThis 转发会抛 TDZ 错误——与 vm 语义一致）。
- * 正则启发式（非完整 AST）：覆盖常见任务代码形态。
+ * 仅匹配【行首】顶层声明——模板包装（如 dev-task-ts 的 __fn 函数体）内的声明不导出
+ * （由模板自身的 autoExportBlock 处理，避免作用域错误）。
  */
 function extractTopLevelDecls(program: string): string[] {
   const names = new Set<string>();
-  const fnRe = /^\s*function\s+([A-Za-z_$][\w$]*)/gm;
-  const varRe = /^\s*var\s+([A-Za-z_$][\w$]*)/gm;
+  const fnRe = /^function\s+([A-Za-z_$][\w$]*)/gm;
+  const varRe = /^var\s+([A-Za-z_$][\w$]*)/gm;
   for (const m of program.matchAll(fnRe)) names.add(m[1]!);
   for (const m of program.matchAll(varRe)) names.add(m[1]!);
   return [...names];

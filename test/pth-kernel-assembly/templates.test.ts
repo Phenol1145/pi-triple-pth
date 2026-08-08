@@ -58,3 +58,21 @@ describe("task templates", () => {
     expect(getTemplate("nope")).toBeUndefined();
   });
 });
+
+describe("dev-task-ts 模板", () => {
+  it("注册存在", () => {
+    expect(getTemplate("dev-task-ts")).toBeDefined();
+  });
+
+  it("渲染含 __fn 包装 + memory.write 沉淀", () => {
+    const code = renderTaskTemplate("dev-task-ts", { description: "function f(){return 1}\nreturn f();", entryId: "t1" })!;
+    expect(code).toContain("__fn = async");
+    expect(code).toContain("memory.write");
+    expect(code).toContain("globalThis.f = f");   // autoExportBlock 注入
+  });
+
+  it("无 return 的用户代码 → 追加导出（不崩）", () => {
+    const code = renderTaskTemplate("dev-task-ts", { description: "function g(){return 2}\nconst x = g();", entryId: "t2" })!;
+    expect(code).toContain("globalThis.g = g");
+  });
+});
