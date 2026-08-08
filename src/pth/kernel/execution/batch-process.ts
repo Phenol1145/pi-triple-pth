@@ -9,6 +9,7 @@ import { DEFAULT_ROLES } from "./worker-cluster.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
 import { archiveTask, type ArchiveDeps } from "./archive.js";
+import { createKernelModelRouter } from "./model-router.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -50,9 +51,18 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // 产物根必须先存在：archive 用 rename 而非 mkdir——父目录缺失时 rename 抛 ENOENT
   await mkdir(deps.artifactPath, { recursive: true });
 
-  // modelRouter 缺省 stub（v1：llm 不可用不阻塞——TaskLoop 机械认领不依赖 llm；
-  // kernel 的 llm 函数在无 model-router 时降级）
-  const modelRouter = { resolve: () => ({ id: "none", api: "none" }), getRuntime: () => ({}) } as any;
+  // modelRouter：SDK ModelRuntime（自动加载 pi auth.json/models-store——deepseek 已配置）。
+  // 真实 LLM 能力（转写/记忆任务依赖）；失败时不阻塞——v1 机械认领仍可用。
+  let modelRouter: any;
+  try {
+    modelRouter = await createKernelModelRouter({
+      provider: process.env.PTH_MODEL_PROVIDER ?? "deepseek",
+      model: process.env.PTH_MODEL ?? "deepseek-v4-flash",
+    });
+  } catch (err) {
+    console.error("batch process: model router init failed (falling back to stub):", String(err));
+    modelRouter = { resolve: () => ({ id: "none", api: "none" }), getRuntime: () => ({}) } as any;
+  }
 
   let paused = false;
   process.on("message", (msg: any) => {

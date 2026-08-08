@@ -15,6 +15,7 @@ export function buildCapabilities(deps: {
 }): Record<string, unknown> {
   return {
     llm: deps.llm,
+    web: createWebCapability(),
     // Finding F1（Important）修复：memory 整体注入时其方法 retrieve/write/bumpHitCount 均用
     // this.pool——裸对象注入后若被解构/提取（`const { retrieve } = memory; retrieve()`）this 丢失。
     // bindAll 为所有函数属性（含原型链类方法）逐个 bind，非函数属性（pool 句柄）不注入 vm（安全边界）。
@@ -61,4 +62,63 @@ function bindAll<T extends object>(obj: T): T {
   }
   for (const [key, fn] of targets) out[key] = fn.bind(obj);
   return out as T;
+}
+
+/**
+ * web 能力（网络搜寻任务 1）：受限只读 fetch——vm 内任务可获取 URL 文本。
+ * 安全边界（对齐能力白名单模型）：
+ *  - 仅 http/https 协议（防 file:// 等本地读取）
+ *  - 仅 GET（无写能力）
+ *  - 响应大小上限（默认 256KB——防内存放大）
+ *  - 超时（默认 30s）
+ *  - 返回纯文本（剥离 HTML 标签——官方文档页可用）
+ */
+export interface WebCapability {
+  fetchText(url: string, opts?: { maxBytes?: number; timeoutMs?: number }): Promise<string>;
+}
+
+const WEB_MAX_BYTES = 1024 * 1024;   // 1MB——官方文档页常超 256KB（go.dev/ref/spec ≈ 339KB）
+const WEB_TIMEOUT_MS = 30_000;
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function createWebCapability(): WebCapability {
+  return {
+    async fetchText(url, opts = {}) {
+      const maxBytes = opts.maxBytes ?? WEB_MAX_BYTES;
+      const timeoutMs = opts.timeoutMs ?? WEB_TIMEOUT_MS;
+      if (!/^https?:\/\//i.test(url)) {
+        throw new Error(`web.fetchText: only http(s) URLs allowed (got: ${url.slice(0, 50)})`);
+      }
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
+        if (!res.ok) throw new Error(`web.fetchText: HTTP ${res.status} for ${url}`);
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength > maxBytes) {
+          throw new Error(`web.fetchText: response too large (${buf.byteLength} > ${maxBytes} bytes)`);
+        }
+        const text = new TextDecoder().decode(buf);
+        // 内容类型判定：HTML 剥标签，其余原样
+        const ctype = res.headers.get("content-type") ?? "";
+        return /html/i.test(ctype) ? stripHtml(text) : text;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
 }
