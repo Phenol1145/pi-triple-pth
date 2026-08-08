@@ -1,23 +1,22 @@
 import { describe, it, expect } from "vitest";
-import { detectNaturalLanguage, translateTask } from "../../src/pth/kernel/execution/nl-translator.js";
+import { isNaturalLanguageTask, translateTask } from "../../src/pth/kernel/execution/nl-translator.js";
 import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
 
-describe("detectNaturalLanguage（启发式检测）", () => {
-  it("代码特征 → 非 NL", () => {
-    expect(detectNaturalLanguage('return { x: 1 };')).toBe(false);
-    expect(detectNaturalLanguage('function f(n) { return n * 2; }')).toBe(false);
-    expect(detectNaturalLanguage('const r = await python.execute("_result = 1")')).toBe(false);
-    expect(detectNaturalLanguage('var c = 0; for (var i = 0; i < 10; i++) c += i; return { c };')).toBe(false);
+describe("isNaturalLanguageTask（标签为主要分类凭据）", () => {
+  it("tags 含 nl → 自然语言任务", () => {
+    expect(isNaturalLanguageTask({ tags: ["nl"], text: "帮我算和" })).toBe(true);
+    expect(isNaturalLanguageTask({ tags: ["dev", "nl"] })).toBe(true);
+    expect(isNaturalLanguageTask({ tags: ["NL"] })).toBe(true);  // 大小写不敏感
   });
 
-  it("自然语言句子 → NL", () => {
-    expect(detectNaturalLanguage("帮我计算 1 到 100 的和，并返回结果")).toBe(true);
-    expect(detectNaturalLanguage("用 python 算一下斐波那契数列第 20 项")).toBe(true);
-    expect(detectNaturalLanguage("查询当前系统时间并返回")).toBe(true);
+  it("payload.kind=nl → 自然语言任务（与标签等价）", () => {
+    expect(isNaturalLanguageTask({ payload: { kind: "nl" } })).toBe(true);
   });
 
-  it("payload.kind=nl 强制（短文本也按 NL）", () => {
-    expect(detectNaturalLanguage("统计质数", true)).toBe(true);
+  it("无 nl 标签 → 一律按代码（即使长得像自然语言——不做正则强行筛）", () => {
+    expect(isNaturalLanguageTask({ tags: ["dev"], text: "帮我计算 1 到 100 的和" })).toBe(false);
+    expect(isNaturalLanguageTask({ tags: [], text: "随便写点文字" })).toBe(false);
+    expect(isNaturalLanguageTask({})).toBe(false);
   });
 });
 
@@ -40,7 +39,7 @@ describe("translateTask（LLM 转译）", () => {
     if (!r.ok) expect(r.error).toContain("provider down");
   });
 
-  it("prompt 包含能力白名单（转译产物可用 python/bash/llm/web/fs/state）", async () => {
+  it("prompt 包含能力白名单 + Observation 协议说明", async () => {
     let seenSystem = "";
     const llm: LlmFn = {
       complete: async (messages) => {
@@ -51,6 +50,7 @@ describe("translateTask（LLM 转译）", () => {
     await translateTask({ llm }, { title: "t", text: "用 bash 看看" });
     expect(seenSystem).toContain("python.execute");
     expect(seenSystem).toContain("bash.execute");
+    expect(seenSystem).toContain(".value");          // Observation 协议说明
     expect(seenSystem).toContain("return");
   });
 });

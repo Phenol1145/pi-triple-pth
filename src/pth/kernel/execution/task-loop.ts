@@ -1,7 +1,7 @@
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { Task, TaskStore } from "../storage/task-store-pg.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { detectNaturalLanguage, translateTask } from "./nl-translator.js";
+import { isNaturalLanguageTask, translateTask } from "./nl-translator.js";
 
 export interface TaskWorkspaceManager {
   allocate(taskId: string): Promise<{ dir: string; tenant: string }>;
@@ -67,10 +67,9 @@ export class TaskLoop {
     const execStart = Date.now();
     kernel.reset();                          // 任务级状态隔离
     try {
-      // 自然语言任务（payload.kind=nl 强制 或 启发式检测）：LLM 转译 → 执行转译代码
-      // 转译失败 → terminal reject（坏任务不回池）
-      const forceNl = ((task.payload ?? {}) as { kind?: string }).kind === "nl";
-      const nlDetected = detectNaturalLanguage(task.text, forceNl);
+      // 自然语言任务（标签为主要凭据：tags 含 "nl" 或 payload.kind="nl"）
+      // LLM 转译 → 执行转译代码；转译失败 → terminal reject（坏任务不回池）
+      const nlDetected = isNaturalLanguageTask(task);
       let code = task.text;
       if (nlDetected && this.deps.llm) {
         const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });

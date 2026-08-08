@@ -1,34 +1,24 @@
 /**
  * nl-translator —— 自然语言任务支持（NL → 代码转译层）。
  *
- * 背景：任务 text 必须可执行代码（vm 沙箱），自然语言任务反复 reject 的教训。
- * 演进路径（实验记录 bootstrap）：NL 任务 → LLM 转译成 TS 代码（能力白名单内）→
- * 在既有 vm 沙箱执行——隔离/计量/日志链路全部复用。
+ * 分类凭据（用户裁决）：**标签作为主要凭据，不用正则强行筛**——
+ *   任务发布时 tags 含 "nl"（或 payload.kind === "nl"）→ 按自然语言转译；
+ *   否则一律按可执行代码处理（零误判、零启发式）。
  *
- * 检测：payload.kind === "nl" 强制；否则启发式（代码特征 vs 自然语言）。
- * 转译：llm.complete（系统 prompt 含能力白名单 + 输出格式）→ 剥离代码块围栏。
+ * 转译：llm.complete（系统 prompt 含能力白名单 + Observation 协议 + 输出格式）→ 剥离代码块围栏。
  * 失败：转译失败 → 调用方 terminal reject（nl-translate-failed）——坏任务不回池。
  */
 import type { LlmFn } from "../interpreter/llm-fn.js";
 
-/** 代码特征正则（命中任一 → 判定为代码） */
-const CODE_FEATURES = [
-  /\b(return|function|const|let|var|class|import|export|await|async)\b/,
-  /[{};]/,
-  /\b(python|bash)\.execute\b/,
-  /\bllm\.complete\b/,
-  /\b(web|fs|state)\.\w+\b/,
-  /^\s*[`"'(\[]/m,
-];
+/** 自然语言任务的判定（标签为主要凭据） */
+export interface NlTaskLike {
+  tags?: string[];
+  payload?: unknown;
+}
 
-/**
- * 启发式检测：代码特征命中 → 非 NL；否则按 NL 处理。
- * @param force 强制按 NL（payload.kind === "nl"）
- */
-export function detectNaturalLanguage(text: string, force = false): boolean {
-  if (force) return true;
-  if (!text || text.length < 8) return true;  // 过短无法判定 → 按 NL（转译兜底）
-  return !CODE_FEATURES.some((re) => re.test(text));
+export function isNaturalLanguageTask(task: NlTaskLike): boolean {
+  if ((task.payload as { kind?: string } | undefined)?.kind === "nl") return true;
+  return (task.tags ?? []).some((t) => t.toLowerCase() === "nl");
 }
 
 export interface TranslateInput {
