@@ -131,15 +131,18 @@ if (!result.ok) {
   throw new Error("python execution failed: " + (result.error?.message ?? "unknown"));
 }
 // 结果写入记忆（开发产物沉淀）
+const stdout = (result.stdout ?? "").slice(0, 3000);
+const stderr = (result.stderr ?? "").slice(0, 500);
 await memory.write({
   id: ${j(entryId)},
   kind: "dev-artifact",
   anchors: ${j(anchors)},
-  content: "开发任务: " + description.slice(0, 200) + "\\n输出: " + (result.stdout ?? "").slice(0, 2000),
+  // content 只存执行输出（记忆可检索）；代码进 meta（防噪音）
+  content: "开发任务输出: " + (stdout || stderr || "(无输出)"),
   status: "draft",
-  meta: { provider: "python", template: "dev-task", stdout: (result.stdout ?? "").slice(0, 500) },
+  meta: { provider: "python", template: "dev-task", description: description.slice(0, 500), stdout, stderr },
 });
-return { done: true, entryId: ${j(entryId)}, stdout: (result.stdout ?? "").slice(0, 300) };`;
+return { done: true, entryId: ${j(entryId)}, stdout: stdout.slice(0, 300) };`;
 };
 
 // ── 模板注册表 ───────────────────────────────────────────────
