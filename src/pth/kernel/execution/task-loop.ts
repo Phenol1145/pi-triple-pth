@@ -16,6 +16,8 @@ export interface TaskLoopDeps {
   refiner?: Pick<import("./refiner.js").Refiner, "refine">;
   /** 日志（日志体系 T2）：链路 ctx（taskId/role）自动携带 */
   logger?: import("../logger.js").KernelLogger;
+  /** 性能计量（SPEC L2）：任务事件 → IPC 转发主进程 */
+  onTaskMetric?: (m: Record<string, unknown>) => void;
 }
 
 /**
@@ -63,20 +65,28 @@ export class TaskLoop {
     const { kernel, role, taskStore, workspaceMgr } = this.deps;
     const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
     const ws = await workspaceMgr.allocate(task.id);
+    const execStart = Date.now();
     kernel.reset();                          // 任务级状态隔离
     try {
       const result = await kernel.ts.execute(task.text, { cwd: ws.dir });
+      const execMs = Date.now() - execStart;
       if (!result.ok) {
         // 执行失败（语法/运行时错误——interpreter 返回 ok:false 不抛）：按 reject 处理，
         // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。
         await taskStore.reject(role.id, task.id, `execution-failed: ${result.error?.message ?? "unknown"}`);
         await this.archive(task, ws, result);
-        taskLogger?.error(`task rejected: ${result.error?.message ?? "unknown"}`, { durationMs: result.durationMs });
+        taskLogger?.error(`task rejected: ${result.error?.message ?? "unknown"}`, { durationMs: execMs });
+        // 性能计量（SPEC L2）：状态 + 拒绝原因（前缀分类）+ 阶段耗时
+        this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+        this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(result.error?.message ?? "unknown") });
+        this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
         return;
       }
       await taskStore.submit(role.id, task.id, { ref: result });
       await this.archive(task, ws, result);
-      taskLogger?.info("task completed", { durationMs: result.durationMs });
+      taskLogger?.info("task completed", { durationMs: execMs });
+      this.deps.onTaskMetric?.({ type: "status", status: "completed" });
+      this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
       // Refine（T4）：任务完成后快照+提炼+持久化。kernel.reset 在下一任务才调用——
       // 此刻 context 仍存活，可快照。refine 失败不阻塞任务完成（旁路降级）。
       if (this.deps.refiner) {
@@ -95,6 +105,8 @@ export class TaskLoop {
     } catch (e) {
       await taskStore.reject(role.id, task.id, `execution-crashed: ${(e as Error).message}`);
       taskLogger?.error(`task crashed: ${(e as Error).message}`);
+      this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+      this.deps.onTaskMetric?.({ type: "reject-reason", reason: "execution-crashed" });
     }
   }
 
@@ -103,4 +115,13 @@ export class TaskLoop {
     // 默认：归档工作区（产物）——完整转录归档在 Task 4 接入
     await this.deps.workspaceMgr.archive(task.id, ws.dir);
   }
+}
+
+/** 拒绝原因前缀分类（SPEC L2：防 label 基数爆炸） */
+export function classifyReason(reason: string): string {
+  if (reason.startsWith("execution-failed")) return "execution-failed";
+  if (reason.startsWith("execution-crashed")) return "execution-crashed";
+  if (reason.startsWith("assessed-as-unfit")) return "assessed-unfit";
+  if (reason.includes("timed out")) return "timeout";
+  return "other";
 }

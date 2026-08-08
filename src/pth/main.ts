@@ -173,6 +173,14 @@ async function main() {
             kernelMetrics.kernelExec(String(t.language ?? "?"), Number(t.durationMs ?? 0), Boolean(t.ok));
           } else if (t.type === "truncated") {
             kernelMetrics.kernelTruncated(String(t.language ?? "?"), String(t.field ?? "?"));
+          } else if (t.domain === "task") {
+            if (t.type === "status") kernelMetrics.taskStatus(String(t.status ?? "?"));
+            else if (t.type === "stage") kernelMetrics.taskStage(String(t.stage ?? "?"), Number(t.durationMs ?? 0));
+            else if (t.type === "reject-reason") kernelMetrics.taskRejectedReason(String(t.reason ?? "other"));
+          } else if (t.domain === "refine") {
+            if (t.type === "refine-duration") kernelMetrics.refineDuration(Number(t.durationMs ?? 0));
+            else if (t.type === "refine-yield") kernelMetrics.refineYield(String(t.kind ?? "?"), Number(t.count ?? 0));
+            else if (t.type === "refine-degraded") kernelMetrics.refineDegraded(String(t.reason ?? "?"));
           }
         },
         // 生产 fork：dist 编译产物（纯 js，无需 loader/transform-types）；watchdog 30s 探测

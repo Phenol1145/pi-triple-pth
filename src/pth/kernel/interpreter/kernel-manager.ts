@@ -71,6 +71,9 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
     return {
       ...interp,
       language: interp.language,
+      snapshot: () => interp.snapshot(),   // 显式转发（spread 丢 prototype 方法）
+      reset: () => interp.reset(),
+      dispose: () => interp.dispose(),
       async execute(program, executeOpts) {
         const start = Date.now();
         const result = await interp.execute(program, executeOpts);

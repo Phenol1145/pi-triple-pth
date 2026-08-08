@@ -127,8 +127,13 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         onMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, kind: "llm" } }); } catch { /* IPC 不可用 */ } },
       }),
       memory: dataWorld.memory,
+      onMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "refine" } }); } catch { /* IPC 不可用 */ } },
     }) : undefined;
-    return new BatchTaskLoop({ kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, logger: batchLogger }, archiveDeps);
+    return new BatchTaskLoop({
+      kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, logger: batchLogger,
+      // 性能计量（SPEC L2）：任务事件 → IPC 转发主进程
+      onTaskMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "task" } }); } catch { /* IPC 不可用 */ } },
+    }, archiveDeps);
   });
 
   // 每轮：各 worker runOnce（并发）

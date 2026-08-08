@@ -44,6 +44,8 @@ interface RefinerDeps {
   llm: LlmFn;
   memory: Pick<PgMemoryStore, "write" | "retrieve">;
   model?: string;   // 提炼模型（默认 deepseek-v4-flash）
+  /** 性能计量（SPEC L3）：refine 事件 → IPC 转发主进程 */
+  onMetric?: (m: Record<string, unknown>) => void;
 }
 
 /** 构造 refine prompt（含快照 + 任务信息 + 输出格式约束） */
@@ -102,6 +104,7 @@ export class Refiner {
 
   async refine(input: RefineInput): Promise<RefineReport> {
     const report: RefineReport = { functionsSaved: 0, insightsSaved: 0, skipped: [] };
+    const refineStart = Date.now();
 
     // 1. LLM 提炼
     const prompt = buildRefinePrompt(input);
@@ -113,8 +116,13 @@ export class Refiner {
       );
       const parsed = parseRefineResult(res.content);
       result = parsed.ok ? parsed : { ok: false, functions: [], insights: [] };
+      if (!parsed.ok) {
+        // 性能计量（SPEC L3）：解析降级
+        this.deps.onMetric?.({ type: "refine-degraded", reason: "parse-failed" });
+      }
     } catch {
       result = { ok: false, functions: [], insights: [] };
+      this.deps.onMetric?.({ type: "refine-degraded", reason: "llm-error" });
     }
 
     // 2. 降级：解析失败 → 函数源码原样保存（无 spec）——不丢快照里的函数
@@ -168,6 +176,11 @@ export class Refiner {
       status: "official",
       meta: { taskId: input.task.id, language },
     });
+
+    // 性能计量（SPEC L3）：耗时 + 提炼量
+    this.deps.onMetric?.({ type: "refine-duration", durationMs: Date.now() - refineStart });
+    this.deps.onMetric?.({ type: "refine-yield", kind: "functions", count: report.functionsSaved });
+    this.deps.onMetric?.({ type: "refine-yield", kind: "insights", count: report.insightsSaved });
 
     return report;
   }

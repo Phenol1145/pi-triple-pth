@@ -27,6 +27,21 @@ export interface KernelMetrics {
   kernelRestart(language: string): void;
   /** LLM 计量（llm-fn 包装） */
   llmCall(provider: string, model: string, durationMs: number, inputTokens: number, outputTokens: number): void;
+  /** L2 任务计量：状态流转 / 阶段耗时 / 认领重试 / 积压 / batch 数 / 拒绝原因 */
+  taskStatus(status: string): void;
+  taskStage(stage: string, durationMs: number): void;
+  taskClaimRetry(): void;
+  taskPending(count: number): void;
+  batchCount(count: number): void;
+  taskRejectedReason(reason: string): void;
+  /** L3 refine 计量：耗时 / 提炼量 / 降级 / 记忆增长 / 召回命中 */
+  refineDuration(durationMs: number): void;
+  refineYield(kind: string, count: number): void;
+  refineDegraded(reason: string): void;
+  memoryEntries(kind: string, count: number): void;
+  memoryRetrieve(hit: boolean): void;
+  /** L3 任务链（占位——TaskResolver 落地后填） */
+  chainGenerated(): void;
   dispose(): void;
 }
 
@@ -59,6 +74,25 @@ export function createKernelMetrics(deps: { registry: Registry; intervalMs?: num
   const llmCalls = new Counter({ name: "pth_llm_calls_total", help: "LLM calls", labelNames: ["provider", "model"] as const, registers: [registry] });
   const llmTokens = new Counter({ name: "pth_llm_tokens_total", help: "LLM tokens", labelNames: ["type"] as const, registers: [registry] });
   const llmLatency = new Histogram({ name: "pth_llm_latency_seconds", help: "LLM latency", buckets: LLM_BUCKETS, registers: [registry] });
+
+  // ── L2 任务层（SPEC L2）─────────────────────────────────
+  const taskStatusTotal = new Counter({ name: "pth_task_status_total", help: "Task status transitions", labelNames: ["status"] as const, registers: [registry] });
+  const taskStageDuration = new Histogram({
+    name: "pth_task_stage_duration_seconds", help: "Task stage duration", labelNames: ["stage"] as const,
+    buckets: [0.5, 2, 5, 15, 60, 300], registers: [registry],
+  });
+  const taskClaimRetry = new Counter({ name: "pth_task_claim_retry_total", help: "Task claim retries", registers: [registry] });
+  const taskPending = new Gauge({ name: "pth_task_pending", help: "Pending tasks", registers: [registry] });
+  const batchCountGauge = new Gauge({ name: "pth_batch_count", help: "Running batches", registers: [registry] });
+  const taskRejectedReason = new Counter({ name: "pth_task_rejected_reason_total", help: "Task reject reasons", labelNames: ["reason"] as const, registers: [registry] });
+
+  // ── L3 业务产出层（SPEC L3）─────────────────────────────
+  const refineDuration = new Histogram({ name: "pth_refine_duration_seconds", help: "Refine duration", buckets: [0.5, 2, 5, 15, 60], registers: [registry] });
+  const refineYield = new Histogram({ name: "pth_refine_yield", help: "Refine yield per kind", labelNames: ["kind"] as const, buckets: [1, 2, 5, 10, 20], registers: [registry] });
+  const refineDegraded = new Counter({ name: "pth_refine_degraded_total", help: "Refine degradations", labelNames: ["reason"] as const, registers: [registry] });
+  const memoryEntries = new Gauge({ name: "pth_memory_entries", help: "Memory entries", labelNames: ["kind"] as const, registers: [registry] });
+  const memoryRetrieve = new Counter({ name: "pth_memory_retrieve_total", help: "Memory retrieves", labelNames: ["hit"] as const, registers: [registry] });
+  const chainGenerated = new Counter({ name: "pth_chain_generated_total", help: "Chain generated tasks", registers: [registry] });
 
   const timer = setInterval(() => { void sampleOnce().catch(() => {}); }, intervalMs);
   timer.unref?.();
@@ -108,6 +142,20 @@ export function createKernelMetrics(deps: { registry: Registry; intervalMs?: num
       if (outputTokens > 0) llmTokens.inc({ type: "output" }, outputTokens);
       llmLatency.observe(durationMs / 1000);
     },
+    // ── L2 ──
+    taskStatus(status) { taskStatusTotal.inc({ status }); },
+    taskStage(stage, durationMs) { taskStageDuration.observe({ stage }, durationMs / 1000); },
+    taskClaimRetry() { taskClaimRetry.inc(); },
+    taskPending(count) { taskPending.set(count); },
+    batchCount(count) { batchCountGauge.set(count); },
+    taskRejectedReason(reason) { taskRejectedReason.inc({ reason }); },
+    // ── L3 ──
+    refineDuration(durationMs) { refineDuration.observe(durationMs / 1000); },
+    refineYield(kind, count) { refineYield.observe({ kind }, count); },
+    refineDegraded(reason) { refineDegraded.inc({ reason }); },
+    memoryEntries(kind, count) { memoryEntries.set({ kind }, count); },
+    memoryRetrieve(hit) { memoryRetrieve.inc({ hit: String(hit) }); },
+    chainGenerated() { chainGenerated.inc(); },
     dispose() {
       clearInterval(timer);
       provider.stop();
