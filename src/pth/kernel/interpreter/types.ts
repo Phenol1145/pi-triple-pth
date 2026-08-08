@@ -43,3 +43,52 @@ export interface Interpreter {
   /** ts 核专属：读核内对象（results/context——任务尾沉淀等） */
   readObject?(name: "results" | "context"): Record<string, unknown>;
 }
+
+// ─── 调试协议（基本集——2026-08-09，agent-centric 高层接口待调研）───
+
+export interface DebugBreakpoint {
+  id: string;
+  line: number;
+  condition?: string;
+}
+
+export interface DebugStackFrame {
+  id: number;
+  name: string;
+  file?: string;
+  line?: number;
+}
+
+export interface DebugVariable {
+  name: string;
+  value: string;
+  type?: string;
+}
+
+export interface DebugStopped {
+  reason: "breakpoint-hit" | "step" | "exited" | "error";
+  frame?: DebugStackFrame;
+  breakpointId?: string;
+  message?: string;
+}
+
+export interface DebugSession {
+  readonly id: string;
+  readonly language: string;
+  /** 启动调试会话（编译调试版 + 启动调试器） */
+  attach(source: string): Promise<void>;
+  setBreakpoint(line: number, condition?: string): Promise<DebugBreakpoint>;
+  /** 继续执行到断点/结束 */
+  continueExec(): Promise<DebugStopped>;
+  /** 单步（into/over/out） */
+  step(direction: "into" | "over" | "out"): Promise<DebugStopped>;
+  stack(): Promise<DebugStackFrame[]>;
+  variables(frameId?: number): Promise<DebugVariable[]>;
+  evaluate(expr: string, frameId?: number): Promise<{ value: string }>;
+  detach(): Promise<void>;
+}
+
+/** 可调试解释器（实现调试会话——无则返回 null） */
+export interface Debuggable extends Interpreter {
+  debug(): DebugSession | null;
+}
