@@ -144,12 +144,14 @@ export class PyKernel implements Interpreter {
   private buffer = "";
   private ready = false;
   private readyWaiters: Array<() => void> = [];
+  private onStderr?: (line: string) => void;
   private pythonBin: string;
   private timeoutMs: number;
 
-  constructor(deps: { pythonBin?: string; timeoutMs?: number } = {}) {
+  constructor(deps: { pythonBin?: string; timeoutMs?: number; onStderr?: (line: string) => void } = {}) {
     this.pythonBin = deps.pythonBin ?? "python3";
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
+    this.onStderr = deps.onStderr;
     this.spawn();
   }
 
@@ -263,7 +265,7 @@ export class PyKernel implements Interpreter {
     this.buffer = "";
     this.ready = false;
     child.stdout.on("data", (d: Buffer) => this.onData(d.toString()));
-    child.stderr.on("data", () => { /* kernel 自身 stderr 忽略 */ });
+    child.stderr.on("data", (d: Buffer) => { this.onStderr?.(d.toString()); });
     child.on("error", () => { /* 由 pending reject 兜底 */ });
     child.on("exit", () => {
       // 进程退出——reject 所有 pending

@@ -27,6 +27,8 @@ export interface KernelManagerOptions {
   bashMode?: "kernel" | "interpreter";
   pythonBin?: string;
   sandbox?: { exec(req: any, signal?: AbortSignal): Promise<any> };
+  /** 日志（日志体系 T4）：kernel stderr 转发 warn */
+  onKernelStderr?: (language: string, line: string) => void;
 }
 
 export interface KernelManager {
@@ -50,11 +52,11 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
   const bashMode = opts.bashMode ?? "kernel";
 
   const python: Interpreter = pythonMode === "kernel"
-    ? new PyKernel({ pythonBin: opts.pythonBin })
+    ? new PyKernel({ pythonBin: opts.pythonBin, onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("python", l) : undefined })
     : new PythonInterpreter({ pythonBin: opts.pythonBin });
 
   const bash: Interpreter = bashMode === "kernel"
-    ? new BashKernel()
+    ? new BashKernel({ onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("bash", l) : undefined })
     : new BashInterpreter({
         sandbox: opts.sandbox ?? { exec: async () => ({ ok: false, stdout: "", stderr: "sandbox not configured", exitCode: 1, durationMs: 0 }) },
       });

@@ -2,6 +2,7 @@ import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
 import { DEFAULT_ROLES } from "./execution/worker-cluster.js";
 import { TaskResolver } from "./execution/task-resolver.js";
+import { createKernelLogger } from "./logger.js";
 import type pg from "pg";
 
 export interface KernelRuntimeOptions {
@@ -100,6 +101,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     workers: DEFAULT_ROLES.map((r) => r.id),
     execArgv: opts.execArgv,
+    logger: createKernelLogger(),
     // 自动注入 kernel 子进程 env（试运行发现：main.ts 只传 databaseUrl 不传 env，
     // fork 的子进程没有 PTH_BATCH_PROCESS/DATABASE_URL → 不进入 batch 入口 → 立即退出）。
     // 调用方显式传 env 时覆盖（后进覆盖先进）。

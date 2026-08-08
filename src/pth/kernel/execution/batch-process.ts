@@ -13,6 +13,7 @@ import { createKernelModelRouter } from "./model-router.js";
 import { createLlmFn } from "../interpreter/llm-fn.js";
 import { Refiner } from "./refiner.js";
 import { createToolstore } from "../interpreter/toolstore.js";
+import { createKernelLogger } from "../logger.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -54,6 +55,12 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // 产物根必须先存在：archive 用 rename 而非 mkdir——父目录缺失时 rename 抛 ENOENT
   await mkdir(deps.artifactPath, { recursive: true });
 
+  // 日志（日志体系 T2/T3）：IPC 转发主进程统一打标；stdio 兜底
+  const logger = createKernelLogger({
+    ipcSend: (msg) => { try { process.send?.(msg); } catch { /* IPC 不可用 */ } },
+  });
+  const batchLogger = logger.child("batch", { pid: process.pid });
+
   // modelRouter：SDK ModelRuntime（自动加载 pi auth.json/models-store——deepseek 已配置）。
   // 真实 LLM 能力（转写/记忆任务依赖）；失败时不阻塞——v1 机械认领仍可用。
   let modelRouter: any;
@@ -63,7 +70,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       model: process.env.PTH_MODEL ?? "deepseek-v4-flash",
     });
   } catch (err) {
-    console.error("batch process: model router init failed (falling back to stub):", String(err));
+    batchLogger.warn("model router init failed (falling back to stub)", { err: String(err) });
     modelRouter = { resolve: () => ({ id: "none", api: "none" }), getRuntime: () => ({}) } as any;
   }
 
@@ -97,12 +104,14 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const manager = createKernelManager({
       pythonMode: (process.env.PTH_PYTHON_MODE as any) ?? "kernel",
       bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
+      // 日志体系 T4：kernel stderr 转发 warn（component=pykernel/bashkernel）
+      onKernelStderr: (language, line) => batchLogger.child(language === "python" ? "pykernel" : "bashkernel")?.warn(line.trim()),
     });
     const kernel = createWorkerKernelWithManager({ llm: createLlmFn({ modelRouter }), dataWorld, manager, toolstore });
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
     const refineEnabled = process.env.PTH_REFINE !== "off";
     const refiner = refineEnabled ? new Refiner({ llm: createLlmFn({ modelRouter }), memory: dataWorld.memory }) : undefined;
-    return new BatchTaskLoop({ kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner }, archiveDeps);
+    return new BatchTaskLoop({ kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, logger: batchLogger }, archiveDeps);
   });
 
   // 每轮：各 worker runOnce（并发）

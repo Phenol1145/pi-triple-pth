@@ -14,6 +14,8 @@ export interface TaskLoopDeps {
   workspaceMgr: TaskWorkspaceManager;
   /** Refine 钩子（T4）：任务完成后快照+提炼+持久化。默认 undefined = 不 refine。 */
   refiner?: Pick<import("./refiner.js").Refiner, "refine">;
+  /** 日志（日志体系 T2）：链路 ctx（taskId/role）自动携带 */
+  logger?: import("../logger.js").KernelLogger;
 }
 
 /**
@@ -59,6 +61,7 @@ export class TaskLoop {
 
   private async execute(task: Task): Promise<void> {
     const { kernel, role, taskStore, workspaceMgr } = this.deps;
+    const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
     const ws = await workspaceMgr.allocate(task.id);
     kernel.reset();                          // 任务级状态隔离
     try {
@@ -68,10 +71,12 @@ export class TaskLoop {
         // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。
         await taskStore.reject(role.id, task.id, `execution-failed: ${result.error?.message ?? "unknown"}`);
         await this.archive(task, ws, result);
+        taskLogger?.error(`task rejected: ${result.error?.message ?? "unknown"}`, { durationMs: result.durationMs });
         return;
       }
       await taskStore.submit(role.id, task.id, { ref: result });
       await this.archive(task, ws, result);
+      taskLogger?.info("task completed", { durationMs: result.durationMs });
       // Refine（T4）：任务完成后快照+提炼+持久化。kernel.reset 在下一任务才调用——
       // 此刻 context 仍存活，可快照。refine 失败不阻塞任务完成（旁路降级）。
       if (this.deps.refiner) {
@@ -83,12 +88,13 @@ export class TaskLoop {
             await this.deps.refiner.refine({ task, snapshot: snap });
           } catch (e) {
             // 降级：refine 失败仅记日志，任务已 completed 不受影响（草案 P6）
-            console.error(`[refine] task ${task.id} refine failed: ${(e as Error).message}`);
+            taskLogger?.error(`refine failed: ${(e as Error).message}`);
           }
         }
       }
     } catch (e) {
       await taskStore.reject(role.id, task.id, `execution-crashed: ${(e as Error).message}`);
+      taskLogger?.error(`task crashed: ${(e as Error).message}`);
     }
   }
 

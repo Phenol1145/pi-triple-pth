@@ -26,6 +26,8 @@ export interface BatchManagerDeps {
   execArgv?: string[];
   /** 生产 fork 环境透传（Task 4）：PTH_BATCH_PROCESS/PTH_TEST_DATABASE_URL 等 */
   env?: Record<string, string>;
+  /** 日志（日志体系 T3）：batch IPC log 消息 → 主进程统一打标 */
+  logger?: import("../logger.js").KernelLogger;
 }
 
 /**
@@ -51,6 +53,16 @@ export class BatchManager {
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
+      } else if (msg?.type === "log" && this.deps.logger) {
+        // 日志体系 T3：batch 子进程日志经 IPC 转发 → 主进程统一打标（component/pid）
+        const { level, component, msg: logMsg, ctx } = msg as {
+          level: string; component: string; msg: string; ctx?: Record<string, unknown>;
+        };
+        const l = this.deps.logger.child(component, { ...(ctx ?? {}), batchPid: record.child.pid });
+        if (level === "warn") l.warn(logMsg);
+        else if (level === "error") l.error(logMsg);
+        else if (level === "debug") l.debug(logMsg);
+        else l.info(logMsg);
       }
     });
     // Finding #3: 持久 error handler——fork 失败（路径无效）/ IPC 错误不再 crash 主进程。

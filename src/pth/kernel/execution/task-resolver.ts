@@ -23,6 +23,8 @@ export interface TaskResolverDeps {
   pool?: { query(sql: string, params?: unknown[]): Promise<{ rows: any[] }> };
   /** 阶段间最小间隔（默认 0——测试同步） */
   intervalMs?: number;
+  /** 日志（日志体系 T2） */
+  logger?: import("../logger.js").KernelLogger;
 }
 
 /** 解析一轮的汇总 */
@@ -158,7 +160,7 @@ export class TaskResolver {
     for (const spec of stage.decompose ?? []) {
       const title = interpolate(spec.title, task, p);
       const text = interpolate(spec.text, task, p);
-      await this.deps.taskStore.publish({
+      const published = await this.deps.taskStore.publish({
         title,
         text,
         createdBy: "resolver",
@@ -170,6 +172,9 @@ export class TaskResolver {
         },
       });
       report.generated++;
+      this.deps.logger?.child("chain", { taskId: task.id })?.info("chain generated", {
+        childTaskId: published.id, title, role: spec.role ?? "?",
+      });
     }
   }
 
@@ -179,7 +184,7 @@ export class TaskResolver {
       if (branch.if === undefined || evalCondition(branch.if, ctx)) {
         if (branch.decompose) {
           for (const spec of branch.decompose) {
-            await this.deps.taskStore.publish({
+            const published = await this.deps.taskStore.publish({
               title: interpolate(spec.title, task, p),
               text: interpolate(spec.text, task, p),
               createdBy: "resolver",
@@ -187,6 +192,9 @@ export class TaskResolver {
               payload: { deps: [task.id], ...(spec.flow ? { flow: spec.flow } : {}), parent: task.id },
             });
             report.generated++;
+            this.deps.logger?.child("chain", { taskId: task.id })?.info("chain generated", {
+              childTaskId: published.id, title: interpolate(spec.title, task, p), role: spec.role ?? "?",
+            });
           }
         }
         if (branch.transform) this.execTransform(task, branch.transform, p);

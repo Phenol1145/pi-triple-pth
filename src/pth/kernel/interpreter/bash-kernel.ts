@@ -27,14 +27,16 @@ export class BashKernel implements Interpreter {
   private stderrBuf = "";
   private ready = false;
   private readyWaiters: Array<() => void> = [];
+  private onStderr?: (line: string) => void;
   private pending: Array<{ resolve: (r?: { stdout: string; stderr: string; code: number | null }) => void }> = [];
   private cwd = DEFAULT_CWD;
   private env: Record<string, string> = {};
   private timeoutMs: number;
 
-  constructor(deps: { timeoutMs?: number; initialCwd?: string } = {}) {
+  constructor(deps: { timeoutMs?: number; initialCwd?: string; onStderr?: (line: string) => void } = {}) {
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS;
     if (deps.initialCwd) this.cwd = deps.initialCwd;
+    this.onStderr = deps.onStderr;
     this.spawn();
   }
 
@@ -161,8 +163,16 @@ export class BashKernel implements Interpreter {
   }
 
   private onData(chunk: string, isStderr: boolean): void {
-    if (isStderr) this.stderrBuf += chunk;
-    else this.buffer += chunk;
+    if (isStderr) {
+      // kernel 自身 stderr（日志体系 T4）：无 pending 请求时输出 = 空闲错误（转发 warn）；
+      // 有 pending 时是任务输出（Observation 已捕获，不转发防双写）
+      if (this.pending.length === 0 && this.onStderr) {
+        this.onStderr(chunk.toString());
+      }
+      this.stderrBuf += chunk;
+    } else {
+      this.buffer += chunk;
+    }
     // 结束标记：在两个流里都找
     const markerRe = /__BASH_DONE_(\d+|-?\d+)__/;
     const src = this.buffer + this.stderrBuf;
