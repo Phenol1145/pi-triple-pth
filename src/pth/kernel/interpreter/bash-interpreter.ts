@@ -61,6 +61,11 @@ export class BashInterpreter implements Interpreter {
     }
   }
 
+  snapshot() {
+    // 会话配置（cwd/env）——非知识型状态，v1 不进持久化快照
+    return { variables: [], functions: [], oversized: [] };
+  }
+
   reset(): void {
     this.session = { cwd: DEFAULT_BASH_CWD, env: {} };
   }

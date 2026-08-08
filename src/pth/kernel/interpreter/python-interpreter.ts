@@ -57,6 +57,10 @@ export class PythonInterpreter implements Interpreter {
     });
   }
 
+  snapshot() {
+    return { variables: [], functions: [], oversized: [] };  // v1 无状态
+  }
+
   reset(): void {}
   dispose(): void {}
 }

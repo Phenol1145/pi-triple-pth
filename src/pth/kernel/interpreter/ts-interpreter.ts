@@ -1,6 +1,6 @@
 import { createContext, runInContext, type Context } from "node:vm";
 import { stripTypeScriptTypes } from "node:module";
-import type { ExecuteOptions, Interpreter, InterpreterResult } from "./types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
 
@@ -64,6 +64,27 @@ export class TsInterpreter implements Interpreter {
       const err = e as Error;
       return { ok: false, error: { message: err.message, stack: err.stack }, durationMs: Date.now() - start };
     }
+  }
+
+  snapshot() {
+    // 枚举 context 全局（var/function 可见；const/let 词法绑定不可见）
+    const RESERVED = new Set(["llm", "memory", "web", "tasks", "skills", "bash", "python", "state"]);
+    const snap: InterpreterSnapshot = { variables: [], functions: [], oversized: [] };
+    for (const key of Object.keys(this.context)) {
+      if (RESERVED.has(key)) continue;
+      const v = (this.context as Record<string, unknown>)[key];
+      if (typeof v === "function") {
+        snap.functions.push({ key, source: v.toString() });
+        continue;
+      }
+      try {
+        JSON.stringify(v);
+        snap.variables.push({ key, value: v, serializable: true });
+      } catch {
+        snap.oversized.push(key);
+      }
+    }
+    return snap;
   }
 
   reset(): void {
