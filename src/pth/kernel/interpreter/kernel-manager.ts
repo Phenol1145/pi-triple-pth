@@ -16,17 +16,20 @@ import { PythonInterpreter } from "./python-interpreter.js";
 import { BashInterpreter } from "./bash-interpreter.js";
 import { PyKernel } from "./py-kernel.js";
 import { BashKernel } from "./bash-kernel.js";
+import { SandboxKernel } from "./sandbox-kernel.js";
 import { buildCapabilities } from "./capability.js";
 import type { LlmFn } from "./llm-fn.js";
 import type { DataWorldAccess } from "../storage/index.js";
 
 export interface KernelManagerOptions {
-  /** python 执行模式：kernel（持久管道，默认）| interpreter（每次 spawn） */
-  pythonMode?: "kernel" | "interpreter";
-  /** bash 执行模式：kernel（本地持久会话）| interpreter（sandbox 转发） */
-  bashMode?: "kernel" | "interpreter";
+  /** python 执行模式：kernel（持久管道，默认）| interpreter（每次 spawn）| sandbox-kernel（宿主池） */
+  pythonMode?: "kernel" | "interpreter" | "sandbox-kernel";
+  /** bash 执行模式：kernel（本地持久会话）| interpreter（sandbox 转发）| sandbox-kernel（宿主池） */
+  bashMode?: "kernel" | "interpreter" | "sandbox-kernel";
   pythonBin?: string;
   sandbox?: { exec(req: any, signal?: AbortSignal): Promise<any> };
+  /** sandbox-kernel 模式：宿主连接（kernel sandbox SPEC §3.3） */
+  sandboxKernel?: { url: string; secret: string };
   /** 日志（日志体系 T4）：kernel stderr 转发 warn */
   onKernelStderr?: (language: string, line: string) => void;
   /** 性能计量（SPEC L1）：kernel 执行事件（batch 内经 IPC 转发主进程） */
@@ -57,11 +60,15 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
 
   const python: Interpreter = pythonMode === "kernel"
     ? new PyKernel({ pythonBin: opts.pythonBin, onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("python", l) : undefined, ...opts.kernelConfig })
-    : new PythonInterpreter({ pythonBin: opts.pythonBin });
+    : pythonMode === "sandbox-kernel"
+      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "python" })
+      : new PythonInterpreter({ pythonBin: opts.pythonBin });
 
   const bash: Interpreter = bashMode === "kernel"
     ? new BashKernel({ onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("bash", l) : undefined, ...opts.kernelConfig })
-    : new BashInterpreter({
+    : bashMode === "sandbox-kernel"
+      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "bash" })
+      : new BashInterpreter({
         sandbox: opts.sandbox ?? { exec: async () => ({ ok: false, stdout: "", stderr: "sandbox not configured", exitCode: 1, durationMs: 0 }) },
       });
 
