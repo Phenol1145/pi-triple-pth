@@ -28,6 +28,8 @@ export interface BatchManagerDeps {
   env?: Record<string, string>;
   /** 日志（日志体系 T3）：batch IPC log 消息 → 主进程统一打标 */
   logger?: import("../logger.js").KernelLogger;
+  /** 性能计量（SPEC L1）：batch IPC metric 消息 → 主进程 kernelMetrics */
+  onMetric?: (m: Record<string, unknown>) => void;
 }
 
 /**
@@ -63,6 +65,9 @@ export class BatchManager {
         else if (level === "error") l.error(logMsg);
         else if (level === "debug") l.debug(logMsg);
         else l.info(logMsg);
+      } else if (msg?.kind === "metric") {
+        // 性能计量（SPEC L1）：batch kernel/llm 事件 → 主进程 kernelMetrics
+        this.deps.onMetric?.(msg.metric as Record<string, unknown>);
       }
     });
     // Finding #3: 持久 error handler——fork 失败（路径无效）/ IPC 错误不再 crash 主进程。

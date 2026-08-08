@@ -1,6 +1,7 @@
 import { Redis } from "ioredis";
 import { detectPlatform, createLogger } from "@pi-triple/infra";
 import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
+import { createKernelMetrics } from "./observability/kernel-metrics.js";
 import { AuditWriter } from "./observability/audit.js";
 import { RedisSessionStore } from "./storage/redis-session-store.js";
 import { RedisSettingsStore } from "./storage/redis-settings-store.js";
@@ -31,6 +32,8 @@ async function main() {
 
   const metrics = createMetrics();
   startRedisMetrics(redis, metrics);
+  // 性能计量（SPEC L0/L1）：kernel 指标注册到同一 registry（/metrics 单端点聚合）
+  const kernelMetrics = createKernelMetrics({ registry: metrics.registry });
 
   const sessionStore = new RedisSessionStore(redis);
   const settingsStore = new RedisSettingsStore(redis);
@@ -158,6 +161,20 @@ async function main() {
         basePath: path.join(dataDir, "workspaces"),
         artifactPath: path.join(dataDir, "artifacts"),
         toolstorePath: path.join(dataDir, "toolstore"),
+        // 性能计量（SPEC L1）：batch IPC metric → kernelMetrics
+        onMetric: (m) => {
+          const t = m as Record<string, unknown>;
+          if (t.kind === "llm") {
+            kernelMetrics.llmCall(
+              String(t.provider ?? "?"), String(t.model ?? "?"),
+              Number(t.durationMs ?? 0), Number(t.inputTokens ?? 0), Number(t.outputTokens ?? 0),
+            );
+          } else if (t.type === "exec") {
+            kernelMetrics.kernelExec(String(t.language ?? "?"), Number(t.durationMs ?? 0), Boolean(t.ok));
+          } else if (t.type === "truncated") {
+            kernelMetrics.kernelTruncated(String(t.language ?? "?"), String(t.field ?? "?"));
+          }
+        },
         // 生产 fork：dist 编译产物（纯 js，无需 loader/transform-types）；watchdog 30s 探测
       });
       logger.info({ event: "kernel_assembled", note: "PTH kernel 装配成功（pg + dataWorld + BatchManager + watchdog）" });
@@ -174,6 +191,7 @@ async function main() {
 
   const shutdown = async (signal: string) => {
     logger.info({ signal, event: "shutdown_start" });
+    kernelMetrics.dispose();
     if (kernelRuntime) await kernelRuntime.shutdown();
     await engine.drain();
     await server.close();

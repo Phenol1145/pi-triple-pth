@@ -29,6 +29,8 @@ export interface KernelManagerOptions {
   sandbox?: { exec(req: any, signal?: AbortSignal): Promise<any> };
   /** 日志（日志体系 T4）：kernel stderr 转发 warn */
   onKernelStderr?: (language: string, line: string) => void;
+  /** 性能计量（SPEC L1）：kernel 执行事件（batch 内经 IPC 转发主进程） */
+  onKernelMetric?: (metric: { type: string; language: string; durationMs?: number; ok?: boolean; field?: string; count?: number; depth?: number }) => void;
 }
 
 export interface KernelManager {
@@ -63,17 +65,43 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
 
   const ts = new TsInterpreter({ capabilities: {} });  // capabilities 由 createWorkerKernel 注入（见下）
 
+  // 包装计量（SPEC L1）：任务代码直调 python.execute/bash.execute 也计入 kernel 指标
+  const metered = (interp: Interpreter, language: string): Interpreter => {
+    if (!opts.onKernelMetric) return interp;
+    return {
+      ...interp,
+      language: interp.language,
+      async execute(program, executeOpts) {
+        const start = Date.now();
+        const result = await interp.execute(program, executeOpts);
+        opts.onKernelMetric!({ type: "exec", language, durationMs: Date.now() - start, ok: result.ok });
+        if (result.truncated) opts.onKernelMetric!({ type: "truncated", language, field: result.truncated.field });
+        return result;
+      },
+    };
+  };
+
   return {
     execute: async (language, program, executeOpts) => {
+      const start = Date.now();
+      let result: InterpreterResult;
       switch (language) {
-        case "ts": return ts.execute(program, executeOpts);
-        case "python": return python.execute(program, executeOpts);
-        case "bash": return bash.execute(program, executeOpts);
+        case "ts": result = await ts.execute(program, executeOpts); break;
+        case "python": result = await python.execute(program, executeOpts); break;
+        case "bash": result = await bash.execute(program, executeOpts); break;
         default: return { ok: false, error: { message: `unknown language: ${language}` }, durationMs: 0 };
       }
+      // 性能计量（SPEC L1）：执行事件 → 回调（batch 内经 IPC 转发主进程）
+      opts.onKernelMetric?.({
+        type: "exec", language, durationMs: Date.now() - start, ok: result.ok,
+      });
+      if (result.truncated) {
+        opts.onKernelMetric?.({ type: "truncated", language, field: result.truncated.field });
+      }
+      return result;
     },
-    python,
-    bash,
+    python: metered(python, "python"),
+    bash: metered(bash, "bash"),
     ts,
     reset() { ts.reset(); bash.reset(); python.reset(); },
     dispose() { ts.dispose(); bash.dispose(); python.dispose(); },

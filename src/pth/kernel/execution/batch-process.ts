@@ -106,11 +106,28 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
       // 日志体系 T4：kernel stderr 转发 warn（component=pykernel/bashkernel）
       onKernelStderr: (language, line) => batchLogger.child(language === "python" ? "pykernel" : "bashkernel")?.warn(line.trim()),
+      // 性能计量（SPEC L1）：kernel 执行事件 → IPC 转发主进程
+      onKernelMetric: (metric) => {
+        try { process.send?.({ kind: "metric", metric }); } catch { /* IPC 不可用 */ }
+      },
     });
-    const kernel = createWorkerKernelWithManager({ llm: createLlmFn({ modelRouter }), dataWorld, manager, toolstore });
+    const llm = createLlmFn({
+      modelRouter,
+      // 性能计量（SPEC L0-④）：llm 事件 → IPC 转发主进程
+      onMetric: (m) => {
+        try { process.send?.({ kind: "metric", metric: { ...m, kind: "llm" } }); } catch { /* IPC 不可用 */ }
+      },
+    });
+    const kernel = createWorkerKernelWithManager({ llm, dataWorld, manager, toolstore });
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
     const refineEnabled = process.env.PTH_REFINE !== "off";
-    const refiner = refineEnabled ? new Refiner({ llm: createLlmFn({ modelRouter }), memory: dataWorld.memory }) : undefined;
+    const refiner = refineEnabled ? new Refiner({
+      llm: createLlmFn({
+        modelRouter,
+        onMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, kind: "llm" } }); } catch { /* IPC 不可用 */ } },
+      }),
+      memory: dataWorld.memory,
+    }) : undefined;
     return new BatchTaskLoop({ kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, logger: batchLogger }, archiveDeps);
   });
 

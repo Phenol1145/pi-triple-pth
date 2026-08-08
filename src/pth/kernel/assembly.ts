@@ -15,6 +15,8 @@ export interface KernelRuntimeOptions {
   toolstorePath?: string;  // toolstore 文件通道目录（默认继承主进程 env）
   watchdogIntervalMs?: number; // watchdog 探测周期（默认 30s）
   resolverIntervalMs?: number; // TaskResolver 解析轮询周期（默认 2s）
+  /** 性能计量（SPEC L1）：batch kernel/llm 事件回调（main.ts 接 kernelMetrics） */
+  onMetric?: (m: Record<string, unknown>) => void;
 }
 
 export interface KernelWatchdogEvent {
@@ -102,6 +104,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     workers: DEFAULT_ROLES.map((r) => r.id),
     execArgv: opts.execArgv,
     logger: createKernelLogger(),
+    onMetric: opts.onMetric,
     // 自动注入 kernel 子进程 env（试运行发现：main.ts 只传 databaseUrl 不传 env，
     // fork 的子进程没有 PTH_BATCH_PROCESS/DATABASE_URL → 不进入 batch 入口 → 立即退出）。
     // 调用方显式传 env 时覆盖（后进覆盖先进）。

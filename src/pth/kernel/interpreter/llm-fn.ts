@@ -37,13 +37,28 @@ export interface LlmFn {
  *  3) pi-ai Usage 字段为 input/output，而本层公共契约（LlmResult.usage）按 brief 用
  *     inputTokens/outputTokens——映射时兼容两种形状（先取 inputTokens，回退到 input）。
  */
-export function createLlmFn(deps: { modelRouter: ModelRouter; logger?: unknown }): LlmFn {
+export function createLlmFn(deps: {
+  modelRouter: ModelRouter;
+  logger?: unknown;
+  /** 性能计量（SPEC L0-④）：llm 调用事件（token/calls/latency） */
+  onMetric?: (m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number }) => void;
+}): LlmFn {
   return {
     async complete(messages, opts) {
       const model = deps.modelRouter.resolve(opts?.provider, opts?.model);
       const runtime = deps.modelRouter.getRuntime();
       const ctx = toContext(messages) as Context;
+      const start = Date.now();
       const result = await runtime.completeSimple(model, ctx, { signal: opts?.signal });
+      const inputTokens = usageInput(result.usage ?? {});
+      const outputTokens = usageOutput(result.usage ?? {});
+      deps.onMetric?.({
+        provider: model.provider,
+        model: model.id,
+        durationMs: Date.now() - start,
+        inputTokens,
+        outputTokens,
+      });
       return {
         content: extractText(result.content),
         model: result.model,
