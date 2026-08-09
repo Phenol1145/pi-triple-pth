@@ -18,6 +18,7 @@ import { PyKernel } from "./py-kernel.js";
 import { BashKernel } from "./bash-kernel.js";
 import { SandboxKernel } from "./sandbox-kernel.js";
 import { SandboxCompiledKernel } from "./sandbox-compiled-kernel.js";
+import { getEventBus } from "../execution/event-bus.js";
 import { buildCapabilities } from "./capability.js";
 import type { LlmFn } from "./llm-fn.js";
 import type { DataWorldAccess } from "../storage/index.js";
@@ -111,6 +112,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
   return {
     execute: async (language, program, executeOpts) => {
       const start = Date.now();
+      getEventBus().emit("kernel.execute.start", { language });
       let result: InterpreterResult;
       switch (language) {
         case "ts": result = await ts.execute(program, executeOpts); break;
@@ -123,6 +125,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
       opts.onKernelMetric?.({
         type: "exec", language, durationMs: Date.now() - start, ok: result.ok,
       });
+      getEventBus().emit("kernel.execute.end", { language, durationMs: Date.now() - start, ok: result.ok });
       if (result.truncated) {
         opts.onKernelMetric?.({ type: "truncated", language, field: result.truncated.field });
       }

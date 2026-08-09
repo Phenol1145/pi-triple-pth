@@ -6,6 +6,7 @@ import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager 
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
 import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights } from "./worker-cluster.js";
+import { getEventBus } from "./event-bus.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
 import { archiveTask, type ArchiveDeps } from "./archive.js";
@@ -86,12 +87,15 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     } else if (msg?.type === "resume") {
       paused = false;
     } else if (msg?.type === "worker-pause" && typeof msg.role === "string") {
+      getEventBus().emit("worker.pause", { role: msg.role, batchPid: process.pid });
       for (const l of loops) if (l.role.id === msg.role) l.pause();
       process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "paused" });
     } else if (msg?.type === "worker-resume" && typeof msg.role === "string") {
+      getEventBus().emit("worker.resume", { role: msg.role, batchPid: process.pid });
       for (const l of loops) if (l.role.id === msg.role) l.resume();
       process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "active" });
     } else if (msg?.type === "worker-remove" && typeof msg.role === "string") {
+      getEventBus().emit("worker.remove", { role: msg.role, batchPid: process.pid });
 
       // 防御：tick 自驱动链与 splice 并发——map 回调可能拿到已移除的 undefined（竞态窗口）
       const idxs = loops.map((l, i) => (l && l.role?.id === msg.role ? i : -1)).filter((i) => i >= 0);
@@ -105,6 +109,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       }
       process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
     } else if (msg?.type === "worker-add" && typeof msg.role === "string") {
+      getEventBus().emit("worker.add", { role: msg.role, copies: msg.copies ?? 1, batchPid: process.pid });
       const roleDef = DEFAULT_ROLES.find((r) => r.id === msg.role);
       if (roleDef) {
         const copies = Number(msg.copies ?? 1);

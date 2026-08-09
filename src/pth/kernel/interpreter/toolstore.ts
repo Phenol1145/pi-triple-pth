@@ -16,6 +16,8 @@ export interface Toolstore {
   writeText(name: string, content: string): Promise<void>;
   /** 枚举子目录内容（命名编译单元 listUnits 用——顶层 list 只列文件） */
   listSubdir(subdir: string): Promise<string[]>;
+  /** 枚举子目录（扩展包扫描——extensions/<id>/ 目录列表） */
+  listDirs(subdir: string): Promise<string[]>;
   /** 读取 toolstore 内文件文本（.ts 源码 / .json 数据）——路径必须解析后仍在 toolstore 内 */
   readText(name: string): Promise<string>;
   /** 枚举可用文件（LLM 工具发现） */
@@ -52,6 +54,17 @@ export function createToolstore(toolstoreDir: string): Toolstore {
     },
     async list() {
       return listToolstoreIndex(root);
+    },
+    async listDirs(subdir) {
+      const resolved = path.resolve(root, subdir);
+      assertInside(root, resolved, subdir);
+      try {
+        const entries = await readdir(resolved, { withFileTypes: true });
+        return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw e;
+      }
     },
     async listSubdir(subdir) {
       const resolved = path.resolve(root, subdir);

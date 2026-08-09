@@ -3,6 +3,7 @@ import type { Task, TaskStore } from "../storage/task-store-pg.js";
 import type { WorkerRole } from "./worker-cluster.js";
 import { isNaturalLanguageTask, translateTask } from "./nl-translator.js";
 import { runAgentTask } from "./agent-loop.js";
+import { getEventBus } from "./event-bus.js";
 
 export interface TaskWorkspaceManager {
   allocate(taskId: string): Promise<{ dir: string; tenant: string }>;
@@ -43,6 +44,8 @@ export class TaskLoop {
   /** runOnce：执行一轮认领。返回 true = 本轮有任务执行（调用方可自驱动下一轮——吞吐优化） */
   // worker 级控制（2026-08-09 单大 batch 控制面）：pause=暂停认领（保留状态）/
   // resume=恢复 / stop=永久停止（dispose 由调用方处理）
+  /** 事件总线（兼容性扩展接口 P1）：batch 内就近 emit（多 batch 天然隔离） */
+  private get bus() { return getEventBus(); }
   private paused = false;
   private stopped = false;
 
@@ -72,6 +75,7 @@ export class TaskLoop {
 
     // 4. 执行已认领任务；认领竞态丢失者跳过——竞态为正常，不 reject
     for (const task of claimed) {
+      this.bus.emit("task.claim", { taskId: task.id, role: role.id, tags: task.tags });
       await this.execute(task);
     }
     return true;
@@ -82,6 +86,7 @@ export class TaskLoop {
     const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
     const ws = await workspaceMgr.allocate(task.id);
     const execStart = Date.now();
+    this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags });
     kernel.reset();                          // 任务级状态隔离
     try {
       // 自然语言任务（标签为主要凭据：tags 含 "nl" 或 payload.kind="nl"）
@@ -133,13 +138,16 @@ export class TaskLoop {
         await taskStore.reject(role.id, task.id, `execution-failed: ${result.error?.message ?? "unknown"}`, { terminal: true });
         await this.archive(task, ws, result);
         taskLogger?.error(`task rejected: ${result.error?.message ?? "unknown"}`, { durationMs: execMs });
+        this.bus.emit("task.reject", { taskId: task.id, role: role.id, reason: result.error?.message ?? "unknown", durationMs: execMs });
         // 性能计量（SPEC L2）：状态 + 拒绝原因（前缀分类）+ 阶段耗时
         this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
         this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(result.error?.message ?? "unknown") });
         this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
         return;
       }
+      this.bus.emit("task.execute.end", { taskId: task.id, role: role.id, ok: true, durationMs: Date.now() - execStart });
       await taskStore.submit(role.id, task.id, { ref: result });
+      this.bus.emit("task.submit", { taskId: task.id, role: role.id });
       await this.archive(task, ws, result);
       taskLogger?.info("task completed", { durationMs: execMs });
       this.deps.onTaskMetric?.({ type: "status", status: "completed" });

@@ -1,5 +1,6 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { type BatchProfile, profileToWeights, expandRoleWeights, weightsToEnv } from "./worker-cluster.js";
+import { getEventBus } from "./event-bus.js";
 import { randomUUID } from "node:crypto";
 import type { BatchSuggestion } from "./stats.js";
 
@@ -64,6 +65,7 @@ export class BatchManager {
       env: this.deps.env ? { ...process.env, ...this.deps.env, ...envOverride } : undefined,
       stdio: ["ignore", "inherit", "inherit", "ipc"],
     });
+    getEventBus().emit("batch.spawn", { batchId: id, workers });
     const record = { id, child, workers, currentTasks: new Map<string, string>() };
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
@@ -153,6 +155,7 @@ export class BatchManager {
   async killBatch(id: string): Promise<void> {
     const rec = this.batches.get(id);
     if (!rec) return;
+    getEventBus().emit("batch.kill", { batchId: id });
     // Finding #1: connected 检查通过后、send 前子进程可能并发退出 → send 抛 ERR_IPC_CHANNEL_CLOSED。
     // try/catch 包裹：抛错不阻断后续清理（delete 仍执行），走退出等待兜底。
     try {
