@@ -217,9 +217,9 @@ await perf.analyze();                         // v1 规则诊断
 
 env 与运行时 SET 的关系：启动时 env 快照载入 → 运行时 SET 覆盖 → 重启恢复 env 值。
 
-## 6. 容器抽象（下一版本设计意图——v0.7 落地）
+## 6. 容器抽象（v0.7 已落地）
 
-当前 `docker-compose.yaml` 是唯一拉起方式。下版本将**容器后端抽象**——允许不同容器技术：
+声明式部署描述 `pth.deployment.json` 为事实源——`docker-compose.yaml` 降级为历史参考（docker 后端渲染产物在 `pth.deploy/`）。**容器后端抽象**——允许不同容器技术：
 
 ```
 ┌─ 部署描述（声明式）─────────────────────┐
@@ -233,6 +233,22 @@ env 与运行时 SET 的关系：启动时 env 快照载入 → 运行时 SET �
 │ compose    │（无守护进程）│（生产集群）   │
 └────────────┴────────────┴─────────────┘
 ```
+
+### 落地形态（2026-08-09）
+
+```
+pth.deployment.json（声明式部署描述——四服务拓扑/env/卷/健康检查/限额/sandbox internal 契约）
+  ↓ ContainerBackend 接口（up/down/status/logs/restart/exec/available）
+docker（compose 渲染——已实现） | podman | k8s（扩展点）
+  ↓ PTL 侧工具（ptl hub 运维族——不再手写 compose 命令）
+ptl hub deploy [--rebuild]   # 部署（build + up）
+ptl hub status [--service s] # 服务状态（彩色）
+ptl hub logs <svc> [--tail]  # 日志
+ptl hub upgrade              # 重建镜像 + 重启
+ptl hub exec <svc> -- <cmd>  # 容器内执行
+```
+
+代码：`packages/framework/src/containers/`（schema/backend/docker-backend——PTL 侧运维库）。
 
 迁移准备（现有代码已具备）：
 - **参数不依赖 compose 插值**：全部走 `PTH_*` env（配置中心启动快照）——任何容器技术传 env 即可
