@@ -6,6 +6,30 @@ import type { Toolstore } from "./toolstore.js";
 import { buildExtensions } from "../extensions/index.js";
 import { createExtCapability } from "./ext-capability.js";
 
+/** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */
+function createTaskFs(resolve: (rel: string) => string): Record<string, unknown> {
+  return {
+    write: async (relPath: string, content: string) => {
+      const abs = resolve(relPath);
+      const { writeFile, mkdir } = await import("node:fs/promises");
+      await mkdir(abs.split("/").slice(0, -1).join("/") || abs, { recursive: true });
+      await writeFile(abs, content, "utf8");
+      return { ok: true, path: relPath, bytes: Buffer.byteLength(content) };
+    },
+    read: async (relPath: string) => {
+      const abs = resolve(relPath);
+      const { readFile } = await import("node:fs/promises");
+      return await readFile(abs, "utf8");
+    },
+    list: async () => {
+      const { readdir } = await import("node:fs/promises");
+      const base = resolve(".");
+      const entries = await readdir(base, { withFileTypes: true });
+      return entries.map((e) => ({ name: e.name, isDir: e.isDirectory() }));
+    },
+  };
+}
+
 /**
  * 能力注入：context 默认空，只注入白名单。
  * 不注入 fs/child_process/net——语言层面无能力。
@@ -25,6 +49,8 @@ export function buildCapabilities(deps: {
   registerKernel?: (language: string, interpreter: unknown) => void;
   /** 自修改（v1）：只读 PTH 源码——(relPath) => Promise<string>——白名单/路径校验 */
   readSource?: (relPath: string) => Promise<string>;
+  /** 任务工作区（workspace 收敛——自修改产物落盘）：(relPath) => 绝对路径解析——fs.task 用 */
+  taskWorkspaceResolve?: (relPath: string) => string;
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore });
@@ -49,6 +75,11 @@ export function buildCapabilities(deps: {
           // 自修改（v0.8→v0.9 铺垫）：readSource 只读 PTH 源码（/app/src 白名单——
           // 路径校验防越权；worker 读源码 → sandbox 编码 → 提交补丁产物）
           readSource: deps.readSource,
+          // 任务工作区（workspace 收敛 2026-08-09）：ts 程序写文件落 tasks/<taskId>/——
+          // 自修改产物（补丁/源码）落盘 → archive 归档。白名单：相对路径 + 防穿越
+          ...(deps.taskWorkspaceResolve
+            ? { task: createTaskFs(deps.taskWorkspaceResolve) }
+            : {}),
         } }
       : {}),
     skills: {

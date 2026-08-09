@@ -229,6 +229,15 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       readSource: process.env.PTH_SOURCE_ROOT
         ? (relPath) => import("../interpreter/read-source.js").then((m) => m.createReadSource(process.env.PTH_SOURCE_ROOT!)(relPath))
         : undefined,
+      // 任务工作区（fs.task——白名单：仅 tasks/<taskId>/——kernel.ts.currentCwd 动态定位 + 防穿越）
+      taskWorkspaceResolve: (relPath) => {
+        const cwd = (kernel.ts as unknown as { currentCwd?: string | null }).currentCwd;
+        if (!cwd || !cwd.includes("/tasks/")) throw new Error("fs.task: 任务工作区未就绪（非任务上下文）");
+        if (typeof relPath !== "string" || relPath.startsWith("/") || relPath.startsWith("..")) {
+          throw new Error(`fs.task: 仅允许相对路径（拒绝: ${String(relPath).slice(0, 60)}）`);
+        }
+        return cwd.endsWith("/") ? cwd + relPath : cwd + "/" + relPath;
+      },
     });
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
     const refineEnabled = process.env.PTH_REFINE !== "off";
