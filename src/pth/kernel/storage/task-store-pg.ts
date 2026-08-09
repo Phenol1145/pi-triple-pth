@@ -36,6 +36,8 @@ export interface TaskStore {
   publish(input: PublishInput): Promise<Task>;
   // 跨 spec 扩展（plan Task 5 标注）：负载统计 collectStats 依赖 pending 队列长度。
   countPending(): Promise<number>;
+  /** per-role 队列深度（descheduler——自动强化调度信号） */
+  countPendingByRole(): Promise<Record<string, number>>;
   /** claim 超时回收：batch 崩溃/重启时僵尸认领（claimed_at 超时）回滚 pending——清 claimed_by/claimed_at */
   recoverStaleClaims(timeoutMs: number): Promise<number>;
 }
@@ -102,6 +104,21 @@ export class PgTaskStore implements TaskStore {
       );
       return upd.rows.map(mapRow);
     });
+  }
+
+  /** per-role 队列深度（descheduler 信号——自动强化调度） */
+  async countPendingByRole(): Promise<Record<string, number>> {
+    const res = await this.pool.query(
+      `SELECT assigned_role, count(*) AS n FROM tasks
+       WHERE status = 'pending' AND claims_count < $1
+       GROUP BY assigned_role`,
+      [MAX_CLAIMS],
+    );
+    const out: Record<string, number> = {};
+    for (const row of res.rows as Array<{ assigned_role: string | null; n: string }>) {
+      if (row.assigned_role) out[row.assigned_role] = Number(row.n);
+    }
+    return out;
   }
 
   async countPending(): Promise<number> {

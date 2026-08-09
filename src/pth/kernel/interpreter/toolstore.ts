@@ -8,10 +8,14 @@
  * 只读不写（写走既有 workspace/artifacts 机制）。
  */
 
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export interface Toolstore {
+  /** 写入（命名编译单元/agent 可写——路径白名单同 readText） */
+  writeText(name: string, content: string): Promise<void>;
+  /** 枚举子目录内容（命名编译单元 listUnits 用——顶层 list 只列文件） */
+  listSubdir(subdir: string): Promise<string[]>;
   /** 读取 toolstore 内文件文本（.ts 源码 / .json 数据）——路径必须解析后仍在 toolstore 内 */
   readText(name: string): Promise<string>;
   /** 枚举可用文件（LLM 工具发现） */
@@ -28,6 +32,12 @@ function assertInside(root: string, resolved: string, name: string): void {
 export function createToolstore(toolstoreDir: string): Toolstore {
   const root = path.resolve(toolstoreDir);
   return {
+    async writeText(name, content) {
+      const resolved = path.resolve(root, name);
+      assertInside(root, resolved, name);
+      await mkdir(path.dirname(resolved), { recursive: true });
+      await writeFile(resolved, content, "utf8");
+    },
     async readText(name) {
       const resolved = path.resolve(root, name);
       assertInside(root, resolved, name);
@@ -42,6 +52,17 @@ export function createToolstore(toolstoreDir: string): Toolstore {
     },
     async list() {
       return listToolstoreIndex(root);
+    },
+    async listSubdir(subdir) {
+      const resolved = path.resolve(root, subdir);
+      assertInside(root, resolved, subdir);
+      try {
+        const entries = await readdir(resolved, { withFileTypes: true });
+        return entries.filter((e) => e.isFile()).map((e) => e.name);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw e;
+      }
     },
   };
 }

@@ -110,7 +110,9 @@ ${buildDoc()}`;
 
 /** 工具动作描述（元工具面） */
 export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
-- ts: {code, mode?} —— 【程序模式（优先）】执行 TypeScript 程序：await 调用 python.execute/bash.execute/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
+- ts: {code, mode?} —— 【程序模式（优先）】执行 TypeScript 程序：await 调用 python.execute/bash.execute/c.execute/c.saveUnit/c.executeUnit/c.listUnits/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
+- c.execute: {code, mode?} —— C 编译核快捷（sandbox 编译运行——源码内嵌字符串）
+- c.executeUnit: {name, mode?} —— 命名编译单元（toolstore compiled-units/<name>.c——跨任务复用；c.saveUnit 保存）
 - python.execute: {code, mode?} —— 单 kernel 快捷（简单步骤不必写程序）
 - bash.execute: {command, mode?} —— 单 kernel 快捷
 - done: {result, summary?} —— 完成任务，result 为最终产出对象

@@ -108,11 +108,23 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const count = typeof body.count === "number" ? Math.min(Math.max(Math.floor(body.count), 1), 10) : 1;
-    const handles = [];
-    for (let i = 0; i < count; i++) {
-      handles.push(await kernel.batchManager.spawnBatch());
+    // BatchProfile（⑤）：role → reinforced 单角色堆叠；weights → balanced 自定义权重；缺省 = 默认构成
+    let profile: import("../kernel/execution/worker-cluster.js").BatchProfile | undefined;
+    if (typeof body.role === "string" && body.role.length > 0) {
+      const copies = typeof body.copies === "number" ? Math.min(Math.max(Math.floor(body.copies), 1), 8) : 1;
+      profile = { mode: "reinforced", role: body.role, copies };
+    } else if (body.weights && typeof body.weights === "object") {
+      profile = { mode: "balanced", weights: body.weights as Record<string, number> };
     }
-    return { spawned: handles.length, batches: handles.map((h) => ({ id: h.id, pid: h.pid })) };
+    try {
+      const handles = [];
+      for (let i = 0; i < count; i++) {
+        handles.push(await kernel.batchManager.spawnBatch(profile));
+      }
+      return { spawned: handles.length, mode: profile?.mode ?? "balanced", batches: handles.map((h) => ({ id: h.id, pid: h.pid, workers: h.workers })) };
+    } catch (e) {
+      return reply.status(400).send({ error: `batch 启动失败: ${(e as Error).message}` });
+    }
   });
 
   // ── worker 级控制（单大 batch 启停灵活性）────────────────────────

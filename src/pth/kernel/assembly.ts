@@ -175,8 +175,10 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   }, claimReapMs);
   claimReaperTimer.unref?.();
 
-  // Batch 自动扩缩容（PTH_BATCH_AUTOSCALE=on 默认）：pending 积压→扩容；全 idle→缩容
+  // Batch 自动扩缩容（PTH_BATCH_AUTOSCALE 默认 off——单大 batch 为主；
+  // PTH_AUTOSCALE_MODE=balanced|reinforced：balanced 整 batch 扩容 / reinforced per-role 强化（descheduler））
   const scalerCfg = loadScalerConfig(process.env);
+  const autoscaleMode = (process.env.PTH_AUTOSCALE_MODE as "balanced" | "reinforced" | undefined) ?? "balanced";
   let scalerTimer: ReturnType<typeof setInterval> | null = null;
   if (scalerCfg.enabled) {
     const scalerLogger = createKernelLogger();
@@ -191,6 +193,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
             return bs.reduce((s, b) => s + (b.idleRatio ?? 1), 0) / bs.length;
           },
           spawnBatch: () => batchManager.spawnBatch(),
+          countPendingByRole: () => dataWorld.tasks.countPendingByRole(),
+          spawnReinforced: (role, copies) => batchManager.spawnBatch({ mode: "reinforced", role, copies }),
           killOneIdle: async () => {
             const bs = await batchManager.listBatches();
             const idle = bs.find((b) => (b.idleRatio ?? 1) >= 1);
@@ -200,7 +204,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
           },
           logger: (msg) => scalerLogger?.info(msg),
         },
-        { min: scalerCfg.min, max: scalerCfg.max, upThreshold: scalerCfg.upThreshold },
+        { min: scalerCfg.min, max: scalerCfg.max, upThreshold: scalerCfg.upThreshold, mode: autoscaleMode, roleThreshold: Number(process.env.PTH_AUTOSCALE_ROLE_THRESHOLD ?? 5), reinforceCopies: Number(process.env.PTH_AUTOSCALE_REINFORCE_COPIES ?? 2) },
       ).catch((e) => {
         scalerLogger?.error(`autoscale loop error: ${(e as Error).message}`);
       });

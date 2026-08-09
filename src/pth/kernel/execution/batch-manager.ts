@@ -1,4 +1,5 @@
 import { fork, type ChildProcess } from "node:child_process";
+import { type BatchProfile, profileToWeights, expandRoleWeights, weightsToEnv } from "./worker-cluster.js";
 import { randomUUID } from "node:crypto";
 import type { BatchSuggestion } from "./stats.js";
 
@@ -45,12 +46,22 @@ export class BatchManager {
 
   constructor(private deps: BatchManagerDeps) {}
 
-  async spawnBatch(): Promise<BatchHandle> {
+  /** spawnBatch：默认构成（deps.workers）或按 BatchProfile 指定（balanced 权重 / reinforced 单角色） */
+  async spawnBatch(profile?: BatchProfile): Promise<BatchHandle> {
     const id = randomUUID();
-    const workers = this.deps.workers ?? ["analyst", "planner", "developer", "scout", "memory-keeper", "acceptor", "human-interface"];
+    // profile → 权重展开（workers id 数组）+ env 序列化（PTH_WORKER_ROLES——子进程自行解析一致）
+    let workers: string[];
+    let envOverride: Record<string, string> = {};
+    if (profile) {
+      const weights = profileToWeights(profile);
+      workers = expandRoleWeights(weights).map((r) => r.id);
+      envOverride = { PTH_WORKER_ROLES: weightsToEnv(weights) };
+    } else {
+      workers = this.deps.workers ?? ["analyst", "planner", "developer", "scout", "memory-keeper", "acceptor", "human-interface"];
+    }
     const child = fork(this.deps.batchProcessPath, [], {
       execArgv: this.deps.execArgv,
-      env: this.deps.env ? { ...process.env, ...this.deps.env } : undefined,
+      env: this.deps.env ? { ...process.env, ...this.deps.env, ...envOverride } : undefined,
       stdio: ["ignore", "inherit", "inherit", "ipc"],
     });
     const record = { id, child, workers, currentTasks: new Map<string, string>() };

@@ -52,7 +52,31 @@ export function buildCapabilities(deps: {
     },
     ...(deps.bash ? { bash: deps.bash } : {}),
     ...(deps.python ? { python: deps.python } : {}),
-    ...(deps.c ? { c: deps.c } : {}),
+    ...(deps.c ? {
+      // 命名编译单元（⑥ B 方案——本体内容）：源码持久化（toolstore compiled-units/<name>.c）
+      // + 引用加载（executeUnit 读源码 → execute——增量重算天然由 sha256 缓存处理：源码变→自动重编译）
+      c: {
+        execute: (code: string, opts?: unknown) => deps.c!.execute(code, opts as never),
+        /** 保存命名编译单元（覆盖式——版本由 sha256 缓存自然区分） */
+        saveUnit: async (name: string, code: string): Promise<void> => {
+          if (!deps.toolstore) throw new Error("c.saveUnit: toolstore 未配置");
+          if (!/^[\w.-]+$/.test(name)) throw new Error(`c.saveUnit: 非法单元名 "${name}"（限 [a-zA-Z0-9_.-]）`);
+          await deps.toolstore.writeText(`compiled-units/${name}.c`, code);
+        },
+        /** 引用执行（读源码 → 编译运行——缓存命中跳过编译） */
+        executeUnit: async (name: string, opts?: unknown): Promise<unknown> => {
+          if (!deps.toolstore) throw new Error("c.executeUnit: toolstore 未配置");
+          const code = await deps.toolstore.readText(`compiled-units/${name}.c`);
+          return deps.c!.execute(code, opts as never);
+        },
+        /** 枚举可用编译单元 */
+        listUnits: async (): Promise<string[]> => {
+          if (!deps.toolstore) throw new Error("c.listUnits: toolstore 未配置");
+          const files = await deps.toolstore.listSubdir("compiled-units");
+          return files.filter((f) => f.endsWith(".c")).map((f) => f.slice(0, -2));
+        },
+      },
+    } : {}),
   };
 }
 

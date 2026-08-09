@@ -58,12 +58,41 @@ export interface BatchScalerDeps {
   avgIdleRatio: () => Promise<number>;
   spawnBatch: () => Promise<unknown>;
   killOneIdle: () => Promise<boolean>;
+  /** per-role 队列深度（reinforced 模式——自动强化调度） */
+  countPendingByRole?: () => Promise<Record<string, number>>;
+  /** 按角色强化扩（reinforced——自动调度用；缺省 scale-up 退化为整 batch） */
+  spawnReinforced?: (role: string, copies: number) => Promise<unknown>;
   logger?: (msg: string) => void;
   onScale?: (d: ScaleDecision) => void;
 }
 
 /** 自动扩缩容执行器：评估一次并执行动作（幂等——每周期最多 1 个动作） */
-export async function evaluateAndScale(deps: BatchScalerDeps, cfg: Omit<ScaleInput, "pendingCount" | "idleRatio" | "batchCount">): Promise<ScaleDecision> {
+export interface AutoScaleConfig extends Omit<ScaleInput, "pendingCount" | "idleRatio" | "batchCount"> {
+  /** 模式：off（不扩）| balanced（整 batch）| reinforced（per-role 强化——descheduler） */
+  mode?: "off" | "balanced" | "reinforced";
+  /** reinforced：单角色积压阈值（默认 5） */
+  roleThreshold?: number;
+  /** reinforced：强化副本数（默认 2） */
+  reinforceCopies?: number;
+}
+
+export async function evaluateAndScale(deps: BatchScalerDeps, cfg: AutoScaleConfig): Promise<ScaleDecision> {
+  const mode = cfg.mode ?? "balanced";
+  if (mode === "off") return { action: "keep", reason: "autoscale off" };
+
+  // reinforced 模式：per-role 积压 → 强化 batch（descheduler）
+  if (mode === "reinforced" && deps.countPendingByRole && deps.spawnReinforced) {
+    const roleThreshold = cfg.roleThreshold ?? 5;
+    const byRole = await deps.countPendingByRole();
+    const top = Object.entries(byRole).sort((a, b) => b[1] - a[1])[0];
+    const [batchCount] = await Promise.all([deps.batchCount()]);
+    if (top && top[1] > roleThreshold && batchCount < cfg.max) {
+      await deps.spawnReinforced(top[0], cfg.reinforceCopies ?? 2);
+      return { action: "scale-up", reason: `reinforced: ${top[0]} 队列 ${top[1]} > 阈值 ${roleThreshold} → 强化 ×${cfg.reinforceCopies ?? 2}` };
+    }
+    return { action: "keep", reason: `reinforced: 无角色积压超阈值（top=${top?.[0] ?? "-"}:${top?.[1] ?? 0}）` };
+  }
+
   const [pendingCount, batchCount, idleRatio] = await Promise.all([
     deps.countPending(),
     deps.batchCount(),
