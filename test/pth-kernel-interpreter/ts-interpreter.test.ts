@@ -90,6 +90,19 @@ describe("ts interpreter", () => {
     expect(elapsed).toBeLessThan(5000); // 不无限挂起（vitest testTimeout 90s 兜底）
   });
 
+  it("多语句程序 completion value：尾表达式捕获（report; 不丢值——端到端暴露）", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    const r = await itp.execute(`const a = 1; const b = 2; const report = { sum: a + b }; report;`);
+    expect(r.ok).toBe(true);
+    expect(r.value).toMatchObject({ sum: 3 });
+  });
+
+  it("尾表达式捕获安全排除：控制流尾（for 循环块）不追加 return", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    const r = await itp.execute(`let s = 0; for (let i = 0; i < 3; i++) { s += i; }`);
+    expect(r.ok).toBe(true);
+  });
+
   it("captures value of single-expression await with trailing semicolon", async () => {
     // Finding #2: 尾分号 `await Promise.resolve(42);` 不应被误判为多语句 → 块包装丢值。
     const itp = new TsInterpreter({ capabilities: {} });

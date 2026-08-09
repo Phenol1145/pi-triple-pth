@@ -163,7 +163,28 @@ function wrapAwait(program: string): string {
     .map((name) => `try { globalThis.${name} = ${name}; } catch {}`)
     .join("\n");
   const withExport = insertBeforeReturn(program, autoExport);
-  return `(async () => { ${withExport} })()`;
+  // 尾表达式捕获（2026-08-09 端到端暴露：多语句程序 completion value 丢失——report; 尾表达式
+  // 块包装不返回 → submit ref 无 value。追加 `return (尾表达式)` 安全捕获；无尾表达式/无法判定 → 不加）
+  const tailReturn = extractTailExpression(trimmed);
+  return `(async () => { ${withExport}${tailReturn ? `\nreturn (${tailReturn});` : ""} })()`;
+}
+
+/**
+ * 尾表达式提取（块包装 completion value 捕获——安全判定）：
+ * 取最后顶层分隔（\n/;）后的片段；声明/控制流/块/注释开头或含块尾 → 非表达式（不追加）。
+ * 粗粒度（split 分隔）——多语句程序惯例每行一句；字符串/注释内含分隔符的边缘场景最后段不受影响。
+ */
+function extractTailExpression(program: string): string | null {
+  const parts = program
+    .split(/[\n;]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const last = parts[parts.length - 1];
+  if (!last) return null;
+  // 排除声明/控制流/块/注释（这些不是表达式——追加 return 会语法错误）
+  if (/^(let|const|var|function|class|if|for|while|do|switch|try|catch|finally|return|throw|import|export|debugger|with|\{|\}|\/\/|\/\*)/.test(last)) return null;
+  if (/[{}]$/.test(last)) return null;
+  return last;
 }
 
 /**
