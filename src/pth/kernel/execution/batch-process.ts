@@ -168,7 +168,12 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         try { process.send?.({ kind: "metric", metric: { ...m, kind: "llm" } }); } catch { /* IPC 不可用 */ }
       },
     });
-    const kernel = createWorkerKernelWithManager({ llm, dataWorld, manager, toolstore });
+    // 权限分层（P3——注入面收窄）：角色声明的 capabilities/memoryScope 传给能力构建
+    const kernel = createWorkerKernelWithManager({
+      llm, dataWorld, manager, toolstore,
+      roleFilter: role.capabilities,
+      memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
+    });
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
     const refineEnabled = process.env.PTH_REFINE !== "off";
     const refiner = refineEnabled ? new Refiner({

@@ -4,6 +4,10 @@ export interface WorkerRole {
   id: string;
   labelPatterns: string[];
   prompt: string;
+  /** 权限最小化（P3——capabilities 白名单——缺省全量兼容）；扩展角色可声明 */
+  capabilities?: string[];
+  /** memory 区域（P3——own=仅自己命名空间 / all=跨区特许——缺省 all 兼容） */
+  memoryScope?: "own" | "all";
 }
 
 export const DEFAULT_ROLES: WorkerRole[] = [

@@ -151,6 +151,10 @@ export function createWorkerKernelWithManager(deps: {
   manager: KernelManager;
   /** toolstore 文件通道（§0.5）：注入 fs.readText */
   toolstore?: import("./toolstore.js").Toolstore;
+  /** 权限分层（P3——注入面收窄）：角色能力白名单（缺省全量兼容） */
+  roleFilter?: string[];
+  /** memory 区域（P3——own=role:<role> 命名空间标记 / all=跨区——缺省 all） */
+  memoryScope?: { role: string; scope: "own" | "all" };
 }): {
   ts: TsInterpreter;
   python: Interpreter;
@@ -164,7 +168,7 @@ export function createWorkerKernelWithManager(deps: {
   reset(): void;
   dispose(): void;
 } {
-  const capabilities = buildCapabilities({
+  const capabilitiesFull = buildCapabilities({
     llm: deps.llm,
     dataWorld: deps.dataWorld,
     bash: deps.manager.bash,
@@ -185,6 +189,30 @@ export function createWorkerKernelWithManager(deps: {
       };
     },
   });
+  // 权限分层（P3——注入面收窄）：roleFilter 白名单过滤 + memoryScope 包装
+  let capabilities = capabilitiesFull;
+  if (deps.roleFilter || deps.memoryScope) {
+    const filtered: Record<string, unknown> = {};
+    const allowed = deps.roleFilter ? new Set(deps.roleFilter) : null;
+    for (const [key, val] of Object.entries(capabilitiesFull)) {
+      if (allowed && !allowed.has(key) && !["results", "context"].includes(key)) continue;
+      filtered[key] = val;
+    }
+    // memoryScope=own：memory.write 自动标记 role:<role> 命名空间（query 侧过滤需 SQL 层——
+    // v1 简化：write 标记 anchor 前缀；query 过滤在 memory.query 包装层实现）
+    if (deps.memoryScope?.scope === "own" && filtered["memory"]) {
+      const orig = filtered["memory"] as Record<string, unknown>;
+      const role = deps.memoryScope.role;
+      filtered["memory"] = {
+        ...orig,
+        write: async (kind: string, content: string, opts?: Record<string, unknown>) => {
+          const withRole = { ...(opts ?? {}), anchors: [`role:${role}`, ...((opts?.anchors as string[]) ?? [])] };
+          return (orig["write"] as (k: string, c: string, o?: unknown) => Promise<unknown>)(kind, content, withRole);
+        },
+      };
+    }
+    capabilities = filtered;
+  }
   const ts = new TsInterpreter({ capabilities });
   return {
     ts,
