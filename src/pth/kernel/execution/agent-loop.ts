@@ -19,6 +19,8 @@ import { modelState } from "../extensions/model.js";
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
+  /** 任务工作区（fs.task 落盘——ts 工具 cwd） */
+  taskWorkspace?: string;
   role?: WorkerRole;
 }
 
