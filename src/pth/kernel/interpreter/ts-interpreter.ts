@@ -19,14 +19,16 @@ export class TsInterpreter implements Interpreter {
   readonly language = "ts";
   private context: Context;
   private capabilities: Record<string, unknown>;
+  private seeds: Record<string, unknown>;
 
   constructor(deps: { capabilities: Record<string, unknown>; timeoutMs?: number }) {
     this.capabilities = deps.capabilities;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
     // 标准扩展包预置对象（results/context/model——ts 核内 agent 状态，内部管理语言语义）
-    const seeds = buildSeeds();
+    // seeds 保存（reset 重建 context 用——生产暴露：reset 丢 seeds → context/results 未定义）
+    this.seeds = buildSeeds();
     this.context = createContext({
-      ...seeds,
+      ...this.seeds,
       ...deps.capabilities,
     });
   }
@@ -110,7 +112,11 @@ export class TsInterpreter implements Interpreter {
   }
 
   reset(): void {
-    this.context = createContext({ ...this.capabilities });
+    // 重建 context 保留 seeds（context/results/model 预置）——修复：reset 丢 seeds bug
+    this.context = createContext({
+      ...this.seeds,
+      ...this.capabilities,
+    });
   }
 
   dispose(): void {

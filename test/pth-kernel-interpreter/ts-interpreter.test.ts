@@ -90,6 +90,23 @@ describe("ts interpreter", () => {
     expect(elapsed).toBeLessThan(5000); // 不无限挂起（vitest testTimeout 90s 兜底）
   });
 
+  it("reset 后 context/results 保留（生产暴露：reset 重建丢 seeds → context 未定义）", async () => {
+    const itp = new TsInterpreter({ capabilities: { llm: { complete: async () => ({ ok: false }) } } });
+    await itp.execute(`context.x = 1;`);
+    itp.reset();  // 任务级状态隔离（task-loop 每任务 reset）
+    const r = await itp.execute(`typeof context + ":" + Object.keys(results).length`);
+    expect(r.ok).toBe(true);
+    expect(r.value).toContain("object:0");
+  });
+
+  it("reset 后 context 可写可读（压缩/清理场景）", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    itp.reset();
+    const r = await itp.execute(`for (let i = 0; i < 5; i++) context[\`k_\${i}\`] = i; context.sum = Object.keys(context).length; context.sum;`);
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe(5);
+  });
+
   it("多语句程序 completion value：尾表达式捕获（report; 不丢值——端到端暴露）", async () => {
     const itp = new TsInterpreter({ capabilities: {} });
     const r = await itp.execute(`const a = 1; const b = 2; const report = { sum: a + b }; report;`);
