@@ -100,13 +100,9 @@ export class TaskLoop {
       if (nlDetected) {
         const agentMode = process.env.PTH_AGENT_MODE !== "off";
         if (agentMode && this.deps.llm && this.deps.agentCaps) {
-          // 任务工作区（fs.task 落盘——/tmp/tasks/<taskId>/——ts execute cwd 含 /tasks/ → fs.task 白名单通过）
-          let taskWorkspace: string | undefined;
-          try {
-            const { mkdir } = await import("node:fs/promises");
-            taskWorkspace = `/tmp/tasks/${task.id}`;
-            await mkdir(taskWorkspace, { recursive: true });
-          } catch { /* 工作区创建失败容忍——fs.task 不可用但任务继续 */ }
+          // 任务工作区 = 正式工作区（workspaceMgr.allocate 的 ws.dir——archive 归档同一目录——
+          // fs.task 白名单含 /tasks/ ✓——agent 产物随归档持久化——不丢）
+          const taskWorkspace: string | undefined = ws?.dir;
           // 运行过程保留（2026-08-09）：轨迹事件收集 → 任务结束写 transcript（结构化审计/复现）
           const traceEvents: import("./agent-loop.js").AgentTraceEvent[] = [
             { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
