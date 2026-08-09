@@ -18,6 +18,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "memory-keeper", labelPatterns: ["memory", "organize"], prompt: "你是记忆维护者——负责记忆整理、知识沉淀、索引维护。" },
   { id: "acceptor", labelPatterns: ["accept", "verify"], prompt: "你是验收者——负责结果验证、质量检查、交付验收。" },
   { id: "human-interface", labelPatterns: ["human", "interact"], prompt: "你是人类交互者——负责与用户沟通、意图澄清、反馈传递。" },
+  { id: "tester", labelPatterns: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。" },
 ];
 
 // ── batch 构成参数化（2026-08-09：取消固定 7 角色限制）────────────────
