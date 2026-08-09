@@ -43,8 +43,13 @@ export class TaskResolver {
     return report;
   }
 
+  private stopped = false;
+  /** 停（assembly shutdown 调用——终止自调度轮询链） */
+  stop(): void { this.stopped = true; }
+
   /** 轮询待解析任务（独立循环——与 TaskLoop 平级） */
   async resolveLoop(): Promise<ResolveReport> {
+    if (this.stopped) return { processed: 0, generated: 0 };
     const report: ResolveReport = { processed: 0, generated: 0 };
     // 待解析判定（SQL：payload 含 flow 且存在未注销阶段——不限 status，completed 也要处理 verify 等阶段）
     let tasks: Task[];

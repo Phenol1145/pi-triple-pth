@@ -60,6 +60,10 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!title || !text || !createdBy) {
       return reply.status(400).send({ error: "title/text/createdBy required" });
     }
+    // 硬性限制：任务体积上限（防大对象撑 pg/内存/传输——64KB text / 200 字符 title）
+    if (title.length > 200 || text.length > 64 * 1024) {
+      return reply.status(400).send({ error: `task too large: title ≤200 chars, text ≤64KB (got ${title.length}/${text.length})` });
+    }
     const tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : undefined;
     // payload 透传（任务链 flow 声明等路由信息——发布时 payload 即任务自带路由）
     const payload = (body.payload ?? {}) as Record<string, unknown>;

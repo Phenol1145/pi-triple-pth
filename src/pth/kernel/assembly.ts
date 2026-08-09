@@ -126,14 +126,27 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const watchdog = new KernelWatchdog(batchManager);
   watchdog.start(opts.watchdogIntervalMs ?? 30_000);
 
-  // TaskResolver（任务池即工作流 T3）：独立解析循环（2s 轮询，unref 不阻止退出）
+  // TaskResolver（任务池即工作流 T3）：独立解析循环（unref 不阻止退出）
+  // CPU 优化：空轮询自适应退避 2s→5s→10s→15s（无 flow 任务时降频——resolver 查询是
+  // payload ? 'flow' 的 GIN 扫描，任务表大时空轮询浪费）；有任务立即恢复快周期。
   const resolver = new TaskResolver({ taskStore: dataWorld.tasks, pool });
-  const resolverTimer = setInterval(() => {
-    void resolver.resolveLoop().catch((e) => {
-      console.error(`[resolver] loop error: ${(e as Error).message}`);
-    });
-  }, opts.resolverIntervalMs ?? 2_000);
-  resolverTimer.unref?.();
+  let resolverDelayMs = opts.resolverIntervalMs ?? 2_000;
+  const scheduleResolver = () => {
+    const t = setTimeout(async () => {
+      try {
+        const report = await resolver.resolveLoop();
+        // 有处理 → 立即恢复快周期；空 → 指数退避（上限 15s）
+        resolverDelayMs = report.processed > 0
+          ? (opts.resolverIntervalMs ?? 2_000)
+          : Math.min(resolverDelayMs * 2, 15_000);
+      } catch (e) {
+        console.error(`[resolver] loop error: ${(e as Error).message}`);
+      }
+      scheduleResolver();
+    }, resolverDelayMs);
+    t.unref?.();
+  };
+  scheduleResolver();
 
   // Claim 超时回收（batch 崩溃/重启僵尸认领）：周期扫描回收 claimed_at 超时任务回 pending
   // 参数：PTH_CLAIM_REAP_MS（扫描周期，默认 30s）/ PTH_CLAIM_TIMEOUT_MS（超时阈值，默认 600s）
@@ -192,7 +205,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     resolver,
     shutdown: async () => {
       watchdog.stop();
-      clearInterval(resolverTimer);
+      // resolver 走自调度 setTimeout 链——停靠 resolver 对象（无 timer 句柄外泄；unref 不阻止退出）
+      (resolver as unknown as { stop?: () => void }).stop?.();
       if (claimReaperTimer) clearInterval(claimReaperTimer);
       if (scalerTimer) clearInterval(scalerTimer);
       await pool.end();
