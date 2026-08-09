@@ -15,6 +15,7 @@ export function buildCapabilities(deps: {
   dataWorld: DataWorldAccess;
   bash?: Interpreter;
   python?: Interpreter;
+  c?: Interpreter;   // 编译核（C——sandbox 侧编译-运行）
   /** toolstore 文件通道（§0.5）：注入 fs.readText（只读 toolstore 目录） */
   toolstore?: Toolstore;
   /** 环境感知（env.inspect）：按语言返回 kernel 状态摘要（LLM 友好版——变量/函数概览） */
@@ -51,6 +52,7 @@ export function buildCapabilities(deps: {
     },
     ...(deps.bash ? { bash: deps.bash } : {}),
     ...(deps.python ? { python: deps.python } : {}),
+    ...(deps.c ? { c: deps.c } : {}),
   };
 }
 

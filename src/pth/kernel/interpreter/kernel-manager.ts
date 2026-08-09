@@ -17,6 +17,7 @@ import { BashInterpreter } from "./bash-interpreter.js";
 import { PyKernel } from "./py-kernel.js";
 import { BashKernel } from "./bash-kernel.js";
 import { SandboxKernel } from "./sandbox-kernel.js";
+import { SandboxCompiledKernel } from "./sandbox-compiled-kernel.js";
 import { buildCapabilities } from "./capability.js";
 import type { LlmFn } from "./llm-fn.js";
 import type { DataWorldAccess } from "../storage/index.js";
@@ -30,6 +31,8 @@ export interface KernelManagerOptions {
   sandbox?: { exec(req: any, signal?: AbortSignal): Promise<any> };
   /** sandbox-kernel 模式：宿主连接（kernel sandbox SPEC §3.3） */
   sandboxKernel?: { url: string; secret: string };
+  /** 编译核（C 等——sandbox 侧编译-运行；cc 变体 gcc|clang|tcc 缺省 auto） */
+  compiledCc?: "gcc" | "clang" | "tcc";
   /** 日志（日志体系 T4）：kernel stderr 转发 warn */
   onKernelStderr?: (language: string, line: string) => void;
   /** 性能计量（SPEC L1）：kernel 执行事件（batch 内经 IPC 转发主进程） */
@@ -41,9 +44,10 @@ export interface KernelManagerOptions {
 export interface KernelManager {
   /** 统一执行入口：按 language 路由（ts | python | bash） */
   execute(language: string, program: string, opts?: ExecuteOptions): Promise<InterpreterResult>;
-  /** 各语言 kernel 句柄（任务代码可直取：python.execute/bash.execute 兼容） */
+  /** 各语言 kernel 句柄（任务代码可直取：python.execute/bash.execute/c.execute 兼容） */
   python: Interpreter;
   bash: Interpreter;
+  c: Interpreter;
   ts: Interpreter;
   reset(): void;
   dispose(): void;
@@ -71,6 +75,17 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
       : new BashInterpreter({
         sandbox: opts.sandbox ?? { exec: async () => ({ ok: false, stdout: "", stderr: "sandbox not configured", exitCode: 1, durationMs: 0 }) },
       });
+
+  // 编译核（C——只在 sandbox 编译运行：用户架构裁决 2026-08-09；无 sandbox 连接时不可用降级错误）
+  const compiled: Interpreter = opts.sandboxKernel
+    ? new SandboxCompiledKernel({ url: opts.sandboxKernel.url, secret: opts.sandboxKernel.secret, cc: opts.compiledCc })
+    : {
+        language: "c",
+        state: {},
+        execute: async () => ({ ok: false, error: { message: "c kernel: sandbox 未配置（编译核只在 sandbox 运行）" }, durationMs: 0 }),
+        reset() {}, dispose() {},
+        snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
+      };
 
   const ts = new TsInterpreter({ capabilities: {} });  // capabilities 由 createWorkerKernel 注入（见下）
 
@@ -101,6 +116,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
         case "ts": result = await ts.execute(program, executeOpts); break;
         case "python": result = await python.execute(program, executeOpts); break;
         case "bash": result = await bash.execute(program, executeOpts); break;
+        case "c": result = await compiled.execute(program, executeOpts); break;
         default: return { ok: false, error: { message: `unknown language: ${language}` }, durationMs: 0 };
       }
       // 性能计量（SPEC L1）：执行事件 → 回调（batch 内经 IPC 转发主进程）
@@ -114,9 +130,10 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
     },
     python: metered(python, "python"),
     bash: metered(bash, "bash"),
+    c: compiled,
     ts,
-    reset() { ts.reset(); bash.reset(); python.reset(); },
-    dispose() { ts.dispose(); bash.dispose(); python.dispose(); },
+    reset() { ts.reset(); bash.reset(); python.reset(); compiled.reset(); },
+    dispose() { ts.dispose(); bash.dispose(); python.dispose(); compiled.dispose(); },
   };
 }
 
@@ -135,6 +152,7 @@ export function createWorkerKernelWithManager(deps: {
   ts: TsInterpreter;
   python: Interpreter;
   bash: Interpreter;
+  c: Interpreter;
   llm: LlmFn;
   dataWorld: DataWorldAccess;
   /** capability 白名单（web/state/fs/memory）——agent 循环与 vm 注入同一份 */
@@ -148,6 +166,7 @@ export function createWorkerKernelWithManager(deps: {
     dataWorld: deps.dataWorld,
     bash: deps.manager.bash,
     python: deps.manager.python,
+    c: deps.manager.c,
     toolstore: deps.toolstore,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
     inspect: async (lang?: string) => {
@@ -169,6 +188,7 @@ export function createWorkerKernelWithManager(deps: {
     capabilities,
     python: deps.manager.python,
     bash: deps.manager.bash,
+    c: deps.manager.c,
     llm: deps.llm,
     dataWorld: deps.dataWorld,
     snapshot: async () => {
