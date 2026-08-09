@@ -245,7 +245,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
           ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
           : `error: ${result.error ?? "unknown"}`;
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}` });
-      input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok}`);
+      input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
       return undefined;  // 继续循环
     } catch (e) {
       // 工具执行异常（参数错误等）→ 回填错误让 LLM 修正（不算失败）
