@@ -105,6 +105,15 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       try { await k?.dispose?.(); } catch { /* dispose 容错 */ }
     }
   }
+  // 进程级兜底（2026-08-09 端到端：refine snapshot abort 未 catch 处杀 batch → watchdog 30s 循环）。
+  // 异步异常记日志不崩——sandbox 瞬时故障不应终止 batch（降级容忍——后续调用自动恢复）。
+  process.on("unhandledRejection", (reason) => {
+    batchLogger?.error(`[batch] unhandledRejection（容忍——不终止）: ${reason instanceof Error ? reason.message : String(reason)}`);
+  });
+  process.on("uncaughtException", (err) => {
+    batchLogger?.error(`[batch] uncaughtException（容忍——不终止）: ${err.message}`);
+  });
+
   // 优雅退出：SIGTERM/SIGINT/disconnect/exit-message 统一先释放 kernel 再 exit（防 sandbox 池泄漏）
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.on(sig, () => { void disposeAllKernels().finally(() => process.exit(0)); });

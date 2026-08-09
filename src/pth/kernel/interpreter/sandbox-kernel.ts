@@ -89,7 +89,13 @@ export class SandboxKernel implements Interpreter {
         if (this.kernelId) return;
         const r = await this.call<{ kernelId: string }>("/kernel/acquire", { lang: this.language }, this.acquireTimeoutMs);
         this.kernelId = r.kernelId;
-      })();
+      })().catch((e) => {
+        // 失败不缓存 rejected promise（batch 反复崩时 acquire 排队超时 reject——
+        // 后续 withKernelId await 同一 rejected promise 再抛 → 未 catch 处杀 batch）。
+        // 重置：下次调用重新 acquire（sandbox 恢复后自动重连）。
+        this.acquirePromise = null;
+        throw e;
+      });
     }
     return this.acquirePromise;
   }
@@ -116,7 +122,12 @@ export class SandboxKernel implements Interpreter {
 
   async snapshot(): Promise<InterpreterSnapshot> {
     const kernelId = await this.withKernelId();
-    return this.call<InterpreterSnapshot>("/kernel/snapshot", { kernelId });
+    try {
+      return await this.call<InterpreterSnapshot>("/kernel/snapshot", { kernelId });
+    } catch (e) {
+      // 幂等重试 1 次（abort/瞬时故障——sandbox 恢复后自动成功）
+      return await this.call<InterpreterSnapshot>("/kernel/snapshot", { kernelId });
+    }
   }
 
   dispose(): void {
