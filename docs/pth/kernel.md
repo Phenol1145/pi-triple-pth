@@ -79,6 +79,25 @@ flow: {
 | **ts** | VM 沙箱（能力白名单注入：web/state/fs/llm/python/bash） | ~0.08ms | 任务执行引擎 |
 | **python** | PyKernel：常驻进程 + 行式 JSON-RPC + `_result` 返回值通道 | ~0.12ms（vs spawn 12ms，**230x**） | 持久（跨命令状态） |
 | **bash** | BashKernel：持久 shell 会话 + 结束标记协议 + cwd/env/变量持久 | ~0.04ms | 持久（跨命令状态） |
+| **c（编译核）** | CCompiledKernel：编译-运行管道（非 REPL）——sha256 增量缓存（LRU 50）+ 文件即状态 + build/run 分离 + 诊断回填；编译器变体 gcc/clang/tcc（显式 > env > auto） | 缓存命中提速 **3x** | 编译-运行 |
+
+### 调试协议（DebugSession——可选扩展）
+
+- **基本集**：Debuggable/DebugSession 接口（attach/breakpoint/continue/step/stack/variables/evaluate/detach）+ gdb MI 解析器（parseMiLine 纯函数——结果/执行/控制台记录/元组/列表/裸键值/bkptno 顶层字段）+ CDebugSession 适配器（编译 `-g -O0` + `gdb -i=mi2` 管道）
+- **四级回退链**：L0 gdb 完整调试 → L1 sanitize+警告诊断构建 → L2 bash 核 strace/valgrind（零新协议——二进制/文件系统共享）→ L3 Observation 恒可用
+- **sandbox 工具链已装**：gcc/g++ · gdb 13.1 · strace 6.1 · valgrind 3.19 · tcc（容器验证：断点命中 bkptno + frame args 契约匹配）
+
+### 标准扩展包（ts 核内能力对象）
+
+统一注册机制 `TsReplExtension`（id/provide/seed/doc——能力注入/预置对象/文档聚合三通道）：
+
+| 成员 | 能力 |
+|------|------|
+| **memory** | 记忆查询（受限只读 SQL）/ 写入 |
+| **context** | 工作台 + results 注册表（跨步联动） |
+| **model** | 会话内模型切换（选择链：显式 > model.current > env） |
+| **perf** | 参数查看/运行时 SET（PTH_* 白名单）/ analyze / 策略 publish·apply·list（toolstore 闭环） |
+| **obs** | 可监控数据调查：tasks（SQL 注入防护）/ metrics·batches（IPC 请求通道——batch→主进程 obs-req/obs-resp）/ kernels（sandbox 宿主直查）/ search（转义） |
 
 - 统一 `KernelManager.execute(language, program)` 路由；`pythonMode/bashMode` 可切回 sandbox interpreter（生产沙箱模式）
 - 每 kernel FIFO 队列 + 超时 kill 冷备重启；snapshot 协议（globals 分类：JSON 变量/函数源码含 exec 动态提取/oversized）

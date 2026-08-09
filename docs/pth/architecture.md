@@ -111,6 +111,32 @@ export function registerCustomRoutes(app: FastifyInstance, engine: AgentEngine) 
 
 ### Platform Layer
 
+#### Kernel 执行体系（任务内核——2026-08 演进）
+
+```
+src/pth/kernel/
+  assembly/       装配：pg + dataWorld + BatchManager + watchdog + resolver 轮询
+  execution/     TaskLoop · Batch（fork 子进程池）· TaskResolver · Refiner · agent-loop
+  interpreter/   PyKernel · BashKernel · CCompiledKernel（编译核）· TS VM · KernelPool
+  extensions/    ★ 标准扩展包：memory · context · model · perf · obs（ts 核内能力对象）
+  storage/       PostgreSQL（tasks/memory/transcripts）+ queryReadOnly 受限 SQL
+  observability/ 四层 35+ 指标 + prometheus + ResourceProvider
+src/sandbox/     隔离容器：kernel-host（持久 kernel 池）+ exec API + 工具链（gcc/gdb/…）
+```
+
+#### 标准扩展包（TsReplExtension 注册机制）
+
+- **五成员**：memory（查询/写入）· context（工作台/results）· model（会话模型切换）· perf（参数/策略闭环）· obs（观测调查）
+- **三通道**：`provide`（能力函数注入 ts 程序）/ `seed`（预置对象——results/context/model 状态）/ `doc`（能力文档自动聚合进 LLM 提示）
+- **配置中心**（perf-params）：env 快照 + 运行时 SET（白名单）+ 订阅——agent-loop 参数动态化
+- **obs IPC**：batch 子进程 → 主进程请求通道（`obs-req/obs-resp` 契约，metrics 走 prom registry / batches 走 BatchManager）
+
+#### 编译核 + 调试协议
+
+- **CCompiledKernel**：编译-运行管道（非 REPL）——sha256 增量缓存 + 文件即状态 + build/run 分离 + 诊断回填；变体 gcc/clang/tcc
+- **DebugSession**：gdb MI 解析器（parseMiLine）+ CDebugSession 适配器（`-g -O0` + `gdb -i=mi2`）；四级回退链（L0 gdb → L2 bash 核 strace/valgrind）
+- **sandbox 工具链**：gcc/g++ · gdb · strace · valgrind · tcc（容器内，与 kernel 池同镜像）
+
 #### ModelRouter
 
 ```typescript
