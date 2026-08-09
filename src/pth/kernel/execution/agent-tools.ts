@@ -109,6 +109,39 @@ export const AGENT_CAPABILITY_DOC = `ts 程序内的能力函数（await 调用�
 ${buildDoc()}`;
 
 /** 工具动作描述（元工具面） */
+/** 工具参数 JSON Schema 定义（OpenAI function 格式——原生 tool_calls 声明） */
+const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<string, unknown>; required: string[] }> = {
+  "python.execute": {
+    description: "在 python kernel 执行代码（sandbox）——返回 stdout/值",
+    properties: { code: { type: "string", description: "python 代码" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+    required: ["code"],
+  },
+  "bash.execute": {
+    description: "在 bash kernel 执行命令（sandbox）——返回 stdout",
+    properties: { command: { type: "string", description: "shell 命令" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+    required: ["command"],
+  },
+  ts: {
+    description: "在 ts kernel（vm 沙箱）执行程序——程序内可 await 调用能力函数（memory/llm/web/fs/python/bash/c/ext 等）；return 的值回填",
+    properties: { code: { type: "string", description: "ts 程序（顶层 await 可用；return 对象作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+    required: ["code"],
+  },
+  done: {
+    description: "完成任务——提交最终产出对象",
+    properties: { result: { description: "最终产出对象（任意 JSON）" }, summary: { type: "string", description: "完成说明" } },
+    required: [],
+  },
+};
+
+/** 工具声明 → pi-ai Tool[]（OpenAI function 格式——Context.tools 原生 tool_calls） */
+export function toolsToSchema(): import("@earendil-works/pi-ai").Tool[] {
+  return Object.entries(TOOL_SCHEMAS).map(([name, s]) => ({
+    name,
+    description: s.description,
+    parameters: { type: "object", properties: s.properties, required: s.required },
+  }));
+}
+
 export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
 - ts: {code, mode?} —— 【程序模式（优先）】执行 TypeScript 程序：await 调用 python.execute/bash.execute/c.execute/c.saveUnit/c.executeUnit/c.listUnits/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
 - c.execute: {code, mode?} —— C 编译核快捷（sandbox 编译运行——源码内嵌字符串）

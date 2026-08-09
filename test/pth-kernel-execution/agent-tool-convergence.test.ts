@@ -70,9 +70,9 @@ describe("工具面收敛终态", () => {
       complete: async () => {
         step++;
         if (step === 1) {
-          return { ok: true, content: '{"action":{"tool":"python.execute","args":{"code":"_result = 21 * 2"}}}', durationMs: 1, usage: {} };
+          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c1", name: "python.execute", arguments: { code: "_result = 21 * 2" } }] };
         }
-        return { ok: true, content: '{"action":{"tool":"done","args":{"result":{"ok":true},"summary":"done"}}}', durationMs: 1, usage: {} };
+        return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c2", name: "done", arguments: { result: { ok: true }, summary: "done" } }] };
       },
     } as LlmFn;
 
@@ -94,12 +94,12 @@ describe("工具面收敛终态", () => {
       complete: async () => {
         step++;
         if (step === 1) {
-          return { ok: true, content: '{"action":{"tool":"python.execute","args":{"code":"_result = 100"}}}', durationMs: 1, usage: {} };
+          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c1", name: "python.execute", arguments: { code: "_result = 100" } }] };
         }
         if (step === 2) {
-          return { ok: true, content: '{"action":{"tool":"ts","args":{"code":"const prev = results.result_1; return { got: prev.value + 1 };"}}}', durationMs: 1, usage: {} };
+          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c2", name: "ts", arguments: { code: "const prev = results.result_1; return { got: prev.value + 1 };" } }] };
         }
-        return { ok: true, content: '{"action":{"tool":"done","args":{"result":{"ok":true},"summary":"done"}}}', durationMs: 1, usage: {} };
+        return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c3", name: "done", arguments: { result: { ok: true }, summary: "done" } }] };
       },
     } as LlmFn;
 
@@ -160,10 +160,10 @@ describe("能力函数动作降级（LLM 误写 memory.query 为动作）", () =
       complete: async () => {
         step++;
         if (step === 1) {
-          // LLM 惯性输出旧动作形态（非白名单元工具）
-          return { ok: true, content: '{"action":{"tool":"memory.query","args":{"sql":"SELECT kind FROM memory_entries LIMIT 5"}}}', durationMs: 1, usage: {} };
+          // 模型调了未声明的工具（memory.query 非白名单）→ 降级转 ts 程序执行
+          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c1", name: "memory.query", arguments: { sql: "SELECT kind FROM memory_entries LIMIT 5" } }] };
         }
-        return { ok: true, content: '{"action":{"tool":"done","args":{"result":{"ok":true},"summary":"done"}}}', durationMs: 1, usage: {} };
+        return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c2", name: "done", arguments: { result: { ok: true }, summary: "done" } }] };
       },
     } as LlmFn;
 

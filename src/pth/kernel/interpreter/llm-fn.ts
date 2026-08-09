@@ -1,9 +1,12 @@
-import type { Context } from "@earendil-works/pi-ai";
+import type { Context, Tool } from "@earendil-works/pi-ai";
 import type { ModelRouter } from "@pi-triple/infra";
 
 export interface LlmMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** tool 角色消息：关联的 toolCallId（OpenAI 原生工具调用回填） */
+  toolCallId?: string;
+  toolName?: string;
 }
 
 export interface LlmCompleteOptions {
@@ -12,12 +15,16 @@ export interface LlmCompleteOptions {
   thinking?: "off" | "low" | "medium" | "high";
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** 工具声明（OpenAI function 格式——Context.tools——原生 tool_calls） */
+  tools?: Tool[];
 }
 
 export interface LlmResult {
   content: string;
   model: string;
   usage?: { inputTokens?: number; outputTokens?: number };
+  /** 原生工具调用（模型返回结构化 tool_calls——非文本 JSON 解析） */
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
 }
 
 export interface LlmFn {
@@ -47,7 +54,7 @@ export function createLlmFn(deps: {
     async complete(messages, opts) {
       const model = deps.modelRouter.resolve(opts?.provider, opts?.model);
       const runtime = deps.modelRouter.getRuntime();
-      const ctx = toContext(messages) as Context;
+      const ctx = toContext(messages, opts?.tools) as Context;
       const start = Date.now();
       const result = await runtime.completeSimple(model, ctx, { signal: opts?.signal });
       const inputTokens = usageInput(result.usage ?? {});
@@ -59,6 +66,15 @@ export function createLlmFn(deps: {
         inputTokens,
         outputTokens,
       });
+      // 原生工具调用提取：AssistantMessage.content 含 ToolCall 块（OpenAI tool_calls 结构化）
+      const toolCalls = Array.isArray(result.content)
+        ? result.content
+            .filter((b: unknown) => (b as { type?: string })?.type === "toolCall")
+            .map((b: unknown) => {
+              const t = b as { id: string; name: string; arguments?: unknown };
+              return { id: t.id, name: t.name, arguments: (t.arguments ?? {}) as Record<string, unknown> };
+            })
+        : undefined;
       return {
         content: extractText(result.content),
         model: result.model,
@@ -68,23 +84,27 @@ export function createLlmFn(deps: {
               outputTokens: usageOutput(result.usage),
             }
           : undefined,
+        ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
       };
     },
   };
 }
 
-/** messages → pi Context 转换层（v1 纯文本） */
-function toContext(messages: LlmMessage[]): { systemPrompt?: string; messages: unknown[] } {
+/** messages → pi Context 转换层（原生工具调用：tools 声明 + toolResult 消息回填） */
+function toContext(messages: LlmMessage[], tools?: Tool[]): { systemPrompt?: string; messages: unknown[]; tools?: Tool[] } {
   const systemParts = messages.filter((m) => m.role === "system").map((m) => m.content);
   const rest = messages.filter((m) => m.role !== "system");
   return {
     ...(systemParts.length > 0 ? { systemPrompt: systemParts.join("\n") } : {}),
+    ...(tools && tools.length > 0 ? { tools } : {}),
     messages: rest.map((m) => ({
-      role: m.role,
+      ...(m.role === "tool"
+        ? { role: "toolResult", toolCallId: m.toolCallId, toolName: m.toolName, content: [{ type: "text", text: m.content }] }
+        : { role: m.role }),
       // assistant 消息 content 必须是 TextContent[] 数组形态（对齐 pi-ai AssistantMessage.content）：
       // 真实 provider（anthropic/google/openai）对 assistant 分支按 content 数组逐块迭代（block.type
       // 分流），字符串会被逐字符拆解导致空 blocks → 整条消息静默丢弃。user 分支兼容字符串。
-      content: m.role === "assistant" ? [{ type: "text", text: m.content }] : m.content,
+      content: m.role === "assistant" || m.role === "tool" ? [{ type: "text", text: m.content }] : m.content,
       timestamp: Date.now(),
     })),
   };

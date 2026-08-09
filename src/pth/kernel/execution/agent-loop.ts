@@ -12,7 +12,7 @@
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, type AgentToolResult } from "./agent-tools.js";
+import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, toolsToSchema, type AgentToolResult } from "./agent-tools.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "../extensions/perf-params.js";
 import { modelState } from "../extensions/model.js";
@@ -104,37 +104,39 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   // 静态环境注入（②）：任务开始时拉环境预置（toolstore 文件 + 记忆概览）——LLM 一上来就知道可用资产
   const prelude = await buildEnvironmentPrelude(caps);
 
-  // 消息策略（实测发现 2026-08-08）：deepseek-v4-flash（qwen-token-plan-cn 代理）对
-  // system+user+assistant+user 多轮序列返回空 content——agent 循环改为单轮模式：
-  // 不回放 assistant 消息，工具结果轨迹并入 user（每步重建），模型稳定输出 JSON 动作。
-  const toolTrail: string[] = [];
+  // 消息策略（2026-08-09 架构修正——用户裁决：OpenAI 格式 API 用原生 tool_calls，
+  // 不是文本 JSON 动作解析）：
+  //   多轮消息：assistant 回复（含 ToolCall 意图）→ 执行 → toolResult 回填（toolCallId 关联）→
+  //   模型在结构化工具调用与文本回复间二选一——不存在"输出大段代码导致 parse 失败"。
+  //   单轮模式（旧——文本 JSON 动作）废弃；parseAgentAction 保留为 done 文本降级兼容。
+  const messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string; toolCallId?: string; toolName?: string }> = [
+    { role: "system", content: system },
+    { role: "user", content: `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}` },
+  ];
+  const tools = toolsToSchema();
 
   const start = Date.now();
   let steps = 0;
   let lastFingerprint = "";
   let repeatCount = 0;
 
-  const complete = async (): Promise<string> => {
-    const userContent = `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}${toolTrail.length > 0 ? `执行记录：\n${toolTrail.join("\n")}\n\n` : ""}请输出下一个 JSON 动作（完成则输出 done）。`;
+  const complete = async (): Promise<import("../interpreter/llm-fn.js").LlmResult | string> => {
     try {
       // LLM 调用超时保护（实测修复 2026-08-09：deepseek-v4-flash 挂起 → 循环冻结——
       // 任务级超时检查在循环头，卡在 await 内永远到不了；单次调用 30s 兜底）
       const llmTimeoutMs = configNumber("PTH_AGENT_LLM_TIMEOUT_MS", 30_000);
-      const res = await Promise.race([
+      return await Promise.race([
         llm.complete(
-          [
-            { role: "system", content: system },
-            { role: "user", content: userContent },
-          ],
+          messages,
           {
             provider: "deepseek",
             model: modelState.current?.model ?? config().get("PTH_AGENT_MODEL") ?? "deepseek-v4-flash",
             timeoutMs: llmTimeoutMs,
+            tools,
           },
         ),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`llm-timeout after ${llmTimeoutMs}ms`)), llmTimeoutMs)),
       ]);
-      return res.content;
     } catch (e) {
       return `__llm_error__:${(e as Error).message}`;
     }
@@ -145,32 +147,29 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       return { ok: false, error: `agent-timeout: 超过 ${timeoutMs}ms`, steps };
     }
 
-    const raw = await complete();
-    if (raw.startsWith("__llm_error__")) {
-      return { ok: false, error: raw.slice(14), steps };
+    const res = await complete();
+    if (typeof res === "string") {
+      if (res.startsWith("__llm_error__")) return { ok: false, error: res.slice(14), steps };
+      // LLM 直接文本回复（无工具调用）——视为完成（内容作为结果说明）
+      return { ok: true, value: res || null, summary: res, steps: steps + 1 };
     }
+    messages.push({ role: "assistant", content: res.content });
 
-    const parsed = parseAgentAction(raw);
-    if (!parsed.ok) {
-      // 容错：重试一次（PTH_AGENT_RETRY_PARSE 默认 1）
-      const retry = configNumber("PTH_AGENT_RETRY_PARSE", 1);
-      if (retry > 0) {
-        const raw2 = await complete();
-        const parsed2 = parseAgentAction(raw2);
-        if (!parsed2.ok) return { ok: false, error: parsed2.error, steps };
-        const r2 = await executeStep(parsed2.action);
-        if (r2 !== undefined) return r2;
-        continue;
+    // 原生 tool_calls：结构化调用（OpenAI 格式——非文本解析）
+    if (res.toolCalls && res.toolCalls.length > 0) {
+      for (const tc of res.toolCalls) {
+        const r = await executeStep({ tool: tc.name, args: tc.arguments, thought: undefined }, tc.id);
+        if (r !== undefined) return r;
       }
-      return { ok: false, error: parsed.error, steps };
+      continue;
     }
-    const r = await executeStep(parsed.action);
-    if (r !== undefined) return r;
+    // 无工具调用但 assistant 有文本——完成
+    return { ok: true, value: res.content || null, summary: res.content, steps: steps + 1 };
   }
 
   return { ok: true, value: null, steps, warning: `达到 maxSteps(${maxSteps}) 强制终止` };
 
-  async function executeStep(action: { tool: string; args: Record<string, unknown>; thought?: string }): Promise<AgentTaskResult | undefined> {
+  async function executeStep(action: { tool: string; args: Record<string, unknown>; thought?: string }, toolCallId?: string): Promise<AgentTaskResult | undefined> {
     const { tool, args } = action;
     // 死锁检测：连续相同动作
     const fp = actionFingerprint(tool, args);
@@ -209,7 +208,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
         const summary = result.ok
           ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
           : `error: ${result.error ?? "unknown"}`;
-        toolTrail.push(`step ${steps + 1} [${tool}]: ${summary}`);
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
         return undefined;
       }
       return { ok: false, error: `未知工具 ${tool}`, steps: steps + 1 };
@@ -236,12 +235,12 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
         : result.ok
           ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
           : `error: ${result.error ?? "unknown"}`;
-      toolTrail.push(`step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}`);
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}` });
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok}`);
       return undefined;  // 继续循环
     } catch (e) {
       // 工具执行异常（参数错误等）→ 回填错误让 LLM 修正（不算失败）
-      toolTrail.push(`step ${steps + 1} [${tool}]: 工具异常 ${(e as Error).message}`);
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: 工具异常 ${(e as Error).message}` });
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} error=${(e as Error).message}`);
       return undefined;
     }

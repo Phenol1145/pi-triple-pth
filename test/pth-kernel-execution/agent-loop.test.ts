@@ -31,13 +31,20 @@ function mockKernel(): WorkerKernel {
   };
 }
 
-function mockLlm(steps: string[]): LlmFn {
+function mockLlm(steps: Array<{ toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; content?: string }>): LlmFn {
   let i = 0;
   return {
     complete: vi.fn(async () => {
-      const content = steps[Math.min(i, steps.length - 1)]!;
+      const step = steps[Math.min(i, steps.length - 1)]!;
       i++;
-      return { ok: true, content, durationMs: 5, usage: {} };
+      return {
+        content: step.content ?? "",
+        model: "mock",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        ...(step.toolCalls
+          ? { toolCalls: step.toolCalls.map((tc, idx) => ({ id: `call_${i}_${idx}`, name: tc.name, arguments: tc.arguments })) }
+          : {}),
+      };
     }),
   };
 }
@@ -48,8 +55,8 @@ describe("runAgentTask（agent 循环）", () => {
   it("多步执行：python 算 → done 提交（工具被正确调用）", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      '{"thought":"用 python 算","action":{"tool":"python.execute","args":{"code":"fib"}}}',
-      '{"action":{"tool":"done","args":{"result":{"fib25":75025},"summary":"完成"}}}',
+      { toolCalls: [{ name: "python.execute", arguments: { code: "fib" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { fib25: 75025 }, summary: "完成" } }] },
     ]);
     const r = await runAgentTask({
       llm, kernel, caps: CAPS,
@@ -65,11 +72,11 @@ describe("runAgentTask（agent 循环）", () => {
     }
   });
 
-  it("LLM 输出带围栏和多余文字也能解析", async () => {
+  it("原生 tool_calls：结构化调用 bash + 文本回复完成", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      '好的，我来处理。\n```json\n{"action":{"tool":"bash.execute","args":{"command":"ls"}}}\n```\n执行结果如上。',
-      '{"action":{"tool":"done","args":{"result":{"ok":true}}}}',
+      { toolCalls: [{ name: "bash.execute", arguments: { command: "ls" } }] },
+      { content: "完成，已执行 ls" },
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
     expect(r.ok).toBe(true);
@@ -78,23 +85,26 @@ describe("runAgentTask（agent 循环）", () => {
 
   it("超 maxSteps 强制终止（partial result + warning）", async () => {
     const kernel = mockKernel();
-    const llm = mockLlm(['{"action":{"tool":"bash.execute","args":{"command":"x"}}}']);  // 永远不 done
+    const llm = mockLlm([{ toolCalls: [{ name: "bash.execute", arguments: { command: "x" } }] }]);  // 永远不 done
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 3 });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.warning).toContain("maxSteps");
   });
 
-  it("动作解析失败重试 1 次后仍失败 → ok:false", async () => {
+  it("工具执行异常 → 回填错误让 LLM 修正（不算失败）", async () => {
     const kernel = mockKernel();
-    const llm = mockLlm(["这不是 JSON", "也不是 JSON"]);
-    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("action-parse-failed");
+    const badKernel = { ...kernel, python: { ...kernel.python, execute: vi.fn(async () => { throw new Error("boom"); }) } } as never;
+    const llm = mockLlm([
+      { toolCalls: [{ name: "python.execute", arguments: { code: "x" } }] },
+      { content: "修正后完成" },
+    ]);
+    const r = await runAgentTask({ llm, kernel: badKernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
+    expect(r.ok).toBe(true);  // 异常不终止——LLM 收到错误回填后文本回复完成
   });
 
   it("done 缺 result 视为失败", async () => {
     const kernel = mockKernel();
-    const llm = mockLlm(['{"action":{"tool":"done","args":{}}}']);
+    const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: {} }] }]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
     expect(r.ok).toBe(false);
   });
@@ -127,8 +137,8 @@ describe("PTC 程序模式（P1）", () => {
     const kernel = mockKernel();
     const llm = mockLlm([
       // LLM 直接写 PTC 程序：一次完成 python 算 + bash 验证（不再分步）
-      '{"action":{"tool":"ts","args":{"code":"const py = await python.execute(\\\"fib\\\"); const b = await bash.execute(\\\"echo check\\\"); return { fib: py.value, checked: true }; "}}}',
-      '{"action":{"tool":"done","args":{"result":{"fib25":75025},"summary":"PTC 一次完成"}}}',
+      { toolCalls: [{ name: "ts", arguments: { code: 'const py = await python.execute("fib"); const b = await bash.execute("echo check"); return { fib: py.value, checked: true }; ' } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { fib25: 75025 }, summary: "PTC 一次完成" } }] },
     ]);
     const r = await runAgentTask({
       llm, kernel, caps: CAPS,
