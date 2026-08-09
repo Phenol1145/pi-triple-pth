@@ -157,7 +157,14 @@ async function directOpenAiComplete(
     if (m.role === "tool") {
       apiMessages.push({ role: "tool", tool_call_id: m.toolCallId, content: m.content });
     } else if (m.role === "assistant") {
-      apiMessages.push({ role: "assistant", content: m.content });
+      const tc = (m as { toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }).toolCalls;
+      apiMessages.push({
+        role: "assistant",
+        content: m.content,
+        ...(tc && tc.length > 0
+          ? { tool_calls: tc.map((t) => ({ id: t.id, type: "function", function: { name: t.name, arguments: JSON.stringify(t.arguments) } })) }
+          : {}),
+      });
     } else {
       apiMessages.push({ role: "user", content: m.content });
     }
