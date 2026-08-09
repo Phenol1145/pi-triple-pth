@@ -11,6 +11,7 @@
 
 import type { ExtManifest } from "../extensions/ext-manifest.js";
 import type { Toolstore } from "./toolstore.js";
+import type { Interpreter } from "./types.js";
 import type { PgMemoryStore } from "../storage/memory-store-pg.js";
 
 export interface ExtIndexEntry {
@@ -25,6 +26,8 @@ export interface ExtIndexEntry {
 export interface ExtCapabilityOptions {
   toolstore: Toolstore;
   memory?: { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> };
+  /** 新执行核注册（kernel-manager.registerKernel——ext.kernel 按需接线） */
+  registerKernel?: (language: string, interpreter: unknown) => void;
 }
 
 /** 扫描 toolstore/extensions/ → 索引（manifest 元数据 + 入口） */
@@ -81,6 +84,27 @@ export function createExtCapability(opts: ExtCapabilityOptions): Record<string, 
           throw new Error(`ext.use: ${name} 无工具 ${toolName ?? "(缺省)"}（可用: ${Object.keys(result.tools ?? {}).join("/")}）`);
         }
         return await result.tools[toolName]!(args["args"] ?? args);
+      },
+      /** 注册新执行核（代码库式接线：eval 代码 → Interpreter 实例 → kernel-manager 路由）——
+       *  code 约定：module.exports = { create: (ctx) => ({ language, execute, reset, dispose, snapshot }) } */
+      kernel: async (language: string, code: string): Promise<{ language: string; ok: boolean }> => {
+        if (!opts.registerKernel) throw new Error("ext.kernel: registerKernel 未注入（batch 环境）");
+        const wrapped = `"use strict";
+          const module = { exports: {} };
+          const exports = module.exports;
+          ${code}
+          return module.exports.default ?? module.exports;`;
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval
+        const fn = new Function(wrapped)() as unknown;
+        const mod = typeof fn === "function" ? fn({ log: () => {} }) : fn;
+        const created = (mod as { create?: (ctx: Record<string, unknown>) => unknown }).create?.({ log: () => {} })
+          ?? (mod as Record<string, unknown>)["interpreter"]
+          ?? mod;
+        if (!created || typeof (created as { execute?: unknown }).execute !== "function") {
+          throw new Error(`ext.kernel: ${language} 代码未导出 execute 实现（Interpreter 接口）`);
+        }
+        opts.registerKernel(language, created as Interpreter);
+        return { language, ok: true };
       },
       /** 同步索引到公共记忆区（memory kind:extension-index——编排面进公共记忆） */
       syncIndex: async (): Promise<{ count: number }> => {

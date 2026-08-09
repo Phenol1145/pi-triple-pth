@@ -173,6 +173,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       llm, dataWorld, manager, toolstore,
       roleFilter: role.capabilities,
       memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
+      registerKernel: (language, interpreter) => manager.registerKernel(language, interpreter as never),
     });
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
     const refineEnabled = process.env.PTH_REFINE !== "off";

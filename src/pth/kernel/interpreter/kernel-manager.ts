@@ -43,13 +43,15 @@ export interface KernelManagerOptions {
 }
 
 export interface KernelManager {
-  /** 统一执行入口：按 language 路由（ts | python | bash） */
+  /** 统一执行入口：按 language 路由（ts | python | bash | c | 扩展注册） */
   execute(language: string, program: string, opts?: ExecuteOptions): Promise<InterpreterResult>;
   /** 各语言 kernel 句柄（任务代码可直取：python.execute/bash.execute/c.execute 兼容） */
   python: Interpreter;
   bash: Interpreter;
   c: Interpreter;
   ts: Interpreter;
+  /** 动态注册新执行核（兼容性扩展——ext.kernel 按需注册——execute(language) 路由扩展） */
+  registerKernel(language: string, interpreter: Interpreter): void;
   reset(): void;
   dispose(): void;
 }
@@ -88,6 +90,9 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
         snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
       };
 
+  // 动态 kernel 注册表（兼容性扩展——ext.kernel 注册新执行核）
+  const extraKernels = new Map<string, Interpreter>();
+
   const ts = new TsInterpreter({ capabilities: {} });  // capabilities 由 createWorkerKernel 注入（见下）
 
   // 包装计量（SPEC L1）：任务代码直调 python.execute/bash.execute 也计入 kernel 指标
@@ -119,7 +124,11 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
         case "python": result = await python.execute(program, executeOpts); break;
         case "bash": result = await bash.execute(program, executeOpts); break;
         case "c": result = await compiled.execute(program, executeOpts); break;
-        default: return { ok: false, error: { message: `unknown language: ${language}` }, durationMs: 0 };
+        default: {
+          const extra = extraKernels.get(language);
+          if (extra) { result = await extra.execute(program, executeOpts); break; }
+          return { ok: false, error: { message: `unknown language: ${language}` }, durationMs: 0 };
+        }
       }
       // 性能计量（SPEC L1）：执行事件 → 回调（batch 内经 IPC 转发主进程）
       opts.onKernelMetric?.({
@@ -135,6 +144,13 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
     bash: metered(bash, "bash"),
     c: metered(compiled, "c"),
     ts,
+    registerKernel(language, interpreter) {
+      // 冲突拒绝（内置语言不可覆盖）
+      if (["ts", "python", "bash", "c"].includes(language)) {
+        throw new Error(`registerKernel: 内置语言 ${language} 不可覆盖`);
+      }
+      extraKernels.set(language, metered(interpreter, language));
+    },
     reset() { ts.reset(); bash.reset(); python.reset(); compiled.reset(); },
     dispose() { ts.dispose(); bash.dispose(); python.dispose(); compiled.dispose(); },
   };
@@ -151,6 +167,8 @@ export function createWorkerKernelWithManager(deps: {
   manager: KernelManager;
   /** toolstore 文件通道（§0.5）：注入 fs.readText */
   toolstore?: import("./toolstore.js").Toolstore;
+  /** 新执行核注册（ext.kernel 接线——转发 manager.registerKernel） */
+  registerKernel?: (language: string, interpreter: unknown) => void;
   /** 权限分层（P3——注入面收窄）：角色能力白名单（缺省全量兼容） */
   roleFilter?: string[];
   /** memory 区域（P3——own=role:<role> 命名空间标记 / all=跨区——缺省 all） */
@@ -176,6 +194,7 @@ export function createWorkerKernelWithManager(deps: {
     c: deps.manager.c,
     toolstore: deps.toolstore,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
+    registerKernel: deps.registerKernel,
     inspect: async (lang?: string) => {
       const snap = lang === "python"
         ? await deps.manager.python.snapshot()

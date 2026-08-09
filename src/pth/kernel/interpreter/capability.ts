@@ -21,13 +21,19 @@ export function buildCapabilities(deps: {
   toolstore?: Toolstore;
   /** 环境感知（env.inspect）：按语言返回 kernel 状态摘要（LLM 友好版——变量/函数概览） */
   inspect?: (lang?: string) => Promise<unknown>;
+  /** 新执行核注册（ext.kernel 接线——createWorkerKernelWithManager 透传 manager.registerKernel） */
+  registerKernel?: (language: string, interpreter: unknown) => void;
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore });
   return {
     ...ext.capabilities,
     // 扩展编排面（2026-08-09 用户裁决：代码库式扩展 + 公共记忆区索引——无注册装载）
-    ...createExtCapability({ toolstore: deps.toolstore!, memory: (ext.capabilities["memory"] as { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> } | undefined) }),
+    ...createExtCapability({
+      toolstore: deps.toolstore!,
+      memory: (ext.capabilities["memory"] as { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> } | undefined),
+      registerKernel: deps.registerKernel,
+    }),
     llm: deps.llm,
     web: createWebCapability(),
     ...(deps.inspect ? { env: { inspect: deps.inspect } } : {}),
