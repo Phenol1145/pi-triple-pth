@@ -119,6 +119,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   let steps = 0;
   let lastFingerprint = "";
   let repeatCount = 0;
+  let emptyReplies = 0;
 
   const complete = async (): Promise<import("../interpreter/llm-fn.js").LlmResult | string> => {
     try {
@@ -164,7 +165,13 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       continue;
     }
     // 无工具调用但 assistant 有文本——完成
-    return { ok: true, value: res.content || null, summary: res.content, steps: steps + 1 };
+    if (res.content && res.content.trim().length > 0) {
+      return { ok: true, value: res.content, summary: res.content, steps: steps + 1 };
+    }
+    // 空回复（deepseek-v4-flash 已知问题）——重试而非完成（连续 3 次判失败）
+    emptyReplies += 1;
+    if (emptyReplies >= 3) return { ok: false, error: "llm 连续空回复（无 tool_calls 无文本）", steps: steps + 1 };
+    continue;
   }
 
   return { ok: true, value: null, steps, warning: `达到 maxSteps(${maxSteps}) 强制终止` };
