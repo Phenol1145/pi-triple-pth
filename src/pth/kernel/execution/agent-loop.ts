@@ -110,6 +110,8 @@ SELECT content FROM memory_entries WHERE kind='role-doc:${role.id}' LIMIT 1\n（
     capBlock = `【能力探索（按需读取）】
 ts 程序内可调用能力函数——完整清单在 memory（kind='capability-index'）：
 const idx = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1");\n（或用 fs.readText 读 toolstore 文件）——需要什么能力先查索引——不要盲试。
+代码库结构（找文件/模块在哪/哪个文件做什么）——查 project-map：
+const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='project-map' LIMIT 1");
 源码阅读：fs.readSource（读索引可知用法）。任务工作区写入：fs.task（读索引可知）。`;
   } else {
     try {
