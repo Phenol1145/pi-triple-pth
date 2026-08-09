@@ -248,6 +248,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       agentCaps: kernel.capabilities,
       // 性能计量（SPEC L2）：任务事件 → IPC 转发主进程
       onTaskMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "task" } }); } catch { /* IPC 不可用 */ } },
+      // 运行过程保留（2026-08-09）：agent 轨迹 transcript 持久化
+      transcripts: dataWorld.transcripts,
     }, archiveDeps);
     (loop as unknown as { kernel?: unknown }).kernel = kernel;   // remove 时 dispose 用
     (loop as unknown as { role?: import("./worker-cluster.js").WorkerRole }).role = role;  // remove 寻址用

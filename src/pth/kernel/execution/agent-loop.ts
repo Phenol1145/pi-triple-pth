@@ -31,7 +31,16 @@ export interface AgentLoopOptions {
   timeoutMs?: number;
   logger?: (msg: string) => void;
   onStep?: (step: { n: number; tool: string; durationMs: number; ok: boolean; args?: string }) => void;
+  /** 运行过程保留（2026-08-09）：轨迹事件流——task-loop 收集写 transcript（审计/复现/续跑） */
+  onTrace?: (event: AgentTraceEvent) => void;
 }
+
+/** 运行过程轨迹事件（结构化——transcript body 事件数组） */
+export type AgentTraceEvent =
+  | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string }
+  | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
+  | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string }
+  | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string };
 
 export type AgentTaskResult =
   | { ok: true; value: unknown; summary?: string; steps: number; warning?: string }
@@ -150,11 +159,15 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
 
     const res = await complete();
     if (typeof res === "string") {
-      if (res.startsWith("__llm_error__")) return { ok: false, error: res.slice(14), steps };
+      if (res.startsWith("__llm_error__")) {
+        input.onTrace?.({ type: "finish", ok: false, steps: steps + 1, error: res.slice(14) });
+        return { ok: false, error: res.slice(14), steps };
+      }
       // LLM 直接文本回复（无工具调用）——视为完成（内容作为结果说明）
       return { ok: true, value: res || null, summary: res, steps: steps + 1 };
     }
     messages.push({ role: "assistant", content: res.content, ...(res.toolCalls && res.toolCalls.length > 0 ? { toolCalls: res.toolCalls } : {}) });
+    input.onTrace?.({ type: "llm-call", step: steps + 1, toolCalls: res.toolCalls, contentPreview: (res.content ?? "").slice(0, 500) });
 
     // 原生 tool_calls：结构化调用（OpenAI 格式——非文本解析）
     if (res.toolCalls && res.toolCalls.length > 0) {
@@ -186,6 +199,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       return { ok: true, value: null, steps: steps + 1, warning: `连续 ${repeatCount} 次相同动作（${tool}），强制终止` };
     }
 
+    input.onTrace?.({ type: "tool-call", step: steps + 1, tool, args });
     const stepStart = Date.now();
     if (tool === "done") {
       const result = args["result"];
@@ -246,6 +260,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
           : `error: ${result.error ?? "unknown"}`;
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}` });
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
+      input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500) });
       return undefined;  // 继续循环
     } catch (e) {
       // 工具执行异常（参数错误等）→ 回填错误让 LLM 修正（不算失败）

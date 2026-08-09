@@ -31,6 +31,20 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>
     reply.status(503).send(KERNEL_UNAVAILABLE);
 
+  // ── 运行过程保留（2026-08-09）：任务轨迹查询 ──────────────────
+  app.get("/api/v1/kernel/tasks/:id/transcript", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const { id } = req.params as { id: string };
+    const list = await kernel.dataWorld.transcripts.listByTask(id);
+    return { taskId: id, transcripts: list.map((t: never) => ({
+      id: t.id,
+      agentId: t.agent_id,
+      summary: t.summary,
+      events: t.body,        // 轨迹事件数组（llm-call/tool-call/tool-result/finish）
+      createdAt: t.created_at,
+    })) };
+  });
+
   // ── 任务发布 ─────────────────────────────────────────────
   app.post("/api/v1/kernel/tasks", async (req, reply) => {
     if (!kernel) return unavailable(reply);

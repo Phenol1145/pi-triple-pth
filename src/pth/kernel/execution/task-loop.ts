@@ -21,6 +21,8 @@ export interface TaskLoopDeps {
   logger?: import("../logger.js").KernelLogger;
   /** 性能计量（SPEC L2）：任务事件 → IPC 转发主进程 */
   onTaskMetric?: (m: Record<string, unknown>) => void;
+  /** 运行过程保留（2026-08-09）：transcript store（agent 轨迹持久化） */
+  transcripts?: { create(input: { taskId?: string; agentId: string; body: unknown[]; summary?: string }): Promise<string> };
   /** 自然语言任务转译（NL→代码）；undefined = 不转译（NL 任务直接 reject） */
   llm?: import("../interpreter/llm-fn.js").LlmFn;
   /** agent 循环的 capability 白名单（web/state/fs/memory——与 vm 注入同一份） */
@@ -98,13 +100,29 @@ export class TaskLoop {
       if (nlDetected) {
         const agentMode = process.env.PTH_AGENT_MODE !== "off";
         if (agentMode && this.deps.llm && this.deps.agentCaps) {
+          // 运行过程保留（2026-08-09）：轨迹事件收集 → 任务结束写 transcript（结构化审计/复现）
+          const traceEvents: import("./agent-loop.js").AgentTraceEvent[] = [
+            { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
+          ];
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
             role,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
             logger: (m) => taskLogger?.info(m),
+            onTrace: (e) => traceEvents.push(e),
           });
+          // 完成后持久化轨迹（transcript——task_id 关联）
+          try {
+            await this.deps.transcripts?.create({
+              taskId: task.id,
+              agentId: role.id,
+              body: traceEvents,
+              summary: r.ok ? (r.value !== undefined && r.value !== null ? JSON.stringify(r.value).slice(0, 200) : (r.summary ?? "")?.slice(0, 200)) : (r.error ?? "").slice(0, 200),
+            });
+          } catch (e) {
+            taskLogger?.warn?.(`[transcript] agent 轨迹写入失败: ${(e as Error).message}`);
+          }
           taskLogger?.info("agent task finished", { ok: r.ok, steps: r.steps });
           if (!r.ok) {
             await taskStore.reject(role.id, task.id, r.error, { terminal: true });
