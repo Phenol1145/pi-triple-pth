@@ -89,11 +89,12 @@ export interface KernelRuntime {
  * → BatchManager（fork batch-process 子进程）+ watchdog（崩溃记录，不自动重启 v1）。
  */
 /**
- * 按运行环境解析 batch-process 入口：dist 编译产物存在（生产）→ dist；
- * 否则（dev 源码模式）→ src TS。execArgv/env 由调用方按模式决定（生产纯 js 无需 loader）。
+ * 按运行环境解析 batch-process 入口：PTH_BATCH_TS=1（dev 源码模式——tsx watch 热更新）
+ * → src TS；否则（生产）→ dist 编译产物。execArgv 配套（PTH_BATCH_TS 时 tsx loader）。
  */
 function resolveBatchProcessPath(explicit: string | undefined): string {
   if (explicit) return explicit;
+  if (process.env.PTH_BATCH_TS === "1") return "src/pth/kernel/execution/batch-process.ts";
   return "dist/pth/kernel/execution/batch-process.js";
 }
 
@@ -107,7 +108,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
     workers: expandRoleWeights(parseRoleWeights(opts.env?.PTH_WORKER_ROLES ?? process.env.PTH_WORKER_ROLES)).map((r) => r.id),
-    execArgv: opts.execArgv,
+    // dev 源码模式（PTH_BATCH_TS=1——batch-process.ts）→ fork 用 tsx loader（execArgv 未显式时默认注入）
+    execArgv: opts.execArgv ?? (process.env.PTH_BATCH_TS === "1" ? ["--import", "tsx"] : undefined),
     logger: createKernelLogger(),
     onMetric: opts.onMetric,
     obsResolver: opts.obsResolver,
