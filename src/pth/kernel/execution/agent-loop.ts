@@ -237,7 +237,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       return { ok: false, error: `未知工具 ${tool}`, steps: steps + 1 };
     }
     try {
-      const result = await executor({ kernel, caps }, args);
+      const result = await executor({ kernel, caps, taskWorkspace: input.taskWorkspace }, args);
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
       // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用
       const resultKey = `result_${steps + 1}`;

@@ -29,6 +29,8 @@ export interface AgentToolCtx {
   kernel: WorkerKernel;
   /** capability 白名单（web/state/fs/memory/llm/sql）——与 vm 注入同一份 */
   caps: Record<string, unknown>;
+  /** 任务工作区（fs.task 落盘——ts 工具 cwd——自修改产物写 tasks/<id>/） */
+  taskWorkspace?: string;
 }
 
 export type AgentTool = (ctx: AgentToolCtx, args: Record<string, unknown>) => Promise<AgentToolResult>;
@@ -83,8 +85,8 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     );
   },
 
-  ts: async ({ kernel }, args) => {
-    const r = await kernel.ts.execute(str(args, "code"), { cwd: "/tmp" });
+  ts: async ({ kernel, taskWorkspace }, args) => {
+    const r = await kernel.ts.execute(str(args, "code"), { cwd: taskWorkspace ?? "/tmp" });
     if (!r.ok) return { ok: false, error: r.error?.message ?? "ts execute failed" };
     // PTC 程序模式：回填 return 值 + stdout（含中间输出——LLM 可诊断多步组合）
     const out = truncate(r.stdout ?? "", 4000);
