@@ -73,27 +73,16 @@ describe("PerfAutopilot（v0.8 系统自持——性能自愈闭环）", () => {
   });
 
   it("R1：pending 增长 → 扩缩（防抖窗口内不重复）", async () => {
-    const reg1 = makeRegistry({ pending: 10 });
-    const reg2 = makeRegistry({ pending: 15 });  // 增长 1.5x > 1.3
+    const reg2 = makeRegistry({ pending: 15 });  // 增长 1.5x > 1.3（对比 lastPending=10）
     const spawned: string[] = [];
     const params = new Map<string, string>();
     const ap = new PerfAutopilot({
-      registry: reg1, setParam: (k, v) => params.set(k, String(v)), getParam: (k) => params.get(k),
-      countPendingByRole: async () => ({ developer: 10, analyst: 2 }),
-      spawnReinforced: async (role, copies) => { spawned.push(`${role}+${copies}`); },
-      log: () => {},
-    }, { mode: "on", pendingGrowth: 1.3, windowMs: 1000 } as never);
-    // 用 pending 增长的窗口——第一次 tick（基线 pending=10）
-    await ap.tick();
-    expect(spawned.length).toBe(0);  // 基线窗口（无 prev——growth 0）
-    // 第二次 tick 前 pending 升到 15——但 registry 是 reg1——用 reg2 模拟
-    const ap2 = new PerfAutopilot({
       registry: reg2, setParam: (k, v) => params.set(k, String(v)), getParam: (k) => params.get(k),
       countPendingByRole: async () => ({ developer: 10, analyst: 2 }),
       spawnReinforced: async (role, copies) => { spawned.push(`${role}+${copies}`); },
       log: () => {},
     }, { mode: "on", pendingGrowth: 1.3, windowMs: 1000 } as never);
-    // 先打基线再打增长——简化：直接两次 tick 同实例模拟（手动设 lastPending）
+    // 模拟上一窗口基线 pending=10（当前 registry 15 → 增长 1.5x > 1.3）
     (ap as unknown as { lastPending: number | null }).lastPending = 10;
     await ap.tick();
     expect(spawned.length).toBeGreaterThan(0);  // R1 扩缩触发

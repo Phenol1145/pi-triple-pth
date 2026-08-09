@@ -62,15 +62,10 @@ interface MetricWindow {
   pendingGrowth: number; // pending 增长比（当前/上轮）
 }
 
-/** 从 prom-client registry 提取指标值（按名称+标签聚合——缺失容错返回 null） */
-function readGauge(registry: Registry, name: string): number | null {
-  try {
-    const m = registry.getSingleMetric(name);
-    if (!m) return null;
-    const vals = m.get() as { values?: Array<{ value: number }> };
-    const sum = (vals?.values ?? []).reduce((a, v) => a + (v.value ?? 0), 0);
-    return sum;
-  } catch { return null; }
+/** 指标 JSON 类型（getMetricsAsJSON 聚合形态——prom-client v15 的 get() 返回空，需用 JSON） */
+interface MetricJSON {
+  name: string;
+  values: Array<{ labels?: Record<string, string>; value: number }>;
 }
 
 function readCounterDelta(prev: number | null, cur: number | null): number {
@@ -140,8 +135,11 @@ export class PerfAutopilot {
   /** 一轮：采样窗口 → 规则诊断 → 动作执行（复测在下一轮窗口对比） */
   async tick(): Promise<void> {
     this.lastCheckAt = Date.now();
-    const r = this.deps.registry;
-    const w = this.sampleWindow(r);
+    let metrics: MetricJSON[] = [];
+    try {
+      metrics = (await this.deps.registry.getMetricsAsJSON()) as unknown as MetricJSON[];
+    } catch { /* registry 不可读——窗口全零（容错） */ }
+    const w = this.sampleWindow(metrics);
     this.lastWindow = w;
 
     // R1：pending 增长 → 积压角色扩缩
@@ -160,13 +158,18 @@ export class PerfAutopilot {
   }
 
   /** 指标窗口采样（L1/L2/LLM——缺失容错） */
-  private sampleWindow(r: Registry): MetricWindow {
+  private sampleWindow(metrics: MetricJSON[]): MetricWindow {
+    const sum = (name: string, labelName?: string, labelValue?: string, metricName?: string): number =>
+      metrics
+        .filter((m) => m.name === name)
+        .flatMap((m) => m.values)
+        .filter((v) => !metricName || (v as { metricName?: string }).metricName === metricName)
+        .filter((v) => !labelName || v.labels?.[labelName] === labelValue)
+        .reduce((a, v) => a + (v.value ?? 0), 0);
+
     // L2 taskStatus：rejected / total（counter 增量）
-    const stRejected = readGauge(r, "pth_task_status_total") ?? null;
-    const stTotal = readGauge(r, "pth_task_status_total") ?? null;
-    // 需要标签聚合——prom-client getSingleMetric 的 values 含 label 组合；简化：按名称读全部值
-    const rejectedCur = this.sumLabelValues(r, "pth_task_status_total", "status", "rejected");
-    const totalCur = this.sumLabelValues(r, "pth_task_status_total");
+    const rejectedCur = sum("pth_task_status_total", "status", "rejected");
+    const totalCur = sum("pth_task_status_total");
     const rejectedDelta = readCounterDelta(this.prev.statusRejected, rejectedCur);
     const totalDelta = readCounterDelta(this.prev.statusTotal, totalCur);
     this.prev.statusRejected = rejectedCur;
@@ -174,8 +177,8 @@ export class PerfAutopilot {
     const rejectRate = totalDelta > 0 ? rejectedDelta / totalDelta : 0;
 
     // L1 kernel exec 失败率（pth_kernel_exec_total——ok 标签）
-    const execFailCur = this.sumLabelValues(r, "pth_kernel_exec_total", "ok", "false");
-    const execTotalCur = this.sumLabelValues(r, "pth_kernel_exec_total");
+    const execFailCur = sum("pth_kernel_exec_total", "ok", "false");
+    const execTotalCur = sum("pth_kernel_exec_total");
     const execFailDelta = readCounterDelta(this.prev.execFail, execFailCur);
     const execTotalDelta = readCounterDelta(this.prev.execTotal, execTotalCur);
     this.prev.execFail = execFailCur;
@@ -183,8 +186,8 @@ export class PerfAutopilot {
     const execFailRate = execTotalDelta > 0 ? execFailDelta / execTotalDelta : 0;
 
     // LLM 延迟均值（pth_llm_latency_seconds 直方图——sum/count 增量）
-    const llmSum = this.sumLabelValues(r, "pth_llm_latency_seconds_sum");
-    const llmCount = this.sumLabelValues(r, "pth_llm_latency_seconds_count");
+    const llmSum = sum("pth_llm_latency_seconds", undefined, undefined, "pth_llm_latency_seconds_sum");
+    const llmCount = sum("pth_llm_latency_seconds", undefined, undefined, "pth_llm_latency_seconds_count");
     const llmSumDelta = readCounterDelta(this.prev.llmMs, llmSum);
     const llmCountDelta = readCounterDelta(this.prev.llmCalls, llmCount);
     this.prev.llmMs = llmSum;
@@ -192,7 +195,7 @@ export class PerfAutopilot {
     const llmAvgMs = llmCountDelta > 0 ? (llmSumDelta / llmCountDelta) * 1000 : 0;
 
     // pending 增长（当前 vs 上轮）
-    const pending = this.sumLabelValues(r, "pth_task_pending");
+    const pending = sum("pth_task_pending");
     const pendingPrev = this.lastPending;
     this.lastPending = pending;
     const pendingGrowth = pendingPrev !== null && pendingPrev > 0 ? pending / pendingPrev : 0;
@@ -200,17 +203,6 @@ export class PerfAutopilot {
     return { rejectRate, execFailRate, llmAvgMs, pending, pendingPrev: pendingPrev ?? 0, pendingGrowth };
   }
 
-  /** 按标签过滤求和（metric.values 含 label 组合——筛选匹配 label 的 value 求和） */
-  private sumLabelValues(r: Registry, name: string, labelName?: string, labelValue?: string): number {
-    try {
-      const m = r.getSingleMetric(name);
-      if (!m) return 0;
-      const data = m.get() as { values?: Array<{ labels?: Record<string, string>; value: number }> };
-      return (data?.values ?? [])
-        .filter((v) => !labelName || v.labels?.[labelName] === labelValue)
-        .reduce((a, v) => a + (v.value ?? 0), 0);
-    } catch { return 0; }
-  }
 
   /** R1：pending 持续增长 → 积压角色扩缩（防抖 + 上限） */
   private async ruleR1(w: MetricWindow): Promise<void> {
