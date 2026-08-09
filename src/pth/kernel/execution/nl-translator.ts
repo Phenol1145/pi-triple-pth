@@ -18,6 +18,9 @@ export interface NlTaskLike {
 
 export function isNaturalLanguageTask(task: NlTaskLike): boolean {
   if ((task.payload as { kind?: string } | undefined)?.kind === "nl") return true;
+  // flow 声明（显式指定角色）→ 视为 agent 任务（要 LLM 处理——非代码任务）
+  const flow = (task.payload as { flow?: unknown } | undefined)?.flow;
+  if (flow) return true;
   return (task.tags ?? []).some((t) => t.toLowerCase() === "nl");
 }
 

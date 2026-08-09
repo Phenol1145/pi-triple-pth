@@ -54,3 +54,14 @@ describe("translateTask（LLM 转译）", () => {
     expect(seenSystem).toContain("return");
   });
 });
+
+describe("flow 声明 = agent 任务（补充任务实测——无 nl 标签的 flow 任务走了转译路径）", () => {
+  it("payload.flow 存在 → 视为自然语言任务（agent 循环）", async () => {
+    const { isNaturalLanguageTask } = await import("../../src/pth/kernel/execution/nl-translator.js");
+    expect(isNaturalLanguageTask({ title: "t", text: "x", tags: [], payload: { flow: { stages: [{ task: { role: "developer" } }] } } })).toBe(true);
+  });
+  it("无 flow 无 nl 标签 → 非自然语言任务（代码任务 fast-path）", async () => {
+    const { isNaturalLanguageTask } = await import("../../src/pth/kernel/execution/nl-translator.js");
+    expect(isNaturalLanguageTask({ title: "t", text: "x", tags: [], payload: {} })).toBe(false);
+  });
+});
