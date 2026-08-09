@@ -188,3 +188,38 @@ src/pth/kernel/
 ├── storage/              # pg 层：tasks/memory_entries/transcripts/audit
 └── observability/        # kernel-metrics（四层）/resource-provider（跨 OS）
 ```
+
+## 正交角色谱系（2026-08-09 整理）
+
+任务分配正交化：**角色间零竞速**——任务发布时确定性路由（flow 显式 → tags 语义 → hash 分片），candidates 只查自己队列。
+
+### 内置 7 角色
+
+| 角色 | labelPatterns（任务类型） | 职责 | 权限声明 | memory 域 |
+|------|--------------------------|------|---------|-----------|
+| analyst | analysis/research | 信息分析/数据洞察/研究报告 | 全量（缺省）| all（缺省）|
+| planner | plan/design | 任务分解/方案设计/步骤规划 | 全量 | all |
+| developer | implement/code/fix | 代码实现/缺陷修复/技术交付 | 全量 | all |
+| scout | recon/investigate | 信息收集/代码侦察/环境探查 | 全量 | all |
+| memory-keeper | memory/organize | 记忆整理/知识沉淀/索引维护 | 全量 | all |
+| acceptor | accept/verify | 结果验证/质量检查/交付验收 | 全量 | all |
+| human-interface | human/interact | 用户沟通/意图澄清/反馈传递 | 全量 | all |
+
+### 扩展角色（ExtRegistry 装载注册——兼容性扩展接口）
+
+| 角色 | labelPatterns | 来源 | 权限声明（注入面收窄）| memory 域 |
+|------|--------------|------|---------------------|-----------|
+| greeting-agent | greeting/hello | toolstore/extensions/hello-world | memory/fs/ext | own（role:greeting-agent 命名空间）|
+
+### 正交性三语义（注册校验 + 运行时强制）
+
+1. **任务类型不重叠**：`registerWorkerRole` labelPatterns 重叠拒绝（内置+扩展全谱系校验）
+2. **memory 区域不重叠**：`memoryScope=own` → memory.write 自动标记 `role:<role>` 前缀（query 侧过滤 v1 占位）；`all` 跨区特许
+3. **权限不重叠**：`capabilities` 白名单注入面收窄——越权角色 vm 里根本没有该函数（ReferenceError 静态失败——非运行时检测）
+
+### batch 构成统一谱系（2026-08-09 整理——扩展角色完整融入）
+
+`parseRoleWeights`/`expandRoleWeights`/`validateWeights`/`profileToWeights`/`createWorkerCluster` 全部走 `allWorkerRoles()`（内置+扩展）：
+- `PTH_WORKER_ROLES="developer:3,greeting-agent:2"`——扩展角色可配置副本
+- 未列出角色默认 1 副本（含扩展）——`PTH_WORKER_ROLES` 空 → 全谱系 ×1
+- `profileToWeights` reinforced 单角色堆叠支持扩展角色（其余 0）

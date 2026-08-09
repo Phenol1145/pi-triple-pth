@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
   parseRoleWeights, expandRoleWeights, MAX_WORKER_COPIES,
   profileToWeights, COMPOSITION_STRATEGIES, reinforcedStrategy, weightsToEnv,
+  registerWorkerRole, resetExtraRoles, validateWeights,
 } from "../../src/pth/kernel/execution/worker-cluster.js";
 
 describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
@@ -129,5 +130,44 @@ describe("TaskLoop worker 级控制（pause/resume/stop）", () => {
     tl.stop();
     expect(await tl.runOnce()).toBe(false);
     expect(queried).toBe(0);
+  });
+});
+
+describe("正交角色谱系整理（2026-08-09：扩展角色完整融入 batch 构成）", () => {
+  afterEach(() => { resetExtraRoles(); });
+
+  it("扩展角色可进 PTH_WORKER_ROLES 配置（parse/expand 统一谱系）", () => {
+    registerWorkerRole({ id: "greeting-agent", labelPatterns: ["greeting", "hello"], prompt: "问候专员", capabilities: ["memory", "fs", "ext"], memoryScope: "own" });
+    // 解析含扩展角色
+    const w = parseRoleWeights("greeting-agent:2,developer:1");
+    expect(w.get("greeting-agent")).toBe(2);
+    expect(w.get("developer")).toBe(1);
+    // 展开含扩展角色 worker
+    const roles = expandRoleWeights(w);
+    expect(roles.filter((r) => r.id === "greeting-agent")).toHaveLength(2);
+    expect(roles.filter((r) => r.id === "developer")).toHaveLength(1);
+    // 未列出角色默认 1（含扩展）
+    const full = parseRoleWeights("developer:1");
+    expect(full.get("greeting-agent")).toBe(1);
+  });
+
+  it("profileToWeights reinforced 支持扩展角色（其余 0）", () => {
+    registerWorkerRole({ id: "greeting-agent", labelPatterns: ["greeting"], prompt: "p" });
+    const w = profileToWeights({ mode: "reinforced", role: "greeting-agent", copies: 3 });
+    expect(w.get("greeting-agent")).toBe(3);
+    expect(w.get("developer")).toBe(0);
+    // env 序列化含扩展角色
+    expect(weightsToEnv(w)).toContain("greeting-agent:3");
+  });
+
+  it("validateWeights 接受扩展角色副本", () => {
+    registerWorkerRole({ id: "greeting-agent", labelPatterns: ["greeting"], prompt: "p" });
+    expect(() => validateWeights(new Map([["greeting-agent", 4]]))).not.toThrow();
+  });
+
+  it("扩展角色默认 1 副本（空配置含扩展）", () => {
+    registerWorkerRole({ id: "greeting-agent", labelPatterns: ["greeting"], prompt: "p" });
+    const w = parseRoleWeights(undefined);
+    expect(w.get("greeting-agent")).toBe(1);
   });
 });

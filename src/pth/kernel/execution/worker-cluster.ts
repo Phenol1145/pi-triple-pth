@@ -34,15 +34,15 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
   // 对象输入（profile.weights 面——未列出默认 1）
   if (spec && typeof spec === "object") {
     for (const [role, copies] of Object.entries(spec)) out.set(role, copies);
-    for (const r of DEFAULT_ROLES) if (!out.has(r.id)) out.set(r.id, 1);
+    for (const r of allWorkerRoles()) if (!out.has(r.id)) out.set(r.id, 1);
     validateWeights(out);
     return out;
   }
   if (!spec || (spec as string).trim() === "") {
-    for (const r of DEFAULT_ROLES) out.set(r.id, 1);
+    for (const r of allWorkerRoles()) out.set(r.id, 1);
     return out;
   }
-  const known = new Set(DEFAULT_ROLES.map((r) => r.id));
+  const known = new Set(allWorkerRoles().map((r) => r.id));
   const specStr = spec as string;
   for (const part of specStr.split(",")) {
     const [role, copiesRaw] = part.trim().split(":");
@@ -52,8 +52,8 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
     const copies = copiesRaw === undefined || copiesRaw.trim() === "" ? 1 : Number(copiesRaw.trim());
     out.set(roleId, copies);
   }
-  // 未列出的角色默认 1（保持全角色覆盖语义）
-  for (const r of DEFAULT_ROLES) if (!out.has(r.id)) out.set(r.id, 1);
+  // 未列出的角色默认 1（保持全角色覆盖语义——含扩展角色）
+  for (const r of allWorkerRoles()) if (!out.has(r.id)) out.set(r.id, 1);
   validateWeights(out);
   return out;
 }
@@ -61,7 +61,7 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
 /** 权重展开 → worker 角色列表（副本重复；含 0 副本过滤） */
 export function expandRoleWeights(weights: Map<string, number>): WorkerRole[] {
   const out: WorkerRole[] = [];
-  for (const r of DEFAULT_ROLES) {
+  for (const r of allWorkerRoles()) {
     const n = weights.get(r.id) ?? 1;
     for (let i = 0; i < n; i++) out.push(r);
   }
@@ -119,9 +119,9 @@ export function profileToWeights(profile: BatchProfile): Map<string, number> {
     if (profile.weights) return parseRoleWeights(profile.weights);
     return parseRoleWeights(undefined);   // 默认 7×1
   }
-  // reinforced：单角色 × copies，其余 0（禁用）
+  // reinforced：单角色 × copies，其余 0（禁用——含扩展角色）
   const weights = new Map<string, number>();
-  for (const r of DEFAULT_ROLES) weights.set(r.id, r.id === profile.role ? profile.copies : 0);
+  for (const r of allWorkerRoles()) weights.set(r.id, r.id === profile.role ? profile.copies : 0);
   validateWeights(weights);
   return weights;
 }
@@ -130,7 +130,7 @@ export function profileToWeights(profile: BatchProfile): Map<string, number> {
 export function validateWeights(weights: Map<string, number>): void {
   let total = 0;
   for (const [role, copies] of weights) {
-    if (!DEFAULT_ROLES.some((r) => r.id === role)) throw new Error(`parseRoleWeights: 未知角色 "${role}"`);
+    if (!allWorkerRoles().some((r) => r.id === role)) throw new Error(`parseRoleWeights: 未知角色 "${role}"`);
     if (!Number.isInteger(copies) || copies < 0 || copies > MAX_WORKER_COPIES) {
       throw new Error(`parseRoleWeights: ${role} 副本数须为 0-${MAX_WORKER_COPIES}`);
     }
@@ -184,7 +184,7 @@ export interface WorkerClusterDeps {
 /** worker 簇：每 batch = 全角色 worker ×1（v1，裁决 14） */
 export function createWorkerCluster(deps: WorkerClusterDeps): Map<string, WorkerKernel> {
   const map = new Map<string, WorkerKernel>();
-  for (const role of DEFAULT_ROLES) {
+  for (const role of allWorkerRoles()) {
     map.set(role.id, deps.kernelFactory(role));
   }
   return map;
