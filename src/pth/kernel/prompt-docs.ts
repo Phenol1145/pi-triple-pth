@@ -234,8 +234,9 @@ async function walkProject(dir: string, depth: number, maxDepth: number): Promis
       out.push(`${"  ".repeat(depth)}- ${e.name}/${duty ? ` — ${duty}` : ""}`);
       if (depth < maxDepth) out.push(...(await walkProject(p, depth + 1, maxDepth)));
     } else if (/\.(ts|json)$/.test(e.name) && e.name !== "package.json") {
+      // 只列关键文件（有职责映射的——普通文件跳过——map 精简——关键路径一次知道）
       const duty = PROJECT_FILE_DUTY[p];
-      out.push(`${"  ".repeat(depth)}- ${e.name}${duty ? ` — ${duty}` : ""}`);
+      if (duty) out.push(`${"  ".repeat(depth)}- ${e.name} — ${duty}`);
     }
   }
   return out;
@@ -262,7 +263,7 @@ export async function buildProjectMap(): Promise<string> {
   parts.push("```");
   for (const r of roots) {
     try {
-      parts.push(...(await walkProject(r, 0, 2)));
+      parts.push(...(await walkProject(r, 0, 3)));
     } catch { /* 目录缺失放行 */ }
   }
   parts.push("```");
