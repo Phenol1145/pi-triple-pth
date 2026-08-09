@@ -12,7 +12,7 @@ module.exports = function factory(ctx) {
       "task.submit": async (e) => { ctx.log?.(`[hello-world] task submitted: ${e.payload.taskId}`); },
     },
     roles: [
-      { id: "greeting-agent", labelPatterns: ["greeting", "hello"], prompt: "你是问候专员——负责生成友好问候与祝福。", capabilities: ["memory", "fs"], memoryScope: "own" },
+      { id: "greeting-agent", labelPatterns: ["greeting", "hello"], prompt: "你是问候专员——负责生成友好问候与祝福。", capabilities: ["memory", "fs", "ext"], memoryScope: "own" },
     ],
   };
 };

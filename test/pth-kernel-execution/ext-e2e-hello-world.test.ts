@@ -37,7 +37,7 @@ describe("hello-world 扩展端到端（P4）", () => {
 
   it("扩展角色的 capabilities/memoryScope 入谱系（正交语义）", async () => {
     const role = allWorkerRoles().find((r) => r.id === "greeting-agent")!;
-    expect(role.capabilities).toEqual(["memory", "fs"]);
+    expect(role.capabilities).toEqual(["memory", "fs", "ext"]);
     expect(role.memoryScope).toBe("own");
   });
 
