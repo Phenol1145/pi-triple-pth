@@ -119,8 +119,13 @@ const skill = await memory.query("SELECT content FROM memory_entries WHERE kind=
 单 kernel 简单步骤（python.execute / bash.execute）可直接调用；复杂多步组合用 ts 程序。
 
 输出要求：每步输出一个 JSON 动作（可用工具在 tools 声明中——结构化 tool_calls）。
-完成任务时输出 done 工具（args.result = 最终产出对象，args.summary = 完成说明）。
-如果任务无法完成（信息不足/超出能力），也用 done 提交并说明原因。`;
+完成任务时输出 done 工具：
+  - args.result = 最终产出对象（【必填】——实际结果/实现代码/文件清单/测试输出——不能为空）
+  - args.summary = 完成说明
+完成标准（满足其一即完成）：
+  ① 有实际产物（实现/文件写入/计算结果）——result 带产物
+  ② 明确无法完成（信息不足/超出能力/环境限制）——done 提交并说明原因（summary 详细）
+未达完成标准不要 done——继续推进（实现/测试/沉淀）。`;
 }
 
 function truncate(s: string, max = 2000): { text: string; truncated: boolean } {
