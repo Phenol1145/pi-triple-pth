@@ -1,239 +1,202 @@
-> PTH（Pi-Triple-Heavy）文档 — agent 联邦平台
-# 部署指南
+# PTH 安装与性能调优
 
-## 本地开发部署
+> 与共享层 skill `pth-deploy` 同源（2026-08-09）。覆盖：compose 拓扑、安装步骤、验证三连、性能参数全表、调优方法论、运行时调参、容器抽象设计意图（v0.7）。
 
-### 前置条件
 
-- Node.js >= 22
-- Redis >= 7
-- 至少一个 LLM API key（Anthropic / OpenAI / DeepSeek 等）
+# PTH 安装与性能调优
 
-### 步骤
+PTH（Pi-Triple-Heavy）是服务器端任务内核（Fastify 网关 + kernel 任务池 + sandbox 隔离执行）。本文档带你从零安装并用参数压到目标吞吐。
+
+## 1. 拓扑（docker compose 四服务）
+
+```
+docker-compose.yaml
+├── postgres  16-alpine      任务/记忆/transcripts 存储（DATABASE_URL）
+├── redis     7-alpine       auth token 存储（REDIS_URL）
+├── pi-platform              PTH 主服务（Fastify :3000——网关 + kernel 装配 + 指标）
+│     └── kernel 池：sandbox-kernel 模式（生产默认——REPL kernel 落 sandbox 侧）
+└── sandbox                  隔离执行容器（:8080——kernel-host 池 + exec API + 调试工具链）
+      · internal 网络（零出口）· 零业务密钥 · Bearer 认证 · 非 root · 资源限额 1G/1cpu
+```
+
+两个网络：`default`（平台内部）+ `sandbox-internal`（internal:true——sandbox 唯一出口是 pi-platform）。
+
+## 2. 安装步骤
+
+### 2.1 前置
+- Docker + Docker Compose v2（`docker compose version` 确认）
+- 仓库 clone：`git clone https://github.com/Phenol1145/pi-platform.git`
+
+### 2.2 配置 .env（仓库根）
 
 ```bash
-# 1. 克隆并安装
-git clone <repo> && cd pi-platform
-npm install
+# 安全参数（必改）
+POSTGRES_PASSWORD=你的强密码
+SANDBOX_SHARED_SECRET=你的沙盒共享密钥
 
-# 2. 启动 Redis
-brew services start redis          # macOS
-# 或: redis-server --daemonize yes
-
-# 3. 设置 API key
-export ANTHROPIC_API_KEY=sk-ant-...
-# 或: export OPENAI_API_KEY=sk-...
-# 或使用 pi 内置 auth.json（~/.pi/agent/auth.json 自动读取）
-
-# 4. 创建认证 token
-redis-cli SET "auth:token:dev-token" '{"tenantId":"dev-team"}'
-
-# 5. 启动开发服务器（热重载）
-npm run dev
-
-# 6. 验证
-curl http://localhost:3000/health
-# → {"status":"ok","uptime":1.0}
+# 性能参数（按需——见 §3 全表）
+PTH_KERNEL_POOL_SIZE=16
+PTH_BATCH_AUTOSCALE=on
 ```
 
----
-
-## Docker 部署
-
-### docker-compose
+### 2.3 拉起（依赖顺序：先数据层，再应用层）
 
 ```bash
-# 设置 API key
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-
-# 启动
-docker-compose up -d
-
-# 验证
-curl http://localhost:3000/health
+docker compose up -d postgres redis
+# 等 healthy（docker compose ps——postgres 需 ready 后 pi-platform 才能连）
+docker compose up -d pi-platform sandbox
+docker compose ps          # 四服务都应 healthy
 ```
 
-### 手动 Docker
+### 2.4 验证三连
 
 ```bash
-docker build -t pi-platform .
-docker run -d \
-  -p 3000:3000 \
-  -e REDIS_URL=redis://redis-host:6379 \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
-  -v pi-workspaces:/data/workspaces \
-  pi-platform
+# ① 健康与状态
+curl -s http://localhost:3000/api/v1/kernel/status -H "Authorization: Bearer <token>" | python3 -m json.tool
+#   → kernel.connected:true · tasks 分布 · watchdog 无 crash
+
+# ② 端到端任务（发布 → 完成）
+curl -s -X POST http://localhost:3000/api/v1/kernel/tasks \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"title":"install-verify","text":"const r = await python.execute(\"sum(range(101))\"); return { sum5050: r };","createdBy":"ops"}'
+#   → 返回 id + pending；~15s 后查 status 应为 completed，结果 sum5050=5050
+
+# ③ 安全确认（sandbox 零敏感）
+bash scripts/check-sandbox-env.sh     # 镜像扫描 + 容器 env 白名单断言
 ```
 
----
+token 写入 Redis：`redis-cli -h localhost set auth:token:<token> '{"tenantId":"ops"}'`（或按你的 auth 约定）。
 
-## 环境变量
+## 3. 性能参数全表（PTH_*）
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `PORT` | `3000` | HTTP 监听端口 |
-| `REDIS_URL` | `redis://localhost:6379` | Redis 连接 URL |
-| `DATA_DIR` | `./.pi-platform-data`（本地）/ `/data`（Docker） | 数据目录（workspaces/platform/tenants 的父目录） |
-| `LOG_LEVEL` | `info` | pino 日志级别：`trace` / `debug` / `info` / `warn` / `error` |
-| `PI_PLATFORM_PROVIDER` | 自动检测 | 模型提供商覆盖（如 `deepseek`）。需与 `PI_PLATFORM_MODEL` 同时设置 |
-| `PI_PLATFORM_MODEL` | 自动检测 | 模型 ID 覆盖（如 `deepseek-v4-flash`）。需与 `PI_PLATFORM_PROVIDER` 同时设置 |
-| `PI_ANTHROPIC_API_KEY` | - | Anthropic API key（平台层，pi SDK 默认读取） |
-| `PI_OPENAI_API_KEY` | - | OpenAI API key（平台层） |
-| `PI_GOOGLE_API_KEY` | - | Google Gemini API key（平台层，pi SDK 也可用 `GEMINI_API_KEY`） |
-| `PI_OPENROUTER_API_KEY` | - | OpenRouter API key（平台层） |
-| `ANTHROPIC_API_KEY` | - | Anthropic API key（SDK 层直接读取） |
-| `OPENAI_API_KEY` | - | OpenAI API key（SDK 层直接读取） |
-| `DEEPSEEK_API_KEY` | - | DeepSeek API key（SDK 层直接读取） |
-| `GEMINI_API_KEY` | - | Google Gemini API key（SDK 层直接读取） |
+### 池容量（最重要——不足会 acquire 排队超时卡任务）
 
-**说明**：
-- API key 优先从环境变量读取，其次从 pi SDK 的 `~/.pi/agent/auth.json` 读取
-- `PI_*` 前缀的变量是平台层凭证（通过 `EnvCredentialProvider.getApiKey("platform", provider)` 读取）
-- SDK 层支持的变量（如 `ANTHROPIC_API_KEY`、`OPENAI_API_KEY`）会被 pi SDK 的 `ModelRuntime.create()` 自动读取
-- `PI_PLATFORM_PROVIDER` 和 `PI_PLATFORM_MODEL` 必须同时设置，单独设置不会生效
-- 不指定 provider/model 时，平台自动选择第一个可用模型
+| 参数 | 默认 | 说明 | 调优 |
+|------|------|------|------|
+| `PTH_KERNEL_POOL_SIZE` | 16 | sandbox kernel 池容量（REPL 持久进程数） | **必须 ≥ 并发 worker 数**（batch×角色，如 2 batch×7 角色=14）→ 设 16 起步；高并发提到 24-32 |
 
----
+### agent 循环（单任务执行成本）
 
-## Redis 配置
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_AGENT_MAX_STEPS` | 10 | 每任务 agent 步数上限（典型任务 2-3 步即完成） |
+| `PTH_AGENT_TIMEOUT_MS` | 120000 | 任务级总超时 |
+| `PTH_AGENT_LLM_TIMEOUT_MS` | 30000 | 单次 LLM 调用超时（防挂起冻结——建议保持） |
+| `PTH_AGENT_RETRY_PARSE` | 1 | 动作解析失败重试次数 |
+| `PTH_AGENT_MODEL` | deepseek-v4-flash | agent 循环模型（选快模型——执行性价比优先） |
 
-### 最低要求
+### batch 弹性（吞吐自动伸缩）
 
-- Redis >= 7
-- 持久化：`appendonly yes`（session 记录用 append-only 模式）
-- 可用内存：建议 >= 256MB
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_BATCH_AUTOSCALE` | on | 弹性开关 |
+| `PTH_BATCH_MIN` / `PTH_BATCH_MAX` | 1 / 4 | 容量上下限保护 |
+| `PTH_BATCH_SCALE_INTERVAL_MS` | 30000 | 评估周期 |
+| `PTH_BATCH_SCALE_UP_THRESHOLD` | 5 | pending 积压阈值（超过则扩容） |
 
-### 配置建议
+### claim 回收（僵尸任务治理）
 
-**开发环境**：
-```
-redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
-```
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_CLAIM_REAP_MS` | 30000 | 回收扫描周期 |
+| `PTH_CLAIM_TIMEOUT_MS` | 600000 | 认领超时阈值（超时自动回池重执行） |
 
-**Docker 环境**（docker-compose.yaml 默认）：
-```
-redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru
-```
+### kernel 生命周期
 
-> ⚠️ **生产注意**：`allkeys-lru` 可能淘汰 `auth:token:*` 等关键 key。生产环境建议：
-> - 使用 `noeviction` 或 `volatile-lru` 策略
-> - 为 auth token 设置合理的 TTL（`EX` 过期时间）
-> - 配置 `notify-keyspace-events` 监控淘汰
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_KERNEL_LAZY_SPAWN` | 1 | 懒 spawn（首次 execute 才起进程——省内存） |
+| `PTH_KERNEL_IDLE_MS` | 300000 | 空闲回收（5min 无调用 kill——0=禁用） |
+| `PTH_KERNEL_RESET_MODE` | ns | reset 语义（ns=清命名空间 / restart=重启进程） |
 
-### Redis Key 结构
+### 模式与模型
 
-```
-auth:token:{token}                     → {"tenantId":"...","role":"..."}
-session:{tenant}:{sessionId}:meta       → SessionMeta JSON
-session:{tenant}:{sessionId}:entry:{seq} → SessionEntry JSON
-session:{tenant}:{sessionId}:snapshot:{seq} → Snapshot JSON
-session:{tenant}:{sessionId}:vsnapshot:{seq} → VersionSnapshotRecord JSON
-session-index:{tenant}                  → ZSET (按时间排序的 session 索引)
-settings:{tenant}:{project}             → Settings JSON
-workflow:lock:{wfId}                    → Fencing token
-workflow:intent:queue                   → BullMQ queue
-```
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_PYTHON_MODE` / `PTH_BASH_MODE` | sandbox-kernel | 生产必须 sandbox-kernel（kernel=本地调试） |
+| `PTH_MODEL` / `PTH_MODEL_PROVIDER` | - | 全局模型/供应商 |
+| `PTH_NL_MODEL` | - | NL 任务翻译模型（可单独指定） |
+| `PTH_REFINE` | on | 记忆提炼开关（off 省一次 LLM 调用） |
 
-**说明**：
-- `session-index:{tenant}` 使用 Redis Sorted Set，score 为时间戳，member 为 `{"sessionId":"...","project":"..."}`
-- entry 和 snapshot key 包含序号 `{seq}`，支持按序列号精确读取和重放
-- version snapshot 记录每个 turn 的 skills/prompts/tools 文件 hash 快照
+### 路径与观测
 
----
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_WORKSPACES_PATH` / `PTH_ARTIFACTS_PATH` | /data/... | 工作区/产物根（compose 卷） |
+| `PTH_SANDBOX_KERNEL_URL` | http://sandbox:8080 | sandbox kernel-host 地址 |
+| `PTH_LOG_LEVEL` / `PTH_LOG_FORMAT` | info / json | 日志 |
+| `PTH_METRICS_INTERVAL_MS` | - | 指标采样周期 |
 
-## 健康检查
-
-### HTTP
-
-```bash
-curl http://localhost:3000/health
-# → {"status":"ok","uptime":123.456}
-```
-
-Docker 容器使用同一端点作为 HEALTHCHECK，每 30 秒检查一次，最多重试 3 次。
-
-### 日志
-
-所有日志输出到 stdout（pino JSON 格式）：
-
-```bash
-# 启动时设置日志级别
-LOG_LEVEL=debug npm run dev
-
-# 查看 session 创建日志
-grep "session_created" <log>
-```
-
----
-
-## Prometheus 监控
-
-### 指标端点
+## 4. 调优方法论（闭环四步）
 
 ```
-GET /metrics
+1. 基线压测    → 发一批同质任务（如 20 个代码任务），记录吞吐/耗时/token
+2. 瓶颈定位    → /metrics 四层指标（L1 kernel exec / L2 任务 / L3 产出）
+                + /api/v1/kernel/status（分布/watchdog）+ obs 调查（会话内）
+3. 参数调整    → 运行时 perf.set（不重启）或 env + 重启
+4. 复测对比    → 同批任务重跑，对比吞吐/耗时/token 变化
 ```
 
-### 核心指标
+常见瓶颈速查：
 
-| 指标名 | 类型 | 标签 | 说明 |
-|--------|------|------|------|
-| `pi_sessions_active` | Gauge | - | 当前活跃 session 数 |
-| `pi_prompt_duration_seconds` | Histogram | - | prompt 处理时长 |
-| `pi_tokens_total` | Counter | `tenant`, `type` | token 用量（input/output） |
-| `pi_tool_calls_total` | Counter | `tool`, `tenant` | 工具调用次数 |
-| `pi_workflow_steps_total` | Counter | - | 工作流步骤执行次数 |
-| `pi_self_modify_total` | Counter | `layer` | 自修改次数（L1/L2/L3） |
-| `process_resident_memory_bytes` | Gauge | - | 进程 RSS 内存（来自 prom-client 默认指标） |
+| 症状 | 参数 |
+|------|------|
+| 任务卡 claimed 后无进展 | 池容量不足 → `PTH_KERNEL_POOL_SIZE` 上调（≥worker 数） |
+| 任务 pending 积压 | batch 太少 → `PTH_BATCH_MAX` 上调 / `PTH_BATCH_SCALE_UP_THRESHOLD` 下调 |
+| 单任务慢（LLM 等待） | `PTH_AGENT_MODEL` 换更快模型 / `PTH_AGENT_MAX_STEPS` 收紧 |
+| 大量 rejected | 描述问题（非性能）→ 检查任务 text 验收标准 |
+| 内存吃紧 | `PTH_KERNEL_LAZY_SPAWN=1` + `PTH_KERNEL_IDLE_MS` 调小 + 池容量下调 |
 
-### Prometheus 接入
+## 5. 运行时调参（不重启——perf.set）
 
-```yaml
-scrape_configs:
-  - job_name: pi-platform
-    static_configs:
-      - targets: ['localhost:3000']
+PTH 内置配置中心：agent 会话内 ts 程序可直接调（PTH_* 白名单）：
+
+```ts
+await perf.set({ PTH_AGENT_MAX_STEPS: 5 });   // 立即对后续任务生效
+await perf.params();                          // 查看当前快照
+await perf.analyze();                         // v1 规则诊断
 ```
 
----
+env 与运行时 SET 的关系：启动时 env 快照载入 → 运行时 SET 覆盖 → 重启恢复 env 值。
 
-## Supervisor A/B 回滚
+## 6. 容器抽象（下一版本设计意图——v0.7 落地）
 
-`scripts/supervisor.sh` 是 Layer 3 自修改的外部守护脚本。它在平台进程外部运行，提供 A/B 部署和健康检查回滚。
-
-### 工作原理
+当前 `docker-compose.yaml` 是唯一拉起方式。下版本将**容器后端抽象**——允许不同容器技术：
 
 ```
-supervisor.sh
-  ├── 读取 /data/platform/releases/current 符号链接
-  ├── npm ci + npm run build + node dist/main.js（启动新版本）
-  ├── 健康检查（30s 内轮询 /health）
-  ├── 失败 → 回滚到 previous release 符号链接
-  ├── 检测 .rebuild-request 文件 → 触发重建
-  └── 连续 3 次回滚 → 停止，等待人工介入
+┌─ 部署描述（声明式）─────────────────────┐
+│  services: pi-platform/sandbox/postgres/redis │
+│  env 统一（现有 PTH_* 全保留）                 │
+│  volumes: workspaces/platform/...              │
+└───────────────────────────────────────────┘
+           ↓ 容器后端接口（抽象层）
+┌────────────┬────────────┬─────────────┐
+│ docker     │ podman     │ k8s         │
+│ compose    │（无守护进程）│（生产集群）   │
+└────────────┴────────────┴─────────────┘
 ```
 
-### 使用方式
+迁移准备（现有代码已具备）：
+- **参数不依赖 compose 插值**：全部走 `PTH_*` env（配置中心启动快照）——任何容器技术传 env 即可
+- **镜像已独立**：`Dockerfile`（pi-platform）/ `Dockerfile.sandbox`（sandbox）——可推 GHCR
+- **卷语义明确**：workspaces/platform/tenants/components/agent-dir/sessions/artifacts——抽象层映射
+- **健康检查自带**：`/health` + compose healthcheck——k8s readiness/liveness 直接复用
+- **网络隔离契约**：sandbox internal（零出口）——k8s 用 NetworkPolicy / podman 用 network mode 等价实现
 
-```bash
-# 在 Docker 外运行 supervisor
-PLATFORM_DIR=/data/platform bash scripts/supervisor.sh
+## 7. 排障
 
-# 或作为 Docker entrypoint
-docker run ... --entrypoint scripts/supervisor.sh
-```
+| 现象 | 原因 | 处理 |
+|------|------|------|
+| 任务 503 unavailable | pg 未就绪/不可达 | `docker compose ps` 等 postgres healthy 再起 pi-platform |
+| 任务卡 claimed | 池容量不足（acquire 排队超时） | `PTH_KERNEL_POOL_SIZE` ≥ 并发 worker 数 |
+| sandbox 未 healthy | 镜像构建/密钥不匹配 | `docker compose logs sandbox`；SANDBOX_SHARED_SECRET 两端一致 |
+| 任务长期 pending | 无 batch / autoscale 关 | `POST /api/v1/kernel/batch/add` 手动扩容；`PTH_BATCH_AUTOSCALE=on` |
+| LLM 挂起冻结 | 模型 provider 慢 | 保持 `PTH_AGENT_LLM_TIMEOUT_MS=30000`（单次调用兜底） |
+| 容器启动失败（file: 依赖） | 镜像缺 packages/ | 重新 `docker compose build`（builder+runtime 都 COPY packages/） |
 
----
+## 8. 相关
 
-## 生产环境注意事项
-
-1. **Redis 高可用**：使用 Redis Sentinel 或 Cluster，确保 session 数据不丢
-2. **内存**：每个 session ~17MB RSS，按需调整 `maxSessions`（默认 20）
-3. **日志**：stdout 输出，接入日志收集系统（ELK / Loki）
-4. **指标**：Prometheus 抓取 `/metrics`，配置 Grafana 面板
-5. **认证**：生产环境使用强随机 token，定期轮换
-6. **工作区**：`DATA_DIR` 使用持久化卷，避免容器重启丢失
-7. **BullMQ**：当前 worker 在主进程运行，高负载时建议独立进程
-8. **Docker 资源限制**：docker-compose 中限制 4GB，按需调整
-9. **优雅关闭**：平台支持 SIGINT / SIGTERM，执行 drain() 后退出
+- 任务提交（PTL 侧）：skill `pth-tasks` + `docs/ptl/pth-task-submission.md`
+- PTH 内核体系：`docs/pth/kernel.md` · `docs/pth/architecture.md`
+- 安全边界（sandbox 零敏感）：`docs/superpowers/specs/2026-08-08-pth-kernel-sandbox-design.md`
+- 环境检查：`scripts/check-sandbox-env.sh`（发布门禁 `scripts/check-release-clean.sh`）
