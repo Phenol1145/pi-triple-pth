@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- candidates 只查自己的队列——角色间零竞速抢票
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assigned_role TEXT;
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_role, status);
+-- 异步 job 委托（v0.8 循环①）：job 关联——一次提交多任务（job_id），交互层脱手后续收取
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS job_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_tasks_job ON tasks(job_id, status);
 -- 存量 pending 任务回填：确定性分片（hashtext 内置 hash；与 JS djb2 不同但均匀+确定）
 UPDATE tasks SET assigned_role =
   (ARRAY['analyst','planner','developer','scout','memory-keeper','acceptor','human-interface'])

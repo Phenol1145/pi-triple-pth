@@ -17,6 +17,7 @@ export interface Task {
   created_at: Date;
   payload: unknown;
   assigned_role?: string | null;
+  job_id?: string | null;
 }
 
 export interface PublishInput {
@@ -26,6 +27,8 @@ export interface PublishInput {
   tags?: string[];
   payload?: unknown;
   templateId?: string;
+  /** 异步 job 委托（v0.8 循环①）：job 关联 id */
+  jobId?: string;
 }
 
 export interface TaskStore {
@@ -51,10 +54,10 @@ export class PgTaskStore implements TaskStore {
     const id = randomUUID();
     const assignedRole = routeTaskRole({ id, tags: input.tags, payload: input.payload });
     const res = await this.pool.query(
-      `INSERT INTO tasks (id, title, text, created_by, tags, payload, template_id, assigned_role)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO tasks (id, title, text, created_by, tags, payload, template_id, assigned_role, job_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [id, input.title, input.text, input.createdBy, input.tags ?? [], input.payload ?? {}, input.templateId ?? null, assignedRole],
+      [id, input.title, input.text, input.createdBy, input.tags ?? [], input.payload ?? {}, input.templateId ?? null, assignedRole, input.jobId ?? null],
     );
     return mapRow(res.rows[0]);
   }
