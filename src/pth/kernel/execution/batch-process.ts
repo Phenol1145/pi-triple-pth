@@ -49,7 +49,9 @@ class BatchTaskLoop extends TaskLoop {
  * 不 resolve：子进程长驻（pg 连接池维持存活），主进程通过 IPC 终止。
  */
 export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> {
-  const pool = await createPgPool({ connectionString: deps.databaseUrl });
+  // 内存优化：连接池收紧（7 角色 worker 并发 ≤7——max 8 够；默认 10 冗余）
+  // PTH_PG_POOL_MAX 可覆盖（batch 数多时 PG 连接总量 = pool_max × batches 需核算）
+  const pool = await createPgPool({ connectionString: deps.databaseUrl, max: Number(process.env.PTH_PG_POOL_MAX ?? 8) });
   await applySchema(pool);
   const dataWorld = createDataWorld(pool);
   const workspaceMgr = new DefaultTaskWorkspaceManager({ basePath: deps.basePath, artifactPath: deps.artifactPath });
@@ -94,7 +96,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     emitCleanup: (info) => process.send?.({ type: "cleanup", taskId: info.taskId, artifactPath: info.artifactPath }),
   };
 
-  const intervalMs = deps.intervalMs ?? 1000;
+  const intervalMs = deps.intervalMs ?? Number(process.env.PTH_BATCH_TICK_MS ?? 1000);
   // 多语言持久 REPL（T1-T3）：KernelManager 路由——python/bash 用持久 kernel
   // （实测 230x vs spawn）；sandbox 生产模式可用 env 切换（PTH_PYTHON_MODE/PTH_BASH_MODE）
   // toolstore 文件通道（§0.5）：PTH_TOOLSTORE_PATH 或默认 toolstore/（相对工作目录）
@@ -148,10 +150,14 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     }, archiveDeps);
   });
 
-  // 每轮：各 worker runOnce（并发）
-  const tick = async () => {
+  // 每轮：各 worker runOnce（并发）；didWork=true（有任务执行完）→ 立即自驱动下一轮
+  // （吞吐优化：串行任务零轮询等待——0.58s/任务 的轮询延迟消除）；
+  // 空闲（无候选）退避回 intervalMs timer，避免空转查询 PG。
+  const tick = async (): Promise<void> => {
     if (paused) return;
-    await Promise.all(loops.map((l) => l.runOnce()));
+    const did = await Promise.all(loops.map((l) => l.runOnce()));
+    if (did.some(Boolean)) void tick();   // 忙时自驱动（串行链——防风暴）
+    else return;                          // 空闲：等 timer 下一轮
   };
 
   await tick();   // 立即跑一轮

@@ -69,6 +69,17 @@ token 写入 Redis：`redis-cli -h localhost set auth:token:<token> '{"tenantId"
 
 ## 3. 性能参数全表（PTH_*）
 
+### 硬性资源限制（compose deploy.resources.limits——全服务）
+
+| 服务 | CPU | 内存 | PIDs | 说明 |
+|------|-----|------|------|------|
+| pi-platform | 2.0 | 2G | 512 | 主进程 + batch 子进程（≤4 batch × 7 worker） |
+| sandbox | 1.0 | 1G | 256 | kernel 池 16 python + node（池容量与内存联动：16×40MB≈640MB） |
+| postgres | 1.0 | 512M | 128 | 存储 |
+| redis | 0.5 | 256M | 64 | auth/缓存（另有 maxmemory 1gb 自限） |
+
+node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程 + batch 子进程继承——防大 payload OOM 主机）。
+
 ### 池容量（最重要——不足会 acquire 排队超时卡任务）
 
 | 参数 | 默认 | 说明 | 调优 |
@@ -84,6 +95,13 @@ token 写入 Redis：`redis-cli -h localhost set auth:token:<token> '{"tenantId"
 | `PTH_AGENT_LLM_TIMEOUT_MS` | 30000 | 单次 LLM 调用超时（防挂起冻结——建议保持） |
 | `PTH_AGENT_RETRY_PARSE` | 1 | 动作解析失败重试次数 |
 | `PTH_AGENT_MODEL` | deepseek-v4-flash | agent 循环模型（选快模型——执行性价比优先） |
+
+### batch 轮询与连接（吞吐/内存）
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_BATCH_TICK_MS` | 1000 | 空闲轮询间隔（忙时自驱动——任务完成立即继续认领，零轮询等待） |
+| `PTH_PG_POOL_MAX` | 8 | batch 子进程 PG 连接池上限（7 角色并发 ≤7——8 够；总量 = 8 × batch 数） |
 
 ### batch 弹性（吞吐自动伸缩）
 

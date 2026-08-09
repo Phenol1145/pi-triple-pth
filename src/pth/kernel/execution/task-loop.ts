@@ -40,11 +40,12 @@ export interface TaskLoopDeps {
 export class TaskLoop {
   constructor(private deps: TaskLoopDeps) {}
 
-  async runOnce(): Promise<void> {
+  /** runOnce：执行一轮认领。返回 true = 本轮有任务执行（调用方可自驱动下一轮——吞吐优化） */
+  async runOnce(): Promise<boolean> {
     const { taskStore, role } = this.deps;
     // 1. peek：只读获取候选（不锁定）
     const candidates = await taskStore.candidates(role.id);
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) return false;
 
     // 2. claim（claim 即承诺）：机械认领全部候选；单条认领为空（竞态/不可认领）不中断
     const claimed: Task[] = [];
@@ -55,12 +56,13 @@ export class TaskLoop {
 
     // 3. 正交化后零认领 = 自己队列空/全不可认领（坏任务）——直接 return 下一轮；
     //    不再 reject assessed-as-unfit（任务只属于自己，放回池无意义）
-    if (claimed.length === 0) return;
+    if (claimed.length === 0) return false;
 
     // 4. 执行已认领任务；认领竞态丢失者跳过——竞态为正常，不 reject
     for (const task of claimed) {
       await this.execute(task);
     }
+    return true;
   }
 
   private async execute(task: Task): Promise<void> {
