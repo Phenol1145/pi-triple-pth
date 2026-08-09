@@ -5,7 +5,7 @@ import { createDataWorld } from "../storage/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../interpreter/index.js";
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
-import { DEFAULT_ROLES } from "./worker-cluster.js";
+import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights } from "./worker-cluster.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
 import { archiveTask, type ArchiveDeps } from "./archive.js";
@@ -103,7 +103,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const toolstoreDir = process.env.PTH_TOOLSTORE_PATH ?? "toolstore";
   await mkdir(toolstoreDir, { recursive: true }).catch(() => {});
   const toolstore = createToolstore(toolstoreDir);
-  const loops = DEFAULT_ROLES.map((role) => {
+  // batch 构成参数化（PTH_WORKER_ROLES）：任意角色子集 + 副本数（0 禁用）；
+  // 不设置 → 默认 7 角色 ×1（原行为）。启动时解析一次——运行时改权重需 batch remove+add。
+  const workerRoles = expandRoleWeights(parseRoleWeights(process.env.PTH_WORKER_ROLES));
+  const loops = workerRoles.map((role) => {
     const manager = createKernelManager({
       pythonMode: (process.env.PTH_PYTHON_MODE as any) ?? "kernel",
       bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",

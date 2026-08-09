@@ -1,6 +1,6 @@
 import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
-import { DEFAULT_ROLES } from "./execution/worker-cluster.js";
+import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights } from "./execution/worker-cluster.js";
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { createKernelLogger } from "./logger.js";
@@ -104,7 +104,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const dataWorld = createDataWorld(pool);
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
-    workers: DEFAULT_ROLES.map((r) => r.id),
+    // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
+    workers: expandRoleWeights(parseRoleWeights(opts.env?.PTH_WORKER_ROLES ?? process.env.PTH_WORKER_ROLES)).map((r) => r.id),
     execArgv: opts.execArgv,
     logger: createKernelLogger(),
     onMetric: opts.onMetric,

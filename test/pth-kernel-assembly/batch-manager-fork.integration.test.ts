@@ -110,4 +110,26 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       await manager.killBatch(handle.id);
     }
   }, 60_000);
+
+  it("batch 构成参数化：自定义构成（developer×2+analyst×1+其余禁用）fork 子进程存活", async () => {
+    const bm2 = new BatchManager({
+      batchProcessPath: "src/pth/kernel/execution/batch-process.ts",
+      workers: ["developer", "developer", "analyst"],
+      execArgv: ["--experimental-transform-types", "--import", loaderPath],
+      env: {
+        PTH_WORKER_ROLES: "developer:2,analyst:1,planner:0,scout:0,memory-keeper:0,acceptor:0,human-interface:0",
+        PTH_BATCH_PROCESS: "1",
+        PTH_TEST_DATABASE_URL: container.getConnectionUri(),
+        PTH_WORKSPACES_PATH: workspacesDir,
+        PTH_ARTIFACTS_PATH: artifactsDir,
+      },
+      onMetric: () => {},
+      obsResolver: async () => ({}),
+    });
+    const handle = await bm2.spawnBatch();
+    expect(handle.workers).toEqual(["developer", "developer", "analyst"]);
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(bm2.isBatchAlive(handle.id)).toBe(true);
+    await bm2.killBatch(handle.id);
+  }, 20_000);
 });

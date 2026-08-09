@@ -96,6 +96,18 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 | `PTH_AGENT_RETRY_PARSE` | 1 | 动作解析失败重试次数 |
 | `PTH_AGENT_MODEL` | deepseek-v4-flash | agent 循环模型（选快模型——执行性价比优先） |
 
+### batch 构成（PTH_WORKER_ROLES——取消固定 7 角色限制）
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_WORKER_ROLES` | 空 | 角色:副本数逗号分隔（如 `developer:3,analyst:2`）；未列出角色默认 1；副本 0 = 禁用；约束 0-8/总 ≤32 |
+
+**作用**：每 batch 的 worker 构成 = 权重展开（不设置 = 原 7 角色 ×1）。
+- developer 瓶颈 → `developer:3` 副本（1 batch 顶 3 batch 的 developer 能力）
+- 低频角色 → `planner:0` 禁用（省进程/内存/池占用）
+- 运行时改权重：batch remove + add 重启生效
+- 池容量联动：`PTH_KERNEL_POOL_SIZE ≥ 总 worker 数`（Σ副本）
+
 ### batch 轮询与连接（吞吐/内存）
 
 | 参数 | 默认 | 说明 |
