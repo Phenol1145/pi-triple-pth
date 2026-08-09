@@ -96,3 +96,21 @@ describe("PTH Worker 世界观（pth-worker-system——身份/工作流/框架�
     expect(isSystemDocId("pth-worker-system")).toBe(true);
   });
 });
+
+describe("项目全貌（project-map——代码库结构——worker 一次读知道在哪读什么）", () => {
+  it("buildProjectMap 生成全貌（任务流/代码库结构/职责映射）", async () => {
+    const { buildProjectMap } = await import("../../src/pth/kernel/prompt-docs.js");
+    const map = await buildProjectMap();
+    expect(map).toContain("PTH 项目全貌");
+    expect(map).toContain("任务流");
+    expect(map).toContain("agent-loop.ts");
+    expect(map).toContain("执行层");
+    expect(map).toContain("agent-loop");
+    expect(map.length).toBeGreaterThan(1000);
+  });
+
+  it("project-map 受保护（worker 不可覆盖）", async () => {
+    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    expect(isSystemDocId("project-map")).toBe(true);
+  });
+});

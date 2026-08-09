@@ -173,5 +173,5 @@ function mapEntry(row: any): MemoryEntry {
 /** 系统文档保护名单（静态上下文——Prompt 框架化：角色文档/能力索引/自修改指南） */
 export function isSystemDocId(id: string): boolean {
   return id === "capability-index" || id === "self-modify-guide" || id.startsWith("role-doc:")
-    || id === "skill:api-investigation" || id === "pth-worker-system";
+    || id === "skill:api-investigation" || id === "pth-worker-system" || id === "project-map";
 }
