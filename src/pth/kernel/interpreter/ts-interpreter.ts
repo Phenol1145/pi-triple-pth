@@ -70,6 +70,7 @@ export class TsInterpreter implements Interpreter {
       // 单点 DoS）。异步守卫：Promise.race([执行, 超时 reject])，超时语义与同步 timeout 一致
       // （opts.timeoutMs ?? this.timeoutMs）。
       const context = this.context;
+      this.currentCwd = opts?.cwd ?? null;   // fs.task 任务工作区定位（每任务）
       const runPromise = (async () => {
         const result = runInContext(js, context, { timeout: timeoutMs });
         return { ok: true, value: await normalize(result), durationMs: Date.now() - start };
