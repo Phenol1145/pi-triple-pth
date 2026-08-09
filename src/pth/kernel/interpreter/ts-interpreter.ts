@@ -20,6 +20,8 @@ export class TsInterpreter implements Interpreter {
   private context: Context;
   private capabilities: Record<string, unknown>;
   private seeds: Record<string, unknown>;
+  /** 当前执行 cwd（每次 execute 更新——fs.task 任务工作区动态定位） */
+  currentCwd: string | null = null;
 
   constructor(deps: { capabilities: Record<string, unknown>; timeoutMs?: number }) {
     this.capabilities = deps.capabilities;
