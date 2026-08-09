@@ -113,11 +113,31 @@ describe("runAgentTask（agent 循环）", () => {
 describe("PTC 程序模式（P1）", () => {
   it("system prompt 包含程序模式引导（ts 组合多 kernel + 示例）", async () => {
     const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
-    const prompt = buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t");
+    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t");
     expect(prompt).toContain("程序模式（PTC");
-    expect(prompt).toContain("python.execute");
-    expect(prompt).toContain("bash.execute");
     expect(prompt).toContain("完整程序");
+    // eager 模式：无 memory 时回退 role.prompt（不崩）
+    expect(prompt).toContain("你是开发者");
+  });
+
+  it("lazy 模式：角色/能力指针（不注入全文——LLM 按需 query）", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t", { mode: "lazy" });
+    expect(prompt).toContain("role-doc:developer");
+    expect(prompt).toContain("capability-index");
+    expect(prompt).toContain("memory.query");
+    expect(prompt).not.toContain("fs.task.write");  // 能力详情不注入——指针指向索引
+  });
+
+  it("eager 模式：memory 有 role-doc/capability-index 时注入全文", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const memory = { query: async (sql: string) => {
+      if (sql.includes("role-doc")) return [{ content: "# 角色：developer 全文角色文档" }];
+      return [{ content: "# PTH 能力索引 fs.task.write 写任务工作区" }];
+    } };
+    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t", { mode: "eager", memory: memory as never });
+    expect(prompt).toContain("全文角色文档");
+    expect(prompt).toContain("fs.task.write");
   });
 
   it("ts 工具回填 value + stdout（组合输出）", async () => {
@@ -152,5 +172,32 @@ describe("PTC 程序模式（P1）", () => {
       expect(kernel.ts.execute).toHaveBeenCalledTimes(1);
       expect(r.value).toEqual({ fib25: 75025 });
     }
+  });
+});
+
+describe("收敛 agent 行为 v1（重复动作检测——轨迹分析 2026-08-09）", () => {
+  it("语义指纹：同文件读取微变重写 → 判定重复（14 次案例的归一化）", async () => {
+    const kernel = mockKernel();
+    // 模拟 step 13-26 模式：同一 readSource 但每步微变（变量名/注释）
+    const steps = Array.from({ length: 6 }, (_, i) => ({
+      toolCalls: [{ name: "ts", arguments: { code: `// v${i} 重写\nconst s${i} = await fs.readSource("src/pth/kernel/interpreter/ts-interpreter.ts"); s${i};` } }],
+    }));
+    const llm = mockLlm(steps);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "读文件" }, maxSteps: 8 });
+    // 第 5 次重复（repeatCount≥5）→ 强制终止（不无限循环）
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.warning ?? "").toContain("重复动作");
+  });
+
+  it("不同文件读取 → 不判定重复（正常推进）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "ts", arguments: { code: `const a = await fs.readSource("src/a.ts"); a;` } }] },
+      { toolCalls: [{ name: "ts", arguments: { code: `const b = await fs.readSource("src/b.ts"); b;` } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: true } } }] },
+    ]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "读多文件" }, maxSteps: 5 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual({ ok: true });
   });
 });

@@ -52,25 +52,70 @@ const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /** 构建 agent system prompt：角色人设 + 工具协议 + 能力文档 + PTC 程序模式引导 + 输出要求 */
-export function buildAgentSystemPrompt(role: WorkerRole | undefined, taskTitle: string): string {
-  return `你是任务执行 agent${role ? `（${role.prompt}）` : ""}。
+/** Prompt 框架（2026-08-09：Prompt 文档化——统一模板 + eager/lazy 渲染参数）。
+ * 数据源：memory（role-doc:<role> / capability-index——injectPromptDocs 注入）。
+ * eager：渲染层 query 读全文注入；lazy：指针（LLM 按需 memory.query——与 memory 检索同构）。
+ * 新核/新角色：更新 memory 文档——模板零改动。 */
+export async function buildAgentSystemPrompt(
+  role: WorkerRole | undefined,
+  taskTitle: string,
+  opts: { mode?: "eager" | "lazy" | "auto"; memory?: { query(sql: string): Promise<Array<{ content: string }>> } } = {},
+): Promise<string> {
+  // 模式：auto 按模型智力（v1 简化：env PTH_AGENT_MODE 覆盖；auto 缺省 eager——后续按模型映射）
+  const mode = opts.mode ?? (process.env.PTH_AGENT_MODE === "lazy" ? "lazy" : "eager");
+
+  // 角色块：eager = 角色文档全文（memory query）；lazy = 指针
+  let roleBlock = "";
+  if (role) {
+    if (mode === "lazy") {
+      roleBlock = `你的角色：${role.id}。角色文档在 memory（kind='role-doc:${role.id}'）——
+先用 memory.query 查询它了解你的职责与工作方式：
+SELECT content FROM memory_entries WHERE kind='role-doc:${role.id}' LIMIT 1\n（若查询不到——按人设执行：${role.prompt.slice(0, 120)}）`;
+    } else {
+      try {
+        const rows = opts.memory ? await opts.memory.query(`SELECT content FROM memory_entries WHERE kind='role-doc:${role.id}' LIMIT 1`) : [];
+        roleBlock = rows[0]?.content ?? role.prompt;
+      } catch {
+        roleBlock = role.prompt;
+      }
+    }
+  }
+
+  // 能力块：eager = 能力索引全文；lazy = 指针
+  let capBlock = "";
+  if (mode === "lazy") {
+    capBlock = `【能力探索（按需读取）】
+ts 程序内可调用能力函数——完整清单在 memory（kind='capability-index'）：
+const idx = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1");\n（或用 fs.readText 读 toolstore 文件）——需要什么能力先查索引——不要盲试。
+源码阅读：fs.readSource（读索引可知用法）。任务工作区写入：fs.task（读索引可知）。`;
+  } else {
+    try {
+      const rows = opts.memory ? await opts.memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1") : [];
+      capBlock = rows[0]?.content ?? AGENT_CAPABILITY_DOC;
+    } catch {
+      capBlock = AGENT_CAPABILITY_DOC;
+    }
+  }
+
+  return `你是任务执行 agent。
 当前任务：${taskTitle}
+
+${roleBlock}
 
 ${AGENT_TOOLS_DESCRIPTION}
 
-${AGENT_CAPABILITY_DOC}
+${capBlock}
 
 【程序模式（PTC——优先使用）】
 优先用 ts 工具写【完整程序】一次性组合多个 kernel/能力完成多步，而不是分步发多个动作：
 - ts 程序运行在 vm 沙箱，可 await 调用能力函数；程序内可写 for/if/函数/变量——跨步骤传值
 - 结果自动注册 results 对象（results.result_1 引用之前步骤的工具输出）
 - context 对象跨步骤保留（context.my_key = ... 供后续程序读取）
-- 例：{"action":{"tool":"ts","args":{"code":"const py = await python.execute(\"_result = sum(range(1,101))\\\n\"); const b = await bash.execute(\"echo \" + py.value + \" | grep -q . && echo ok\"); return { sum: py.value, verified: b.stdout.includes('ok') };"}}}
 - return 的值 + 程序 stdout 都会回填给你（中间输出可见）
 单 kernel 简单步骤（python.execute / bash.execute）可直接调用；复杂多步组合用 ts 程序。
 
-输出要求：每步只输出一个 JSON 对象（可带 brief 思考），不要输出 JSON 以外的多余内容。
-完成任务时输出 {"action":{"tool":"done","args":{"result":<最终产出对象>,"summary":"完成说明"}}}。
+输出要求：每步输出一个 JSON 动作（可用工具在 tools 声明中——结构化 tool_calls）。
+完成任务时输出 done 工具（args.result = 最终产出对象，args.summary = 完成说明）。
 如果任务无法完成（信息不足/超出能力），也用 done 提交并说明原因。`;
 }
 
@@ -79,8 +124,20 @@ function truncate(s: string, max = 2000): { text: string; truncated: boolean } {
   return { text: s.slice(0, max) + `…(截断 ${s.length - max} 字符)`, truncated: true };
 }
 
-/** 动作指纹（防死锁：连续相同动作强制终止） */
+/** 动作指纹（防死锁/重复：连续相同动作检测）
+ * 归一化：ts 工具提取关键调用（fs.readSource/readText 路径）——同路径=重复
+ * （轨迹分析 2026-08-09：模型 14 次微变重写同一 readSource——全量 args 比较被微小
+ *   变量名/注释差异绕过——语义指纹按关键参数判定重复） */
 function actionFingerprint(tool: string, args: Record<string, unknown>): string {
+  if (tool === "ts" && typeof args.code === "string") {
+    // 提取关键文件读取调用（readSource/readText 的路径）——忽略变量名/注释等无关差异
+    const reads = [...args.code.matchAll(/fs\.(readSource|readText)\(\s*"([^"]+)"/g)]
+      .map((m) => `${m[1]}:${m[2]}`)
+      .sort();
+    if (reads.length > 0) return `ts:${reads.join(",")}`;
+    // 无文件读取——退化为工具名（同工具连续即重复候选）
+    return `ts:*`;
+  }
   return `${tool}:${JSON.stringify(args)}`;
 }
 
@@ -111,7 +168,10 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   // 参数走配置中心（Phase 2——perf.set 运行时生效；env 兜底）
   const maxSteps = input.maxSteps ?? configNumber("PTH_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS);
   const timeoutMs = input.timeoutMs ?? configNumber("PTH_AGENT_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
-  const system = buildAgentSystemPrompt(input.role, input.task.title);
+  const system = await buildAgentSystemPrompt(input.role, input.task.title, {
+    mode: (process.env.PTH_AGENT_MODE === "lazy" || process.env.PTH_AGENT_MODE === "eager" ? process.env.PTH_AGENT_MODE : "eager") as "eager" | "lazy",
+    memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
+  });
   // 静态环境注入（②）：任务开始时拉环境预置（toolstore 文件 + 记忆概览）——LLM 一上来就知道可用资产
   const prelude = await buildEnvironmentPrelude(caps);
 
@@ -193,12 +253,21 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
 
   async function executeStep(action: { tool: string; args: Record<string, unknown>; thought?: string }, toolCallId?: string): Promise<AgentTaskResult | undefined> {
     const { tool, args } = action;
-    // 死锁检测：连续相同动作
+    // 重复检测（收敛 agent 行为 v1——轨迹分析 2026-08-09）：
+    // 语义指纹（关键参数）连续相同 → 重复。≥3 次回填引导（不终止——模型修正策略）；
+    // ≥5 次强制终止（防失控）。
     const fp = actionFingerprint(tool, args);
     if (fp === lastFingerprint) repeatCount++;
     else { lastFingerprint = fp; repeatCount = 0; }
-    if (repeatCount >= 3) {
-      return { ok: true, value: null, steps: steps + 1, warning: `连续 ${repeatCount} 次相同动作（${tool}），强制终止` };
+    if (repeatCount >= 5) {
+      return { ok: true, value: null, steps: steps + 1, warning: `连续 ${repeatCount} 次重复动作（${tool}），强制终止` };
+    }
+    if (repeatCount >= 3 && tool === "ts") {
+      // 引导：重复读同一文件无意义——回填提示让模型推进（结果已在历史 tool-result）
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+        content: `[收敛] 检测到重复动作（第 ${repeatCount + 1} 次相同文件读取）——该文件内容已在前面的工具结果中返回过——不要重复读取，直接基于已有结果推进下一步（设计/实现/测试/完成）。` });
+      input.logger?.(`[agent] step=${steps + 1} 重复动作引导（${fp.slice(0, 60)}）`);
+      return undefined;
     }
 
     input.onTrace?.({ type: "tool-call", step: steps + 1, tool, args });

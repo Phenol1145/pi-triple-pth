@@ -137,6 +137,14 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   } catch (e) {
     assemblyLogger?.warn?.(`[self-modify] 指南注入失败（放行）: ${(e as Error).message}`);
   }
+  // Prompt 框架化（2026-08-09）：角色文档 + 能力索引入 memory（prompt 数据源——
+  // eager 注入 / lazy 指针——新核/新角色零 prompt 改动）
+  try {
+    const { injectPromptDocs } = await import("./prompt-docs.js");
+    await injectPromptDocs(dataWorld.memory);
+  } catch (e) {
+    assemblyLogger?.warn?.(`[prompt-docs] 文档注入失败（放行）: ${(e as Error).message}`);
+  }
 
   // TaskResolver（任务池即工作流 T3）：独立解析循环（unref 不阻止退出）
   // CPU 优化：空轮询自适应退避 2s→5s→10s→15s（无 flow 任务时降频——resolver 查询是
