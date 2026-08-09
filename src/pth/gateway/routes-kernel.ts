@@ -36,7 +36,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!kernel) return unavailable(reply);
     const { id } = req.params as { id: string };
     const list = await kernel.dataWorld.transcripts.listByTask(id);
-    return { taskId: id, transcripts: list.map((t: never) => ({
+    return { taskId: id, transcripts: list.map((t: any) => ({
       id: t.id,
       agentId: t.agent_id,
       summary: t.summary,
