@@ -244,6 +244,12 @@ export class CDebugSession implements DebugSession {
       const rec = parseMiLine(line);
       if (rec) {
         if (rec.kind === "prompt") this.flushPending();
+        else if (rec.kind === "exec" && rec.cls === "stopped") {
+          // 异步停止（*stopped——^running 后程序运行至断点/退出）——推给等待器（优先）
+          this.records.push(rec);
+          const waiter = this.stoppedWaiters.shift();
+          if (waiter) waiter.resolve(rec);
+        }
         else this.records.push(rec);
       }
     }
@@ -260,6 +266,18 @@ export class CDebugSession implements DebugSession {
     const pending = this.pending;
     this.pending = [];
     for (const p of pending) p.resolve(recs);
+  }
+
+  /** 等程序停止（-exec-run/-exec-continue 等"程序启动"命令——^running 立即 prompt，
+   *  *stopped 是异步——等 stopped 而非 prompt（端到端发现：prompt 在程序停止前出现，记录丢失） */
+  private stoppedWaiters: Array<{ resolve: (rec: MiRecord) => void }> = [];
+  private waitStopped(): Promise<MiRecord> {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("程序未在超时内停止")), this.timeoutMs);
+      this.stoppedWaiters.push({
+        resolve: (rec) => { clearTimeout(timer); resolve(rec); },
+      });
+    });
   }
 
   private waitPrompt(): Promise<void> {
@@ -308,7 +326,20 @@ export class CDebugSession implements DebugSession {
   }
 
   async continueExec(): Promise<DebugStopped> {
+    // 等"命令确认"（prompt）与"程序停止"（异步 stopped）——并发等待（stopped 后命令确认已出）
+    const stoppedPromise = this.waitStopped().catch(() => null);
     const recs = await this.command("-exec-continue");
+    // 程序未运行（"The program is not being run"）→ 自动 -exec-run（attach 只起 gdb）
+    const err = recs.find((r) => r.kind === "result" && r.cls === "error");
+    if (err && String(err.results?.["msg"] ?? "").includes("not being run")) {
+      // waiter #1（stoppedPromise）就是等 run 的 stopped（push 先于 run command——onData 推给它）
+      await this.command("-exec-run");
+      const stoppedRec = await stoppedPromise;
+      return stoppedRec ? (stoppedFromRecord(stoppedRec) ?? { reason: "exited" }) : { reason: "exited" };
+    }
+    // 程序运行中：命令已确认（^running）——等异步 stopped
+    const stoppedRec = await stoppedPromise;
+    if (stoppedRec) return stoppedFromRecord(stoppedRec) ?? { reason: "exited" };
     const stopped = recs.map(stoppedFromRecord).find(Boolean);
     return stopped ?? { reason: "exited" };
   }
@@ -327,7 +358,10 @@ export class CDebugSession implements DebugSession {
   }
 
   async variables(frameId?: number): Promise<DebugVariable[]> {
-    const recs = await this.command(`-stack-list-variables 2 --thread 1 --frame ${frameId ?? 0}`);
+    // frame 选择：MI 的 -stack-list-variables 对当前 frame——frameId 需先 select（
+    // --thread/--frame 参数不被支持——端到端发现 variables 返回空的原因）
+    if (frameId !== undefined && frameId !== 0) await this.command(`-stack-select-frame ${frameId}`);
+    const recs = await this.command(`-stack-list-variables 1`);   // 1 = locals + args
     const done = recs.find((r) => r.kind === "result" && r.cls === "done");
     return variablesFromResult(done ?? null);
   }
