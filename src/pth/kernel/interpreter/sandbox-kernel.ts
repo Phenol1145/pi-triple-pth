@@ -60,6 +60,8 @@ export class SandboxKernel implements Interpreter {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs ?? this.requestTimeoutMs);
     try {
+      // debug: 记录 sandbox 调用（URL/路径——诊断 abort 来源）
+      if (process.env.PTH_DEBUG_SANDBOX) console.error(`[sandbox-debug] ${this.language} call ${path} url=${this.url} timeout=${timeoutMs ?? this.requestTimeoutMs}ms kernelId=${this.kernelId ?? "(未acquire)"}`);
       const res = await fetch(`${this.url}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${this.secret}` },
