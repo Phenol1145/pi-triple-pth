@@ -64,7 +64,8 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
 
 框架事实：
 - 记忆（memory）：PTH 共享知识层——先 query 查已有沉淀（task-insight/tool-function）——有价值洞察 write 沉淀
-- 角色：内置角色正交分工——你的职责见 role-doc（memory 查询）
+- 角色：内置角色正交分工——查你的角色文档：
+  const r = await memory.query("SELECT content FROM memory_entries WHERE kind='role-doc:你的角色id' LIMIT 1")
 - 产物：fs.task 写任务工作区 → 归档 → 人工/系统应用
 - 改系统：fs.readSource 读源码 + 遵循 self-modify-guide
 

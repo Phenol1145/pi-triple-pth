@@ -42,19 +42,25 @@ ${extDoc}
 - results: 每步工具结果自动注册（results["result_N"] = {tool, value, stdout}）；程序内可读写
 - context: 跨步骤 KV（context.my_key = ...；后续程序直接读）
 
-## 文件与工作区
-- fs.readText(path): 读 toolstore 文件（只读——代码库/扩展/文档）
-- fs.list(dir?): 列 toolstore 目录
-- fs.readSource(relPath): 读 PTH 源码（src/ 下 .ts——白名单只读——自修改用）
-- fs.task.write(relPath, content): 写任务工作区文件（相对路径——产物/补丁落盘）
-- fs.task.read(relPath): 读任务工作区文件
-- fs.task.list(): 列任务工作区
+## 文件与工作区（确切签名——参数/返回）
+- fs.readText(path: string) → Promise<string>
+  path = toolstore 相对路径（如 "extensions/hello-world/index.ts"）
+- fs.list(dir?: string) → Promise<string[]>   （列 toolstore 目录）
+- fs.readSource(relPath: string) → Promise<string>
+  relPath = 相对【/app/src】——写 src/ 前缀（如 "src/pth/kernel/extensions/context.ts"）
+- fs.task.write(relPath: string, content: string) → Promise<{ok, path, bytes}>
+  relPath = 任务工作区相对路径（防穿越——只写自己目录）
+- fs.task.read(relPath: string) → Promise<string>
+- fs.task.list() → Promise<Array<{name, isDir}>>
 
-## 执行核
-- ts: 当前程序本身（组合一切）
-- python.execute({code}): python 执行（sandbox）
-- bash.execute({command}): bash 命令（sandbox）
-- c.execute(language, source): 编译执行（C——gcc/clang/tcc——sandbox）
+## 执行核（确切签名）
+- python.execute(code: string) → Promise<{ok, stdout, stderr, value, durationMs}>
+  code = python 源码字符串（【不是对象】——第一参数字符串）
+- bash.execute(command: string) → Promise<{ok, stdout, stderr, durationMs}>
+  command = shell 命令字符串（第一参数字符串）
+- c.execute(language: string, source: string) → Promise<{ok, stdout, result}>
+  language = "gcc"|"clang"|"tcc"
+- ts 程序：能力函数 await 调用；return 值 + stdout 回填
 
 ## 其他
 - llm.complete: LLM 调用（嵌套 agent/评估）
