@@ -79,7 +79,7 @@ export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
         content: buildRoleDoc(role),
         status: "official",
         meta: { source: "injectPromptDocs", role: role.id },
-      });
+      }, { force: true });
     } catch { /* 单角色注入失败放行 */ }
   }
   // 能力索引
@@ -91,6 +91,6 @@ export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
       content: buildCapabilityIndex(),
       status: "official",
       meta: { source: "injectPromptDocs" },
-    });
+    }, { force: true });
   } catch { /* 索引注入失败放行 */ }
 }

@@ -58,7 +58,7 @@ export async function injectSelfModifyGuide(memory: PgMemoryStore): Promise<void
       content: SELF_MODIFY_GUIDE,
       status: "official",
       meta: { source: "injectSelfModifyGuide" },
-    });
+    }, { force: true });
   } catch (e) {
     // 注入失败不阻断启动（worker 侧可再查）
     console.warn(`[self-modify] 指南注入失败（放行）: ${(e as Error).message}`);

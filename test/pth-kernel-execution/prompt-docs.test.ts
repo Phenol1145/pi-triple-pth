@@ -30,3 +30,26 @@ describe("Prompt 框架化（角色文档/能力索引——memory 数据源）"
     expect(idx).toContain("context");
   });
 });
+
+describe("系统文档保护（静态上下文——worker 不可覆盖）", () => {
+  it("isSystemDocId：角色文档/能力索引/自修改指南命中", async () => {
+    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    expect(isSystemDocId("capability-index")).toBe(true);
+    expect(isSystemDocId("self-modify-guide")).toBe(true);
+    expect(isSystemDocId("role-doc:developer")).toBe(true);
+    expect(isSystemDocId("task-insight-123")).toBe(false);
+  });
+
+  it("worker 覆盖系统文档 → 拒绝（非 force）", async () => {
+    const { PgMemoryStore } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    const queries: Array<{ sql: string; params: unknown[] }> = [];
+    const store = new PgMemoryStore({
+      query: async (sql: string, params: unknown[]) => { queries.push({ sql, params }); return { rows: [] }; },
+    } as never);
+    await expect(store.write({ id: "capability-index", kind: "x", anchors: ["a"], content: "污染" } as never))
+      .rejects.toThrow(/受保护/);
+    // 系统 force 写入通过（走 SQL）
+    await store.write({ id: "capability-index", kind: "x", anchors: ["a"], content: "ok" } as never, { force: true });
+    expect(queries.some((q) => q.sql.includes("INSERT INTO memory_entries"))).toBe(true);
+  });
+});

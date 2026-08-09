@@ -43,9 +43,14 @@ export class PgMemoryStore {
   constructor(private pool: pg.Pool) {}
 
   /** upsert：id 冲突则版本递增（CAS 语义，对齐 FS 实现）。anchors 必须显式传非空数组（schema CHECK 约束）。 */
-  async write(entry: MemoryEntry): Promise<void> {
+  async write(entry: MemoryEntry, opts?: { force?: boolean }): Promise<void> {
     // 缺省 id 生成（memory 封装签名 id?——调用方可不传——防 pg not-null 违反）
     if (!entry.id) entry.id = randomUUID();
+    // 系统文档保护（Prompt 框架化 2026-08-09）：静态上下文（角色文档/能力索引/自修改指南）
+    // 不可被 worker 覆盖——只有系统注入（force）可写——防误覆盖污染所有后续任务的 system 注入/指针
+    if (!opts?.force && isSystemDocId(entry.id)) {
+      throw new Error(`memory.write: 系统文档 ${entry.id} 受保护（静态上下文——worker 不可覆盖）`);
+    }
     // ON CONFLICT 分支（对齐 FS write 路径②③）：
     // - 幂等判定：content 与调用方声明版本均相同 → 重落库不递增版本（FS 路径②：entry.meta.version ===
     //   existing.meta.version && entry.content === existing.content → persist 不递增）；
@@ -163,4 +168,9 @@ function mapEntry(row: any): MemoryEntry {
     promotedFrom: row.promoted_from ?? undefined,
     meta: { ...(row.meta ?? {}), version: row.version, hitCount: row.hit_count, notWriteBack: row.not_write_back },
   };
+}
+
+/** 系统文档保护名单（静态上下文——Prompt 框架化：角色文档/能力索引/自修改指南） */
+export function isSystemDocId(id: string): boolean {
+  return id === "capability-index" || id === "self-modify-guide" || id.startsWith("role-doc:");
 }
