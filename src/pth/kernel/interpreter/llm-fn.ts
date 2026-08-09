@@ -25,6 +25,8 @@ export interface LlmResult {
   usage?: { inputTokens?: number; outputTokens?: number };
   /** 原生工具调用（模型返回结构化 tool_calls——非文本 JSON 解析） */
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+  /** 推理内容（reasoning_content——deepseek 思考字段——轨迹分析用） */
+  thinking?: string;
 }
 
 export interface LlmFn {
@@ -195,7 +197,10 @@ async function directOpenAiComplete(
     choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
     usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  const msg = json.choices?.[0]?.message;
+  const msg = json.choices?.[0]?.message as {
+    content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
+    reasoning_content?: string | null;
+  } | undefined;
   const toolCalls = (msg?.tool_calls ?? []).map((tc) => {
     try { return { id: tc.id, name: tc.function.name, arguments: JSON.parse(tc.function.arguments) as Record<string, unknown> }; }
     catch { return { id: tc.id, name: tc.function.name, arguments: {} }; }
@@ -206,6 +211,7 @@ async function directOpenAiComplete(
     model: model.id,
     usage: { inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0 },
     ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    ...(msg?.reasoning_content ? { thinking: msg.reasoning_content } : {}),
   };
 }
 
