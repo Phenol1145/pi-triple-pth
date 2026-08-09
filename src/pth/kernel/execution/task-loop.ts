@@ -100,6 +100,13 @@ export class TaskLoop {
       if (nlDetected) {
         const agentMode = process.env.PTH_AGENT_MODE !== "off";
         if (agentMode && this.deps.llm && this.deps.agentCaps) {
+          // 任务工作区（fs.task 落盘——/tmp/tasks/<taskId>/——ts execute cwd 含 /tasks/ → fs.task 白名单通过）
+          let taskWorkspace: string | undefined;
+          try {
+            const { mkdir } = await import("node:fs/promises");
+            taskWorkspace = `/tmp/tasks/${task.id}`;
+            await mkdir(taskWorkspace, { recursive: true });
+          } catch { /* 工作区创建失败容忍——fs.task 不可用但任务继续 */ }
           // 运行过程保留（2026-08-09）：轨迹事件收集 → 任务结束写 transcript（结构化审计/复现）
           const traceEvents: import("./agent-loop.js").AgentTraceEvent[] = [
             { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
@@ -107,6 +114,7 @@ export class TaskLoop {
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
+            taskWorkspace,
             role,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
             logger: (m) => taskLogger?.info(m),
