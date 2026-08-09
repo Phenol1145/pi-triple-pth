@@ -13,11 +13,13 @@ export function createReadSource(sourceRoot: string) {
     if (typeof relPath !== "string" || relPath.trim() === "") {
       throw new Error("readSource: 需传相对路径（如 kernel/execution/worker-cluster.ts）");
     }
-    // 白名单：仅 src/ 下 .ts 文件（源码只读面——排除配置/数据/密钥）
-    if (!relPath.startsWith("src/") || !relPath.endsWith(".ts")) {
-      throw new Error(`readSource: 仅允许 src/ 下 .ts 文件（拒绝: ${relPath.slice(0, 80)}）`);
+    // 兼容两种写法：sourceRoot 已含 src/（/app/src）——relPath 可带 src/ 前缀或相对内部
+    const clean = relPath.startsWith("src/") ? relPath.slice(4) : relPath;
+    // 白名单：仅 .ts 源码（只读面——排除配置/数据/密钥）
+    if (!clean.endsWith(".ts")) {
+      throw new Error(`readSource: 仅允许 .ts 源码（拒绝: ${relPath.slice(0, 80)}）`);
     }
-    const abs = normalize(join(sourceRoot, relPath));
+    const abs = normalize(join(sourceRoot, clean));
     // 路径穿越防护（normalize 后仍须在 root 内）
     const rel = relative(sourceRoot, abs);
     if (rel.startsWith("..") || rel.startsWith("/") || rel === "") {

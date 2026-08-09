@@ -14,22 +14,24 @@ describe("自修改 v1（PTH 自己修改自己——单步）", () => {
   });
   afterAll(async () => { await rm(root, { recursive: true, force: true }); });
 
-  it("readSource：读 src/ 下 .ts 源码（白名单）", async () => {
-    const rs = createReadSource(root);
-    const content = await rs("src/pth/kernel/worker-cluster.ts");
+  it("readSource：读 src/ 下 .ts 源码（白名单——sourceRoot 指向 src 目录）", async () => {
+    const rs = createReadSource(join(root, "src"));
+    const content = await rs("pth/kernel/worker-cluster.ts");
     expect(content).toContain("export const X");
+    // 兼容带 src/ 前缀写法
+    const content2 = await rs("src/pth/kernel/worker-cluster.ts");
+    expect(content2).toContain("export const X");
   });
 
-  it("readSource：拒绝白名单外（非 src/ 或非 .ts）", async () => {
-    const rs = createReadSource(root);
-    await expect(rs("../etc/passwd")).rejects.toThrow(/仅允许/);
-    await expect(rs("src/pth/kernel/config.json")).rejects.toThrow(/仅允许/);
-    await expect(rs("kernel/worker-cluster.ts")).rejects.toThrow(/仅允许/);
+  it("readSource：拒绝白名单外（非 .ts）", async () => {
+    const rs = createReadSource(join(root, "src"));
+    await expect(rs("../../etc/passwd")).rejects.toThrow();
+    await expect(rs("pth/kernel/config.json")).rejects.toThrow(/仅允许/);
   });
 
   it("readSource：路径穿越防护", async () => {
-    const rs = createReadSource(root);
-    await expect(rs("src/../../etc/passwd")).rejects.toThrow();
+    const rs = createReadSource(join(root, "src"));
+    await expect(rs("../../etc/passwd")).rejects.toThrow();
   });
 
   it("自修改指南含源码布局/修改流程/不变量", () => {
