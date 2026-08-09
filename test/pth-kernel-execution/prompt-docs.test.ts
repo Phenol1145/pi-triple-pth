@@ -77,3 +77,22 @@ describe("API 调查技能（skill:api-investigation——探索方法论）", (
     expect(isSystemDocId("skill:api-investigation")).toBe(true);
   });
 });
+
+describe("PTH Worker 世界观（pth-worker-system——身份/工作流/框架）", () => {
+  it("system prompt 含世界观（你在哪/工作流/框架事实/约束）——所有模式", async () => {
+    const { buildAgentSystemPrompt, PTH_WORKER_SYSTEM } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    expect(PTH_WORKER_SYSTEM).toContain("PTH（Pi-Triple-Heavy）任务池的 worker");
+    expect(PTH_WORKER_SYSTEM).toContain("任务池 → 角色路由 → worker 执行 → 产物提交");
+    expect(PTH_WORKER_SYSTEM).toContain("先查 memory 既有资产");
+    expect(PTH_WORKER_SYSTEM).toContain("不空 done");
+    expect(PTH_WORKER_SYSTEM).toContain("sandbox 零敏感");
+    // 注入在最前（角色之上）
+    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "p" }, "t", { mode: "lazy" });
+    expect(prompt.indexOf("PTH Worker 世界观")).toBeLessThan(prompt.indexOf("你的角色"));
+  });
+
+  it("世界观受保护（worker 不可覆盖）", async () => {
+    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    expect(isSystemDocId("pth-worker-system")).toBe(true);
+  });
+});
