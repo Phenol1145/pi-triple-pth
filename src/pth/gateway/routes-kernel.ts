@@ -21,7 +21,13 @@ import { TASK_TEMPLATES, renderTaskTemplate, validateTemplateParams } from "../k
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 
-export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime | null): void {
+export interface KernelRoutesDeps {
+  kernel: KernelRuntime | null;
+  /** 性能自持（v0.8）：autopilot 状态（/kernel/status 暴露） */
+  autopilot?: { status: () => unknown } | null;
+}
+
+export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime | null, autopilot?: KernelRoutesDeps["autopilot"]): void {
   const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>
     reply.status(503).send(KERNEL_UNAVAILABLE);
 
@@ -178,6 +184,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     }
     return {
       kernel: { connected: true },
+      autopilot: autopilot?.status() ?? null,
       batches: batches.map((b) => ({ ...b, alive: kernel.batchManager.isBatchAlive(b.id) })),
       tasks: {
         pending: counts.pending ?? 0,

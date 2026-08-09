@@ -122,7 +122,17 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   process.on("exit", (code) => { if (!disposed) void disposeAllKernels().finally(() => exitNow(code)); });
 
   process.on("message", (msg: any) => {
-    if (msg?.type === "shutdown") {
+    if (msg?.type === "set-param" && typeof msg.key === "string") {
+      // 性能自持（v0.8）：主进程 autopilot 下发调参 → batch 进程内 config（perf 扩展同源）
+      try {
+        const { config } = require("../extensions/perf-params.js") as typeof import("../extensions/perf-params.js");
+        config().set(msg.key, msg.value);
+        batchLogger?.info?.(`[autopilot] set-param ${msg.key}=${msg.value}`);
+        process.send?.({ type: "param-status", batchPid: process.pid, key: msg.key, ok: true });
+      } catch (e) {
+        process.send?.({ type: "param-status", batchPid: process.pid, key: msg.key, ok: false, error: (e as Error).message });
+      }
+    } else if (msg?.type === "shutdown") {
       void disposeAllKernels().finally(() => process.exit(0));
     } else if (msg?.type === "pause") {
       paused = true;

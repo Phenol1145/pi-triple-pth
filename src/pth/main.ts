@@ -154,6 +154,8 @@ async function main() {
   // fail-open：pg 不可达时 kernelRuntime = null，/kernel/* 路由 503，PTH 其余功能照常。
   const databaseUrl = process.env.DATABASE_URL;
   let kernelRuntime: Awaited<ReturnType<typeof createKernelRuntime>> | null = null;
+  // 性能自持（v0.8）：PerfAutopilot 自愈闭环——创建于 kernel 装配后（registry + batchManager 就绪）
+  let autopilot: import("./kernel/execution/perf-autopilot.js").PerfAutopilot | null = null;
   if (databaseUrl) {
     try {
       kernelRuntime = await createKernelRuntime({
@@ -215,6 +217,44 @@ async function main() {
         // 生产 fork：dist 编译产物（纯 js，无需 loader/transform-types）；watchdog 30s 探测
       });
       logger.info({ event: "kernel_assembled", note: "PTH kernel 装配成功（pg + dataWorld + BatchManager + watchdog）" });
+
+      // 性能自持（v0.8）：PerfAutopilot 自愈闭环——PTH_AUTOPILOT_MODE=on 启用
+      if (process.env.PTH_AUTOPILOT_MODE === "on" && kernelRuntime) {
+        const rt = kernelRuntime;  // 非空收紧
+        const { PerfAutopilot } = await import("./kernel/execution/perf-autopilot.js");
+        const batchManager = kernelRuntime.batchManager;
+        autopilot = new PerfAutopilot(
+          {
+            registry: metrics.registry,
+            setParam: (key, value) => {
+              // 下发到全部活跃 batch（batch 子进程 perf config）
+              void (async () => {
+                const batches = await batchManager.listBatches();
+                for (const b of batches) {
+                  if (batchManager.isBatchAlive(b.id)) void batchManager.setParam(b.id, key, value);
+                }
+              })();
+            },
+            getParam: (key) => process.env[key],
+            countPendingByRole: async () => rt.dataWorld.tasks.countPendingByRole(),
+            spawnReinforced: async (role, copies) => {
+              return batchManager.spawnBatch({ mode: "reinforced", role, copies });
+            },
+            log: (level, msg, meta) => logger[level]({ ...(meta ?? {}), event: "autopilot", msg }),
+          },
+          {
+            mode: "on",
+            intervalMs: Number(process.env.PTH_AUTOPILOT_INTERVAL_MS ?? 30_000),
+            windowMs: Number(process.env.PTH_AUTOPILOT_WINDOW_MS ?? 60_000),
+            rejectRate: Number(process.env.PTH_AUTOPILOT_REJECT_RATE ?? 0.3),
+            execFailRate: Number(process.env.PTH_AUTOPILOT_EXEC_FAIL_RATE ?? 0.2),
+            llmSlowMs: Number(process.env.PTH_AUTOPILOT_LLM_SLOW_MS ?? 30_000),
+            pendingGrowth: Number(process.env.PTH_AUTOPILOT_PENDING_GROWTH ?? 1.3),
+            maxCopies: Number(process.env.PTH_AUTOPILOT_MAX_COPIES ?? 4),
+          },
+        );
+        autopilot.start();
+      }
     } catch (err) {
       logger.warn({ err: String(err), event: "kernel_assembly_failed", note: "kernel 装配失败——/kernel/* 路由 503，PTH 其余功能照常" });
     }
@@ -229,6 +269,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     logger.info({ signal, event: "shutdown_start" });
     kernelMetrics.dispose();
+    autopilot?.stop();
     if (kernelRuntime) await kernelRuntime.shutdown();
     await engine.drain();
     await server.close();

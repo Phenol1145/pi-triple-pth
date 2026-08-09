@@ -41,6 +41,8 @@ export async function createServer(deps: {
   audit?: AuditWriter;
   /** PTH kernel 运行时（装配层）——可选；传则注册 /kernel/* 路由。 */
   kernelRuntime?: import("../kernel/assembly.js").KernelRuntime | null;
+  /** 性能自持（v0.8）：PerfAutopilot 状态（/kernel/status 暴露）。可选。 */
+  autopilot?: { status: () => unknown } | null;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
@@ -68,9 +70,9 @@ export async function createServer(deps: {
     registerDebugRoutes(app, { gatewayFactory: deps.debugGateway, audit: deps.audit });
   }
   if (deps.kernelRuntime) {
-    registerKernelRoutes(app, deps.kernelRuntime);
+    registerKernelRoutes(app, deps.kernelRuntime, deps.autopilot);
   } else {
-    registerKernelRoutes(app, null);
+    registerKernelRoutes(app, null, deps.autopilot);
   }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 

@@ -148,6 +148,15 @@ export class BatchManager {
   async removeWorker(batchId: string, role: string): Promise<boolean> {
     return this.workerCtl(batchId, { type: "worker-remove", role });
   }
+  /** 性能自持（v0.8）：下发运行时调参到 batch 子进程（perf config——autopilot 用） */
+  async setParam(batchId: string, key: string, value: string | number): Promise<boolean> {
+    const batch = this.batches.get(batchId);
+    const child = batch?.child;
+    if (!child || child.exitCode !== null) return false;
+    child.send({ type: "set-param", key, value: String(value) });
+    return true;
+  }
+
   async addWorker(batchId: string, role: string, copies = 1): Promise<boolean> {
     return this.workerCtl(batchId, { type: "worker-add", role, copies });
   }
