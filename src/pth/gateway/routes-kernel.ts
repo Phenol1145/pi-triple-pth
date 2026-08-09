@@ -86,7 +86,8 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     }
     const tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : undefined;
     // payload 透传（任务链 flow 声明等路由信息——发布时 payload 即任务自带路由）
-    const payload = (body.payload ?? {}) as Record<string, unknown>;
+    // body.flow 顶层并入 payload（API 友好——flow 放顶层也能路由——routeTaskRole flowRole 读 payload.flow）
+    const payload = { ...((body.payload ?? {}) as Record<string, unknown>), ...(body.flow ? { flow: body.flow } : {}) };
     const task = await kernel.dataWorld.tasks.publish({ title, text, createdBy, tags, payload });
     return reply.status(201).send(task);
   });

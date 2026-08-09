@@ -169,3 +169,18 @@ describe("kernel routes", () => {
     });
   });
 });
+
+describe("flow role 路由（body.flow 顶层——发布即路由到指定角色）", () => {
+  it("顶层 flow 并入 payload——routeTaskRole 命中显式 role", async () => {
+    const { PgTaskStore } = await import("../../src/pth/kernel/storage/task-store-pg.js");
+    const { routeTaskRole } = await import("../../src/pth/kernel/execution/role-router.js");
+    const { allWorkerRoles } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const roles = allWorkerRoles();
+    // 模拟 routes-kernel 的 payload 构造（body.flow 顶层并入）
+    const bodyFlow = { stages: [{ task: { role: "developer" } }] };
+    const payload = { ...{}, ...(bodyFlow ? { flow: bodyFlow } : {}) };
+    const assigned = routeTaskRole({ id: "test-123", tags: [], payload });
+    expect(assigned).toBe("developer");
+    expect(roles.some((r) => r.id === assigned)).toBe(true);
+  });
+});
