@@ -12,6 +12,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseExtManifest, type ExtManifest, type ExtRole } from "./ext-manifest.js";
 import { getEventBus, type KernelEventHandler } from "../execution/event-bus.js";
+import { registerWorkerRole } from "../execution/worker-cluster.js";
 import type { Toolstore } from "../interpreter/toolstore.js";
 
 /** 扩展工厂返回（contracts 实现——index.ts 导出形态） */
@@ -98,8 +99,17 @@ export class ExtRegistry {
     for (const [eventType, handler] of Object.entries(result.events ?? {})) {
       getEventBus().on(eventType, handler);
     }
-    // 4b. roles → labelPatterns 重叠校验（角色正交——重叠拒绝）
-    this.validateRoleConflicts(loaded.roles);
+    // 4b. roles → worker-cluster 角色谱系注册（正交谱系动态扩展——labelPatterns 重叠拒绝）
+    for (const role of loaded.roles) {
+      try {
+        registerWorkerRole(role);
+      } catch (e) {
+        // 幂等：重复装载同一角色（同 id）跳过（loadAll 后再 loadOne 的场景）；
+        // 真冲突（labelPatterns 重叠）仍抛出
+        if ((e as Error).message.includes("已存在")) continue;
+        throw e;
+      }
+    }
 
     this.loaded.set(id, loaded);
     return loaded;
@@ -123,18 +133,6 @@ export class ExtRegistry {
     return factory as (ctx: ExtContext) => Promise<ExtFactoryResult>;
   }
 
-  /** 角色冲突校验（labelPatterns 重叠拒绝——正交角色谱系） */
-  private validateRoleConflicts(roles: ExtRole[]): void {
-    const seen = new Map<string, string>();   // pattern → roleId（含内置角色的已知模式——由调用方注入）
-    for (const role of roles) {
-      for (const pat of role.labelPatterns) {
-        if (seen.has(pat)) {
-          throw new Error(`角色 ${role.id} 的 labelPattern "${pat}" 与角色 ${seen.get(pat)} 重叠——正交冲突`);
-        }
-        seen.set(pat, role.id);
-      }
-    }
-  }
 
   /** 已装载扩展查询 */
   getLoaded(id: string): LoadedExt | undefined { return this.loaded.get(id); }

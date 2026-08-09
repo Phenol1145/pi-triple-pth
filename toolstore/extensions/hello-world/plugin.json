@@ -1,0 +1,22 @@
+{
+  "id": "hello-world",
+  "name": "Hello World Extension",
+  "version": "1.0.0",
+  "description": "示例扩展——tools/capabilities/events/roles 四类 contracts 演示",
+  "contracts": {
+    "tools": ["greet"],
+    "capabilities": ["hello_capability"],
+    "events": ["task.claim", "task.submit"],
+    "roles": [
+      {
+        "id": "greeting-agent",
+        "labelPatterns": ["greeting", "hello"],
+        "prompt": "你是问候专员——负责生成友好问候与祝福。",
+        "capabilities": ["memory", "fs"],
+        "memoryScope": "own"
+      }
+    ]
+  },
+  "activation": { "onStartup": true },
+  "compat": { "pluginApi": ">=0.6.0" }
+}

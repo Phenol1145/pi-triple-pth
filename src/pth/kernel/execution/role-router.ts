@@ -10,7 +10,7 @@
  *   ③ 无匹配（无主任务）→ hash(taskId) % 角色数 → 确定性分片（负载均衡）
  */
 import type { WorkerRole } from "./worker-cluster.js";
-import { DEFAULT_ROLES } from "./worker-cluster.js";
+import { allWorkerRoles } from "./worker-cluster.js";
 
 export interface RouteInput {
   id: string;
@@ -49,7 +49,7 @@ function tagRole(tags: string[], roles: WorkerRole[]): string | null {
  * 任务 → 归属角色（确定性）。
  * roles 可注入（默认 DEFAULT_ROLES）；测试可传自定义角色集。
  */
-export function routeTaskRole(input: RouteInput, roles: WorkerRole[] = DEFAULT_ROLES): string {
+export function routeTaskRole(input: RouteInput, roles: WorkerRole[] = allWorkerRoles()): string {
   if (roles.length === 0) throw new Error("routeTaskRole: empty roles");
   // ① flow 显式 role（可能不在 DEFAULT_ROLES——校验存在性，未知角色回退分片）
   const explicit = flowRole(input.payload);

@@ -144,6 +144,37 @@ export function weightsToEnv(weights: Map<string, number>): string {
   return [...weights.entries()].map(([r, n]) => `${r}:${n}`).join(",");
 }
 
+// ── 角色注册表（兼容性扩展接口——正交角色谱系动态扩展）────────────────
+// 内置 DEFAULT_ROLES + 扩展角色（ExtRegistry 装载注册）——routeTaskRole/worker 构成统一谱系。
+
+let extraRoles: WorkerRole[] = [];
+
+/** 注册扩展角色（id 冲突拒绝——防覆盖内置/已有扩展角色） */
+export function registerWorkerRole(role: WorkerRole): void {
+  if (DEFAULT_ROLES.some((r) => r.id === role.id) || extraRoles.some((r) => r.id === role.id)) {
+    throw new Error(`registerWorkerRole: 角色 "${role.id}" 已存在（id 冲突）`);
+  }
+  // labelPatterns 重叠校验（正交角色谱系——任务类型不重叠）
+  const allPatterns = [...DEFAULT_ROLES, ...extraRoles].flatMap((r) => r.labelPatterns);
+  for (const pat of role.labelPatterns) {
+    if (allPatterns.some((p) => p.includes(pat) || pat.includes(p))) {
+      throw new Error(`registerWorkerRole: 角色 "${role.id}" 的 labelPattern "${pat}" 与已有角色重叠`);
+    }
+  }
+  extraRoles.push(role);
+}
+
+/** 全部角色（内置 + 扩展——routeTaskRole/worker 构成统一谱系） */
+export function allWorkerRoles(): WorkerRole[] {
+  return [...DEFAULT_ROLES, ...extraRoles];
+}
+
+/** 已注册扩展角色（监控/调试） */
+export function getExtraRoles(): WorkerRole[] { return [...extraRoles]; }
+
+/** 测试用：清扩展角色 */
+export function resetExtraRoles(): void { extraRoles = []; }
+
 export interface WorkerClusterDeps {
   kernelFactory: (role: WorkerRole) => WorkerKernel;
   taskStore: unknown;        // Spec C TaskStore（Task 2 接入）

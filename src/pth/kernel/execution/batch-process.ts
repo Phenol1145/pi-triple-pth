@@ -5,7 +5,7 @@ import { createDataWorld } from "../storage/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../interpreter/index.js";
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
-import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights } from "./worker-cluster.js";
+import { DEFAULT_ROLES, allWorkerRoles, parseRoleWeights, expandRoleWeights } from "./worker-cluster.js";
 import { getEventBus } from "./event-bus.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
@@ -110,7 +110,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
     } else if (msg?.type === "worker-add" && typeof msg.role === "string") {
       getEventBus().emit("worker.add", { role: msg.role, copies: msg.copies ?? 1, batchPid: process.pid });
-      const roleDef = DEFAULT_ROLES.find((r) => r.id === msg.role);
+      const roleDef = allWorkerRoles().find((r) => r.id === msg.role);
       if (roleDef) {
         const copies = Number(msg.copies ?? 1);
         for (let i = 0; i < copies; i++) createWorker(roleDef);
