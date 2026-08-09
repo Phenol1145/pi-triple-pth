@@ -96,6 +96,16 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 | `PTH_AGENT_RETRY_PARSE` | 1 | 动作解析失败重试次数 |
 | `PTH_AGENT_MODEL` | deepseek-v4-flash | agent 循环模型（选快模型——执行性价比优先） |
 
+### 编译核（C——sandbox 侧编译-运行管道）
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_COMPILED_CACHE_DIR` | /data/compiled-cache/c | 持久缓存目录（卷——跨容器重启） |
+| `PTH_COMPILED_CACHE_MAX_MB` | 200 | 缓存磁盘上限（超限删最旧） |
+| `PTH_COMPILED_MAX_CACHE` | 50 | LRU 条数 |
+| `PTH_COMPILED_TIMEOUT_MS` | 60000 | 单次编译超时 |
+| `PTH_COMPILED_CONCURRENCY` | 4 | 编译并发上限（信号量——超限 503 重试） |
+
 ### batch 构成（PTH_WORKER_ROLES——取消固定 7 角色限制）
 
 | 参数 | 默认 | 说明 |
