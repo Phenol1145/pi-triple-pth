@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type pg from "pg";
 
 /**
@@ -43,6 +44,8 @@ export class PgMemoryStore {
 
   /** upsert：id 冲突则版本递增（CAS 语义，对齐 FS 实现）。anchors 必须显式传非空数组（schema CHECK 约束）。 */
   async write(entry: MemoryEntry): Promise<void> {
+    // 缺省 id 生成（memory 封装签名 id?——调用方可不传——防 pg not-null 违反）
+    if (!entry.id) entry.id = randomUUID();
     // ON CONFLICT 分支（对齐 FS write 路径②③）：
     // - 幂等判定：content 与调用方声明版本均相同 → 重落库不递增版本（FS 路径②：entry.meta.version ===
     //   existing.meta.version && entry.content === existing.content → persist 不递增）；
