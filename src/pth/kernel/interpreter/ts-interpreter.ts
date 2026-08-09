@@ -36,6 +36,11 @@ export class TsInterpreter implements Interpreter {
     return this.context as unknown as Record<string, unknown>;
   }
 
+  /** 动态注入能力（兼容性扩展——ext.kernel 后注册的新执行核进 vm context） */
+  injectCapability(name: string, value: unknown): void {
+    (this.context as Record<string, unknown>)[name] = value;
+  }
+
   /** 结果注册（agent-loop 工具执行后调用）：写入 ts 核内 results 对象 */
   registerResult(key: string, value: unknown): void {    const results = (this.context as Record<string, unknown>)["results"] as Record<string, unknown>;
     if (results && typeof results === "object") results[key] = value;

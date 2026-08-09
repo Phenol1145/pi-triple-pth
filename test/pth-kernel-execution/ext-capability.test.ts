@@ -140,6 +140,41 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
     expect(r).toMatchObject({ ok: true, result: "rust-compiled:fn main(){" });
   });
 
+  it("ext.kernel 后注册 → 同一 ts 程序内 rust.execute 可用（动态注入 vm context）", async () => {
+    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const mgr = createKernelManager({
+      pythonMode: "kernel", bashMode: "kernel",
+      kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },
+    } as never);
+    const k = createWorkerKernelWithManager({
+      llm: { complete: async () => ({ ok: false }) } as never,
+      dataWorld: {
+        memory: { retrieve: async () => [], write: async () => {} },
+        tasks: { candidates: async () => [], submit: async () => {} },
+        queryReadOnly: async () => [],
+      } as never,
+      manager: mgr,
+      registerKernel: (language, interpreter) => mgr.registerKernel(language, interpreter as never),
+    });
+    const ext = k.capabilities["ext"] as { kernel: (lang: string, code: string) => Promise<{ ok: boolean }> };
+    const extCode = `
+      module.exports = {
+        create: () => ({
+          language: "rust",
+          state: {},
+          execute: async (code) => ({ ok: true, result: "rust:" + code.trim(), durationMs: 1, language: "rust" }),
+          reset() {}, dispose() {},
+          snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
+        }),
+      };`;
+    await ext.kernel("rust", extCode);
+    // 同一 worker ts 程序（同一 context——模拟任务代码后续 cell）调用 rust.execute
+    // （顶层 await 写法——与生产任务程序一致；async IIFE 是 wrapAwait 已知边缘坑）
+    const r = await k.ts.execute(`(await rust.execute("hi")).result`);
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe("rust:hi");
+  });
+
   it("ext.kernel：代码未导出 execute → 明确错误", async () => {
     const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
     const mgr = createKernelManager({

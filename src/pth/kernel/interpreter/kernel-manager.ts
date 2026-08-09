@@ -186,6 +186,9 @@ export function createWorkerKernelWithManager(deps: {
   reset(): void;
   dispose(): void;
 } {
+  // 扩展执行核注册钩子（ext.kernel 闭包引用此变量——ts 创建后包装为"注册 manager + 注入 worker ts"）
+  let registerHook: ((language: string, interpreter: unknown) => void) | undefined = deps.registerKernel;
+
   const capabilitiesFull = buildCapabilities({
     llm: deps.llm,
     dataWorld: deps.dataWorld,
@@ -194,7 +197,7 @@ export function createWorkerKernelWithManager(deps: {
     c: deps.manager.c,
     toolstore: deps.toolstore,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
-    registerKernel: deps.registerKernel,
+    registerKernel: (language, interpreter) => registerHook?.(language, interpreter),
     inspect: async (lang?: string) => {
       const snap = lang === "python"
         ? await deps.manager.python.snapshot()
@@ -233,6 +236,12 @@ export function createWorkerKernelWithManager(deps: {
     capabilities = filtered;
   }
   const ts = new TsInterpreter({ capabilities });
+  // 后置包装：ext.kernel 注册时同时注入 worker 自身 ts context（rust.execute 在任务代码内可用）
+  const baseHook = registerHook;
+  registerHook = (language, interpreter) => {
+    baseHook?.(language, interpreter);
+    ts.injectCapability(language, interpreter);
+  };
   return {
     ts,
     capabilities,
