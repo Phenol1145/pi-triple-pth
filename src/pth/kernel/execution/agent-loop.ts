@@ -106,6 +106,10 @@ ${AGENT_TOOLS_DESCRIPTION}
 
 ${capBlock}
 
+【API 调查技能】（当你不清楚执行核预定义函数/对象（fs/memory/llm/context 等）的构成、参数、语法或返回值时）
+const skill = await memory.query("SELECT content FROM memory_entries WHERE kind='skill:api-investigation' LIMIT 1");
+（按文档方法调查——Object.keys/fn.toString/读实现源码/试错推断——不要盲试）
+
 【程序模式（PTC——优先使用）】
 优先用 ts 工具写【完整程序】一次性组合多个 kernel/能力完成多步，而不是分步发多个动作：
 - ts 程序运行在 vm 沙箱，可 await 调用能力函数；程序内可写 for/if/函数/变量——跨步骤传值

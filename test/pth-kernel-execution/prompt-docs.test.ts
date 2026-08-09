@@ -53,3 +53,27 @@ describe("系统文档保护（静态上下文——worker 不可覆盖）", () 
     expect(queries.some((q) => q.sql.includes("INSERT INTO memory_entries"))).toBe(true);
   });
 });
+
+describe("API 调查技能（skill:api-investigation——探索方法论）", () => {
+  it("skill 文档含调查方法（对象构成/签名/形状/读源码/试错）", async () => {
+    const { API_INVESTIGATION_SKILL } = await import("../../src/pth/kernel/prompt-docs.js");
+    expect(API_INVESTIGATION_SKILL).toContain("Object.keys");
+    expect(API_INVESTIGATION_SKILL).toContain("fn.toString");
+    expect(API_INVESTIGATION_SKILL).toContain("readSource");
+    expect(API_INVESTIGATION_SKILL).toContain("先调查后调用");
+    expect(API_INVESTIGATION_SKILL).toContain("错误信息是调试线索");
+  });
+
+  it("system prompt 含 API 调查技能触发指引（什么时候用+在哪读）", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "p" }, "t", { mode: "lazy" });
+    expect(prompt).toContain("API 调查技能");
+    expect(prompt).toContain("skill:api-investigation");
+    expect(prompt).toContain("不要盲试");
+  });
+
+  it("skill 文档受保护（worker 不可覆盖）", async () => {
+    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    expect(isSystemDocId("skill:api-investigation")).toBe(true);
+  });
+});

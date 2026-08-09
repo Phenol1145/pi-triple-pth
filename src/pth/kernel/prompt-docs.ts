@@ -67,6 +67,29 @@ ${extDoc}
 能力函数加入后在本索引追加记录——worker 下次读取即发现（prompt 模板零改动）`;
 }
 
+/** API 调查技能文档（lazy 探索方法论——按需读取——不盲试） */
+export const API_INVESTIGATION_SKILL = `# API 调查技能（执行核预定义函数/对象的构成与语法调查）
+
+## 什么时候用
+- 需要调用一个函数/对象但不清楚参数/返回/语法
+- 需要了解执行核预定义对象（fs/memory/llm/context/results 等）的构成
+- 能力索引描述笼统——需要确切用法
+
+## 调查方法（按顺序——先调查后调用，不盲试）
+1. 对象构成：Object.keys(obj) —— 列方法/属性（如 fs 有哪些方法）
+2. 签名：fn.toString() —— 看函数源码（参数名/实现——推断签名）
+3. 形状：typeof x · JSON.stringify(x) —— 检查返回值结构
+4. 实现源码：fs.readSource("src/pth/kernel/interpreter/capability.ts") —— 看能力如何注入/定义
+5. 试错：最小调用 + try-catch —— 从错误信息推断正确参数（错误信息是免费的调试器）
+6. 文档：能力索引（capability-index）/ 扩展 doc / 自修改指南（memory）
+
+## 原则
+- 先调查后调用（不盲试——盲试浪费步骤）
+- 错误信息是调试线索（读它——推断正确格式）
+- 一次调查获得的信息用于后续所有调用（不重复调查）
+- 常见路径前缀：toolstore 文件用相对路径（fs.readText）；源码用 src/ 下（fs.readSource）；
+  任务工作区用相对路径（fs.task）`;
+
 /** Prompt 文档注入 memory（幂等——启动时调用；固定 id 覆盖） */
 export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
   // 角色文档（内置 + 扩展角色——allWorkerRoles）
@@ -93,4 +116,15 @@ export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
       meta: { source: "injectPromptDocs" },
     }, { force: true });
   } catch { /* 索引注入失败放行 */ }
+  // API 调查技能（lazy 探索方法论——按需读取）
+  try {
+    await memory.write({
+      id: "skill:api-investigation",
+      kind: "skill",
+      anchors: ["skill", "api-investigation", "调查", "签名", "语法"],
+      content: API_INVESTIGATION_SKILL,
+      status: "official",
+      meta: { source: "injectPromptDocs" },
+    }, { force: true });
+  } catch { /* skill 注入失败放行 */ }
 }
