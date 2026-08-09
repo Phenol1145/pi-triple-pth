@@ -7,7 +7,8 @@
  *   - 其余 keep
  *
  * 参数化（仿 PG，env 可调）：
- *   PTH_BATCH_AUTOSCALE           on/off（默认 on）
+ *   PTH_BATCH_AUTOSCALE           on/off（默认 off——2026-08-09 单大 batch 化：worker 级控制为主，
+ *                                batch 级扩缩降级为特殊手段（故障隔离/多租户），显式开启）
  *   PTH_BATCH_MIN                 默认 1（下限保护）
  *   PTH_BATCH_MAX                 默认 4（上限保护）
  *   PTH_BATCH_SCALE_INTERVAL_MS   默认 30000（评估周期）
@@ -94,7 +95,8 @@ export function loadScalerConfig(env: NodeJS.ProcessEnv = process.env): {
   const interval = Number(env.PTH_BATCH_SCALE_INTERVAL_MS ?? 30_000);
   const threshold = Number(env.PTH_BATCH_SCALE_UP_THRESHOLD ?? 5);
   return {
-    enabled: env.PTH_BATCH_AUTOSCALE !== "off",
+    // 默认 off（单大 batch 化：worker 级控制为主——batch 级扩缩特殊手段显式开启）
+    enabled: env.PTH_BATCH_AUTOSCALE === "on",
     min: Number.isFinite(min) && min >= 0 ? min : 1,
     max: Number.isFinite(max) && max >= min ? max : Math.max(min, 4),
     intervalMs: Number.isFinite(interval) && interval >= 5_000 ? interval : 30_000,

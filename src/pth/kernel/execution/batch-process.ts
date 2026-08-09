@@ -85,6 +85,34 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       paused = true;
     } else if (msg?.type === "resume") {
       paused = false;
+    } else if (msg?.type === "worker-pause" && typeof msg.role === "string") {
+      for (const l of loops) if (l.role.id === msg.role) l.pause();
+      process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "paused" });
+    } else if (msg?.type === "worker-resume" && typeof msg.role === "string") {
+      for (const l of loops) if (l.role.id === msg.role) l.resume();
+      process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "active" });
+    } else if (msg?.type === "worker-remove" && typeof msg.role === "string") {
+
+      // 防御：tick 自驱动链与 splice 并发——map 回调可能拿到已移除的 undefined（竞态窗口）
+      const idxs = loops.map((l, i) => (l && l.role?.id === msg.role ? i : -1)).filter((i) => i >= 0);
+      for (const i of idxs.reverse()) {
+        const l = loops[i]!;
+        l.stop();
+        // kernel dispose（释放 python 子进程）
+        const k = (l as unknown as { kernel?: { dispose?: () => void } }).kernel;
+        try { k?.dispose?.(); } catch { /* dispose 容错 */ }
+        loops.splice(i, 1);
+      }
+      process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
+    } else if (msg?.type === "worker-add" && typeof msg.role === "string") {
+      const roleDef = DEFAULT_ROLES.find((r) => r.id === msg.role);
+      if (roleDef) {
+        const copies = Number(msg.copies ?? 1);
+        for (let i = 0; i < copies; i++) createWorker(roleDef);
+        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "added", copies });
+      } else {
+        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "error", error: "unknown role" });
+      }
     }
   });
   // 父进程退出（IPC 通道关闭）→ 自杀：不留孤儿 batch 继续轮询 DB
@@ -106,7 +134,11 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // batch 构成参数化（PTH_WORKER_ROLES）：任意角色子集 + 副本数（0 禁用）；
   // 不设置 → 默认 7 角色 ×1（原行为）。启动时解析一次——运行时改权重需 batch remove+add。
   const workerRoles = expandRoleWeights(parseRoleWeights(process.env.PTH_WORKER_ROLES));
-  const loops = workerRoles.map((role) => {
+  // worker 注册表（worker 级控制面：pause/resume/remove/add——IPC 指令寻址）
+  const loops: Array<BatchTaskLoop & { role: import("./worker-cluster.js").WorkerRole }> = [];
+
+  /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
+  const createWorker = (role: import("./worker-cluster.js").WorkerRole) => {
     const manager = createKernelManager({
       pythonMode: (process.env.PTH_PYTHON_MODE as any) ?? "kernel",
       bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
@@ -142,7 +174,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       memory: dataWorld.memory,
       onMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "refine" } }); } catch { /* IPC 不可用 */ } },
     }) : undefined;
-    return new BatchTaskLoop({
+    const loop = new BatchTaskLoop({
       kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, logger: batchLogger,
       // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
       llm,
@@ -151,14 +183,22 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       // 性能计量（SPEC L2）：任务事件 → IPC 转发主进程
       onTaskMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "task" } }); } catch { /* IPC 不可用 */ } },
     }, archiveDeps);
-  });
+    (loop as unknown as { kernel?: unknown }).kernel = kernel;   // remove 时 dispose 用
+    (loop as unknown as { role?: import("./worker-cluster.js").WorkerRole }).role = role;  // remove 寻址用
+    loops.push(loop as BatchTaskLoop & { role: import("./worker-cluster.js").WorkerRole });
+    return loop;
+  };
+
+  workerRoles.forEach((role) => createWorker(role));
 
   // 每轮：各 worker runOnce（并发）；didWork=true（有任务执行完）→ 立即自驱动下一轮
   // （吞吐优化：串行任务零轮询等待——0.58s/任务 的轮询延迟消除）；
   // 空闲（无候选）退避回 intervalMs timer，避免空转查询 PG。
   const tick = async (): Promise<void> => {
     if (paused) return;
-    const did = await Promise.all(loops.map((l) => l.runOnce()));
+    // 快照遍历（worker-remove 的 splice 并发安全——过滤已移除项）
+    const snapshot = loops.filter((l): l is typeof l => Boolean(l));
+    const did = await Promise.all(snapshot.map((l) => l.runOnce()));
     if (did.some(Boolean)) void tick();   // 忙时自驱动（串行链——防风暴）
     else return;                          // 空闲：等 timer 下一轮
   };

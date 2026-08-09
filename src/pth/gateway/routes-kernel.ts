@@ -115,6 +115,26 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     return { spawned: handles.length, batches: handles.map((h) => ({ id: h.id, pid: h.pid })) };
   });
 
+  // ── worker 级控制（单大 batch 启停灵活性）────────────────────────
+  // POST /api/v1/kernel/batch/:id/workers {action: pause|resume|remove|add, role, copies?}
+  app.post("/api/v1/kernel/batch/:id/workers", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const action = body.action as string;
+    const role = body.role as string;
+    if (!["pause", "resume", "remove", "add"].includes(action) || typeof role !== "string") {
+      return reply.status(400).send({ error: "action ∈ pause|resume|remove|add, role required" });
+    }
+    const copies = typeof body.copies === "number" ? Math.min(Math.max(Math.floor(body.copies), 1), 8) : 1;
+    const ok = action === "pause" ? await kernel.batchManager.pauseWorker(id, role)
+      : action === "resume" ? await kernel.batchManager.resumeWorker(id, role)
+      : action === "remove" ? await kernel.batchManager.removeWorker(id, role)
+      : await kernel.batchManager.addWorker(id, role, copies);
+    if (!ok) return reply.status(404).send({ error: `batch ${id} not found / IPC 不可用` });
+    return { ok: true, batchId: id, action, role, copies: action === "add" ? copies : undefined };
+  });
+
   app.post("/api/v1/kernel/batch/remove", async (req, reply) => {
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;

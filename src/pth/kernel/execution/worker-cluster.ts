@@ -25,29 +25,32 @@ export const MAX_WORKER_COPIES = 8;
 export const MAX_TOTAL_WORKERS = 32;
 
 /** 解析角色权重串 → Map（校验：角色合法/副本范围/总数上限）。空/undefined → 默认 7×1 */
-export function parseRoleWeights(spec: string | undefined | null): Map<string, number> {
+export function parseRoleWeights(spec: string | undefined | null | Record<string, number>): Map<string, number> {
   const out = new Map<string, number>();
-  if (!spec || spec.trim() === "") {
+  // 对象输入（profile.weights 面——未列出默认 1）
+  if (spec && typeof spec === "object") {
+    for (const [role, copies] of Object.entries(spec)) out.set(role, copies);
+    for (const r of DEFAULT_ROLES) if (!out.has(r.id)) out.set(r.id, 1);
+    validateWeights(out);
+    return out;
+  }
+  if (!spec || (spec as string).trim() === "") {
     for (const r of DEFAULT_ROLES) out.set(r.id, 1);
     return out;
   }
   const known = new Set(DEFAULT_ROLES.map((r) => r.id));
-  let total = 0;
-  for (const part of spec.split(",")) {
+  const specStr = spec as string;
+  for (const part of specStr.split(",")) {
     const [role, copiesRaw] = part.trim().split(":");
     const roleId = role?.trim();
     if (!roleId || !known.has(roleId)) throw new Error(`parseRoleWeights: 未知角色 "${roleId}"（可选: ${[...known].join("/")}）`);
     if (out.has(roleId)) throw new Error(`parseRoleWeights: 角色重复 "${roleId}"`);
     const copies = copiesRaw === undefined || copiesRaw.trim() === "" ? 1 : Number(copiesRaw.trim());
-    if (!Number.isInteger(copies) || copies < 0 || copies > MAX_WORKER_COPIES) {
-      throw new Error(`parseRoleWeights: ${roleId} 副本数须为 0-${MAX_WORKER_COPIES}（got ${copiesRaw}）`);
-    }
     out.set(roleId, copies);
-    total += copies;
   }
   // 未列出的角色默认 1（保持全角色覆盖语义）
   for (const r of DEFAULT_ROLES) if (!out.has(r.id)) out.set(r.id, 1);
-  if (total > MAX_TOTAL_WORKERS) throw new Error(`parseRoleWeights: 总 worker ${total} 超上限 ${MAX_TOTAL_WORKERS}`);
+  validateWeights(out);
   return out;
 }
 
@@ -59,6 +62,82 @@ export function expandRoleWeights(weights: Map<string, number>): WorkerRole[] {
     for (let i = 0; i < n; i++) out.push(r);
   }
   return out;
+}
+
+// ── 资源分配策略抽象（2026-08-09：k8s 调度思想 + 可扩展算法点）────────────────
+// 策略产出 BatchProfile → profileToWeights 序列化 → PTH_WORKER_ROLES env → fork 子进程（无感知）。
+// 未来新算法（负载预测/装箱/反亲和…）：实现 BatchCompositionStrategy + 注册即可。
+
+export type BatchProfile =
+  | { mode: "balanced"; weights?: Record<string, number> }   // 角色分散（混合负载）
+  | { mode: "reinforced"; role: string; copies: number }     // 单角色堆叠（瓶颈攻坚）
+
+/** 调度上下文——策略决策的输入信号 */
+export interface SchedulingContext {
+  pendingByRole: Record<string, number>;                     // 各角色队列深度
+  activeBatches: Array<{ id: string; mode: string; roles: string[] }>;
+  poolCapacity: number;                                      // sandbox kernel 池容量
+  limits: { maxTotalWorkers: number };
+}
+
+/** batch 构成策略接口——资源分配算法插件点 */
+export interface BatchCompositionStrategy {
+  readonly id: string;
+  compose(ctx: SchedulingContext): BatchProfile;
+}
+
+/** 内置策略：均衡（权重展开——默认 7×1） */
+export const balancedStrategy: BatchCompositionStrategy = {
+  id: "balanced",
+  compose: () => ({ mode: "balanced" }),
+};
+
+/** 内置策略：强化（单角色 × copies——瓶颈攻坚） */
+export const reinforcedStrategy: BatchCompositionStrategy = {
+  id: "reinforced",
+  compose: (ctx) => {
+    // v1 简化：取积压最深的角色（descheduler 思想）——copies 默认 2
+    const entries = Object.entries(ctx.pendingByRole).sort((a, b) => b[1] - a[1]);
+    const role = entries[0]?.[0] ?? "developer";
+    return { mode: "reinforced", role, copies: 2 };
+  },
+};
+
+/** 策略注册表（可插拔） */
+export const COMPOSITION_STRATEGIES: Record<string, BatchCompositionStrategy> = {
+  balanced: balancedStrategy,
+  reinforced: reinforcedStrategy,
+};
+
+/** BatchProfile → 权重 Map（序列化面——PTH_WORKER_ROLES env 统一表达） */
+export function profileToWeights(profile: BatchProfile): Map<string, number> {
+  if (profile.mode === "balanced") {
+    if (profile.weights) return parseRoleWeights(profile.weights);
+    return parseRoleWeights(undefined);   // 默认 7×1
+  }
+  // reinforced：单角色 × copies，其余 0（禁用）
+  const weights = new Map<string, number>();
+  for (const r of DEFAULT_ROLES) weights.set(r.id, r.id === profile.role ? profile.copies : 0);
+  validateWeights(weights);
+  return weights;
+}
+
+/** 权重校验（parseRoleWeights 的独立面——供 profileToWeights 复用） */
+export function validateWeights(weights: Map<string, number>): void {
+  let total = 0;
+  for (const [role, copies] of weights) {
+    if (!DEFAULT_ROLES.some((r) => r.id === role)) throw new Error(`parseRoleWeights: 未知角色 "${role}"`);
+    if (!Number.isInteger(copies) || copies < 0 || copies > MAX_WORKER_COPIES) {
+      throw new Error(`parseRoleWeights: ${role} 副本数须为 0-${MAX_WORKER_COPIES}`);
+    }
+    total += copies;
+  }
+  if (total > MAX_TOTAL_WORKERS) throw new Error(`parseRoleWeights: 总 worker ${total} 超上限 ${MAX_TOTAL_WORKERS}`);
+}
+
+/** 权重序列化 → env 串（"developer:2,analyst:1,..."） */
+export function weightsToEnv(weights: Map<string, number>): string {
+  return [...weights.entries()].map(([r, n]) => `${r}:${n}`).join(",");
 }
 
 export interface WorkerClusterDeps {

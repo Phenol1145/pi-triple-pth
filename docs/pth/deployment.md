@@ -115,6 +115,24 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 | `PTH_BATCH_TICK_MS` | 1000 | 空闲轮询间隔（忙时自驱动——任务完成立即继续认领，零轮询等待） |
 | `PTH_PG_POOL_MAX` | 8 | batch 子进程 PG 连接池上限（7 角色并发 ≤7——8 够；总量 = 8 × batch 数） |
 
+### Batch 架构（2026-08-09 单大 batch 化）
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_WORKER_ROLES` | 空（7×1） | 默认 batch 的 worker 构成（见上节） |
+| `PTH_BATCH_AUTOSCALE` | **off** | 单大 batch 为主——batch 级扩缩是特殊手段（故障隔离/多租户），显式开启 |
+
+**默认形态**：启动即 1 个大 batch（全角色权重一个进程——node 基线不重复，内存最优）。
+**worker 级控制**（主要扩缩容手段——进程内启停，不影响其他 worker）：
+```
+POST /api/v1/kernel/batch/:id/workers  {action, role, copies?}
+  pause  暂停认领（保留状态）   resume 恢复   remove 永久停止+回收 python 进程
+  add    动态新增角色 worker（按需扩）
+ptl hub kernel batch worker <pause|resume|remove|add> <batchId> <role> [copies]
+```
+**batch 级 add/remove 保留**：故障隔离 / 多租户 / 资源分片场景。
+**资源分配策略接口**：balanced（角色分散）/ reinforced（单角色堆叠）——策略注册表可扩展（未来算法实现 BatchCompositionStrategy 即可）。
+
 ### batch 弹性（吞吐自动伸缩）
 
 | 参数 | 默认 | 说明 |

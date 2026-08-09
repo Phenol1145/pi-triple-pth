@@ -111,6 +111,46 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
     }
   }, 60_000);
 
+  it("worker 级控制：remove developer 后该角色不再认领；add 后恢复", async () => {
+    const bm3 = new BatchManager({
+      batchProcessPath: "src/pth/kernel/execution/batch-process.ts",
+      workers: ["developer"],
+      execArgv: ["--experimental-transform-types", "--import", loaderPath],
+      env: {
+        PTH_WORKER_ROLES: "developer:1,analyst:0,planner:0,scout:0,memory-keeper:0,acceptor:0,human-interface:0",
+        PTH_BATCH_PROCESS: "1",
+        PTH_TEST_DATABASE_URL: container.getConnectionUri(),
+        PTH_WORKSPACES_PATH: workspacesDir,
+        PTH_ARTIFACTS_PATH: artifactsDir,
+      },
+      onMetric: () => {},
+      obsResolver: async () => ({}),
+    });
+    const handle = await bm3.spawnBatch();
+    const dw3 = createDataWorld(pool);
+    // 1. developer 任务正常认领
+    const t1 = await dw3.tasks.publish({ title: "w1", text: "1", createdBy: "test", tags: ["code"] });
+    await new Promise((r) => setTimeout(r, 1500));
+    let st = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t1.id])).rows[0]?.status;
+    expect(["completed", "claimed", "submitted"]).toContain(st);
+    // 2. remove developer → 新任务不再被认领
+    expect(await bm3.removeWorker(handle.id, "developer")).toBe(true);
+    await new Promise((r) => setTimeout(r, 300));
+    const t2 = await dw3.tasks.publish({ title: "w2", text: "2", createdBy: "test", tags: ["code"] });
+    await new Promise((r) => setTimeout(r, 2000));
+    const t2row = (await pool.query("SELECT status, claimed_by FROM tasks WHERE id = $1", [t2.id])).rows[0];
+    st = t2row?.status;
+    expect(st).toBe("pending");   // remove 后不认领
+    // 3. add developer → 新任务恢复认领
+    expect(await bm3.addWorker(handle.id, "developer", 1)).toBe(true);
+    await new Promise((r) => setTimeout(r, 1500));
+    const t3 = await dw3.tasks.publish({ title: "w3", text: "3", createdBy: "test", tags: ["code"] });
+    await new Promise((r) => setTimeout(r, 2500));
+    st = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t3.id])).rows[0]?.status;
+    expect(["completed", "claimed", "submitted"]).toContain(st);
+    await bm3.killBatch(handle.id);
+  }, 60_000);
+
   it("batch 构成参数化：自定义构成（developer×2+analyst×1+其余禁用）fork 子进程存活", async () => {
     const bm2 = new BatchManager({
       batchProcessPath: "src/pth/kernel/execution/batch-process.ts",

@@ -102,6 +102,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   await applySchema(pool);
 
   const dataWorld = createDataWorld(pool);
+  const assemblyLogger = createKernelLogger();
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
@@ -148,6 +149,15 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     t.unref?.();
   };
   scheduleResolver();
+
+  // 单大 batch 默认（2026-08-09）：启动即拉 1 个全量构成 batch——worker 级控制为主，
+  // batch add/remove 降级为特殊手段。构成 = PTH_WORKER_ROLES 展开（不设置 = 7×1）。
+  try {
+    const handle = await batchManager.spawnBatch();
+    assemblyLogger?.info?.(`[assembly] 默认 batch 已启动（pid=${handle.pid} workers=${handle.workers.length}）`);
+  } catch (e) {
+    assemblyLogger?.error?.(`[assembly] 默认 batch 启动失败（可手动 batch add）: ${(e as Error).message}`);
+  }
 
   // Claim 超时回收（batch 崩溃/重启僵尸认领）：周期扫描回收 claimed_at 超时任务回 pending
   // 参数：PTH_CLAIM_REAP_MS（扫描周期，默认 30s）/ PTH_CLAIM_TIMEOUT_MS（超时阈值，默认 600s）

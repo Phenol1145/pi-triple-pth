@@ -42,6 +42,13 @@
       └──────────────────────────────────────────────────────┘
 ```
 
+## Batch 架构（2026-08-09 单大 batch + worker 控制面）
+
+- **默认单大 batch**：启动即 1 个进程承载全角色权重（PTH_WORKER_ROLES 展开）——内存最优（node 基线不重复）
+- **worker 级控制**：pause/resume/remove/add（IPC 进程内启停——不影响其他 worker；remove 回收 python 进程）
+- **资源分配策略**：BatchCompositionStrategy 接口（balanced/reinforced 内置 + 注册表可扩展）
+- **batch 级 add/remove**：特殊手段（故障隔离/多租户）——autoscaler 默认 off
+
 ## 任务池（核心工作流）
 
 任务即数据包：`tasks` 表 + `payload` JSON（自带路由）。

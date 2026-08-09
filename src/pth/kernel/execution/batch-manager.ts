@@ -112,6 +112,33 @@ export class BatchManager {
     return { id, pid: child.pid!, workers, currentTasks: record.currentTasks, idleRatio: 1 };
   }
 
+  // ── worker 级控制面（2026-08-09 单大 batch 启停灵活性）──────────────────
+  private workerCtl(batchId: string, msg: Record<string, unknown>): Promise<boolean> {
+    const rec = this.batches.get(batchId);
+    if (!rec) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      try {
+        if (rec.child.connected) {
+          rec.child.send(msg);
+          resolve(true);
+        } else resolve(false);
+      } catch { resolve(false); }
+    });
+  }
+
+  async pauseWorker(batchId: string, role: string): Promise<boolean> {
+    return this.workerCtl(batchId, { type: "worker-pause", role });
+  }
+  async resumeWorker(batchId: string, role: string): Promise<boolean> {
+    return this.workerCtl(batchId, { type: "worker-resume", role });
+  }
+  async removeWorker(batchId: string, role: string): Promise<boolean> {
+    return this.workerCtl(batchId, { type: "worker-remove", role });
+  }
+  async addWorker(batchId: string, role: string, copies = 1): Promise<boolean> {
+    return this.workerCtl(batchId, { type: "worker-add", role, copies });
+  }
+
   async killBatch(id: string): Promise<void> {
     const rec = this.batches.get(id);
     if (!rec) return;

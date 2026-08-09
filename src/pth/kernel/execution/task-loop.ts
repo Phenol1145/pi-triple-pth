@@ -41,7 +41,19 @@ export class TaskLoop {
   constructor(private deps: TaskLoopDeps) {}
 
   /** runOnce：执行一轮认领。返回 true = 本轮有任务执行（调用方可自驱动下一轮——吞吐优化） */
+  // worker 级控制（2026-08-09 单大 batch 控制面）：pause=暂停认领（保留状态）/
+  // resume=恢复 / stop=永久停止（dispose 由调用方处理）
+  private paused = false;
+  private stopped = false;
+
+  pause(): void { this.paused = true; }
+  resume(): void { this.paused = false; }
+  stop(): void { this.stopped = true; }
+  get isPaused(): boolean { return this.paused; }
+  get isStopped(): boolean { return this.stopped; }
+
   async runOnce(): Promise<boolean> {
+    if (this.paused || this.stopped) return false;
     const { taskStore, role } = this.deps;
     // 1. peek：只读获取候选（不锁定）
     const candidates = await taskStore.candidates(role.id);
