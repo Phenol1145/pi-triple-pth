@@ -169,6 +169,8 @@ export function createWorkerKernelWithManager(deps: {
   toolstore?: import("./toolstore.js").Toolstore;
   /** 新执行核注册（ext.kernel 接线——转发 manager.registerKernel） */
   registerKernel?: (language: string, interpreter: unknown) => void;
+  /** 自修改（v1）：只读 PTH 源码（buildCapabilities 注入面） */
+  readSource?: (relPath: string) => Promise<string>;
   /** 权限分层（P3——注入面收窄）：角色能力白名单（缺省全量兼容） */
   roleFilter?: string[];
   /** memory 区域（P3——own=role:<role> 命名空间标记 / all=跨区——缺省 all） */
@@ -198,6 +200,7 @@ export function createWorkerKernelWithManager(deps: {
     toolstore: deps.toolstore,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
     registerKernel: (language, interpreter) => registerHook?.(language, interpreter),
+    readSource: deps.readSource,
     inspect: async (lang?: string) => {
       const snap = lang === "python"
         ? await deps.manager.python.snapshot()

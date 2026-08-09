@@ -23,6 +23,8 @@ export function buildCapabilities(deps: {
   inspect?: (lang?: string) => Promise<unknown>;
   /** 新执行核注册（ext.kernel 接线——createWorkerKernelWithManager 透传 manager.registerKernel） */
   registerKernel?: (language: string, interpreter: unknown) => void;
+  /** 自修改（v1）：只读 PTH 源码——(relPath) => Promise<string>——白名单/路径校验 */
+  readSource?: (relPath: string) => Promise<string>;
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore });
@@ -44,6 +46,9 @@ export function buildCapabilities(deps: {
       ? { fs: {
           readText: deps.toolstore.readText.bind(deps.toolstore),
           list: deps.toolstore.list.bind(deps.toolstore),
+          // 自修改（v0.8→v0.9 铺垫）：readSource 只读 PTH 源码（/app/src 白名单——
+          // 路径校验防越权；worker 读源码 → sandbox 编码 → 提交补丁产物）
+          readSource: deps.readSource,
         } }
       : {}),
     skills: {

@@ -122,11 +122,21 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
       PTH_ARTIFACTS_PATH: opts.artifactPath,
       // toolstore 文件通道：继承主进程 env（默认 <dataDir>/toolstore）
       PTH_TOOLSTORE_PATH: opts.toolstorePath ?? process.env.PTH_TOOLSTORE_PATH ?? "",
+      // 自修改（v1）：源码根（worker readSource 只读面——容器 /app/src）
+      PTH_SOURCE_ROOT: process.env.PTH_SOURCE_ROOT ?? "/app/src",
       ...opts.env,
     },
   });
   const watchdog = new KernelWatchdog(batchManager);
   watchdog.start(opts.watchdogIntervalMs ?? 30_000);
+
+  // 自修改（v1）：注入源码指南到公共记忆区（developer 单步修改用——幂等）
+  try {
+    const { injectSelfModifyGuide } = await import("./self-modify.js");
+    await injectSelfModifyGuide(dataWorld.memory);
+  } catch (e) {
+    assemblyLogger?.warn?.(`[self-modify] 指南注入失败（放行）: ${(e as Error).message}`);
+  }
 
   // TaskResolver（任务池即工作流 T3）：独立解析循环（unref 不阻止退出）
   // CPU 优化：空轮询自适应退避 2s→5s→10s→15s（无 flow 任务时降频——resolver 查询是
