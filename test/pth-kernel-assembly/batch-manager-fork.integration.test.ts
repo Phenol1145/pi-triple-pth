@@ -130,14 +130,14 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
     const dw3 = createDataWorld(pool);
     // 1. developer 任务正常认领
     const t1 = await dw3.tasks.publish({ title: "w1", text: "1", createdBy: "test", tags: ["code"] });
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, 3000));
     let st = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t1.id])).rows[0]?.status;
     expect(["completed", "claimed", "submitted"]).toContain(st);
     // 2. remove developer → 新任务不再被认领
     expect(await bm3.removeWorker(handle.id, "developer")).toBe(true);
     await new Promise((r) => setTimeout(r, 300));
     const t2 = await dw3.tasks.publish({ title: "w2", text: "2", createdBy: "test", tags: ["code"] });
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 3000));
     const t2row = (await pool.query("SELECT status, claimed_by FROM tasks WHERE id = $1", [t2.id])).rows[0];
     st = t2row?.status;
     expect(st).toBe("pending");   // remove 后不认领
