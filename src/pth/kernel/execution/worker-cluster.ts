@@ -4,21 +4,53 @@ export interface WorkerRole {
   id: string;
   labelPatterns: string[];
   prompt: string;
-  /** 权限最小化（P3——capabilities 白名单——缺省全量兼容）；扩展角色可声明 */
+  /** 权限最小化（P3——capabilities 白名单——缺省全量兼容）；扩展角色可声明
+   *  PTC 范式下的"工具白名单" = 访问权限：角色能调用的 capability 函数
+   *  （fs/python/bash/c/memory/readSource/readText/web/llm/state/skills/tasks 等） */
   capabilities?: string[];
   /** memory 区域（P3——own=仅自己命名空间 / all=跨区特许——缺省 all 兼容） */
   memoryScope?: "own" | "all";
+  /** 推理深度（pi-subagent 启发——角色智力分配：决策/审查 high——探索 low——调研 medium）
+   *  v1 仅声明（谱系元数据——后续传 LLM thinking 参数） */
+  thinking?: "high" | "medium" | "low";
+  /** 一句话职责（谱系文档/能力索引用） */
+  description?: string;
+  /** 产出约定（角色默认产出语义——scout=context/planner=plan——done result 结构指引） */
+  output?: string;
+  /** 默认读取（角色间产物约定——defaultReads 引用的上游产物——memory 查询指引） */
+  defaultReads?: string[];
+  /** 验收角色（pi-subagent 启发——read-only=只读审查（不能提交产物）/writer=可写交付）
+   *  v1 仅声明（谱系元数据——后续 done 限制） */
+  acceptanceRole?: "read-only" | "writer";
 }
 
+// 角色谱系 v1 元数据（pi-subagent 启发——参考 docs/pth/role-lineage-v1.md）：
+//   thinking=推理深度 / capabilities=PTC 访问权限 / output=产出约定 / defaultReads=角色间产物约定
+//   / acceptanceRole=验收角色——谱系元数据声明（thinking 传 LLM/acceptanceRole done 限制后续实现）
 export const DEFAULT_ROLES: WorkerRole[] = [
-  { id: "analyst", labelPatterns: ["analysis", "research"], prompt: "你是分析者——负责信息分析、数据洞察、研究报告撰写。" },
-  { id: "planner", labelPatterns: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。" },
-  { id: "developer", labelPatterns: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。" },
-  { id: "scout", labelPatterns: ["recon", "investigate"], prompt: "你是侦查者——负责信息收集、代码侦察、环境探查。" },
-  { id: "memory-keeper", labelPatterns: ["memory", "organize"], prompt: "你是记忆维护者——负责记忆整理、知识沉淀、索引维护。" },
-  { id: "acceptor", labelPatterns: ["accept", "verify"], prompt: "你是验收者——负责结果验证、质量检查、交付验收。" },
-  { id: "human-interface", labelPatterns: ["human", "interact"], prompt: "你是人类交互者——负责与用户沟通、意图澄清、反馈传递。" },
-  { id: "tester", labelPatterns: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。" },
+  { id: "analyst", labelPatterns: ["analysis", "research"], prompt: "你是分析者——负责信息分析、数据洞察、研究报告撰写。",
+    description: "信息分析与数据洞察（researcher 对应）", thinking: "medium",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research" },
+  { id: "planner", labelPatterns: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。",
+    description: "上下文→实施计划（只读——产出计划文档）", thinking: "high",
+    capabilities: ["fs", "memory", "readSource", "readText"], output: "plan", defaultReads: ["context"], acceptanceRole: "read-only" },
+  { id: "developer", labelPatterns: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。",
+    description: "实现与开发（worker 对应——narrow coherent edits）", thinking: "high",
+    output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer" },
+  { id: "scout", labelPatterns: ["recon", "investigate"], prompt: "你是侦查者——负责信息收集、代码侦察、环境探查。",
+    description: "快速侦察——压缩上下文交接下游（thinking low——快）", thinking: "low",
+    capabilities: ["fs", "memory", "readSource", "readText", "bash"], output: "context" },
+  { id: "memory-keeper", labelPatterns: ["memory", "organize"], prompt: "你是记忆维护者——负责记忆整理、知识沉淀、索引维护。",
+    description: "记忆整理与知识沉淀（PTH 特色——记忆系统维护）", thinking: "medium",
+    capabilities: ["memory", "fs", "readSource"], output: "memory" },
+  { id: "acceptor", labelPatterns: ["accept", "verify"], prompt: "你是验收者——负责结果验证、质量检查、交付验收。",
+    description: "结果验证与交付验收（reviewer 对应——只读审查）", thinking: "high",
+    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"], defaultReads: ["plan", "progress"], acceptanceRole: "read-only" },
+  { id: "human-interface", labelPatterns: ["human", "interact"], prompt: "你是人类交互者——负责与用户沟通、意图澄清、反馈传递。",
+    description: "人类需求兜底（PTH 特色——升级机制）", thinking: "high", acceptanceRole: "writer" },
+  { id: "tester", labelPatterns: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。",
+    description: "能力测试与行为验证", thinking: "high",
+    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer" },
 ];
 
 // ── batch 构成参数化（2026-08-09：取消固定 7 角色限制）────────────────

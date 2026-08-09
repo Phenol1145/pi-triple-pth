@@ -15,19 +15,36 @@ import { join } from "node:path";
 import { allWorkerRoles } from "./execution/worker-cluster.js";
 import { buildDoc } from "./extensions/index.js";
 
-/** 角色文档生成（人设/任务类型/工作偏好）——lazy 下 LLM 按需读 */
-export function buildRoleDoc(role: { id: string; labelPatterns: string[]; prompt: string }): string {
+/** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据——lazy 下 LLM 按需读） */
+export function buildRoleDoc(role: {
+  id: string; labelPatterns: string[]; prompt: string;
+  thinking?: string; description?: string; output?: string;
+  defaultReads?: string[]; acceptanceRole?: string; capabilities?: string[];
+}): string {
+  const meta: string[] = [];
+  if (role.thinking) meta.push(`推理深度：${role.thinking}`);
+  if (role.acceptanceRole) meta.push(`验收角色：${role.acceptanceRole}`);
+  const metaLine = meta.length > 0 ? `## 谱系元数据
+${meta.map((m) => `- ${m}`).join("\n")}
+
+` : "";
+  const capSection = role.capabilities && role.capabilities.length > 0
+    ? `## 访问权限（PTC 能力白名单——你可调用的函数）\n${role.capabilities.map((c) => `- ${c}`).join("\n")}\n\n`
+    : "";
+  const ioSection = (role.output || role.defaultReads?.length)
+    ? `## 产物约定\n${role.output ? `- 默认产出：${role.output}\n` : ""}${role.defaultReads?.length ? `- 默认读取（上游产物）：${role.defaultReads.join(" / ")}\n` : ""}\n`
+    : "";
   return `# 角色：${role.id}
 
 ## 人设
 ${role.prompt}
 
-## 任务类型（你负责的任务标签语义）
+${role.description ? `## 职责\n${role.description}\n\n` : ""}${metaLine}## 任务类型（你负责的任务标签语义）
 ${role.labelPatterns.join(" / ")}
 
-## 工作方式
+${capSection}${ioSection}## 工作方式
 - 任务描述会在 user 消息给出——按 PTC 模式用 ts 程序组合能力完成
-- 结果用 done 工具提交（result 对象 + summary 说明）
+- 结果用 done 工具提交（result 对象 + summary 说明——result 必填实际产物）
 - 信息不足时：先读能力索引（memory kind='capability-index'）了解可用能力，再读相关文档/源码
 - 遵守 PTH 不变量（见 self-modify-guide——若涉及修改系统）`;
 }
