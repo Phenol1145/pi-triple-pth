@@ -30,7 +30,7 @@ export interface AgentLoopOptions {
   maxSteps?: number;
   timeoutMs?: number;
   logger?: (msg: string) => void;
-  onStep?: (step: { n: number; tool: string; durationMs: number; ok: boolean }) => void;
+  onStep?: (step: { n: number; tool: string; durationMs: number; ok: boolean; args?: string }) => void;
 }
 
 export type AgentTaskResult =
@@ -210,7 +210,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
         const result: AgentToolResult = r.ok
           ? { ok: true, value: r.value, stdout: truncate(JSON.stringify(r.value ?? null), 2000).text }
           : { ok: false, error: r.error?.message ?? "ts execute failed" };
-        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok });
+        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
         try {
           kernel.ts.registerResult?.(`result_${steps + 1}`, { tool, ok: result.ok, value: result.ok ? result.value : undefined, error: result.ok ? undefined : result.error });
         } catch { /* mock 容忍 */ }
@@ -224,7 +224,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     }
     try {
       const result = await executor({ kernel, caps }, args);
-      input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok });
+      input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
       // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用
       const resultKey = `result_${steps + 1}`;
       try {

@@ -102,7 +102,8 @@ export class TaskLoop {
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
             role,
-            onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}`, { durationMs: s.durationMs }),
+            onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
+            logger: (m) => taskLogger?.info(m),
           });
           taskLogger?.info("agent task finished", { ok: r.ok, steps: r.steps });
           if (!r.ok) {
