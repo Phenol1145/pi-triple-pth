@@ -27,6 +27,24 @@ async function main() {
 
   logger.info({ os: platform.os, arch: platform.arch, event: "platform_starting" });
 
+/** 凭据注入 pi-ai env（DEEPSEEK_API_KEY 等——原生 tool_calls 需要——auth.json 单一源） */
+async function injectPiAiKeysFromAuth(): Promise<void> {
+  const { resolveSdkConfigPaths } = await import("@pi-triple/infra");
+  const authPath = resolveSdkConfigPaths().authPath;
+  if (!authPath) return;
+  // provider → pi-ai env 变量（env-api-keys 映射——deepseek 等）
+  const envMap: Record<string, string> = { deepseek: "DEEPSEEK_API_KEY", kimi: "KIMI_API_KEY", zai: "ZAI_API_KEY" };
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const auth = JSON.parse(await readFile(authPath, "utf8")) as Record<string, { key?: string }>;
+    for (const [provider, cfg] of Object.entries(auth)) {
+      const envVar = envMap[provider];
+      const key = cfg?.key;
+      if (envVar && key && !process.env[envVar]) process.env[envVar] = key;
+    }
+  } catch { /* auth 不可读——env 兜底 */ }
+}
+
   const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
   const redis = new Redis(redisUrl);
 
@@ -48,6 +66,9 @@ async function main() {
     `${dataDir}/tenants`,
   );
 
+  // 原生工具调用（agent 循环——OpenAI tool_calls）：pi-ai 从 env 读 provider key
+  // （DEEPSEEK_API_KEY 等——env-api-keys 映射）——从 auth.json 注入（单一源——SDK 路径同源）
+  await injectPiAiKeysFromAuth();
   const modelRouter = new ModelRouter(credentials, logger);
   await modelRouter.initialize();
 
