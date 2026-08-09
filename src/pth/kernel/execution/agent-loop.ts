@@ -134,18 +134,24 @@ function truncate(s: string, max = 2000): { text: string; truncated: boolean } {
 }
 
 /** 动作指纹（防死锁/重复：连续相同动作检测）
- * 归一化：ts 工具提取关键调用（fs.readSource/readText 路径）——同路径=重复
- * （轨迹分析 2026-08-09：模型 14 次微变重写同一 readSource——全量 args 比较被微小
- *   变量名/注释差异绕过——语义指纹按关键参数判定重复） */
+ * 归一化（轨迹分析 2026-08-09——两轮修正）：
+ *   ① readSource/readText：同路径 = 重复（模型 14 次微变重写同一 readSource——全量 args
+ *      比较被变量名/注释差异绕过——按文件路径判定）
+ *   ② memory 查询：同 SQL = 重复（c473e646 实测：无文件读取的 ts 退化 `ts:*` 把不同查询
+ *      （role/索引/列表）误判重复——按 SQL 指纹区分）
+ *   ③ 其他 ts：code 去空白归一化（微变仍算不同——防误判） */
 function actionFingerprint(tool: string, args: Record<string, unknown>): string {
   if (tool === "ts" && typeof args.code === "string") {
-    // 提取关键文件读取调用（readSource/readText 的路径）——忽略变量名/注释等无关差异
-    const reads = [...args.code.matchAll(/fs\.(readSource|readText)\(\s*"([^"]+)"/g)]
+    const code = args.code;
+    const reads = [...code.matchAll(/fs\.(readSource|readText)\(\s*"([^"]+)"/g)]
       .map((m) => `${m[1]}:${m[2]}`)
       .sort();
     if (reads.length > 0) return `ts:${reads.join(",")}`;
-    // 无文件读取——退化为工具名（同工具连续即重复候选）
-    return `ts:*`;
+    const memSqls = [...code.matchAll(/memory\.query\(\s*"([^"]+)"/g)]
+      .map((m) => m[1])
+      .sort();
+    if (memSqls.length > 0) return `ts:mem:${memSqls.join("|")}`;
+    return `ts:${code.replace(/\s+/g, " ").slice(0, 200)}`;
   }
   return `${tool}:${JSON.stringify(args)}`;
 }

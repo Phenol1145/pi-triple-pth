@@ -201,3 +201,27 @@ describe("收敛 agent 行为 v1（重复动作检测——轨迹分析 2026-08-
     if (r.ok) expect(r.value).toEqual({ ok: true });
   });
 });
+
+describe("指纹归一化修正（c473e646 实测——memory 查询误判重复）", () => {
+  it("不同 memory 查询（role/索引/列表）→ 不判重复（前 3 步正常推进）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "ts", arguments: { code: `const r = await memory.query("SELECT content FROM memory_entries WHERE kind='role-doc:tester' LIMIT 1"); r;` } }] },
+      { toolCalls: [{ name: "ts", arguments: { code: `const c = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1"); c;` } }] },
+      { toolCalls: [{ name: "ts", arguments: { code: `const l = await memory.query("SELECT id, kind FROM memory_entries WHERE kind='skill' LIMIT 20"); l;` } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: true }, summary: "完成" } }] },
+    ]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "探索" }, maxSteps: 6 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual({ ok: true });  // 未被重复检测误终止——正常 done
+  });
+
+  it("同一 memory SQL 连续 → 判定重复（收敛——5 次强制终止）", async () => {
+    const kernel = mockKernel();
+    const same = { toolCalls: [{ name: "ts", arguments: { code: `const c = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1"); c;` } }] };
+    const llm = mockLlm(Array.from({ length: 8 }, () => same));
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 10 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.warning ?? "").toContain("重复动作");
+  });
+});
