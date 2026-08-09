@@ -79,9 +79,27 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   }
 
   let paused = false;
+
+  /** 退出前释放全部 worker kernel（sandbox acquire 归还——防池泄漏）——幂等 */
+  let disposed = false;
+  async function disposeAllKernels(): Promise<void> {
+    if (disposed) return;
+    disposed = true;
+    for (const l of loops) {
+      const k = (l as unknown as { kernel?: { dispose?: () => Promise<void> | void } }).kernel;
+      try { await k?.dispose?.(); } catch { /* dispose 容错 */ }
+    }
+  }
+  // 优雅退出：SIGTERM/SIGINT/disconnect/exit-message 统一先释放 kernel 再 exit（防 sandbox 池泄漏）
+  for (const sig of ["SIGTERM", "SIGINT"] as const) {
+    process.on(sig, () => { void disposeAllKernels().finally(() => process.exit(0)); });
+  }
+  const exitNow = (code: number) => () => process.exit(code);
+  process.on("exit", (code) => { if (!disposed) void disposeAllKernels().finally(() => exitNow(code)); });
+
   process.on("message", (msg: any) => {
     if (msg?.type === "shutdown") {
-      process.exit(0);
+      void disposeAllKernels().finally(() => process.exit(0));
     } else if (msg?.type === "pause") {
       paused = true;
     } else if (msg?.type === "resume") {
@@ -120,8 +138,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       }
     }
   });
-  // 父进程退出（IPC 通道关闭）→ 自杀：不留孤儿 batch 继续轮询 DB
-  process.on("disconnect", () => process.exit(0));
+  // 父进程退出（IPC 通道关闭）→ 自杀：不留孤儿 batch 继续轮询 DB（先释放 kernel）
+  process.on("disconnect", () => { void disposeAllKernels().finally(() => process.exit(0)); });
 
   const archiveDeps: ArchiveDeps = {
     transcriptStore: dataWorld.transcripts,
