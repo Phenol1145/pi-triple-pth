@@ -150,6 +150,25 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   };
   scheduleResolver();
 
+  // 兼容性扩展装载（2026-08-09）：toolstore/extensions 扫描 → 角色注册到谱系——
+  // 主进程路由（publish 时 routeTaskRole）与 fork 内认领共用 allWorkerRoles。扩展角色
+  // 的 worker spawn 由 PTH_WORKER_ROLES/worker-add 配置（默认构成不含扩展角色）。
+  const toolstorePath = opts.toolstorePath ?? process.env.PTH_TOOLSTORE_PATH ?? "";
+  if (toolstorePath) {
+    try {
+      const { createToolstore } = await import("./interpreter/toolstore.js");
+      const { ExtRegistry } = await import("./extensions/ext-registry.js");
+      const reg = new ExtRegistry({
+        toolstore: createToolstore(toolstorePath),
+        extContext: { log: (m: unknown) => assemblyLogger?.info?.(`[ext] ${String(m)}`) },
+      });
+      const loaded = await reg.loadAll();
+      if (loaded.length > 0) assemblyLogger?.info?.(`[assembly] 扩展装载完成（${loaded.join(",")}）`);
+    } catch (e) {
+      assemblyLogger?.warn?.(`[assembly] 扩展装载失败（放行——不影响 kernel 启动）: ${(e as Error).message}`);
+    }
+  }
+
   // 单大 batch 默认（2026-08-09）：启动即拉 1 个全量构成 batch——worker 级控制为主，
   // batch add/remove 降级为特殊手段。构成 = PTH_WORKER_ROLES 展开（不设置 = 7×1）。
   try {

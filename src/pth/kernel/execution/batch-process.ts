@@ -78,6 +78,21 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     modelRouter = { resolve: () => ({ id: "none", api: "none" }), getRuntime: () => ({}) } as any;
   }
 
+  // 兼容性扩展装载（fork 内注册角色——扩展角色任务可认领/worker-add）——toolstore 路径 env 注入
+  {
+    const extPath = process.env.PTH_TOOLSTORE_PATH ?? "";
+    if (extPath) {
+      try {
+        const { createToolstore } = await import("../interpreter/toolstore.js");
+        const { ExtRegistry } = await import("../extensions/ext-registry.js");
+        const reg = new ExtRegistry({ toolstore: createToolstore(extPath), extContext: { log: () => {} } });
+        await reg.loadAll();
+      } catch (e) {
+        batchLogger?.warn?.(`[ext] fork 内扩展装载失败（放行）: ${(e as Error).message}`);
+      }
+    }
+  }
+
   let paused = false;
 
   /** 退出前释放全部 worker kernel（sandbox acquire 归还——防池泄漏）——幂等 */
