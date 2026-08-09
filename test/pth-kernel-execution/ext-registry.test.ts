@@ -30,7 +30,7 @@ describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
     }), "0.7.0")).toThrow(/版本不兼容/);
   });
 
-  it("装载扩展：eval index.ts → factory → tools/capabilities/events 注册", async () => {
+  it("装载扩展：eval index.ts → factory → 角色注册（注册式 tools/events 已取消——代码库式编排）", async () => {
     await mkdir(join(dir, "extensions", "hello"), { recursive: true });
     await writeFile(join(dir, "extensions", "hello", "plugin.json"), JSON.stringify({
       id: "hello", name: "Hello Ext",
@@ -53,12 +53,8 @@ describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
     expect(ext.tools["greet"]).toBeDefined();
     expect(await ext.tools["greet"]!({ name: "world" })).toMatchObject({ result: "hello world" });
     expect(await ext.capabilities["whoami"]!()).toBe("hello-ext");
-    // 事件订阅触发
-    resetEventBus();
-    await reg.loadOne("hello");   // 重新订阅（reset 后）
-    getEventBus().emit("task.claim", { taskId: "t1" });
-    await new Promise((r) => setTimeout(r, 20));
-    expect((globalThis as Record<string, unknown>)["__extEventGot"]).toMatchObject({ payload: { taskId: "t1" } });
+    // 注册式事件订阅已取消（代码库式编排——ext 能力 + 公共记忆区索引）
+    expect(reg.getLoaded("hello")!.roles).toEqual([]);
   });
 
   it("角色重叠校验拒绝（正交冲突）", async () => {

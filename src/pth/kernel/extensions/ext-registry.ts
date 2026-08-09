@@ -94,12 +94,9 @@ export class ExtRegistry {
       debugAdapters: result.debugAdapters ?? [],
     };
 
-    // 4. contracts 注册
-    // 4a. events → event bus 订阅
-    for (const [eventType, handler] of Object.entries(result.events ?? {})) {
-      getEventBus().on(eventType, handler);
-    }
-    // 4b. roles → worker-cluster 角色谱系注册（正交谱系动态扩展——labelPatterns 重叠拒绝）
+    // 4. contracts 处理（代码库式——2026-08-09 用户裁决：无 tools/capabilities/events 注册装载；
+    //    编排面 = ext 能力（index/use/syncIndex）+ 公共记忆区索引）
+    //    roles 保留：PTH 独有正交角色谱系扩展（装载注册——独立价值）
     for (const role of loaded.roles) {
       try {
         registerWorkerRole(role);

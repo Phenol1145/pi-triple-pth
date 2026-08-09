@@ -4,6 +4,7 @@ import type { DataWorldAccess } from "../storage/index.js";
 import type { PgMemoryStore } from "../storage/memory-store-pg.js";
 import type { Toolstore } from "./toolstore.js";
 import { buildExtensions } from "../extensions/index.js";
+import { createExtCapability } from "./ext-capability.js";
 
 /**
  * 能力注入：context 默认空，只注入白名单。
@@ -25,6 +26,8 @@ export function buildCapabilities(deps: {
   const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore });
   return {
     ...ext.capabilities,
+    // 扩展编排面（2026-08-09 用户裁决：代码库式扩展 + 公共记忆区索引——无注册装载）
+    ...createExtCapability({ toolstore: deps.toolstore!, memory: (ext.capabilities["memory"] as { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> } | undefined) }),
     llm: deps.llm,
     web: createWebCapability(),
     ...(deps.inspect ? { env: { inspect: deps.inspect } } : {}),

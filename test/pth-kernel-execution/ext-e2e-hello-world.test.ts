@@ -25,15 +25,9 @@ describe("hello-world 扩展端到端（P4）", () => {
     expect(await greet({ name: "PTH" })).toMatchObject({ ok: true, result: "Hello, PTH!" });
     // capabilities
     expect(await ext.capabilities["hello_capability"]!()).toBe("hello from extension");
-    // events 订阅（bus emit 触发 handler）
-    resetEventBus();
-    const claimed: unknown[] = [];
-    // 重新装载以订阅（reset 后）
-    await reg.loadOne("hello-world");
-    // 手动订阅到总线（装载器已订阅——直接 emit 验证 handler 执行——但 handler 是示例的 log（无断言）
-    // 验证事件总线订阅数（hello-world 订阅了 2 个事件）
-    expect(getEventBus().handlerCount).toBeGreaterThanOrEqual(2);
-    void claimed;
+    // 注册式事件订阅已取消（代码库式编排）——ext 能力面可用
+    expect(ext.tools["greet"]).toBeDefined();
+    expect(ext.capabilities["hello_capability"]).toBeDefined();
     // 扩展角色入谱系
     expect(getExtraRoles().map((r) => r.id)).toContain("greeting-agent");
     expect(allWorkerRoles().map((r) => r.id)).toContain("greeting-agent");
