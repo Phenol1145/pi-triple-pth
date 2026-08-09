@@ -9,7 +9,7 @@
  * 解析器为纯函数（可单测）；适配器本机无 gdb 时跳过（sandbox Linux 集成验证）。
  */
 
-import type { DebugSession, DebugStackFrame, DebugVariable, DebugStopped, DebugBreakpoint } from "./types.js";
+import type { DebugSession, DebugStackFrame, DebugVariable, DebugStopped, DebugBreakpoint, DebugEvent } from "./types.js";
 
 // ─── MI 输出解析（纯函数）────────────────────────────────────────────
 
@@ -180,11 +180,14 @@ export interface CDebugAdapterOptions {
   cc?: string;
   gdb?: string; // 默认 gdb（sandbox Linux）；本机无 gdb 时 attach 抛错
   timeoutMs?: number;
+  /** 调试事件回调（监视组件——attach/breakpoint/step/时长） */
+  onEvent?: (e: DebugEvent) => void;
 }
 
 export class CDebugSession implements DebugSession {
   readonly id: string;
   readonly language = "c";
+  onEvent?: (e: DebugEvent) => void;
   private workDir: string;
   private cc: string;
   private gdbBin: string;
@@ -197,16 +200,21 @@ export class CDebugSession implements DebugSession {
   private binaryPath = "";
   private breakpoints = new Map<string, DebugBreakpoint>();
 
+  private emitEvent: (e: DebugEvent) => void;
+
   constructor(opts: CDebugAdapterOptions) {
     this.id = `c-debug-${Date.now().toString(36)}`;
     this.workDir = opts.workDir;
     this.cc = opts.cc ?? "cc";
     this.gdbBin = opts.gdb ?? "gdb";
     this.timeoutMs = opts.timeoutMs ?? 60_000;
+    this.emitEvent = opts.onEvent ?? (() => {});
+    this.onEvent = opts.onEvent;
   }
 
   /** 启动调试会话：编译 -g 调试版 → spawn gdb -i=mi2 */
   async attach(source: string): Promise<void> {
+    this.emitEvent({ type: "attach", sessionId: this.id, ts: Date.now() });
     const hash = createHash("sha256").update(source).digest("hex").slice(0, 16);
     const dir = path.join(this.workDir, ".debug", this.id);
     await fs.mkdir(dir, { recursive: true });
@@ -290,6 +298,7 @@ export class CDebugSession implements DebugSession {
   }
 
   async setBreakpoint(line: number, condition?: string): Promise<DebugBreakpoint> {
+    this.emitEvent({ type: "breakpoint-set", sessionId: this.id, ts: Date.now(), detail: { line } });
     const bp: DebugBreakpoint = { id: `bp-${line}`, line, condition };
     // -break-insert main.c:line（条件：-break-insert -c "expr" main.c:line）
     const cond = condition ? ` -c "${condition.replace(/"/g, '\\"')}"` : "";

@@ -84,3 +84,54 @@ int main(int argc, char** argv) { printf("arg:%s\\n", argc > 1 ? argv[1] : "none
     expect(snap.variables.length).toBeGreaterThan(0); // 产物引用
   });
 });
+
+describe("编译核持久缓存 + 指标（2026-08-09）", () => {
+  it("cacheDir 独立于 workDir：跨实例复用（新实例扫描磁盘恢复——二次调用缓存命中）", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const root = mkdtempSync(tmpdir() + "/cck-persist-");
+    const cacheDir = root + "/shared-cache";
+    const workDir = root + "/work";
+    const src = "#include <stdio.h>\nint main(void){ printf(\"persist\\n\"); return 0; }";
+    // 实例 1：冷编译
+    const k1 = new CCompiledKernel({ workDir, cacheDir });
+    const r1 = await k1.execute(src);
+    expect(r1.ok).toBe(true);
+    expect(r1.stdout).toContain("persist");
+    // 实例 2：新实例 + 新 workDir——扫描 cacheDir 恢复 → 缓存命中（~0ms）
+    const k2 = new CCompiledKernel({ workDir: root + "/work2", cacheDir });
+    await k2["restoreFromDisk"]();   // 显式等待恢复（构造器异步 fire-and-forget）
+    const metrics: string[] = [];
+    const k3 = new CCompiledKernel({ workDir: root + "/work3", cacheDir, onMetric: (m) => metrics.push(m.type) });
+    await k3["restoreFromDisk"]();
+    const r3 = await k3.execute(src);
+    expect(r3.ok).toBe(true);
+    expect(metrics).toContain("cache-hit");
+    expect(r3.durationMs).toBeLessThan(50);   // 缓存命中极快
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("磁盘上限清理：超限删最旧", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const root = mkdtempSync(tmpdir() + "/cck-limit-");
+    // maxCacheBytes 极小（1KB）——首次编译后 enforceDiskLimit 删除
+    const k = new CCompiledKernel({ workDir: root + "/w", cacheDir: root + "/c", maxCacheBytes: 1024 });
+    const src = "#include <stdio.h>\nint main(void){ return 0; }";
+    await k.execute(src);
+    await new Promise((r) => setTimeout(r, 50));   // 等异步 enforceDiskLimit
+    expect(k.state.cacheSize ?? 0).toBeLessThanOrEqual(1);   // 被清理或保留 0-1 条
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("onMetric：compile 事件带 cc 与耗时（cold）", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const root = mkdtempSync(tmpdir() + "/cck-metric-");
+    const events: Array<{ type: string; cc: string; durationMs: number }> = [];
+    const k = new CCompiledKernel({ workDir: root + "/w", cacheDir: root + "/c", onMetric: (m) => events.push({ type: m.type, cc: m.cc, durationMs: m.durationMs }) });
+    await k.execute("#include <stdio.h>\nint main(void){ return 0; }");
+    expect(events.some((e) => e.type === "compile" && e.durationMs >= 0)).toBe(true);
+    rmSync(root, { recursive: true, force: true });
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMiLine, stoppedFromRecord, framesFromResult, variablesFromResult } from "../../src/pth/kernel/interpreter/gdb-mi.js";
+import { parseMiLine, stoppedFromRecord, framesFromResult, variablesFromResult, CDebugSession } from "../../src/pth/kernel/interpreter/gdb-mi.js";
 
 /**
  * gdb MI 协议解析（纯函数——调试协议基本集）。
@@ -80,5 +80,23 @@ describe("gdb MI 解析", () => {
   it("空行/垃圾行 → null", () => {
     expect(parseMiLine("")).toBeNull();
     expect(parseMiLine("garbage")).toBeNull();
+  });
+});
+
+describe("DebugSession 事件接口（监视组件预留——2026-08-09）", () => {
+  it("CDebugSession 构造接受 onEvent 回调（接口契约）", async () => {
+    const events: string[] = [];
+    const session = new CDebugSession({
+      workDir: "/tmp/dbg-x",
+      cc: "gcc",
+      gdbBin: "gdb",
+      onEvent: (e) => events.push(e.type),
+    } as any);
+    expect(session.onEvent).toBeDefined();
+    // 会话方法签名契约（不实际启动 gdb——本机无 gdb）
+    expect(typeof session.attach).toBe("function");
+    expect(typeof session.setBreakpoint).toBe("function");
+    expect(typeof session.continueExec).toBe("function");
+    expect(typeof session.step).toBe("function");
   });
 });

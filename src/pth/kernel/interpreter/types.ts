@@ -72,9 +72,19 @@ export interface DebugStopped {
   message?: string;
 }
 
+/** 调试会话事件（监视组件——attach/breakpoint/step/时长——CDebugSession 上报） */
+export interface DebugEvent {
+  type: "attach" | "breakpoint-set" | "breakpoint-hit" | "step" | "continue" | "detach";
+  sessionId: string;
+  ts: number;
+  detail?: Record<string, unknown>;
+}
+
 export interface DebugSession {
   readonly id: string;
   readonly language: string;
+  /** 调试事件回调（可选——监视组件接线；缺省 undefined） */
+  onEvent?: (e: DebugEvent) => void;
   /** 启动调试会话（编译调试版 + 启动调试器） */
   attach(source: string): Promise<void>;
   setBreakpoint(line: number, condition?: string): Promise<DebugBreakpoint>;

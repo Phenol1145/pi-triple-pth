@@ -130,7 +130,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
     },
     python: metered(python, "python"),
     bash: metered(bash, "bash"),
-    c: compiled,
+    c: metered(compiled, "c"),
     ts,
     reset() { ts.reset(); bash.reset(); python.reset(); compiled.reset(); },
     dispose() { ts.dispose(); bash.dispose(); python.dispose(); compiled.dispose(); },
