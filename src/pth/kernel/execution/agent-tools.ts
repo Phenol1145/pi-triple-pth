@@ -129,9 +129,9 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: ["code"],
   },
   done: {
-    description: "完成任务——提交最终产出对象",
-    properties: { result: { description: "最终产出对象（任意 JSON）" }, summary: { type: "string", description: "完成说明" } },
-    required: [],
+    description: "完成任务——提交最终产出对象（result 必填：实际产物——实现代码/写入的文件/计算结果等任意 JSON；缺少 result 或 result 为空会被拒绝并回填引导重新提交）",
+    properties: { result: { description: "最终产出对象（任意 JSON）——必填；须为实际产物（实现代码/写入的文件/计算结果），不能为空对象/空数组/空字符串" }, summary: { type: "string", description: "完成说明" } },
+    required: ["result"],
   },
 };
 

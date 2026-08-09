@@ -50,6 +50,8 @@ export type AgentTaskResult =
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
+/** done 收尾引导（worker 设计 2026-08-09——三层防御 L3 计数）：空 done（result 缺失/为空）回填引导继续循环；连续 N 次仍空才强制终止（防死循环） */
+const DONE_GUIDE_LIMIT = 3;
 
 /** 构建 agent system prompt：角色人设 + 工具协议 + 能力文档 + PTC 程序模式引导 + 输出要求 */
 /** PTH Worker 世界观（2026-08-09——参考 pi 系统提示词/AGENTS.md 功能：身份/工作流/框架事实/约束）。
@@ -229,6 +231,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
 
   const start = Date.now();
   let steps = 0;
+  let emptyDoneCount = 0;  // done 空 result 引导计数（连续 ≥DONE_GUIDE_LIMIT 强制失败）
   let lastFingerprint = "";
   let repeatCount = 0;
   let emptyReplies = 0;
@@ -315,8 +318,32 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     const stepStart = Date.now();
     if (tool === "done") {
       const result = args["result"];
-      if (result === undefined || result === null) {
-        return { ok: false, error: "done 缺少 result", steps: steps + 1 };
+      // 空产物判定：undefined/null/空对象/空数组/空字符串——都视为未提交实际产物（0/false 等合法 falsy 不误伤）
+      const isEmptyResult =
+        result === undefined || result === null ||
+        (typeof result === "object" && !Array.isArray(result) && Object.keys(result).length === 0) ||
+        (Array.isArray(result) && result.length === 0) ||
+        (typeof result === "string" && result.trim().length === 0);
+      if (isEmptyResult) {
+        // 收尾引导（L2 运行时引导——不再立即 reject——回填引导让模型重新提交正确产物）
+        emptyDoneCount += 1;
+        const guide = result === undefined || result === null
+          ? "done 缺少 result（必填）——已拒绝：你的 done 调用未携带最终产出对象。请重新调用 done：result 必须为实际产物（实现代码/写入的文件/计算结果等任意 JSON），可附带 summary 说明完成情况。"
+          : "done 的 result 为空（无实际产物内容）——已拒绝：空对象/空数组/空字符串不构成产物。请重新调用 done：result 必须为实际产物（实现代码/写入的文件/计算结果等任意 JSON），可附带 summary 说明完成情况。";
+        const remaining = DONE_GUIDE_LIMIT - emptyDoneCount;
+        messages.push({
+          role: "tool",
+          toolCallId: toolCallId ?? `tc-${steps + 1}`,
+          toolName: tool,
+          content: `step ${steps + 1} [done]: ${guide}（第 ${emptyDoneCount} 次空 done——剩余 ${remaining} 次机会，之后将强制终止）`,
+        });
+        input.logger?.(`[agent] step=${steps + 1} done 空 result 引导（第 ${emptyDoneCount}/${DONE_GUIDE_LIMIT} 次）`);
+        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: false, args: JSON.stringify(args).slice(0, 300) });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: guide.slice(0, 200) });
+        if (emptyDoneCount >= DONE_GUIDE_LIMIT) {
+          return { ok: false, error: `done 连续 ${emptyDoneCount} 次缺少 result（应携带实际产物）——已按失败终止`, steps: steps + 1 };
+        }
+        return undefined;  // 继续循环——模型看到引导后应重新调用 done 提交正确产物
       }
       const summary = typeof args["summary"] === "string" ? args["summary"] : undefined;
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: true });

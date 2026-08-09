@@ -225,3 +225,37 @@ describe("指纹归一化修正（c473e646 实测——memory 查询误判重复
     if (r.ok) expect(r.warning ?? "").toContain("重复动作");
   });
 });
+
+describe("done 收尾引导（worker 设计 2026-08-09——三层防御：schema 强制 + 运行时引导 + 计数兜底）", () => {
+  it("done 空 args → 引导继续（不立即 reject）——修正后成功提交", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "done", arguments: {} }] },                                // 空 done
+      { toolCalls: [{ name: "done", arguments: { result: { ok: true } } }] },          // 修正——带 result
+    ]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual({ ok: true });
+  });
+
+  it("连续 3 次空 done → 第 3 次强制失败（防死循环）", async () => {
+    const kernel = mockKernel();
+    const empty = { toolCalls: [{ name: "done", arguments: {} }] };
+    const llm = mockLlm(Array.from({ length: 4 }, () => empty));
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("连续 3 次缺少 result");
+  });
+
+  it("空对象/空数组/空串 → 引导；0/false → 合法不误伤", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "done", arguments: { result: {} } }] },          // 空对象 → 引导
+      { toolCalls: [{ name: "done", arguments: { result: [] } }] },          // 空数组 → 引导
+      { toolCalls: [{ name: "done", arguments: { result: 0 } }] },           // 0 → 合法成功
+    ]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 6 });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toBe(0);
+  });
+});
