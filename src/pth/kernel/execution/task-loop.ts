@@ -131,6 +131,18 @@ export class TaskLoop {
             this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(r.error) });
             return;
           }
+          // 完成标准强制（done 引导的系统级保障——2026-08-09）：agent 结束但无产物
+          // （value null 且无 warning）→ 不符合完成标准——reject（不 completed 空结果）
+          if (r.value === undefined || r.value === null) {
+            const reason = r.warning
+              ? `agent-${r.warning}`   // maxSteps/重复终止——warning 说明
+              : "agent-no-output: agent 完成但未产出结果（done 未带 result）";
+            await taskStore.reject(role.id, task.id, reason, { terminal: true });
+            taskLogger?.error(reason, { steps: r.steps });
+            this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+            this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(reason) });
+            return;
+          }
           agentResult = { value: r.value, summary: r.summary, steps: r.steps };
         } else if (this.deps.llm) {
           const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
