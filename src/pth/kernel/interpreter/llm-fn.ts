@@ -50,11 +50,18 @@ export function createLlmFn(deps: {
   /** 性能计量（SPEC L0-④）：llm 调用事件（token/calls/latency） */
   onMetric?: (m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number }) => void;
 }): LlmFn {
+  depsMetric = deps.onMetric ?? null;
   return {
     async complete(messages, opts) {
       const model = deps.modelRouter.resolve(opts?.provider, opts?.model);
+      // 原生工具调用（OpenAI tool_calls——2026-08-09 架构修正）：
+      // pi-ai completeSimple 兼容层对 tools 场景有缺陷（官方 deepseek 返回空）——
+      // tools 存在时直连 provider chat/completions（OpenAI 兼容——结构化 tool_calls）
+      if (opts?.tools && opts.tools.length > 0) {
+        return directOpenAiComplete(model, messages, opts);
+      }
       const runtime = deps.modelRouter.getRuntime();
-      const ctx = toContext(messages, opts?.tools) as Context;
+      const ctx = toContext(messages) as Context;
       const start = Date.now();
       const result = await runtime.completeSimple(model, ctx, { signal: opts?.signal });
       const inputTokens = usageInput(result.usage ?? {});
@@ -131,3 +138,69 @@ function extractText(content: unknown): string {
   }
   return String(content ?? "");
 }
+
+/** OpenAI 兼容直连（原生 tool_calls——绕过 pi-ai completeSimple） */
+async function directOpenAiComplete(
+  model: { baseUrl?: string; id: string; provider: string },
+  messages: LlmMessage[],
+  opts?: LlmCompleteOptions,
+): Promise<LlmResult> {
+  const baseUrl = model.baseUrl ?? "https://api.deepseek.com";
+  const apiKey = process.env.DEEPSEEK_API_KEY ?? process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error(`directComplete: ${model.provider} 无 API key（DEEPSEEK_API_KEY/OPENAI_API_KEY env）`);
+
+  // 消息转换（OpenAI 格式）：system 并入首条；tool 角色 → tool 消息（tool_call_id）
+  const systemText = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
+  const apiMessages: Array<Record<string, unknown>> = [];
+  if (systemText) apiMessages.push({ role: "system", content: systemText });
+  for (const m of messages.filter((x) => x.role !== "system")) {
+    if (m.role === "tool") {
+      apiMessages.push({ role: "tool", tool_call_id: m.toolCallId, content: m.content });
+    } else if (m.role === "assistant") {
+      apiMessages.push({ role: "assistant", content: m.content });
+    } else {
+      apiMessages.push({ role: "user", content: m.content });
+    }
+  }
+
+  const tools = (opts?.tools ?? []).map((t) => ({
+    type: "function",
+    function: { name: t.name, description: t.description, parameters: t.parameters },
+  }));
+
+  const start = Date.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts?.timeoutMs ?? 60_000);
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: model.id, messages: apiMessages, tools, stream: false }),
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  const text = await res.text();
+  if (!res.ok) throw new Error(`directComplete ${res.status}: ${text.slice(0, 200)}`);
+  const json = JSON.parse(text) as {
+    choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  const msg = json.choices?.[0]?.message;
+  const toolCalls = (msg?.tool_calls ?? []).map((tc) => {
+    try { return { id: tc.id, name: tc.function.name, arguments: JSON.parse(tc.function.arguments) as Record<string, unknown> }; }
+    catch { return { id: tc.id, name: tc.function.name, arguments: {} }; }
+  });
+  if (depsMetric) depsMetric({ provider: String(model.provider), model: model.id, durationMs: Date.now() - start, inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0 });
+  return {
+    content: msg?.content ?? "",
+    model: model.id,
+    usage: { inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0 },
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
+  };
+}
+
+let depsMetric: ((m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number }) => void) | null = null;
+export function __setDirectMetric(fn: typeof depsMetric): void { depsMetric = fn; }
