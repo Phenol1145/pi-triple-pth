@@ -81,6 +81,7 @@ export class CCompiledKernel implements Interpreter {
   private maxCacheBytes: number;
   private onMetric?: (m: CompiledKernelMetric) => void;
   private entries: Map<string, CacheEntry> = new Map(); // hash → entry
+  private restorePromise: Promise<void>;   // 惰性恢复（build 前 await——防恢复竞态冷编译）
 
   constructor(opts: CompiledKernelOptions) {
     this.workDir = opts.workDir;
@@ -92,7 +93,9 @@ export class CCompiledKernel implements Interpreter {
     this.maxCacheBytes = opts.maxCacheBytes ?? 200 * 1024 * 1024;
     this.onMetric = opts.onMetric;
     // 持久缓存恢复（跨调用/跨进程）：扫描 cacheDir 子目录（目录名=源码 sha256）→ entries
-    void this.restoreFromDisk();
+    // 惰性 promise——build 开头 await（修复：fire-and-forget 时 execute 先跑导致恢复竞态——
+    // 生产实测 cacheHits 恒 0、每次冷编译）
+    this.restorePromise = this.restoreFromDisk();
   }
 
   /** 启动恢复：磁盘缓存目录 → 内存 entries（mtime → lastUsedAt；超限清理最旧） */
@@ -147,6 +150,7 @@ export class CCompiledKernel implements Interpreter {
 
   /** 编译（增量：源码 sha256 命中跳过）→ binaryRef */
   async build(source: string): Promise<BuildResult> {
+    await this.restorePromise;   // 恢复完成后再查缓存（防竞态冷编译）
     const hash = sha256(source);
     const existing = this.entries.get(hash);
     if (existing) {
