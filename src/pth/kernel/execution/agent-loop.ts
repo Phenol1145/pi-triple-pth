@@ -197,7 +197,9 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       return { ok: true, value: result, summary, steps: steps + 1 };
     }
 
-    const executor = AGENT_TOOLS[tool as keyof typeof AGENT_TOOLS];
+    // tool_calls 名是 API 形式（下划线——python_execute）——映射回执行器（点）
+    const executorKey = tool.replace(/_/g, ".");
+    const executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
     if (!executor) {
       // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行
       const wrap = AGENT_CAPABILITY_AS_ACTION[tool];

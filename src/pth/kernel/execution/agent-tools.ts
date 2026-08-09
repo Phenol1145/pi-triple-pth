@@ -133,10 +133,12 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
   },
 };
 
-/** 工具声明 → pi-ai Tool[]（OpenAI function 格式——Context.tools 原生 tool_calls） */
+/** 工具声明 → pi-ai Tool[]（OpenAI function 格式——Context.tools 原生 tool_calls）
+ * name 去点（OpenAI tool name pattern ^[a-zA-Z0-9_-]+$——python.execute 非法 → python_execute）
+ */
 export function toolsToSchema(): import("@earendil-works/pi-ai").Tool[] {
   return Object.entries(TOOL_SCHEMAS).map(([name, s]) => ({
-    name,
+    name: name.replace(/\./g, "_"),
     description: s.description,
     parameters: { type: "object", properties: s.properties, required: s.required },
   }));
