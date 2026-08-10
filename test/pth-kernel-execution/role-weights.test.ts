@@ -6,14 +6,14 @@ import {
 } from "../../src/pth/kernel/execution/worker-cluster.js";
 
 describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
-  it("不设置 → 默认 8 角色 ×1", () => {
+  it("不设置 → 默认 7 角色 ×1", () => {
     const w = parseRoleWeights(undefined);
-    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
-    expect(expandRoleWeights(w).length).toBe(8);
+    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1]);
+    expect(expandRoleWeights(w).length).toBe(7);
   });
 
   it("空串 → 默认", () => {
-    expect(expandRoleWeights(parseRoleWeights("")).length).toBe(8);
+    expect(expandRoleWeights(parseRoleWeights("")).length).toBe(7);
   });
 
   it("部分指定：未列出的角色默认 1", () => {
@@ -21,14 +21,14 @@ describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
     expect(w.get("developer")).toBe(3);
     expect(w.get("analyst")).toBe(2);
     expect(w.get("scout")).toBe(1);   // 未列出 → 1
-    expect(expandRoleWeights(w).length).toBe(3 + 2 + 5 + 1);  // +tester 未列默认 1
+    expect(expandRoleWeights(w).length).toBe(3 + 2 + 5);  // 2 列出 + 其余 5 角色未列默认 1×5
   });
 
   it("副本 0 = 禁用角色（不占 worker）", () => {
-    const w = parseRoleWeights("developer:4,planner:0,scout:0,memory-keeper:0,acceptor:0,human-interface:0");
+    const w = parseRoleWeights("developer:4,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0");
     expect(w.get("planner")).toBe(0);
     const expanded = expandRoleWeights(w);
-    expect(expanded.length).toBe(4 + 2);   // developer×4 + analyst/tester 未列默认 1
+    expect(expanded.length).toBe(4 + 1);   // developer×4 + analyst 未列默认 1（7 角色谱系）
     expect(expanded.every((r) => r.id !== "planner")).toBe(true);
   });
 
@@ -45,7 +45,7 @@ describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
   });
 
   it("总 worker 超上限拒绝（32）", () => {
-    expect(() => parseRoleWeights("developer:8,analyst:8,planner:8,scout:8,memory-keeper:8,acceptor:8,human-interface:8")).toThrow(/超上限/);
+    expect(() => parseRoleWeights("developer:8,analyst:8,planner:8,scout:8,memory-keeper:8,acceptor:8,tester:8")).toThrow(/超上限/);
   });
 
   it("无冒号副本 = 1（developer 等价 developer:1）", () => {
@@ -53,16 +53,16 @@ describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
   });
 
   it("副本数为 0 的总数校验正确（0 不占总额）", () => {
-    const w = parseRoleWeights("developer:8,analyst:8,planner:8,scout:0,memory-keeper:0,acceptor:0,human-interface:0");
-    // 8+8+8+1(默认? 不——全部列出后无默认+tester 未列默认 1) —— 实际 developer8+analyst8+planner8+tester1 = 25 ≤ 32
-    expect(expandRoleWeights(w).length).toBe(25);
+    const w = parseRoleWeights("developer:8,analyst:8,planner:8,scout:0,memory-keeper:0,acceptor:0,tester:0");
+    // developer8+analyst8+planner8+tester0+其余 0 = 24 ≤ 32（7 角色谱系——tester 已列出）
+    expect(expandRoleWeights(w).length).toBe(24);
   });
 });
 
 describe("资源分配策略抽象（BatchCompositionStrategy）", () => {
   it("profileToWeights：balanced 默认 → 7×1", () => {
     const w = profileToWeights({ mode: "balanced" });
-    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1]);
   });
 
   it("profileToWeights：balanced 自定义权重", () => {

@@ -60,7 +60,7 @@ export class BatchManager {
       workers = expandRoleWeights(weights).map((r) => r.id);
       envOverride = { PTH_WORKER_ROLES: weightsToEnv(weights) };
     } else {
-      workers = this.deps.workers ?? ["analyst", "planner", "developer", "scout", "memory-keeper", "acceptor", "human-interface"];
+      workers = this.deps.workers ?? ["analyst", "planner", "developer", "scout", "memory-keeper", "acceptor", "tester"];
     }
     const child = fork(this.deps.batchProcessPath, [], {
       execArgv: this.deps.execArgv,

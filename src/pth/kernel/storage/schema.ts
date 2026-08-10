@@ -54,7 +54,7 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS job_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_tasks_job ON tasks(job_id, status);
 -- 存量 pending 任务回填：确定性分片（hashtext 内置 hash；与 JS djb2 不同但均匀+确定）
 UPDATE tasks SET assigned_role =
-  (ARRAY['analyst','planner','developer','scout','memory-keeper','acceptor','human-interface'])
+  (ARRAY['analyst','planner','developer','scout','memory-keeper','acceptor','tester'])
     [abs(hashtext(id)) % 7 + 1]
 WHERE assigned_role IS NULL AND status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);

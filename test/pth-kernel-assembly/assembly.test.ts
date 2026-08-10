@@ -44,11 +44,11 @@ suite("pth kernel assembly", () => {
     expect(Array.isArray(res)).toBe(true);
   });
 
-  it("BatchManager 已装配且默认 8 角色", async () => {
+  it("BatchManager 已装配且默认 7 角色", async () => {
     expect(runtime.batchManager).toBeDefined();
     // BatchManagerDeps.workers 默认在 spawnBatch 时展开为 7 角色
     const handle = await runtime.batchManager.spawnBatch();
-    expect(handle.workers).toHaveLength(8);
+    expect(handle.workers).toHaveLength(7);
     await runtime.batchManager.killBatch(handle.id);
   });
 

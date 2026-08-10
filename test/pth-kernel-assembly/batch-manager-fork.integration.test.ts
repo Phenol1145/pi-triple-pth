@@ -84,7 +84,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
     const task = await dw.tasks.publish({ title: "e2e", text: "2 + 3", createdBy: "test", tags: ["code"] });
 
     const handle = await manager.spawnBatch();
-    expect(handle.workers).toHaveLength(8);
+    expect(handle.workers).toHaveLength(7);
     expect(handle.pid).toBeGreaterThan(0);
 
     try {
@@ -117,7 +117,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       workers: ["developer"],
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {
-        PTH_WORKER_ROLES: "developer:1,analyst:0,planner:0,scout:0,memory-keeper:0,acceptor:0,human-interface:0",
+        PTH_WORKER_ROLES: "developer:1,analyst:0,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0",
         PTH_BATCH_PROCESS: "1",
         PTH_TEST_DATABASE_URL: container.getConnectionUri(),
         PTH_WORKSPACES_PATH: workspacesDir,
@@ -157,7 +157,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       workers: ["developer", "developer", "analyst"],
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {
-        PTH_WORKER_ROLES: "developer:2,analyst:1,planner:0,scout:0,memory-keeper:0,acceptor:0,human-interface:0",
+        PTH_WORKER_ROLES: "developer:2,analyst:1,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0",
         PTH_BATCH_PROCESS: "1",
         PTH_TEST_DATABASE_URL: container.getConnectionUri(),
         PTH_WORKSPACES_PATH: workspacesDir,

@@ -57,34 +57,31 @@ export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "analyst", labelPatterns: ["analysis", "research"], prompt: "你是分析者——负责信息分析、数据洞察、研究报告撰写。",
     description: "信息分析与数据洞察（researcher 对应）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research",
-    parent: "origin", generation: 1, differentiation: "分析调研类任务诱导——数据洞察/报告撰写需要 web 与数据能力的特化" },
+    parent: "explorer", generation: 2, differentiation: "分析调研类任务诱导——数据洞察/报告撰写需要 web 与数据能力的特化" },
   { id: "planner", labelPatterns: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。",
     description: "上下文→实施计划（只读——产出计划文档）", thinking: "high",
     capabilities: ["fs", "memory", "readSource", "readText"], output: "plan", defaultReads: ["context"], acceptanceRole: "read-only",
-    parent: "origin", generation: 1, differentiation: "规划类任务诱导——方案设计只需读取/推理——收窄为只读访问权限" },
+    parent: "governor", generation: 2, differentiation: "规划类任务诱导——方案设计只需读取/推理——收窄为只读访问权限" },
   { id: "developer", labelPatterns: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。",
     description: "实现与开发（worker 对应——narrow coherent edits）", thinking: "high",
     output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer",
-    parent: "origin", generation: 1, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
+    parent: "executor", generation: 2, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
   { id: "scout", labelPatterns: ["recon", "investigate"], prompt: "你是侦查者——负责信息收集、代码侦察、环境探查。",
     description: "快速侦察——压缩上下文交接下游（thinking low——快）", thinking: "low",
     capabilities: ["fs", "memory", "readSource", "readText", "bash"], output: "context",
-    parent: "origin", generation: 1, differentiation: "侦察类任务诱导——快速信息收集不需要深推理——thinking low 特化换速度" },
+    parent: "explorer", generation: 2, differentiation: "侦察类任务诱导——快速信息收集不需要深推理——thinking low 特化换速度" },
   { id: "memory-keeper", labelPatterns: ["memory", "organize"], prompt: "你是记忆维护者——负责记忆整理、知识沉淀、索引维护。",
     description: "记忆整理与知识沉淀（PTH 特色——记忆系统维护）", thinking: "medium",
     capabilities: ["memory", "fs", "readSource"], output: "memory",
-    parent: "origin", generation: 1, differentiation: "记忆维护类任务诱导——知识沉淀/索引维护围绕 memory 能力收窄" },
+    parent: "governor", generation: 2, differentiation: "记忆维护类任务诱导——知识沉淀/索引维护围绕 memory 能力收窄" },
   { id: "acceptor", labelPatterns: ["accept", "verify"], prompt: "你是验收者——负责结果验证、质量检查、交付验收。",
     description: "结果验证与交付验收（reviewer 对应——只读审查）", thinking: "high",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"], defaultReads: ["plan", "progress"], acceptanceRole: "read-only",
-    parent: "origin", generation: 1, differentiation: "验收类任务诱导——质量检查需要执行验证但不应修改产物——只读审查特化" },
-  { id: "human-interface", labelPatterns: ["human", "interact"], prompt: "你是人类交互者——负责与用户沟通、意图澄清、反馈传递。",
-    description: "人类需求兜底（PTH 特色——升级机制）", thinking: "high", acceptanceRole: "writer",
-    parent: "origin", generation: 1, differentiation: "人类交互类任务诱导——意图澄清/反馈传递需要完整沟通能力与决策升级" },
+    parent: "governor", generation: 2, differentiation: "验收类任务诱导——质量检查需要执行验证但不应修改产物——只读审查特化" },
   { id: "tester", labelPatterns: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。",
     description: "能力测试与行为验证", thinking: "high",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer",
-    parent: "origin", generation: 1, differentiation: "测试类任务诱导——能力/行为验证需要全部执行核（含 c 编译核）写测试产物" },
+    parent: "executor", generation: 2, differentiation: "测试类任务诱导——能力/行为验证需要全部执行核（含 c 编译核）写测试产物" },
 ];
 
 // ── batch 构成参数化（2026-08-09：取消固定 7 角色限制）────────────────
@@ -236,13 +233,36 @@ export function allWorkerRoles(): WorkerRole[] {
   return [...DEFAULT_ROLES, ...extraRoles];
 }
 
+/**
+ * 中间层角色（谱系树结构层——generation=1——Origin 的初代分化）：
+ * 三族按任务性质划分——执行族（做实事）/信息族（取信息）/治理族（质量与秩序）。
+ * 默认不进 batch（池容量安全——叶子角色直接接任务）；PTH_WORKER_ROLES 显式启用时
+ * 接族内泛化任务（未明确特化方向的族级任务）；也是未来三代分化的挂载点。
+ */
+export const MID_ROLES: WorkerRole[] = [
+  { id: "executor", labelPatterns: ["execute", "deliver"], prompt: "你是执行者——执行族中间层。负责族内泛化的任务交付（未明确开发/测试之分的执行任务）：按任务需求组合执行能力完成并交付产物。族内已有特化：developer（实现）/tester（验证）——若任务明确属于特化方向，在产物中注明建议路由。",
+    description: "执行族中间层（泛化任务交付）", thinking: "high", acceptanceRole: "writer",
+    parent: "origin", generation: 1, differentiation: "执行类任务族诱导——做事型任务（实现/构建/验证）从 Origin 分出独立分支" },
+  { id: "explorer", labelPatterns: ["explore", "survey"], prompt: "你是探索者——信息族中间层。负责族内泛化的信息获取（未明确侦察/分析之分的探索任务）：快速定位信息源、收集并压缩上下文交接下游。族内已有特化：scout（快速侦察）/analyst（深度分析）——若任务明确属于特化方向，在产物中注明建议路由。",
+    description: "信息族中间层（泛化信息获取）", thinking: "medium",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "bash"], output: "context",
+    parent: "origin", generation: 1, differentiation: "信息类任务族诱导——获取型任务（侦察/调研/分析）从 Origin 分出独立分支" },
+  { id: "governor", labelPatterns: ["govern", "oversight"], prompt: "你是治理者——治理族中间层。负责族内泛化的质量与秩序任务（未明确规划/验收/记忆之分的治理任务）：审查现状、维护秩序、产出治理结论。族内已有特化：planner（规划）/acceptor（验收）/memory-keeper（记忆）——若任务明确属于特化方向，在产物中注明建议路由。",
+    description: "治理族中间层（泛化质量与秩序）", thinking: "high", acceptanceRole: "read-only",
+    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"],
+    parent: "origin", generation: 1, differentiation: "治理类任务族诱导——秩序型任务（规划/验收/记忆维护）从 Origin 分出独立分支" },
+];
+
 /** 已注册扩展角色（监控/调试） */
 export function getExtraRoles(): WorkerRole[] { return [...extraRoles]; }
 
 /** 谱系全量角色（含 Origin 根——lineage 查询/文档注入用；batch 构成仍由 allWorkerRoles/PTH_WORKER_ROLES 决定） */
 export function allLineageRoles(): WorkerRole[] {
   const roles = allWorkerRoles();
-  return roles.some((r) => r.id === ORIGIN_ROLE.id) ? roles : [ORIGIN_ROLE, ...roles];
+  const base = roles.some((r) => r.id === ORIGIN_ROLE.id) ? roles : [ORIGIN_ROLE, ...roles];
+  const withMid = [...base];
+  for (const mid of MID_ROLES) if (!withMid.some((r) => r.id === mid.id)) withMid.push(mid);
+  return withMid;
 }
 
 /** 谱系树节点（树状结构——分化路径可视化） */

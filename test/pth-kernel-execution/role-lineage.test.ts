@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  ORIGIN_ROLE, DEFAULT_ROLES, allLineageRoles, buildRoleLineage, renderRoleLineage,
+  ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, allLineageRoles, buildRoleLineage, renderRoleLineage,
   registerWorkerRole, resetExtraRoles,
 } from "../../src/pth/kernel/execution/worker-cluster.js";
 import { buildRoleDoc } from "../../src/pth/kernel/prompt-docs.js";
@@ -13,25 +13,47 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(ORIGIN_ROLE.capabilities).toBeUndefined();   // 全能——无访问权限收窄
   });
 
-  it("8 内置角色追溯为 Origin 初代分化（parent=origin / generation=1 / 有诱导理由）", () => {
+  it("7 叶子角色挂中间层（generation=2——parent=executor/explorer/governor——有诱导理由）", () => {
+    const midIds = ["executor", "explorer", "governor"];
     for (const r of DEFAULT_ROLES) {
+      expect(midIds).toContain(r.parent);
+      expect(r.generation).toBe(2);
+      expect(r.differentiation).toBeTruthy();
+    }
+  });
+
+  it("3 中间层角色挂 Origin（generation=1——族级分化）", () => {
+    const midIds = MID_ROLES.map((r) => r.id).sort();
+    expect(midIds).toEqual(["executor", "explorer", "governor"]);
+    for (const r of MID_ROLES) {
       expect(r.parent).toBe("origin");
       expect(r.generation).toBe(1);
       expect(r.differentiation).toBeTruthy();
     }
   });
 
-  it("allLineageRoles 含 Origin 根（allWorkerRoles 不含——batch 构成不变）", () => {
-    const lineage = allLineageRoles();
-    expect(lineage.some((r) => r.id === "origin")).toBe(true);
-    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1);
+  it("human-interface 已移除（PTL 负责人类交互——PTH 任务池不设）", () => {
+    expect(DEFAULT_ROLES.some((r) => r.id === "human-interface")).toBe(false);
+    expect(allLineageRoles().some((r) => r.id === "human-interface")).toBe(false);
   });
 
-  it("buildRoleLineage 构建树（Origin 根——8 初代子节点）", () => {
+  it("allLineageRoles 含 Origin+中间层（allWorkerRoles 不含——batch 构成不变）", () => {
+    const lineage = allLineageRoles();
+    expect(lineage.some((r) => r.id === "origin")).toBe(true);
+    expect(lineage.some((r) => r.id === "executor")).toBe(true);
+    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 3);   // 7 叶 + origin + 3 中间层
+  });
+
+  it("buildRoleLineage 构建三层树（Origin → 3 中间层 → 7 叶子）", () => {
     const tree = buildRoleLineage();
     expect(tree.role.id).toBe("origin");
-    expect(tree.children.length).toBe(DEFAULT_ROLES.length);
-    expect(tree.children.every((c) => c.children.length === 0)).toBe(true);   // 当前全部初代——无二代
+    expect(tree.children.length).toBe(3);   // 3 中间层
+    const executor = tree.children.find((c) => c.role.id === "executor");
+    const explorer = tree.children.find((c) => c.role.id === "explorer");
+    const governor = tree.children.find((c) => c.role.id === "governor");
+    expect(executor?.children.map((c) => c.role.id).sort()).toEqual(["developer", "tester"]);
+    expect(explorer?.children.map((c) => c.role.id).sort()).toEqual(["analyst", "scout"]);
+    expect(governor?.children.map((c) => c.role.id).sort()).toEqual(["acceptor", "memory-keeper", "planner"]);
   });
 
   it("扩展角色未填 parent → 挂 Origin 下（兼容——视为初代分化）", () => {
@@ -43,11 +65,12 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     resetExtraRoles();
   });
 
-  it("二代分化（子角色 parent=内置角色 → 挂对应子树）", () => {
+  it("三代分化（子角色 parent=叶子角色 → 挂对应子树——developer 在 executor 下）", () => {
     resetExtraRoles();
-    registerWorkerRole({ id: "dev-frontend", labelPatterns: ["frontend-ui"], prompt: "前端专员", parent: "developer", generation: 2, differentiation: "前端任务诱导" });
+    registerWorkerRole({ id: "dev-frontend", labelPatterns: ["frontend-ui"], prompt: "前端专员", parent: "developer", generation: 3, differentiation: "前端任务诱导" });
     const tree = buildRoleLineage();
-    const dev = tree.children.find((c) => c.role.id === "developer");
+    const executor = tree.children.find((c) => c.role.id === "executor");
+    const dev = executor?.children.find((c) => c.role.id === "developer");
     expect(dev?.children.some((c) => c.role.id === "dev-frontend")).toBe(true);
     resetExtraRoles();
   });
@@ -63,7 +86,7 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
   it("role-doc 含分化路径段落（谱系元数据——worker 读角色文档见分化来源）", () => {
     const doc = buildRoleDoc(DEFAULT_ROLES.find((r) => r.id === "developer")!);
     expect(doc).toContain("分化路径");
-    expect(doc).toContain("谱系代数：1（父角色：origin）");
+    expect(doc).toContain("谱系代数：2（父角色：executor）");
     expect(doc).toContain("实现类任务诱导");
     const originDoc = buildRoleDoc(ORIGIN_ROLE);
     expect(originDoc).toContain("谱系之根");
