@@ -1,11 +1,11 @@
 import { Redis } from "ioredis";
-import { detectPlatform, createLogger } from "@pi-triple/infra";
+import { detectPlatform, createLogger } from "@away_from/infra";
 import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { createKernelMetrics } from "./observability/kernel-metrics.js";
 import { AuditWriter } from "./observability/audit.js";
 import { RedisSessionStore } from "./storage/redis-session-store.js";
 import { RedisSettingsStore } from "./storage/redis-settings-store.js";
-import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@pi-triple/infra";
+import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@away_from/infra";
 import { ToolRegistry } from "./tools/registry.js";
 import { ToolPlatform } from "./tools/platform.js";
 import { SandboxExecClient, SandboxHealthMonitor, createSandboxBashDefinition } from "./tools/sandbox-bash.js";
@@ -29,7 +29,7 @@ async function main() {
 
 /** 凭据注入 pi-ai env（DEEPSEEK_API_KEY 等——原生 tool_calls 需要——auth.json 单一源） */
 async function injectPiAiKeysFromAuth(): Promise<void> {
-  const { resolveSdkConfigPaths } = await import("@pi-triple/infra");
+  const { resolveSdkConfigPaths } = await import("@away_from/infra");
   const authPath = resolveSdkConfigPaths().authPath;
   if (!authPath) return;
   // provider → pi-ai env 变量（env-api-keys 映射——deepseek 等）

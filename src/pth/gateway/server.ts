@@ -5,7 +5,7 @@ import type { AgentEngine } from "../core/agent-engine.js";
 import type { ToolPlatform } from "../tools/platform.js";
 import type { ProgramStore } from "../programs/store.js";
 import type { Metrics } from "../observability/metrics.js";
-import type { Logger } from "@pi-triple/infra";
+import type { Logger } from "@away_from/infra";
 import type { SessionStore } from "../storage/interfaces.js";
 import { createAuthHook } from "./auth.js";
 import { registerSessionRoutes } from "./routes-sessions.js";

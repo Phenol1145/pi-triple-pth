@@ -16,7 +16,7 @@ import {
 import { registerSelfRoutes } from "../../src/pth/gateway/routes-self.js";
 import { AgentEngine } from "../../src/pth/core/agent-engine.js";
 import { SessionPool } from "../../src/pth/core/session-pool.js";
-import { WorkspaceManager, detectPlatform } from "@pi-triple/infra";
+import { WorkspaceManager, detectPlatform } from "@away_from/infra";
 
 /**
  * F/WP3 Task 15 — WP3 集成验证：代码执行全沙箱化闭环（Task 10-14 端到端）。

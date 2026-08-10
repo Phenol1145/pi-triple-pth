@@ -10,7 +10,7 @@
  */
 
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { resolveSdkConfigPaths } from "@pi-triple/infra";
+import { resolveSdkConfigPaths } from "@away_from/infra";
 
 export interface KernelRouterLike {
   resolve(provider?: string, model?: string): NonNullable<ReturnType<ModelRuntime["getModel"]>>;

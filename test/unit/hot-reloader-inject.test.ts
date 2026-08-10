@@ -5,7 +5,7 @@ import path from "node:path";
 import { HotReloader, ResourceOverlay } from "../../src/pth/self-modify/hot-reloader.js";
 import { AgentEngine } from "../../src/pth/core/agent-engine.js";
 import { SessionPool } from "../../src/pth/core/session-pool.js";
-import { DefaultResourceLoader } from "@pi-triple/infra";
+import { DefaultResourceLoader } from "@away_from/infra";
 
 /**
  * F/WP2 Task 8 — HotReloader L1 注入闭环：

@@ -15,7 +15,7 @@ import {
 } from "../../src/pth/tools/sandbox-bash.js";
 import { AgentEngine } from "../../src/pth/core/agent-engine.js";
 import { SessionPool } from "../../src/pth/core/session-pool.js";
-import { WorkspaceManager, detectPlatform } from "@pi-triple/infra";
+import { WorkspaceManager, detectPlatform } from "@away_from/infra";
 
 /**
  * F/WP3 Task 11 — bash 工具全量转发 sandbox（统一接口名 bash + 类型化错误）。

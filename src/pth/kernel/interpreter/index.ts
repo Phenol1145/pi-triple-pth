@@ -1,4 +1,4 @@
-import type { ModelRouter } from "@pi-triple/infra";
+import type { ModelRouter } from "@away_from/infra";
 import type { DataWorldAccess } from "../storage/index.js";
 import type { InterpreterSnapshot } from "./types.js";
 import { TsInterpreter } from "./ts-interpreter.js";
