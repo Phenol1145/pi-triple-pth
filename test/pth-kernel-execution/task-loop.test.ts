@@ -1,22 +1,33 @@
-import { describe, it, expect, vi } from "vitest";
-import { TaskLoop } from "../../src/pth/kernel/execution/task-loop";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-/** mock TaskStore（对齐 Spec C TaskStore 接口） */
-function mockTaskStore(overrides: Partial<any> = {}) {
+// 任务池纯化（2026-08-10 D1）：agent 循环是唯一主路径——mock runAgentTask 隔离 LLM
+vi.mock("../../src/pth/kernel/execution/agent-loop.js", () => ({
+  runAgentTask: vi.fn(),
+}));
+
+import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
+import { TaskLoop } from "../../src/pth/kernel/execution/task-loop.js";
+
+const mockedRunAgent = vi.mocked(runAgentTask);
+
+beforeEach(() => {
+  mockedRunAgent.mockReset();
+  mockedRunAgent.mockResolvedValue({ ok: true, value: "done", summary: "s", steps: 1 } as never);
+});
+
+function mockTaskStore(overrides: any = {}) {
   return {
-    candidates: vi.fn(async () => []),
-    claimTopN: vi.fn(async () => []),
+    candidates: async () => [],
+    claimTopN: async () => [],
     reject: vi.fn(async () => {}),
     submit: vi.fn(async () => {}),
     ...overrides,
-  };
+  } as any;
 }
 
-/** mock WorkerKernel（ts.execute 可配） */
+/** mock WorkerKernel（ts.execute 可配——translate 降级通道断言用） */
 function mockKernel(tsExecute?: any) {
   return {
-    // 适配：brief 原 helper 的 ts.execute 是裸 async 函数，vitest 的 toHaveBeenCalledWith 要求 spy——
-    // 用 vi.fn 包裹（不改默认行为/抛错传播，仅使断言可执行）
     ts: { execute: vi.fn(tsExecute ?? (async () => ({ ok: true, value: "done", durationMs: 1 }))) },
     bash: { execute: async () => ({ ok: true }) },
     python: { execute: async () => ({ ok: true }) },
@@ -27,21 +38,34 @@ function mockKernel(tsExecute?: any) {
   } as any;
 }
 
-describe("task loop", () => {
+const wsMgr = { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) } as any;
+
+/** agent 路径 deps（llm + agentCaps 齐备 → 唯一主路径） */
+function agentDeps(kernel: any, role: any, store: any) {
+  return {
+    kernel, role, taskStore: store, workspaceMgr: wsMgr,
+    llm: { complete: async () => ({ content: "ok" }) } as any,
+    agentCaps: { fs: {} } as any,
+  };
+}
+
+describe("task loop（任务池纯化——agent 循环唯一主路径）", () => {
   const role = { id: "developer", labelPatterns: ["code"], prompt: "dev" };
 
-  it("claims and executes candidate tasks", async () => {
+  it("claims and executes candidate tasks（agent 路径）", async () => {
     const task = { id: "t1", text: "do x", title: "x" };
     const store = mockTaskStore({
       candidates: vi.fn(async () => [task]),
       claimTopN: vi.fn(async () => [task]),
     });
     const kernel = mockKernel();
-    const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) } as any });
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
     await loop.runOnce();
     expect(store.candidates).toHaveBeenCalledWith("developer");
     expect(store.claimTopN).toHaveBeenCalledWith("developer", ["t1"]);
-    expect(kernel.ts.execute).toHaveBeenCalledWith("do x", expect.objectContaining({ cwd: "/ws/t1" }));
+    // agent 循环收到任务正文；ts 直执行不再调用
+    expect(mockedRunAgent).toHaveBeenCalledWith(expect.objectContaining({ task: { title: "x", text: "do x" } }));
+    expect(kernel.ts.execute).not.toHaveBeenCalled();
     expect(store.submit).toHaveBeenCalledWith("developer", "t1", expect.anything());
     expect(kernel.reset).toHaveBeenCalled();
   });
@@ -50,13 +74,11 @@ describe("task loop", () => {
     const task = { id: "t1", text: "do x", title: "x" };
     const store = mockTaskStore({
       candidates: vi.fn(async () => [task]),
-      claimTopN: vi.fn(async () => []),   // 竞态/不可认领（坏任务 claims_count 超限）
+      claimTopN: vi.fn(async () => []),
       reject: vi.fn(async () => {}),
     });
-    // 任务分配正交化（2026-08-08）：任务只属于自己队列，零认领 = 队列空——
-    // 不存在"更适合的角色"，放回池无意义 → 直接 return 下一轮
     const kernel = mockKernel();
-    const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: {} as any });
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
     await loop.runOnce();
     expect(store.reject).not.toHaveBeenCalled();
   });
@@ -65,39 +87,54 @@ describe("task loop", () => {
     const task = { id: "t1", text: "do x", title: "x" };
     const store = mockTaskStore({
       candidates: vi.fn(async () => [task]),
-      claimTopN: vi.fn(async () => []),   // 竞态：已被他人认领
+      claimTopN: vi.fn(async () => []),
     });
     const kernel = mockKernel();
-    const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: {} as any });
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
     await loop.runOnce();
-    expect(kernel.ts.execute).not.toHaveBeenCalled();
+    expect(mockedRunAgent).not.toHaveBeenCalled();
     expect(store.submit).not.toHaveBeenCalled();
   });
 
-  it("rejects task on execution crash (claim=commitment)", async () => {
+  it("rejects task on agent crash (claim=commitment)", async () => {
     const task = { id: "t1", text: "do x", title: "x" };
+    mockedRunAgent.mockRejectedValue(new Error("boom"));
     const store = mockTaskStore({
       candidates: vi.fn(async () => [task]),
       claimTopN: vi.fn(async () => [task]),
     });
-    const kernel = mockKernel(async () => { throw new Error("boom"); });
-    const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) } as any });
+    const kernel = mockKernel();
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
     await loop.runOnce();
     expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-crashed"), { terminal: true });
     expect(store.submit).not.toHaveBeenCalled();
   });
 
-  it("rejects task on interpreter ok:false (试运行发现 SyntaxError 误标 completed)", async () => {
+  it("agent ok:false → terminal reject（失败原因透传）", async () => {
     const task = { id: "t1", text: "do x", title: "x" };
+    mockedRunAgent.mockResolvedValue({ ok: false, error: "llm exploded", steps: 3 } as never);
     const store = mockTaskStore({
       candidates: vi.fn(async () => [task]),
       claimTopN: vi.fn(async () => [task]),
     });
-    const kernel = mockKernel(async () => ({ ok: false, error: { message: "Expected ',', got 'string literal'" }, durationMs: 1 }));
-    const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) } as any });
+    const kernel = mockKernel();
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
     await loop.runOnce();
-    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-failed"), { terminal: true });
+    expect(store.reject).toHaveBeenCalledWith("developer", "t1", "llm exploded", { terminal: true });
     expect(store.submit).not.toHaveBeenCalled();
+  });
+
+  it("agent 完成但无产物 → reject agent-no-output（完成标准强制）", async () => {
+    const task = { id: "t1", text: "do x", title: "x" };
+    mockedRunAgent.mockResolvedValue({ ok: true, value: null, steps: 2 } as never);
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const kernel = mockKernel();
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
+    await loop.runOnce();
+    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("agent-no-output"), { terminal: true });
   });
 
   it("submit passes output ref and archives", async () => {
@@ -108,10 +145,56 @@ describe("task loop", () => {
     });
     const archive = vi.fn(async () => ({ artifactPath: "/art/t1" }));
     const kernel = mockKernel();
-    const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive } as any });
+    const loop = new TaskLoop({ ...agentDeps(kernel, role, store), workspaceMgr: { ...wsMgr, archive } });
     await loop.runOnce();
     expect(archive).toHaveBeenCalled();
     expect(store.submit).toHaveBeenCalled();
+  });
+
+  it("降级：无 agentCaps → translate 一次性转译 → ts 直执行", async () => {
+    const task = { id: "t1", text: "算 1+1", title: "x" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const kernel = mockKernel();
+    const loop = new TaskLoop({
+      kernel, role, taskStore: store, workspaceMgr: wsMgr,
+      llm: { complete: async () => ({ content: "return { v: 2 }" }) } as any,
+      // 无 agentCaps → 降级通道
+    });
+    await loop.runOnce();
+    expect(mockedRunAgent).not.toHaveBeenCalled();
+    expect(kernel.ts.execute).toHaveBeenCalledWith("return { v: 2 }", expect.objectContaining({ cwd: "/ws/t1" }));
+    expect(store.submit).toHaveBeenCalled();
+  });
+
+  it("降级：转译后 ts 执行 ok:false → execution-failed reject", async () => {
+    const task = { id: "t1", text: "算 1+1", title: "x" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const kernel = mockKernel(async () => ({ ok: false, error: { message: "Expected ';'" }, durationMs: 1 }));
+    const loop = new TaskLoop({
+      kernel, role, taskStore: store, workspaceMgr: wsMgr,
+      llm: { complete: async () => ({ content: "return {" }) } as any,
+    });
+    await loop.runOnce();
+    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("execution-failed"), { terminal: true });
+  });
+
+  it("无 llm → terminal reject no-llm（纯化后无直执行路径）", async () => {
+    const task = { id: "t1", text: "do x", title: "x" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const kernel = mockKernel();
+    const loop = new TaskLoop({ kernel, role, taskStore: store, workspaceMgr: wsMgr });
+    await loop.runOnce();
+    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("no-llm"), { terminal: true });
+    expect(kernel.ts.execute).not.toHaveBeenCalled();
   });
 });
 
@@ -136,7 +219,7 @@ describe("task loop refiner 钩子", () => {
       dispose: () => {},
     } as any;
     const loop = new TaskLoop(
-      { kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) }, refiner },
+      { kernel, role, taskStore: store, workspaceMgr: wsMgr, llm: { complete: async () => ({ content: "ok" }) } as any, agentCaps: {} as any, refiner },
     );
     return loop.runOnce();
   }
@@ -172,7 +255,7 @@ describe("task loop refiner 钩子", () => {
       dispose: () => {},
     } as any;
     const loop = new TaskLoop(
-      { kernel, role, taskStore: store, workspaceMgr: { allocate: async () => ({ dir: "/ws/t1", tenant: "default" }), archive: async () => ({ artifactPath: "/art/t1" }) }, refiner },
+      { kernel, role, taskStore: store, workspaceMgr: wsMgr, llm: { complete: async () => ({ content: "ok" }) } as any, agentCaps: {} as any, refiner },
     );
     await loop.runOnce();
     expect(store.submit).toHaveBeenCalled();   // 任务仍提交（completed）

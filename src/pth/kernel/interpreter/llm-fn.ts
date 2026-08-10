@@ -53,6 +53,18 @@ export function createLlmFn(deps: {
   onMetric?: (m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number }) => void;
 }): LlmFn {
   depsMetric = deps.onMetric ?? null;
+  // 测试钩子（PTH_LLM_STUB=1）：集成测试无 LLM 凭据——agent 循环立即 done 完成 /
+  // 转译路径返回合法 TS。任务池纯化后 e2e 链路（fork batch）必须经 LLM——stub 是唯一隔离缝。
+  if (process.env.PTH_LLM_STUB === "1") {
+    return {
+      async complete(_messages, opts) {
+        if (opts?.tools && opts.tools.length > 0) {
+          return { content: "", model: "stub", toolCalls: [{ id: "stub-call", name: "done", arguments: { result: "stub-done" } }] };
+        }
+        return { content: "return { stub: true }", model: "stub" };
+      },
+    };
+  }
   return {
     async complete(messages, opts) {
       const model = deps.modelRouter.resolve(opts?.provider, opts?.model);

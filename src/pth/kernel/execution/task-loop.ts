@@ -1,7 +1,7 @@
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { Task, TaskStore } from "../storage/task-store-pg.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { isNaturalLanguageTask, translateTask } from "./nl-translator.js";
+import { translateTask } from "./nl-translator.js";
 import { runAgentTask } from "./agent-loop.js";
 import { getEventBus } from "./event-bus.js";
 
@@ -97,15 +97,13 @@ export class TaskLoop {
     this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...chain });
     kernel.reset();                          // 任务级状态隔离
     try {
-      // 自然语言任务（标签为主要凭据：tags 含 "nl" 或 payload.kind="nl"）
-      // 执行路径：LLM agent 循环（PTH 初衷——LLM 理解+多步工具调用）优先；
-      // PTH_AGENT_MODE=off 或未注入 caps 时回退一次性转译（fast-path）。
-      const nlDetected = isNaturalLanguageTask(task);
-      let code = task.text;
+      // 任务池纯化（2026-08-10 D1）：任务池只面向自然语言——agent 循环为唯一执行路径。
+      // （混合池是调试期临时形态；直连 kernel 的 TS 操作走 /kernel/exec 通道，不占任务池）
+      // 降级链：PTH_AGENT_MODE=off 或无 agentCaps → 一次性转译（translateTask）；无 llm → terminal reject。
+      const agentMode = process.env.PTH_AGENT_MODE !== "off";
+      let code: string | null = null;
       let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
-      if (nlDetected) {
-        const agentMode = process.env.PTH_AGENT_MODE !== "off";
-        if (agentMode && this.deps.llm && this.deps.agentCaps) {
+      if (agentMode && this.deps.llm && this.deps.agentCaps) {
           // 任务工作区 = 正式工作区（workspaceMgr.allocate 的 ws.dir——archive 归档同一目录——
           // fs.task 白名单含 /tasks/ ✓——agent 产物随归档持久化——不丢）
           const taskWorkspace: string | undefined = ws?.dir;
@@ -161,22 +159,30 @@ export class TaskLoop {
             return;
           }
           agentResult = { value: r.value, summary: r.summary, steps: r.steps };
-        } else if (this.deps.llm) {
-          const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
-          if (!t.ok) {
-            await taskStore.reject(role.id, task.id, t.error, { terminal: true });
-            taskLogger?.error(t.error);
-            this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-            this.deps.onTaskMetric?.({ type: "reject-reason", reason: "nl-translate-failed" });
-            return;
-          }
-          code = t.code;
-          taskLogger?.info("nl task translated", { codeLen: code.length });
+      } else if (this.deps.llm) {
+        // 降级通道（agent-off / 无 caps）：NL→TS 一次性转译后直执行
+        const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
+        if (!t.ok) {
+          await taskStore.reject(role.id, task.id, t.error, { terminal: true });
+          taskLogger?.error(t.error);
+          this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+          this.deps.onTaskMetric?.({ type: "reject-reason", reason: "nl-translate-failed" });
+          return;
         }
+        code = t.code;
+        taskLogger?.info("nl task translated", { codeLen: code.length });
+      } else {
+        // 无 llm：纯化后任务池无直执行路径——terminal reject（调试执行走 /kernel/exec）
+        const reason = "no-llm: 任务池为自然语言池（agent/translate 均需 LLM）——直连执行请走 /kernel/exec 通道";
+        await taskStore.reject(role.id, task.id, reason, { terminal: true });
+        taskLogger?.error(reason);
+        this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+        this.deps.onTaskMetric?.({ type: "reject-reason", reason: "no-llm" });
+        return;
       }
       const result = agentResult
         ? { ok: true, value: agentResult.value, stdout: agentResult.summary ?? "", stderr: "", durationMs: Date.now() - execStart, language: "agent" }
-        : await kernel.ts.execute(code, { cwd: ws.dir });
+        : await kernel.ts.execute(code!, { cwd: ws.dir });
       const execMs = Date.now() - execStart;
       // 性能计量（SPEC L1）：TS 主执行计入 kernel exec（python/bash 由 metered 包装计）
       this.deps.onTaskMetric?.({ type: "exec", language: "ts", durationMs: execMs, ok: result.ok });

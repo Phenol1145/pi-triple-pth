@@ -1,28 +1,14 @@
 /**
- * nl-translator —— 自然语言任务支持（NL → 代码转译层）。
+ * nl-translator —— NL→TS 一次性转译（降级通道）。
  *
- * 分类凭据（用户裁决）：**标签作为主要凭据，不用正则强行筛**——
- *   任务发布时 tags 含 "nl"（或 payload.kind === "nl"）→ 按自然语言转译；
- *   否则一律按可执行代码处理（零误判、零启发式）。
+ * 任务池纯化（2026-08-10 D1）：任务池只面向自然语言——agent 循环是唯一主路径，
+ * 本模块仅在降级时启用（PTH_AGENT_MODE=off / 无 agentCaps）。
+ * isNaturalLanguageTask 已删除（全任务皆 NL——无需判定）；nl 标签随之废止。
  *
  * 转译：llm.complete（系统 prompt 含能力白名单 + Observation 协议 + 输出格式）→ 剥离代码块围栏。
  * 失败：转译失败 → 调用方 terminal reject（nl-translate-failed）——坏任务不回池。
  */
 import type { LlmFn } from "../interpreter/llm-fn.js";
-
-/** 自然语言任务的判定（标签为主要凭据） */
-export interface NlTaskLike {
-  tags?: string[];
-  payload?: unknown;
-}
-
-export function isNaturalLanguageTask(task: NlTaskLike): boolean {
-  if ((task.payload as { kind?: string } | undefined)?.kind === "nl") return true;
-  // flow 声明（显式指定角色）→ 视为 agent 任务（要 LLM 处理——非代码任务）
-  const flow = (task.payload as { flow?: unknown } | undefined)?.flow;
-  if (flow) return true;
-  return (task.tags ?? []).some((t) => t.toLowerCase() === "nl");
-}
 
 export interface TranslateInput {
   title: string;

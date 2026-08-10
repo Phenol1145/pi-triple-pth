@@ -77,6 +77,7 @@ suite("batch process integration (真实 pg 全链路)", () => {
       env: {
         ...process.env,
         PTH_BATCH_PROCESS: "1",
+        PTH_LLM_STUB: "1",   // 任务池纯化：e2e 经 agent 循环——stub LLM 立即 done（无真实凭据）
         PTH_TEST_DATABASE_URL: container.getConnectionUri(),
         PTH_WORKSPACES_PATH: workspacesDir,
         PTH_ARTIFACTS_PATH: artifactsDir,
