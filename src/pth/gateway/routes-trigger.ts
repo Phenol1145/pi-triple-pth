@@ -21,7 +21,8 @@ export function registerTriggerRoutes(app: FastifyInstance, kernel: KernelRuntim
 
   app.get("/api/v1/kernel/triggers", async (_req, reply) => {
     if (!kernel) return unavailable(reply);
-    const entries = await kernel.dataWorld.memory.retrieve({ kinds: [TRIGGER_KIND] });
+    // 只列 active（official）——archived（删除/once 禁用）不进列表
+    const entries = await kernel.dataWorld.memory.retrieve({ kinds: [TRIGGER_KIND], status: ["official"] });
     return {
       triggers: entries.map((e) => {
         let def: Record<string, unknown> = {};
