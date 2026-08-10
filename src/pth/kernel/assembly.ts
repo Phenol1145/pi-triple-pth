@@ -84,6 +84,8 @@ export interface KernelRuntime {
   watchdog: KernelWatchdog;
   /** TaskResolver（任务池即工作流 T3）：独立解析循环 */
   resolver: import("./execution/task-resolver.js").TaskResolver;
+  /** kernel 直连执行通道（任务池纯化 D2——调试/运维代码执行不占任务池——stateless/repl 双模式） */
+  execChannel: import("./exec-channel.js").KernelExecChannel;
   shutdown: () => Promise<void>;
 }
 
@@ -174,6 +176,9 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // CPU 优化：空轮询自适应退避 2s→5s→10s→15s（无 flow 任务时降频——resolver 查询是
   // payload ? 'flow' 的 GIN 扫描，任务表大时空轮询浪费）；有任务立即恢复快周期。
   const resolver = new TaskResolver({ taskStore: dataWorld.tasks, pool });
+  // kernel 直连通道（任务池纯化 D2）：调试/运维代码执行——不占任务池
+  const { KernelExecChannel } = await import("./exec-channel.js");
+  const execChannel = new KernelExecChannel({ dataWorld });
   let resolverDelayMs = opts.resolverIntervalMs ?? 2_000;
   const scheduleResolver = () => {
     const t = setTimeout(async () => {
@@ -284,11 +289,13 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     triggerEngine,
     watchdog,
     resolver,
+    execChannel,
     shutdown: async () => {
       triggerEngine.stop();
       watchdog.stop();
       // resolver 走自调度 setTimeout 链——停靠 resolver 对象（无 timer 句柄外泄；unref 不阻止退出）
       (resolver as unknown as { stop?: () => void }).stop?.();
+      await execChannel.shutdown();
       if (claimReaperTimer) clearInterval(claimReaperTimer);
       if (scalerTimer) clearInterval(scalerTimer);
       await pool.end();

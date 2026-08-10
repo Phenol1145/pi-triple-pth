@@ -5,6 +5,7 @@
  * 生产形态：PTL（交互层）经 PthClient HTTP 访问；监控面板后续消费 /kernel/status 全景。
  *
  *   POST /api/v1/kernel/tasks         发布任务 → 201 {id, status, ...}
+ *   POST /api/v1/kernel/exec          kernel 直连执行（任务池纯化 D2——调试通道：stateless/repl 双模式）
  *   GET  /api/v1/kernel/tasks         任务列表（?status=&limit=）
  *   GET  /api/v1/kernel/tasks/:id     任务详情
  *   POST /api/v1/kernel/batch/add     启动 n 个 batch（默认 1）
@@ -30,6 +31,19 @@ export interface KernelRoutesDeps {
 export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime | null, autopilot?: KernelRoutesDeps["autopilot"]): void {
   const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>
     reply.status(503).send(KERNEL_UNAVAILABLE);
+
+  // ── kernel 直连执行通道（任务池纯化 D2——调试/运维代码执行，不占任务池）──────
+  app.post("/api/v1/kernel/exec", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const code = typeof body.code === "string" ? body.code : "";
+    if (!code.trim()) return reply.status(400).send({ error: "code required（TS 程序——能力：llm/memory/python/bash/fs/state/web）" });
+    const mode = body.mode === "repl" ? "repl" as const : "stateless" as const;
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+    const timeoutMs = typeof body.timeoutMs === "number" && body.timeoutMs > 0 ? Math.min(body.timeoutMs, 600_000) : undefined;
+    const result = await kernel.execChannel.execute({ code, mode, sessionId, timeoutMs });
+    return reply.status(result.ok ? 200 : 422).send(result);
+  });
 
   // ── 运行过程保留（2026-08-09）：任务轨迹查询 ──────────────────
   app.get("/api/v1/kernel/tasks/:id/transcript", async (req, reply) => {
