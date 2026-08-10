@@ -77,6 +77,8 @@ export interface KernelRuntime {
   pool: pg.Pool;
   dataWorld: ReturnType<typeof createDataWorld>;
   batchManager: BatchManager;
+  /** 活动事件流聚合器（console --follow / SSE /api/v1/kernel/events 数据源） */
+  activityHub: import("./execution/activity-hub.js").ActivityHub;
   watchdog: KernelWatchdog;
   /** TaskResolver（任务池即工作流 T3）：独立解析循环 */
   resolver: import("./execution/task-resolver.js").TaskResolver;
@@ -104,6 +106,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   const dataWorld = createDataWorld(pool);
   const assemblyLogger = createKernelLogger();
+  const { ActivityHub } = await import("./execution/activity-hub.js");
+  const activityHub = new ActivityHub();
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
@@ -113,6 +117,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     logger: createKernelLogger(),
     onMetric: opts.onMetric,
     obsResolver: opts.obsResolver,
+    onActivity: (e) => activityHub.publish(e),
     // 自动注入 kernel 子进程 env（试运行发现：main.ts 只传 databaseUrl 不传 env，
     // fork 的子进程没有 PTH_BATCH_PROCESS/DATABASE_URL → 不进入 batch 入口 → 立即退出）。
     // 调用方显式传 env 时覆盖（后进覆盖先进）。
@@ -255,6 +260,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     pool,
     dataWorld,
     batchManager,
+    activityHub,
     watchdog,
     resolver,
     shutdown: async () => {

@@ -39,7 +39,7 @@ export interface AgentLoopOptions {
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
 export type AgentTraceEvent =
-  | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string }
+  | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string; usage?: { inputTokens?: number; outputTokens?: number } }
   | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
   | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string }
   | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string };
@@ -273,7 +273,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       return { ok: true, value: res || null, summary: res, steps: steps + 1 };
     }
     messages.push({ role: "assistant", content: res.content, ...(res.toolCalls && res.toolCalls.length > 0 ? { toolCalls: res.toolCalls } : {}) });
-    input.onTrace?.({ type: "llm-call", step: steps + 1, toolCalls: res.toolCalls, contentPreview: (res.content ?? "").slice(0, 500), ...((res as { thinking?: string }).thinking ? { thinking: (res as { thinking?: string }).thinking!.slice(0, 800) } : {}) });
+    input.onTrace?.({ type: "llm-call", step: steps + 1, toolCalls: res.toolCalls, contentPreview: (res.content ?? "").slice(0, 500), ...((res as { thinking?: string }).thinking ? { thinking: (res as { thinking?: string }).thinking!.slice(0, 800) } : {}), ...(res.usage ? { usage: res.usage } : {}) });
 
     // 原生 tool_calls：结构化调用（OpenAI 格式——非文本解析）
     if (res.toolCalls && res.toolCalls.length > 0) {

@@ -258,6 +258,14 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     }
   });
 
+  // ── 活动事件流（SSE——流式活动状态——ptl hub console --follow 数据面）──
+  // 任务接取/agent step（token 用量）/工具调用/完成——实时推送（replay 缓冲补历史）
+  app.get("/api/v1/kernel/events", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const { writeSSE } = await import("./sse.js");
+    await writeSSE(reply, kernel.activityHub.stream());
+  });
+
   // memory 单条详情（全量 content——console show 用）
   app.get("/api/v1/kernel/memory/:id", async (req, reply) => {
     if (!kernel) return unavailable(reply);

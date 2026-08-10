@@ -34,6 +34,8 @@ export interface BatchManagerDeps {
   onMetric?: (m: Record<string, unknown>) => void;
   /** obs 观测请求解析器（主进程装配：metrics/batches 数据源）——batch obs-req 消息路由 */
   obsResolver?: (req: string, params: unknown) => Promise<unknown>;
+  /** 活动事件流（console --follow 数据源）：batch IPC activity 消息 → 主进程 ActivityHub */
+  onActivity?: (e: import("./activity-hub.js").ActivityEvent) => void;
 }
 
 /**
@@ -70,6 +72,9 @@ export class BatchManager {
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
+      } else if (msg?.kind === "activity" && this.deps.onActivity) {
+        // 活动事件流（console --follow 数据源）：batch IPC → ActivityHub 广播
+        this.deps.onActivity(msg.activity as import("./activity-hub.js").ActivityEvent);
       } else if (msg?.kind === "obs-req" && this.deps.obsResolver) {
         // obs 观测请求（batch → 主进程）：解析并回传（obs-resp 契约）
         const id = String(msg.id ?? "");

@@ -21,6 +21,8 @@ export interface TaskLoopDeps {
   logger?: import("../logger.js").KernelLogger;
   /** 性能计量（SPEC L2）：任务事件 → IPC 转发主进程 */
   onTaskMetric?: (m: Record<string, unknown>) => void;
+  /** 活动事件流（console --follow 数据源）：任务接取/agent step（含 token 用量）/完成——实时上报 */
+  onActivity?: (e: { kind: string; taskId?: string; role?: string; step?: number; tool?: string; ok?: boolean; usage?: { inputTokens?: number; outputTokens?: number }; detail?: string }) => void;
   /** 运行过程保留（2026-08-09）：transcript store（agent 轨迹持久化） */
   transcripts?: { create(input: { taskId?: string; agentId: string; body: unknown[]; summary?: string }): Promise<string> };
   /** 自然语言任务转译（NL→代码）；undefined = 不转译（NL 任务直接 reject） */
@@ -89,6 +91,7 @@ export class TaskLoop {
     const ws = await workspaceMgr.allocate(task.id);
     const execStart = Date.now();
     this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags });
+    this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100) });
     kernel.reset();                          // 任务级状态隔离
     try {
       // 自然语言任务（标签为主要凭据：tags 含 "nl" 或 payload.kind="nl"）
@@ -115,7 +118,13 @@ export class TaskLoop {
             role,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
             logger: (m) => taskLogger?.info(m),
-            onTrace: (e) => traceEvents.push(e),
+            onTrace: (e) => {
+              traceEvents.push(e);
+              // 活动事件流（实时——console --follow）：llm step（token 用量）/工具调用/完成
+              if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）` });
+              else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80) });
+              else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100) });
+            },
           });
           // 完成后持久化轨迹（transcript——task_id 关联）
           try {

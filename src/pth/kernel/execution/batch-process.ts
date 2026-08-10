@@ -257,6 +257,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       agentCaps: kernel.capabilities,
       // 性能计量（SPEC L2）：任务事件 → IPC 转发主进程
       onTaskMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "task" } }); } catch { /* IPC 不可用 */ } },
+      // 活动事件流（console --follow 数据源——batch→主进程 IPC）
+      onActivity: (e) => { try { process.send?.({ kind: "activity", activity: { ...e, batchPid: process.pid, at: Date.now() } }); } catch { /* IPC 不可用 */ } },
       // 运行过程保留（2026-08-09）：agent 轨迹 transcript 持久化
       transcripts: dataWorld.transcripts,
     }, archiveDeps);
