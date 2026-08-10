@@ -79,6 +79,8 @@ export interface KernelRuntime {
   batchManager: BatchManager;
   /** 活动事件流聚合器（console --follow / SSE /api/v1/kernel/events 数据源） */
   activityHub: import("./execution/activity-hub.js").ActivityHub;
+  /** trigger 引擎（事件触发任务——订阅 activityHub——trigger 定义存 memory kind='trigger'） */
+  triggerEngine: import("./execution/trigger-engine.js").TriggerEngine;
   watchdog: KernelWatchdog;
   /** TaskResolver（任务池即工作流 T3）：独立解析循环 */
   resolver: import("./execution/task-resolver.js").TaskResolver;
@@ -108,6 +110,13 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const assemblyLogger = createKernelLogger();
   const { ActivityHub } = await import("./execution/activity-hub.js");
   const activityHub = new ActivityHub();
+  const { TriggerEngine } = await import("./execution/trigger-engine.js");
+  const triggerEngine = new TriggerEngine({
+    activityHub,
+    tasks: dataWorld.tasks,
+    memory: dataWorld.memory,
+    logger: (m) => assemblyLogger.info(m),
+  });
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
@@ -256,14 +265,19 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     scalerTimer.unref?.();
   }
 
+  // trigger 引擎启动（任务池就绪后——订阅活动事件流）
+  await triggerEngine.start().catch((e) => assemblyLogger.warn(`trigger engine start failed: ${(e as Error).message}`));
+
   return {
     pool,
     dataWorld,
     batchManager,
     activityHub,
+    triggerEngine,
     watchdog,
     resolver,
     shutdown: async () => {
+      triggerEngine.stop();
       watchdog.stop();
       // resolver 走自调度 setTimeout 链——停靠 resolver 对象（无 timer 句柄外泄；unref 不阻止退出）
       (resolver as unknown as { stop?: () => void }).stop?.();

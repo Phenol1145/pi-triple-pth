@@ -17,6 +17,10 @@ export interface ActivityEvent {
   detail?: string;
   batchPid?: number;
   at: number;
+  /** trigger 链深（payload.triggeredBy.depth——防链式爆炸） */
+  chainDepth?: number;
+  /** 来源 trigger id（自触发阻断） */
+  triggerId?: string;
 }
 
 const BUFFER_MAX = 500;

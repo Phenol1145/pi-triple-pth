@@ -293,6 +293,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     continue;
   }
 
+  input.onTrace?.({ type: "finish", ok: true, steps, warning: `达到 maxSteps(${maxSteps}) 强制终止` });
   return { ok: true, value: null, steps, warning: `达到 maxSteps(${maxSteps}) 强制终止` };
 
   async function executeStep(action: { tool: string; args: Record<string, unknown>; thought?: string }, toolCallId?: string): Promise<AgentTaskResult | undefined> {
@@ -347,6 +348,8 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       }
       const summary = typeof args["summary"] === "string" ? args["summary"] : undefined;
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: true });
+      // finish trace（task.done 活动事件源——trigger 引擎/console --follow 的完成信号——之前断链只在失败路径发）
+      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result).slice(0, 200) });
       return { ok: true, value: result, summary, steps: steps + 1 };
     }
 
