@@ -16,6 +16,7 @@ import { registerObserveRoutes } from "./routes-observe.js";
 import { registerEventsRoutes } from "./routes-events.js";
 import { registerDebugRoutes, type DebugGatewayFactory } from "./routes-debug.js";
 import { registerKernelRoutes } from "./routes-kernel.js";
+import { registerLineageRoutes } from "./routes-lineage.js";
 import { registerJobRoutes } from "./routes-jobs.js";
 import type { FallbackRequestStore } from "../fallback/requests.js";
 import type { SandboxHealthMonitor } from "../tools/sandbox-bash.js";
@@ -72,9 +73,11 @@ export async function createServer(deps: {
   }
   if (deps.kernelRuntime) {
     registerKernelRoutes(app, deps.kernelRuntime, deps.autopilot);
+    registerLineageRoutes(app, deps.kernelRuntime);
     registerJobRoutes(app, deps.kernelRuntime);
   } else {
     registerKernelRoutes(app, null, deps.autopilot);
+    registerLineageRoutes(app, null);
   }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 

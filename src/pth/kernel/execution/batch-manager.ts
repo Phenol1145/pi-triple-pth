@@ -162,6 +162,15 @@ export class BatchManager {
     return true;
   }
 
+  /** 分化上线（lineage approve）：广播所有 batch 注册新角色 + 创建 worker（树生长——即刻接任务） */
+  registerRoleToBatches(role: Record<string, unknown>): number {
+    let sent = 0;
+    for (const rec of this.batches.values()) {
+      try { rec.child.send({ type: "role-register", role }); sent++; } catch { /* 子进程已退容忍 */ }
+    }
+    return sent;
+  }
+
   async addWorker(batchId: string, role: string, copies = 1): Promise<boolean> {
     return this.workerCtl(batchId, { type: "worker-add", role, copies });
   }
