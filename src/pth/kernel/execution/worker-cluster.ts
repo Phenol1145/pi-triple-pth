@@ -22,7 +22,33 @@ export interface WorkerRole {
   /** 验收角色（pi-subagent 启发——read-only=只读审查（不能提交产物）/writer=可写交付）
    *  v1 仅声明（谱系元数据——后续 done 限制） */
   acceptanceRole?: "read-only" | "writer";
+  /** 父角色（树状谱系——分化来源；Origin 的 parent 不存在=根） */
+  parent?: string;
+  /** 代数（Origin=0——初代分化=1——逐代递增） */
+  generation?: number;
+  /** 分化诱导（什么任务类型/为什么从父角色分化——分化理由——refine 任务 3 的 rationale 落此） */
+  differentiation?: string;
 }
+
+/**
+ * Origin —— 角色谱系的根（全能角色——用户设计：最开始只有 Origin，任务分化诱导逐渐形成更多角色）。
+ *
+ * 定位：
+ *  - 谱系树的根（parent 不存在 / generation=0）——所有角色的分化起点
+ *  - 可选运行：默认不进 batch 构成（8 角色已分工）；PTH_WORKER_ROLES 显式含 "origin" 时启用——
+ *    全能兜底（处理所有任务类型——完整 capabilities——无访问权限收窄）
+ *  - 分化演练起点：全新任务领域可先让 Origin 承接 → refine 任务 3 观察分化建议 → 监督批准 → 新角色
+ */
+export const ORIGIN_ROLE: WorkerRole = {
+  id: "origin",
+  labelPatterns: ["*"],   // 全能——匹配一切（路由兜底语义——实际路由：显式 flow.role=origin 或 PTH_WORKER_ROLES 启用后 hash）
+  prompt: "你是 Origin——PTH 角色谱系的全能起点角色。你不预设专门化方向：按任务本身的需求组合全部可用能力完成。执行中注意识别任务内可区分的子任务模式（探索/实现/验证/调研等）——你的 refine 会分析这些模式，作为后续角色分化的诱导依据。",
+  description: "全能起点（谱系之根——generation 0——所有角色从 Origin 分化而来）",
+  thinking: "high",
+  acceptanceRole: "writer",
+  generation: 0,
+  differentiation: "（根——无分化来源）",
+};
 
 // 角色谱系 v1 元数据（pi-subagent 启发——参考 docs/pth/role-lineage-v1.md）：
 //   thinking=推理深度 / capabilities=PTC 访问权限 / output=产出约定 / defaultReads=角色间产物约定
@@ -30,27 +56,35 @@ export interface WorkerRole {
 export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "analyst", labelPatterns: ["analysis", "research"], prompt: "你是分析者——负责信息分析、数据洞察、研究报告撰写。",
     description: "信息分析与数据洞察（researcher 对应）", thinking: "medium",
-    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research" },
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research",
+    parent: "origin", generation: 1, differentiation: "分析调研类任务诱导——数据洞察/报告撰写需要 web 与数据能力的特化" },
   { id: "planner", labelPatterns: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。",
     description: "上下文→实施计划（只读——产出计划文档）", thinking: "high",
-    capabilities: ["fs", "memory", "readSource", "readText"], output: "plan", defaultReads: ["context"], acceptanceRole: "read-only" },
+    capabilities: ["fs", "memory", "readSource", "readText"], output: "plan", defaultReads: ["context"], acceptanceRole: "read-only",
+    parent: "origin", generation: 1, differentiation: "规划类任务诱导——方案设计只需读取/推理——收窄为只读访问权限" },
   { id: "developer", labelPatterns: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。",
     description: "实现与开发（worker 对应——narrow coherent edits）", thinking: "high",
-    output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer" },
+    output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer",
+    parent: "origin", generation: 1, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
   { id: "scout", labelPatterns: ["recon", "investigate"], prompt: "你是侦查者——负责信息收集、代码侦察、环境探查。",
     description: "快速侦察——压缩上下文交接下游（thinking low——快）", thinking: "low",
-    capabilities: ["fs", "memory", "readSource", "readText", "bash"], output: "context" },
+    capabilities: ["fs", "memory", "readSource", "readText", "bash"], output: "context",
+    parent: "origin", generation: 1, differentiation: "侦察类任务诱导——快速信息收集不需要深推理——thinking low 特化换速度" },
   { id: "memory-keeper", labelPatterns: ["memory", "organize"], prompt: "你是记忆维护者——负责记忆整理、知识沉淀、索引维护。",
     description: "记忆整理与知识沉淀（PTH 特色——记忆系统维护）", thinking: "medium",
-    capabilities: ["memory", "fs", "readSource"], output: "memory" },
+    capabilities: ["memory", "fs", "readSource"], output: "memory",
+    parent: "origin", generation: 1, differentiation: "记忆维护类任务诱导——知识沉淀/索引维护围绕 memory 能力收窄" },
   { id: "acceptor", labelPatterns: ["accept", "verify"], prompt: "你是验收者——负责结果验证、质量检查、交付验收。",
     description: "结果验证与交付验收（reviewer 对应——只读审查）", thinking: "high",
-    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"], defaultReads: ["plan", "progress"], acceptanceRole: "read-only" },
+    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"], defaultReads: ["plan", "progress"], acceptanceRole: "read-only",
+    parent: "origin", generation: 1, differentiation: "验收类任务诱导——质量检查需要执行验证但不应修改产物——只读审查特化" },
   { id: "human-interface", labelPatterns: ["human", "interact"], prompt: "你是人类交互者——负责与用户沟通、意图澄清、反馈传递。",
-    description: "人类需求兜底（PTH 特色——升级机制）", thinking: "high", acceptanceRole: "writer" },
+    description: "人类需求兜底（PTH 特色——升级机制）", thinking: "high", acceptanceRole: "writer",
+    parent: "origin", generation: 1, differentiation: "人类交互类任务诱导——意图澄清/反馈传递需要完整沟通能力与决策升级" },
   { id: "tester", labelPatterns: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。",
     description: "能力测试与行为验证", thinking: "high",
-    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer" },
+    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer",
+    parent: "origin", generation: 1, differentiation: "测试类任务诱导——能力/行为验证需要全部执行核（含 c 编译核）写测试产物" },
 ];
 
 // ── batch 构成参数化（2026-08-09：取消固定 7 角色限制）────────────────
@@ -204,6 +238,58 @@ export function allWorkerRoles(): WorkerRole[] {
 
 /** 已注册扩展角色（监控/调试） */
 export function getExtraRoles(): WorkerRole[] { return [...extraRoles]; }
+
+/** 谱系全量角色（含 Origin 根——lineage 查询/文档注入用；batch 构成仍由 allWorkerRoles/PTH_WORKER_ROLES 决定） */
+export function allLineageRoles(): WorkerRole[] {
+  const roles = allWorkerRoles();
+  return roles.some((r) => r.id === ORIGIN_ROLE.id) ? roles : [ORIGIN_ROLE, ...roles];
+}
+
+/** 谱系树节点（树状结构——分化路径可视化） */
+export interface RoleLineageNode {
+  role: WorkerRole;
+  children: RoleLineageNode[];
+}
+
+/**
+ * 构建角色谱系树（树状分化结构——用户设计：Origin 根 → 任务分化诱导逐代生长）。
+ * parent 缺失/未知 → 挂 Origin 下（兼容：扩展角色未填 parent 视为初代分化）。
+ */
+export function buildRoleLineage(roles: WorkerRole[] = allLineageRoles()): RoleLineageNode {
+  const byId = new Map(roles.map((r) => [r.id, r] as const));
+  const rootRole = byId.get(ORIGIN_ROLE.id) ?? ORIGIN_ROLE;
+  const nodes = new Map<string, RoleLineageNode>(roles.map((r) => [r.id, { role: r, children: [] }]));
+  const root = nodes.get(rootRole.id) ?? { role: rootRole, children: [] };
+  nodes.set(root.role.id, root);
+  for (const role of roles) {
+    if (role.id === root.role.id) continue;
+    const node = nodes.get(role.id)!;
+    const parentId = role.parent && byId.has(role.parent) ? role.parent : root.role.id;
+    nodes.get(parentId)!.children.push(node);
+  }
+  // 稳定排序：generation 升序 → id 字典序（树展示确定性）
+  const sortRec = (n: RoleLineageNode) => {
+    n.children.sort((a, b) => (a.role.generation ?? 1) - (b.role.generation ?? 1) || a.role.id.localeCompare(b.role.id));
+    n.children.forEach(sortRec);
+  };
+  sortRec(root);
+  return root;
+}
+
+/** 谱系树文本渲染（ptl hub lineage tree / role-doc 谱系段落共用） */
+export function renderRoleLineage(root: RoleLineageNode = buildRoleLineage()): string {
+  const lines: string[] = [];
+  const walk = (n: RoleLineageNode, prefix: string, isLast: boolean, isRoot: boolean) => {
+    const r = n.role;
+    const label = `${r.id}${r.thinking ? `（${r.thinking}）` : ""}`;
+    if (isRoot) lines.push(label);
+    else lines.push(`${prefix}${isLast ? "└─" : "├─"} ${label}`);
+    const childPrefix = isRoot ? "" : prefix + (isLast ? "   " : "│  ");
+    n.children.forEach((c, i) => walk(c, childPrefix, i === n.children.length - 1, false));
+  };
+  walk(root, "", true, true);
+  return lines.join("\n");
+}
 
 /** 测试用：清扩展角色 */
 export function resetExtraRoles(): void { extraRoles = []; }

@@ -12,7 +12,7 @@
 import type { PgMemoryStore } from "./storage/memory-store-pg.js";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { allWorkerRoles } from "./execution/worker-cluster.js";
+import { allLineageRoles } from "./execution/worker-cluster.js";
 import { buildDoc } from "./extensions/index.js";
 
 /** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据——lazy 下 LLM 按需读） */
@@ -20,14 +20,19 @@ export function buildRoleDoc(role: {
   id: string; labelPatterns: string[]; prompt: string;
   thinking?: string; description?: string; output?: string;
   defaultReads?: string[]; acceptanceRole?: string; capabilities?: string[];
+  parent?: string; generation?: number; differentiation?: string;
 }): string {
   const meta: string[] = [];
   if (role.thinking) meta.push(`推理深度：${role.thinking}`);
   if (role.acceptanceRole) meta.push(`验收角色：${role.acceptanceRole}`);
+  if (role.generation !== undefined) meta.push(`谱系代数：${role.generation}${role.parent ? `（父角色：${role.parent}）` : "（谱系之根）"}`);
   const metaLine = meta.length > 0 ? `## 谱系元数据
 ${meta.map((m) => `- ${m}`).join("\n")}
 
 ` : "";
+  const lineageSection = role.differentiation
+    ? `## 分化路径（树状谱系——Origin 根 → 任务分化诱导）\n- 分化诱导：${role.differentiation}\n\n`
+    : "";
   const capSection = role.capabilities && role.capabilities.length > 0
     ? `## 访问权限（PTC 能力白名单——你可调用的函数）\n${role.capabilities.map((c) => `- ${c}`).join("\n")}\n\n`
     : "";
@@ -42,7 +47,7 @@ ${role.prompt}
 ${role.description ? `## 职责\n${role.description}\n\n` : ""}${metaLine}## 任务类型（你负责的任务标签语义）
 ${role.labelPatterns.join(" / ")}
 
-${capSection}${ioSection}## 工作方式
+${capSection}${ioSection}${lineageSection}## 工作方式
 - 任务描述会在 user 消息给出——按 PTC 模式用 ts 程序组合能力完成
 - 结果用 done 工具提交（result 对象 + summary 说明——result 必填实际产物）
 - 信息不足时：先读能力索引（memory kind='capability-index'）了解可用能力，再读相关文档/源码
@@ -117,8 +122,8 @@ export const API_INVESTIGATION_SKILL = `# API 调查技能（执行核预定义�
 
 /** Prompt 文档注入 memory（幂等——启动时调用；固定 id 覆盖） */
 export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
-  // 角色文档（内置 + 扩展角色——allWorkerRoles）
-  for (const role of allWorkerRoles()) {
+  // 角色文档（谱系全量——含 Origin 根 + 内置 + 扩展角色——allLineageRoles）
+  for (const role of allLineageRoles()) {
     try {
       await memory.write({
         id: `role-doc:${role.id}`,
