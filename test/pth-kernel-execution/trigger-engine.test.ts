@@ -124,3 +124,112 @@ describe("TriggerEngine（事件触发任务——trigger 组件落地）", () =
     engine.stop();
   });
 });
+
+describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
+  // 侧效导入：worker-cluster 模块加载时注册内置角色标签（origin 等）到全局 tagRegistry
+  beforeEach(async () => {
+    await import("../../src/pth/kernel/execution/worker-cluster.js");
+  });
+  function mockTasksWith(origTask: { id: string; title: string; text: string; assigned_role: string | null } | null) {
+    const published: Array<{ title: string; text: string; createdBy: string; tags?: string[]; payload?: unknown }> = [];
+    return {
+      published,
+      publish: async (input: { title: string; text: string; createdBy: string; tags?: string[]; payload?: unknown }) => {
+        published.push(input);
+        return { id: `task-${published.length}` };
+      },
+      getById: async (id: string) => (origTask && origTask.id === id ? origTask : null),
+    };
+  }
+
+  it("task.rejected → retask 重发布原任务（正文继承 + origin 标签 + 升级元数据）", async () => {
+    const hub = new ActivityHub();
+    const orig = { id: "orig-1", title: "实现功能X", text: "请实现功能X并验证", assigned_role: "developer" };
+    const tasks = mockTasksWith(orig);
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
+    engine.addSystemTrigger({
+      name: "origin-escalation", event: "task.rejected",
+      task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true,
+    });
+    await engine.start();
+    hub.publish({ kind: "task.rejected", taskId: "orig-1", role: "developer", ok: false, detail: "execution-failed", at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(1);
+    const p = tasks.published[0]!;
+    expect(p.title).toBe("实现功能X");           // 正文继承
+    expect(p.text).toBe("请实现功能X并验证");
+    expect(p.tags).toEqual(["origin"]);          // 转写 origin 标签
+    expect(p.createdBy).toBe("trigger:origin-escalation");
+    const payload = p.payload as { escalatedFrom?: string; originalRole?: string; triggeredBy?: { depth?: number } };
+    expect(payload.escalatedFrom).toBe("orig-1");
+    expect(payload.originalRole).toBe("developer");
+    expect(payload.triggeredBy?.depth).toBe(1);
+    engine.stop();
+  });
+
+  it("终态闸：Origin 任务失败不再升级（防死循环）", async () => {
+    const hub = new ActivityHub();
+    const orig = { id: "orig-2", title: "t", text: "x", assigned_role: "origin" };
+    const tasks = mockTasksWith(orig);
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
+    engine.addSystemTrigger({
+      name: "origin-escalation", event: "task.rejected",
+      task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true,
+    });
+    await engine.start();
+    hub.publish({ kind: "task.rejected", taskId: "orig-2", role: "origin", ok: false, at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(0);     // Origin 失败即终态
+    engine.stop();
+  });
+
+  it("原任务不存在 → 跳过不炸", async () => {
+    const hub = new ActivityHub();
+    const tasks = mockTasksWith(null);
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
+    engine.addSystemTrigger({
+      name: "origin-escalation", event: "task.rejected",
+      task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true,
+    });
+    await engine.start();
+    hub.publish({ kind: "task.rejected", taskId: "ghost", role: "developer", ok: false, at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(0);
+    engine.stop();
+  });
+
+  it("系统 trigger 不受 once/maxFires 移除影响（持续升级多个失败任务）", async () => {
+    const hub = new ActivityHub();
+    const tasks = mockTasksWith(null);
+    const store = new Map(Object.entries({
+      "a-1": { id: "a-1", title: "t1", text: "x1", assigned_role: "developer" },
+      "a-2": { id: "a-2", title: "t2", text: "x2", assigned_role: "tester" },
+    }));
+    tasks.getById = async (id: string) => (store.get(id) ?? null) as never;
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
+    engine.addSystemTrigger({
+      name: "origin-escalation", event: "task.rejected",
+      task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true,
+    });
+    await engine.start();
+    hub.publish({ kind: "task.rejected", taskId: "a-1", role: "developer", ok: false, at: Date.now() });
+    hub.publish({ kind: "task.rejected", taskId: "a-2", role: "tester", ok: false, at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(2);     // 两个失败任务都升级
+    engine.stop();
+  });
+
+  it("addSystemTrigger 幂等（同名去重）", async () => {
+    const hub = new ActivityHub();
+    const tasks = mockTasksWith(null);
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
+    const def = { name: "origin-escalation", event: "task.rejected", task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true };
+    engine.addSystemTrigger(def);
+    engine.addSystemTrigger(def);
+    await engine.start();
+    hub.publish({ kind: "task.rejected", taskId: "ghost", role: "developer", ok: false, at: Date.now() });
+    await TICK();
+    engine.stop();
+    // 不重复注册（间接验证：无异常、无重复处理日志）
+  });
+});

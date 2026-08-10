@@ -24,8 +24,8 @@ describe("worker cluster", () => {
       taskStore: {} as any,
       workspaceMgr: {} as any,
     });
-    expect(cluster.size).toBe(7);
-    expect(calls).toBe(7);
+    expect(cluster.size).toBe(8);   // origin + 7 默认角色（2026-08-10 Origin 常驻——升级链终点）
+    expect(calls).toBe(8);
     expect(cluster.has("developer")).toBe(true);
   });
 
@@ -36,6 +36,6 @@ describe("worker cluster", () => {
       taskStore: {} as any,
       workspaceMgr: {} as any,
     });
-    expect(seen.sort()).toEqual(["acceptor", "analyst", "developer", "memory-keeper", "planner", "scout", "tester"]);
+    expect(seen.sort()).toEqual(["acceptor", "analyst", "developer", "memory-keeper", "origin", "planner", "scout", "tester"]);
   });
 });

@@ -37,6 +37,8 @@ export interface TaskStore {
   reject(agentId: string, taskId: string, reason: string, opts?: { terminal?: boolean }): Promise<void>;
   submit(agentId: string, taskId: string, outputRef: unknown): Promise<void>;
   publish(input: PublishInput): Promise<Task>;
+  /** 按 id 取任务（Origin 升级链 retask——重发布需原任务正文） */
+  getById(id: string): Promise<Task | null>;
   // 跨 spec 扩展（plan Task 5 标注）：负载统计 collectStats 依赖 pending 队列长度。
   countPending(): Promise<number>;
   /** per-role 队列深度（descheduler——自动强化调度信号） */
@@ -68,6 +70,11 @@ export class PgTaskStore implements TaskStore {
       [id, input.title, input.text, input.createdBy, input.tags ?? [], input.payload ?? {}, input.templateId ?? null, assignedRole, input.jobId ?? null],
     );
     return mapRow(res.rows[0]);
+  }
+
+  async getById(id: string): Promise<Task | null> {
+    const res = await this.pool.query(`SELECT * FROM tasks WHERE id = $1`, [id]);
+    return res.rows.length > 0 ? mapRow(res.rows[0]) : null;
   }
 
   async candidates(agentId: string, opts?: { limit?: number }): Promise<Task[]> {

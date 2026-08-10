@@ -117,6 +117,14 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     memory: dataWorld.memory,
     logger: (m) => assemblyLogger.info(m),
   });
+  // Origin 升级链（2026-08-10 任务池纯化 D3）：terminal reject（task.rejected）→ retask 转写
+  // origin 标签重发布 → Origin 常驻 worker 接取。终态闸：Origin 失败不再升级（防死循环）。
+  triggerEngine.addSystemTrigger({
+    name: "origin-escalation",
+    event: "task.rejected",
+    task: { title: "", text: "", retask: true, tags: ["origin"] },
+    enabled: true,
+  });
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致

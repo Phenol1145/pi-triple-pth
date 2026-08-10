@@ -85,6 +85,15 @@ export class TaskLoop {
     return true;
   }
 
+  /** terminal reject 统一出口（Origin 升级链事件源——task.rejected 活动事件供 trigger 消费） */
+  private async rejectTerminal(task: Task, reason: string, chain: { chainDepth: number; triggerId?: string }, metricReason?: string): Promise<void> {
+    const { role, taskStore } = this.deps;
+    await taskStore.reject(role.id, task.id, reason, { terminal: true });
+    this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
+    this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+    this.deps.onTaskMetric?.({ type: "reject-reason", reason: metricReason ?? classifyReason(reason) });
+  }
+
   private async execute(task: Task): Promise<void> {
     const { kernel, role, taskStore, workspaceMgr } = this.deps;
     const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
@@ -140,10 +149,8 @@ export class TaskLoop {
           }
           taskLogger?.info("agent task finished", { ok: r.ok, steps: r.steps });
           if (!r.ok) {
-            await taskStore.reject(role.id, task.id, r.error, { terminal: true });
+            await this.rejectTerminal(task, r.error, chain);
             taskLogger?.error(r.error);
-            this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-            this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(r.error) });
             return;
           }
           // 完成标准强制（done 引导的系统级保障——2026-08-09）：agent 结束但无产物
@@ -152,10 +159,8 @@ export class TaskLoop {
             const reason = r.warning
               ? `agent-${r.warning}`   // maxSteps/重复终止——warning 说明
               : "agent-no-output: agent 完成但未产出结果（done 未带 result）";
-            await taskStore.reject(role.id, task.id, reason, { terminal: true });
+            await this.rejectTerminal(task, reason, chain);
             taskLogger?.error(reason, { steps: r.steps });
-            this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-            this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(reason) });
             return;
           }
           agentResult = { value: r.value, summary: r.summary, steps: r.steps };
@@ -163,10 +168,8 @@ export class TaskLoop {
         // 降级通道（agent-off / 无 caps）：NL→TS 一次性转译后直执行
         const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
         if (!t.ok) {
-          await taskStore.reject(role.id, task.id, t.error, { terminal: true });
+          await this.rejectTerminal(task, t.error, chain, "nl-translate-failed");
           taskLogger?.error(t.error);
-          this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-          this.deps.onTaskMetric?.({ type: "reject-reason", reason: "nl-translate-failed" });
           return;
         }
         code = t.code;
@@ -174,10 +177,8 @@ export class TaskLoop {
       } else {
         // 无 llm：纯化后任务池无直执行路径——terminal reject（调试执行走 /kernel/exec）
         const reason = "no-llm: 任务池为自然语言池（agent/translate 均需 LLM）——直连执行请走 /kernel/exec 通道";
-        await taskStore.reject(role.id, task.id, reason, { terminal: true });
+        await this.rejectTerminal(task, reason, chain, "no-llm");
         taskLogger?.error(reason);
-        this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-        this.deps.onTaskMetric?.({ type: "reject-reason", reason: "no-llm" });
         return;
       }
       const result = agentResult
@@ -189,13 +190,11 @@ export class TaskLoop {
       if (!result.ok) {
         // 执行失败（语法/运行时错误——interpreter 返回 ok:false 不抛）：按 reject 处理，
         // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。
-        await taskStore.reject(role.id, task.id, `execution-failed: ${result.error?.message ?? "unknown"}`, { terminal: true });
+        await this.rejectTerminal(task, `execution-failed: ${result.error?.message ?? "unknown"}`, chain);
         await this.archive(task, ws, result);
         taskLogger?.error(`task rejected: ${result.error?.message ?? "unknown"}`, { durationMs: execMs });
         this.bus.emit("task.reject", { taskId: task.id, role: role.id, reason: result.error?.message ?? "unknown", durationMs: execMs });
-        // 性能计量（SPEC L2）：状态 + 拒绝原因（前缀分类）+ 阶段耗时
-        this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-        this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(result.error?.message ?? "unknown") });
+        // 性能计量（SPEC L2）：阶段耗时
         this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
         return;
       }
@@ -233,10 +232,8 @@ export class TaskLoop {
         }
       }
     } catch (e) {
-      await taskStore.reject(role.id, task.id, `execution-crashed: ${(e as Error).message}`, { terminal: true });
+      await this.rejectTerminal(task, `execution-crashed: ${(e as Error).message}`, chain);
       taskLogger?.error(`task crashed: ${(e as Error).message}`);
-      this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-      this.deps.onTaskMetric?.({ type: "reject-reason", reason: "execution-crashed" });
     }
   }
 

@@ -27,6 +27,7 @@
  */
 
 import type { ActivityEvent, ActivityHub } from "./activity-hub.js";
+import { tagRegistry } from "./tag-registry.js";
 import type { TaskStore } from "../storage/task-store-pg.js";
 import type { PgMemoryStore } from "../storage/memory-store-pg.js";
 
@@ -34,7 +35,7 @@ export interface TriggerDef {
   name: string;
   event: string;
   match?: { role?: string; detailContains?: string };
-  task: { title: string; text: string; role?: string; tags?: string[] };
+  task: { title: string; text: string; role?: string; tags?: string[]; retask?: boolean };
   enabled?: boolean;
   once?: boolean;
   maxFires?: number;
@@ -51,6 +52,8 @@ const MAX_CHAIN_DEPTH = 5;
 
 export class TriggerEngine {
   private triggers: TriggerEntry[] = [];
+  /** 系统级 trigger（代码内置——非 memory 存储——reload 不覆盖；Origin 升级链用） */
+  private systemTriggers: TriggerEntry[] = [];
   private loadedAt = 0;
   private unsubscribe: (() => void) | null = null;
   /** 热重载周期（memory 是真相源——30s 刷新——CRUD 后最多 30s 生效） */
@@ -89,11 +92,17 @@ export class TriggerEngine {
     return loaded.length;
   }
 
+  /** 注册系统级 trigger（幂等——按 name 去重；不受 once/maxFires 移除影响） */
+  addSystemTrigger(def: TriggerDef): void {
+    if (this.systemTriggers.some((t) => t.def.name === def.name)) return;
+    this.systemTriggers.push({ id: `system:${def.name}`, def: { ...def, enabled: true }, fireCount: 0 });
+  }
+
   private async onEvent(e: ActivityEvent): Promise<void> {
     // 自触发阻断 + 链深限制（trigger 产生的任务事件不再无限触发）
     const depth = this.chainDepthOf(e);
     if (depth > MAX_CHAIN_DEPTH) return;
-    for (const t of this.triggers) {
+    for (const t of [...this.systemTriggers, ...this.triggers]) {
       if (t.def.event !== e.kind) continue;
       if (t.def.match?.role && t.def.match.role !== e.role) continue;
       if (t.def.match?.detailContains && !(e.detail ?? "").includes(t.def.match.detailContains)) continue;
@@ -102,12 +111,44 @@ export class TriggerEngine {
       if (depth > 0 && this.lastTriggerOf(e) === t.id) continue;
       t.fireCount++;
       // once/上限：匹配即从内存移除（先断后发——并发事件竞态：await publish 期间新事件不再匹配）
-      if (t.def.once || (t.def.maxFires !== undefined && t.fireCount >= t.def.maxFires)) {
+      // 系统 trigger（system: 前缀）不移除——升级链需持续生效
+      if ((t.def.once || (t.def.maxFires !== undefined && t.fireCount >= t.def.maxFires)) && !t.id.startsWith("system:")) {
         this.triggers = this.triggers.filter((x) => x.id !== t.id);
       }
       const vars = { taskId: e.taskId ?? "", role: e.role ?? "", detail: e.detail ?? "" };
       const render = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => (vars as Record<string, string>)[k] ?? "");
       try {
+        // retask 模式（Origin 升级链——2026-08-10 设计 D3）：重发布原任务（正文继承）+ 转写标签
+        if (t.def.task.retask) {
+          const orig = e.taskId ? await this.deps.tasks.getById(e.taskId) : null;
+          if (!orig) {
+            this.deps.logger?.(`[trigger] ${t.def.name} 升级跳过：原任务 ${e.taskId ?? "?"} 不存在`);
+            continue;
+          }
+          // 终态闸：原任务已属升级目标角色（Origin 失败）→ 不再升级——防死循环最终闸
+          let target: string | null = t.def.task.role ?? null;
+          if (!target) {
+            const r = tagRegistry.routeRole(t.def.task.tags ?? []);
+            target = r.ok ? r.role : null;
+          }
+          if (target && orig.assigned_role === target) {
+            this.deps.logger?.(`[trigger] ${t.def.name} 升级终止：任务 ${orig.id} 已属 ${target}（Origin 失败即终态）`);
+            continue;
+          }
+          const task = await this.deps.tasks.publish({
+            title: orig.title,
+            text: orig.text,
+            createdBy: `trigger:${t.def.name}`,
+            tags: t.def.task.tags ?? [],
+            payload: {
+              triggeredBy: { triggerId: t.id, fromTask: e.taskId ?? null, depth: depth + 1 },
+              escalatedFrom: orig.id,
+              originalRole: orig.assigned_role,
+            },
+          });
+          this.deps.logger?.(`[trigger] ${t.def.name} 升级任务 ${orig.id}（${orig.assigned_role} 失败）→ ${task.id}（tags: ${(t.def.task.tags ?? []).join(",")}）`);
+          continue;
+        }
         const task = await this.deps.tasks.publish({
           title: render(t.def.task.title),
           text: render(t.def.task.text),

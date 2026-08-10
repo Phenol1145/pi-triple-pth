@@ -38,8 +38,9 @@ export interface WorkerRole {
  *
  * 定位：
  *  - 谱系树的根（parent 不存在 / generation=0）——所有角色的分化起点
- *  - 可选运行：默认不进 batch 构成（8 角色已分工）；PTH_WORKER_ROLES 显式含 "origin" 时启用——
- *    全能兜底（处理所有任务类型——完整 capabilities——无访问权限收窄）
+ *  - 常驻 worker（2026-08-10 任务池纯化 D7）：默认 batch 构成含 Origin ×1——升级链终点
+ *    （terminal reject → trigger 转写 origin 标签 → Origin 全能力兜底完成；PTH_WORKER_ROLES
+ *    可 origin:0 禁用）
  *  - 分化演练起点：全新任务领域可先让 Origin 承接 → refine 任务 3 观察分化建议 → 监督批准 → 新角色
  */
 export const ORIGIN_ROLE: WorkerRole = {
@@ -244,9 +245,9 @@ function registerRoleTags(role: WorkerRole): void {
 registerRoleTags(ORIGIN_ROLE);
 for (const r of DEFAULT_ROLES) registerRoleTags(r);
 
-/** 全部角色（内置 + 扩展——routeTaskRole/worker 构成统一谱系） */
+/** 全部角色（Origin 根 + 内置 + 扩展——routeTaskRole/worker 构成统一谱系） */
 export function allWorkerRoles(): WorkerRole[] {
-  return [...DEFAULT_ROLES, ...extraRoles];
+  return [ORIGIN_ROLE, ...DEFAULT_ROLES, ...extraRoles];
 }
 
 /**

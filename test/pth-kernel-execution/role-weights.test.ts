@@ -6,14 +6,14 @@ import {
 } from "../../src/pth/kernel/execution/worker-cluster.js";
 
 describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
-  it("不设置 → 默认 7 角色 ×1", () => {
+  it("不设置 → 默认 8 角色 ×1（origin+7——Origin 常驻升级链终点）", () => {
     const w = parseRoleWeights(undefined);
-    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1]);
-    expect(expandRoleWeights(w).length).toBe(7);
+    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(expandRoleWeights(w).length).toBe(8);
   });
 
   it("空串 → 默认", () => {
-    expect(expandRoleWeights(parseRoleWeights("")).length).toBe(7);
+    expect(expandRoleWeights(parseRoleWeights("")).length).toBe(8);
   });
 
   it("部分指定：未列出的角色默认 1", () => {
@@ -21,14 +21,14 @@ describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
     expect(w.get("developer")).toBe(3);
     expect(w.get("analyst")).toBe(2);
     expect(w.get("scout")).toBe(1);   // 未列出 → 1
-    expect(expandRoleWeights(w).length).toBe(3 + 2 + 5);  // 2 列出 + 其余 5 角色未列默认 1×5
+    expect(expandRoleWeights(w).length).toBe(3 + 2 + 6);  // 2 列出 + 其余 6 角色（含 origin）未列默认 1×6
   });
 
   it("副本 0 = 禁用角色（不占 worker）", () => {
     const w = parseRoleWeights("developer:4,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0");
     expect(w.get("planner")).toBe(0);
     const expanded = expandRoleWeights(w);
-    expect(expanded.length).toBe(4 + 1);   // developer×4 + analyst 未列默认 1（7 角色谱系）
+    expect(expanded.length).toBe(4 + 1 + 1);   // developer×4 + analyst/origin 未列默认 1（origin+7 角色谱系）
     expect(expanded.every((r) => r.id !== "planner")).toBe(true);
   });
 
@@ -54,15 +54,15 @@ describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
 
   it("副本数为 0 的总数校验正确（0 不占总额）", () => {
     const w = parseRoleWeights("developer:8,analyst:8,planner:8,scout:0,memory-keeper:0,acceptor:0,tester:0");
-    // developer8+analyst8+planner8+tester0+其余 0 = 24 ≤ 32（7 角色谱系——tester 已列出）
-    expect(expandRoleWeights(w).length).toBe(24);
+    // developer8+analyst8+planner8+origin 未列默认 1 = 25 ≤ 32
+    expect(expandRoleWeights(w).length).toBe(25);
   });
 });
 
 describe("资源分配策略抽象（BatchCompositionStrategy）", () => {
-  it("profileToWeights：balanced 默认 → 7×1", () => {
+  it("profileToWeights：balanced 默认 → 8×1（origin+7）", () => {
     const w = profileToWeights({ mode: "balanced" });
-    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1]);
+    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
   });
 
   it("profileToWeights：balanced 自定义权重", () => {
