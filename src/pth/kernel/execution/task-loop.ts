@@ -107,6 +107,7 @@ export class TaskLoop {
           const traceEvents: import("./agent-loop.js").AgentTraceEvent[] = [
             { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
           ];
+          (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;  // refine 任务 3 输入
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
@@ -198,7 +199,13 @@ export class TaskLoop {
         if (taskRefine !== "off") {
           try {
             const snap = await this.deps.kernel.snapshot();
-            void this.deps.refiner.refine({ task, snapshot: snap }).catch((e) => {
+            // 任务 3（分化分析）输入：执行轨迹 + 角色（traceEvents 在 agent 分支收集——fast-path 为空）
+            const traceForRefine = (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents;
+            void this.deps.refiner.refine({
+              task, snapshot: snap,
+              trace: Array.isArray(traceForRefine) ? traceForRefine as never : undefined,
+              role: role.id,
+            }).catch((e) => {
               // 降级：refine 失败仅记日志，任务已 completed 不受影响（草案 P6）
               taskLogger?.error(`refine failed: ${(e as Error).message}`);
             });

@@ -98,3 +98,55 @@ describe("Refiner.refine", () => {
     expect(report.insightsSaved).toBe(0);
   });
 });
+
+describe("任务 3：角色分化分析（有监督自动化——differentiation proposal）", () => {
+  it("parseRefineResult 解析 differentiation（分化建议——结构容错）", async () => {
+    const { parseRefineResult } = await import("../../src/pth/kernel/execution/refiner.js");
+    const text = JSON.stringify({
+      functions: [], insights: ["insight-1"],
+      differentiation: {
+        differentiable: true,
+        subtasks: [{ type: "代码侦察", description: "定位相关文件", capabilityNeeds: ["readSource"], frequency: "每次任务前" }],
+        suggestedRole: { id: "scout", parent: "developer", specialization: "代码侦察", rationale: "实现前反复侦察——能力差异明显" },
+        confidence: "high",
+      },
+    });
+    const r = parseRefineResult(text);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.differentiation?.differentiable).toBe(true);
+      expect(r.differentiation?.subtasks).toHaveLength(1);
+      expect(r.differentiation?.suggestedRole?.parent).toBe("developer");
+      expect(r.differentiation?.confidence).toBe("high");
+    }
+  });
+
+  it("differentiable=false（单一同质任务）→ 不建议分化", async () => {
+    const { parseRefineResult } = await import("../../src/pth/kernel/execution/refiner.js");
+    const r = parseRefineResult(JSON.stringify({ functions: [], insights: [], differentiation: { differentiable: false, subtasks: [] } }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.differentiation?.differentiable).toBe(false);
+  });
+
+  it("缺 differentiation 字段（旧格式）→ 容错 undefined", async () => {
+    const { parseRefineResult } = await import("../../src/pth/kernel/execution/refiner.js");
+    const r = parseRefineResult(JSON.stringify({ functions: [], insights: [] }));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.differentiation).toBeUndefined();
+  });
+
+  it("buildRefinePrompt 含分化分析指引 + 轨迹摘要", async () => {
+    const { buildRefinePrompt } = await import("../../src/pth/kernel/execution/refiner.js");
+    const prompt = buildRefinePrompt({
+      task: { id: "t1", title: "实现+验证", tags: ["implement"], claimed_by: "developer" },
+      snapshot: { functions: [], variables: [] },
+      role: "developer",
+      trace: [{ type: "tool-call", step: 1, tool: "ts", args: { code: "readSource..." } }],
+    });
+    expect(prompt).toContain("differentiation");
+    expect(prompt).toContain("分化");
+    expect(prompt).toContain("执行角色: developer");
+    expect(prompt).toContain("执行轨迹");
+    expect(prompt).toContain("有监督");
+  });
+});
