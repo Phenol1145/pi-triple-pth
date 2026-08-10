@@ -82,11 +82,11 @@
 
 ### 新角色
 ```
-1. registerWorkerRole({ id, labelPatterns, prompt, capabilities, memoryScope })
+1. registerWorkerRole({ id, tags, prompt, capabilities, memoryScope })
    —— id 冲突/pattern 重叠会拒绝（扩展谱系正交）
 2. 角色文档：memory kind='role-doc:<id>'（injectPromptDocs 自动注入——按 DEFAULT_ROLES/注册表）
 3. 角色进 PTH_WORKER_ROLES 配置 → batch 构成
-4. 路由：任务带 flow.role=<id> 或 tags 匹配 labelPatterns
+4. 路由：任务带 flow.role=<id> 或 tags 精确匹配角色固定标签
 ```
 
 ### 新能力

@@ -8,7 +8,7 @@ describe("Prompt 框架化（角色文档/能力索引——memory 数据源）"
       const doc = buildRoleDoc(role);
       expect(doc).toContain(`# 角色：${role.id}`);
       expect(doc).toContain(role.prompt);
-      expect(doc).toContain(role.labelPatterns.join(" / "));
+      expect(doc).toContain(role.tags.join(" / "));
       expect(doc).toContain("PTC 模式");
     }
   });
@@ -66,7 +66,7 @@ describe("API 调查技能（skill:api-investigation——探索方法论）", (
 
   it("system prompt 含 API 调查技能触发指引（什么时候用+在哪读）", async () => {
     const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
-    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "p" }, "t", { mode: "lazy" });
+    const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], prompt: "p" }, "t", { mode: "lazy" });
     expect(prompt).toContain("API 调查技能");
     expect(prompt).toContain("skill:api-investigation");
     expect(prompt).toContain("不要盲试");
@@ -87,7 +87,7 @@ describe("PTH Worker 世界观（pth-worker-system——身份/工作流/框架�
     expect(PTH_WORKER_SYSTEM).toContain("不空 done");
     expect(PTH_WORKER_SYSTEM).toContain("sandbox 零敏感");
     // 注入在最前（角色之上）
-    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "p" }, "t", { mode: "lazy" });
+    const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], prompt: "p" }, "t", { mode: "lazy" });
     expect(prompt.indexOf("PTH Worker 世界观")).toBeLessThan(prompt.indexOf("你的角色"));
   });
 

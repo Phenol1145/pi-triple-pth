@@ -18,7 +18,7 @@ import { buildDoc } from "./extensions/index.js";
 
 /** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据——lazy 下 LLM 按需读） */
 export function buildRoleDoc(role: {
-  id: string; labelPatterns: string[]; prompt: string;
+  id: string; tags: string[]; prompt: string;
   thinking?: string; description?: string; output?: string;
   defaultReads?: string[]; acceptanceRole?: string; capabilities?: string[];
   parent?: string; generation?: number; differentiation?: string;
@@ -46,7 +46,7 @@ ${meta.map((m) => `- ${m}`).join("\n")}
 ${role.prompt}
 
 ${role.description ? `## 职责\n${role.description}\n\n` : ""}${metaLine}## 任务类型（你负责的任务标签语义）
-${role.labelPatterns.join(" / ")}
+${role.tags.join(" / ")}
 
 ${capSection}${ioSection}${lineageSection}## 工作方式
 - 任务描述会在 user 消息给出——按 PTC 模式用 ts 程序组合能力完成

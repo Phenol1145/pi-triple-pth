@@ -50,7 +50,7 @@ function agentDeps(kernel: any, role: any, store: any) {
 }
 
 describe("task loop（任务池纯化——agent 循环唯一主路径）", () => {
-  const role = { id: "developer", labelPatterns: ["code"], prompt: "dev" };
+  const role = { id: "developer", tags: ["code"], prompt: "dev" };
 
   it("claims and executes candidate tasks（agent 路径）", async () => {
     const task = { id: "t1", text: "do x", title: "x" };
@@ -199,7 +199,7 @@ describe("task loop（任务池纯化——agent 循环唯一主路径）", () =
 });
 
 describe("task loop refiner 钩子", () => {
-  const role = { id: "developer", labelPatterns: ["code"], prompt: "dev" };
+  const role = { id: "developer", tags: ["code"], prompt: "dev" };
 
   function runOnceWith(task: any, refiner: any) {
     const store = {

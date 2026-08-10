@@ -43,7 +43,7 @@ describe("hello-world 扩展端到端（P4）", () => {
 
   it("角色冲突拒绝：重复注册 greeting-agent → 抛错", async () => {
     const { registerWorkerRole } = await import("../../src/pth/kernel/execution/worker-cluster.js");
-    expect(() => registerWorkerRole({ id: "greeting-agent", labelPatterns: ["x"], prompt: "p" })).toThrow(/已存在/);
-    expect(() => registerWorkerRole({ id: "new-role", labelPatterns: ["code"], prompt: "p" })).toThrow(/重叠/);
+    expect(() => registerWorkerRole({ id: "greeting-agent", tags: ["x"], prompt: "p" })).toThrow(/已存在/);
+    expect(() => registerWorkerRole({ id: "new-role", tags: ["code"], prompt: "p" })).toThrow(/冲突/)   // 标签冲突由 tag-registry 接管;
   });
 });

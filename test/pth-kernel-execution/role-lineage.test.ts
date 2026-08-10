@@ -58,7 +58,7 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
 
   it("扩展角色未填 parent → 挂 Origin 下（兼容——视为初代分化）", () => {
     resetExtraRoles();
-    registerWorkerRole({ id: "custom-x", labelPatterns: ["quantum-compute"], prompt: "测试角色" });
+    registerWorkerRole({ id: "custom-x", tags: ["quantum-compute"], prompt: "测试角色" });
     const tree = buildRoleLineage();
     const custom = tree.children.find((c) => c.role.id === "custom-x");
     expect(custom).toBeTruthy();
@@ -67,7 +67,7 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
 
   it("三代分化（子角色 parent=叶子角色 → 挂对应子树——developer 在 executor 下）", () => {
     resetExtraRoles();
-    registerWorkerRole({ id: "dev-frontend", labelPatterns: ["frontend-ui"], prompt: "前端专员", parent: "developer", generation: 3, differentiation: "前端任务诱导" });
+    registerWorkerRole({ id: "dev-frontend", tags: ["frontend-ui"], prompt: "前端专员", parent: "developer", generation: 3, differentiation: "前端任务诱导" });
     const tree = buildRoleLineage();
     const executor = tree.children.find((c) => c.role.id === "executor");
     const dev = executor?.children.find((c) => c.role.id === "developer");

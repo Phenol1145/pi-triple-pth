@@ -193,33 +193,46 @@ src/pth/kernel/
 
 任务分配正交化：**角色间零竞速**——任务发布时确定性路由（flow 显式 → tags 语义 → hash 分片），candidates 只查自己队列。
 
-### 内置 7 角色
+### 内置角色（origin + 7——2026-08-10 任务池纯化）
 
-| 角色 | labelPatterns（任务类型） | 职责 | 权限声明 | memory 域 |
+| 角色 | 固定 tags（分选器唯一标准——精确匹配） | 职责 | 权限声明 | memory 域 |
 |------|--------------------------|------|---------|-----------|
+| **origin** | origin | **升级链终点**（terminal reject → trigger 转写 origin 标签 → Origin 全能力兼底完成；Origin 失败即终态） | 全量 | all |
 | analyst | analysis/research | 信息分析/数据洞察/研究报告 | 全量（缺省）| all（缺省）|
 | planner | plan/design | 任务分解/方案设计/步骤规划 | 全量 | all |
 | developer | implement/code/fix | 代码实现/缺陷修复/技术交付 | 全量 | all |
 | scout | recon/investigate | 信息收集/代码侦察/环境探查 | 全量 | all |
 | memory-keeper | memory/organize | 记忆整理/知识沉淀/索引维护 | 全量 | all |
 | acceptor | accept/verify | 结果验证/质量检查/交付验收 | 全量 | all |
-| human-interface | human/interact | 用户沟通/意图澄清/反馈传递 | 全量 | all |
 
 ### 扩展角色（ExtRegistry 装载注册——兼容性扩展接口）
 
-| 角色 | labelPatterns | 来源 | 权限声明（注入面收窄）| memory 域 |
-|------|--------------|------|---------------------|-----------|
+| 角色 | tags | 来源 | 权限声明（注入面收窄）| memory 域 |
+|------|------|------|---------------------|-----------|
 | greeting-agent | greeting/hello | toolstore/extensions/hello-world | memory/fs/ext | own（role:greeting-agent 命名空间）|
 
-### 正交性三语义（注册校验 + 运行时强制）
+### 任务池纯化（2026-08-10——标签制 + Origin 升级链 + kernel 直连）
 
-1. **任务类型不重叠**：`registerWorkerRole` labelPatterns 重叠拒绝（内置+扩展全谱系校验）
-2. **memory 区域不重叠**：`memoryScope=own` → memory.write 自动标记 `role:<role>` 前缀（query 侧过滤 v1 占位）；`all` 跨区特许
-3. **权限不重叠**：`capabilities` 白名单注入面收窄——越权角色 vm 里根本没有该函数（ReferenceError 静态失败——非运行时检测）
+**任务池只面向自然语言**（混合池是调试期临时形态，已废止）：所有任务走 agent 循环（LLM 理解+多步工具调用）。降级链：`PTH_AGENT_MODE=off`/无 caps → 一次性转译；无 llm → terminal reject。
 
-### batch 构成统一谱系（2026-08-09 整理——扩展角色完整融入）
+**标签严格校验**（publish 唯一入口）：
+- 未知标签 → 400（报错含已注册标签表）
+- 无角色标签且无 flow → 400（无 hash 分片兼底——无主任务不再随机派发）
+- 多角色歧义 → 400（一个任务只派一个角色）
+- 路由：`① payload.flow 显式 role → ② tags 精确匹配`（双向 includes 模糊匹配已废止）
 
-`parseRoleWeights`/`expandRoleWeights`/`validateWeights`/`profileToWeights`/`createWorkerCluster` 全部走 `allWorkerRoles()`（内置+扩展）：
-- `PTH_WORKER_ROLES="developer:3,greeting-agent:2"`——扩展角色可配置副本
-- 未列出角色默认 1 副本（含扩展）——`PTH_WORKER_ROLES` 空 → 全谱系 ×1
-- `profileToWeights` reinforced 单角色堆叠支持扩展角色（其余 0）
+**Origin 升级链**（错误处理由 Trigger 完成）：
+```
+terminal reject（task.rejected 事件）→ origin-escalation 系统 trigger（retask 模式）
+  → 重发布原任务（正文继承 + tags=[origin] + escalatedFrom 元数据）→ Origin 接取
+  → Origin 失败 → 终态闹（不再升级——防死循环）
+```
+
+**kernel 直连通道**（调试/运维代码执行——不占任务池）：
+```
+POST /api/v1/kernel/exec  { code, mode?, sessionId?, timeoutMs? }
+  mode=stateless（默认）：独立 vm context 单次执行
+  mode=repl：sessionId 持久 context（跨调用状态保留——idle 30min 回收）
+```
+
+**标签注册通道**（tag-registry——预留 complexity/priority 维度）：角色注册自动挂载其固定 tags；`registerTag({name, kind, role?})` 显式扩展。

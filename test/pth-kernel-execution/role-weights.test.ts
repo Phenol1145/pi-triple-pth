@@ -137,7 +137,7 @@ describe("正交角色谱系整理（2026-08-09：扩展角色完整融入 batch
   afterEach(() => { resetExtraRoles(); });
 
   it("扩展角色可进 PTH_WORKER_ROLES 配置（parse/expand 统一谱系）", () => {
-    registerWorkerRole({ id: "greeting-agent", labelPatterns: ["greeting", "hello"], prompt: "问候专员", capabilities: ["memory", "fs", "ext"], memoryScope: "own" });
+    registerWorkerRole({ id: "greeting-agent", tags: ["greeting", "hello"], prompt: "问候专员", capabilities: ["memory", "fs", "ext"], memoryScope: "own" });
     // 解析含扩展角色
     const w = parseRoleWeights("greeting-agent:2,developer:1");
     expect(w.get("greeting-agent")).toBe(2);
@@ -152,7 +152,7 @@ describe("正交角色谱系整理（2026-08-09：扩展角色完整融入 batch
   });
 
   it("profileToWeights reinforced 支持扩展角色（其余 0）", () => {
-    registerWorkerRole({ id: "greeting-agent", labelPatterns: ["greeting"], prompt: "p" });
+    registerWorkerRole({ id: "greeting-agent", tags: ["greeting"], prompt: "p" });
     const w = profileToWeights({ mode: "reinforced", role: "greeting-agent", copies: 3 });
     expect(w.get("greeting-agent")).toBe(3);
     expect(w.get("developer")).toBe(0);
@@ -161,12 +161,12 @@ describe("正交角色谱系整理（2026-08-09：扩展角色完整融入 batch
   });
 
   it("validateWeights 接受扩展角色副本", () => {
-    registerWorkerRole({ id: "greeting-agent", labelPatterns: ["greeting"], prompt: "p" });
+    registerWorkerRole({ id: "greeting-agent", tags: ["greeting"], prompt: "p" });
     expect(() => validateWeights(new Map([["greeting-agent", 4]]))).not.toThrow();
   });
 
   it("扩展角色默认 1 副本（空配置含扩展）", () => {
-    registerWorkerRole({ id: "greeting-agent", labelPatterns: ["greeting"], prompt: "p" });
+    registerWorkerRole({ id: "greeting-agent", tags: ["greeting"], prompt: "p" });
     const w = parseRoleWeights(undefined);
     expect(w.get("greeting-agent")).toBe(1);
   });

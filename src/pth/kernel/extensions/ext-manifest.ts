@@ -10,7 +10,7 @@ import { z } from "zod";
 /** 角色声明（PTH 独有——正交角色谱系扩展） */
 export const ExtRoleSchema = z.object({
   id: z.string().regex(/^[a-z0-9-]+$/),
-  labelPatterns: z.array(z.string()).min(1),
+  tags: z.array(z.string()).min(1),
   prompt: z.string().min(1),
   capabilities: z.array(z.string()).optional(),   // 权限最小化（缺省全量——兼容）
   memoryScope: z.enum(["own", "all"]).optional(), // memory 区域（own 默认）

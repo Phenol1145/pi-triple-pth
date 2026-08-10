@@ -10,9 +10,9 @@ describe("worker cluster", () => {
     expect(ids).toEqual(new Set(["analyst", "planner", "developer", "scout", "memory-keeper", "acceptor", "tester"]));
   });
 
-  it("each role has labelPatterns and prompt", () => {
+  it("each role has tags and prompt", () => {
     for (const r of DEFAULT_ROLES) {
-      expect(r.labelPatterns.length).toBeGreaterThan(0);
+      expect(r.tags.length).toBeGreaterThan(0);
       expect(r.prompt.length).toBeGreaterThan(0);
     }
   });

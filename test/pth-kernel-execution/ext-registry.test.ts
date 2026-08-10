@@ -57,22 +57,22 @@ describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
     expect(reg.getLoaded("hello")!.roles).toEqual([]);
   });
 
-  it("角色重叠校验拒绝（正交冲突）", async () => {
+  it("角色标签冲突拒绝（tag-registry 接管——同名不同角色）", async () => {
     await mkdir(join(dir, "extensions", "conflict"), { recursive: true });
     await writeFile(join(dir, "extensions", "conflict", "plugin.json"), JSON.stringify({
       id: "conflict", name: "C",
-      contracts: { roles: [{ id: "x1", labelPatterns: ["data"], prompt: "p" }, { id: "x2", labelPatterns: ["data"], prompt: "p" }] },
+      contracts: { roles: [{ id: "x1", tags: ["data"], prompt: "p" }, { id: "x2", tags: ["data"], prompt: "p" }] },
     }));
     await writeFile(join(dir, "extensions", "conflict", "index.ts"), `
       module.exports = function() {
         return { roles: [
-          { id: "x1", labelPatterns: ["data"], prompt: "p" },
-          { id: "x2", labelPatterns: ["data"], prompt: "p" },
+          { id: "x1", tags: ["data"], prompt: "p" },
+          { id: "x2", tags: ["data"], prompt: "p" },
         ] };
       };
     `);
     const reg = new ExtRegistry({ toolstore, extContext: {} });
-    await expect(reg.loadOne("conflict")).rejects.toThrow(/重叠/);
+    await expect(reg.loadOne("conflict")).rejects.toThrow(/冲突/);
   });
 
   it("index.ts 未导出 factory → 装载失败", async () => {

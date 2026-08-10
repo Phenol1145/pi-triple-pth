@@ -57,7 +57,7 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
   });
 
   // ── 批准分化建议 → 注册新角色（树生长）──
-  // body: { proposalId, overrides?: { id?, labelPatterns?, prompt?, thinking?, capabilities?, acceptanceRole? } }
+  // body: { proposalId, overrides?: { id?, tags?, prompt?, thinking?, capabilities?, acceptanceRole? } }
   app.post("/api/v1/kernel/lineage/approve", async (req, reply) => {
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -81,20 +81,20 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
       return reply.status(409).send({ error: `角色已存在: ${roleId}`, proposalId });
     }
 
-    // 2. 构造新角色（parent 代数+1——labelPatterns 从 subtasks 派生——overrides 优先）
+    // 2. 构造新角色（parent 代数+1——固定标签从 subtasks 派生——overrides 优先）
     const parentId = suggested?.parent || content.parent || "origin";
     const parentRole = allLineageRoles().find((r) => r.id === parentId);
     const generation = (parentRole?.generation ?? 0) + 1;
-    const derivedPatterns = (content.subtasks ?? []).map((s) => s.type).filter(Boolean).slice(0, 4);
-    const labelPatterns = Array.isArray(overrides.labelPatterns)
-      ? (overrides.labelPatterns as unknown[]).map(String).filter(Boolean)
-      : derivedPatterns.length > 0 ? derivedPatterns : [roleId];
+    const derivedTags = (content.subtasks ?? []).map((s) => s.type).filter(Boolean).slice(0, 4);
+    const tags = Array.isArray(overrides.tags)
+      ? (overrides.tags as unknown[]).map(String).filter(Boolean)
+      : derivedTags.length > 0 ? derivedTags : [roleId];
     const prompt = typeof overrides.prompt === "string" && overrides.prompt
       ? overrides.prompt
       : `你是 ${roleId}——${suggested?.specialization ?? "专门"}角色（从 ${parentId} 分化——generation ${generation}）。分化理由：${suggested?.rationale ?? content.rationale ?? "任务分化诱导"}。专注子任务类型：${(content.subtasks ?? []).map((s) => `${s.type}（${s.description}）`).join("、") || "通用"}。按 PTC 模式用 ts 程序组合能力完成——done 提交实际产物。`;
     const newRole: WorkerRole = {
       id: roleId,
-      labelPatterns,
+      tags,
       prompt,
       description: suggested?.specialization ?? `${roleId}（分化自 ${parentId}）`,
       thinking: overrides.thinking === "low" || overrides.thinking === "medium" || overrides.thinking === "high"
@@ -144,7 +144,7 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
     return {
       ok: true,
       proposalId,
-      role: { id: newRole.id, parent: newRole.parent, generation: newRole.generation, labelPatterns: newRole.labelPatterns },
+      role: { id: newRole.id, parent: newRole.parent, generation: newRole.generation, tags: newRole.tags },
       batchesSent,
       tree: renderRoleLineage(),
     };

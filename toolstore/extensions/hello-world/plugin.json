@@ -10,7 +10,7 @@
     "roles": [
       {
         "id": "greeting-agent",
-        "labelPatterns": ["greeting", "hello"],
+        "tags": ["greeting", "hello"],
         "prompt": "你是问候专员——负责生成友好问候与祝福。",
         "capabilities": ["memory", "fs", "ext"],
         "memoryScope": "own"
