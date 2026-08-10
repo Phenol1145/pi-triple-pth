@@ -214,4 +214,61 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
       collectedAt: Date.now(),
     };
   });
+
+  // ── sandbox 活动状态代理（API 覆盖补齐——sandbox:8080 内网隔离——经网关暴露）──
+  // ptl hub console --sandbox 数据面：kernel 池（inFlight/idle/capacity）+ 编译统计 + debug 会话
+  app.get("/api/v1/kernel/sandbox", async (req, reply) => {
+    const sandboxUrl = process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080";
+    try {
+      // sandbox 通信用共享密钥（SANDBOX_SHARED_SECRET——与 sandbox-kernel 同源——非业务 API token）
+      const r = await fetch(`${sandboxUrl}/kernel/status`, {
+        headers: { authorization: `Bearer ${process.env.SANDBOX_SHARED_SECRET ?? "sandbox-dev-secret"}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!r.ok) return reply.status(502).send({ error: "sandbox status failed", status: r.status });
+      const body = await r.json();
+      return { sandbox: body, url: sandboxUrl, collectedAt: Date.now() };
+    } catch (e) {
+      return reply.status(502).send({ error: "sandbox unreachable", reason: (e as Error).message });
+    }
+  });
+
+  // ── memory 查询（API 覆盖补齐——分化建议/沉淀/能力索引可查——监督层数据面）──
+  // GET /api/v1/kernel/memory?kind=differentiation-proposal&status=draft&anchor=developer&limit=20
+  app.get("/api/v1/kernel/memory", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const q = req.query as { kind?: string; status?: string; anchor?: string; limit?: string };
+    const kinds = q.kind ? q.kind.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    const statuses = q.status ? q.status.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    const anchors = q.anchor ? q.anchor.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+    const limit = Math.min(Math.max(Number(q.limit ?? 20) || 20, 1), 100);
+    try {
+      const entries = await kernel.dataWorld.memory.retrieve({ kinds, status: statuses, anchors });
+      return {
+        entries: entries.slice(0, limit).map((e) => ({
+          id: e.id, kind: e.kind, anchors: e.anchors, status: e.status,
+          contentPreview: typeof e.content === "string" ? e.content.slice(0, 500) : "",
+          meta: e.meta ?? null,
+        })),
+        total: entries.length,
+        query: { kind: q.kind ?? null, status: q.status ?? null, anchor: q.anchor ?? null, limit },
+      };
+    } catch (e) {
+      return reply.status(500).send({ error: "memory query failed", reason: (e as Error).message });
+    }
+  });
+
+  // memory 单条详情（全量 content——console show 用）
+  app.get("/api/v1/kernel/memory/:id", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const { id } = req.params as { id: string };
+    try {
+      const entries = await kernel.dataWorld.memory.retrieve({});
+      const entry = entries.find((e) => e.id === id);
+      if (!entry) return reply.status(404).send({ error: "memory entry not found", id });
+      return entry;
+    } catch (e) {
+      return reply.status(500).send({ error: "memory query failed", reason: (e as Error).message });
+    }
+  });
 }
