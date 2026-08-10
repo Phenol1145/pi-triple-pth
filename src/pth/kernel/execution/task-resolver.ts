@@ -12,6 +12,7 @@
  */
 
 import type { TaskStore, Task } from "../storage/task-store-pg.js";
+import { tagRegistry } from "./tag-registry.js";
 import {
   matchesRule, evalCondition, validateFlow,
   type FlowSpec, type Stage,
@@ -169,7 +170,8 @@ export class TaskResolver {
         title,
         text,
         createdBy: "resolver",
-        tags: spec.tags ?? [spec.role ?? "chain"],
+        // 任务池纯化（D5）：spec.role 翻译为该角色的注册标签（原默认 [role]/["chain"] 非合法标签）
+        tags: spec.tags ?? (spec.role ? [tagRegistry.primaryTagOfRole(spec.role) ?? spec.role] : []),
         payload: {
           deps: [task.id],
           ...(spec.flow ? { flow: spec.flow } : {}),
@@ -193,7 +195,7 @@ export class TaskResolver {
               title: interpolate(spec.title, task, p),
               text: interpolate(spec.text, task, p),
               createdBy: "resolver",
-              tags: spec.tags ?? [spec.role ?? "chain"],
+              tags: spec.tags ?? (spec.role ? [tagRegistry.primaryTagOfRole(spec.role) ?? spec.role] : []),
               payload: { deps: [task.id], ...(spec.flow ? { flow: spec.flow } : {}), parent: task.id },
             });
             report.generated++;

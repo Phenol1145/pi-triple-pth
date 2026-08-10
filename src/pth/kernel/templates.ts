@@ -17,6 +17,8 @@ export interface TaskTemplate {
   id: string;
   name: string;
   description: string;
+  /** 派发角色标签（任务池纯化 D4——模板发布的默认路由依据，精确匹配 tag-registry） */
+  roleTag: string;
   /** 渲染任务 text（TS 代码）。参数已 JSON 序列化嵌入。 */
   render(params: Record<string, unknown>): string;
   /** 模板需要的参数说明（命令补全/帮助用） */
@@ -192,6 +194,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
   {
     id: "recon-doc",
     name: "信息搜集（文档转写）",
+    roleTag: "recon",
     description: "从网络获取文档 → LLM 转写 → 记忆存储。可选 section 定位章节。",
     params: [
       { key: "url", required: true, description: "文档 URL（http/https）" },
@@ -205,6 +208,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
   {
     id: "memory-maintain",
     name: "记忆维护（整理沉淀）",
+    roleTag: "memory",
     description: "检索记忆区 → LLM 去重/提炼 → 写回新记忆。",
     params: [
       { key: "anchors", required: true, description: "检索锚点（决定检索哪些记忆）" },
@@ -216,6 +220,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
   {
     id: "dev-task",
     name: "开发任务（代码执行）",
+    roleTag: "code",
     description: "任务描述 → python 解释器执行（完整能力）→ 产物沉淀记忆。",
     params: [
       { key: "description", required: true, description: "开发任务描述（python 可执行）" },
@@ -227,6 +232,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
   {
     id: "dev-task-ts",
     name: "开发任务（TS 多语言）",
+    roleTag: "code",
     description: "TS 任务代码（可调 python/bash/fs/state 能力）→ 执行 → 结果沉淀记忆。",
     params: [
       { key: "description", required: true, description: "TS 任务代码（顶层 return 结果）" },

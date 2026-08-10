@@ -40,7 +40,7 @@ suite("task store pg", () => {
   });
 
   it("publish creates a pending task", async () => {
-    const t = await store.publish({ title: "t1", text: "do x", createdBy: "me", tags: ["dev"] });
+    const t = await store.publish({ title: "t1", text: "do x", createdBy: "me", tags: ["code"] });
     expect(t.status).toBe("pending");
     expect(t.id).toBeTruthy();
   });
@@ -52,7 +52,7 @@ suite("task store pg", () => {
   });
 
   it("claimTopN claims exclusively", async () => {
-    const t = await store.publish({ title: "t3", text: "do z", createdBy: "me", tags: ["dev"] });
+    const t = await store.publish({ title: "t3", text: "do z", createdBy: "me", tags: ["code"] });
     const claimed = await store.claimTopN("dev-worker", [t.id]);
     expect(claimed.length).toBe(1);
     expect(claimed[0].claimed_by).toBe("dev-worker");
@@ -62,7 +62,7 @@ suite("task store pg", () => {
   });
 
   it("concurrent claim is exclusive (SKIP LOCKED)", async () => {
-    const t = await store.publish({ title: "t4", text: "race", createdBy: "me", tags: ["dev"] });
+    const t = await store.publish({ title: "t4", text: "race", createdBy: "me", tags: ["code"] });
     const [r1, r2] = await Promise.all([
       store.claimTopN("w1", [t.id]),
       store.claimTopN("w2", [t.id]),
@@ -71,14 +71,14 @@ suite("task store pg", () => {
   });
 
   it("reject records reason and exclude", async () => {
-    const t = await store.publish({ title: "t5", text: "rej", createdBy: "me", tags: ["dev"] });
+    const t = await store.publish({ title: "t5", text: "rej", createdBy: "me", tags: ["code"] });
     await store.reject("w1", t.id, "cannot complete");
     const row = await pool.query("SELECT rejects, status FROM tasks WHERE id = $1", [t.id]);
     expect(row.rows[0].rejects).toEqual([{ agentId: "w1", reason: "cannot complete", at: expect.any(Number) }]);
   });
 
   it("submit marks completed with outputRef", async () => {
-    const t = await store.publish({ title: "t6", text: "sub", createdBy: "me", tags: ["dev"] });
+    const t = await store.publish({ title: "t6", text: "sub", createdBy: "me", tags: ["code"] });
     await store.claimTopN("w1", [t.id]);
     await store.submit("w1", t.id, { ref: "transcript-1" });
     const row = await pool.query("SELECT status FROM tasks WHERE id = $1", [t.id]);
@@ -88,7 +88,7 @@ suite("task store pg", () => {
   it("countPending counts only pending tasks (relative to current state)", async () => {
     // 同 suite 前序测试在共享 DB 累积了各种状态的任务，故用相对断言（跨 spec 扩展：Task 5 负载统计依赖）。
     const before = await store.countPending();
-    const t = await store.publish({ title: "t7", text: "count", createdBy: "me", tags: ["dev"] });
+    const t = await store.publish({ title: "t7", text: "count", createdBy: "me", tags: ["code"] });
     expect(await store.countPending()).toBe(before + 1);
     await store.claimTopN("w1", [t.id]);
     expect(await store.countPending()).toBe(before); // claimed 不再计入
@@ -99,7 +99,7 @@ suite("task store pg", () => {
     expect(await store.countPending()).toBe(before); // completed 不计入
   });
   it("terminal reject 终态化（不回池）——坏任务防无限 claim 循环", async () => {
-    const t = await store.publish({ title: "broken", text: "syntax error(", createdBy: "me", tags: ["dev"] });
+    const t = await store.publish({ title: "broken", text: "syntax error(", createdBy: "me", tags: ["code"] });
     // 第一次 claim → 执行失败 → terminal reject
     await store.claimTopN("w1", [t.id]);
     await store.reject("w1", t.id, "execution-failed: syntax", { terminal: true });
@@ -110,31 +110,35 @@ suite("task store pg", () => {
     const cands = await store.candidates({ limit: 10 });
     expect(cands.some((c: { id: string }) => c.id === t.id)).toBe(false);
     // 普通 reject 仍回池（回归保护）
-    const t2 = await store.publish({ title: "ok", text: "fine", createdBy: "me", tags: ["dev"] });
+    const t2 = await store.publish({ title: "ok", text: "fine", createdBy: "me", tags: ["code"] });
     await store.claimTopN("w1", [t2.id]);
     await store.reject("w1", t2.id, "assessed-as-unfit");
     row = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t2.id])).rows[0];
     expect(row.status).toBe("pending");
   });
   it("正交化：publish 路由 assigned_role，candidates 只返回自己队列", async () => {
-    // 语义路由：tags 匹配 developer
+    // 语义路由：tags 精确匹配 developer
     const dev = await store.publish({ title: "code task", text: "fn(){}", createdBy: "me", tags: ["code"] });
     expect(dev.assigned_role).toBe("developer");
-    // 无主任务：hash 分片（确定性）
-    const noTag = await store.publish({ title: "no tag", text: "x", createdBy: "me" });
-    expect(noTag.assigned_role).toBeTruthy();
+    // 无主任务：v2 严格模式——无角色标签拒绝（hash 分片兜底已废止）
+    await expect(store.publish({ title: "no tag", text: "x", createdBy: "me" })).rejects.toThrow(/缺少角色标签/);
     // candidates(developer) 看到 dev 任务
     const devCands = await store.candidates("developer");
     expect(devCands.some((c) => c.id === dev.id)).toBe(true);
     // candidates(analyst) 看不到 dev 任务
     const anaCands = await store.candidates("analyst");
     expect(anaCands.some((c) => c.id === dev.id)).toBe(false);
-    // 无主任务只出现在其分片角色队列
-    const owner = noTag.assigned_role!;
-    const ownerCands = await store.candidates(owner);
-    expect(ownerCands.some((c) => c.id === noTag.id)).toBe(true);
-    const other = owner === "analyst" ? "planner" : "analyst";
-    const otherCands = await store.candidates(other);
-    expect(otherCands.some((c) => c.id === noTag.id)).toBe(false);
+    // flow 显式 role 的任务确定性归属
+    const flow = await store.publish({
+      title: "flow", text: "x", createdBy: "me",
+      payload: { flow: { stages: [{ task: { role: "scout" } }] } },
+    });
+    expect(flow.assigned_role).toBe("scout");
+    // candidates(scout) 看到 flow 任务
+    const scoutCands = await store.candidates("scout");
+    expect(scoutCands.some((c) => c.id === flow.id)).toBe(true);
+    // candidates(analyst) 看不到 flow 任务
+    const anaCands2 = await store.candidates("analyst");
+    expect(anaCands2.some((c) => c.id === flow.id)).toBe(false);
   });
 });

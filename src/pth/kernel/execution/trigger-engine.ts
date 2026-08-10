@@ -112,7 +112,9 @@ export class TriggerEngine {
           title: render(t.def.task.title),
           text: render(t.def.task.text),
           createdBy: `trigger:${t.def.name}`,
-          tags: t.def.task.tags ?? ["triggered"],
+          // 任务池纯化（D5）：无默认标签——trigger 任务必须自带路由依据（role 或合法角色标签），
+          // 注册期已校验；publish 校验失败（如角色后续被移除）会进 catch 记日志，不炸引擎
+          tags: t.def.task.tags ?? [],
           payload: {
             ...(t.def.task.role ? { flow: { stages: [{ task: { role: t.def.task.role } }] } } : {}),
             triggeredBy: { triggerId: t.id, fromTask: e.taskId ?? null, depth: depth + 1 },

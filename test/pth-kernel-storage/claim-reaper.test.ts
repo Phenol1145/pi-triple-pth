@@ -40,7 +40,7 @@ suite("claim 超时回收（recoverStaleClaims）", () => {
 
   it("僵尸认领（claimed_at 超时）→ 回收回 pending + 清 claimed_by", async () => {
     const dw = createDataWorld(pool);
-    const t = await dw.tasks.publish({ title: "stale-1", text: "x", createdBy: "me", tags: ["dev"] });
+    const t = await dw.tasks.publish({ title: "stale-1", text: "x", createdBy: "me", tags: ["code"] });
     await dw.tasks.claimTopN("dead-worker", [t.id]);
     // 模拟 batch 崩溃：把 claimed_at 改到 1 小时前
     await pool.query("UPDATE tasks SET claimed_at = now() - interval '1 hour' WHERE id = $1", [t.id]);
@@ -55,7 +55,7 @@ suite("claim 超时回收（recoverStaleClaims）", () => {
 
   it("未超时的认领不回收", async () => {
     const dw = createDataWorld(pool);
-    const t = await dw.tasks.publish({ title: "fresh-1", text: "x", createdBy: "me", tags: ["dev"] });
+    const t = await dw.tasks.publish({ title: "fresh-1", text: "x", createdBy: "me", tags: ["code"] });
     await dw.tasks.claimTopN("live-worker", [t.id]);
     const recovered = await dw.tasks.recoverStaleClaims(600_000);
     expect(recovered).toBe(0);
@@ -66,7 +66,7 @@ suite("claim 超时回收（recoverStaleClaims）", () => {
 
   it("回收后的任务可再次认领（claims_count 不重置——坏任务防循环保留）", async () => {
     const dw = createDataWorld(pool);
-    const t = await dw.tasks.publish({ title: "reclaim-1", text: "x", createdBy: "me", tags: ["dev"] });
+    const t = await dw.tasks.publish({ title: "reclaim-1", text: "x", createdBy: "me", tags: ["code"] });
     await dw.tasks.claimTopN("dead-worker", [t.id]);
     const before = (await pool.query("SELECT claims_count FROM tasks WHERE id = $1", [t.id])).rows[0].claims_count;
     await pool.query("UPDATE tasks SET claimed_at = now() - interval '1 hour' WHERE id = $1", [t.id]);
@@ -79,7 +79,7 @@ suite("claim 超时回收（recoverStaleClaims）", () => {
 
   it("completed/rejected 任务不受回收影响", async () => {
     const dw = createDataWorld(pool);
-    const t = await dw.tasks.publish({ title: "done-1", text: "x", createdBy: "me", tags: ["dev"] });
+    const t = await dw.tasks.publish({ title: "done-1", text: "x", createdBy: "me", tags: ["code"] });
     await dw.tasks.claimTopN("w", [t.id]);
     await pool.query("UPDATE tasks SET claimed_at = now() - interval '1 hour' WHERE id = $1", [t.id]);
     await dw.tasks.submit("w", t.id, { ref: "r" }); // claimed → completed

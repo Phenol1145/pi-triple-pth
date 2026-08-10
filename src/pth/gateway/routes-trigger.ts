@@ -11,6 +11,7 @@
 import type { FastifyInstance } from "fastify";
 import type { KernelRuntime } from "../kernel/assembly.js";
 import { randomUUID } from "node:crypto";
+import { checkTaskRouting } from "../kernel/execution/role-router.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 const TRIGGER_KIND = "trigger";
@@ -40,6 +41,14 @@ export function registerTriggerRoutes(app: FastifyInstance, kernel: KernelRuntim
     const task = body.task as { title?: string; text?: string; role?: string; tags?: string[] } | undefined;
     if (!name || !event || !task?.title || !task?.text) {
       return reply.status(400).send({ error: "name/event/task.title/task.text required" });
+    }
+    // 任务池纯化（D5）：trigger 任务注册期即校验可路由（role 或合法角色标签——防触发时publish 400 静默失败）
+    const routeCheck = checkTaskRouting({
+      tags: task.tags ?? [],
+      payload: task.role ? { flow: { stages: [{ task: { role: task.role } }] } } : {},
+    });
+    if (!routeCheck.ok) {
+      return reply.status(400).send({ error: `trigger 任务不可路由: ${routeCheck.error}` });
     }
     const id = `trigger-${randomUUID().slice(0, 8)}`;
     const def = {

@@ -67,7 +67,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
         title: `[${body.template}] ${tpl.name}`,
         text: rendered,
         createdBy: typeof body.createdBy === "string" ? body.createdBy : "ptl",
-        tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : [body.template],
+        tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : [tpl.roleTag],
         payload: { template: body.template, params },
       });
       return reply.status(201).send(task);

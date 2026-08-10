@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
+import { routeTaskRole, checkTaskRouting } from "../../src/pth/kernel/execution/role-router.js";
 
-describe("role router（任务分配正交化）", () => {
+describe("role router v2（角色标签制——分选器唯一标准）", () => {
   it("flow 显式 role 优先（payload.flow.stages[0].task.role）", () => {
     const role = routeTaskRole({
       id: "t-1",
@@ -11,37 +11,70 @@ describe("role router（任务分配正交化）", () => {
     expect(role).toBe("developer");
   });
 
-  it("tags 语义匹配（analyst: analysis/research）", () => {
-    expect(routeTaskRole({ id: "t-1", tags: ["analysis", "data"] })).toBe("analyst");
-    expect(routeTaskRole({ id: "t-1", tags: ["research"] })).toBe("analyst");
-  });
-
-  it("tags 匹配其他角色（developer: implement/code/fix）", () => {
+  it("tags 精确匹配角色标签", () => {
+    expect(routeTaskRole({ id: "t-1", tags: ["analysis"] })).toBe("analyst");
     expect(routeTaskRole({ id: "t-1", tags: ["code"] })).toBe("developer");
-    expect(routeTaskRole({ id: "t-1", tags: ["implement"] })).toBe("developer");
+    expect(routeTaskRole({ id: "t-1", tags: ["test"] })).toBe("tester");
+    expect(routeTaskRole({ id: "t-1", tags: ["origin"] })).toBe("origin");
   });
 
-  it("多标签匹配取首个角色（按角色顺序）", () => {
-    // planner: plan/design 在 analyst 之后——analysis+plan 都匹配时取 analyst（DEFAULT_ROLES 顺序）
-    expect(routeTaskRole({ id: "t-1", tags: ["plan", "analysis"] })).toBe("analyst");
+  it("模糊匹配废止：testing 不命中 test（无路由依据 → throw）", () => {
+    expect(() => routeTaskRole({ id: "t-1", tags: ["testing"] })).toThrow(/无路由依据/);
   });
 
-  it("无匹配 → hash 分片确定性（同 id 恒同角色）", () => {
-    const r1 = routeTaskRole({ id: "abc-123" });
-    const r2 = routeTaskRole({ id: "abc-123" });
-    expect(r1).toBe(r2);
-    expect(r1.length).toBeGreaterThan(0);
+  it("大小写不敏感（注册表小写归一）", () => {
+    expect(routeTaskRole({ id: "t-1", tags: ["Code"] })).toBe("developer");
   });
 
-  it("hash 分片分布均匀（100 个 id 覆盖多角色）", () => {
-    const roles = new Set<string>();
-    for (let i = 0; i < 100; i++) {
-      roles.add(routeTaskRole({ id: `task-${i}-uuid-${i * 37}` }));
+  it("无标签无 flow → throw（校验期应已拦截）", () => {
+    expect(() => routeTaskRole({ id: "t-1" })).toThrow(/无路由依据/);
+  });
+});
+
+describe("checkTaskRouting（publish 前严格校验）", () => {
+  it("合法角色标签 → ok", () => {
+    expect(checkTaskRouting({ tags: ["code"] })).toEqual({ ok: true });
+  });
+
+  it("未知标签 → 拒绝（含合法标签提示）", () => {
+    const r = checkTaskRouting({ tags: ["python", "self-modify"] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain("未知标签");
+      expect(r.error).toContain("python");
+      expect(r.error).toContain("code"); // 合法标签提示
     }
-    expect(roles.size).toBeGreaterThan(3);  // 至少覆盖 4 个角色
   });
 
-  it("无 tags 无 payload 也路由（兜底分片）", () => {
-    expect(routeTaskRole({ id: "x" })).toBeTruthy();
+  it("历史自由标签（dev-task/ext-e2e/triggered/chain）全部拒绝", () => {
+    for (const tag of ["dev-task", "ext-e2e", "triggered", "chain", "dev"]) {
+      expect(checkTaskRouting({ tags: [tag] }).ok).toBe(false);
+    }
+  });
+
+  it("多角色歧义 → 拒绝", () => {
+    const r = checkTaskRouting({ tags: ["code", "test"] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("歧义");
+  });
+
+  it("同角色多标签不歧义", () => {
+    expect(checkTaskRouting({ tags: ["code", "fix"] })).toEqual({ ok: true });
+  });
+
+  it("无角色标签且无 flow → 拒绝", () => {
+    const r = checkTaskRouting({ tags: [] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("缺少角色标签");
+  });
+
+  it("flow 显式角色免标签", () => {
+    expect(checkTaskRouting({ tags: [], payload: { flow: { stages: [{ task: { role: "scout" } }] } } })).toEqual({ ok: true });
+  });
+
+  it("flow 指定未注册角色 → 拒绝", () => {
+    const r = checkTaskRouting({ payload: { flow: { stages: [{ task: { role: "ghost" } }] } } });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("未注册");
   });
 });

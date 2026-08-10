@@ -1,7 +1,10 @@
 import type { WorkerKernel } from "../interpreter/index.js";
+import { tagRegistry } from "./tag-registry.js";
 
 export interface WorkerRole {
   id: string;
+  /** 角色固定标签（tag-registry 路由唯一标准——精确匹配）；缺省回退 labelPatterns（过渡兼容） */
+  tags?: string[];
   labelPatterns: string[];
   prompt: string;
   /** 权限最小化（P3——capabilities 白名单——缺省全量兼容）；扩展角色可声明
@@ -41,6 +44,7 @@ export interface WorkerRole {
  */
 export const ORIGIN_ROLE: WorkerRole = {
   id: "origin",
+  tags: ["origin"],   // 升级链终点标签（trigger 转写——任务池纯化设计 D3）
   labelPatterns: ["*"],   // 全能——匹配一切（路由兜底语义——实际路由：显式 flow.role=origin 或 PTH_WORKER_ROLES 启用后 hash）
   prompt: "你是 Origin——PTH 角色谱系的全能起点角色。你不预设专门化方向：按任务本身的需求组合全部可用能力完成。执行中注意识别任务内可区分的子任务模式（探索/实现/验证/调研等）——你的 refine 会分析这些模式，作为后续角色分化的诱导依据。",
   description: "全能起点（谱系之根——generation 0——所有角色从 Origin 分化而来）",
@@ -226,7 +230,19 @@ export function registerWorkerRole(role: WorkerRole): void {
     }
   }
   extraRoles.push(role);
+  registerRoleTags(role);
 }
+
+/** 角色固定标签挂载总表（tags 缺省回退 labelPatterns——过渡兼容；重复注册幂等跳过） */
+function registerRoleTags(role: WorkerRole): void {
+  for (const tag of role.tags ?? role.labelPatterns) {
+    tagRegistry.register({ name: tag, kind: "role", role: role.id, registeredBy: `role:${role.id}` });
+  }
+}
+
+// 内置角色标签随模块加载注册（origin + DEFAULT_ROLES；MID_ROLES 是谱系结构层非派发目标——不注册）
+registerRoleTags(ORIGIN_ROLE);
+for (const r of DEFAULT_ROLES) registerRoleTags(r);
 
 /** 全部角色（内置 + 扩展——routeTaskRole/worker 构成统一谱系） */
 export function allWorkerRoles(): WorkerRole[] {

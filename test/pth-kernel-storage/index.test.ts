@@ -59,7 +59,7 @@ suite("data world assembly", () => {
 
   it("end-to-end: publish → claim → execute → submit → transcript", async () => {
     const dw = createDataWorld(pool);
-    const t = await dw.tasks.publish({ title: "e2e", text: "do it", createdBy: "me", tags: ["dev"] });
+    const t = await dw.tasks.publish({ title: "e2e", text: "do it", createdBy: "me", tags: ["code"] });
     const claimed = await dw.tasks.claimTopN("dev-worker", [t.id]);
     expect(claimed.length).toBe(1);
     const tid = await dw.transcripts.create({ taskId: t.id, agentId: "dev-worker", body: [{ type: "result", ok: true }] });
