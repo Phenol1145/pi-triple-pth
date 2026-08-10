@@ -124,12 +124,24 @@ const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='pr
     }
   }
 
+  // 推理预算块（role.thinking 从声明到作用——2026-08-10 PTH worker 实现）：角色声明推理深度 → system prompt 生效
+  let thinkingBlock = "";
+  if (role?.thinking) {
+    const budget: Record<"high" | "medium" | "low", string> = {
+      high: "本次任务推理预算：深度推理——多步验证、权衡备选方案、明确不确定点。",
+      medium: "本次任务推理预算：适中——完成目标所需的最小推理深度。",
+      low: "本次任务推理预算：浅——快速行动，避免过度分析（scout 类快速侦察角色）。",
+    };
+    const line = budget[role.thinking] ?? "";
+    if (line) thinkingBlock = `\n${line}\n`;
+  }
+
   return `${PTH_WORKER_SYSTEM}
 
 当前任务：${taskTitle}
 
 ${roleBlock}
-
+${thinkingBlock}
 ${AGENT_TOOLS_DESCRIPTION}
 
 ${capBlock}

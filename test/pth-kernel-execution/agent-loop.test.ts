@@ -259,3 +259,21 @@ describe("done 收尾引导（worker 设计 2026-08-09——三层防御：schem
     if (r.ok) expect(r.value).toBe(0);
   });
 });
+
+describe("role.thinking 生效（推理深度→system prompt——PTH worker 实现 2026-08-10）", () => {
+  it("thinking=low（scout）→ system prompt 含浅推理预算行", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = await buildAgentSystemPrompt({ id: "scout", labelPatterns: [], prompt: "p", thinking: "low" } as never, "t", { mode: "lazy" });
+    expect(prompt).toContain("浅——快速行动");
+  });
+  it("thinking=high（planner）→ 深推理预算行", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = await buildAgentSystemPrompt({ id: "planner", labelPatterns: [], prompt: "p", thinking: "high" } as never, "t", { mode: "lazy" });
+    expect(prompt).toContain("深度推理");
+  });
+  it("无 thinking 角色 → 零行为回归（不含推理预算行）", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = await buildAgentSystemPrompt(undefined, "t", { mode: "lazy" });
+    expect(prompt).not.toContain("推理预算");
+  });
+});
