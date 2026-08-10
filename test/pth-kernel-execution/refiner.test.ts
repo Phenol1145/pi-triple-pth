@@ -150,3 +150,80 @@ describe("任务 3：角色分化分析（有监督自动化——differentiatio
     expect(prompt).toContain("有监督");
   });
 });
+
+describe("refine 解硬编码（任务清单数据化——memory 真相源——可演化）", () => {
+  it("buildRefinePrompt 按清单动态拼接（禁用任务的段落不出现）", async () => {
+    const { buildRefinePrompt, DEFAULT_REFINE_TASKS } = await import("../../src/pth/kernel/execution/refiner.js");
+    const noDiff = DEFAULT_REFINE_TASKS.map((t) => t.id === "differentiation" ? { ...t, enabled: false } : t);
+    const prompt = buildRefinePrompt({ task: { id: "t", title: "x", tags: [] }, snapshot: { functions: [], variables: [] } }, noDiff);
+    expect(prompt).toContain("functions");
+    expect(prompt).not.toContain("suggestedRole");   // differentiation schema 不出现
+    const full = buildRefinePrompt({ task: { id: "t", title: "x", tags: [] }, snapshot: { functions: [], variables: [] } });
+    expect(full).toContain("suggestedRole");
+  });
+
+  it("自定义任务（raw）出现在 prompt + parseRefineResult extra 提取", async () => {
+    const { buildRefinePrompt, parseRefineResult, DEFAULT_REFINE_TASKS } = await import("../../src/pth/kernel/execution/refiner.js");
+    type TaskDef = (typeof DEFAULT_REFINE_TASKS)[number];
+    const custom: TaskDef = {
+      id: "risk-scan", promptRules: ["- riskScan: 列出任务执行中遇到的风险点"],
+      outputField: "riskScan", outputSchema: `"riskScan": ["<风险点>"]`,
+      persistKind: "risk-report", persistAs: "raw", enabled: true,
+    };
+    const tasks = [...DEFAULT_REFINE_TASKS, custom];
+    const prompt = buildRefinePrompt({ task: { id: "t", title: "x", tags: [] }, snapshot: { functions: [], variables: [] } }, tasks);
+    expect(prompt).toContain("riskScan");
+    expect(prompt).toContain("风险点");
+    const r = parseRefineResult(JSON.stringify({ functions: [], insights: [], riskScan: ["池容量风险"] }), tasks);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.extra?.riskScan).toEqual(["池容量风险"]);
+  });
+
+  it("Refiner.loadTasks——memory 清单优先（fallback 默认）", async () => {
+    const { Refiner, DEFAULT_REFINE_TASKS } = await import("../../src/pth/kernel/execution/refiner.js");
+    // memory 空 → fallback 默认
+    const r1 = new Refiner({ llm: async () => ({ content: "{}", model: "m" }), memory: { write: async () => ({}), retrieve: async () => [] } as never });
+    expect((await r1.loadTasks()).length).toBe(DEFAULT_REFINE_TASKS.length);
+    // memory 有自定义清单 → 用之
+    const customTask = { ...DEFAULT_REFINE_TASKS[0], id: "only-fn" };
+    const r2 = new Refiner({
+      llm: async () => ({ content: "{}", model: "m" }),
+      memory: {
+        write: async () => ({}),
+        retrieve: async (opts: { kinds?: string[] }) => opts.kinds?.includes("refine-task")
+          ? [{ id: "refine-task:only-fn", kind: "refine-task", anchors: [], content: JSON.stringify(customTask), status: "official", meta: {} }]
+          : [],
+      } as never,
+    });
+    const loaded = await r2.loadTasks();
+    expect(loaded.length).toBe(1);
+    expect(loaded[0].id).toBe("only-fn");
+  });
+
+  it("raw 自定义任务持久化（persistKind 自定义——draft——不改代码加 refine 任务）", async () => {
+    const { Refiner, DEFAULT_REFINE_TASKS } = await import("../../src/pth/kernel/execution/refiner.js");
+    const custom = {
+      id: "risk-scan", promptRules: ["- riskScan: 风险点"], outputField: "riskScan",
+      outputSchema: `"riskScan": ["<风险>"]`, persistKind: "risk-report", persistAs: "raw", enabled: true,
+    };
+    const tasks = [...DEFAULT_REFINE_TASKS.map((t) => ({ ...t, enabled: false })), custom];
+    const written: Array<{ kind: string; content: string; status: string }> = [];
+    const refiner = new Refiner({
+      llm: { complete: async () => ({ content: JSON.stringify({ riskScan: ["沙盒池满风险"] }), model: "m" }) } as never,
+      memory: {
+        write: async (e: { kind: string; content: string; status: string }) => { written.push(e); return {}; },
+        retrieve: async (opts: { kinds?: string[] }) => opts.kinds?.includes("refine-task")
+          ? tasks.map((t) => ({ id: `refine-task:${t.id}`, kind: "refine-task", anchors: [], content: JSON.stringify(t), status: "official", meta: {} }))
+          : [],
+      } as never,
+    });
+    await refiner.refine({ task: { id: "t1", title: "x", tags: [] }, snapshot: { functions: [], variables: [] } });
+    const riskEntry = written.find((w) => w.kind === "risk-report");
+    expect(riskEntry).toBeTruthy();
+    expect(riskEntry!.content).toContain("沙盒池满风险");
+    expect(riskEntry!.status).toBe("draft");
+    // 禁用的三内建不产出（tool-function/task-insight/differentiation-proposal 均无）
+    expect(written.filter((w) => w.kind === "tool-function")).toHaveLength(0);
+    expect(written.some((w) => w.kind === "refine-report")).toBe(true);   // 溯源报告仍写
+  });
+});

@@ -13,6 +13,7 @@ import type { PgMemoryStore } from "./storage/memory-store-pg.js";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { allLineageRoles } from "./execution/worker-cluster.js";
+import { DEFAULT_REFINE_TASKS } from "./execution/refiner.js";
 import { buildDoc } from "./extensions/index.js";
 
 /** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据——lazy 下 LLM 按需读） */
@@ -134,6 +135,19 @@ export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
         meta: { source: "injectPromptDocs", role: role.id },
       }, { force: true });
     } catch { /* 单角色注入失败放行 */ }
+  }
+  // refine 任务清单 seed（解硬编码——memory 缺失时注入默认三任务——之后可经管理面演化）
+  for (const t of DEFAULT_REFINE_TASKS) {
+    try {
+      await memory.write({
+        id: `refine-task:${t.id}`,
+        kind: "refine-task",
+        anchors: ["refine-task", t.id, t.persistKind],
+        content: JSON.stringify(t, null, 2),
+        status: "official",
+        meta: { source: "injectPromptDocs", seed: true },
+      }, { force: true });
+    } catch { /* 单条 seed 失败放行 */ }
   }
   // 能力索引
   try {

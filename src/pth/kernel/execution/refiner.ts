@@ -46,6 +46,8 @@ export interface RefineResult {
   functions: RefinedFunction[];
   insights: string[];
   differentiation?: DifferentiationProposal;
+  /** 自定义 refine 任务输出（persistAs=raw——清单 outputField → 原样值） */
+  extra?: Record<string, unknown>;
 }
 
 export interface RefineReport {
@@ -63,9 +65,66 @@ interface RefinerDeps {
   onMetric?: (m: Record<string, unknown>) => void;
 }
 
-/** 构造 refine prompt（含快照 + 任务信息 + 输出格式约束） */
-export function buildRefinePrompt(input: RefineInput): string {
+/**
+ * RefineTask 定义（refine 解硬编码——2026-08-10 用户方向）：
+ * refine 的"分析什么/输出什么/存到哪"从代码搬到 memory（kind='refine-task'——数据化可演化——
+ * 新增 refine 任务 = memory 加一条定义，不改代码）。持久化器（persistAs）保持代码内建——稳定机制。
+ */
+export interface RefineTaskDef {
+  id: string;                 // 任务 id（functions/insights/differentiation/自定义）
+  promptRules: string[];      // prompt 规则段落（buildRefinePrompt 动态拼接）
+  outputField: string;        // LLM 输出 JSON 字段名
+  outputSchema: string;       // 输出格式描述（prompt schema 段落）
+  persistKind: string;        // 持久化 memory kind
+  persistAs: "functions" | "insights" | "differentiation" | "raw";  // 内建持久化器
+  enabled: boolean;
+}
+
+/** 默认三任务（启动 seed 到 memory——memory 缺失时的 fallback——与历史硬编码行为一致） */
+export const DEFAULT_REFINE_TASKS: RefineTaskDef[] = [
+  {
+    id: "functions",
+    promptRules: [
+      "- functions: 只保留通用、可复用、后续任务可能用到的工具函数；source 必须与快照一致",
+      "- spec.signature/purpose/logic/examples 是【构造文档】——迁移环境后据此重建函数（pickle 哲学）",
+    ],
+    outputField: "functions",
+    outputSchema: `"functions": [{"key": "<函数名>", "source": "<完整源码>", "spec": {"signature": "<签名>", "purpose": "<用途>", "logic": "<逻辑说明>", "examples": [[输入,输出]]}}]`,
+    persistKind: "tool-function",
+    persistAs: "functions",
+    enabled: true,
+  },
+  {
+    id: "insights",
+    promptRules: ["- insights: 提炼任务过程中的关键经验/结论/数据（简洁，每条 ≤100 字）"],
+    outputField: "insights",
+    outputSchema: `"insights": ["<经验/洞察字符串>"]`,
+    persistKind: "task-insight",
+    persistAs: "insights",
+    enabled: true,
+  },
+  {
+    id: "differentiation",
+    promptRules: [
+      "- differentiation（任务 3——角色分化分析）：分析本次任务是否可以分化成更小更具体的子任务——",
+      "  若任务执行过程中反复出现某类可区分的子任务模式（探索/实现/验证/调研等有明显能力差异的阶段），",
+      "  且该模式的能力需求与当前执行角色的定位不完全匹配，则建议分化（differentiable=true）——",
+      "  给出子任务类型清单 + 建议新角色（parent=当前角色，specialization=特化方向，rationale=分化理由）。",
+      "  若任务单一同质（无明显的可分化子任务模式）则 differentiable=false。",
+      "  分化建议是【有监督】的——仅记录待确认，不会自动创建角色。",
+    ],
+    outputField: "differentiation",
+    outputSchema: `"differentiation": {"differentiable": true|false, "subtasks": [{"type": "<子任务类型>", "description": "<描述>", "capabilityNeeds": ["<能力>"], "frequency": "<出现频率>"}], "suggestedRole": {"id": "<建议角色id>", "parent": "<父角色>", "specialization": "<特化方向>", "rationale": "<分化理由>"}, "confidence": "high|medium|low", "rationale": "<总体判断>"}`,
+    persistKind: "differentiation-proposal",
+    persistAs: "differentiation",
+    enabled: true,
+  },
+];
+
+/** 构造 refine prompt（含快照 + 任务信息 + 输出格式约束——tasks 缺省=默认清单） */
+export function buildRefinePrompt(input: RefineInput, tasks: RefineTaskDef[] = DEFAULT_REFINE_TASKS): string {
   const { task, snapshot, language = "typescript" } = input;
+  const enabled = tasks.filter((t) => t.enabled);
   const fnDesc = snapshot.functions
     .map((f) => `- ${f.key}: ${f.source.slice(0, 200)}`)
     .join("\n") || "（无）";
@@ -95,24 +154,17 @@ export function buildRefinePrompt(input: RefineInput): string {
     varDesc,
     "",
     "请输出 JSON（不要其他文字），格式:",
-    `{"functions": [{"key": "<函数名>", "source": "<完整源码>", "spec": {"signature": "<签名>", "purpose": "<用途>", "logic": "<逻辑说明>", "examples": [[输入,输出]]}}], "insights": ["<经验/洞察字符串>"], "differentiation": {"differentiable": true|false, "subtasks": [{"type": "<子任务类型>", "description": "<描述>", "capabilityNeeds": ["<能力>"], "frequency": "<出现频率>"}], "suggestedRole": {"id": "<建议角色id>", "parent": "<父角色>", "specialization": "<特化方向>", "rationale": "<分化理由>"}, "confidence": "high|medium|low", "rationale": "<总体判断>"}}`,
+    `{${enabled.map((t) => t.outputSchema).join(", ")}}`,
     "",
     "规则:",
-    `- functions: 只保留通用、可复用、后续任务可能用到的工具函数（当前语言: ${language}）；source 必须与快照一致`,
-    "- spec.signature/purpose/logic/examples 是【构造文档】——迁移环境后据此重建函数（pickle 哲学）",
-    "- insights: 提炼任务过程中的关键经验/结论/数据（简洁，每条 ≤100 字）",
-    "- differentiation（任务 3——角色分化分析）：分析本次任务是否可以分化成更小更具体的子任务——",
-    "  若任务执行过程中反复出现某类可区分的子任务模式（探索/实现/验证/调研等有明显能力差异的阶段），",
-    "  且该模式的能力需求与当前执行角色的定位不完全匹配，则建议分化（differentiable=true）——",
-    "  给出子任务类型清单 + 建议新角色（parent=当前角色，specialization=特化方向，rationale=分化理由）。",
-    "  若任务单一同质（无明显的可分化子任务模式）则 differentiable=false。",
-    "  分化建议是【有监督】的——仅记录待确认，不会自动创建角色。",
-    "- 无可用内容时输出 {\"functions\": [], \"insights\": [], \"differentiation\": {\"differentiable\": false, \"subtasks\": []}}",
+    ...enabled.flatMap((t) => t.promptRules.map((r) => r.replace("${language}", language))),
+    `- 无可用内容时输出空结构（各字段给空值——如 ${enabled.map((t) => `"${t.outputField}": ${t.persistAs === "differentiation" ? '{"differentiable": false, "subtasks": []}' : "[]"}`).join(", ")}）`,
   ].join("\n");
 }
 
-/** 容错解析 LLM 输出（合法 JSON / ```json 围栏 / 失败降级） */
-export function parseRefineResult(text: string): { ok: true; functions: RefinedFunction[]; insights: string[]; differentiation?: DifferentiationProposal } | { ok: false } {
+/** 容错解析 LLM 输出（合法 JSON / ```json 围栏 / 失败降级）
+ *  extra：自定义 refine 任务的输出字段（persistAs=raw——按 tasks 清单 outputField 原样提取） */
+export function parseRefineResult(text: string, tasks?: RefineTaskDef[]): { ok: true; functions: RefinedFunction[]; insights: string[]; differentiation?: DifferentiationProposal; extra: Record<string, unknown> } | { ok: false } {
   const cleaned = text.trim().replace(/^```json?\s*/i, "").replace(/```\s*$/, "").trim();
   try {
     const parsed = JSON.parse(cleaned) as { functions?: unknown[]; insights?: unknown[] };
@@ -150,7 +202,18 @@ export function parseRefineResult(text: string): { ok: true; functions: RefinedF
         rationale: typeof d.rationale === "string" ? d.rationale : undefined,
       };
     }
-    return { ok: true, functions, insights, differentiation };
+    // 自定义任务字段（persistAs=raw——清单里非三内建 outputField 的原样提取）
+    const extra: Record<string, unknown> = {};
+    if (tasks) {
+      const builtins = new Set(["functions", "insights", "differentiation"]);
+      for (const t of tasks) {
+        if (t.enabled && !builtins.has(t.outputField)) {
+          const v = (parsed as Record<string, unknown>)[t.outputField];
+          if (v !== undefined) extra[t.outputField] = v;
+        }
+      }
+    }
+    return { ok: true, functions, insights, differentiation, extra };
   } catch {
     return { ok: false };
   }
@@ -159,19 +222,40 @@ export function parseRefineResult(text: string): { ok: true; functions: RefinedF
 export class Refiner {
   constructor(private deps: RefinerDeps) {}
 
+  /**
+   * 加载 refine 任务清单（解硬编码——memory kind='refine-task' 是真相源——
+   * 每次 refine 现读（演化即时生效——refine 频率低无性能问题）——缺失/异常 fallback 代码默认。
+   */
+  async loadTasks(): Promise<RefineTaskDef[]> {
+    try {
+      const entries = await this.deps.memory.retrieve({ kinds: ["refine-task"] });
+      const tasks = entries
+        .map((e) => { try { return JSON.parse(e.content) as RefineTaskDef; } catch { return null; } })
+        .filter((t): t is RefineTaskDef => !!t && typeof t.id === "string" && typeof t.outputField === "string");
+      return tasks.length > 0 ? tasks : DEFAULT_REFINE_TASKS;
+    } catch {
+      return DEFAULT_REFINE_TASKS;
+    }
+  }
+
   async refine(input: RefineInput): Promise<RefineReport> {
     const report: RefineReport = { functionsSaved: 0, insightsSaved: 0, differentiationProposed: false, skipped: [] };
     const refineStart = Date.now();
 
+    // 0. 任务清单（memory 真相源——解硬编码）
+    const tasks = await this.loadTasks();
+    const enabled = tasks.filter((t) => t.enabled);
+    const taskOf = (persistAs: RefineTaskDef["persistAs"]) => enabled.find((t) => t.persistAs === persistAs);
+
     // 1. LLM 提炼
-    const prompt = buildRefinePrompt(input);
+    const prompt = buildRefinePrompt(input, tasks);
     let result: RefineResult;
     try {
       const res = await this.deps.llm.complete(
         [{ role: "system", content: prompt }],
         { model: this.deps.model ?? "deepseek-v4-flash", provider: "deepseek" },
       );
-      const parsed = parseRefineResult(res.content);
+      const parsed = parseRefineResult(res.content, tasks);
       result = parsed.ok ? parsed : { ok: false, functions: [], insights: [] };
       if (!parsed.ok) {
         // 性能计量（SPEC L3）：解析降级
@@ -191,11 +275,12 @@ export class Refiner {
     const language = input.language ?? "typescript";
     const baseAnchors = [...new Set([...(input.task.tags ?? []), language, ...functions.map((f) => f.key)])];
 
-    for (const fn of functions) {
+    const functionsTask = taskOf("functions");
+    for (const fn of functionsTask ? functions : []) {
       const id = `fn-${hash(fn.source).slice(0, 12)}`;
       await this.deps.memory.write({
         id,
-        kind: "tool-function",
+        kind: functionsTask!.persistKind,
         anchors: [...new Set([fn.key, ...(input.task.tags ?? []), language])],
         content: fn.source,   // 当前语言实现（pickle：保留当前实现）
         status: "official",
@@ -210,12 +295,13 @@ export class Refiner {
       report.functionsSaved++;
     }
 
-    for (const insight of result.ok ? result.insights : []) {
+    const insightsTask = taskOf("insights");
+    for (const insight of result.ok && insightsTask ? result.insights : []) {
       if (!insight.trim()) continue;
       const id = `insight-${hash(input.task.id + insight).slice(0, 12)}`;
       await this.deps.memory.write({
         id,
-        kind: "task-insight",
+        kind: insightsTask!.persistKind,
         anchors: baseAnchors,
         content: insight,
         status: "official",
@@ -225,13 +311,14 @@ export class Refiner {
     }
 
     // 3.5 分化建议持久化（任务 3——有监督自动化：仅记录待确认——不自动创建角色）
-    const diff = result.ok ? result.differentiation : undefined;
+    const diffTask = taskOf("differentiation");
+    const diff = result.ok && diffTask ? result.differentiation : undefined;
     if (diff?.differentiable && diff.subtasks.length > 0) {
       const parent = diff.suggestedRole?.parent || input.role || input.task.claimed_by || "origin";
       const id = `diff-${hash(input.task.id + parent + diff.subtasks.map((s) => s.type).join(",")).slice(0, 12)}`;
       await this.deps.memory.write({
         id,
-        kind: "differentiation-proposal",
+        kind: diffTask!.persistKind,
         anchors: [...new Set([parent, ...(input.task.tags ?? []), ...diff.subtasks.map((s) => s.type)])],
         content: JSON.stringify({
           taskId: input.task.id,
@@ -247,6 +334,22 @@ export class Refiner {
       });
       report.differentiationProposed = true;
       this.deps.onMetric?.({ type: "differentiation-proposed", parent, subtaskCount: diff.subtasks.length });
+    }
+
+    // 3.6 自定义 refine 任务持久化（persistAs=raw——解硬编码的演化面：新任务不改代码）
+    for (const t of enabled.filter((x) => x.persistAs === "raw")) {
+      const v = result.ok ? result.extra?.[t.outputField] : undefined;
+      if (v === undefined || v === null) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      const id = `${t.id}-${hash(input.task.id + JSON.stringify(v)).slice(0, 12)}`;
+      await this.deps.memory.write({
+        id,
+        kind: t.persistKind,
+        anchors: [...new Set([t.id, input.task.id, ...(input.task.tags ?? [])])],
+        content: typeof v === "string" ? v : JSON.stringify(v, null, 2),
+        status: "draft",            // 自定义任务产物默认 draft（监督层审——与分化建议同治理）
+        meta: { taskId: input.task.id, role: input.task.claimed_by, refineTask: t.id },
+      });
     }
 
     // 4. refine-report（溯源）
