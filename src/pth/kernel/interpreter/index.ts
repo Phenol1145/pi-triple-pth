@@ -57,7 +57,7 @@ export * from "./bash-interpreter.js";
 // 适配说明：python-interpreter 与 ts-interpreter 均导出 DEFAULT_EXECUTION_TIMEOUT_MS，
 // 双 star re-export 触发 TS2308（歧义成员）。显式只 re-export PythonInterpreter 类；
 // DEFAULT_EXECUTION_TIMEOUT_MS 仍可从 ./python-interpreter.js 直接导入。
-export { PythonInterpreter } from "./python-interpreter.js";
+export {  } from "./python-interpreter.js";
 export * from "./llm-fn.js";
 export * from "./capability.js";
 export * from "./kernel-manager.js";

@@ -215,5 +215,5 @@ async function directOpenAiComplete(
   };
 }
 
+// direct 路径计量：模块级 depsMetric（createLlmFn 构造时注入——onMetric 同源）
 let depsMetric: ((m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number }) => void) | null = null;
-export function __setDirectMetric(fn: typeof depsMetric): void { depsMetric = fn; }
