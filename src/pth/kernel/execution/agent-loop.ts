@@ -20,20 +20,21 @@ import { spaceRegistry } from "./space-registry.js";
 
 /** ASP 模式工具面（按当前空间动态计算——环境函数全空间可用，语言工具仅本空间，done 仅元空间） */
 function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] {
-  const cd = toolSchemaFor("asp.cd")!;
-  if (spaceId === "meta") return [cd, toolSchemaFor("done")!];
+  const ambient = [toolSchemaFor("asp.cd")!, toolSchemaFor("asp.index")!];
+  if (spaceId === "meta") return [...ambient, toolSchemaFor("done")!];
   const sp = spaceRegistry.get(spaceId);
   if (sp?.execTool) {
     const exec = toolSchemaFor(sp.execTool);
-    if (exec) return [cd, exec];
+    if (exec) return [...ambient, exec];
   }
-  return [cd];
+  return ambient;
 }
 
 /** ASP 模式 system prompt 附加块（协议世界观——空间/迁移/完成规则） */
 const ASP_BLOCK = `【动作空间协议（ASP）】
 你在【元空间】开始——元空间无执行核，语言代码不可在此解析。
-- 执行任务：asp_cd 迁移到语言空间——asp_cd("ts")（ts 程序空间——能力包 memory/llm/web/fs/state 等）/ asp_cd("python") / asp_cd("bash")
+- 探索：asp_index() 查看当前空间的可达函数/数据（无参默认当前空间；mode=by-package 按扩展包 / by-type 按变量函数；space 指定目标空间）
+- 执行：asp_cd 迁移到语言空间——asp_cd("ts")（ts 程序空间——能力包 memory/llm/web/fs/state 等）/ asp_cd("python") / asp_cd("bash")
 - 空间数据是本地的：ts 里声明的变量在 python 空间不可见（跨空间携带信息用记忆/缓存工具）
 - 完成任务：asp_cd("meta") 回到元空间 → done 提交（done 仅在元空间可用）`;
 
@@ -376,6 +377,16 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
           content: `已迁移到 ${target} 空间。${hint}` });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `cd → ${target}` });
+        return undefined;
+      }
+      if (tool === "asp_index") {
+        const { buildSpaceIndex } = await import("./space-index.js");
+        const out = await buildSpaceIndex(
+          { mode: typeof args["mode"] === "string" ? args["mode"] : undefined, space: typeof args["space"] === "string" ? args["space"] : undefined },
+          { currentSpace, kernel, caps },
+        );
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: out });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: out.slice(0, 120) });
         return undefined;
       }
       // 语言执行工具仅在本空间可解析（下划线形工具名 → 空间反查）

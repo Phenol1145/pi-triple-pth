@@ -59,7 +59,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 3 });
     const firstCall = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { tools: Array<{ name: string }> };
-    expect(firstCall.tools.map((t) => t.name).sort()).toEqual(["asp_cd", "done"]);
+    expect(firstCall.tools.map((t) => t.name).sort()).toEqual(["asp_cd", "asp_index", "done"]);
   });
 
   it("元空间直调 ts → 门控引导（不执行）", async () => {
@@ -97,7 +97,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
     const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
     const secondCallTools = (calls[1]![1] as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
-    expect(secondCallTools.sort()).toEqual(["asp_cd", "python_execute"]);
+    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_index", "python_execute"]);
   });
 
   it("cd 未知空间 → 报错引导（不迁移）", async () => {
@@ -119,5 +119,72 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
     expect(kernel.ts.execute).toHaveBeenCalled();
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("asp.index（空间索引——双聚合模式）", () => {
+  function kernelWithSnap() {
+    return {
+      ts: {
+        execute: vi.fn(async () => ({ ok: true, value: 1, durationMs: 1 })),
+        registerResult: vi.fn(),
+        snapshot: async () => ({ variables: [{ key: "total", value: 42, serializable: true }], functions: [{ key: "helper", source: "function helper(){}" }], oversized: [] }),
+      },
+      python: { execute: async () => ({ ok: true }), snapshot: async () => ({ variables: [{ key: "py_var", value: 1, serializable: true }], functions: [], oversized: [] }) },
+      bash: { execute: async () => ({ ok: true }), snapshot: async () => ({ variables: [], functions: [], oversized: [] }) },
+      llm: { complete: async () => ({ content: "" }) },
+      dataWorld: {} as any, reset: () => {}, dispose: () => {},
+    } as any;
+  }
+  const capsWith = { memory: { query: async () => [], write: async () => {} }, llm: { complete: async () => ({}) }, fs: { readText: async () => "" }, state: {} } as Record<string, unknown>;
+
+  it("无参默认当前空间（meta → 空间清单）", async () => {
+    const llm = mockLlm([
+      { toolCalls: [{ name: "asp_index", arguments: {} }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const traces: string[] = [];
+    await runAgentTask({ llm, kernel: kernelWithSnap(), caps: capsWith, task: { title: "t", text: "x" }, asp: true, maxSteps: 5,
+      onTrace: (e) => { if (e.type === "tool-result") traces.push(e.resultPreview); } });
+    expect(traces[0]).toContain("元空间");
+  });
+
+  it("ts 空间 by-package：扩展包展开（memory/llm/fs 各包能力键）", async () => {
+    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const out = await buildSpaceIndex({ mode: "by-package" }, { currentSpace: "ts", kernel: kernelWithSnap(), caps: capsWith });
+    expect(out).toContain("memory: query/write");
+    expect(out).toContain("llm: complete");
+    expect(out).toContain("【ts 空间 · 按扩展包】");
+  });
+
+  it("ts 空间 by-type：变量/函数快照", async () => {
+    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const out = await buildSpaceIndex({ mode: "by-type", space: "ts" }, { currentSpace: "meta", kernel: kernelWithSnap(), caps: capsWith });
+    expect(out).toContain("total");
+    expect(out).toContain("helper");
+    expect(out).toContain("变量(1)");
+  });
+
+  it("python 空间：snapshot 分区视图", async () => {
+    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const out = await buildSpaceIndex({ space: "python" }, { currentSpace: "meta", kernel: kernelWithSnap(), caps: capsWith });
+    expect(out).toContain("py_var");
+    expect(out).toContain("python 空间");
+  });
+
+  it("指定未知空间 → 错误提示含已注册清单", async () => {
+    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const out = await buildSpaceIndex({ space: "narnia" }, { currentSpace: "meta", kernel: kernelWithSnap(), caps: capsWith });
+    expect(out).toContain("未知空间");
+    expect(out).toContain("ts");
+  });
+
+  it("输出体积纪律：单层 ≤ ~2KB", async () => {
+    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const bigCaps: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i++) bigCaps[`pkg_${i}`] = Object.fromEntries(Array.from({ length: 20 }, (_, j) => [`fn_${j}`, () => {}]));
+    const out = await buildSpaceIndex({ mode: "by-package" }, { currentSpace: "ts", kernel: kernelWithSnap(), caps: bigCaps });
+    expect(out.length).toBeLessThanOrEqual(2100);   // MAX_LAYER_CHARS + 截断标注余量
+    expect(out).toContain("截断");
   });
 });

@@ -138,6 +138,14 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     properties: { space: { type: "string", description: "目标空间 id（meta/ts/python/bash/c）" } },
     required: ["space"],
   },
+  "asp.index": {
+    description: "空间索引（ASP 元工具）——逐层展示空间的可达函数/可达数据。无参数 = 当前空间索引。mode: by-package（按扩展包展开）/ by-type（按变量/对象/函数展开）；space: 目标空间（缺省当前）。",
+    properties: {
+      mode: { type: "string", enum: ["by-package", "by-type"], description: "聚合模式（缺省 by-package）" },
+      space: { type: "string", description: "目标空间 id（缺省当前空间）" },
+    },
+    required: [],
+  },
 };
 
 /** 单个执行器名 → 工具 schema（点形或下划线形均可——asp 工具含点需先转下划线查表） */
