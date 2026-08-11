@@ -136,7 +136,7 @@ export class TaskLoop {
             task: { title: task.title, text: task.text },
             taskWorkspace,
             role,
-            asp: process.env.PTH_ASP_MODE === "on",   // ASP 过渡期旗标（动作空间协议——空间状态机）
+            asp: process.env.PTH_ASP_MODE === "on",   // ASP 状态机（compose 默认 on——全件落地）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
             cache: cacheStore,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),

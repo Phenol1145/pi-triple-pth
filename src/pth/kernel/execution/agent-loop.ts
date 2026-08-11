@@ -59,7 +59,7 @@ export interface AgentLoopOptions {
   /** 运行过程保留（2026-08-09）：轨迹事件流——task-loop 收集写 transcript（审计/复现/续跑） */
   onTrace?: (event: AgentTraceEvent) => void;
   /** ASP 模式（动作空间协议——2026-08-10）：当前空间状态机（初始元空间——语言工具门控/done 仅元空间）。
-   *  过渡期旗标：task-loop 经 PTH_ASP_MODE=on 开启；全件落地后翻为默认。 */
+   *  ASP 状态机：compose 默认 PTH_ASP_MODE=on（全件落地——2026-08-11）；测试按需显式 asp:true/off */
   asp?: boolean;
   /** ASP 会话空间引用（kernel.sessionRef——memory 可见性盖章/过滤读取同一状态） */
   sessionRef?: { current: { currentSpace: string } | null };
