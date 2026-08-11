@@ -75,6 +75,8 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     parent: "executor", generation: 2, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
   { id: "scout", tags: ["recon", "investigate"], prompt: "你是侦查者——负责信息收集、代码侦察、环境探查。",
     description: "快速侦察——压缩上下文交接下游（thinking low——快）", thinking: "low",
+    // Agent-JIT 路径 B：侦察窄域 → 低推理档 + 轻量模型声明（当前同全局——未来换便宜档只改此处）
+    model: "deepseek-v4-flash",
     capabilities: ["fs", "memory", "readSource", "readText", "bash"], output: "context",
     parent: "explorer", generation: 2, differentiation: "侦察类任务诱导——快速信息收集不需要深推理——thinking low 特化换速度" },
   { id: "memory-keeper", tags: ["memory", "organize"], prompt: "你是记忆维护者——负责记忆整理、知识沉淀、索引维护。",
