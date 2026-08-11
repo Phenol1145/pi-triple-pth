@@ -114,3 +114,30 @@ describe("项目全貌（project-map——代码库结构——worker 一次读�
     expect(isSystemDocId("project-map")).toBe(true);
   });
 });
+
+describe("指针正确性回归（2026-08-10 bug——kind 误用导致 role-doc 从未生效）", () => {
+  it("lazy roleBlock 指针按 id 查询（role-doc 存储结构：kind='role-doc' + id='role-doc:<id>'）", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], prompt: "p" }, "t", { mode: "lazy" });
+    expect(prompt).toContain("id='role-doc:developer'");
+    expect(prompt).not.toContain("kind='role-doc:developer'");
+  });
+
+  it("eager 角色文档加载按 id 查询（能真正命中存储）", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    let capturedSql: string[] = [];
+    const memory = { query: async (sql: string) => { capturedSql.push(sql); return [{ content: "角色文档全文" }]; } };
+    const prompt = await buildAgentSystemPrompt({ id: "tester", tags: [], prompt: "p" }, "t", { mode: "eager", memory });
+    const roleDocQuery = capturedSql.find((q) => q.includes("role-doc")) ?? "";
+    expect(roleDocQuery).toContain("id='role-doc:tester'");
+    expect(roleDocQuery).not.toContain("kind='role-doc:");
+    expect(prompt).toContain("角色文档全文");   // eager 真正注入文档全文（不再静默回退 role.prompt）
+  });
+
+  it("skill 指针按 id 查询（skill:api-investigation 存储 kind='skill'）", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], prompt: "p" }, "t", { mode: "lazy" });
+    expect(prompt).toContain("id='skill:api-investigation'");
+    expect(prompt).not.toContain("kind='skill:");
+  });
+});

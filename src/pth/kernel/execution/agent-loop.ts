@@ -67,7 +67,7 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
 框架事实：
 - 记忆（memory）：PTH 共享知识层——先 query 查已有沉淀（task-insight/tool-function）——有价值洞察 write 沉淀
 - 角色：内置角色正交分工——查你的角色文档：
-  const r = await memory.query("SELECT content FROM memory_entries WHERE kind='role-doc:你的角色id' LIMIT 1")
+  const r = await memory.query("SELECT content FROM memory_entries WHERE id='role-doc:你的角色id' LIMIT 1")
 - 产物：fs.task 写任务工作区 → 归档 → 人工/系统应用
 - 改系统：fs.readSource 读源码 + 遵循 self-modify-guide
 
@@ -93,12 +93,12 @@ export async function buildAgentSystemPrompt(
   let roleBlock = "";
   if (role) {
     if (mode === "lazy") {
-      roleBlock = `你的角色：${role.id}。角色文档在 memory（kind='role-doc:${role.id}'）——
+      roleBlock = `你的角色：${role.id}。角色文档在 memory（id='role-doc:${role.id}'）——
 先用 memory.query 查询它了解你的职责与工作方式：
-SELECT content FROM memory_entries WHERE kind='role-doc:${role.id}' LIMIT 1\n（若查询不到——按人设执行：${role.prompt.slice(0, 120)}）`;
+SELECT content FROM memory_entries WHERE id='role-doc:${role.id}' LIMIT 1\n（若查询不到——按人设执行：${role.prompt.slice(0, 120)}）`;
     } else {
       try {
-        const rows = opts.memory ? await opts.memory.query(`SELECT content FROM memory_entries WHERE kind='role-doc:${role.id}' LIMIT 1`) : [];
+        const rows = opts.memory ? await opts.memory.query(`SELECT content FROM memory_entries WHERE id='role-doc:${role.id}' LIMIT 1`) : [];
         roleBlock = rows[0]?.content ?? role.prompt;
       } catch {
         roleBlock = role.prompt;
@@ -147,7 +147,7 @@ ${AGENT_TOOLS_DESCRIPTION}
 ${capBlock}
 
 【API 调查技能】（当你不清楚执行核预定义函数/对象（fs/memory/llm/context 等）的构成、参数、语法或返回值时）
-const skill = await memory.query("SELECT content FROM memory_entries WHERE kind='skill:api-investigation' LIMIT 1");
+const skill = await memory.query("SELECT content FROM memory_entries WHERE id='skill:api-investigation' LIMIT 1");
 （按文档方法调查——Object.keys/fn.toString/读实现源码/试错推断——不要盲试）
 
 【程序模式（PTC——优先使用）】

@@ -179,7 +179,7 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
 ## 框架事实
 - 记忆（memory）：PTH 共享知识层——先 query 查已有沉淀（task-insight/tool-function/refine-report）
   ——有价值洞察 write 沉淀（kind=task-insight）
-- 角色：内置角色正交分工——你的职责见 role-doc（memory 查询 kind='role-doc:<你的角色>'）
+- 角色：内置角色正交分工——你的职责见 role-doc（memory 查询 id='role-doc:<你的角色>'）
 - 产物：fs.task 写任务工作区 → 归档 → 人工/系统应用
 - 改系统：fs.readSource 读源码 + 遵循 self-modify-guide（不变量）
 
