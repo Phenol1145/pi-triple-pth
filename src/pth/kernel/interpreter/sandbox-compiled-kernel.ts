@@ -49,7 +49,7 @@ export class SandboxCompiledKernel implements Interpreter {
             "content-type": "application/json",
             authorization: `Bearer ${this.secret}`,
           },
-          body: JSON.stringify({ code: program, cc: this.cc, timeoutMs: opts?.timeoutMs }),
+          body: JSON.stringify({ code: program, cc: this.cc, timeoutMs: opts?.timeoutMs, buildOnly: opts?.buildOnly === true }),
           signal: ctrl.signal,
         });
         if (!res.ok) {

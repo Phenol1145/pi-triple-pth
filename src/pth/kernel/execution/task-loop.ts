@@ -135,6 +135,7 @@ export class TaskLoop {
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
             taskWorkspace,
+            toolstore: (kernel as unknown as { toolstore?: import("../interpreter/toolstore.js").Toolstore }).toolstore,
             role,
             asp: process.env.PTH_ASP_MODE === "on",   // ASP 状态机（compose 默认 on——全件落地）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,

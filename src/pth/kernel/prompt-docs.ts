@@ -85,12 +85,12 @@ export function buildCapabilityIndex(): string {
 - fs.task.read(relPath: string) → Promise<string>
 - fs.task.list() → Promise<Array<{name, isDir}>>
 
-## 执行核（python/bash/c——元命令拆分 2026-08-11）
+## 探索核（python/bash——元命令拆分 2026-08-11；C 已迁生产核）
 - python.run(code: string) → Promise<{ok, stdout, stderr, value, durationMs}>（程序执行——code = python 源码字符串——【不是对象】——第一参数字符串；_result = 值 回传）
 - python.eval(code: string) → Promise<{ok, stdout, stderr, value, durationMs}>（单表达式求值——表达式值即结果；语句 → 显式报错）
 - bash.run(command: string) → Promise<{ok, stdout, stderr, durationMs}>（命令序列——command = shell 命令字符串——第一参数字符串）
 - bash.eval(command: string) → Promise<{ok, stdout, stderr, durationMs}>（单条命令——简单命令快速执行）
-- c.execute(language: string, source: string) → Promise<{ok, stdout, result}>（language = "gcc"|"clang"|"tcc"）
+- 【生产核】C 产物开发：asp.cd("dev") → dev.write/build/run/save/list + debug.* 调试会话（动作工具——ts 程序内不可调；2026-08-11 探索核/生产核分立）
 - ts 程序：能力函数 await 调用；return 值 + stdout 回填
 
 ## web/llm/state/ext/env（扩展能力包）

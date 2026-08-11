@@ -19,7 +19,7 @@ describe("Prompt 框架化（角色文档/能力索引——memory 数据源）"
     expect(idx).toContain("fs.task.write");   // 任务工作区落盘
     expect(idx).toContain("memory.query");    // 标准能力
     expect(idx).toContain("python.run");
-    expect(idx).toContain("c.execute");
+    expect(idx).toContain("生产核");   // 2026-08-11：c.execute 撤销 → dev 空间指引
     expect(idx).toContain("ext");
     expect(idx).toContain("新能力接入");       // 扩展指引
   });
@@ -143,10 +143,10 @@ describe("指针正确性回归（2026-08-10 bug——kind 误用导致 role-doc
 });
 
 describe("buildCapabilityIndex 分节（Agent-JIT 路径 B——filterCapabilityDoc 裁剪契约）", () => {
-  it("含按包分节（基础/memory/fs/执行核/web-llm/扩展注册）", async () => {
+  it("含按包分节（基础/memory/fs/探索核/web-llm/扩展注册）", async () => {
     const { buildCapabilityIndex } = await import("../../src/pth/kernel/prompt-docs.js");
     const doc = buildCapabilityIndex();
-    for (const sec of ["## 基础（全角色", "## memory", "## fs", "## 执行核", "## web/llm/state/ext/env", "## 扩展注册"]) {
+    for (const sec of ["## 基础（全角色", "## memory", "## fs", "## 探索核", "## web/llm/state/ext/env", "## 扩展注册"]) {
       expect(doc).toContain(sec);
     }
     // 与 filterCapabilityDoc 契约：memory 角色裁剪后只留基础+memory

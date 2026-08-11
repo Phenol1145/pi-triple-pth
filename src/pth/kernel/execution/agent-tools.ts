@@ -31,6 +31,10 @@ export interface AgentToolCtx {
   caps: Record<string, unknown>;
   /** 任务工作区（fs.task 落盘——ts 工具 cwd——自修改产物写 tasks/<id>/） */
   taskWorkspace?: string;
+  /** 产物单元存储（dev.save/dev.list——生产核单元管理） */
+  toolstore?: import("../interpreter/toolstore.js").Toolstore;
+  /** 调试会话接入（debug.*——缺省读 env PTH_SANDBOX_KERNEL_URL/SANDBOX_SHARED_SECRET；测试注入覆盖） */
+  debugApi?: { url: string; secret: string };
 }
 
 export type AgentTool = (ctx: AgentToolCtx, args: Record<string, unknown>) => Promise<AgentToolResult>;
@@ -65,6 +69,42 @@ function applyOutputMode(r: AgentToolResult, mode: unknown): AgentToolResult {
     return { ok: r.ok, value: r.value, stdout: v, stderr: "" };
   }
   return r; // 未知模式按 default
+}
+
+// ─── 生产核（dev 空间）辅助（2026-08-11 探索核/生产核分立）───
+
+/** 产物路径校验（任务工作区白名单）：相对路径、拒绝绝对/穿越——与 fs.task 同规则 */
+function resolveArtifact(taskWorkspace: string | undefined, relPath: string): string {
+  if (!taskWorkspace) throw new Error("dev: 任务工作区未就绪（非任务上下文）");
+  if (typeof relPath !== "string" || relPath.length === 0) throw new Error("dev: path 必填");
+  if (relPath.startsWith("/") || relPath.startsWith("..") || relPath.includes("/../")) {
+    throw new Error(`dev: 仅允许工作区相对路径（拒绝: ${relPath.slice(0, 60)}）`);
+  }
+  return `${taskWorkspace}/${relPath}`;
+}
+
+async function readArtifact(taskWorkspace: string | undefined, relPath: string): Promise<string> {
+  const abs = resolveArtifact(taskWorkspace, relPath);
+  const { readFile } = await import("node:fs/promises");
+  try {
+    return await readFile(abs, "utf-8");
+  } catch {
+    throw new Error(`dev: 产物不存在或不可读: ${relPath}（先 dev.write 创建）`);
+  }
+}
+
+/** debug 会话调用（PTH → sandbox /kernel/debug/*——句柄化：状态在 sandbox 会话 Map，上限 4/idle 30min） */
+async function debugCall(ctx: AgentToolCtx, op: string, body: Record<string, unknown>): Promise<unknown> {
+  const url = ctx.debugApi?.url ?? process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080";
+  const secret = ctx.debugApi?.secret ?? process.env.SANDBOX_SHARED_SECRET ?? "";
+  const r = await fetch(`${url.replace(/\/+$/, "")}/kernel/debug/${op}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+    body: JSON.stringify(body),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`debug.${op} failed (${r.status}): ${text.slice(0, 300)}`);
+  try { return JSON.parse(text); } catch { return text; }
 }
 
 /** 工具表（元工具——id → 执行器） */
@@ -129,6 +169,113 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     );
   },
 
+  // ─── 生产核·代码产物（dev 空间——2026-08-11 探索核/生产核分立：编译类语言唯一入口）───
+  "dev.write": async (ctx, args) => {
+    const abs = resolveArtifact(ctx.taskWorkspace, str(args, "path"));
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    await mkdir(dirname(abs), { recursive: true });
+    const code = str(args, "code");
+    await writeFile(abs, code, "utf-8");
+    return { ok: true, value: { path: str(args, "path") }, stdout: `已写入 ${str(args, "path")}（${code.length} 字符）` };
+  },
+  "dev.edit": async (ctx, args) => {
+    const abs = resolveArtifact(ctx.taskWorkspace, str(args, "path"));
+    const content = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+    const oldText = str(args, "oldText"), newText = str(args, "newText");
+    const hits = content.split(oldText).length - 1;
+    if (hits === 0) return { ok: false, error: `dev.edit: oldText 未匹配（${str(args, "path")}）` };
+    if (hits > 1) return { ok: false, error: `dev.edit: oldText 匹配 ${hits} 处——需唯一（提供更多上下文）` };
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(abs, content.replace(oldText, newText), "utf-8");
+    return { ok: true, value: { path: str(args, "path") }, stdout: `已编辑 ${str(args, "path")}（1 处替换）` };
+  },
+  "dev.build": async (ctx, args) => {
+    if (!ctx.kernel.c) return { ok: false, error: "dev.build: C 编译核不可用（sandbox 未配置）" };
+    const code = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+    const r = await ctx.kernel.c.execute(code, { buildOnly: true } as never);
+    if (!r.ok) return { ok: false, error: r.error?.message ?? "编译失败" };
+    return { ok: true, value: r.value, stdout: `编译成功（${str(args, "path")}）` };
+  },
+  "dev.run": async (ctx, args) => {
+    if (!ctx.kernel.c) return { ok: false, error: "dev.run: C 编译核不可用（sandbox 未配置）" };
+    const code = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+    const r = await ctx.kernel.c.execute(code, { timeoutMs: args.timeoutMs as number | undefined } as never);
+    if (!r.ok) return { ok: false, error: r.error?.message ?? "运行失败" };
+    const out = truncate(r.stdout ?? "", 4000);
+    return applyOutputMode({ ok: true, value: r.value, stdout: out.text, stderr: (r.stderr ?? "").slice(0, 2000), truncated: out.truncated }, args["mode"]);
+  },
+  "dev.save": async (ctx, args) => {
+    if (!ctx.toolstore) return { ok: false, error: "dev.save: toolstore 未配置" };
+    const name = str(args, "name");
+    if (!/^[\w.-]+$/.test(name)) return { ok: false, error: `dev.save: 非法单元名 "${name}"（限 [a-zA-Z0-9_.-]）` };
+    const code = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+    await ctx.toolstore.writeText(`compiled-units/${name}.c`, code);
+    return { ok: true, value: { name }, stdout: `已保存编译单元 ${name}（${code.length} 字符——跨任务复用）` };
+  },
+  "dev.list": async (ctx) => {
+    if (!ctx.toolstore) return { ok: false, error: "dev.list: toolstore 未配置" };
+    const files = await ctx.toolstore.listSubdir("compiled-units");
+    const units = files.filter((f) => f.endsWith(".c")).map((f) => f.slice(0, -2));
+    return { ok: true, value: units, stdout: units.length ? units.join("\n") : "（无编译单元）" };
+  },
+  // ─── 调试会话（debug 族——句柄化：sessionId 字符串，状态在 sandbox 会话 Map）───
+  "debug.attach": async (ctx, args) => {
+    let code = args.code as string | undefined;
+    if (!code && typeof args.path === "string") code = await readArtifact(ctx.taskWorkspace, args.path);
+    if (!code) return { ok: false, error: "debug.attach: code 或 path 必填其一" };
+    try {
+      const r = (await debugCall(ctx, "attach", { code, cc: args.cc })) as { sessionId: string };
+      return { ok: true, value: r, stdout: `调试会话已建立: ${r.sessionId}（编译 -g 调试版——后续操作传 sessionId；用完 debug.detach 释放）` };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  },
+  "debug.breakpoint": async (ctx, args) => {
+    try {
+      const r = await debugCall(ctx, "breakpoint", { sessionId: str(args, "sessionId"), line: args.line, condition: args.condition });
+      return { ok: true, value: r, stdout: JSON.stringify(r) };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  },
+  "debug.continue": async (ctx, args) => {
+    try {
+      const r = (await debugCall(ctx, "continue", { sessionId: str(args, "sessionId") })) as { reason?: string; frame?: unknown };
+      return { ok: true, value: r, stdout: r.reason === "exited" ? "程序已退出（未命中断点）" : `命中: ${JSON.stringify(r.frame ?? r)}` };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  },
+  "debug.step": async (ctx, args) => {
+    try {
+      const r = await debugCall(ctx, "step", { sessionId: str(args, "sessionId"), direction: str(args, "direction") });
+      return { ok: true, value: r, stdout: truncate(JSON.stringify(r), 500).text };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  },
+  "debug.snapshot": async (ctx, args) => {
+    // 聚合接口（ADI 思想——一次调用拿全帧+顶层帧变量；sandbox 原生 snapshot 端点后续）
+    const sessionId = str(args, "sessionId");
+    try {
+      const frames = (await debugCall(ctx, "stack", { sessionId })) as Array<{ id?: number; frameId?: number }>;
+      const top = frames[0];
+      const variables = top ? await debugCall(ctx, "variables", { sessionId, frameId: top.frameId ?? top.id ?? 0 }) : [];
+      return { ok: true, value: { frames, variables }, stdout: truncate(JSON.stringify({ frames, variables }), 3000).text };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  },
+  "debug.evaluate": async (ctx, args) => {
+    try {
+      const r = await debugCall(ctx, "evaluate", { sessionId: str(args, "sessionId"), expr: str(args, "expr"), frameId: args.frameId });
+      return { ok: true, value: r, stdout: JSON.stringify(r) };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  },
+  "debug.detach": async (ctx, args) => {
+    try {
+      await debugCall(ctx, "detach", { sessionId: str(args, "sessionId") });
+      return { ok: true, stdout: `会话 ${str(args, "sessionId")} 已释放` };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  },
+  "debug.sessions": async (ctx) => {
+    try {
+      const r = await debugCall(ctx, "sessions", {});
+      return { ok: true, value: r, stdout: JSON.stringify(r) };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  },
+
   // done 由 agent-loop 拦截（不执行）
   done: async () => ({ ok: true, value: null, stdout: "done" }),
 };
@@ -178,6 +325,76 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     description: "完成任务——提交最终产出对象（result 必填：实际产物——实现代码/写入的文件/计算结果等任意 JSON；缺少 result 或 result 为空会被拒绝并回填引导重新提交）【ASP：仅元空间可用】",
     properties: { result: { description: "最终产出对象（任意 JSON）——必填；须为实际产物（实现代码/写入的文件/计算结果），不能为空对象/空数组/空字符串" }, summary: { type: "string", description: "完成说明" } },
     required: ["result"],
+  },
+  "dev.write": {
+    description: "【生产核】写产物代码到任务工作区（path 相对路径——自动建目录）。产物开发第一步",
+    properties: { path: { type: "string", description: "工作区相对路径（如 main.c）" }, code: { type: "string", description: "完整源码" }, mode: { type: "string" } },
+    required: ["path", "code"],
+  },
+  "dev.edit": {
+    description: "【生产核】编辑产物（oldText 唯一匹配替换——不匹配/多处匹配报错）",
+    properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" }, mode: { type: "string" } },
+    required: ["path", "oldText", "newText"],
+  },
+  "dev.build": {
+    description: "【生产核】编译产物（不运行——验证编译错误；C: gcc/clang/tcc）",
+    properties: { path: { type: "string" }, cc: { type: "string" }, mode: { type: "string" } },
+    required: ["path"],
+  },
+  "dev.run": {
+    description: "【生产核】编译并运行产物（sha256 缓存——源码不变秒回；返回 stdout/value）",
+    properties: { path: { type: "string" }, cc: { type: "string" }, timeoutMs: { type: "number" }, mode: { type: "string" } },
+    required: ["path"],
+  },
+  "dev.save": {
+    description: "【生产核】保存为命名编译单元（toolstore compiled-units/<name>.c——跨任务复用）",
+    properties: { name: { type: "string" }, path: { type: "string" }, mode: { type: "string" } },
+    required: ["name", "path"],
+  },
+  "dev.list": {
+    description: "【生产核】列出已保存编译单元",
+    properties: { mode: { type: "string" } },
+    required: [],
+  },
+  "debug.attach": {
+    description: "【调试】建立 C 调试会话（编译 -g + gdb——返回 sessionId 句柄；code 源码或 path 工作区文件二选一）",
+    properties: { code: { type: "string" }, path: { type: "string" }, cc: { type: "string" }, mode: { type: "string" } },
+    required: [],
+  },
+  "debug.breakpoint": {
+    description: "【调试】设断点（line 行号，condition 可选条件表达式）",
+    properties: { sessionId: { type: "string" }, line: { type: "number" }, condition: { type: "string" }, mode: { type: "string" } },
+    required: ["sessionId", "line"],
+  },
+  "debug.continue": {
+    description: "【调试】继续执行到断点/退出（返回 reason + frame）",
+    properties: { sessionId: { type: "string" }, mode: { type: "string" } },
+    required: ["sessionId"],
+  },
+  "debug.step": {
+    description: "【调试】单步（direction: into/over/out）",
+    properties: { sessionId: { type: "string" }, direction: { type: "string" }, mode: { type: "string" } },
+    required: ["sessionId", "direction"],
+  },
+  "debug.snapshot": {
+    description: "【调试】聚合快照（一次拿全帧+顶层帧变量——断点命中后首选，省逐帧查询）",
+    properties: { sessionId: { type: "string" }, mode: { type: "string" } },
+    required: ["sessionId"],
+  },
+  "debug.evaluate": {
+    description: "【调试】求值表达式（当前暂停位置上下文——验证假设）",
+    properties: { sessionId: { type: "string" }, expr: { type: "string" }, frameId: { type: "number" }, mode: { type: "string" } },
+    required: ["sessionId", "expr"],
+  },
+  "debug.detach": {
+    description: "【调试】释放会话（用完必调——上限 4 会话）",
+    properties: { sessionId: { type: "string" }, mode: { type: "string" } },
+    required: ["sessionId"],
+  },
+  "debug.sessions": {
+    description: "【调试】活动会话清单",
+    properties: { mode: { type: "string" } },
+    required: [],
   },
   "asp.cd": {
     description: "空间迁移（ASP 元工具）——cd 到目标空间。目标必须已注册（内置：meta 元空间/ts/python/bash/c；asp.create 生成的自定义子空间亦可）。语言代码只能在对应动作空间执行；done 仅在元空间可用。",

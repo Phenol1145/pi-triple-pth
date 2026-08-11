@@ -14,6 +14,8 @@ export interface ExecuteOptions {
   // program：程序执行（块包装——声明/多语句/控制流）；
   // auto（默认）：旧启发式判别（存量兼容）
   exec?: "single" | "program" | "auto";
+  /** 仅编译不运行（生产核 dev.build——编译核专用；其他核忽略） */
+  buildOnly?: boolean;
 }
 
 export interface InterpreterResult {

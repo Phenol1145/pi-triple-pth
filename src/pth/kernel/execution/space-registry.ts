@@ -27,6 +27,8 @@ export interface SpaceDef {
   parent?: string;
   /** 内置空间标记（asp.create 生成的为 false——可注销；内置 true 不可注销） */
   builtin?: boolean;
+  /** 额外工具族（2026-08-11 生产核——dev 空间挂 debug 族）：族名清单，工具面/门控反查同 execTool 族名展开 */
+  extraTools?: string[];
 }
 
 export class SpaceRegistry {
@@ -69,6 +71,10 @@ export class SpaceRegistry {
       if (s.execTool === tool || s.execTool === normalized) return s.id;
       const family = s.execTool.replace(/\./g, "_");
       if (!family.includes("_") && (normalized === family || normalized.startsWith(`${family}_`))) return s.id;
+      // extraTools 族名反查（生产核 dev 空间的 debug 族归属）
+      for (const extra of s.extraTools ?? []) {
+        if (normalized === extra || normalized.startsWith(`${extra}_`)) return s.id;
+      }
     }
     return null;
   }
@@ -85,4 +91,6 @@ spaceRegistry.register({ id: "meta", kind: "meta", description: "元空间——
 spaceRegistry.register({ id: "ts", kind: "action", execTool: "ts", parent: "meta", skeleton: "node:vm + stripTypes + preflight（import 拒绝/await 包装/超时双保险）", description: "TypeScript 程序空间（能力包注入：memory/llm/web/fs/state/ext…；元命令 ts.run/ts.eval）", builtin: true });
 spaceRegistry.register({ id: "python", kind: "action", execTool: "python", parent: "meta", skeleton: "PyKernel 持久 REPL（共享 globals/_result 通道/超时 kill 重启；元命令 python.run/python.eval）", description: "Python 持久 REPL 空间（sandbox 执行）", builtin: true });
 spaceRegistry.register({ id: "bash", kind: "action", execTool: "bash", parent: "meta", skeleton: "BashKernel 持久会话（元命令 bash.run/bash.eval）", description: "Bash 持久会话空间（sandbox 执行）", builtin: true });
-spaceRegistry.register({ id: "c", kind: "action", execTool: "c_execute", parent: "meta", skeleton: "编译核（gcc/clang/tcc——compiled-units 命名单元）", description: "C 编译运行空间（sandbox 编译）", builtin: true });
+// 生产核·代码产物（2026-08-11 用户裁决：探索核/生产核分立——编译类语言无探索核，C 的一切归 dev 空间；
+// 原 c 空间（c_execute 空壳）撤销——C 产物编写/构建/运行/调试/单元管理全在 dev 空间）
+spaceRegistry.register({ id: "dev", kind: "action", execTool: "dev", extraTools: ["debug"], parent: "meta", skeleton: "生产核·代码产物（dev.write/edit/build/run/save/list + debug.* 调试会话——产物代码写任务工作区，sandbox 编译/调试）", description: "代码产物开发生产空间（编译类语言唯一入口）", builtin: true });

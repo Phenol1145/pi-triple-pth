@@ -184,6 +184,8 @@ export function createWorkerKernelWithManager(deps: {
   python: Interpreter;
   bash: Interpreter;
   c: Interpreter;
+  /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */
+  toolstore?: import("./toolstore.js").Toolstore;
   llm: LlmFn;
   dataWorld: DataWorldAccess;
   /** capability 白名单（web/state/fs/memory）——agent 循环与 vm 注入同一份 */
@@ -265,6 +267,8 @@ export function createWorkerKernelWithManager(deps: {
     python: deps.manager.python,
     bash: deps.manager.bash,
     c: deps.manager.c,
+    /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */
+    toolstore: deps.toolstore,
     llm: deps.llm,
     dataWorld: deps.dataWorld,
     /** ASP 会话空间引用（task-loop 每任务赋值） */

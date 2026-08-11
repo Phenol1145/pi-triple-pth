@@ -26,7 +26,8 @@ function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] 
   if (spaceId === "meta") return [...ambient, toolSchemaFor("done")!];
   const sp = spaceRegistry.get(spaceId);
   if (sp?.execTool) {
-    const execs = toolsForExecTool(sp.execTool);
+    // extraTools 族展开（2026-08-11 生产核——dev 空间 = dev 族 + debug 族）
+    const execs = [...toolsForExecTool(sp.execTool), ...(sp.extraTools ?? []).flatMap((t) => toolsForExecTool(t))];
     if (execs.length > 0) return [...ambient, ...execs];
   }
   return ambient;
@@ -44,6 +45,8 @@ export interface AgentTaskInput {
   task: { title: string; text: string };
   /** 任务工作区（fs.task 落盘——ts 工具 cwd） */
   taskWorkspace?: string;
+  /** 产物单元存储（生产核 dev.save/dev.list——batch-process 透传） */
+  toolstore?: import("../interpreter/toolstore.js").Toolstore;
   role?: WorkerRole;
 }
 
@@ -630,7 +633,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       return { ok: false, error: `未知工具 ${tool}`, steps: steps + 1 };
     }
     try {
-      const result = await executor({ kernel, caps, taskWorkspace: input.taskWorkspace }, args);
+      const result = await executor({ kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore }, args);
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
       // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用
       const resultKey = `result_${steps + 1}`;

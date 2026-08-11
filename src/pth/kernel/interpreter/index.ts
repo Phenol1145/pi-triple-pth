@@ -12,6 +12,8 @@ export interface WorkerKernel {
   ts: Interpreter;
   bash: Interpreter;
   python: Interpreter;
+  /** C 编译核（可选——createWorkerKernelWithManager + sandboxKernel 配置时存在；生产核 dev.build/dev.run 用） */
+  c?: Interpreter;
   llm: LlmFn;
   dataWorld: DataWorldAccess;
   /** 聚合快照（T4 refine 输入）：ts + python + bash 三 kernel 状态 */

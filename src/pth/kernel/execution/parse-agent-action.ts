@@ -12,6 +12,21 @@ export const AGENT_TOOL_IDS = [
   "python.run",
   "bash.eval",
   "bash.run",
+  // 生产核（dev 空间——2026-08-11 探索核/生产核分立）
+  "dev.write",
+  "dev.edit",
+  "dev.build",
+  "dev.run",
+  "dev.save",
+  "dev.list",
+  "debug.attach",
+  "debug.breakpoint",
+  "debug.continue",
+  "debug.step",
+  "debug.snapshot",
+  "debug.evaluate",
+  "debug.detach",
+  "debug.sessions",
   "done",
 ] as const;
 
