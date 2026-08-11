@@ -16,6 +16,8 @@ export interface ExtContext {
   toolstore?: Toolstore;
   /** 策略目录（perf.publish/apply/list——默认 toolstore/strategies） */
   strategiesDir?: string;
+  /** ASP 会话空间引用（2026-08-10）：可见性盖章/过滤依赖当前空间——任务级会话状态（agent-loop cd 更新） */
+  sessionRef?: { current: { currentSpace: string } | null };
 }
 
 export interface TsReplExtension {

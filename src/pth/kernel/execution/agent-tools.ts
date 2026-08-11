@@ -146,6 +146,14 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     },
     required: [],
   },
+  "memory.index": {
+    description: "记忆空间索引（图导航——严格单跳）。无参=顶层视图（层/kind/tag 词表）；{tag} = 该 tag 关联条目清单；{id} = 条目的 tag 列表+摘要。",
+    properties: {
+      tag: { type: "string", description: "按 tag 查关联条目" },
+      id: { type: "string", description: "按条目 id 查其 tag 出边" },
+    },
+    required: [],
+  },
 };
 
 /** 单个执行器名 → 工具 schema（点形或下划线形均可——asp 工具含点需先转下划线查表） */

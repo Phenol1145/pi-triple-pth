@@ -127,6 +127,7 @@ export class TaskLoop {
             taskWorkspace,
             role,
             asp: process.env.PTH_ASP_MODE === "on",   // ASP 过渡期旗标（动作空间协议——空间状态机）
+            sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
             logger: (m) => taskLogger?.info(m),
             onTrace: (e) => {

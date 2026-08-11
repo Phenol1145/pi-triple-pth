@@ -59,7 +59,7 @@ describe("权限分层（P3——注入面收窄）", () => {
       memoryScope: { role: "developer", scope: "own" },
     });
     const memory = k.capabilities["memory"] as Record<string, unknown>;
-    await (memory["write"] as (e: unknown) => Promise<unknown>)({ kind: "insight", content: "x", anchors: ["orig"] });
+    await (memory["write"] as (e: unknown) => Promise<unknown>)({ kind: "insight", content: "x", anchors: ["orig"], meta: { visibility: "public" } });
     expect(written).toMatchObject({ anchors: ["role:developer", "orig"] });
   });
 
@@ -76,7 +76,7 @@ describe("权限分层（P3——注入面收窄）", () => {
       memoryScope: { role: "memory-keeper", scope: "all" },
     });
     const memory = k.capabilities["memory"] as Record<string, unknown>;
-    await (memory["write"] as (e: unknown) => Promise<unknown>)({ kind: "insight", content: "x", anchors: ["a"] });
+    await (memory["write"] as (e: unknown) => Promise<unknown>)({ kind: "insight", content: "x", anchors: ["a"], meta: { visibility: "public" } });
     expect(written).toMatchObject({ anchors: ["a"] });   // 无 role 前缀（all 不包装）
   });
 

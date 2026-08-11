@@ -6,6 +6,7 @@
 
 import type { TsReplExtension } from "./index.js";
 import { checkWrite, checkUpdate, normalizeWriteArgs } from "./memory-policy.js";
+import { checkVisibilityDeclaration, stampScope, isVisible } from "../execution/memory-visibility.js";
 
 /** bindAll：对象函数属性逐个 bind（防 vm 解构丢 this——Finding F1） */
 function bindAll<T extends object>(obj: T): T {
@@ -36,15 +37,38 @@ export const memoryExtension: TsReplExtension = {
       // 记忆查询：受限只读 SQL（与 agent 侧同源执行器——仅 SELECT/单语句/强制 LIMIT/禁 pg 系统表）
       memory: {
         ...bindAll(store),
-        query: ctx.dataWorld.queryReadOnly.bind(ctx.dataWorld),
+        // ASP 可见性过滤（读侧——仅在会话态（ASP 模式）下生效；无会话=过渡兼容不过滤）
+        query: async (sql: string) => {
+          const rows = await ctx.dataWorld.queryReadOnly(sql) as Array<{ meta?: Record<string, unknown> }>;
+          const space = ctx.sessionRef?.current?.currentSpace;
+          if (!space) return rows;
+          return rows.filter((r) => isVisible(r.meta, space));
+        },
+        retrieve: async (opts?: unknown) => {
+          const entries = await store.retrieve(opts as never);
+          const space = ctx.sessionRef?.current?.currentSpace;
+          if (!space) return entries;
+          return entries.filter((e) => isVisible(e.meta as Record<string, unknown>, space));
+        },
         // 用途层策略包装（权限 v2 R1——worker 面内嵌规则）：
         //   prompt/config 层拒写；governance 层强制 draft；force 参数剥离（防旁路 store 层系统文档保护）
         //   双签名归一（对象形/位置形——normalizeWriteArgs）
+        // ASP 可见性（R-空间维度）：显式声明必检 + 系统盖章当前空间
         write: async (a: unknown, b?: unknown, c?: unknown) => {
           let entry = normalizeWriteArgs(a, b, c);
+          // 顶层 visibility 归一到 meta（声明位）
+          if (entry["visibility"] !== undefined) {
+            entry.meta = { ...((entry.meta as Record<string, unknown>) ?? {}), visibility: entry["visibility"] };
+            delete entry["visibility"];
+          }
           const check = checkWrite(entry.kind, entry.status);
           if (!check.ok) throw new Error(check.reason);
           if (check.forceStatus) entry = { ...entry, status: check.forceStatus };
+          const meta = (entry.meta as Record<string, unknown>) ?? {};
+          const vc = checkVisibilityDeclaration(meta);
+          if (!vc.ok) throw new Error(vc.reason);
+          const currentSpace = ctx.sessionRef?.current?.currentSpace ?? "meta";
+          entry = { ...entry, meta: stampScope(meta, currentSpace) };
           return store.write(entry as never);   // force 不透传——worker 无系统通道
         },
         update: async (id: string, patch: { content?: string; status?: "draft" | "official" | "archived" }) => {

@@ -20,7 +20,7 @@ import { spaceRegistry } from "./space-registry.js";
 
 /** ASP 模式工具面（按当前空间动态计算——环境函数全空间可用，语言工具仅本空间，done 仅元空间） */
 function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] {
-  const ambient = [toolSchemaFor("asp.cd")!, toolSchemaFor("asp.index")!];
+  const ambient = [toolSchemaFor("asp.cd")!, toolSchemaFor("asp.index")!, toolSchemaFor("memory.index")!];
   if (spaceId === "meta") return [...ambient, toolSchemaFor("done")!];
   const sp = spaceRegistry.get(spaceId);
   if (sp?.execTool) {
@@ -59,6 +59,8 @@ export interface AgentLoopOptions {
   /** ASP 模式（动作空间协议——2026-08-10）：当前空间状态机（初始元空间——语言工具门控/done 仅元空间）。
    *  过渡期旗标：task-loop 经 PTH_ASP_MODE=on 开启；全件落地后翻为默认。 */
   asp?: boolean;
+  /** ASP 会话空间引用（kernel.sessionRef——memory 可见性盖章/过滤读取同一状态） */
+  sessionRef?: { current: { currentSpace: string } | null };
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
@@ -249,7 +251,9 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   const timeoutMs = input.timeoutMs ?? configNumber("PTH_AGENT_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   // ASP 模式（动作空间协议——过渡期旗标）：当前空间状态机
   const aspMode = input.asp === true;
-  let currentSpace = "meta";   // ASP：初始驻地 = 元空间
+  const aspSession = { currentSpace: "meta" };   // ASP：初始驻地 = 元空间
+  if (input.sessionRef) input.sessionRef.current = aspSession;   // memory 可见性读取同一会话
+  const currentSpace = () => aspSession.currentSpace;
   let system = await buildAgentSystemPrompt(input.role, input.task.title, {
     mode: (process.env.PTH_AGENT_MODE === "lazy" || process.env.PTH_AGENT_MODE === "eager" ? process.env.PTH_AGENT_MODE : "eager") as "eager" | "lazy",
     memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
@@ -304,7 +308,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     }
 
     // ASP：工具面随当前空间动态计算（语言工具仅本空间可调用）
-    const tools = aspMode ? toolsForSpace(currentSpace) : staticTools;
+    const tools = aspMode ? toolsForSpace(currentSpace()) : staticTools;
     const res = await complete(tools);
     if (typeof res === "string") {
       if (res.startsWith("__llm_error__")) {
@@ -370,7 +374,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
             content: `asp_cd: 未知空间 "${target}"（已注册: ${spaceRegistry.list().map((s) => s.id).join("/")}）` });
           return undefined;
         }
-        currentSpace = target;
+        aspSession.currentSpace = target;
         const hint = target === "meta"
           ? "元空间：无执行核——可用 done 提交任务。"
           : `可用执行工具：${sp.execTool}（语言代码仅在本空间可解析）。`;
@@ -383,7 +387,22 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
         const { buildSpaceIndex } = await import("./space-index.js");
         const out = await buildSpaceIndex(
           { mode: typeof args["mode"] === "string" ? args["mode"] : undefined, space: typeof args["space"] === "string" ? args["space"] : undefined },
-          { currentSpace, kernel, caps },
+          { currentSpace: currentSpace(), kernel, caps },
+        );
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: out });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: out.slice(0, 120) });
+        return undefined;
+      }
+      if (tool === "memory_index") {
+        const { buildMemoryIndex } = await import("./memory-index.js");
+        const memory = (caps as { memory?: { query(sql: string): Promise<unknown>; retrieve(o: never): Promise<never[]>; get(id: string): Promise<unknown> } }).memory;
+        if (!memory) {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: "memory 能力不可用（本角色无 memory 包）" });
+          return undefined;
+        }
+        const out = await buildMemoryIndex(
+          { tag: typeof args["tag"] === "string" ? args["tag"] : undefined, id: typeof args["id"] === "string" ? args["id"] : undefined },
+          { memory: memory as never, currentSpace: currentSpace() },
         );
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: out });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: out.slice(0, 120) });
@@ -391,15 +410,15 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       }
       // 语言执行工具仅在本空间可解析（下划线形工具名 → 空间反查）
       const requiredSpace = spaceRegistry.spaceOfExecTool(tool);
-      if (requiredSpace && currentSpace !== requiredSpace) {
+      if (requiredSpace && currentSpace() !== requiredSpace) {
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `[ASP] 当前位于 ${currentSpace} 空间——${tool} 不可在此解析执行。先 asp_cd("${requiredSpace}")。` });
+          content: `[ASP] 当前位于 ${currentSpace()} 空间——${tool} 不可在此解析执行。先 asp_cd("${requiredSpace}")。` });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: `空间门控：需 ${requiredSpace}` });
         return undefined;
       }
-      if (tool === "done" && currentSpace !== "meta") {
+      if (tool === "done" && currentSpace() !== "meta") {
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `[ASP] done 仅在元空间可用（当前 ${currentSpace}）——先 asp_cd("meta") 再提交。` });
+          content: `[ASP] done 仅在元空间可用（当前 ${currentSpace()}）——先 asp_cd("meta") 再提交。` });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "done 门控：需 meta" });
         return undefined;
       }

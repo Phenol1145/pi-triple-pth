@@ -101,7 +101,7 @@ describe("capability this-binding (F1)", () => {
     };
     // 解构后裸调用——未 bindAll 前 this = undefined → this.pool undefined → reject
     await expect(retrieve()).resolves.toEqual([]);
-    await expect(write({ kind: "memory", content: "x" } as never)).resolves.toBeUndefined();   // 权限 v2：kind 必填（knowledge 层放行）
+    await expect(write({ kind: "memory", content: "x", meta: { visibility: "public" } } as never)).resolves.toBeUndefined();   // 权限 v2：kind 必填 + ASP 可见性声明
     await expect(bumpHitCount()).resolves.toBeUndefined();
   });
 

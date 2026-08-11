@@ -177,6 +177,8 @@ export function createWorkerKernelWithManager(deps: {
   roleFilter?: string[];
   /** memory 区域（P3——own=role:<role> 命名空间标记 / all=跨区——缺省 all） */
   memoryScope?: { role: string; scope: "own" | "all" };
+  /** ASP 会话空间引用（外部注入——task-loop 每任务设置；缺省本函数自建） */
+  sessionRef?: { current: { currentSpace: string } | null };
 }): {
   ts: TsInterpreter;
   python: Interpreter;
@@ -186,12 +188,17 @@ export function createWorkerKernelWithManager(deps: {
   dataWorld: DataWorldAccess;
   /** capability 白名单（web/state/fs/memory）——agent 循环与 vm 注入同一份 */
   capabilities: Record<string, unknown>;
+  /** ASP 会话空间引用（task-loop 每任务赋值） */
+  sessionRef: { current: { currentSpace: string } | null };
   snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
 } {
   // 扩展执行核注册钩子（ext.kernel 闭包引用此变量——ts 创建后包装为"注册 manager + 注入 worker ts"）
   let registerHook: ((language: string, interpreter: unknown) => void) | undefined = deps.registerKernel;
+
+  // ASP 会话空间引用（任务级——task-loop 设置；agent-loop cd 更新；memory 包装读取）
+  const sessionRef = deps.sessionRef ?? { current: null };
 
   const capabilitiesFull = buildCapabilities({
     llm: deps.llm,
@@ -200,6 +207,7 @@ export function createWorkerKernelWithManager(deps: {
     python: deps.manager.python,
     c: deps.manager.c,
     toolstore: deps.toolstore,
+    sessionRef,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
     registerKernel: (language, interpreter) => registerHook?.(language, interpreter),
     readSource: deps.readSource,
@@ -259,6 +267,8 @@ export function createWorkerKernelWithManager(deps: {
     c: deps.manager.c,
     llm: deps.llm,
     dataWorld: deps.dataWorld,
+    /** ASP 会话空间引用（task-loop 每任务赋值） */
+    sessionRef,
     snapshot: async () => {
       const tsSnap = await ts.snapshot();
       const pySnap = await deps.manager.python.snapshot();

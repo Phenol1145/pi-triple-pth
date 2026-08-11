@@ -68,6 +68,7 @@ try {
 // 锚点强制并集：调用方传入锚点 + LLM 生成锚点（保证检索稳定性——deepseek 常自由发挥）
 const mergedAnchors = Array.from(new Set([...(Array.isArray(entry.anchors) ? entry.anchors : []), ...${j(anchors)}]));
 await memory.write({
+  visibility: "public",   // ASP 可见性显式声明（模板=系统资产——全局共享）
   id: entry.id ?? ${j(entryId)},
   kind: entry.kind ?? ${j(kind)},
   anchors: mergedAnchors.length > 0 ? mergedAnchors : ${j(anchors)},
@@ -108,6 +109,7 @@ try {
   entry = { id: ${j(entryId)}, kind: ${j(kind)}, anchors: ${j(anchors)}, content: res.content };
 }
 await memory.write({
+  visibility: "public",   // ASP 可见性显式声明（模板=系统资产——全局共享）
   id: entry.id ?? ${j(entryId)},
   kind: entry.kind ?? ${j(kind)},
   anchors: Array.isArray(entry.anchors) && entry.anchors.length > 0 ? entry.anchors : ${j(anchors)},
@@ -136,6 +138,7 @@ if (!result.ok) {
 const stdout = (result.stdout ?? "").slice(0, 3000);
 const stderr = (result.stderr ?? "").slice(0, 500);
 await memory.write({
+  visibility: "public",   // ASP 可见性显式声明（模板=系统资产——全局共享）
   id: ${j(entryId)},
   kind: "dev-artifact",
   anchors: ${j(anchors)},
@@ -161,6 +164,7 @@ ${autoExportBlock(description)}
 const __out = await __fn();
 // 结果沉淀记忆（dev-artifact）
 await memory.write({
+  visibility: "public",   // ASP 可见性显式声明（模板=系统资产——全局共享）
   id: ${j(entryId)},
   kind: "dev-artifact",
   anchors: ${j(anchors)},

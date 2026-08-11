@@ -109,14 +109,14 @@ describe("memory 能力包装（worker 面端到端）", () => {
 
   it("worker 写分化提案 official → 强制 draft 落库", async () => {
     const { memory, written } = makeMemory();
-    await memory["write"]({ kind: "differentiation-proposal", content: "{}", status: "official" });
-    expect(written[0]).toMatchObject({ kind: "differentiation-proposal", status: "draft" });
+    await memory["write"]({ kind: "differentiation-proposal", content: "{}", status: "official", meta: { visibility: "public" } });
+    expect(written[0]).toMatchObject({ kind: "differentiation-proposal", status: "draft", meta: { spaceScope: { space: "meta", visibility: "public" } } });
   });
 
   it("worker 写知识层 → 原样放行", async () => {
     const { memory, written } = makeMemory();
-    await memory["write"]({ kind: "task-insight", content: "洞察", status: "official" });
-    expect(written[0]).toMatchObject({ status: "official" });
+    await memory["write"]({ kind: "task-insight", content: "洞察", status: "official", meta: { visibility: "private" } });
+    expect(written[0]).toMatchObject({ status: "official", meta: { spaceScope: { space: "meta", visibility: "private" } } });
   });
 
   it("worker update 系统文档 → 拒绝（补洞）", async () => {
@@ -127,7 +127,7 @@ describe("memory 能力包装（worker 面端到端）", () => {
   it("force 参数不透传（位置形第三参 force 也剥离）", async () => {
     const { memory, written } = makeMemory();
     // 位置形 + force 企图：normalize 后 force 进入 entry 字段但 store 调用不带 opts——store 层 isSystemDocId 仍生效
-    await memory["write"]("task-insight", "x", { force: true, anchors: [] });
+    await memory["write"]("task-insight", "x", { force: true, anchors: [], visibility: "public" });
     expect(written[0]).toMatchObject({ kind: "task-insight" });
     // store.write 只收到单参 entry（无 opts.force 旁路）
   });

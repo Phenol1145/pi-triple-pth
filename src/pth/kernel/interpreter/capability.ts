@@ -51,9 +51,11 @@ export function buildCapabilities(deps: {
   readSource?: (relPath: string) => Promise<string>;
   /** 任务工作区（workspace 收敛——自修改产物落盘）：(relPath) => 绝对路径解析——fs.task 用 */
   taskWorkspaceResolve?: (relPath: string) => string;
+  /** ASP 会话空间引用（可见性盖章/过滤——任务级；agent-loop cd 更新） */
+  sessionRef?: { current: { currentSpace: string } | null };
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
-  const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore });
+  const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore, sessionRef: deps.sessionRef });
   // 管理面裁剪（权限 v2 R3——2026-08-10）：worker 执行面只给只读子集——
   //   perf.set/publish/apply（运行时调参/策略）与 model.set（切模型）是管理面写操作，不进注入面；
   //   tasks（peek/submit）整体摘除（task-loop 内部走 store——vm 暴露是历史遗留面）。
