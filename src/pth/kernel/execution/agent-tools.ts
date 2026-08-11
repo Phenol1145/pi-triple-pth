@@ -2,7 +2,7 @@
  * agent-tools —— agent 循环的工具执行器表（工具面收敛 2026-08-09）。
  *
  * 终态双层结构（用户裁决）：
- *   动作工具（元工具）= ts / python.execute / bash.execute / done
+ *   动作工具（元工具）= ts.run / ts.eval / python.run / python.eval / bash.run / bash.eval / done
  *   能力函数（ts 程序内注入——capability 白名单）= memory.query/write · sql ·
  *     context/results（ts 核内对象）· llm.complete · web · fs
  *
@@ -69,14 +69,30 @@ function applyOutputMode(r: AgentToolResult, mode: unknown): AgentToolResult {
 
 /** 工具表（元工具——id → 执行器） */
 export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
-  "python.execute": async ({ kernel }, args) => {
-    const r = await kernel.python.execute(str(args, "code"));
+  "python.run": async ({ kernel }, args) => {
+    const r = await kernel.python.execute(str(args, "code"), { exec: "program" });
     if (!r.ok) return { ok: false, error: r.error?.message ?? "python execute failed" };
     const value = JSON.stringify(r.value ?? null);
     return applyOutputMode({ ok: true, value: r.value, stdout: truncate(value, 2000).text }, args["mode"]);
   },
 
-  "bash.execute": async ({ kernel }, args) => {
+  "python.eval": async ({ kernel }, args) => {
+    const r = await kernel.python.execute(str(args, "code"), { exec: "single" });
+    if (!r.ok) return { ok: false, error: r.error?.message ?? "python eval failed" };
+    const value = JSON.stringify(r.value ?? null);
+    return applyOutputMode({ ok: true, value: r.value, stdout: truncate(value, 2000).text }, args["mode"]);
+  },
+
+  "bash.run": async ({ kernel }, args) => {
+    const r = await kernel.bash.execute(str(args, "command"));
+    const out = truncate(r.stdout ?? "", 4000);
+    return applyOutputMode(
+      { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
+      args["mode"],
+    );
+  },
+
+  "bash.eval": async ({ kernel }, args) => {
     const r = await kernel.bash.execute(str(args, "command"));
     const out = truncate(r.stdout ?? "", 4000);
     return applyOutputMode(
@@ -128,14 +144,24 @@ ${buildDoc()}`;
 /** 工具动作描述（元工具面） */
 /** 工具参数 JSON Schema 定义（OpenAI function 格式——原生 tool_calls 声明） */
 const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<string, unknown>; required: string[] }> = {
-  "python.execute": {
-    description: "在 python kernel 执行代码（sandbox）——返回 stdout/值",
-    properties: { code: { type: "string", description: "python 代码" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+  "python.run": {
+    description: "在 python kernel（sandbox 持久 REPL）执行程序——可多语句/声明/循环；设 _result = 值 回传结构化值（与 ts return 对齐）。",
+    properties: { code: { type: "string", description: "python 程序（多语句；_result = 值 作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["code"],
   },
-  "bash.execute": {
-    description: "在 bash kernel 执行命令（sandbox）——返回 stdout",
-    properties: { command: { type: "string", description: "shell 命令" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+  "python.eval": {
+    description: "在 python kernel 求值单个表达式（不写语句——一行计算/查询；表达式值即结果）。多语句/赋值请用 python.run。",
+    properties: { code: { type: "string", description: "python 表达式（值即结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+    required: ["code"],
+  },
+  "bash.run": {
+    description: "在 bash kernel（sandbox 持久会话）执行命令序列——可多命令串联（; && || 换行）；stdout 即结果。",
+    properties: { command: { type: "string", description: "shell 命令（可多命令串联）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+    required: ["command"],
+  },
+  "bash.eval": {
+    description: "在 bash kernel 执行单条命令（简单命令——ls/cat/grep 等；stdout 即结果）。复杂脚本/串联请用 bash.run。",
+    properties: { command: { type: "string", description: "单条 shell 命令" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["command"],
   },
   "ts.run": {
@@ -221,7 +247,8 @@ export function toolSchemaFor(executorKey: string): import("@earendil-works/pi-a
 }
 
 /** 族名展开（2026-08-11 元命令拆分）：execTool 族名下所有同族工具 schema。
- * ts（族名）→ [ts_run, ts_eval]；python_execute（含下划线=精确）→ [python_execute]。 */
+ * ts/python/bash（族名）→ 族下全部工具（ts→ts_run+ts_eval；python→python_run+python_eval…）；
+ * c_execute（含下划线=精确）→ [c_execute]。 */
 export function toolsForExecTool(execTool: string): import("@earendil-works/pi-ai").Tool[] {
   const exact = toolSchemaFor(execTool);
   if (exact) return [exact];
@@ -248,12 +275,12 @@ export function toolsToSchema(): import("@earendil-works/pi-ai").Tool[] {
 }
 
 export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
-- ts.run: {code, mode?} —— 【程序模式（优先）】执行完整 TypeScript 程序：可声明变量/多语句/控制流；await 调用 python.execute/bash.execute/c.execute/c.saveUnit/c.executeUnit/c.listUnits/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
+- ts.run: {code, mode?} —— 【程序模式（优先）】执行完整 TypeScript 程序：可声明变量/多语句/控制流；await 调用 python.run/bash.run/c.execute/c.saveUnit/c.executeUnit/c.listUnits/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
 - ts.eval: {code, mode?} —— 【单表达式求值】一行查询/计算（不声明变量——表达式值即结果）：await memory.query(...) 统计等
 - c.execute: {code, mode?} —— C 编译核快捷（sandbox 编译运行——源码内嵌字符串）
 - c.executeUnit: {name, mode?} —— 命名编译单元（toolstore compiled-units/<name>.c——跨任务复用；c.saveUnit 保存）
-- python.execute: {code, mode?} —— 单 kernel 快捷（简单步骤不必写程序）
-- bash.execute: {command, mode?} —— 单 kernel 快捷
+- python.run: {code, mode?} —— python 程序执行（_result = 值 回传）；python.eval: {code} —— 单表达式求值（值即结果）
+- bash.run: {command, mode?} —— 命令序列；bash.eval: {command} —— 单条命令
 - done: {result, summary?} —— 完成任务，result 为最终产出对象
 
 输出模式（mode 可选——控制回填带宽）：default=完整；value-only=只回 value（大数据省 token）；errors-only=成功只回 ok 失败回全错（快速试错）；quiet=静默（状态准备不污染轨迹）`;

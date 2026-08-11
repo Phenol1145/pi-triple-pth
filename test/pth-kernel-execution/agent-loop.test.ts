@@ -55,7 +55,7 @@ describe("runAgentTask（agent 循环）", () => {
   it("多步执行：python 算 → done 提交（工具被正确调用）", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      { toolCalls: [{ name: "python.execute", arguments: { code: "fib" } }] },
+      { toolCalls: [{ name: "python.run", arguments: { code: "fib" } }] },
       { toolCalls: [{ name: "done", arguments: { result: { fib25: 75025 }, summary: "完成" } }] },
     ]);
     const r = await runAgentTask({
@@ -68,14 +68,14 @@ describe("runAgentTask（agent 循环）", () => {
     if (r.ok) {
       expect(r.steps).toBe(2);
       expect(r.value).toEqual({ fib25: 75025 });
-      expect(kernel.python.execute).toHaveBeenCalledWith("fib");
+      expect(kernel.python.execute).toHaveBeenCalledWith("fib", expect.objectContaining({ exec: "program" }));
     }
   });
 
   it("原生 tool_calls：结构化调用 bash + 文本回复完成", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      { toolCalls: [{ name: "bash.execute", arguments: { command: "ls" } }] },
+      { toolCalls: [{ name: "bash.run", arguments: { command: "ls" } }] },
       { content: "完成，已执行 ls" },
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
@@ -85,7 +85,7 @@ describe("runAgentTask（agent 循环）", () => {
 
   it("超 maxSteps 强制终止（partial result + warning）", async () => {
     const kernel = mockKernel();
-    const llm = mockLlm([{ toolCalls: [{ name: "bash.execute", arguments: { command: "x" } }] }]);  // 永远不 done
+    const llm = mockLlm([{ toolCalls: [{ name: "bash.run", arguments: { command: "x" } }] }]);  // 永远不 done
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 3 });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.warning).toContain("maxSteps");
@@ -95,7 +95,7 @@ describe("runAgentTask（agent 循环）", () => {
     const kernel = mockKernel();
     const badKernel = { ...kernel, python: { ...kernel.python, execute: vi.fn(async () => { throw new Error("boom"); }) } } as never;
     const llm = mockLlm([
-      { toolCalls: [{ name: "python.execute", arguments: { code: "x" } }] },
+      { toolCalls: [{ name: "python.run", arguments: { code: "x" } }] },
       { content: "修正后完成" },
     ]);
     const r = await runAgentTask({ llm, kernel: badKernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
@@ -306,7 +306,7 @@ describe("filterCapabilityDoc（Agent-JIT 路径 B——能力文档按包裁剪
     const out = filterCapabilityDoc(DOC, ["memory"]);
     expect(out).toContain("memory.query");
     expect(out).not.toContain("fs.readText");
-    expect(out).not.toContain("python.execute");
+    expect(out).not.toContain("python.run");
     expect(out).not.toContain("llm.complete");
     expect(out).toContain("results: 结果注册表");   // 基础节保留
   });

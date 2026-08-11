@@ -218,7 +218,7 @@ const skill = await memory.query("SELECT content FROM memory_entries WHERE id='s
 - 结果自动注册 results 对象（results.result_1 引用之前步骤的工具输出）
 - context 对象跨步骤保留（context.my_key = ... 供后续程序读取）
 - return 的值 + 程序 stdout 都会回填给你（中间输出可见）
-单 kernel 简单步骤（python.execute / bash.execute）可直接调用；复杂多步组合用 ts.run。
+单 kernel 简单步骤（python.run/bash.run）可直接调用；单表达式求值用 ts.eval/python.eval；复杂多步组合用 ts.run。
 
 输出要求：每步输出一个 JSON 动作（可用工具在 tools 声明中——结构化 tool_calls）。
 完成任务时输出 done 工具：

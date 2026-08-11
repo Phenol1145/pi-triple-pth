@@ -114,6 +114,7 @@ export class SandboxKernel implements Interpreter {
       kernelId,
       code: program,
       ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+      ...(opts?.exec ? { exec: opts.exec } : {}),   // 元命令拆分（2026-08-11）：single/program 透传 sandbox
     });
   }
 

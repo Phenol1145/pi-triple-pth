@@ -112,3 +112,44 @@ describe("kernel 参数化（懒 spawn / 空闲回收 / ns reset）", () => {
     k.dispose();
   });
 });
+
+describe("PyKernel exec 模式（2026-08-11 元命令拆分——single=eval/program=exec）", () => {
+  let k: PyKernel;
+  afterAll(async () => { await k?.dispose(); });
+
+  it("single：表达式求值——值直接返回（不再依赖 _result 通道）", async () => {
+    k = new PyKernel({ pythonBin: "python3" });
+    const r1 = await k.execute("1 + 1", { exec: "single" });
+    expect(r1.ok).toBe(true);
+    expect(r1.value).toBe(2);
+    const r2 = await k.execute("len([1, 2, 3])", { exec: "single" });
+    expect(r2.ok).toBe(true);
+    expect(r2.value).toBe(3);
+    // 对象/列表字面量
+    const r3 = await k.execute('{"total": 7}', { exec: "single" });
+    expect(r3.ok).toBe(true);
+    expect((r3.value as any).total).toBe(7);
+  });
+
+  it("single：语句 → 显式语法错误（调用方负责单表达式）", async () => {
+    const r = await k.execute("x = 1", { exec: "single" });
+    expect(r.ok).toBe(false);
+    expect(r.error?.message ?? "").toContain("SyntaxError");
+  });
+
+  it("single：不污染命名空间（eval 不写 _LAST_CODE/_result）", async () => {
+    const r = await k.execute("40 + 2", { exec: "single" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe(42);
+    // 后续 program 模式正常
+    const r2 = await k.execute("_result = 99");
+    expect(r2.ok).toBe(true);
+    expect(r2.value).toBe(99);
+  });
+
+  it("program（默认）：exec 语义不变（回归——_result 通道）", async () => {
+    const r = await k.execute("_result = [i * i for i in range(3)]", { exec: "program" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual([0, 1, 4]);
+  });
+});

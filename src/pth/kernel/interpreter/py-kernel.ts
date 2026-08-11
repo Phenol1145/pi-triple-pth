@@ -103,16 +103,23 @@ def main():
                 print(json.dumps({"ok": True, "result": None}), flush=True)
                 continue
             code = req.get("code", "")
+            mode = req.get("exec", "auto")   # 2026-08-11 元命令拆分：single=eval 表达式求值 / program=exec 程序
             out = io.StringIO()
             err = io.StringIO()
             old_out, old_err = sys.stdout, sys.stderr
             sys.stdout, sys.stderr = out, err
             try:
-                _NAMESPACE["_LAST_CODE"] = _NAMESPACE.get("_LAST_CODE", "") + "\\n" + code   # 累积（供无源函数源码提取）
-                exec(code, _NAMESPACE)
-                result = _NAMESPACE.pop("_result", None)   # 取出即清（防会话残留）
-                ok = True
-                err_msg = None
+                if mode == "single":
+                    # 单表达式求值：eval 返回表达式值（语句 → SyntaxError 显式报错——调用方负责单表达式）
+                    result = eval(code, _NAMESPACE)
+                    ok = True
+                    err_msg = None
+                else:
+                    _NAMESPACE["_LAST_CODE"] = _NAMESPACE.get("_LAST_CODE", "") + "\\n" + code   # 累积（供无源函数源码提取）
+                    exec(code, _NAMESPACE)
+                    result = _NAMESPACE.pop("_result", None)   # 取出即清（防会话残留）
+                    ok = True
+                    err_msg = None
             except Exception as e:
                 result = None
                 ok = False
@@ -264,7 +271,7 @@ export class PyKernel implements Interpreter {
 
     let msg: PyProtocolMsg;
     try {
-      msg = await this.call({ code: program, timeoutMs });    } catch (e) {
+      msg = await this.call({ code: program, timeoutMs, ...(opts?.exec ? { exec: opts.exec } : {}) });    } catch (e) {
       // 管道错误/超时——kill 重启（冷备补位）
       this.kill();
       this.spawn();
@@ -394,7 +401,7 @@ export class PyKernel implements Interpreter {
   }
 
   /** 单请求：等就绪 → 写入管道 + 等响应；超时 → 抛错（调用方 kill 重启） */
-  private async call(req: { code?: string; type?: "exec" | "snapshot" | "clear"; timeoutMs: number }): Promise<PyProtocolMsg> {
+  private async call(req: { code?: string; type?: "exec" | "snapshot" | "clear"; timeoutMs: number; exec?: "single" | "program" | "auto" }): Promise<PyProtocolMsg> {
     const child0 = this.child;
     if (!child0 || !child0.stdin || !child0.stdin.writable) {
       throw new Error("kernel not writable");
@@ -422,7 +429,10 @@ export class PyKernel implements Interpreter {
       const body: Record<string, unknown> = { timeoutMs: req.timeoutMs };
       if (req.type === "snapshot") body.type = "snapshot";
       else if (req.type === "clear") body.type = "clear";
-      else body.code = req.code;
+      else {
+        body.code = req.code;
+        if (req.exec) body.exec = req.exec;   // 元命令拆分（2026-08-11）：single/program 透传 PY_RUNTIME
+      }
       const child = this.child;
       if (child?.stdin) child.stdin.write(JSON.stringify(body) + "\n");
     });

@@ -12,7 +12,7 @@ describe("space-registry（空间注册表——数据驱动）", () => {
   });
 
   it("执行工具反查（门控依据）", () => {
-    expect(spaceRegistry.spaceOfExecTool("python_execute")).toBe("python");
+    expect(spaceRegistry.spaceOfExecTool("python_run")).toBe("python");
     expect(spaceRegistry.spaceOfExecTool("ts")).toBe("ts");
     expect(spaceRegistry.spaceOfExecTool("done")).toBeNull();   // done 不是语言执行工具
   });
@@ -97,7 +97,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
     const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
     const secondCallTools = (calls[1]![1] as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
-    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "memory_index", "python_execute"]);
+    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "memory_index", "python_eval", "python_run"]);
   });
 
   it("cd 未知空间 → 报错引导（不迁移）", async () => {
@@ -191,9 +191,9 @@ describe("asp.index（空间索引——双聚合模式）", () => {
 
 describe("ASP 门控归一化（e2e 实测发现——点形工具名绕过）", () => {
   it("点形工具名（python.execute）同样被门控", async () => {
-    expect(spaceRegistry.spaceOfExecTool("python.execute")).toBe("python");
-    expect(spaceRegistry.spaceOfExecTool("python_execute")).toBe("python");
-    expect(spaceRegistry.spaceOfExecTool("bash.execute")).toBe("bash");
+    expect(spaceRegistry.spaceOfExecTool("python.run")).toBe("python");
+    expect(spaceRegistry.spaceOfExecTool("python_run")).toBe("python");
+    expect(spaceRegistry.spaceOfExecTool("bash.run")).toBe("bash");
   });
 
   it("ts 空间内点形调用 python.execute → 门控引导不执行", async () => {
@@ -201,7 +201,7 @@ describe("ASP 门控归一化（e2e 实测发现——点形工具名绕过）",
     const pySpy = vi.spyOn(kernel.python, "execute");
     const llm = mockLlm([
       { toolCalls: [{ name: "asp_cd", arguments: { space: "ts" } }] },
-      { toolCalls: [{ name: "python.execute", arguments: { code: "print(1)" } }] },   // 点形——e2e 实测模型会这样输出
+      { toolCalls: [{ name: "python.run", arguments: { code: "print(1)" } }] },   // 点形——e2e 实测模型会这样输出
       { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
       { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
     ]);

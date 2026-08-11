@@ -25,7 +25,9 @@ export class PythonInterpreter implements Interpreter {
     const start = Date.now();
     const timeoutMs = opts?.timeoutMs ?? this.timeoutMs;
     return new Promise<InterpreterResult>((resolve) => {
-      const child = spawn(this.pythonBin, ["-c", program], {
+      // 元命令拆分（2026-08-11）：single=表达式求值（eval 包装——value 即表达式值）；默认=程序执行
+      const code = opts?.exec === "single" ? `print(eval(${JSON.stringify(program)}))` : program;
+      const child = spawn(this.pythonBin, ["-c", code], {
         cwd: opts?.cwd,
         env: { ...process.env, ...(opts?.env ?? {}) },
       });
@@ -46,7 +48,7 @@ export class PythonInterpreter implements Interpreter {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve({ ok: code === 0, stdout, stderr, durationMs: Date.now() - start });
+        resolve({ ok: code === 0, stdout, stderr, durationMs: Date.now() - start, ...(opts?.exec === "single" && code === 0 ? { value: stdout.trim() } : {}) });
       });
       child.on("error", (e) => {
         if (settled) return;

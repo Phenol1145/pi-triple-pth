@@ -82,7 +82,7 @@ export class SpaceRegistry {
 export const spaceRegistry = new SpaceRegistry();
 
 spaceRegistry.register({ id: "meta", kind: "meta", description: "元空间——纯协议层（无执行核；done 唯一使用场所）", builtin: true });
-spaceRegistry.register({ id: "ts", kind: "action", execTool: "ts", parent: "meta", skeleton: "node:vm + stripTypes + preflight（import 拒绝/await 包装/超时双保险）", description: "TypeScript 程序空间（能力包注入：memory/llm/web/fs/state/ext…）", builtin: true });
-spaceRegistry.register({ id: "python", kind: "action", execTool: "python_execute", parent: "meta", skeleton: "PyKernel 持久 REPL（共享 globals/_result 通道/超时 kill 重启）", description: "Python 持久 REPL 空间（sandbox 执行）", builtin: true });
-spaceRegistry.register({ id: "bash", kind: "action", execTool: "bash_execute", parent: "meta", skeleton: "BashKernel 持久会话", description: "Bash 持久会话空间（sandbox 执行）", builtin: true });
+spaceRegistry.register({ id: "ts", kind: "action", execTool: "ts", parent: "meta", skeleton: "node:vm + stripTypes + preflight（import 拒绝/await 包装/超时双保险）", description: "TypeScript 程序空间（能力包注入：memory/llm/web/fs/state/ext…；元命令 ts.run/ts.eval）", builtin: true });
+spaceRegistry.register({ id: "python", kind: "action", execTool: "python", parent: "meta", skeleton: "PyKernel 持久 REPL（共享 globals/_result 通道/超时 kill 重启；元命令 python.run/python.eval）", description: "Python 持久 REPL 空间（sandbox 执行）", builtin: true });
+spaceRegistry.register({ id: "bash", kind: "action", execTool: "bash", parent: "meta", skeleton: "BashKernel 持久会话（元命令 bash.run/bash.eval）", description: "Bash 持久会话空间（sandbox 执行）", builtin: true });
 spaceRegistry.register({ id: "c", kind: "action", execTool: "c_execute", parent: "meta", skeleton: "编译核（gcc/clang/tcc——compiled-units 命名单元）", description: "C 编译运行空间（sandbox 编译）", builtin: true });

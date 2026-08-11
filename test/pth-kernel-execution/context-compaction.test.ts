@@ -69,15 +69,15 @@ describe("worker-scorecard（事件流轻聚合）", () => {
     { type: "llm-call", step: 2, toolCalls: [{ name: "ts", arguments: { code: "x" } }], contentPreview: "", usage: { inputTokens: 1200, outputTokens: 200 } },
     { type: "tool-call", step: 2, tool: "ts", args: { code: "x" } },
     { type: "tool-result", step: 2, tool: "ts", ok: false, durationMs: 30, resultPreview: "error: boom" },
-    { type: "tool-call", step: 3, tool: "python_execute", args: { code: "print(1)" } },
-    { type: "tool-result", step: 3, tool: "python_execute", ok: false, durationMs: 0, resultPreview: "空间门控：需 python" },
+    { type: "tool-call", step: 3, tool: "python_run", args: { code: "print(1)" } },
+    { type: "tool-result", step: 3, tool: "python_run", ok: false, durationMs: 0, resultPreview: "空间门控：需 python" },
     { type: "finish", ok: true, steps: 4, valuePreview: "{...}" },
   ];
 
   it("工具频率 + token 汇总 + 失败/门控/导航指标", () => {
     const sc = buildScorecard(EVENTS);
     expect(sc.steps).toBe(4);
-    expect(sc.toolFreq).toMatchObject({ asp_cd: 1, ts: 1, python_execute: 1 });
+    expect(sc.toolFreq).toMatchObject({ asp_cd: 1, ts: 1, python_run: 1 });
     expect(sc.tokens.input).toBe(2200);
     expect(sc.tokens.output).toBe(300);
     expect(sc.failedActions).toBe(2);         // ts error + 门控

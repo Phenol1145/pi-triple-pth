@@ -8,8 +8,10 @@
 export const AGENT_TOOL_IDS = [
   "ts.eval",
   "ts.run",
-  "python.execute",
-  "bash.execute",
+  "python.eval",
+  "python.run",
+  "bash.eval",
+  "bash.run",
   "done",
 ] as const;
 

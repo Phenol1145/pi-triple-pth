@@ -18,7 +18,7 @@ describe("Prompt 框架化（角色文档/能力索引——memory 数据源）"
     expect(idx).toContain("fs.readSource");   // 自修改读源码
     expect(idx).toContain("fs.task.write");   // 任务工作区落盘
     expect(idx).toContain("memory.query");    // 标准能力
-    expect(idx).toContain("python.execute");
+    expect(idx).toContain("python.run");
     expect(idx).toContain("c.execute");
     expect(idx).toContain("ext");
     expect(idx).toContain("新能力接入");       // 扩展指引
@@ -154,7 +154,7 @@ describe("buildCapabilityIndex 分节（Agent-JIT 路径 B——filterCapability
     const out = filterCapabilityDoc(doc, ["memory"]);
     expect(out).toContain("memory.query");
     expect(out).not.toContain("fs.readText");
-    expect(out).not.toContain("python.execute");
+    expect(out).not.toContain("python.run");
     expect(out).toContain("results: ts 核内结果注册表");
   });
 });

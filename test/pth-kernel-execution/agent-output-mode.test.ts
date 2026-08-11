@@ -20,26 +20,26 @@ function ctx(pythonResult: any, bashResult: any): AgentToolCtx {
 
 describe("输出模式（mode 枚举）", () => {
   it("default：完整回填（value + stdout）", async () => {
-    const r = await AGENT_TOOLS["python.execute"](ctx({ ok: true, value: 5050 }), { code: "x", mode: "default" });
+    const r = await AGENT_TOOLS["python.run"](ctx({ ok: true, value: 5050 }), { code: "x", mode: "default" });
     expect(r.stdout).toContain("5050");
   });
 
   it("value-only：只回 value（stderr 清空）", async () => {
-    const r = await AGENT_TOOLS["python.execute"](ctx({ ok: true, value: 42 }), { code: "x", mode: "value-only" });
+    const r = await AGENT_TOOLS["python.run"](ctx({ ok: true, value: 42 }), { code: "x", mode: "value-only" });
     expect(r.value).toBe(42);
     expect(r.stdout).toContain("42");
     expect(r.stderr).toBe("");
   });
 
   it("errors-only：成功只回 ok（value 不占上下文）", async () => {
-    const r = await AGENT_TOOLS["bash.execute"](ctx(null, { ok: true, stdout: "超长输出".repeat(100) }), { command: "x", mode: "errors-only" });
+    const r = await AGENT_TOOLS["bash.run"](ctx(null, { ok: true, stdout: "超长输出".repeat(100) }), { command: "x", mode: "errors-only" });
     expect(r.ok).toBe(true);
     expect(r.stdout).toBe("ok");
     expect(r.value).toBeUndefined();
   });
 
   it("errors-only：失败回完整错误（修正必需）", async () => {
-    const r = await AGENT_TOOLS["bash.execute"](ctx(null, { ok: false, stderr: "bash: x: command not found" }), { command: "x", mode: "errors-only" });
+    const r = await AGENT_TOOLS["bash.run"](ctx(null, { ok: false, stderr: "bash: x: command not found" }), { command: "x", mode: "errors-only" });
     expect(r.ok).toBe(false);
     expect(r.error ?? r.stderr).toContain("command not found");
   });
@@ -53,7 +53,7 @@ describe("输出模式（mode 枚举）", () => {
   });
 
   it("未知模式按 default", async () => {
-    const r = await AGENT_TOOLS["python.execute"](ctx({ ok: true, value: 7 }), { code: "x", mode: "bogus" });
+    const r = await AGENT_TOOLS["python.run"](ctx({ ok: true, value: 7 }), { code: "x", mode: "bogus" });
     expect(r.stdout).toContain("7");
   });
 
