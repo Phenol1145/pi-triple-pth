@@ -56,9 +56,38 @@ def snapshot_globals():
             out["oversized"].append(key)
     return out
 
+def _memory_bridge(op, **kw):
+    # ASP-5 记忆桥（2026-08-11）：sandbox 内 python 访问记忆空间——经宿主 localhost:8080
+    # 转发 PTH（pi-platform:3000）→ PG。只读桥（query/retrieve/get——写留 ts 空间）。
+    # 认证：SANDBOX_SHARED_SECRET（kernel 进程继承容器 env——sandbox 与 PTH 互信密钥）
+    import urllib.request, urllib.error, os
+    secret = os.environ.get("SANDBOX_SHARED_SECRET", "")
+    req = urllib.request.Request(
+        "http://localhost:8080/kernel/memory-bridge",
+        data=json.dumps({"op": op, **kw}).encode(),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + secret},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")[:300]
+        raise RuntimeError(f"memory bridge {op} failed: {e.code} {body}")
+
 def main():
     global _NAMESPACE
     _NAMESPACE = {}
+    # ASP-5：预置记忆桥全局（sandbox python 空间可访问记忆——宿主同容器 localhost:8080）
+    # 用类实例而非 dict——python dict 不支持属性访问（memory.query 需要 .query 属性）
+    class _MemoryBridge:
+        def query(self, sql):
+            return _memory_bridge("query", sql=sql)
+        def retrieve(self, anchors=None, kinds=None, **kw):
+            return _memory_bridge("retrieve", anchors=anchors or [], kinds=kinds or [], **kw)
+        def get(self, id):
+            return _memory_bridge("get", id=id)
+    _NAMESPACE["memory"] = _MemoryBridge()
     for line in sys.stdin:
         try:
             req = json.loads(line)
@@ -67,7 +96,10 @@ def main():
                 continue
             if req.get("type") == "clear":
                 # ns reset：清命名空间不重启（进程复用——池化地基）
-                _NAMESPACE.clear()
+                # 保留 seed 键（ASP-5 记忆桥 memory 全局——清掉后后续调用 memory 未定义）
+                for k in list(_NAMESPACE.keys()):
+                    if k != "memory":
+                        del _NAMESPACE[k]
                 print(json.dumps({"ok": True, "result": None}), flush=True)
                 continue
             code = req.get("code", "")

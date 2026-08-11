@@ -184,3 +184,82 @@ describe("flow role 路由（body.flow 顶层——发布即路由到指定角�
     expect(roles.some((r) => r.id === assigned)).toBe(true);
   });
 });
+
+describe("memory-bridge（ASP-5：sandbox python 空间记忆入口）", () => {
+  const SECRET = "sandbox-dev-secret";
+  const visibleMeta = { space: "public", scope: "space" };
+
+  function bridgeApp() {
+    return buildApp({
+      dataWorld: {
+        tasks: { publish: async () => ({}), candidates: async () => [], countPending: async () => 0 } as any,
+        memory: {
+          retrieve: async ({ anchors, kinds }: any) =>
+            anchors.includes("absent") ? [] : [{ id: "m1", kind: kinds[0] ?? "note", meta: visibleMeta }],
+          get: async (id: string) => (id === "m1" ? { id: "m1", kind: "note", meta: visibleMeta } : null),
+        } as any,
+        transcripts: {} as any,
+        audit: {} as any,
+      } as any,
+    });
+  }
+
+  it("query：认证失败 → 401", async () => {
+    const app = bridgeApp();
+    const res = await app.inject({
+      method: "POST", url: "/api/v1/kernel/memory-bridge",
+      payload: { op: "query", sql: "SELECT 1" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("query：白名单 SQL 经 queryReadOnly 返回并过滤空间可见性", async () => {
+    const calls: string[] = [];
+    const app = buildApp({
+      dataWorld: {
+        tasks: { publish: async () => ({}), candidates: async () => [], countPending: async () => 0 } as any,
+        queryReadOnly: async (sql: string) => {
+          calls.push(sql);
+          // 存量默认 meta+public；private 条目 scope 在别处
+          return [
+            { meta: { spaceScope: { space: "meta", visibility: "public" } } },
+            { meta: { spaceScope: { space: "ts", visibility: "private" } } },
+            { meta: undefined },
+          ];
+        },
+        memory: {} as any,
+        transcripts: {} as any,
+        audit: {} as any,
+      } as any,
+    });
+    const res = await app.inject({
+      method: "POST", url: "/api/v1/kernel/memory-bridge",
+      headers: { authorization: `Bearer ${SECRET}` },
+      payload: { op: "query", sql: "SELECT kind FROM memory_entries LIMIT 2", space: "meta" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(calls[0]).toContain("SELECT kind FROM memory_entries");
+    // meta 空间可见：meta-public 条目 + 无 meta 存量默认可见；ts-private 条目被滤掉
+    expect(res.json()).toHaveLength(2);
+  });
+
+  it("get：跨空间不可见 → 404", async () => {
+    const app = bridgeApp();
+    const res = await app.inject({
+      method: "POST", url: "/api/v1/kernel/memory-bridge",
+      headers: { authorization: `Bearer ${SECRET}` },
+      payload: { op: "get", id: "m1", space: "private-other" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("op 非法 → 400", async () => {
+    const app = bridgeApp();
+    const res = await app.inject({
+      method: "POST", url: "/api/v1/kernel/memory-bridge",
+      headers: { authorization: `Bearer ${SECRET}` },
+      payload: { op: "write" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});

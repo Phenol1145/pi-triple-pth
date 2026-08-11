@@ -32,6 +32,40 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>
     reply.status(503).send(KERNEL_UNAVAILABLE);
 
+  // ── ASP-5 记忆桥（2026-08-11）：sandbox python 空间访问记忆的 PTH 侧端点
+  //  认证：SANDBOX_SHARED_SECRET（与 sandbox 互信密钥——auth.ts 已豁免 redis token）
+  //  只读桥：query（queryReadOnly 白名单）/ retrieve / get；写仍留 ts 空间（含可见性盖章）
+  app.post("/api/v1/kernel/memory-bridge", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const header = req.headers.authorization ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : header;
+    const secret = process.env.SANDBOX_SHARED_SECRET ?? "sandbox-dev-secret";
+    if (token !== secret) return reply.status(401).send({ error: "unauthorized" });
+    const body = (req.body ?? {}) as { op?: string; sql?: string; anchors?: string[]; kinds?: string[]; id?: string; space?: string };
+    const { isVisible } = await import("../kernel/execution/memory-visibility.js");
+    const space = typeof body.space === "string" ? body.space : null;
+    const visible = (meta: Record<string, unknown> | undefined) => (space ? isVisible(meta, space) : true);
+    try {
+      if (body.op === "query") {
+        const rows = (await kernel.dataWorld.queryReadOnly(String(body.sql ?? ""))) as Array<{ meta?: Record<string, unknown> }>;
+        return rows.filter((r) => visible(r.meta));
+      }
+      if (body.op === "retrieve") {
+        const entries = await kernel.dataWorld.memory.retrieve({ anchors: body.anchors ?? [], kinds: body.kinds ?? [] });
+        return entries.filter((e) => visible(e.meta as Record<string, unknown>));
+      }
+      if (body.op === "get") {
+        const e = await kernel.dataWorld.memory.get(String(body.id ?? ""));
+        if (!e) return reply.status(404).send({ error: "entry not found" });
+        if (!visible(e.meta as Record<string, unknown>)) return reply.status(404).send({ error: "entry not visible from space" });
+        return e;
+      }
+      return reply.status(400).send({ error: "op required: query|retrieve|get" });
+    } catch (err) {
+      return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // ── kernel 直连执行通道（任务池纯化 D2——调试/运维代码执行，不占任务池）──────
   app.post("/api/v1/kernel/exec", async (req, reply) => {
     if (!kernel) return unavailable(reply);

@@ -14,7 +14,7 @@ declare module "fastify" {
 
 export function createAuthHook(redis: Redis) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
-    if (req.url === "/health" || req.url === "/metrics") return;
+    if (req.url === "/health" || req.url === "/metrics" || req.url === "/api/v1/kernel/memory-bridge") return;
 
     const header = req.headers.authorization;
     if (!header?.startsWith("Bearer ")) {
