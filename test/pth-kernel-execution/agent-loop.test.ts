@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
+import { runAgentTask, filterCapabilityDoc } from "../../src/pth/kernel/execution/agent-loop.js";
 import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
 import type { WorkerKernel } from "../../src/pth/kernel/interpreter/index.js";
 
@@ -296,5 +296,32 @@ describe("Agent-JIT 路径 B：role.thinking/role.model 接线到 LLM 调用", (
     await runAgentTask({ llm, kernel: mockKernel(), caps: { memory: {} } as any, task: { title: "t", text: "x" }, maxSteps: 3 });
     const call = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { thinking?: string };
     expect(call.thinking).toBeUndefined();
+  });
+});
+
+describe("filterCapabilityDoc（Agent-JIT 路径 B——能力文档按包裁剪）", () => {
+  const DOC = `# PTH 能力索引\n\n## 基础（全角色注入——results/context/model/perf/obs）\n- results: 结果注册表\n- context: 任务工作台\n\n## memory\n- memory.query: {sql}\n- memory.write: {kind, anchors, content}\n\n## fs\n- fs.readText(path)\n- fs.task.write(relPath, content)\n\n## 执行核（python/bash/c）\n- python.execute(code)\n- bash.execute(command)\n\n## web/llm/state/ext/env（扩展能力包）\n- llm.complete\n- web: HTTP 获取\n`;
+
+  it("memory 角色 → 只留基础 + memory 节", () => {
+    const out = filterCapabilityDoc(DOC, ["memory"]);
+    expect(out).toContain("memory.query");
+    expect(out).not.toContain("fs.readText");
+    expect(out).not.toContain("python.execute");
+    expect(out).not.toContain("llm.complete");
+    expect(out).toContain("results: 结果注册表");   // 基础节保留
+  });
+
+  it("fs 角色 → 基础 + fs 节（readSource/readText 映射 fs）", () => {
+    const out = filterCapabilityDoc(DOC, ["fs", "readSource"]);
+    expect(out).toContain("fs.readText");
+    expect(out).not.toContain("memory.query");
+  });
+
+  it("全量角色（无 capabilities 声明）→ 不裁剪", () => {
+    expect(filterCapabilityDoc(DOC, ["python", "bash", "c", "fs", "web", "llm", "state", "ext", "env", "memory", "skills", "obs"])).toBe(DOC);
+  });
+
+  it("自由格式文档（无 ## 节）→ 原样返回", () => {
+    expect(filterCapabilityDoc("plain doc no sections", ["memory"])).toBe("plain doc no sections");
   });
 });

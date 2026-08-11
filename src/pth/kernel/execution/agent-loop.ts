@@ -111,6 +111,34 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
  * 数据源：memory（role-doc:<role> / capability-index——injectPromptDocs 注入）。
  * eager：渲染层 query 读全文注入；lazy：指针（LLM 按需 memory.query——与 memory 检索同构）。
  * 新核/新角色：更新 memory 文档——模板零改动。 */
+/**
+ * 能力文档按角色 capabilities 裁剪（Agent-JIT 路径 B——2026-08-11）。
+ * 分节约定（capability-index 条目）：## 基础（全角色）/ ## memory / ## fs /
+ * ## 执行核 / ## web/llm/state/ext/env。包映射：memory→memory；fs→fs；
+ * python/bash/c→执行核；web/llm/state/ext/env/skills/obs→扩展面。
+ * 无匹配节时保留原文（向后兼容自由格式文档）。
+ */
+export function filterCapabilityDoc(doc: string, capabilities: string[]): string {
+  // 按 ## 节切分（保留节头）
+  const parts = doc.split(/(?=^## )/m);
+  const header = parts[0] ?? doc;   // 文档头（标题/说明）
+  const sections = parts.slice(1);
+  const keep: string[] = [];
+  const caps = new Set(capabilities);
+  let matchedAny = false;
+  for (const sec of sections) {
+    const title = sec.split(/\n/, 1)[0] ?? "";
+    if (title.startsWith("## 基础")) { keep.push(sec); continue; }   // 全角色
+    const matched = (title.includes("memory") && caps.has("memory"))
+      || (title.includes("fs") && (caps.has("fs") || caps.has("readSource") || caps.has("readText")))
+      || (title.includes("执行核") && (caps.has("python") || caps.has("bash") || caps.has("c")))
+      || (caps.has("web") || caps.has("llm") || caps.has("state") || caps.has("ext") || caps.has("env") || caps.has("skills") || caps.has("obs")) && title.includes("web/llm");
+    if (matched) { keep.push(sec); matchedAny = true; }
+  }
+  if (!matchedAny) return doc;   // 无匹配（自由格式/新包）——原文
+  return `${header}${keep.join("")}`;
+}
+
 export async function buildAgentSystemPrompt(
   role: WorkerRole | undefined,
   taskTitle: string,
@@ -149,6 +177,9 @@ const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='pr
     try {
       const rows = opts.memory ? await opts.memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1") : [];
       capBlock = rows[0]?.content ?? AGENT_CAPABILITY_DOC;
+      // Agent-JIT 路径 B：能力文档按角色 capabilities 裁剪（按包分节——## 包名——
+      // 只注入相关节 + 基础节；无 capabilities 声明（全量）→ 原文）。
+      if (role?.capabilities) capBlock = filterCapabilityDoc(capBlock, role.capabilities);
     } catch {
       capBlock = AGENT_CAPABILITY_DOC;
     }

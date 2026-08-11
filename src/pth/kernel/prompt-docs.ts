@@ -55,44 +55,51 @@ ${capSection}${ioSection}${lineageSection}## 工作方式
 - 遵守 PTH 不变量（见 self-modify-guide——若涉及修改系统）`;
 }
 
-/** 能力索引生成（全部能力函数文档——新核/新能力接入点）——eager 注入 / lazy 指针目标 */
+/** 能力索引生成（全部能力函数文档——新核/新能力接入点）——eager 注入 / lazy 指针目标。
+ * 分节约定（Agent-JIT 路径 B——filterCapabilityDoc 按包裁剪）：## 基础（全角色）/
+ * ## memory / ## fs / ## 执行核（python/bash/c）/ ## web/llm/state/ext/env。
+ * 角色声明 capabilities 时 eager 只注入相关节——收窄角色 prompt 减负。 */
 export function buildCapabilityIndex(): string {
   const extDoc = buildDoc();
   return `# PTH 能力索引（ts 程序内可调用——await 调用；组合/联动在程序内完成）
 
-## 标准能力（扩展包）
-${extDoc}
+【能力分节】本索引按能力包分节（## 包名）——角色声明 capabilities 时只注入相关节（Agent-JIT 路径 B：capabilities 收窄 → prompt 减负）。
 
-## 基础对象
-- results: 每步工具结果自动注册（results["result_N"] = {tool, value, stdout}）；程序内可读写
-- context: 跨步骤 KV（context.my_key = ...；后续程序直接读）
+## 基础（全角色注入——results/context/model/perf/obs）
+- results: ts 核内结果注册表对象——每步工具结果自动注册（results["result_N"] = {tool, value, stdout}）；程序内可读写（results.my_key = ...）
+- context: ts 核内任务工作台对象——跨步骤 KV（context.my_key = ...；后续程序直接读）
+- model: 会话模型状态与切换——model.current 当前模型（{provider, model}）；model.set({model, provider?, reason?}) 切换会话模型（后续 LLM 调用生效）；model.get() 当前；model.usage() token 消耗（{input, output}）
+- perf: 性能调优——perf.params() 当前参数全表；perf.set({key, value}) 运行时调参（PTH_* 立即生效）；perf.status() 性能快照；perf.analyze() 瓶颈诊断（v1 规则）；perf.publish({id?, name, params, actions?}) 发布策略；perf.apply({id}) 应用策略（参数生效）；perf.list() 策略清单
+- obs: 可监控数据调查——obs.tasks({status?, role?, since?, limit?}) 任务池状态分布/耗时；obs.metrics({pattern?}) 主进程指标（pth_* 系列）；obs.batches() 批次状态；obs.kernels() sandbox 内核池（inFlight/idle/容量）；obs.search({query?, limit?}) 事件检索（transcripts）
 
-## 文件与工作区（确切签名——参数/返回）
-- fs.readText(path: string) → Promise<string>
-  path = toolstore 相对路径（如 "extensions/hello-world/index.ts"）
-- fs.list(dir?: string) → Promise<string[]>   （列 toolstore 目录）
-- fs.readSource(relPath: string) → Promise<string>
-  relPath = 相对【/app/src】——写 src/ 前缀（如 "src/pth/kernel/extensions/context.ts"）
-- fs.task.write(relPath: string, content: string) → Promise<{ok, path, bytes}>
-  relPath = 任务工作区相对路径（防穿越——只写自己目录）
+## memory
+- memory.query: {sql} —— 只读 SQL 查记忆库（仅 SELECT memory_entries；自动 LIMIT 防无界扫描）。memory_entries 表：id text, kind text, anchors jsonb, content text, status text('draft'|'official'|'archived'), version int, hit_count int, created_at timestamptz, updated_at timestamptz
+- memory.write: {id?, kind, anchors, content} —— 写入记忆（沉淀）。【用途层规则】知识层（task-insight/tool-function/dev-artifact 等）自由写；治理层（differentiation-proposal）强制 draft（提交草案——official 由监督层流转）；prompt/config 层（role-doc/trigger/capability-index 等系统资产）只读
+- memory.update: {id, content?} —— 内容修正（系统层不可改；治理层不可改状态）
+
+## fs
+- fs.readText(path: string) → Promise<string>（path = toolstore 相对路径，如 "extensions/hello-world/index.ts"）
+- fs.list(dir?: string) → Promise<string[]>（列 toolstore 目录）
+- fs.readSource(relPath: string) → Promise<string>（relPath = 相对【/app/src】——写 src/ 前缀，如 "src/pth/kernel/extensions/context.ts"）
+- fs.task.write(relPath: string, content: string) → Promise<{ok, path, bytes}>（任务工作区相对路径——防穿越——只写自己目录）
 - fs.task.read(relPath: string) → Promise<string>
 - fs.task.list() → Promise<Array<{name, isDir}>>
 
-## 执行核（确切签名）
-- python.execute(code: string) → Promise<{ok, stdout, stderr, value, durationMs}>
-  code = python 源码字符串（【不是对象】——第一参数字符串）
-- bash.execute(command: string) → Promise<{ok, stdout, stderr, durationMs}>
-  command = shell 命令字符串（第一参数字符串）
-- c.execute(language: string, source: string) → Promise<{ok, stdout, result}>
-  language = "gcc"|"clang"|"tcc"
+## 执行核（python/bash/c）
+- python.execute(code: string) → Promise<{ok, stdout, stderr, value, durationMs}>（code = python 源码字符串——【不是对象】——第一参数字符串）
+- bash.execute(command: string) → Promise<{ok, stdout, stderr, durationMs}>（command = shell 命令字符串——第一参数字符串）
+- c.execute(language: string, source: string) → Promise<{ok, stdout, result}>（language = "gcc"|"clang"|"tcc"）
 - ts 程序：能力函数 await 调用；return 值 + stdout 回填
 
-## 其他
+## web/llm/state/ext/env（扩展能力包）
 - llm.complete: LLM 调用（嵌套 agent/评估）
 - web: HTTP 获取
 - state: 记忆召回（recallFunctions/recallInsights）
 - ext: 扩展编排（index/use/kernel/syncIndex——代码库式扩展）
 - env.inspect: 环境状态摘要
+
+## 扩展注册（ext——已装载扩展）
+${extDoc}
 
 ## 新能力接入
 能力函数加入后在本索引追加记录——worker 下次读取即发现（prompt 模板零改动）`;
