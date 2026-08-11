@@ -83,6 +83,14 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     description: "记忆整理与知识沉淀（PTH 特色——记忆系统维护）", thinking: "medium",
     capabilities: ["memory", "fs", "readSource"], output: "memory",
     parent: "governor", generation: 2, differentiation: "记忆维护类任务诱导——知识沉淀/索引维护围绕 memory 能力收窄" },
+  // Agent-JIT 路径 B（2026-08-11）：热点任务分化——scout 侦察族内再分化出
+  // memory-stats（generation 3）——"查记忆/计数/汇总"类高频任务专用：capabilities
+  // 只留 memory（工具面最窄——in tokens 最小化）+ thinking low（out tokens 最小化）。
+  // 验证闭环：tags ["stats"] 路由 → 同任务 out/in 均低于 scout。
+  { id: "memory-stats", tags: ["stats", "count", "summarize"], prompt: "你是记忆统计员——专门统计记忆库条目：按 kind/tag 计数、汇总数量、报告统计结果。只做聚合统计——不做分析、不改数据、不写代码。",
+    description: "记忆统计窄域（scout 分化——计数/汇总专用）", thinking: "low", model: "deepseek-v4-flash",
+    capabilities: ["memory"], output: "stats",
+    parent: "scout", generation: 3, differentiation: "统计类任务诱导——记忆计数是最高频侦察子模式——能力收窄至 memory 单包 + 低推理档" },
   { id: "acceptor", tags: ["accept", "verify"], prompt: "你是验收者——负责结果验证、质量检查、交付验收。",
     description: "结果验证与交付验收（reviewer 对应——只读审查）", thinking: "high",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"], defaultReads: ["plan", "progress"], acceptanceRole: "read-only",

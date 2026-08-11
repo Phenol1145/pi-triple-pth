@@ -13,13 +13,20 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(ORIGIN_ROLE.capabilities).toBeUndefined();   // 全能——无访问权限收窄
   });
 
-  it("7 叶子角色挂中间层（generation=2——parent=executor/explorer/governor——有诱导理由）", () => {
+  it("叶子角色挂中间层/再分化（generation=2 挂三族；memory-stats gen3 分化自 scout——Agent-JIT 路径 B）", () => {
     const midIds = ["executor", "explorer", "governor"];
     for (const r of DEFAULT_ROLES) {
-      expect(midIds).toContain(r.parent);
-      expect(r.generation).toBe(2);
+      expect(r.generation).toBeGreaterThanOrEqual(2);
       expect(r.differentiation).toBeTruthy();
     }
+    // gen2：父为三族之一
+    const gen2 = DEFAULT_ROLES.filter((r) => r.generation === 2);
+    expect(gen2.length).toBe(7);
+    for (const r of gen2) expect(midIds).toContain(r.parent);
+    // gen3：memory-stats 分化自 scout（热点任务再收窄——统计窄域）
+    const gen3 = DEFAULT_ROLES.filter((r) => r.generation === 3);
+    expect(gen3.map((r) => r.id)).toEqual(["memory-stats"]);
+    expect(gen3[0]!.parent).toBe("scout");
   });
 
   it("3 中间层角色挂 Origin（generation=1——族级分化）", () => {

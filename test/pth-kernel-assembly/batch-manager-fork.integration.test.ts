@@ -85,7 +85,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
     const task = await dw.tasks.publish({ title: "e2e", text: "2 + 3", createdBy: "test", tags: ["code"] });
 
     const handle = await manager.spawnBatch();
-    expect(handle.workers).toHaveLength(7);
+    expect(handle.workers).toHaveLength(8);   // DEFAULT_ROLES 8 叶（7 + memory-stats）
     expect(handle.pid).toBeGreaterThan(0);
 
     try {
@@ -118,7 +118,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       workers: ["developer"],
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {
-        PTH_WORKER_ROLES: "developer:1,analyst:0,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0",
+        PTH_WORKER_ROLES: "developer:1,analyst:0,planner:0,scout:0,memory-keeper:0,memory-stats:0,acceptor:0,tester:0",
         PTH_BATCH_PROCESS: "1",
         PTH_LLM_STUB: "1",   // 任务池纯化：e2e 经 agent 循环——stub LLM 立即 done（无真实凭据）
         PTH_TEST_DATABASE_URL: container.getConnectionUri(),
