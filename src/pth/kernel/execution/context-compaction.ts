@@ -9,7 +9,7 @@
  */
 
 import type { LlmFn } from "../interpreter/llm-fn.js";
-import { shouldCompact, estimateTokens, DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-coding-agent";
+import { shouldCompact, DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-coding-agent";
 
 /** 循环内消息形态（agent-loop 的消息数组——结构子集） */
 export interface CompactableMessage {
@@ -21,26 +21,23 @@ export interface CompactableMessage {
 
 const TOOL_RESULT_MAX = 2000;   // pi 同款截断纪律
 
-/** 我们的消息 → pi AgentMessage 形状（estimateTokens 只读 content 块） */
-function toAgentMessage(m: CompactableMessage): unknown {
-  if (m.role === "assistant") {
-    const blocks: unknown[] = [];
-    if (m.content?.trim()) blocks.push({ type: "text", text: m.content });
-    for (const tc of m.toolCalls ?? []) blocks.push({ type: "toolCall", name: tc.name, arguments: tc.arguments });
-    return { role: "assistant", content: blocks, timestamp: 0 };
-  }
-  if (m.role === "tool") {
-    return { role: "toolResult", content: [{ type: "text", text: m.content }], timestamp: 0 };
-  }
-  return { role: m.role, content: m.content, timestamp: 0 };
+/**
+ * token 估计（chars/4 保守启发式——pi estimateTokens 同算法）。
+ * 自实现裁决（2026-08-10）：SDK 版要 pi AgentMessage 形状——适配器 15 行 vs 自写 1 个函数，
+ * 净亏；规矩：pi-coding-agent 只用零适配成本的纯函数（shouldCompact 保留），要写适配器就自实现。
+ */
+function estimateMessageTokens(m: CompactableMessage): number {
+  let chars = m.content?.length ?? 0;
+  for (const tc of m.toolCalls ?? []) chars += tc.name.length + JSON.stringify(tc.arguments).length;
+  return Math.ceil(chars / 4);
 }
 
 /**
  * 任务中压缩触发判定（驱动 1——上下文将溢保续跑）。
- * 复用 pi SDK：estimateTokens（chars/4 保守估计）+ shouldCompact（reserveTokens 阈值）。
+ * 复用 pi SDK 纯函数：shouldCompact（reserveTokens 阈值策略）。
  */
 export function shouldCompressInLoop(messages: CompactableMessage[], contextWindow: number): boolean {
-  const tokens = messages.reduce((n, m) => n + estimateTokens(toAgentMessage(m) as never), 0);
+  const tokens = messages.reduce((n, m) => n + estimateMessageTokens(m), 0);
   return shouldCompact(tokens, contextWindow, DEFAULT_COMPACTION_SETTINGS);
 }
 
