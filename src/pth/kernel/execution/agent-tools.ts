@@ -134,9 +134,24 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: ["result"],
   },
   "asp.cd": {
-    description: "空间迁移（ASP 元工具）——cd 到目标空间。目标：meta（元空间）/ ts / python / bash / c。语言代码只能在对应动作空间执行；done 仅在元空间可用。",
-    properties: { space: { type: "string", description: "目标空间 id（meta/ts/python/bash/c）" } },
+    description: "空间迁移（ASP 元工具）——cd 到目标空间。目标必须已注册（内置：meta 元空间/ts/python/bash/c；asp.create 生成的自定义子空间亦可）。语言代码只能在对应动作空间执行；done 仅在元空间可用。",
+    properties: { space: { type: "string", description: "目标空间 id（meta/ts/python/bash/c 或自定义注册空间）" } },
     required: ["space"],
+  },
+  "asp.create": {
+    description: "空间生成（ASP 元工具）——注册一个自定义动作空间（数据驱动：新空间=一条注册记录，即可被 asp.cd 进入）。仅元空间可用。",
+    properties: {
+      id: { type: "string", description: "新空间 id（小写字母数字连字符）" },
+      execTool: { type: "string", description: "该空间的语言执行工具名（LLM 原生工具面下划线形，如 custom_exec）" },
+      skeleton: { type: "string", description: "语言骨架摘要（索引/prompt 用）" },
+      description: { type: "string", description: "空间说明" },
+    },
+    required: ["id", "execTool", "description"],
+  },
+  "asp.destroy": {
+    description: "空间注销（ASP 元工具）——注销自定义子空间（内置空间保护：parent=meta 或元空间本身不可注销）。仅元空间可用。",
+    properties: { id: { type: "string", description: "要注销的空间 id" } },
+    required: ["id"],
   },
   "asp.index": {
     description: "空间索引（ASP 元工具）——逐层展示空间的可达函数/可达数据。无参数 = 当前空间索引。mode: by-package（按扩展包展开）/ by-type（按变量/对象/函数展开）；space: 目标空间（缺省当前）。",

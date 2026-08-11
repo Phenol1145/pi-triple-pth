@@ -25,6 +25,8 @@ export interface SpaceDef {
   description: string;
   /** 父空间（asp.create 生成的子空间——衰减校验用；内置空间为 meta） */
   parent?: string;
+  /** 内置空间标记（asp.create 生成的为 false——可注销；内置 true 不可注销） */
+  builtin?: boolean;
 }
 
 export class SpaceRegistry {
@@ -39,11 +41,11 @@ export class SpaceRegistry {
     this.spaces.set(def.id, def);
   }
 
-  /** 注销（asp.destroy——内置空间保护：parent=meta 或元空间本身不可注销） */
+  /** 注销（asp.destroy——内置空间保护：builtin 标记的空间不可注销） */
   unregister(id: string): boolean {
     const def = this.spaces.get(id);
     if (!def) return false;
-    if (def.id === "meta" || !def.parent || def.parent === "meta") {
+    if (def.builtin) {
       throw new Error(`space "${id}" 是内置空间——不可注销`);
     }
     return this.spaces.delete(id);
@@ -74,8 +76,8 @@ export class SpaceRegistry {
 /** 全局注册表（内置空间随模块加载注册） */
 export const spaceRegistry = new SpaceRegistry();
 
-spaceRegistry.register({ id: "meta", kind: "meta", description: "元空间——纯协议层（无执行核；done 唯一使用场所）" });
-spaceRegistry.register({ id: "ts", kind: "action", execTool: "ts", parent: "meta", skeleton: "node:vm + stripTypes + preflight（import 拒绝/await 包装/超时双保险）", description: "TypeScript 程序空间（能力包注入：memory/llm/web/fs/state/ext…）" });
-spaceRegistry.register({ id: "python", kind: "action", execTool: "python_execute", parent: "meta", skeleton: "PyKernel 持久 REPL（共享 globals/_result 通道/超时 kill 重启）", description: "Python 持久 REPL 空间（sandbox 执行）" });
-spaceRegistry.register({ id: "bash", kind: "action", execTool: "bash_execute", parent: "meta", skeleton: "BashKernel 持久会话", description: "Bash 持久会话空间（sandbox 执行）" });
-spaceRegistry.register({ id: "c", kind: "action", execTool: "c_execute", parent: "meta", skeleton: "编译核（gcc/clang/tcc——compiled-units 命名单元）", description: "C 编译运行空间（sandbox 编译）" });
+spaceRegistry.register({ id: "meta", kind: "meta", description: "元空间——纯协议层（无执行核；done 唯一使用场所）", builtin: true });
+spaceRegistry.register({ id: "ts", kind: "action", execTool: "ts", parent: "meta", skeleton: "node:vm + stripTypes + preflight（import 拒绝/await 包装/超时双保险）", description: "TypeScript 程序空间（能力包注入：memory/llm/web/fs/state/ext…）", builtin: true });
+spaceRegistry.register({ id: "python", kind: "action", execTool: "python_execute", parent: "meta", skeleton: "PyKernel 持久 REPL（共享 globals/_result 通道/超时 kill 重启）", description: "Python 持久 REPL 空间（sandbox 执行）", builtin: true });
+spaceRegistry.register({ id: "bash", kind: "action", execTool: "bash_execute", parent: "meta", skeleton: "BashKernel 持久会话", description: "Bash 持久会话空间（sandbox 执行）", builtin: true });
+spaceRegistry.register({ id: "c", kind: "action", execTool: "c_execute", parent: "meta", skeleton: "编译核（gcc/clang/tcc——compiled-units 命名单元）", description: "C 编译运行空间（sandbox 编译）", builtin: true });

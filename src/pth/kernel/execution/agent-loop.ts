@@ -20,7 +20,8 @@ import { spaceRegistry } from "./space-registry.js";
 
 /** ASP 模式工具面（按当前空间动态计算——环境函数全空间可用，语言工具仅本空间，done 仅元空间） */
 function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] {
-  const ambient = [toolSchemaFor("asp.cd")!, toolSchemaFor("asp.index")!, toolSchemaFor("memory.index")!,
+  const ambient = [toolSchemaFor("asp.cd")!, toolSchemaFor("asp.index")!, toolSchemaFor("asp.create")!, toolSchemaFor("asp.destroy")!,
+    toolSchemaFor("memory.index")!,
     toolSchemaFor("cache.load")!, toolSchemaFor("cache.index")!, toolSchemaFor("cache.cancel")!];
   if (spaceId === "meta") return [...ambient, toolSchemaFor("done")!];
   const sp = spaceRegistry.get(spaceId);
@@ -398,6 +399,63 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         );
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: out });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: out.slice(0, 120) });
+        return undefined;
+      }
+      if (tool === "asp_create") {
+        // ASP-6：空间生成（仅元空间——asp.create 是元工具）
+        if (currentSpace() !== "meta") {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: "asp.create 仅元空间可用——先 asp_cd(\"meta\")" });
+          return undefined;
+        }
+        const id = String(args["id"] ?? "").trim();
+        const execTool = String(args["execTool"] ?? "").trim();
+        const desc = String(args["description"] ?? "").trim();
+        if (!/^[a-z0-9-]{1,32}$/.test(id)) {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp.create: id 非法（小写字母数字连字符 ≤32）——got "${id}"` });
+          return undefined;
+        }
+        try {
+          spaceRegistry.register({
+            id, kind: "action",
+            execTool: execTool.replace(/\./g, "_"),   // 归一为下划线形
+            skeleton: typeof args["skeleton"] === "string" ? args["skeleton"] : undefined,
+            description: desc,
+            parent: "meta",
+          });
+        } catch (e) {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp.create: ${e instanceof Error ? e.message : String(e)}` });
+          return undefined;
+        }
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `空间 ${id} 已注册（execTool=${execTool}）——asp_cd("${id}") 可进入` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `create → ${id}` });
+        return undefined;
+      }
+      if (tool === "asp_destroy") {
+        if (currentSpace() !== "meta") {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: "asp.destroy 仅元空间可用——先 asp_cd(\"meta\")" });
+          return undefined;
+        }
+        const id = String(args["id"] ?? "").trim();
+        try {
+          const ok = spaceRegistry.unregister(id);
+          if (!ok) {
+            messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+              content: `asp.destroy: 空间 ${id} 不存在` });
+            return undefined;
+          }
+        } catch (e) {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp.destroy: ${e instanceof Error ? e.message : String(e)}` });
+          return undefined;
+        }
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `空间 ${id} 已注销` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `destroy → ${id}` });
         return undefined;
       }
       if (tool === "memory_index") {

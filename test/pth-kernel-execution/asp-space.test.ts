@@ -59,7 +59,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 3 });
     const firstCall = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { tools: Array<{ name: string }> };
-    expect(firstCall.tools.map((t) => t.name).sort()).toEqual(["asp_cd", "asp_index", "cache_cancel", "cache_index", "cache_load", "done", "memory_index"]);
+    expect(firstCall.tools.map((t) => t.name).sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "done", "memory_index"]);
   });
 
   it("元空间直调 ts → 门控引导（不执行）", async () => {
@@ -97,7 +97,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
     const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
     const secondCallTools = (calls[1]![1] as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
-    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_index", "cache_cancel", "cache_index", "cache_load", "memory_index", "python_execute"]);
+    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "memory_index", "python_execute"]);
   });
 
   it("cd 未知空间 → 报错引导（不迁移）", async () => {
@@ -207,5 +207,43 @@ describe("ASP 门控归一化（e2e 实测发现——点形工具名绕过）",
     ]);
     await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
     expect(pySpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("asp.create / asp.destroy（空间生成/注销——数据驱动注册面）", () => {
+  it("create 注册新空间 → cd 可进入 → destroy 注销后不可进入", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      // 元空间 create 自定义空间
+      { toolCalls: [{ name: "asp_create", arguments: { id: "matlab", execTool: "matlab_exec", description: "MATLAB 风格计算空间" } }] },
+      // cd 进入自定义空间（execTool 无 schema → 门控提示但仍可进入）
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "matlab" } }] },
+      // 回 meta destroy
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
+      { toolCalls: [{ name: "asp_destroy", arguments: { id: "matlab" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 12 });
+    expect(r.ok).toBe(true);
+    // 注册/注销各发生一次
+    expect(spaceRegistry.get("matlab")).toBeUndefined();   // 注销后不残留
+  });
+
+  it("create 非法 id → 拒绝；destroy 内置空间 → 拒绝", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "asp_create", arguments: { id: "Bad ID!", execTool: "x_exec", description: "非法" } }] },
+      { toolCalls: [{ name: "asp_destroy", arguments: { id: "ts" } }] },   // 内置空间保护
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 6 });
+    expect(r.ok).toBe(true);
+    expect(spaceRegistry.get("ts")).toBeDefined();   // 内置未删
+    // 拒绝消息回填给了 LLM（工具结果含拒绝文案）
+    const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
+    const secondMsgs = calls[1]![0] as Array<{ role: string; content: string }>;
+    const toolContents = secondMsgs.filter((m) => m.role === "tool").map((m) => m.content).join("\n");
+    expect(toolContents).toContain("id 非法");
+    expect(toolContents).toContain("不可注销");
   });
 });
