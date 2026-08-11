@@ -277,3 +277,24 @@ describe("role.thinking 生效（推理深度→system prompt——PTH worker �
     expect(prompt).not.toContain("推理预算");
   });
 });
+
+describe("Agent-JIT 路径 B：role.thinking/role.model 接线到 LLM 调用", () => {
+  it("scout（thinking low + model 覆盖）→ complete opts 传 thinking low + 指定模型", async () => {
+    const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
+    await runAgentTask({
+      llm, kernel: mockKernel(), caps: { memory: {} } as any,
+      task: { title: "t", text: "x" }, maxSteps: 3,
+      role: { id: "scout", tags: ["role:scout"], prompt: "scout", thinking: "low", model: "cheap-model-x" },
+    });
+    const call = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { thinking?: string; model?: string };
+    expect(call.thinking).toBe("low");
+    expect(call.model).toBe("cheap-model-x");
+  });
+
+  it("无 role → 不传 thinking（走 provider 默认）；模型回落全局", async () => {
+    const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
+    await runAgentTask({ llm, kernel: mockKernel(), caps: { memory: {} } as any, task: { title: "t", text: "x" }, maxSteps: 3 });
+    const call = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { thinking?: string };
+    expect(call.thinking).toBeUndefined();
+  });
+});

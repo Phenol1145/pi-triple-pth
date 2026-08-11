@@ -197,7 +197,12 @@ async function directOpenAiComplete(
     res = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: model.id, messages: apiMessages, tools, stream: false }),
+      body: JSON.stringify({
+        model: model.id, messages: apiMessages, tools, stream: false,
+        // Agent-JIT 路径 B（2026-08-11）：角色推理档 → reasoning_effort（OpenAI 兼容——
+        // 支持它的 provider 调整推理深度；off/undefined 不传走 provider 默认）
+        ...(opts?.thinking && opts.thinking !== "off" ? { reasoning_effort: opts.thinking } : {}),
+      }),
       signal: ctrl.signal,
     });
   } finally {

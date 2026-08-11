@@ -13,8 +13,10 @@ export interface WorkerRole {
   /** memory 区域（P3——own=仅自己命名空间 / all=跨区特许——缺省 all 兼容） */
   memoryScope?: "own" | "all";
   /** 推理深度（pi-subagent 启发——角色智力分配：决策/审查 high——探索 low——调研 medium）
-   *  v1 仅声明（谱系元数据——后续传 LLM thinking 参数） */
+   *  2026-08-11 Agent-JIT 路径 B：thinking 已接线——agent-loop complete 传 reasoning_effort */
   thinking?: "high" | "medium" | "low";
+  /** 模型覆盖（Agent-JIT 路径 B——窄域角色可声明更弱/更便宜的模型；缺省全局 PTH_AGENT_MODEL） */
+  model?: string;
   /** 一句话职责（谱系文档/能力索引用） */
   description?: string;
   /** 产出约定（角色默认产出语义——scout=context/planner=plan——done result 结构指引） */

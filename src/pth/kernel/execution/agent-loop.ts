@@ -298,7 +298,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
           messages,
           {
             provider: "deepseek",
-            model: modelState.current?.model ?? config().get("PTH_AGENT_MODEL") ?? "deepseek-v4-flash",
+            model: input.role?.model ?? modelState.current?.model ?? config().get("PTH_AGENT_MODEL") ?? "deepseek-v4-flash",
+            thinking: input.role?.thinking,   // Agent-JIT 路径 B：角色推理档 → reasoning_effort（scout low / 执行 high）
             timeoutMs: llmTimeoutMs,
             tools,
           },
