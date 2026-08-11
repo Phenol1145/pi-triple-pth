@@ -54,8 +54,17 @@ export function buildCapabilities(deps: {
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore });
+  // 管理面裁剪（权限 v2 R3——2026-08-10）：worker 执行面只给只读子集——
+  //   perf.set/publish/apply（运行时调参/策略）与 model.set（切模型）是管理面写操作，不进注入面；
+  //   tasks（peek/submit）整体摘除（task-loop 内部走 store——vm 暴露是历史遗留面）。
+  //   系统组件（autopilot/console/lineage）主进程直调，不经能力注入——不受影响。
+  const extCaps = { ...ext.capabilities } as Record<string, unknown>;
+  const perfFull = extCaps["perf"] as Record<string, unknown> | undefined;
+  if (perfFull) extCaps["perf"] = { params: perfFull["params"], status: perfFull["status"], analyze: perfFull["analyze"], list: perfFull["list"] };
+  const modelFull = extCaps["model"] as Record<string, unknown> | undefined;
+  if (modelFull) extCaps["model"] = { get: modelFull["get"], usage: modelFull["usage"] };
   return {
-    ...ext.capabilities,
+    ...extCaps,
     // 扩展编排面（2026-08-09 用户裁决：代码库式扩展 + 公共记忆区索引——无注册装载）
     ...createExtCapability({
       toolstore: deps.toolstore!,
@@ -89,12 +98,7 @@ export function buildCapabilities(deps: {
         return undefined;
       },
     },
-    tasks: {
-      // Finding F1 修复：peek/submit 是方法提取——vm 里 `tasks.peek()` 的 this 是 capabilities.tasks
-      // 对象而非 TaskStore 实例 → this.pool undefined → TypeError（真实 PgTaskStore 用 this.pool.query）。
-      peek: deps.dataWorld.tasks.candidates.bind(deps.dataWorld.tasks),
-      submit: deps.dataWorld.tasks.submit.bind(deps.dataWorld.tasks),
-    },
+    // tasks 能力已摘除（权限 v2 R3）——任务代码不可直接 peek/submit 任务池
     ...(deps.bash ? { bash: deps.bash } : {}),
     ...(deps.python ? { python: deps.python } : {}),
     ...(deps.c ? {

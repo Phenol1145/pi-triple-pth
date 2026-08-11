@@ -17,7 +17,7 @@ function mockDataWorld() {
 }
 
 describe("capabilities", () => {
-  it("buildCapabilities injects llm/memory/skills/tasks", () => {
+  it("buildCapabilities injects llm/memory/skills（tasks 已摘除——权限 v2 R3）", () => {
     const caps = buildCapabilities({
       llm: { complete: async () => ({ content: "x" }) } as any,
       dataWorld: mockDataWorld(),
@@ -25,18 +25,8 @@ describe("capabilities", () => {
     expect(caps.llm).toBeDefined();
     expect(caps.memory).toBeDefined();
     expect(caps.skills).toBeDefined();
-    expect(caps.tasks).toBeDefined();
-  });
-
-  it("tasks capability only exposes peek/submit (not claim/reject)", () => {
-    const caps = buildCapabilities({
-      llm: { complete: async () => ({ content: "x" }) } as any,
-      dataWorld: mockDataWorld(),
-    });
-    expect(caps.tasks.peek).toBeDefined();
-    expect(caps.tasks.submit).toBeDefined();
-    expect(caps.tasks.claim).toBeUndefined();   // 认领由 TaskLoop 机械控制
-    expect(caps.tasks.reject).toBeUndefined();
+    // tasks 能力整体摘除（任务代码不可直接操作任务池——task-loop 内部走 store）
+    expect(caps.tasks).toBeUndefined();
   });
 
   it("injects bash/python interpreters when provided", () => {
@@ -99,28 +89,6 @@ function mockDataWorldWithThis(records?: Array<{ agentId: string; taskId: string
 }
 
 describe("capability this-binding (F1)", () => {
-  it("tasks.peek from VM program keeps this bound to TaskStore", async () => {
-    const kernel = createWorkerKernel({
-      modelRouter: { resolve: () => ({ id: "m", api: "a" }), getRuntime: () => ({}) } as any,
-      dataWorld: mockDataWorldWithThis(),
-    });
-    const res = await kernel.ts.execute("tasks.peek()");
-    // 未 bind 前：this = capabilities.tasks 对象 → this.pool undefined → throw → res.ok false
-    expect(res.ok).toBe(true);
-    expect(res.value).toEqual([]);
-  });
-
-  it("tasks.submit from VM program keeps this bound and passes arguments", async () => {
-    const records: Array<{ agentId: string; taskId: string; outputRef: unknown }> = [];
-    const kernel = createWorkerKernel({
-      modelRouter: { resolve: () => ({ id: "m", api: "a" }), getRuntime: () => ({}) } as any,
-      dataWorld: mockDataWorldWithThis(records),
-    });
-    const res = await kernel.ts.execute("await tasks.submit('agent-1', 'task-42', { ref: 'out-1' })");
-    expect(res.ok).toBe(true);
-    expect(records).toEqual([{ agentId: "agent-1", taskId: "task-42", outputRef: { ref: "out-1" } }]);
-  });
-
   it("memory capability methods are this-bound (survive method extraction)", async () => {
     const caps = buildCapabilities({
       llm: { complete: async () => ({ content: "x" }) } as any,
@@ -133,7 +101,7 @@ describe("capability this-binding (F1)", () => {
     };
     // 解构后裸调用——未 bindAll 前 this = undefined → this.pool undefined → reject
     await expect(retrieve()).resolves.toEqual([]);
-    await expect(write()).resolves.toBeUndefined();
+    await expect(write({ kind: "memory", content: "x" } as never)).resolves.toBeUndefined();   // 权限 v2：kind 必填（knowledge 层放行）
     await expect(bumpHitCount()).resolves.toBeUndefined();
   });
 
@@ -177,8 +145,12 @@ describe("worker kernel", () => {
       modelRouter: { resolve: () => ({ id: "m", api: "a" }), getRuntime: () => ({}) } as any,
       dataWorld: mockDataWorld(),
     });
-    const res = await kernel.ts.execute("tasks.peek()");
+    // tasks 已摘除（权限 v2 R3）——改用 memory.retrieve 验证能力可用性
+    const res = await kernel.ts.execute("await memory.retrieve({ kinds: ['task-insight'] })");
     expect(res.ok).toBe(true);
     expect(res.value).toEqual([]);
+    // tasks 不再可表达（不是禁止——是不存在）
+    const res2 = await kernel.ts.execute("typeof tasks");
+    expect(res2.value).toBe("undefined");
   });
 });

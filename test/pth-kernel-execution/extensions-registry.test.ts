@@ -74,7 +74,7 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
     expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs"]);
   });
 
-  it("model.set 切换 → agent-loop 选择链生效（modelState 单例闭环）", async () => {
+  it("model 管理面裁剪（权限 v2 R3）：worker 面只读（set 摘除，get/usage 保留）", async () => {
     const { modelState } = await import("../../src/pth/kernel/extensions/model.js");
     const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
     const manager = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
@@ -83,21 +83,21 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
       dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} }, queryReadOnly: async () => [] } as any,
       manager, toolstore: null as any,
     });
-    // 程序内 model.set 切模型
-    const r = await kernel.ts.execute('model.set({ model: \"deepseek-v4-pro\", reason: \"complex-step\" });\nreturn model.get();');
-    expect((r.value as any).model).toBe("deepseek-v4-pro");
-    // 模块级单例同步（agent-loop 读取同一引用）
-    expect(modelState.current?.model).toBe("deepseek-v4-pro");
-    expect(modelState.history.length).toBe(1);
-    // vm 内再读一致
-    const r2 = await kernel.ts.execute("return model.current");
-    expect((r2.value as any).model).toBe("deepseek-v4-pro");
+    // model.set 不在 worker 注入面（管理面写操作——防 worker 切模型）
+    const r = await kernel.ts.execute('return { hasSet: typeof model.set, hasGet: typeof model.get, hasUsage: typeof model.usage }');
+    expect((r.value as any).hasSet).toBe("undefined");
+    expect((r.value as any).hasGet).toBe("function");
+    expect((r.value as any).hasUsage).toBe("object");
+    // modelState 单例仍可由系统侧（agent-loop）直读直写——不经能力注入
+    modelState.set({ model: "deepseek-v4-pro", reason: "system" });
+    const r2 = await kernel.ts.execute("return model.get()");
+    expect((r2.value as any).model).toBe("deepseek-v4-pro");   // worker 只读可见系统切换结果
     manager.dispose();
     modelState.current = null;
     modelState.history = [];
   });
 
-  it("perf.params/set：运行时调参（配置中心生效）", async () => {
+  it("perf 管理面裁剪（权限 v2 R3）：worker 面只读（params 可读，set 摘除）", async () => {
     const { resetConfig } = await import("../../src/pth/kernel/extensions/perf-params.js");
     resetConfig({ PTH_AGENT_MODEL: "m1" });
     const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
@@ -107,44 +107,47 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
       dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} }, queryReadOnly: async () => [] } as any,
       manager, toolstore: null as any,
     });
-    const r = await kernel.ts.execute('const before = perf.params(); const s = perf.set({ key: "PTH_AGENT_MODEL", value: "m2" }); const after = perf.params(); return { before: before["PTH_AGENT_MODEL"], setOk: s.ok, after: after["PTH_AGENT_MODEL"] };');
-    expect((r.value as any).before).toBe("m1");
-    expect((r.value as any).setOk).toBe(true);
-    expect((r.value as any).after).toBe("m2");
-    // 非 PTH_* 拒绝
-    const r2 = await kernel.ts.execute('return perf.set({ key: "HOME", value: "/tmp" })');
-    expect((r2.value as any).ok).toBe(false);
+    const r = await kernel.ts.execute('return { model: perf.params()["PTH_AGENT_MODEL"], hasSet: typeof perf.set, hasPublish: typeof perf.publish, hasApply: typeof perf.apply, hasList: typeof perf.list, hasAnalyze: typeof perf.analyze }');
+    expect((r.value as any).model).toBe("m1");                    // 只读 params 可用
+    expect((r.value as any).hasSet).toBe("undefined");            // 管理面写操作摘除
+    expect((r.value as any).hasPublish).toBe("undefined");
+    expect((r.value as any).hasApply).toBe("undefined");
+    expect((r.value as any).hasList).toBe("function");            // 只读子集保留
+    expect((r.value as any).hasAnalyze).toBe("function");
     manager.dispose();
   });
 
-  it("perf.publish/apply/list：策略闭环（toolstore 文件）", async () => {
+  it("perf 全量面（set/publish/apply）仍在扩展层——系统通道用（不经 worker 注入）", async () => {
+    const { resetConfig } = await import("../../src/pth/kernel/extensions/perf-params.js");
+    resetConfig({ PTH_AGENT_MODEL: "m1" });
+    const { perfExtension } = await import("../../src/pth/kernel/extensions/perf.js");
+    const caps = perfExtension.provide({ dataWorld: {} } as never) as { perf: Record<string, Function> };
+    const s = caps.perf["set"]({ key: "PTH_AGENT_MODEL", value: "m2" });
+    expect((s as any).ok).toBe(true);
+    expect(typeof caps.perf["publish"]).toBe("function");
+    expect(typeof caps.perf["apply"]).toBe("function");
+    const denied = caps.perf["set"]({ key: "HOME", value: "/tmp" });
+    expect((denied as any).ok).toBe(false);   // 非 PTH_* 拒绝（扩展层规则不变）
+  });
+
+  it("perf.publish/apply/list：策略闭环（扩展层——权限 v2 后不经 worker kernel）", async () => {
     const { resetConfig } = await import("../../src/pth/kernel/extensions/perf-params.js");
     resetConfig({ PTH_AGENT_MODEL: "m1" });
     const os = await import("node:os");
     const fs = await import("node:fs");
     const path = await import("node:path");
     const stratDir = fs.mkdtempSync(path.join(os.tmpdir(), "perf-strat-"));
-    const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
-    const manager = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
-    const kernel = createWorkerKernelWithManager({
-      llm: null as any,
-      dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} }, queryReadOnly: async () => [] } as any,
-      manager, toolstore: null as any,
-      strategiesDir: stratDir,
-    });
-    const pub = await kernel.ts.execute('return perf.publish({ id: "fast-agent", params: { PTH_AGENT_MODEL: "deepseek-v4-flash", PTH_BATCH_SCALE_UP_THRESHOLD: "3" } })');
-    expect((pub.value as any).ok).toBe(true);
-    const app = await kernel.ts.execute('return perf.apply({ id: "fast-agent" })');
-    expect((app.value as any).ok).toBe(true);
-    expect((app.value as any).appliedParams).toBe(2);
-    const check = await kernel.ts.execute('return { model: perf.params()["PTH_AGENT_MODEL"], threshold: perf.params()["PTH_BATCH_SCALE_UP_THRESHOLD"] }');
-    expect((check.value as any).model).toBe("deepseek-v4-flash");
-    expect((check.value as any).threshold).toBe("3");
-    const list = await kernel.ts.execute('return perf.list()');
-    expect((list.value as any).length).toBe(1);
-    const analyze = await kernel.ts.execute('return perf.analyze()');
-    expect((analyze.value as any).notes.length).toBeGreaterThan(0);
-    manager.dispose();
+    const { perfExtension } = await import("../../src/pth/kernel/extensions/perf.js");
+    const perf = (perfExtension.provide({ dataWorld: {}, strategiesDir: stratDir } as never) as { perf: Record<string, Function> }).perf;
+    const pub = await perf["publish"]({ id: "fast-agent", params: { PTH_AGENT_MODEL: "deepseek-v4-flash", PTH_BATCH_SCALE_UP_THRESHOLD: "3" } }) as any;
+    expect(pub.ok).toBe(true);
+    const app = await perf["apply"]({ id: "fast-agent" }) as any;
+    expect(app.ok).toBe(true);
+    expect(app.appliedParams).toBe(2);
+    const list = await perf["list"]() as any;
+    expect(list.length).toBe(1);
+    const analyze = await perf["analyze"]() as any;
+    expect(analyze.notes.length).toBeGreaterThan(0);
     fs.rmSync(stratDir, { recursive: true, force: true });
   });
 });

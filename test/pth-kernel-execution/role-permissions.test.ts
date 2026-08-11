@@ -48,7 +48,8 @@ describe("权限分层（P3——注入面收窄）", () => {
       ...fakeDataWorld,
       memory: {
         retrieve: async () => [],
-        write: async (kind: string, content: string, opts?: Record<string, unknown>) => { written = opts; },
+        // 对象签名（真实 PgMemoryStore.write(entry)——位置形是历史错配已修复）
+        write: async (entry: Record<string, unknown>) => { written = entry; },
       },
     } as any;
     const k = createWorkerKernelWithManager({
@@ -58,7 +59,7 @@ describe("权限分层（P3——注入面收窄）", () => {
       memoryScope: { role: "developer", scope: "own" },
     });
     const memory = k.capabilities["memory"] as Record<string, unknown>;
-    await (memory["write"] as (k2: string, c: string, o?: unknown) => Promise<unknown>)("insight", "x", { anchors: ["orig"] });
+    await (memory["write"] as (e: unknown) => Promise<unknown>)({ kind: "insight", content: "x", anchors: ["orig"] });
     expect(written).toMatchObject({ anchors: ["role:developer", "orig"] });
   });
 
@@ -66,7 +67,7 @@ describe("权限分层（P3——注入面收窄）", () => {
     let written: Record<string, unknown> | undefined;
     const dw = {
       ...fakeDataWorld,
-      memory: { retrieve: async () => [], write: async (_k: string, _c: string, o?: Record<string, unknown>) => { written = o; } },
+      memory: { retrieve: async () => [], write: async (entry: Record<string, unknown>) => { written = entry; } },
     } as any;
     const k = createWorkerKernelWithManager({
       llm: { complete: async () => ({ ok: false }) } as any,
@@ -75,7 +76,7 @@ describe("权限分层（P3——注入面收窄）", () => {
       memoryScope: { role: "memory-keeper", scope: "all" },
     });
     const memory = k.capabilities["memory"] as Record<string, unknown>;
-    await (memory["write"] as (k2: string, c: string, o?: unknown) => Promise<unknown>)("insight", "x", { anchors: ["a"] });
+    await (memory["write"] as (e: unknown) => Promise<unknown>)({ kind: "insight", content: "x", anchors: ["a"] });
     expect(written).toMatchObject({ anchors: ["a"] });   // 无 role 前缀（all 不包装）
   });
 

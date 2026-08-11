@@ -233,9 +233,12 @@ export function createWorkerKernelWithManager(deps: {
       const role = deps.memoryScope.role;
       filtered["memory"] = {
         ...orig,
-        write: async (kind: string, content: string, opts?: Record<string, unknown>) => {
-          const withRole = { ...(opts ?? {}), anchors: [`role:${role}`, ...((opts?.anchors as string[]) ?? [])] };
-          return (orig["write"] as (k: string, c: string, o?: unknown) => Promise<unknown>)(kind, content, withRole);
+        // 双签名归一（对象/位置——normalizeWriteArgs）+ role 命名空间 anchor 注入（对象签名下传）
+        write: async (a: unknown, b?: unknown, c?: unknown) => {
+          const { normalizeWriteArgs } = await import("../extensions/memory-policy.js");
+          const entry = normalizeWriteArgs(a, b, c);
+          entry.anchors = [`role:${role}`, ...((entry.anchors as unknown[]) ?? [])];
+          return (orig["write"] as (e: unknown) => Promise<unknown>)(entry);
         },
       };
     }
