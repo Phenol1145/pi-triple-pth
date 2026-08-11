@@ -35,7 +35,7 @@ describe("PTC 程序模式（真实 vm + kernel 集成）", () => {
       complete: async () => {
         step++;
         if (step === 1) {
-          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c1", name: "ts", arguments: { code: PTC_CODE_1 } }] };
+          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c1", name: "ts.run", arguments: { code: PTC_CODE_1 } }] };
         }
         return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c2", name: "done", arguments: { result: { ptc: true, sum: 5050 }, summary: "PTC 完成" } }] };
       },
@@ -61,7 +61,7 @@ describe("PTC 程序模式（真实 vm + kernel 集成）", () => {
       complete: async () => {
         step++;
         if (step === 1) {
-          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c1", name: "ts", arguments: { code: PTC_CODE_2 } }] };
+          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c1", name: "ts.run", arguments: { code: PTC_CODE_2 } }] };
         }
         return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c2", name: "done", arguments: { result: { ok: true }, summary: "done" } }] };
       },

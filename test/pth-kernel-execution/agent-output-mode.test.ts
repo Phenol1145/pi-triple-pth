@@ -45,7 +45,7 @@ describe("输出模式（mode 枚举）", () => {
   });
 
   it("quiet：静默（ok 保留，无输出/无 value）", async () => {
-    const r = await AGENT_TOOLS["ts"](ctx(null, null), { code: "return 1", mode: "quiet" });
+    const r = await AGENT_TOOLS["ts.run"](ctx(null, null), { code: "return 1", mode: "quiet" });
     expect(r.ok).toBe(true);
     expect(r.quiet).toBe(true);
     expect(r.stdout).toBe("");

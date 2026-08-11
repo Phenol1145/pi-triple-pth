@@ -35,7 +35,7 @@ describe("工具面收敛终态", () => {
   });
 
   it("白名单收缩：仅 ts/python.execute/bash.execute/done", () => {
-    expect(AGENT_TOOL_IDS).toEqual(["ts", "python.execute", "bash.execute", "done"]);
+    expect(AGENT_TOOL_IDS).toEqual(["ts.eval", "ts.run", "python.execute", "bash.execute", "done"]);
     expect(AGENT_TOOLS_DESCRIPTION).toContain("ts");
     expect(AGENT_TOOLS_DESCRIPTION).not.toContain("- llm.complete"); // 动作工具面无 llm.complete（能力函数仍在 ts 程序内）
   });
@@ -97,7 +97,7 @@ describe("工具面收敛终态", () => {
           return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c1", name: "python.execute", arguments: { code: "_result = 100" } }] };
         }
         if (step === 2) {
-          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c2", name: "ts", arguments: { code: "const prev = results.result_1; return { got: prev.value + 1 };" } }] };
+          return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c2", name: "ts.run", arguments: { code: "const prev = results.result_1; return { got: prev.value + 1 };" } }] };
         }
         return { content: "", model: "m", usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ id: "c3", name: "done", arguments: { result: { ok: true }, summary: "done" } }] };
       },

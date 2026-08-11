@@ -154,3 +154,65 @@ describe("worker kernel", () => {
     expect(res2.value).toBe("undefined");
   });
 });
+
+describe("exec 执行模式（2026-08-11 元命令拆分——single/program/auto）", () => {
+  function mk() {
+    // createWorkerKernel 内部自建 capabilities（不接收 capabilities 参数）
+    return createWorkerKernel({ dataWorld: mockDataWorld() } as any);
+  }
+
+  it("single：单表达式强制 return 包装——completion value 必回", async () => {
+    const k = mk();
+    // 含尾分号（旧启发式会误判多语句）
+    const r1 = await k.ts.execute("await Promise.resolve(42);", { exec: "single" });
+    expect(r1.ok).toBe(true);
+    expect(r1.value).toBe(42);
+    // 对象字面量（旧启发式按块解析）
+    const r2 = await k.ts.execute("({ total: 7 })", { exec: "single" });
+    expect(r2.ok).toBe(true);
+    expect((r2.value as any).total).toBe(7);
+    // 字符串字面量含分号（旧启发式命中多语句分隔符）
+    const r3 = await k.ts.execute('"a;b"', { exec: "single" });
+    expect(r3.ok).toBe(true);
+    expect(r3.value).toBe("a;b");
+    // 模板串内换行（旧启发式命中 \\n 分隔符）
+    const r4 = await k.ts.execute("`line1\nline2`", { exec: "single" });
+    expect(r4.ok).toBe(true);
+    expect(r4.value).toBe("line1\nline2");
+  });
+
+  it("single：声明语句 → 语法错误（显式声明语义——调用方负责单表达式）", async () => {
+    const k = mk();
+    const r = await k.ts.execute("const a = 1", { exec: "single" });
+    expect(r.ok).toBe(false);
+    expect((r.error?.message ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("program：完整程序块包装（声明/多语句/尾表达式捕获）", async () => {
+    const k = mk();
+    const r1 = await k.ts.execute("const a = 40; const b = 2; a + b", { exec: "program" });
+    expect(r1.ok).toBe(true);
+    expect(r1.value).toBe(42);
+    // 单表达式也按程序执行（块包装——值捕获走尾表达式）
+    const r2 = await k.ts.execute("await Promise.resolve(42)", { exec: "program" });
+    expect(r2.ok).toBe(true);
+    expect(r2.value).toBe(42);
+    // 控制流
+    const r3 = await k.ts.execute("let n = 0; for (let i = 0; i < 3; i++) n += i; n", { exec: "program" });
+    expect(r3.ok).toBe(true);
+    expect(r3.value).toBe(3);
+  });
+
+  it("auto（默认）：旧启发式行为不变（回归）", async () => {
+    const k = mk();
+    const r1 = await k.ts.execute("await Promise.resolve(42);");
+    expect(r1.ok).toBe(true);
+    expect(r1.value).toBe(42);
+    const r2 = await k.ts.execute("const a = 1; a");
+    expect(r2.ok).toBe(true);
+    expect(r2.value).toBe(1);
+    // 无 await/return 的纯语句程序：裸执行
+    const r3 = await k.ts.execute("globalThis.__side = 5");
+    expect(r3.ok).toBe(true);
+  });
+});

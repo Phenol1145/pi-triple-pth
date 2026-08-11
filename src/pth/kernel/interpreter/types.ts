@@ -9,6 +9,11 @@ export interface ExecuteOptions {
   structured?: boolean;      // value 序列化（默认 true——JSON）
   maxValueChars?: number;    // value 序列化上限（默认 8KB）
   captureResult?: boolean;   // 捕获 _result/return（默认 true）
+  // ── 执行模式（2026-08-11 元命令拆分）：显式声明而非启发式猜测 ──
+  // single：单表达式求值（return 包装——completion value 必回）；
+  // program：程序执行（块包装——声明/多语句/控制流）；
+  // auto（默认）：旧启发式判别（存量兼容）
+  exec?: "single" | "program" | "auto";
 }
 
 export interface InterpreterResult {

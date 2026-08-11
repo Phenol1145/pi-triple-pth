@@ -59,7 +59,7 @@ export class TsInterpreter implements Interpreter {
   async execute(program: string, opts?: ExecuteOptions): Promise<InterpreterResult> {
     const start = Date.now();
     try {
-      const pre = preflight(program);
+      const pre = preflight(program, opts?.exec ?? "auto");
       if (!pre.ok) {
         return { ok: false, error: { message: pre.error }, durationMs: Date.now() - start };
       }
@@ -127,8 +127,12 @@ export class TsInterpreter implements Interpreter {
   }
 }
 
-/** 前置校验：import/require 拒绝 + top-level await 包装（异步 IIFE） */
-function preflight(program: string): { ok: true; code: string } | { ok: false; error: string } {
+/** 前置校验：import/require 拒绝 + 执行模式包装（异步 IIFE）。
+ * 模式（2026-08-11 元命令拆分——显式声明而非启发式猜测）：
+ *   single  → return 包装：completion value 必回（单表达式求值）；
+ *   program → 块包装：完整程序执行（声明/多语句/控制流——尾表达式捕获）；
+ *   auto    → 旧启发式判别（存量调用兼容）。 */
+function preflight(program: string, exec: "single" | "program" | "auto"): { ok: true; code: string } | { ok: false; error: string } {
   // import 语句（行首 import 或 import( 动态导入）
   if (/^\s*import\s/m.test(program) || /import\s*\(/.test(program)) {
     return { ok: false, error: "import is not allowed in kernel programs — use injected globals (llm/memory/skills/tasks/bash/python)" };
@@ -137,23 +141,33 @@ function preflight(program: string): { ok: true; code: string } | { ok: false; e
   if (/\brequire\s*\(/.test(program)) {
     return { ok: false, error: "require is not allowed in kernel programs — use injected globals (llm/memory/skills/tasks/bash/python)" };
   }
-  // 统一包装为异步 IIFE：await（异步延续）与顶层 return 都需要函数上下文。
-  // （试运行发现：无 await 但有 return 的任务代码不被包装 → "Return statement is not allowed"）
-  if (/\bawait\b/.test(program) || /^\s*return\b/m.test(program) || /\breturn\s*\{/.test(program)) {
-    return { ok: true, code: wrapAwait(program) };
-  }
-  return { ok: true, code: program };
+  const mode = exec === "auto"
+    // 旧启发式：含 await/return → 包装；否则裸执行
+    ? (() => (/(\bawait\b)|(^\s*return\b)|(return\s*\{)/m.test(program) ? "wrap" : "bare"))()
+    : (exec === "single" ? "single" : "program");
+  if (mode === "bare") return { ok: true, code: program };
+  return { ok: true, code: wrapAwait(program, mode) };
 }
 
 /**
- * top-level await 包装。适配说明（brief 实现缺陷修复）：brief 的块包装
+ * top-level await 包装（异步 IIFE）。适配说明（brief 实现缺陷修复）：brief 的块包装
  * `(async () => { ${program} })()` 对表达式程序（如 `await Promise.resolve(42)`）
  * 不捕获 completion value，IIFE resolve 为 undefined（测试要求 42）。
  * 修复：单表达式程序用 return 包装（捕获值）；语句式程序保持块包装
  * （语句完整执行）。若一律 return 包装，`const r = await f(); r` 会语法错误、
  * `await g(); await h()` 会静默只执行第一条——故需启发式区分。
+ * 2026-08-11 元命令拆分：single（显式单表达式）/ program（显式程序）/ wrap（auto 启发式）。
  */
-function wrapAwait(program: string): string {
+function wrapAwait(program: string, mode: "single" | "program" | "wrap"): string {
+  if (mode === "single") {
+    // 显式单表达式：return 包装——completion value 必回（尾分号在 return 语句内合法）
+    return `(async () => { return ${program} })()`;
+  }
+  if (mode === "program") {
+    // 显式程序：块包装完整执行（声明/多语句/控制流——尾表达式捕获）
+    return blockWrap(program);
+  }
+  // auto 启发式（旧行为）
   // Finding #2（修复）：尾分号剥离。`await Promise.resolve(42);` 的末尾 `;` 会被误判为
   // 多语句分隔符 → 块包装 → completion value 丢失（测试要求 42）。先剥离末尾空白/分号再判别；
   // 内部 `;`（真多语句）保留，仍走块包装。
@@ -165,6 +179,12 @@ function wrapAwait(program: string): string {
   if (!startsWithStatementKeyword && !hasTopLevelSeparator) {
     return `(async () => { return ${program} })()`;
   }
+  return blockWrap(program);
+}
+
+/** 块包装：autoExport + 尾表达式捕获（program 模式与 auto 多语句共用） */
+function blockWrap(program: string): string {
+  const trimmed = program.replace(/[;\s]+$/, "").trim();
   // 块包装 + 自动导出（T4 refine 支持）：顶层 function/var 声明转发到 globalThis
   // （否则 IIFE 局部声明 snapshot 不可见——试运行发现 fibonacci 提炼为空）。
   // try-catch 包裹：正则误判的嵌套声明（如函数内 `; var x`）导出失败静默跳过，不破坏任务。

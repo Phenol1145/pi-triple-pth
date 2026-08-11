@@ -59,11 +59,16 @@ export class SpaceRegistry {
     return this.spaces.get(id)?.kind === "action";
   }
 
-  /** 执行工具名 → 所属空间 id（门控反查——点形/下划线形归一：模型可能输出 python.execute 或 python_execute） */
+  /** 执行工具名 → 所属空间 id（门控反查——点形/下划线形归一：模型可能输出 python.execute 或 python_execute）。
+   * 族名匹配（2026-08-11 元命令拆分）：execTool 无下划线时为族名（如 ts）——ts_eval/ts_run 同族归属；
+   * execTool 含下划线（python_execute/c_execute/custom_exec）精确匹配。 */
   spaceOfExecTool(tool: string): string | null {
     const normalized = tool.replace(/\./g, "_");
     for (const s of this.spaces.values()) {
+      if (!s.execTool) continue;
       if (s.execTool === tool || s.execTool === normalized) return s.id;
+      const family = s.execTool.replace(/\./g, "_");
+      if (!family.includes("_") && (normalized === family || normalized.startsWith(`${family}_`))) return s.id;
     }
     return null;
   }

@@ -146,7 +146,7 @@ describe("PTC 程序模式（P1）", () => {
     (kernel.ts.execute as any).mockResolvedValueOnce({
       ok: true, value: { sum: 5050 }, stdout: "中间输出1\n中间输出2", durationMs: 1, language: "ts",
     });
-    const r = await AGENT_TOOLS.ts({ kernel, caps: CAPS }, { code: "return 1" });
+    const r = await AGENT_TOOLS["ts.run"]({ kernel, caps: CAPS }, { code: "return 1" });
     expect(r.ok).toBe(true);
     expect(r.value).toEqual({ sum: 5050 });
     expect(r.stdout).toContain("中间输出1");
@@ -157,7 +157,7 @@ describe("PTC 程序模式（P1）", () => {
     const kernel = mockKernel();
     const llm = mockLlm([
       // LLM 直接写 PTC 程序：一次完成 python 算 + bash 验证（不再分步）
-      { toolCalls: [{ name: "ts", arguments: { code: 'const py = await python.execute("fib"); const b = await bash.execute("echo check"); return { fib: py.value, checked: true }; ' } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: 'const py = await python.execute("fib"); const b = await bash.execute("echo check"); return { fib: py.value, checked: true }; ' } }] },
       { toolCalls: [{ name: "done", arguments: { result: { fib25: 75025 }, summary: "PTC 一次完成" } }] },
     ]);
     const r = await runAgentTask({
@@ -180,7 +180,7 @@ describe("收敛 agent 行为 v1（重复动作检测——轨迹分析 2026-08-
     const kernel = mockKernel();
     // 模拟 step 13-26 模式：同一 readSource 但每步微变（变量名/注释）
     const steps = Array.from({ length: 6 }, (_, i) => ({
-      toolCalls: [{ name: "ts", arguments: { code: `// v${i} 重写\nconst s${i} = await fs.readSource("src/pth/kernel/interpreter/ts-interpreter.ts"); s${i};` } }],
+      toolCalls: [{ name: "ts.run", arguments: { code: `// v${i} 重写\nconst s${i} = await fs.readSource("src/pth/kernel/interpreter/ts-interpreter.ts"); s${i};` } }],
     }));
     const llm = mockLlm(steps);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "读文件" }, maxSteps: 8 });
@@ -192,8 +192,8 @@ describe("收敛 agent 行为 v1（重复动作检测——轨迹分析 2026-08-
   it("不同文件读取 → 不判定重复（正常推进）", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      { toolCalls: [{ name: "ts", arguments: { code: `const a = await fs.readSource("src/a.ts"); a;` } }] },
-      { toolCalls: [{ name: "ts", arguments: { code: `const b = await fs.readSource("src/b.ts"); b;` } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: `const a = await fs.readSource("src/a.ts"); a;` } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: `const b = await fs.readSource("src/b.ts"); b;` } }] },
       { toolCalls: [{ name: "done", arguments: { result: { ok: true } } }] },
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "读多文件" }, maxSteps: 5 });
@@ -206,9 +206,9 @@ describe("指纹归一化修正（c473e646 实测——memory 查询误判重复
   it("不同 memory 查询（role/索引/列表）→ 不判重复（前 3 步正常推进）", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      { toolCalls: [{ name: "ts", arguments: { code: `const r = await memory.query("SELECT content FROM memory_entries WHERE id='role-doc:tester' LIMIT 1"); r;` } }] },
-      { toolCalls: [{ name: "ts", arguments: { code: `const c = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1"); c;` } }] },
-      { toolCalls: [{ name: "ts", arguments: { code: `const l = await memory.query("SELECT id, kind FROM memory_entries WHERE kind='skill' LIMIT 20"); l;` } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: `const r = await memory.query("SELECT content FROM memory_entries WHERE id='role-doc:tester' LIMIT 1"); r;` } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: `const c = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1"); c;` } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: `const l = await memory.query("SELECT id, kind FROM memory_entries WHERE kind='skill' LIMIT 20"); l;` } }] },
       { toolCalls: [{ name: "done", arguments: { result: { ok: true }, summary: "完成" } }] },
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "探索" }, maxSteps: 6 });
@@ -218,7 +218,7 @@ describe("指纹归一化修正（c473e646 实测——memory 查询误判重复
 
   it("同一 memory SQL 连续 → 判定重复（收敛——5 次强制终止）", async () => {
     const kernel = mockKernel();
-    const same = { toolCalls: [{ name: "ts", arguments: { code: `const c = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1"); c;` } }] };
+    const same = { toolCalls: [{ name: "ts.run", arguments: { code: `const c = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1"); c;` } }] };
     const llm = mockLlm(Array.from({ length: 8 }, () => same));
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 10 });
     expect(r.ok).toBe(true);

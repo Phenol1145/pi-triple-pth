@@ -42,7 +42,8 @@ describe("parseAgentAction（LLM 输出 → 动作解析）", () => {
 
 describe("isKnownTool（白名单校验）", () => {
   it("已知工具（元工具收敛后）", () => {
-    expect(isKnownTool("ts")).toBe(true);
+    expect(isKnownTool("ts.run")).toBe(true);
+    expect(isKnownTool("ts.eval")).toBe(true);
     expect(isKnownTool("python.execute")).toBe(true);
     expect(isKnownTool("bash.execute")).toBe(true);
     expect(isKnownTool("done")).toBe(true);

@@ -65,7 +65,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
   it("元空间直调 ts → 门控引导（不执行）", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      { toolCalls: [{ name: "ts", arguments: { code: "return 1" } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: "return 1" } }] },
       { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 5 });
@@ -77,17 +77,17 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     const kernel = mockKernel();
     const llm = mockLlm([
       { toolCalls: [{ name: "asp_cd", arguments: { space: "ts" } }] },
-      { toolCalls: [{ name: "ts", arguments: { code: "return 42" } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: "return 42" } }] },
       { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
       { toolCalls: [{ name: "done", arguments: { result: { v: 42 } } }] },
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
-    expect(kernel.ts.execute).toHaveBeenCalledWith("return 42", expect.anything());
+    expect(kernel.ts.execute).toHaveBeenCalledWith("return 42", expect.objectContaining({ exec: "program" }));
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toEqual({ v: 42 });
   });
 
-  it("cd 后工具面切换（ts 空间只提供 asp_cd + ts）", async () => {
+  it("cd 后工具面切换（ts 空间提供 asp_cd + ts.run/ts.eval）", async () => {
     const llm = mockLlm([
       { toolCalls: [{ name: "asp_cd", arguments: { space: "python" } }] },
       { toolCalls: [{ name: "done", arguments: { result: {} } }] },   // done 在 python 空间被门控
@@ -113,7 +113,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
   it("ASP 关闭（默认）：旧行为不变（ts/done 直接可用）", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      { toolCalls: [{ name: "ts", arguments: { code: "return 1" } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: "return 1" } }] },
       { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });

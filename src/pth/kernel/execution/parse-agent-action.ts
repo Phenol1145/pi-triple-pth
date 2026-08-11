@@ -6,7 +6,8 @@
  */
 
 export const AGENT_TOOL_IDS = [
-  "ts",
+  "ts.eval",
+  "ts.run",
   "python.execute",
   "bash.execute",
   "done",

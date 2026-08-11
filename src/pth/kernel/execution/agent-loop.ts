@@ -12,7 +12,7 @@
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, toolsToSchema, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
+import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, toolsToSchema, toolsForExecTool, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "../extensions/perf-params.js";
 import { modelState } from "../extensions/model.js";
@@ -26,8 +26,8 @@ function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] 
   if (spaceId === "meta") return [...ambient, toolSchemaFor("done")!];
   const sp = spaceRegistry.get(spaceId);
   if (sp?.execTool) {
-    const exec = toolSchemaFor(sp.execTool);
-    if (exec) return [...ambient, exec];
+    const execs = toolsForExecTool(sp.execTool);
+    if (execs.length > 0) return [...ambient, ...execs];
   }
   return ambient;
 }
@@ -212,12 +212,13 @@ const skill = await memory.query("SELECT content FROM memory_entries WHERE id='s
 （按文档方法调查——Object.keys/fn.toString/读实现源码/试错推断——不要盲试）
 
 【程序模式（PTC——优先使用）】
-优先用 ts 工具写【完整程序】一次性组合多个 kernel/能力完成多步，而不是分步发多个动作：
+优先用 ts.run 写【完整程序】一次性组合多个 kernel/能力完成多步，而不是分步发多个动作；
+单行查询/计算（不需要变量/循环）用 ts.eval 直接求值：
 - ts 程序运行在 vm 沙箱，可 await 调用能力函数；程序内可写 for/if/函数/变量——跨步骤传值
 - 结果自动注册 results 对象（results.result_1 引用之前步骤的工具输出）
 - context 对象跨步骤保留（context.my_key = ... 供后续程序读取）
 - return 的值 + 程序 stdout 都会回填给你（中间输出可见）
-单 kernel 简单步骤（python.execute / bash.execute）可直接调用；复杂多步组合用 ts 程序。
+单 kernel 简单步骤（python.execute / bash.execute）可直接调用；复杂多步组合用 ts.run。
 
 输出要求：每步输出一个 JSON 动作（可用工具在 tools 声明中——结构化 tool_calls）。
 完成任务时输出 done 工具：
@@ -227,6 +228,10 @@ const skill = await memory.query("SELECT content FROM memory_entries WHERE id='s
   ① 有实际产物（实现/文件写入/计算结果）——result 带产物
   ② 明确无法完成（信息不足/超出能力/环境限制）——done 提交并说明原因（summary 详细）
 未达完成标准不要 done——继续推进（实现/测试/沉淀）。`;
+}
+
+function isTsFamily(tool: string): boolean {
+  return tool.replace(/_/g, ".") === "ts.run" || tool.replace(/_/g, ".") === "ts.eval";
 }
 
 function truncate(s: string, max = 2000): { text: string; truncated: boolean } {
@@ -242,7 +247,7 @@ function truncate(s: string, max = 2000): { text: string; truncated: boolean } {
  *      （role/索引/列表）误判重复——按 SQL 指纹区分）
  *   ③ 其他 ts：code 去空白归一化（微变仍算不同——防误判） */
 function actionFingerprint(tool: string, args: Record<string, unknown>): string {
-  if (tool === "ts" && typeof args.code === "string") {
+  if (isTsFamily(tool) && typeof args.code === "string") {
     const code = args.code;
     const reads = [...code.matchAll(/fs\.(readSource|readText)\(\s*"([^"]+)"/g)]
       .map((m) => `${m[1]}:${m[2]}`)
@@ -393,7 +398,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     if (repeatCount >= 5) {
       return { ok: true, value: null, steps: steps + 1, warning: `连续 ${repeatCount} 次重复动作（${tool}），强制终止` };
     }
-    if (repeatCount >= 3 && tool === "ts") {
+    if (repeatCount >= 3 && isTsFamily(tool)) {
       // 引导：重复读同一文件无意义——回填提示让模型推进（结果已在历史 tool-result）
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
         content: `[收敛] 检测到重复动作（第 ${repeatCount + 1} 次相同文件读取）——该文件内容已在前面的工具结果中返回过——不要重复读取，直接基于已有结果推进下一步（设计/实现/测试/完成）。` });

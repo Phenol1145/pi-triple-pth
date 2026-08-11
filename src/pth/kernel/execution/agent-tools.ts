@@ -85,8 +85,10 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     );
   },
 
-  ts: async ({ kernel, taskWorkspace }, args) => {
-    const r = await kernel.ts.execute(str(args, "code"), { cwd: taskWorkspace ?? "/tmp" });
+  // 元命令拆分（2026-08-11 用户裁决）：ts.run = 程序执行（块包装——声明/多语句/控制流）；
+  // ts.eval = 单表达式求值（return 包装——completion value 必回）。显式声明取代启发式猜测。
+  "ts.run": async ({ kernel, taskWorkspace }, args) => {
+    const r = await kernel.ts.execute(str(args, "code"), { cwd: taskWorkspace ?? "/tmp", exec: "program" });
     if (!r.ok) return { ok: false, error: r.error?.message ?? "ts execute failed" };
     // PTC 程序模式：回填 return 值 + stdout（含中间输出——LLM 可诊断多步组合）
     const out = truncate(r.stdout ?? "", 4000);
@@ -94,6 +96,19 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     const combined = [out.text, value !== "null" ? `返回值: ${value}` : ""].filter(Boolean).join("\n");
     return applyOutputMode(
       { ok: true, value: r.value, stdout: truncate(combined, 4000).text, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
+      args["mode"],
+    );
+  },
+
+  "ts.eval": async ({ kernel, taskWorkspace }, args) => {
+    const r = await kernel.ts.execute(str(args, "code"), { cwd: taskWorkspace ?? "/tmp", exec: "single" });
+    if (!r.ok) return { ok: false, error: r.error?.message ?? "ts eval failed" };
+    // 单表达式求值：value 即结果（stdout 冗余裁剪）
+    const value = JSON.stringify(r.value ?? null);
+    const out = truncate(r.stdout ?? "", 2000);
+    const combined = [out.text, value !== "null" ? `结果: ${value}` : ""].filter(Boolean).join("\n");
+    return applyOutputMode(
+      { ok: true, value: r.value, stdout: truncate(combined, 2000).text, truncated: out.truncated },
       args["mode"],
     );
   },
@@ -123,9 +138,14 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     properties: { command: { type: "string", description: "shell 命令" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["command"],
   },
-  ts: {
-    description: "在 ts kernel（vm 沙箱）执行程序——程序内可 await 调用能力函数（memory/llm/web/fs/python/bash/c/ext 等）；return 的值回填。【效率规则】查询/读取大内容一次取回后立即在程序内本地处理（切片/过滤/聚合都在程序里做）——不要多次调用重复分片读取同一内容；一个程序可组合多个能力调用，无需拆成多次工具调用",
-    properties: { code: { type: "string", description: "ts 程序（顶层 await 可用；return 对象作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+  "ts.run": {
+    description: "【程序模式（优先）】在 ts kernel（vm 沙箱）执行完整 TypeScript 程序——程序内可 await 调用能力函数（memory/llm/web/fs/python/bash/c/ext 等），可声明变量/多语句/控制流；return 的值回填；尾表达式自动捕获。【效率规则】查询/读取大内容一次取回后立即在程序内本地处理（切片/过滤/聚合都在程序里做）——不要多次调用重复分片读取同一内容；一个程序可组合多个能力调用，无需拆成多次工具调用",
+    properties: { code: { type: "string", description: "ts 程序（顶层 await 可用；声明/多语句/控制流；return 对象作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
+    required: ["code"],
+  },
+  "ts.eval": {
+    description: "【单表达式求值】在 ts kernel 计算单个表达式并返回结果（不声明变量——一行查询/计算：await memory.query(...)、count 统计等；表达式值即结果）。多步骤/声明变量/循环请用 ts.run。",
+    properties: { code: { type: "string", description: "ts 单表达式（顶层 await 可用；表达式的值即结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["code"],
   },
   done: {
@@ -200,6 +220,22 @@ export function toolSchemaFor(executorKey: string): import("@earendil-works/pi-a
   return { name: key.replace(/\./g, "_"), description: s.description, parameters: { type: "object", properties: s.properties, required: s.required } };
 }
 
+/** 族名展开（2026-08-11 元命令拆分）：execTool 族名下所有同族工具 schema。
+ * ts（族名）→ [ts_run, ts_eval]；python_execute（含下划线=精确）→ [python_execute]。 */
+export function toolsForExecTool(execTool: string): import("@earendil-works/pi-ai").Tool[] {
+  const exact = toolSchemaFor(execTool);
+  if (exact) return [exact];
+  const family = execTool.replace(/_/g, ".");
+  const out: import("@earendil-works/pi-ai").Tool[] = [];
+  for (const key of Object.keys(TOOL_SCHEMAS)) {
+    if (key.startsWith(`${family}.`)) {
+      const s = toolSchemaFor(key);
+      if (s) out.push(s);
+    }
+  }
+  return out;
+}
+
 /** 工具声明 → pi-ai Tool[]（OpenAI function 格式——Context.tools 原生 tool_calls）
  * name 去点（OpenAI tool name pattern ^[a-zA-Z0-9_-]+$——python.execute 非法 → python_execute）
  */
@@ -212,7 +248,8 @@ export function toolsToSchema(): import("@earendil-works/pi-ai").Tool[] {
 }
 
 export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
-- ts: {code, mode?} —— 【程序模式（优先）】执行 TypeScript 程序：await 调用 python.execute/bash.execute/c.execute/c.saveUnit/c.executeUnit/c.listUnits/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
+- ts.run: {code, mode?} —— 【程序模式（优先）】执行完整 TypeScript 程序：可声明变量/多语句/控制流；await 调用 python.execute/bash.execute/c.execute/c.saveUnit/c.executeUnit/c.listUnits/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
+- ts.eval: {code, mode?} —— 【单表达式求值】一行查询/计算（不声明变量——表达式值即结果）：await memory.query(...) 统计等
 - c.execute: {code, mode?} —— C 编译核快捷（sandbox 编译运行——源码内嵌字符串）
 - c.executeUnit: {name, mode?} —— 命名编译单元（toolstore compiled-units/<name>.c——跨任务复用；c.saveUnit 保存）
 - python.execute: {code, mode?} —— 单 kernel 快捷（简单步骤不必写程序）
