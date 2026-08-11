@@ -236,3 +236,24 @@ POST /api/v1/kernel/exec  { code, mode?, sessionId?, timeoutMs? }
 ```
 
 **标签注册通道**（tag-registry——预留 complexity/priority 维度）：角色注册自动挂载其固定 tags；`registerTag({name, kind, role?})` 显式扩展。
+
+### 权限系统 v2（2026-08-10——9.3 第一轮）
+
+**记忆用途层分级**（memory.* worker 面内嵌规则——memory-policy.ts）：
+
+| 层 | kinds | worker 权限 |
+|---|---|---|
+| prompt | role-doc:* · capability-index · project-map · pth-worker-system · self-modify-guide · skill:* · extension-index | 只读 |
+| config | trigger · refine-task:* | 只读（防自开触发器/自改 refine 行为） |
+| governance | differentiation-proposal · refine-report | 可写但**强制 draft**（可提草案不可自批；update 禁状态流转） |
+| knowledge | task-insight · tool-function · dev-artifact · …（默认） | 读写全开 |
+
+**查询面收敛**：memory.query 表白名单仅 `memory_entries`（任务面走 obs.tasks／事件检索走 obs.search——tasks/transcripts/audit_log 不再可 raw SQL）。
+
+**管理面摘除**（buildCapabilities 装配层裁剪）：
+- `perf` 只读子集（params/status/analyze/list）——set/publish/apply 不进 worker 注入面
+- `model` 只读子集（get/usage）——set 摘除（防 worker 切模型）
+- `tasks` 能力整体摘除（任务代码不可直接 peek/submit 任务池）
+- 系统组件（autopilot/console/lineage）主进程直调 store/config——不经能力注入，不受影响
+
+**角色声明**：缺省全量废止——developer 已补齐显式声明（core+data 全量，无 admin）。

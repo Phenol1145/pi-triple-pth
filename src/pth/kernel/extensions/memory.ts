@@ -58,6 +58,7 @@ export const memoryExtension: TsReplExtension = {
       },
     };
   },
-  doc: `- memory.query: {sql} —— 只读 SQL 查记忆库 read-only（仅 SELECT；自动 LIMIT 防无界扫描）。memory_entries 表：id text, kind text('tool-function'|'task-insight'|'refine-report'|'dev-artifact'|'memory'), anchors jsonb, content text, status text('draft'|'official'|'archived'), version int, hit_count int, ttl_expires_at timestamptz, created_at timestamptz, updated_at timestamptz
-- memory.write: {id?, kind, anchors, content} —— 写入记忆（沉淀）`,
+  doc: `- memory.query: {sql} —— 只读 SQL 查记忆库（仅 SELECT memory_entries；自动 LIMIT 防无界扫描）。memory_entries 表：id text, kind text, anchors jsonb, content text, status text('draft'|'official'|'archived'), version int, hit_count int, created_at timestamptz, updated_at timestamptz
+- memory.write: {id?, kind, anchors, content} —— 写入记忆（沉淀）。【用途层规则】知识层（task-insight/tool-function/dev-artifact 等）自由写；治理层（differentiation-proposal）强制 draft（提交草案——official 由监督层流转）；prompt/config 层（role-doc/trigger/capability-index 等系统资产）只读
+- memory.update: {id, content?} —— 内容修正（系统层不可改；治理层不可改状态）`,
 };
