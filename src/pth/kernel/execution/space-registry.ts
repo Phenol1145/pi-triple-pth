@@ -57,10 +57,11 @@ export class SpaceRegistry {
     return this.spaces.get(id)?.kind === "action";
   }
 
-  /** 执行工具名 → 所属空间 id（门控反查） */
+  /** 执行工具名 → 所属空间 id（门控反查——点形/下划线形归一：模型可能输出 python.execute 或 python_execute） */
   spaceOfExecTool(tool: string): string | null {
+    const normalized = tool.replace(/\./g, "_");
     for (const s of this.spaces.values()) {
-      if (s.execTool === tool) return s.id;
+      if (s.execTool === tool || s.execTool === normalized) return s.id;
     }
     return null;
   }

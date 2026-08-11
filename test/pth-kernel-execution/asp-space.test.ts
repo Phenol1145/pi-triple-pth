@@ -188,3 +188,24 @@ describe("asp.index（空间索引——双聚合模式）", () => {
     expect(out).toContain("截断");
   });
 });
+
+describe("ASP 门控归一化（e2e 实测发现——点形工具名绕过）", () => {
+  it("点形工具名（python.execute）同样被门控", async () => {
+    expect(spaceRegistry.spaceOfExecTool("python.execute")).toBe("python");
+    expect(spaceRegistry.spaceOfExecTool("python_execute")).toBe("python");
+    expect(spaceRegistry.spaceOfExecTool("bash.execute")).toBe("bash");
+  });
+
+  it("ts 空间内点形调用 python.execute → 门控引导不执行", async () => {
+    const kernel = mockKernel();
+    const pySpy = vi.spyOn(kernel.python, "execute");
+    const llm = mockLlm([
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "ts" } }] },
+      { toolCalls: [{ name: "python.execute", arguments: { code: "print(1)" } }] },   // 点形——e2e 实测模型会这样输出
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
+    expect(pySpy).not.toHaveBeenCalled();
+  });
+});
