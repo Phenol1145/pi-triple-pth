@@ -129,11 +129,24 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: ["code"],
   },
   done: {
-    description: "完成任务——提交最终产出对象（result 必填：实际产物——实现代码/写入的文件/计算结果等任意 JSON；缺少 result 或 result 为空会被拒绝并回填引导重新提交）",
+    description: "完成任务——提交最终产出对象（result 必填：实际产物——实现代码/写入的文件/计算结果等任意 JSON；缺少 result 或 result 为空会被拒绝并回填引导重新提交）【ASP：仅元空间可用】",
     properties: { result: { description: "最终产出对象（任意 JSON）——必填；须为实际产物（实现代码/写入的文件/计算结果），不能为空对象/空数组/空字符串" }, summary: { type: "string", description: "完成说明" } },
     required: ["result"],
   },
+  "asp.cd": {
+    description: "空间迁移（ASP 元工具）——cd 到目标空间。目标：meta（元空间）/ ts / python / bash / c。语言代码只能在对应动作空间执行；done 仅在元空间可用。",
+    properties: { space: { type: "string", description: "目标空间 id（meta/ts/python/bash/c）" } },
+    required: ["space"],
+  },
 };
+
+/** 单个执行器名 → 工具 schema（点形或下划线形均可——asp 工具含点需先转下划线查表） */
+export function toolSchemaFor(executorKey: string): import("@earendil-works/pi-ai").Tool | null {
+  const key = executorKey.replace(/_/g, ".");
+  const s = TOOL_SCHEMAS[key];
+  if (!s) return null;
+  return { name: key.replace(/\./g, "_"), description: s.description, parameters: { type: "object", properties: s.properties, required: s.required } };
+}
 
 /** 工具声明 → pi-ai Tool[]（OpenAI function 格式——Context.tools 原生 tool_calls）
  * name 去点（OpenAI tool name pattern ^[a-zA-Z0-9_-]+$——python.execute 非法 → python_execute）

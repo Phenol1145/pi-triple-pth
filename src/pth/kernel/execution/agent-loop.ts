@@ -12,10 +12,30 @@
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, toolsToSchema, type AgentToolResult } from "./agent-tools.js";
+import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, toolsToSchema, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "../extensions/perf-params.js";
 import { modelState } from "../extensions/model.js";
+import { spaceRegistry } from "./space-registry.js";
+
+/** ASP 模式工具面（按当前空间动态计算——环境函数全空间可用，语言工具仅本空间，done 仅元空间） */
+function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] {
+  const cd = toolSchemaFor("asp.cd")!;
+  if (spaceId === "meta") return [cd, toolSchemaFor("done")!];
+  const sp = spaceRegistry.get(spaceId);
+  if (sp?.execTool) {
+    const exec = toolSchemaFor(sp.execTool);
+    if (exec) return [cd, exec];
+  }
+  return [cd];
+}
+
+/** ASP 模式 system prompt 附加块（协议世界观——空间/迁移/完成规则） */
+const ASP_BLOCK = `【动作空间协议（ASP）】
+你在【元空间】开始——元空间无执行核，语言代码不可在此解析。
+- 执行任务：asp_cd 迁移到语言空间——asp_cd("ts")（ts 程序空间——能力包 memory/llm/web/fs/state 等）/ asp_cd("python") / asp_cd("bash")
+- 空间数据是本地的：ts 里声明的变量在 python 空间不可见（跨空间携带信息用记忆/缓存工具）
+- 完成任务：asp_cd("meta") 回到元空间 → done 提交（done 仅在元空间可用）`;
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
@@ -35,6 +55,9 @@ export interface AgentLoopOptions {
   onStep?: (step: { n: number; tool: string; durationMs: number; ok: boolean; args?: string }) => void;
   /** 运行过程保留（2026-08-09）：轨迹事件流——task-loop 收集写 transcript（审计/复现/续跑） */
   onTrace?: (event: AgentTraceEvent) => void;
+  /** ASP 模式（动作空间协议——2026-08-10）：当前空间状态机（初始元空间——语言工具门控/done 仅元空间）。
+   *  过渡期旗标：task-loop 经 PTH_ASP_MODE=on 开启；全件落地后翻为默认。 */
+  asp?: boolean;
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
@@ -223,10 +246,14 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   // 参数走配置中心（Phase 2——perf.set 运行时生效；env 兜底）
   const maxSteps = input.maxSteps ?? configNumber("PTH_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS);
   const timeoutMs = input.timeoutMs ?? configNumber("PTH_AGENT_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
-  const system = await buildAgentSystemPrompt(input.role, input.task.title, {
+  // ASP 模式（动作空间协议——过渡期旗标）：当前空间状态机
+  const aspMode = input.asp === true;
+  let currentSpace = "meta";   // ASP：初始驻地 = 元空间
+  let system = await buildAgentSystemPrompt(input.role, input.task.title, {
     mode: (process.env.PTH_AGENT_MODE === "lazy" || process.env.PTH_AGENT_MODE === "eager" ? process.env.PTH_AGENT_MODE : "eager") as "eager" | "lazy",
     memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
   });
+  if (aspMode) system = `${system}\n\n${ASP_BLOCK}`;
   // 静态环境注入（②）：任务开始时拉环境预置（toolstore 文件 + 记忆概览）——LLM 一上来就知道可用资产
   const prelude = await buildEnvironmentPrelude(caps);
 
@@ -239,7 +266,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     { role: "system", content: system },
     { role: "user", content: `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}` },
   ];
-  const tools = toolsToSchema();
+  const staticTools = toolsToSchema();
 
   const start = Date.now();
   let steps = 0;
@@ -248,7 +275,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   let repeatCount = 0;
   let emptyReplies = 0;
 
-  const complete = async (): Promise<import("../interpreter/llm-fn.js").LlmResult | string> => {
+  const complete = async (tools: import("@earendil-works/pi-ai").Tool[]): Promise<import("../interpreter/llm-fn.js").LlmResult | string> => {
     try {
       // LLM 调用超时保护（实测修复 2026-08-09：deepseek-v4-flash 挂起 → 循环冻结——
       // 任务级超时检查在循环头，卡在 await 内永远到不了；单次调用 30s 兜底）
@@ -275,7 +302,9 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       return { ok: false, error: `agent-timeout: 超过 ${timeoutMs}ms`, steps };
     }
 
-    const res = await complete();
+    // ASP：工具面随当前空间动态计算（语言工具仅本空间可调用）
+    const tools = aspMode ? toolsForSpace(currentSpace) : staticTools;
+    const res = await complete(tools);
     if (typeof res === "string") {
       if (res.startsWith("__llm_error__")) {
         input.onTrace?.({ type: "finish", ok: false, steps: steps + 1, error: res.slice(14) });
@@ -329,6 +358,42 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
 
     input.onTrace?.({ type: "tool-call", step: steps + 1, tool, args });
     const stepStart = Date.now();
+
+    // ── ASP 门控（asp 模式——空间状态机）────────────────────────────
+    if (aspMode) {
+      if (tool === "asp_cd") {
+        const target = String(args["space"] ?? "");
+        const sp = spaceRegistry.get(target);
+        if (!sp) {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp_cd: 未知空间 "${target}"（已注册: ${spaceRegistry.list().map((s) => s.id).join("/")}）` });
+          return undefined;
+        }
+        currentSpace = target;
+        const hint = target === "meta"
+          ? "元空间：无执行核——可用 done 提交任务。"
+          : `可用执行工具：${sp.execTool}（语言代码仅在本空间可解析）。`;
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `已迁移到 ${target} 空间。${hint}` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `cd → ${target}` });
+        return undefined;
+      }
+      // 语言执行工具仅在本空间可解析（下划线形工具名 → 空间反查）
+      const requiredSpace = spaceRegistry.spaceOfExecTool(tool);
+      if (requiredSpace && currentSpace !== requiredSpace) {
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `[ASP] 当前位于 ${currentSpace} 空间——${tool} 不可在此解析执行。先 asp_cd("${requiredSpace}")。` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: `空间门控：需 ${requiredSpace}` });
+        return undefined;
+      }
+      if (tool === "done" && currentSpace !== "meta") {
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `[ASP] done 仅在元空间可用（当前 ${currentSpace}）——先 asp_cd("meta") 再提交。` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "done 门控：需 meta" });
+        return undefined;
+      }
+    }
+
     if (tool === "done") {
       const result = args["result"];
       // 空产物判定：undefined/null/空对象/空数组/空字符串——都视为未提交实际产物（0/false 等合法 falsy 不误伤）
