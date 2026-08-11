@@ -124,7 +124,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: ["command"],
   },
   ts: {
-    description: "在 ts kernel（vm 沙箱）执行程序——程序内可 await 调用能力函数（memory/llm/web/fs/python/bash/c/ext 等）；return 的值回填",
+    description: "在 ts kernel（vm 沙箱）执行程序——程序内可 await 调用能力函数（memory/llm/web/fs/python/bash/c/ext 等）；return 的值回填。【效率规则】查询/读取大内容一次取回后立即在程序内本地处理（切片/过滤/聚合都在程序里做）——不要多次调用重复分片读取同一内容；一个程序可组合多个能力调用，无需拆成多次工具调用",
     properties: { code: { type: "string", description: "ts 程序（顶层 await 可用；return 对象作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["code"],
   },
