@@ -121,6 +121,16 @@ export class TaskLoop {
             { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
           ];
           (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;  // refine 任务 3 输入
+          // 随身缓存（ASP——任务级行李）：元空间级状态——agent-loop 元工具与 ts vm 注入同源
+          const { CacheStore } = await import("./cache-store.js");
+          const cacheStore = new CacheStore();
+          (kernel.ts as { injectCapability?: (n: string, v: unknown) => void }).injectCapability?.("cache", {
+            get: (k: string) => cacheStore.get(k),
+            keys: () => cacheStore.keys(),
+            load: (k: string, c: string) => cacheStore.load(k, String(c), "ts-program"),
+            cancel: (k: string) => cacheStore.cancel(k),
+            index: () => cacheStore.index(),
+          });
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
@@ -128,6 +138,7 @@ export class TaskLoop {
             role,
             asp: process.env.PTH_ASP_MODE === "on",   // ASP 过渡期旗标（动作空间协议——空间状态机）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
+            cache: cacheStore,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
             logger: (m) => taskLogger?.info(m),
             onTrace: (e) => {

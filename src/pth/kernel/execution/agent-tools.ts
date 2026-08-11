@@ -154,6 +154,27 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     },
     required: [],
   },
+  "cache.load": {
+    description: "载入随身缓存（跨空间携带——任何空间可 cache.get 引用）。来源：{id}/{ids}/{tag} 从记忆空间载入；或 {key, content} 直接载入自定义内容。硬容量限制——超容拒绝需先 cache.cancel。",
+    properties: {
+      id: { type: "string", description: "记忆条目 id" },
+      ids: { type: "array", items: { type: "string" }, description: "批量条目 id" },
+      tag: { type: "string", description: "按 tag 批量载入" },
+      key: { type: "string", description: "自定义键（配合 content）" },
+      content: { type: "string", description: "自定义内容（配合 key）" },
+    },
+    required: [],
+  },
+  "cache.index": {
+    description: "随身缓存自检（条目键/大小/剩余容量）。",
+    properties: {},
+    required: [],
+  },
+  "cache.cancel": {
+    description: "释放缓存条目（容量管理——腾位给更有价值的信息）。",
+    properties: { key: { type: "string", description: "要释放的缓存键" } },
+    required: ["key"],
+  },
 };
 
 /** 单个执行器名 → 工具 schema（点形或下划线形均可——asp 工具含点需先转下划线查表） */

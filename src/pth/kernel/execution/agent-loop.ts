@@ -20,7 +20,8 @@ import { spaceRegistry } from "./space-registry.js";
 
 /** ASP 模式工具面（按当前空间动态计算——环境函数全空间可用，语言工具仅本空间，done 仅元空间） */
 function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] {
-  const ambient = [toolSchemaFor("asp.cd")!, toolSchemaFor("asp.index")!, toolSchemaFor("memory.index")!];
+  const ambient = [toolSchemaFor("asp.cd")!, toolSchemaFor("asp.index")!, toolSchemaFor("memory.index")!,
+    toolSchemaFor("cache.load")!, toolSchemaFor("cache.index")!, toolSchemaFor("cache.cancel")!];
   if (spaceId === "meta") return [...ambient, toolSchemaFor("done")!];
   const sp = spaceRegistry.get(spaceId);
   if (sp?.execTool) {
@@ -61,6 +62,8 @@ export interface AgentLoopOptions {
   asp?: boolean;
   /** ASP 会话空间引用（kernel.sessionRef——memory 可见性盖章/过滤读取同一状态） */
   sessionRef?: { current: { currentSpace: string } | null };
+  /** 随身缓存（任务级——task-loop 注入并与 vm cache 对象同源；缺省 loop 自建） */
+  cache?: import("./cache-store.js").CacheStore;
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
@@ -254,6 +257,8 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
   const aspSession = { currentSpace: "meta" };   // ASP：初始驻地 = 元空间
   if (input.sessionRef) input.sessionRef.current = aspSession;   // memory 可见性读取同一会话
   const currentSpace = () => aspSession.currentSpace;
+  // 随身缓存（任务级行李——task-loop 注入或本函数自建）
+  const cache: import("./cache-store.js").CacheStore = input.cache ?? new (await import("./cache-store.js")).CacheStore();
   let system = await buildAgentSystemPrompt(input.role, input.task.title, {
     mode: (process.env.PTH_AGENT_MODE === "lazy" || process.env.PTH_AGENT_MODE === "eager" ? process.env.PTH_AGENT_MODE : "eager") as "eager" | "lazy",
     memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
@@ -406,6 +411,48 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
         );
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: out });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: out.slice(0, 120) });
+        return undefined;
+      }
+      if (tool === "cache_index") {
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: cache.index() });
+        return undefined;
+      }
+      if (tool === "cache_cancel") {
+        const key = String(args["key"] ?? "");
+        const removed = cache.cancel(key);
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: removed ? `已释放缓存条目 "${key}"。` : `cache.cancel: 键 "${key}" 不存在（cache.index 查看当前条目）` });
+        return undefined;
+      }
+      if (tool === "cache_load") {
+        const memory = (caps as { memory?: { get(id: string): Promise<{ content: string } | undefined>; retrieve(o: never): Promise<Array<{ id: string; content: string }>> } }).memory;
+        const push = (key: string, content: string, source: string) => {
+          const r = cache.load(key, content, source);
+          return r.ok ? `✓ ${key}（${content.length}c）` : `✗ ${key}：${r.reason}`;
+        };
+        const results: string[] = [];
+        if (typeof args["key"] === "string" && typeof args["content"] === "string") {
+          results.push(push(String(args["key"]), String(args["content"]), "custom"));
+        } else if (memory) {
+          const ids: string[] = Array.isArray(args["ids"]) ? (args["ids"] as unknown[]).map(String) : typeof args["id"] === "string" ? [String(args["id"])] : [];
+          if (ids.length > 0) {
+            for (const id of ids) {
+              const e = await memory.get(id);
+              results.push(e ? push(id, e.content, `memory:${id}`) : `✗ ${id}：条目不存在`);
+            }
+          } else if (typeof args["tag"] === "string") {
+            const entries = await memory.retrieve({ anchors: [String(args["tag"])] } as never);
+            for (const e of entries.slice(0, 10)) results.push(push(e.id, e.content, `memory:${e.id}`));
+            if (entries.length === 0) results.push(`tag "${args["tag"]}" 无可见条目`);
+          } else {
+            results.push("cache.load: 需要 {id}/{ids}/{tag}（从记忆空间）或 {key, content}（自定义）");
+          }
+        } else {
+          results.push("memory 能力不可用——仅支持 {key, content} 自定义载入");
+        }
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `cache.load：\n${results.join("\n")}\n${cache.index().split("\n")[0]}` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: results.join("; ").slice(0, 120) });
         return undefined;
       }
       // 语言执行工具仅在本空间可解析（下划线形工具名 → 空间反查）
