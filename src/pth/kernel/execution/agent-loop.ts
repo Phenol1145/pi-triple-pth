@@ -74,8 +74,8 @@ export type AgentTraceEvent =
   | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string };
 
 export type AgentTaskResult =
-  | { ok: true; value: unknown; summary?: string; steps: number; warning?: string }
-  | { ok: false; error: string; steps: number };
+  | { ok: true; value: unknown; summary?: string; steps: number; warning?: string; compression?: import("./context-compaction.js").CompactionResult | null }
+  | { ok: false; error: string; steps: number; compression?: import("./context-compaction.js").CompactionResult | null };
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -247,7 +247,8 @@ async function buildEnvironmentPrelude(caps: Record<string, unknown>): Promise<s
   return parts.join("\n");
 }
 
-export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Promise<AgentTaskResult> {
+/** 内核（原 runAgentTask 循环体——压缩包装器包在外层） */
+async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promise<AgentTaskResult> {
   const { llm, kernel, caps } = input;
   // 参数走配置中心（Phase 2——perf.set 运行时生效；env 兜底）
   const maxSteps = input.maxSteps ?? configNumber("PTH_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS);
@@ -276,6 +277,7 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
     { role: "system", content: system },
     { role: "user", content: `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}` },
   ];
+  (input as { __messages?: unknown }).__messages = messages;   // 压缩包装器读取（同一引用——循环内持续 push）
   const staticTools = toolsToSchema();
 
   const start = Date.now();
@@ -565,4 +567,24 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       return undefined;
     }
   }
+}
+
+/**
+ * runAgentTask（压缩包装——2026-08-10）：内核执行 + 结束压缩（CoT 模板）。
+ * 认知模型：压缩是必备功能（提前实现）；评估读取压缩产物。done/失败都压缩
+ * （失败的思维过程对评估价值更高）。压缩失败不阻断任务结果。
+ */
+export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Promise<AgentTaskResult> {
+  const result = await runAgentTaskCore(input);
+  try {
+    const messages = (input as { __messages?: Array<import("./context-compaction.js").CompactableMessage> }).__messages;
+    if (messages && messages.length >= 4) {
+      const { compressContext, COT_TEMPLATE } = await import("./context-compaction.js");
+      result.compression = await compressContext(
+        { llm: input.llm },
+        { messages, template: COT_TEMPLATE, taskTitle: input.task.title },
+      );
+    }
+  } catch { /* 压缩失败容忍——任务结果为主 */ }
+  return result;
 }

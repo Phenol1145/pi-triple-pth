@@ -155,7 +155,8 @@ export class TaskLoop {
               taskId: task.id,
               agentId: role.id,
               body: traceEvents,
-              summary: r.ok ? (r.value !== undefined && r.value !== null ? JSON.stringify(r.value).slice(0, 200) : (r.summary ?? "")?.slice(0, 200)) : (r.error ?? "").slice(0, 200),
+              // 压缩产物优先（CoT 总结——评估读者不碰全量轨迹）；无压缩回退 200c 预览
+              summary: r.compression?.text ?? (r.ok ? (r.value !== undefined && r.value !== null ? JSON.stringify(r.value).slice(0, 200) : (r.summary ?? "")?.slice(0, 200)) : (r.error ?? "").slice(0, 200)),
             });
           } catch (e) {
             taskLogger?.warn?.(`[transcript] agent 轨迹写入失败: ${(e as Error).message}`);

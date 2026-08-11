@@ -50,11 +50,13 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!kernel) return unavailable(reply);
     const { id } = req.params as { id: string };
     const list = await kernel.dataWorld.transcripts.listByTask(id);
+    const { buildScorecard } = await import("../kernel/execution/worker-scorecard.js");
     return { taskId: id, transcripts: list.map((t: any) => ({
       id: t.id,
       agentId: t.agent_id,
       summary: t.summary,
       events: t.body,        // 轨迹事件数组（llm-call/tool-call/tool-result/finish）
+      scorecard: buildScorecard(t.body ?? []),   // worker 性能记分卡（事件流轻聚合——评估层）
       createdAt: t.created_at,
     })) };
   });
