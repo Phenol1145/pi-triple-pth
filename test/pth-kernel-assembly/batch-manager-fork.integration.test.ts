@@ -130,10 +130,15 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
     });
     const handle = await bm3.spawnBatch();
     const dw3 = createDataWorld(pool);
-    // 1. developer 任务正常认领
+    // 1. developer 任务正常认领（轮询等待——2026-08-12 发布前 flaky 修复：
+    //    3s 固定等待在全量并发下不足（fork 子进程启动/轮询慢）——改轮询最多 30s）
     const t1 = await dw3.tasks.publish({ title: "w1", text: "1", createdBy: "test", tags: ["code"] });
-    await new Promise((r) => setTimeout(r, 3000));
-    let st = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t1.id])).rows[0]?.status;
+    let st = "";
+    for (let i = 0; i < 30; i++) {
+      st = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t1.id])).rows[0]?.status as string;
+      if (["completed", "claimed", "submitted"].includes(st)) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     expect(["completed", "claimed", "submitted"]).toContain(st);
     // 2. remove developer → 新任务不再被认领
     expect(await bm3.removeWorker(handle.id, "developer")).toBe(true);
