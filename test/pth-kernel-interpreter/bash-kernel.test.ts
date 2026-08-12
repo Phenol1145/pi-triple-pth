@@ -63,3 +63,14 @@ describe("BashKernel（持久 shell 会话）", () => {
     expect(r2.stdout).toContain("after-timeout");
   }, 20_000);
 });
+
+describe("记忆库 seed（2026-08-11 库化）", () => {
+  it("memory_query/memory_get 函数已定义（spawn 时注入）", async () => {
+    const { BashKernel } = await import("../../src/pth/kernel/interpreter/bash-kernel.js");
+    const k = new BashKernel();
+    const r = await k.execute("type memory_query | head -1; type memory_get | head -1");
+    expect(r.stdout).toContain("memory_query is a function");
+    expect(r.stdout).toContain("memory_get is a function");
+    k.dispose();
+  });
+});

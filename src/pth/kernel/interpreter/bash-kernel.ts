@@ -15,6 +15,24 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
 
+/** 记忆库函数（2026-08-11 库化——bash 核 seed：curl 封装记忆桥只读三操作；SQL/JSON 由调用方传） */
+// API 约定：memory_query "SQL"（SQL 用单引号字符串字面量——双引号会破 JSON）；
+// memory_get "id"；memory_retrieve '["a","b"]'（紧凑 JSON——无空格）。
+// 引号策略：JSON body 用单引号包裹（bash 单引号零转义——双引号内 \" 在 seed 链路会被吞）；
+// $1 用 '"'"' 拼接（单引号串 → 双引号内变量 → 单引号串）。
+// 引号策略：JSON body 用单引号包裹（bash 单引号零转义——双引号内 \\" 在 seed 链路会被吞）；
+// $1 用 '"'"' 拼接（单引号串 → 双引号内变量 → 单引号串）。
+// 反引号模板串：bash 代码无 ${ 冲突（$PTH_MEMORY_BRIDGE / $1 均非 ${ 前缀）。
+// 记忆库函数（2026-08-11 库化——bash 核 seed）。
+// 引号策略：JSON body 委托 python3 json.dumps 构造（$1 作 argv 单层传递——bash 引号嵌套易错：
+// 双引号内 \" 在 seed 链路被吞、'"'"'$1'"'"' 把 $1 锁进单引号不展开——argv 方案零嵌套）。
+const BASH_MEMORY_LIB = [
+  `memory_query() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"query","sql":sys.argv[1]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET"; }`,
+  `memory_get() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"get","id":sys.argv[1]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET"; }`,
+  `memory_retrieve() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"retrieve","anchors":json.loads(sys.argv[1])}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET"; }`,
+].join("\n");
+
+
 export const DEFAULT_BASH_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_STDOUT = 2 * 1024;
 const DEFAULT_MAX_STDERR = 2 * 1024;
@@ -31,6 +49,7 @@ export class BashKernel implements Interpreter {
   private pending: Array<{ resolve: (r?: { stdout: string; stderr: string; code: number | null }) => void }> = [];
   private cwd = DEFAULT_CWD;
   private env: Record<string, string> = {};
+  private readonly memoryBridge: string;
   private timeoutMs: number;
   private lazySpawn = true;
   private lastUsedAt = Date.now();
@@ -44,7 +63,10 @@ export class BashKernel implements Interpreter {
     lazySpawn?: boolean;
     /** 空闲回收（默认 5min）：无调用超时 kill（0=禁用） */
     idleMs?: number;
+    /** 记忆桥 URL（2026-08-11 库化——memory_* 函数 curl 目标；缺省 sandbox 8080 转发） */
+    memoryBridge?: string;
   } = {}) {
+    this.memoryBridge = deps.memoryBridge ?? process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:8080/kernel/memory-bridge";
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS;
     if (deps.initialCwd) this.cwd = deps.initialCwd;
     this.onStderr = deps.onStderr;
@@ -131,7 +153,7 @@ export class BashKernel implements Interpreter {
     // 非交互模式：bash 读 stdin 逐行执行（不输出提示符，无 job control 噪音）
     const child = spawn("bash", ["--noprofile", "--norc"], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, ...this.env },
+      env: { ...process.env, ...this.env, PTH_MEMORY_BRIDGE: this.memoryBridge },
     });
     this.child = child;
     this.buffer = "";
@@ -146,6 +168,9 @@ export class BashKernel implements Interpreter {
       this.ready = false;
       for (const p of pending) p.resolve({ stdout: "", stderr: "bash session exited", code: 1 });
     });
+    // 记忆库 seed（2026-08-11 库化）：memory_query/memory_get/memory_retrieve 函数（curl 封装——bash 核访问记忆）
+    // 在就绪探测前发送（管道顺序执行——函数定义先于业务命令生效）
+    child.stdin?.write(BASH_MEMORY_LIB + "\n");
     // 就绪探测：空命令（:）触发 marker，标志会话可用
     this.probeReady();
   }

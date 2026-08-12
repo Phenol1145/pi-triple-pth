@@ -13,6 +13,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { PTH_MEMORY_LIB_B64 } from "./pth-memory-lib.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
@@ -56,38 +57,17 @@ def snapshot_globals():
             out["oversized"].append(key)
     return out
 
-def _memory_bridge(op, **kw):
-    # ASP-5 记忆桥（2026-08-11）：sandbox 内 python 访问记忆空间——经宿主 localhost:8080
-    # 转发 PTH（pi-platform:3000）→ PG。只读桥（query/retrieve/get——写留 ts 空间）。
-    # 认证：SANDBOX_SHARED_SECRET（kernel 进程继承容器 env——sandbox 与 PTH 互信密钥）
-    import urllib.request, urllib.error, os
-    secret = os.environ.get("SANDBOX_SHARED_SECRET", "")
-    req = urllib.request.Request(
-        "http://localhost:8080/kernel/memory-bridge",
-        data=json.dumps({"op": op, **kw}).encode(),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + secret},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")[:300]
-        raise RuntimeError(f"memory bridge {op} failed: {e.code} {body}")
+_PTH_MEMORY_LIB_B64 = "__PTH_MEMORY_LIB_B64__"
 
 def main():
     global _NAMESPACE
     _NAMESPACE = {}
-    # ASP-5：预置记忆桥全局（sandbox python 空间可访问记忆——宿主同容器 localhost:8080）
-    # 用类实例而非 dict——python dict 不支持属性访问（memory.query 需要 .query 属性）
-    class _MemoryBridge:
-        def query(self, sql):
-            return _memory_bridge("query", sql=sql)
-        def retrieve(self, anchors=None, kinds=None, **kw):
-            return _memory_bridge("retrieve", anchors=anchors or [], kinds=kinds or [], **kw)
-        def get(self, id):
-            return _memory_bridge("get", id=id)
-    _NAMESPACE["memory"] = _MemoryBridge()
+    # 记忆库（2026-08-11 库化）：pth-memory-lib 独立模块源码（base64 注入——零转义）。
+    # bridge URL 从 env PTH_MEMORY_BRIDGE 读（kernel 模式=localhost:3000 直通；sandbox=8080 转发）。
+    import base64 as _b64
+    # 显式 globals()——函数内 exec 的定义默认进不了局部作用域（CPython 局部优化）
+    exec(_b64.b64decode(_PTH_MEMORY_LIB_B64).decode("utf-8"), globals())
+    _NAMESPACE["memory"] = create_memory()
     for line in sys.stdin:
         try:
             req = json.loads(line)
@@ -183,6 +163,7 @@ function safeSerialize(v: unknown): { value: unknown; ok: boolean } {
 
 export class PyKernel implements Interpreter {
   readonly language = "python";
+  private readonly memoryBridge: string = "http://localhost:8080/kernel/memory-bridge";
   private child: ChildProcess | null = null;
   private pending: Array<{ resolve: (msg: PyProtocolMsg) => void }> = [];
   private buffer = "";
@@ -206,8 +187,11 @@ export class PyKernel implements Interpreter {
     resetMode?: "ns" | "restart";
     /** 空闲回收（默认 5min）：无调用超时 kill（0=禁用）；execute/snapshot 自动冷备补位 */
     idleMs?: number;
+    /** 记忆桥 URL（2026-08-11 库化——spawn env PTH_MEMORY_BRIDGE；缺省 sandbox 模式 8080 转发） */
+    memoryBridge?: string;
   } = {}) {
     this.pythonBin = deps.pythonBin ?? "python3";
+    this.memoryBridge = deps.memoryBridge ?? process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:8080/kernel/memory-bridge";
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
     this.onStderr = deps.onStderr;
     this.resetMode = deps.resetMode ?? "ns";
@@ -345,8 +329,11 @@ export class PyKernel implements Interpreter {
   }
 
   private spawn(): void {
-    const child = spawn(this.pythonBin, ["-u", "-c", PY_RUNTIME], {
+    const runtime = PY_RUNTIME.replace("__PTH_MEMORY_LIB_B64__", PTH_MEMORY_LIB_B64);
+    const child = spawn(this.pythonBin, ["-u", "-c", runtime], {
       stdio: ["pipe", "pipe", "pipe"],
+      // 记忆桥 URL 注入（2026-08-11 库化——kernel 模式 localhost:3000 直通；sandbox kernel-pool 缺省 8080 转发）
+      env: { ...process.env, PTH_MEMORY_BRIDGE: this.memoryBridge },
     });
     this.child = child;
     this.buffer = "";

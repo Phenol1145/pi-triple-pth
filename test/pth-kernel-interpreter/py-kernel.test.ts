@@ -153,3 +153,35 @@ describe("PyKernel exec 模式（2026-08-11 元命令拆分——single=eval/pro
     expect(r.value).toEqual([0, 1, 4]);
   });
 });
+
+describe("记忆库注入（2026-08-11 库化——pth-memory-lib）", () => {
+  it("memory 全局 seed：query/retrieve/get 方法存在；write 显式只读拒绝", async () => {
+    const k = new PyKernel({ pythonBin: "python3" });
+    const r = await k.execute("print(type(memory).__name__, hasattr(memory, 'query'), hasattr(memory, 'get'), hasattr(memory, 'retrieve'))");
+    expect(r.ok).toBe(true);
+    expect(r.stdout).toContain("Memory True True True");
+    const w = await k.execute("memory.write(kind='k', content='c')");
+    expect(w.ok).toBe(false);
+    const werr = typeof w.error === "string" ? w.error : (w.error as { message?: string })?.message ?? JSON.stringify(w.error);
+    expect(werr).toMatch(/只读/);
+    k.dispose();
+  });
+
+  it("PTH_MEMORY_BRIDGE env 注入：memory.base 反映构造参数", async () => {
+    const k = new PyKernel({ pythonBin: "python3", memoryBridge: "http://custom:9999/bridge" });
+    const r = await k.execute("print(memory.base)");
+    expect(r.ok).toBe(true);
+    expect(r.stdout).toContain("http://custom:9999/bridge");
+    k.dispose();
+  });
+
+  it("ns reset 保留 memory（库 seed 键——清命名空间不丢桥）", async () => {
+    const k = new PyKernel({ pythonBin: "python3" });
+    await k.execute("zzz = 1");
+    await k.reset();
+    const r = await k.execute("print(hasattr(memory, 'query'), 'zzz' in dir())");
+    expect(r.ok).toBe(true);
+    expect(r.stdout).toContain("True False");
+    k.dispose();
+  });
+});
