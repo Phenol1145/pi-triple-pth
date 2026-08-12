@@ -161,14 +161,18 @@ export class PgMemoryStore {
     if (keys.length === 0) return;
     // 两套表达式：INSERT（新行——纯增量值）；UPDATE（现值 + 增量——jsonb || 合并）。
     // ⚠ VALUES 分支不能引用 content 列（新行无列值——2026-08-12 实机修复：INSERT 用纯参数）
-    const insertParts = keys.map((k, i) => `'${k}', $${i + 1}`);
+    // ⚠ 显式 ::numeric——jsonb_build_object 的 value 参数是 any——pg 无法推断参数类型
+    // （2026-08-12 实机复现："could not determine data type of parameter $3"——psql 字面量验证掩盖）
+    // ⚠ 占位符从 $5 起（$1=id/$2=kind/$3=anchors/$4=meta——deltas 参数在数组尾部）——
+    // 2026-08-12 实机复现 "inconsistent types deduced for parameter $1"（$1 同时是 id 和增量——类型冲突）
+    const insertParts = keys.map((k, i) => `'${k}', $${i + 5}::numeric`);
     // ⚠ 表名限定（memory_entries.content）——SET 目标列与 RHS 同名列歧义（2026-08-12 实机修复）
-    const updateParts = keys.map((k, i) => `'${k}', COALESCE((memory_entries.content::jsonb->>'${k}')::numeric, 0) + $${i + 1}`);
+    const updateParts = keys.map((k, i) => `'${k}', COALESCE((memory_entries.content::jsonb->>'${k}')::numeric, 0) + $${i + 5}::numeric`);
     await this.pool.query(
       `INSERT INTO memory_entries (id, tenant_id, kind, status, content, anchors, meta, created_at, updated_at)
        VALUES ($1, 'default', $2, 'official', jsonb_build_object(${insertParts.join(", ")})::text, $3::jsonb, $4::jsonb, now(), now())
        ON CONFLICT (id) DO UPDATE SET
-         content = (content::jsonb || jsonb_build_object(${updateParts.join(", ")}))::text,
+         content = (memory_entries.content::jsonb || jsonb_build_object(${updateParts.join(", ")}))::text,
          updated_at = now()`,
       [id, kind, JSON.stringify(anchors ?? []), JSON.stringify(meta ?? {}), ...keys.map((k) => deltas[k])],
     );
