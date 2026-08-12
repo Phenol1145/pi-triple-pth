@@ -103,3 +103,23 @@ describe("GOVERNANCE_ROLES（控制论骨架——2026-08-12 体系自制）", (
     expect(w.get("developer")).toBe(1);   // 未列角色默认 1
   });
 });
+
+describe("governance 角色路由（2026-08-12 router 接线修复）", () => {
+  it("flow 显式指定 governance 角色 → 通过校验（controller:worker-opt）", async () => {
+    const { checkTaskRouting } = await import("../../src/pth/kernel/execution/role-router.js");
+    const r = checkTaskRouting({ tags: ["analysis"], payload: { flow: { stages: [{ task: { role: "controller:worker-opt" } }] } } });
+    expect(r.ok).toBe(true);
+  });
+
+  it("routeTaskRole flow 优先 → governance 角色", async () => {
+    const { routeTaskRole } = await import("../../src/pth/kernel/execution/role-router.js");
+    const role = routeTaskRole({ id: "t1", tags: ["analysis"], payload: { flow: { stages: [{ task: { role: "controller:worker-opt" } }] } } });
+    expect(role).toBe("controller:worker-opt");
+  });
+
+  it("sensor 角色同样可路由", async () => {
+    const { checkTaskRouting } = await import("../../src/pth/kernel/execution/role-router.js");
+    const r = checkTaskRouting({ tags: ["analysis"], payload: { flow: { stages: [{ task: { role: "sensor:system-opt" } }] } } });
+    expect(r.ok).toBe(true);
+  });
+});

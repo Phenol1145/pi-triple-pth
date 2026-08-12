@@ -14,8 +14,9 @@
  *   / 未来 API 或扩展显式注册（complexity/priority 维度）。
  */
 
-/** 标签维度：role=角色派发（路由消费）；complexity/priority=预留（注册即合法，暂无系统消费） */
-export type TagKind = "role" | "complexity" | "priority";
+/** 标签维度：role=角色派发（路由消费）；complexity/priority=预留（注册即合法，暂无系统消费）；
+ * governance=治理角色共享标签（sensor/controller 系——同标签多角色不参与 routeRole——派发走 flow 显式） */
+export type TagKind = "role" | "complexity" | "priority" | "governance";
 
 export interface TagDef {
   /** 标签名（注册时小写归一——匹配大小写不敏感） */

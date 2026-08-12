@@ -13,7 +13,7 @@
  *   ③ 无——checkTaskRouting 保证 publish 前必有路由依据
  */
 import type { WorkerRole } from "./worker-cluster.js";
-import { allWorkerRoles } from "./worker-cluster.js";
+import { allKnownRoles } from "./worker-cluster.js";
 import { tagRegistry } from "./tag-registry.js";
 
 export interface RouteInput {
@@ -42,10 +42,12 @@ export function checkTaskRouting(input: { tags?: string[]; payload?: unknown }):
     return { ok: false, error: `未知标签: ${v.unknown.join(", ")}（已注册角色标签: ${known.join(", ")}）` };
   }
   const flow = flowRole(input.payload);
-  if (flow && !allWorkerRoles().some((r) => r.id === flow)) {
-    return { ok: false, error: `flow 指定的角色 "${flow}" 未注册（可选: ${allWorkerRoles().map((r) => r.id).join("/")}）` };
+  if (flow && !allKnownRoles().some((r) => r.id === flow)) {
+    return { ok: false, error: `flow 指定的角色 "${flow}" 未注册（可选: ${allKnownRoles().map((r) => r.id).join("/")}）` };
   }
-  const r = tagRegistry.routeRole(tags);
+  // flow 显式指定时跳过歧义检查（governance 同标签多角色——如 controller 标签命中 5 个 controller——
+  // 2026-08-12：flow 已确定角色则无需标签歧义裁决）
+  const r = flow ? { ok: true as const, role: undefined as string | undefined } : tagRegistry.routeRole(tags);
   if (!r.ok) {
     return { ok: false, error: `标签歧义：命中多个角色（${r.conflict.join(" / ")}）——一个任务只能派发一个角色` };
   }
@@ -59,7 +61,7 @@ export function checkTaskRouting(input: { tags?: string[]; payload?: unknown }):
  * 任务 → 归属角色（确定性）。
  * 前置：publish 已经 checkTaskRouting——此处无路由依据属内部错误（throw）。
  */
-export function routeTaskRole(input: RouteInput, roles: WorkerRole[] = allWorkerRoles()): string {
+export function routeTaskRole(input: RouteInput, roles: WorkerRole[] = allKnownRoles()): string {
   // ① flow 显式 role（校验期已保证已注册）
   const explicit = flowRole(input.payload);
   if (explicit && roles.some((r) => r.id === explicit)) return explicit;

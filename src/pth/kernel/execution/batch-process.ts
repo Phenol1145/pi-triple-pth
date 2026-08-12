@@ -5,7 +5,7 @@ import { createDataWorld } from "../storage/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../interpreter/index.js";
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
-import { DEFAULT_ROLES, GOVERNANCE_ROLES, allWorkerRoles, parseRoleWeights, expandRoleWeights, registerWorkerRole } from "./worker-cluster.js";
+import { DEFAULT_ROLES, GOVERNANCE_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById } from "./worker-cluster.js";
 import { getEventBus } from "./event-bus.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
@@ -165,7 +165,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       // 分化上线（lineage approve）：batch 内注册新角色 + 创建 worker（树生长——即刻接任务）
       try {
         registerWorkerRole(msg.role as never);
-        const roleDef = allWorkerRoles().find((r) => r.id === (msg.role as { id: string }).id);
+        const roleDef = knownRoleById((msg.role as { id: string }).id);
         if (roleDef) {
           createWorker(roleDef);
           process.send?.({ type: "worker-status", batchPid: process.pid, role: roleDef.id, state: "added", copies: 1, registered: true });
@@ -175,7 +175,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       }
     } else if (msg?.type === "worker-add" && typeof msg.role === "string") {
       getEventBus().emit("worker.add", { role: msg.role, copies: msg.copies ?? 1, batchPid: process.pid });
-      const roleDef = allWorkerRoles().find((r) => r.id === msg.role);
+      const roleDef = knownRoleById(msg.role);
       if (roleDef) {
         const copies = Number(msg.copies ?? 1);
         for (let i = 0; i < copies; i++) createWorker(roleDef);

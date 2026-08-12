@@ -173,11 +173,15 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
   return out;
 }
 
-/** 权重展开 → worker 角色列表（副本重复；含 0 副本过滤） */
+/** 权重展开 → worker 角色列表（副本重复；含 0 副本过滤）
+ * 2026-08-12 修复：按 weights 键展开（含显式启用的 governance/MID 角色——
+ * 旧实现只遍历 allWorkerRoles——PTH_WORKER_ROLES 显式列出的 governance 被静默丢弃）。 */
 export function expandRoleWeights(weights: Map<string, number>): WorkerRole[] {
+  const byId = new Map([...allWorkerRoles(), ...MID_ROLES, ...GOVERNANCE_ROLES].map((r) => [r.id, r]));
   const out: WorkerRole[] = [];
-  for (const r of allWorkerRoles()) {
-    const n = weights.get(r.id) ?? 1;
+  for (const [id, n] of weights) {
+    const r = byId.get(id);
+    if (!r) continue;   // 未知 id 静默忽略（parse 已校验——防御性）
     for (let i = 0; i < n; i++) out.push(r);
   }
   return out;
@@ -289,6 +293,17 @@ for (const r of DEFAULT_ROLES) registerRoleTags(r);
 /** 全部角色（Origin 根 + 内置 + 扩展——routeTaskRole/worker 构成统一谱系） */
 export function allWorkerRoles(): WorkerRole[] {
   return [ORIGIN_ROLE, ...DEFAULT_ROLES, ...extraRoles];
+}
+
+/** 全部可派发角色（worker + 中间层 + governance——router/batch/expand 统一查找面；
+ *  MID/governance 须显式 PTH_WORKER_ROLES 启用才会进 batch——但路由校验/查找不因未启用而拒绝） */
+export function allKnownRoles(): WorkerRole[] {
+  return [...allWorkerRoles(), ...MID_ROLES, ...GOVERNANCE_ROLES];
+}
+
+/** 按 id 查找（全已知面——含 governance/MID） */
+export function knownRoleById(id: string): WorkerRole | undefined {
+  return allKnownRoles().find((r) => r.id === id);
 }
 
 /**
@@ -450,4 +465,13 @@ export function createWorkerCluster(deps: WorkerClusterDeps): Map<string, Worker
     map.set(role.id, deps.kernelFactory(role));
   }
   return map;
+}
+
+// governance 标签注册（2026-08-12：sensor/controller 系显式启用后可派发——publish 校验
+// 通过；kind=governance 不参与 routeRole（同标签多角色——派发走 flow 显式）；
+// 置于 GOVERNANCE_ROLES 声明之后（TDZ——const 后置引用））
+for (const r of GOVERNANCE_ROLES) {
+  for (const tag of r.tags) {
+    tagRegistry.register({ name: tag, kind: "governance", description: `治理角色共享标签（${r.id} 等）`, registeredBy: `governance:${r.id}` });
+  }
 }

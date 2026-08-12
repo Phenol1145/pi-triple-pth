@@ -171,3 +171,26 @@ describe("正交角色谱系整理（2026-08-09：扩展角色完整融入 batch
     expect(w.get("greeting-agent")).toBe(1);
   });
 });
+
+describe("governance 角色显式启用（2026-08-12 expand 修复）", () => {
+  it("PTH_WORKER_ROLES 显式列出 controller:worker-opt → batch 含该角色（旧实现静默丢弃）", () => {
+    const w = parseRoleWeights("controller:worker-opt:1");
+    expect(w.get("controller:worker-opt")).toBe(1);
+    const expanded = expandRoleWeights(w);
+    expect(expanded.some((r) => r.id === "controller:worker-opt")).toBe(true);
+    expect(expanded.length).toBe(11);   // 10 默认 + 1 governance
+  });
+
+  it("governance 0 副本 → 过滤（不展开）", () => {
+    const w = parseRoleWeights("sensor:worker-opt:0");
+    expect(w.get("sensor:worker-opt")).toBe(0);
+    expect(expandRoleWeights(w).some((r) => r.id === "sensor:worker-opt")).toBe(false);
+  });
+
+  it("governance + 默认全部（含 MID 显式）", () => {
+    const w = parseRoleWeights("executor:2,controller:router:1");
+    const expanded = expandRoleWeights(w);
+    expect(expanded.filter((r) => r.id === "executor").length).toBe(2);
+    expect(expanded.some((r) => r.id === "controller:router")).toBe(true);
+  });
+});
