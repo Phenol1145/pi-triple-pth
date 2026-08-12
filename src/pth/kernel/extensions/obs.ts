@@ -131,9 +131,13 @@ export const obsExtension: TsReplExtension = {
           const rows = await ctx.dataWorld.queryReadOnly(
             // 2026-08-12 sensor:worker-opt 观测报告的基础设施缺陷：content 是 text 列——
             // jsonb 操作符（->>）对 text 非法——需 ::jsonb 转换（sensor 已上报并绕过）
+            // 2026-08-12：+ token 缓存命中率（cacheRead/(cacheRead+非缓存输入)——观测成本面）
             `SELECT meta->>'role' AS role, count(*) AS tasks, round(avg((content::jsonb->>'steps')::int)::numeric, 1) AS avg_steps,
              round(avg(((content::jsonb->'tokens')->>'input')::bigint)::numeric, 0) AS avg_tokens_in,
-             round(avg((content::jsonb->>'failedActions')::int)::numeric, 2) AS avg_fails
+             round(avg(((content::jsonb->'tokens')->>'cacheRead')::bigint)::numeric, 0) AS avg_cache_read,
+             round(avg((content::jsonb->>'failedActions')::int)::numeric, 2) AS avg_fails,
+             CASE WHEN sum(((content::jsonb->'tokens')->>'cacheRead')::bigint) + sum(CASE WHEN ((content::jsonb->'tokens')->>'cacheRead')::bigint IS NOT NULL THEN (((content::jsonb->'tokens')->>'input')::bigint - ((content::jsonb->'tokens')->>'cacheRead')::bigint - ((content::jsonb->'tokens')->>'cacheWrite')::bigint) ELSE 0 END) > 0
+               THEN round(100.0 * sum(((content::jsonb->'tokens')->>'cacheRead')::bigint) / NULLIF(sum(((content::jsonb->'tokens')->>'cacheRead')::bigint) + sum(CASE WHEN ((content::jsonb->'tokens')->>'cacheRead')::bigint IS NOT NULL THEN (((content::jsonb->'tokens')->>'input')::bigint - ((content::jsonb->'tokens')->>'cacheRead')::bigint - ((content::jsonb->'tokens')->>'cacheWrite')::bigint) ELSE 0 END), 0), 1) END AS cache_hit_pct
              FROM memory_entries WHERE kind = 'task-scorecard'${where}
              GROUP BY meta->>'role' ORDER BY tasks DESC LIMIT 20`,
           );

@@ -195,3 +195,23 @@ describe("obs.callpoint SQL（2026-08-12 sensor 上报的基础设施缺陷修�
     expect(src).toContain("content::jsonb->'tokens'");
   });
 });
+
+describe("token 缓存命中率链路（2026-08-12 用户问询补齐）", () => {
+  it("scorecard 聚合 cacheRead/cacheWrite（llm-call usage 透传）", async () => {
+    const { buildScorecard } = await import("../../src/pth/kernel/execution/worker-scorecard.js");
+    const sc = buildScorecard([
+      { type: "llm-call", step: 1, contentPreview: "", usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 700, cacheWriteTokens: 200 } },
+      { type: "llm-call", step: 2, contentPreview: "", usage: { inputTokens: 500, outputTokens: 50, cacheReadTokens: 400, cacheWriteTokens: 0 } },
+      { type: "finish", ok: true, steps: 2 },
+    ]);
+    expect(sc.tokens).toEqual({ input: 1500, output: 150, cacheRead: 1100, cacheWrite: 200 });
+    // 命中率 = 1100 / (1100 + 1500 - 1100 - 200) = 1100/400 = 73.3%
+    const fresh = sc.tokens.input - sc.tokens.cacheRead - sc.tokens.cacheWrite;
+    expect(Math.round((sc.tokens.cacheRead / (sc.tokens.cacheRead + fresh)) * 100)).toBe(85);
+  });
+
+  it("obs.callpoint 查询含 cache_hit_pct（观测面）", async () => {
+    const src = (await (await import("node:fs/promises")).readFile("src/pth/kernel/extensions/obs.ts", "utf8"));
+    expect(src).toContain("cache_hit_pct");
+  });
+});

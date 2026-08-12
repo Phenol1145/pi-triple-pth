@@ -72,7 +72,7 @@ export interface AgentLoopOptions {
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
 export type AgentTraceEvent =
-  | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string; usage?: { inputTokens?: number; outputTokens?: number } }
+  | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string; usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number } }
   | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
   | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string }
   | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string };

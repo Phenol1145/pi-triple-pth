@@ -22,7 +22,7 @@ export interface LlmCompleteOptions {
 export interface LlmResult {
   content: string;
   model: string;
-  usage?: { inputTokens?: number; outputTokens?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
   /** 原生工具调用（模型返回结构化 tool_calls——非文本 JSON 解析） */
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
   /** 推理内容（reasoning_content——deepseek 思考字段——轨迹分析用） */
@@ -50,7 +50,7 @@ export function createLlmFn(deps: {
   modelRouter: ModelRouter;
   logger?: unknown;
   /** 性能计量（SPEC L0-④）：llm 调用事件（token/calls/latency） */
-  onMetric?: (m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number }) => void;
+  onMetric?: (m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number }) => void;
 }): LlmFn {
   depsMetric = deps.onMetric ?? null;
   // 测试钩子（PTH_LLM_STUB=1）：集成测试无 LLM 凭据——agent 循环立即 done 完成 /
@@ -80,12 +80,16 @@ export function createLlmFn(deps: {
       const result = await runtime.completeSimple(model, ctx, { signal: opts?.signal });
       const inputTokens = usageInput(result.usage ?? {});
       const outputTokens = usageOutput(result.usage ?? {});
+      const cacheReadTokens = usageCacheRead(result.usage ?? {});
+      const cacheWriteTokens = usageCacheWrite(result.usage ?? {});
       deps.onMetric?.({
         provider: model.provider,
         model: model.id,
         durationMs: Date.now() - start,
         inputTokens,
         outputTokens,
+        cacheReadTokens,
+        cacheWriteTokens,
       });
       // 原生工具调用提取：AssistantMessage.content 含 ToolCall 块（OpenAI tool_calls 结构化）
       const toolCalls = Array.isArray(result.content)
@@ -103,6 +107,8 @@ export function createLlmFn(deps: {
           ? {
               inputTokens: usageInput(result.usage),
               outputTokens: usageOutput(result.usage),
+              cacheReadTokens: usageCacheRead(result.usage),
+              cacheWriteTokens: usageCacheWrite(result.usage),
             }
           : undefined,
         ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
@@ -132,6 +138,12 @@ function toContext(messages: LlmMessage[], tools?: Tool[]): { systemPrompt?: str
 }
 
 /** pi-ai Usage 的输入 token 数（兼容 brief 测试形状 inputTokens 与真实形状 input） */
+function usageCacheRead(u: { cacheRead?: number; cacheReadTokens?: number }): number {
+  return u.cacheReadTokens ?? u.cacheRead ?? 0;
+}
+function usageCacheWrite(u: { cacheWrite?: number; cacheWriteTokens?: number }): number {
+  return u.cacheWriteTokens ?? u.cacheWrite ?? 0;
+}
 function usageInput(u: { input: number; inputTokens?: number }): number {
   return u.inputTokens ?? u.input;
 }

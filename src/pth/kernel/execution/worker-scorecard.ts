@@ -16,8 +16,9 @@ export interface WorkerScorecard {
   steps: number;
   /** 工具调用频率（tool → 次数） */
   toolFreq: Record<string, number>;
-  /** token 消耗汇总 */
-  tokens: { input: number; output: number };
+  /** token 消耗汇总（cacheRead/cacheWrite = prompt 缓存命中/写入——2026-08-12 用户问询补齐；
+   *  cacheHitRate = cacheRead / (cacheRead + 非缓存输入)——token 缓存命中率观测） */
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
   /** 失败动作数（tool-result ok:false） */
   failedActions: number;
   /** ASP 门控命中数（空间门控/done 门控——协议学习成本指标） */
@@ -32,7 +33,7 @@ export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {
   const sc: WorkerScorecard = {
     steps: 0,
     toolFreq: {},
-    tokens: { input: 0, output: 0 },
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     failedActions: 0,
     gatedActions: 0,
     aspNav: { cds: 0, indexes: 0 },
@@ -42,6 +43,8 @@ export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {
       if (e.usage) {
         sc.tokens.input += e.usage.inputTokens ?? 0;
         sc.tokens.output += e.usage.outputTokens ?? 0;
+        sc.tokens.cacheRead += e.usage.cacheReadTokens ?? 0;
+        sc.tokens.cacheWrite += e.usage.cacheWriteTokens ?? 0;
       }
     } else if (e.type === "tool-call") {
       sc.toolFreq[e.tool] = (sc.toolFreq[e.tool] ?? 0) + 1;
