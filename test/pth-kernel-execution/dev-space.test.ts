@@ -29,8 +29,7 @@ describe("生产核 dev 空间工具面", () => {
       const payload =
         op === "attach" ? { sessionId: "c-debug-test1" }
         : op === "breakpoint" ? { id: "bp-1", line: body.line, verified: true }
-        : op === "stack" ? [{ id: 0, name: "main", file: "main.c", line: 6 }]
-        : op === "variables" ? [{ name: "i", value: "1", type: "int" }]
+        : op === "snapshot" ? { frames: [{ id: 0, name: "main", file: "main.c", line: 6 }], variables: [{ name: "i", value: "1", type: "int" }] }   // 原生 snapshot 单跳（2026-08-12 小缺口）
         : { ok: true };
       return new Response(JSON.stringify(payload), { status: 200 });
     }) as typeof fetch;
@@ -41,13 +40,13 @@ describe("生产核 dev 空间工具面", () => {
       expect((a.value as { sessionId: string }).sessionId).toBe("c-debug-test1");
       const b = await AGENT_TOOLS["debug.breakpoint"](ctx, { sessionId: "c-debug-test1", line: 6 });
       expect(b.ok).toBe(true);
-      // snapshot 聚合：stack + variables（顶层帧）两次调用
+      // snapshot 聚合：原生端点单跳（2026-08-12 小缺口——不再 stack+variables 两次调用）
       const snap = await AGENT_TOOLS["debug.snapshot"](ctx, { sessionId: "c-debug-test1" });
       expect(snap.ok).toBe(true);
       const v = snap.value as { frames: unknown[]; variables: Array<{ name: string }> };
       expect(v.frames).toHaveLength(1);
       expect(v.variables[0].name).toBe("i");
-      expect(calls.map((c) => c.op)).toEqual(["attach", "breakpoint", "stack", "variables"]);
+      expect(calls.map((c) => c.op)).toEqual(["attach", "breakpoint", "snapshot"]);
       // 认证头
       expect(calls[0].body.code).toContain("main");
     } finally {

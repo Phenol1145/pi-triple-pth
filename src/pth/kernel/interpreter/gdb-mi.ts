@@ -9,14 +9,14 @@
  * 解析器为纯函数（可单测）；适配器本机无 gdb 时跳过（sandbox Linux 集成验证）。
  */
 
-import type { DebugSession, DebugStackFrame, DebugVariable, DebugStopped, DebugBreakpoint, DebugEvent } from "./types.js";
+import type { DebugSession, DebugStackFrame, DebugVariable, DebugStopped, DebugBreakpoint, DebugEvent, DebugSnapshot } from "./types.js";
 
 // ─── MI 输出解析（纯函数）────────────────────────────────────────────
 
 export type MiValue = string | number | { [k: string]: MiValue } | MiValue[];
 
 export interface MiRecord {
-  kind: "result" | "exec" | "notify" | "console" | "target" | "prompt";
+  kind: "result" | "exec" | "notify" | "console" | "target" | "log" | "prompt";
   cls?: string;            // done / running / stopped / breakpoint-created ...
   results?: Record<string, MiValue>;
   text?: string;
@@ -33,7 +33,8 @@ export function parseMiLine(line: string): MiRecord | null {
   else if (t.startsWith("*")) { kind = "exec"; rest = t.slice(1); }
   else if (t.startsWith("+")) { kind = "notify"; rest = t.slice(1); }
   else if (t.startsWith("~")) { kind = "console"; return { kind, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
-  else if (t.startsWith("@")) { kind = "target"; rest = t.slice(1); }
+  else if (t.startsWith("@")) { kind = "target"; return { kind, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
+  else if (t.startsWith("&")) { kind = "log"; return { kind, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
   else return null;
   // cls: 直到第一个逗号
   const comma = rest.indexOf(",");
@@ -199,6 +200,14 @@ export class CDebugSession implements DebugSession {
   private records: MiRecord[] = [];
   private binaryPath = "";
   private breakpoints = new Map<string, DebugBreakpoint>();
+  /** 程序 stdout 缓冲（console/target 流 + 运行期裸行收集——continue/step 返回时回传） */
+  private outputBuf: string[] = [];
+  /** 程序运行中（*running→true；*stopped→false）——裸行（inferior 原样输出）仅运行期收集 */
+  private running = false;
+  /** 程序已退出（exited-normally/signalled）——continue 直接返回不重启（2026-08-12 实测修复：
+   * 旧行为：退出后 -exec-continue 报 "not being run" → 自动 -exec-run 重跑——agent 侧每次
+   * continue 都重启程序，输出重复） */
+  private exited = false;
 
   private emitEvent: (e: DebugEvent) => void;
 
@@ -225,7 +234,8 @@ export class CDebugSession implements DebugSession {
       execFile(this.cc, ["-g", "-O0", "-o", this.binaryPath, srcPath, "-lm"], { timeout: this.timeoutMs }, (err) => resolve(err ? 1 : 0));
     });
     if (compile !== 0) throw new Error(`编译失败（调试版）：${srcPath} — 请先确保源码可编译`);
-    this.child = spawn(this.gdbBin, ["-i=mi2", "-q", this.binaryPath], { stdio: ["pipe", "pipe", "pipe"] });
+    // cwd=dir（2026-08-12 实测修复）：-break-insert main.c:line 的相对路径依赖 gdb 工作目录
+    this.child = spawn(this.gdbBin, ["-i=mi2", "-q", this.binaryPath], { stdio: ["pipe", "pipe", "pipe"], cwd: dir });
     this.child.stdout?.on("data", (d: Buffer) => this.onData(d));
     this.child.stderr?.on("data", (d: Buffer) => this.onStderr(d));
     this.child.on("exit", () => {
@@ -244,13 +254,26 @@ export class CDebugSession implements DebugSession {
       const rec = parseMiLine(line);
       if (rec) {
         if (rec.kind === "prompt") this.flushPending();
+        else if (rec.kind === "exec" && rec.cls === "running") {
+          this.running = true;
+          this.records.push(rec);
+        }
         else if (rec.kind === "exec" && rec.cls === "stopped") {
           // 异步停止（*stopped——^running 后程序运行至断点/退出）——推给等待器（优先）
+          this.running = false;
+          if (String(rec.results?.["reason"] ?? "").startsWith("exited-")) this.exited = true;
           this.records.push(rec);
           const waiter = this.stoppedWaiters.shift();
           if (waiter) waiter.resolve(rec);
         }
+        else if (rec.kind === "console" || rec.kind === "target") {
+          // gdb 信息流 + inferior 封装输出——收集待回传
+          if (rec.text) this.outputBuf.push(rec.text);
+        }
         else this.records.push(rec);
+      } else if (this.running && line.trim()) {
+        // 运行期裸行 = inferior 原样输出（实测：printf/fprintf 不经 MI 封装——直接写 gdb stdout）
+        this.outputBuf.push(line + "\n");
       }
     }
   }
@@ -315,17 +338,38 @@ export class CDebugSession implements DebugSession {
     });
   }
 
+  /** 取走输出缓冲（本次操作的程序 stdout——返回后清空） */
+  private takeOutput(): string {
+    if (this.outputBuf.length === 0) return "";
+    const out = this.outputBuf.join("");
+    this.outputBuf = [];
+    return out;
+  }
+
+  /** 等流排空（stopped 到达时同 chunk 后续行可能未达——让出事件循环两拍再取） */
+  private async drainOutput(): Promise<string> {
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    return this.takeOutput();
+  }
+
   async setBreakpoint(line: number, condition?: string): Promise<DebugBreakpoint> {
     this.emitEvent({ type: "breakpoint-set", sessionId: this.id, ts: Date.now(), detail: { line } });
     const bp: DebugBreakpoint = { id: `bp-${line}`, line, condition };
     // -break-insert main.c:line（条件：-break-insert -c "expr" main.c:line）
     const cond = condition ? ` -c "${condition.replace(/"/g, '\\"')}"` : "";
-    await this.command(`-break-insert${cond} main.c:${line}`);
+    const recs = await this.command(`-break-insert${cond} main.c:${line}`);
+    const err = recs.find((r) => r.kind === "result" && r.cls === "error");
+    if (err) throw new Error(`断点设置失败 line ${line}: ${String(err.results?.["msg"] ?? "")}`);   // 2026-08-12：校验 gdb 错误（行号越界/源文件缺失静默失败）
     this.breakpoints.set(bp.id, bp);
     return bp;
   }
 
   async continueExec(): Promise<DebugStopped> {
+    if (this.exited) {
+      // 程序已退出——直接返回（不重启；输出已在上次 continue 回传）
+      return { reason: "exited" };
+    }
     // 等"命令确认"（prompt）与"程序停止"（异步 stopped）——并发等待（stopped 后命令确认已出）
     const stoppedPromise = this.waitStopped().catch(() => null);
     const recs = await this.command("-exec-continue");
@@ -335,20 +379,30 @@ export class CDebugSession implements DebugSession {
       // waiter #1（stoppedPromise）就是等 run 的 stopped（push 先于 run command——onData 推给它）
       await this.command("-exec-run");
       const stoppedRec = await stoppedPromise;
-      return stoppedRec ? (stoppedFromRecord(stoppedRec) ?? { reason: "exited" }) : { reason: "exited" };
+      const output = await this.drainOutput();   // 程序 stdout 回传（小缺口 2026-08-12）
+      return stoppedRec ? { ...(stoppedFromRecord(stoppedRec) ?? { reason: "exited" as const }), output } : { reason: "exited", output };
     }
     // 程序运行中：命令已确认（^running）——等异步 stopped
     const stoppedRec = await stoppedPromise;
-    if (stoppedRec) return stoppedFromRecord(stoppedRec) ?? { reason: "exited" };
+    const output = await this.drainOutput();
+    if (stoppedRec) return { ...(stoppedFromRecord(stoppedRec) ?? { reason: "exited" as const }), output };
     const stopped = recs.map(stoppedFromRecord).find(Boolean);
-    return stopped ?? { reason: "exited" };
+    return { ...(stopped ?? { reason: "exited" as const }), output };
   }
 
   async step(direction: "into" | "over" | "out"): Promise<DebugStopped> {
     const cmd = direction === "into" ? "-exec-step" : direction === "over" ? "-exec-next" : "-exec-finish";
     const recs = await this.command(cmd);
     const stopped = recs.map(stoppedFromRecord).find(Boolean);
-    return stopped ?? { reason: "exited" };
+    const output = await this.drainOutput();
+    return { ...(stopped ?? { reason: "exited" as const }), output };
+  }
+
+  async snapshot(): Promise<DebugSnapshot> {
+    const frames = await this.stack();
+    const top = frames[0];
+    const variables = top ? await this.variables(top.id) : [];
+    return { frames, variables };
   }
 
   async stack(): Promise<DebugStackFrame[]> {

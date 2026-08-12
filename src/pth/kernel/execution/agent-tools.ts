@@ -250,24 +250,24 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
   },
   "debug.continue": async (ctx, args) => {
     try {
-      const r = (await debugCall(ctx, "continue", { sessionId: str(args, "sessionId") })) as { reason?: string; frame?: unknown };
-      return { ok: true, value: r, stdout: r.reason === "exited" ? "程序已退出（未命中断点）" : `命中: ${JSON.stringify(r.frame ?? r)}` };
+      const r = (await debugCall(ctx, "continue", { sessionId: str(args, "sessionId") })) as { reason?: string; frame?: unknown; output?: string };
+      // 程序 stdout 回传（小缺口 2026-08-12——continue 期间输出不再丢失）
+      const out = r.output ? `\n--- 程序输出 ---\n${r.output}` : "";
+      return { ok: true, value: r, stdout: (r.reason === "exited" ? "程序已退出（未命中断点）" : `命中: ${JSON.stringify(r.frame ?? r)}`) + out };
     } catch (e) { return { ok: false, error: (e as Error).message }; }
   },
   "debug.step": async (ctx, args) => {
     try {
-      const r = await debugCall(ctx, "step", { sessionId: str(args, "sessionId"), direction: str(args, "direction") });
-      return { ok: true, value: r, stdout: truncate(JSON.stringify(r), 500).text };
+      const r = (await debugCall(ctx, "step", { sessionId: str(args, "sessionId"), direction: str(args, "direction") })) as { output?: string };
+      const out = r.output ? `\n--- 程序输出 ---\n${r.output}` : "";
+      return { ok: true, value: r, stdout: truncate(JSON.stringify(r), 500).text + out };
     } catch (e) { return { ok: false, error: (e as Error).message }; }
   },
   "debug.snapshot": async (ctx, args) => {
-    // 聚合接口（ADI 思想——一次调用拿全帧+顶层帧变量；sandbox 原生 snapshot 端点后续）
-    const sessionId = str(args, "sessionId");
+    // 聚合接口（ADI——原生 snapshot 端点：一次调用拿全帧+顶层帧变量；2026-08-12 小缺口）
     try {
-      const frames = (await debugCall(ctx, "stack", { sessionId })) as Array<{ id?: number; frameId?: number }>;
-      const top = frames[0];
-      const variables = top ? await debugCall(ctx, "variables", { sessionId, frameId: top.frameId ?? top.id ?? 0 }) : [];
-      return { ok: true, value: { frames, variables }, stdout: truncate(JSON.stringify({ frames, variables }), 3000).text };
+      const r = await debugCall(ctx, "snapshot", { sessionId: str(args, "sessionId") });
+      return { ok: true, value: r, stdout: truncate(JSON.stringify(r), 3000).text };
     } catch (e) { return { ok: false, error: (e as Error).message }; }
   },
   "debug.evaluate": async (ctx, args) => {

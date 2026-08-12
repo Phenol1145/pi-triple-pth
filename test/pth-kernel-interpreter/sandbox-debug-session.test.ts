@@ -43,6 +43,20 @@ describe("SandboxDebugSession（debug 核 sandbox 适配器）", () => {
     vi.unstubAllGlobals();
   });
 
+  it("snapshot 原生聚合端点转发（2026-08-12 小缺口——单跳全帧+变量）", async () => {
+    const calls: Array<{ url: string; body: unknown }> = [];
+    (globalThis as any).fetch = vi.fn(async (url: string, init: { body?: string }) => {
+      calls.push({ url: String(url), body: JSON.parse(init.body ?? "{}") });
+      return { ok: true, json: async () => ({ frames: [{ id: 0, name: "main", line: 3 }], variables: [{ name: "x", value: "42" }] }) };
+    });
+    const s = new SandboxDebugSession({ url: "http://x", secret: "k", sessionId: "c-debug-t1" });
+    const snap = await s.snapshot();
+    expect(snap.frames[0]?.name).toBe("main");
+    expect(snap.variables[0]?.value).toBe("42");
+    expect(calls[0]?.url).toContain("/kernel/debug/snapshot");
+    expect(calls[0]?.body).toMatchObject({ sessionId: "c-debug-t1" });
+  });
+
   it("HTTP 非 2xx → 抛错（含状态码）", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => "session not found" })));
     const s = new SandboxDebugSession({ url: "http://s:8080", secret: "x", sessionId: "gone" });

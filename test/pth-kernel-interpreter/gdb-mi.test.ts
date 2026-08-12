@@ -47,6 +47,12 @@ describe("gdb MI 解析", () => {
     expect(s?.reason).toBe("exited");
   });
 
+  it("@ target 流（程序 stdout——剥离引号）", () => {
+    const r = parseMiLine('@"hello from program\n"');
+    expect(r?.kind).toBe("target");
+    expect(r?.text).toBe("hello from program\n");
+  });
+
   it("~ 控制台输出（剥离引号）", () => {
     const r = parseMiLine('~"Breakpoint 1 at 0x1000: file main.c, line 5.\\n"');
     expect(r?.kind).toBe("console");

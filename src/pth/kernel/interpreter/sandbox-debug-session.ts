@@ -10,7 +10,7 @@
  */
 
 import type {
-  DebugSession, DebugBreakpoint, DebugStopped, DebugStackFrame, DebugVariable, DebugEvent,
+  DebugSession, DebugBreakpoint, DebugStopped, DebugStackFrame, DebugVariable, DebugEvent, DebugSnapshot,
 } from "./types.js";
 
 export interface SandboxDebugSessionOptions {
@@ -86,6 +86,10 @@ export class SandboxDebugSession implements DebugSession {
 
   async step(direction: "into" | "over" | "out"): Promise<DebugStopped> {
     return await this.call<DebugStopped>("step", { sessionId: this._id, direction });
+  }
+
+  async snapshot(): Promise<DebugSnapshot> {
+    return await this.call<DebugSnapshot>("snapshot", { sessionId: this._id });
   }
 
   async stack(): Promise<DebugStackFrame[]> {

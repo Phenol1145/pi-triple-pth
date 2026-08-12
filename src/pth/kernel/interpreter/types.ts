@@ -54,7 +54,11 @@ export interface Interpreter {
   readObject?(name: "results" | "context"): Record<string, unknown>;
 }
 
-// ─── 调试协议（基本集——2026-08-09，agent-centric 高层接口待调研）───
+// ─── 调试协议（agent-centric 高层接口——字段与 @vscode/debugprotocol 对齐）───
+// 对齐说明（2026-08-12 小缺口）：字段名/语义对照 DAP 类型（StackFrame/Variable/Breakpoint/
+// StoppedEvent body），只保留 agent 聚合所需子集；reason 枚举是 agent 视角归一化
+// （DAP StoppedEvent.reason 全枚举 → breakpoint-hit/step/exited/error）。
+// DebugStopped.output 对应 DAP output 事件（程序 stdout——continue/step 期间收集回传）。
 
 export interface DebugBreakpoint {
   id: string;
@@ -62,17 +66,21 @@ export interface DebugBreakpoint {
   condition?: string;
 }
 
+/** 对齐 DAP StackFrame（id/name/source/line/column）——file 即 source.path 简化 */
 export interface DebugStackFrame {
   id: number;
   name: string;
   file?: string;
   line?: number;
+  column?: number;
 }
 
+/** 对齐 DAP Variable（name/value/type/variablesReference）——聚合接口不展开子变量 */
 export interface DebugVariable {
   name: string;
   value: string;
   type?: string;
+  variablesReference?: number;
 }
 
 export interface DebugStopped {
@@ -80,6 +88,14 @@ export interface DebugStopped {
   frame?: DebugStackFrame;
   breakpointId?: string;
   message?: string;
+  /** 程序 stdout（本次 continue/step 期间收集——对齐 DAP output 事件） */
+  output?: string;
+}
+
+/** debug.snapshot 聚合（一次调用拿全帧 + 顶帧变量——sandbox 原生端点 2026-08-12） */
+export interface DebugSnapshot {
+  frames: DebugStackFrame[];
+  variables: DebugVariable[];
 }
 
 /** 调试会话事件（监视组件——attach/breakpoint/step/时长——CDebugSession 上报） */
@@ -97,6 +113,8 @@ export interface DebugSession {
   onEvent?: (e: DebugEvent) => void;
   /** 启动调试会话（编译调试版 + 启动调试器） */
   attach(source: string): Promise<void>;
+  /** 全帧 + 顶帧变量聚合（原生 snapshot 端点——2026-08-12） */
+  snapshot(): Promise<DebugSnapshot>;
   setBreakpoint(line: number, condition?: string): Promise<DebugBreakpoint>;
   /** 继续执行到断点/结束 */
   continueExec(): Promise<DebugStopped>;
