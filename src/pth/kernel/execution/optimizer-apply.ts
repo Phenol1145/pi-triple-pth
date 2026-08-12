@@ -21,6 +21,10 @@ export interface ApplyResult {
   applied?: { target: string; pattern: string };
 }
 
+/** 同 target+pattern 最大应用次数（防规则堆积——振荡防护上限，待决点 4 落地：
+ *  应用 3 次后同一模式不再可追加（规则应已生效——连续建议说明规则无效/需人工介入）） */
+export const MAX_APPLY_PER_PATTERN = 3;
+
 /** 从建议文本提取"建议规则:"行（规则段落——追加进 prompt 资产的原子单元） */
 export function extractRuleLine(suggestionText: string): string {
   const line = suggestionText.split("\n").find((l) => l.includes("建议规则"));
@@ -54,11 +58,17 @@ export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionI
     await store.update(suggestionId, { status: "official", meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, note: "规则已存在——标记应用（去重）" } } as never);
     return { ok: true, applied: { target, pattern } };
   }
+  // 振荡防护上限（待决点 4）：同 target+pattern 已应用 ≥ MAX_APPLY_PER_PATTERN 次 → 拒绝
+  // （规则堆 3 条仍未生效 = 建议无效/需人工——不再自动追加）——从目标资产数历史 stamp 统计
+  const appliedCount = (base.match(new RegExp(`优化规则 · ${pattern}`, "g")) ?? []).length;
+  if (appliedCount >= MAX_APPLY_PER_PATTERN) {
+    return { ok: false, error: `已达应用上限（${MAX_APPLY_PER_PATTERN} 次）——规则未生效需人工介入（pattern=${pattern} target=${target}）` };
+  }
   const stamp = `\n\n【优化规则 · ${pattern}（${new Date().toISOString().slice(0, 10)} 批准）】\n- ${rule}`;
   await store.update(target, { content: base + stamp } as never);
   await store.update(suggestionId, {
     status: "official",
-    meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target },
+    meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, appliedCount: appliedCount + 1, verifyAfterWindow: true },
   } as never);
   return { ok: true, applied: { target, pattern } };
 }

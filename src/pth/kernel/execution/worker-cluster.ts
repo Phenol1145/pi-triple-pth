@@ -32,6 +32,10 @@ export interface WorkerRole {
   generation?: number;
   /** 分化诱导（什么任务类型/为什么从父角色分化——分化理由——refine 任务 3 的 rationale 落此） */
   differentiation?: string;
+  /** 探索核候选列表（backlog 差距 11——2026-08-12）：角色可显式声明可用的探索核语言集合
+   *  （如 ["python","bash"]——A/B 并存：探索性任务可分别用不同语言核验证同一问题，
+   *  探索空间按语言划分 asp.cd("python")/asp.cd("bash")）。未声明 → 沿用 capabilities 推断（现状）。 */
+  exploreKernels?: string[];
 }
 
 /**
@@ -62,6 +66,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "analyst", tags: ["analysis", "research"], prompt: "你是分析者——负责信息分析、数据洞察、研究报告撰写。",
     description: "信息分析与数据洞察（researcher 对应）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research",
+    exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（backlog 差距 11——分析可双语言核验证）
     parent: "explorer", generation: 2, differentiation: "分析调研类任务诱导——数据洞察/报告撰写需要 web 与数据能力的特化" },
   { id: "planner", tags: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。",
     description: "上下文→实施计划（只读——产出计划文档）", thinking: "high",
@@ -96,6 +101,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"], defaultReads: ["plan", "progress"], acceptanceRole: "read-only",
     parent: "governor", generation: 2, differentiation: "验收类任务诱导——质量检查需要执行验证但不应修改产物——只读审查特化" },
   { id: "tester", tags: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。",
+    exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（功能验证可双语言核对比）
     description: "能力测试与行为验证", thinking: "high",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer",
     parent: "executor", generation: 2, differentiation: "测试类任务诱导——能力/行为验证需要全部执行核（含 c 编译核）写测试产物" },

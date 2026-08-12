@@ -72,6 +72,7 @@ export function buildCapabilities(deps: {
       toolstore: deps.toolstore!,
       memory: (ext.capabilities["memory"] as { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> } | undefined),
       registerKernel: deps.registerKernel,
+      dbQuery: deps.dataWorld.queryReadOnly?.bind(deps.dataWorld),
     }),
     llm: deps.llm,
     web: createWebCapability(),

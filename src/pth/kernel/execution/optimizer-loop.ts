@@ -47,6 +47,9 @@ export interface OptimizerDeps {
   windowSize?: number;
   /** 建议事件钩子（测试断言 / console 观察） */
   onSuggestion?: (s: OptimizerSuggestion) => void;
+  /** 振荡防护死区（待决点 4 落地——2026-08-12）：同 pattern 在 N 个窗口内不重复建议
+   *  （规则已应用则等待复测验证——连续窗口重复建议 = 振荡）。缺省 2（死区 = 2×windowSize 任务）。 */
+  deadbandWindows?: number;
 }
 
 // ── 热点规则表（数据驱动——可扩展；v1 五条反模式）──────────────
@@ -186,10 +189,15 @@ export class Optimizer {
   private buffer: WorkerScorecard[] = [];
   private suggestions: OptimizerSuggestion[] = [];   // 测试/观察用（内存侧）
   private lastDetectAt = 0;
+  /** 振荡防护（待决点 4）：pattern → 最近建议窗口序号（死区窗口数内同 pattern 不重复） */
+  private patternLastSuggested = new Map<string, number>();
+  private windowSeq = 0;
+  private deadbandWindows: number;
 
   constructor(deps: OptimizerDeps = {}) {
     this.deps = deps;
     this.windowSize = Math.max(1, deps.windowSize ?? 10);
+    this.deadbandWindows = Math.max(0, deps.deadbandWindows ?? 2);
   }
 
   /** 任务完成点收集（scorecard）——窗口满触发检测 */
@@ -210,11 +218,17 @@ export class Optimizer {
     }
   }
 
-  /** 窗口检测 → 建议生成 → 落库（draft） */
+  /** 窗口检测 → 建议生成 → 落库（draft）
+   *  振荡防护（待决点 4）：同 pattern 在 deadbandWindows 窗口内已建议过 → 跳过（死区——
+   *  规则已应用则等待复测验证；未应用则监督层未批——重复建议无意义） */
   detect(window: WorkerScorecard[]): OptimizerSuggestion[] {
+    this.windowSeq++;
     const hits = detectHotspots(window);
     const out: OptimizerSuggestion[] = [];
     for (const hit of hits) {
+      const lastSeq = this.patternLastSuggested.get(hit.pattern) ?? -Infinity;
+      if (this.windowSeq - lastSeq <= this.deadbandWindows) continue;   // 死区内——跳过
+      this.patternLastSuggested.set(hit.pattern, this.windowSeq);
       const s: OptimizerSuggestion = {
         id: `opt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
         kind: hit.path,

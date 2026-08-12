@@ -33,7 +33,11 @@ import type { PgMemoryStore } from "../storage/memory-store-pg.js";
 
 export interface TriggerDef {
   name: string;
-  event: string;
+  /** 事件触发（activityHub 订阅）——与 schedule 二选一 */
+  event?: string;
+  /** 定时触发（backlog 差距 12——controller/sensor 任务源：周期生成观测/控制任务）
+   *  everySec 为最小触发间隔（相对上次触发）；0/缺省 = 禁用定时。event 与 schedule 至少其一。 */
+  schedule?: { everySec: number };
   match?: { role?: string; detailContains?: string };
   task: { title: string; text: string; role?: string; tags?: string[]; retask?: boolean };
   enabled?: boolean;
@@ -45,6 +49,8 @@ interface TriggerEntry {
   id: string;
   def: TriggerDef;
   fireCount: number;
+  /** 定时触发：上次触发时间（ms）——到点判定依据 */
+  lastFiredAt: number;
 }
 
 const TRIGGER_KIND = "trigger";
@@ -59,6 +65,9 @@ export class TriggerEngine {
   /** 热重载周期（memory 是真相源——30s 刷新——CRUD 后最多 30s 生效） */
   private readonly reloadMs = 30_000;
   private reloadTimer: ReturnType<typeof setInterval> | null = null;
+  /** 定时触发检查周期（scheduler——每 2s 检查一次到点） */
+  private readonly scheduleTickMs = 2_000;
+  private scheduleTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(private deps: { activityHub: ActivityHub; tasks: TaskStore; memory: PgMemoryStore; logger?: (msg: string) => void }) {}
 
@@ -67,11 +76,14 @@ export class TriggerEngine {
     this.unsubscribe = this.deps.activityHub.subscribe((e) => void this.onEvent(e));
     this.reloadTimer = setInterval(() => void this.reload().catch(() => {}), this.reloadMs);
     this.reloadTimer.unref();
+    this.scheduleTimer = setInterval(() => void this.onScheduleTick(), this.scheduleTickMs);
+    this.scheduleTimer.unref();
   }
 
   stop(): void {
     this.unsubscribe?.();
     if (this.reloadTimer) clearInterval(this.reloadTimer);
+    if (this.scheduleTimer) clearInterval(this.scheduleTimer);
   }
 
   /** 从 memory 加载 trigger 定义（official——enabled 才生效） */
@@ -82,9 +94,11 @@ export class TriggerEngine {
       try {
         const def = JSON.parse(e.content) as TriggerDef;
         if (def.enabled === false) continue;
-        if (!def.event || !def.task?.title || !def.task?.text) continue;
+        if (!def.task?.title || !def.task?.text) continue;
+        // 事件/定时至少其一（backlog 差距 12——schedule 定时源）
+        if (!def.event && !def.schedule?.everySec) continue;
         const prev = this.triggers.find((t) => t.id === e.id);
-        loaded.push({ id: e.id, def, fireCount: prev?.fireCount ?? 0 });
+        loaded.push({ id: e.id, def, fireCount: prev?.fireCount ?? 0, lastFiredAt: prev?.lastFiredAt ?? 0 });
       } catch { /* 非法 JSON 跳过 */ }
     }
     this.triggers = loaded;
@@ -95,7 +109,24 @@ export class TriggerEngine {
   /** 注册系统级 trigger（幂等——按 name 去重；不受 once/maxFires 移除影响） */
   addSystemTrigger(def: TriggerDef): void {
     if (this.systemTriggers.some((t) => t.def.name === def.name)) return;
-    this.systemTriggers.push({ id: `system:${def.name}`, def: { ...def, enabled: true }, fireCount: 0 });
+    this.systemTriggers.push({ id: `system:${def.name}`, def: { ...def, enabled: true }, fireCount: 0, lastFiredAt: 0 });
+  }
+
+  /** 定时源检查（backlog 差距 12）：每 tick 检查 schedule triggers 是否到点（lastFiredAt + everySec） */
+  private async onScheduleTick(): Promise<void> {
+    const now = Date.now();
+    for (const t of [...this.systemTriggers, ...this.triggers]) {
+      if (!t.def.schedule?.everySec || t.def.schedule.everySec <= 0) continue;
+      if (now - t.lastFiredAt < t.def.schedule.everySec * 1000) continue;
+      if (t.def.maxFires !== undefined && t.fireCount >= t.def.maxFires) continue;
+      t.fireCount++;
+      t.lastFiredAt = now;
+      try {
+        await this.publishFromTrigger(t, {}, 0);
+      } catch (err) {
+        this.deps.logger?.(`[trigger] ${t.def.name} 定时发布失败: ${(err as Error).message}`);
+      }
+    }
   }
 
   private async onEvent(e: ActivityEvent): Promise<void> {
@@ -149,19 +180,7 @@ export class TriggerEngine {
           this.deps.logger?.(`[trigger] ${t.def.name} 升级任务 ${orig.id}（${orig.assigned_role} 失败）→ ${task.id}（tags: ${(t.def.task.tags ?? []).join(",")}）`);
           continue;
         }
-        const task = await this.deps.tasks.publish({
-          title: render(t.def.task.title),
-          text: render(t.def.task.text),
-          createdBy: `trigger:${t.def.name}`,
-          // 任务池纯化（D5）：无默认标签——trigger 任务必须自带路由依据（role 或合法角色标签），
-          // 注册期已校验；publish 校验失败（如角色后续被移除）会进 catch 记日志，不炸引擎
-          tags: t.def.task.tags ?? [],
-          payload: {
-            ...(t.def.task.role ? { flow: { stages: [{ task: { role: t.def.task.role } }] } } : {}),
-            triggeredBy: { triggerId: t.id, fromTask: e.taskId ?? null, depth: depth + 1 },
-          },
-        });
-        this.deps.logger?.(`[trigger] ${t.def.name} 触发任务 ${task.id}（事件 ${e.kind} 来自 ${e.taskId ?? "?"}——链深 ${depth + 1}）`);
+        await this.publishFromTrigger(t, vars, depth, { kind: e.kind, taskId: e.taskId ?? null });
         if (t.def.once) {
           // once：memory 更新 enabled=false（内存已在匹配时移除——持久层同步）
           void this.deps.memory.retrieve({ kinds: [TRIGGER_KIND] }).then((all) => {
@@ -180,6 +199,30 @@ export class TriggerEngine {
 
   private chainDepthOf(e: ActivityEvent): number {
     return Number((e as { chainDepth?: number }).chainDepth ?? 0);
+  }
+
+  /** 公共发布（事件/定时共用）：模板渲染 + 路由依据（role 或 tags）+ 触发溯源 */
+  private async publishFromTrigger(
+    t: TriggerEntry,
+    vars: Record<string, string>,
+    depth: number,
+    source?: { kind: string; taskId: string | null },
+  ): Promise<void> {
+    const render = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
+    const task = await this.deps.tasks.publish({
+      title: render(t.def.task.title),
+      text: render(t.def.task.text),
+      createdBy: `trigger:${t.def.name}`,
+      // 任务池纯化（D5）：无默认标签——trigger 任务必须自带路由依据（role 或合法角色标签），
+      // 注册期已校验；publish 校验失败（如角色后续被移除）会进 catch 记日志，不炸引擎
+      tags: t.def.task.tags ?? [],
+      payload: {
+        ...(t.def.task.role ? { flow: { stages: [{ task: { role: t.def.task.role } }] } } : {}),
+        triggeredBy: { triggerId: t.id, fromTask: source?.taskId ?? null, depth: depth + 1, source: source?.kind ?? "schedule" },
+      },
+    });
+    const srcDesc = source ? `（事件 ${source.kind} 来自 ${source.taskId ?? "?"}——链深 ${depth + 1}）` : `（定时源——间隔 ${t.def.schedule?.everySec}s——第 ${t.fireCount} 次）`;
+    this.deps.logger?.(`[trigger] ${t.def.name} 触发任务 ${task.id}${srcDesc}`);
   }
 
   private lastTriggerOf(e: ActivityEvent): string | null {

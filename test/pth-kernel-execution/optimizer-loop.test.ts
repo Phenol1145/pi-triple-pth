@@ -124,3 +124,46 @@ describe("Optimizer 环——窗口流转", () => {
     expect(scCard.failedActions).toBe(1);
   });
 });
+
+describe("Optimizer 环——振荡防护（待决点 4：死区 + 应用上限）", () => {
+  function navHeavySc(): WorkerScorecard {
+    return {
+      steps: 10, gatedActions: 0, failedActions: 0,
+      toolFreq: { asp_cd: 5 },
+      aspNav: { cds: 5, depth: 3 },
+      finish: { ok: true },
+      tokens: { input: 1000, output: 100 },
+    } as WorkerScorecard;
+  }
+
+  it("死区：同 pattern 在 deadbandWindows 窗口内不重复建议（第 2-3 窗口跳过——第 4 窗口恢复）", () => {
+    const seen: string[] = [];
+    const opt = new Optimizer({ windowSize: 2, deadbandWindows: 2, onSuggestion: (s) => seen.push(s.evidence.pattern) });
+    // 窗口 1：建议 nav-heavy
+    opt.collect(navHeavySc(), { role: "developer", taskId: "a" });
+    opt.collect(navHeavySc(), { role: "developer", taskId: "b" });
+    expect(seen).toEqual(["nav-heavy"]);
+    // 窗口 2（死区内）：同 pattern 跳过
+    opt.collect(navHeavySc(), { role: "developer", taskId: "c" });
+    opt.collect(navHeavySc(), { role: "developer", taskId: "d" });
+    expect(seen).toEqual(["nav-heavy"]);
+    // 窗口 3（死区内）：仍跳过
+    opt.collect(navHeavySc(), { role: "developer", taskId: "e" });
+    opt.collect(navHeavySc(), { role: "developer", taskId: "f" });
+    expect(seen).toEqual(["nav-heavy"]);
+    // 窗口 4（死区外）：恢复建议
+    opt.collect(navHeavySc(), { role: "developer", taskId: "g" });
+    opt.collect(navHeavySc(), { role: "developer", taskId: "h" });
+    expect(seen).toEqual(["nav-heavy", "nav-heavy"]);
+  });
+
+  it("死区可配置 0（关闭）——每窗口都建议", () => {
+    const seen: string[] = [];
+    const opt = new Optimizer({ windowSize: 2, deadbandWindows: 0, onSuggestion: (s) => seen.push(s.evidence.pattern) });
+    opt.collect(navHeavySc(), { role: "developer", taskId: "a" });
+    opt.collect(navHeavySc(), { role: "developer", taskId: "b" });
+    opt.collect(navHeavySc(), { role: "developer", taskId: "c" });
+    opt.collect(navHeavySc(), { role: "developer", taskId: "d" });
+    expect(seen).toEqual(["nav-heavy", "nav-heavy"]);
+  });
+});

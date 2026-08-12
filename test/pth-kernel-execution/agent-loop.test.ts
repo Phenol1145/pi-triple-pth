@@ -111,6 +111,17 @@ describe("runAgentTask（agent 循环）", () => {
 });
 
 describe("PTC 程序模式（P1）", () => {
+  it("探索核候选块（backlog 差距 11）：角色声明 exploreKernels 时注入 A/B 并存引导；未声明不注入", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const withKernels = await buildAgentSystemPrompt(
+      { id: "tester", labelPatterns: [], prompt: "你是测试者", exploreKernels: ["python", "bash"] } as never, "t");
+    expect(withKernels).toContain("探索核候选");
+    expect(withKernels).toContain("python/bash");
+    expect(withKernels).toContain("A/B 并存");
+    const without = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t");
+    expect(without).not.toContain("探索核候选");
+  });
+
   it("system prompt 包含程序模式引导（ts 组合多 kernel + 示例）", async () => {
     const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
     const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t");

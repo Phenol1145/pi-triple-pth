@@ -200,12 +200,21 @@ const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='pr
     if (line) thinkingBlock = `\n${line}\n`;
   }
 
+  // 探索核候选块（backlog 差距 11——2026-08-12）：角色显式声明可用语言核集合时注入——
+  // A/B 并存引导：探索性任务可分别用不同语言核验证同一问题（探索空间按语言划分）。
+  let exploreBlock = "";
+  if (role?.exploreKernels && role.exploreKernels.length > 0) {
+    const langs = role.exploreKernels.join("/");
+    exploreBlock = `\n【探索核候选】本角色声明可用执行语言：${langs}。探索性/验证性任务可分别用不同语言核验证同一问题（A/B 并存——对比结果一致性）；各语言核的探索空间相互隔离（asp.cd(\"python\")/asp.cd(\"bash\") 按语言划分）。\n`;
+  }
+
   return `${PTH_WORKER_SYSTEM}
 
 当前任务：${taskTitle}
 
 ${roleBlock}
 ${thinkingBlock}
+${exploreBlock}
 ${AGENT_TOOLS_DESCRIPTION}
 
 ${capBlock}

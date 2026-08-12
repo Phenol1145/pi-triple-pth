@@ -233,3 +233,33 @@ describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
     // 不重复注册（间接验证：无异常、无重复处理日志）
   });
 });
+
+describe("TriggerEngine（定时源——backlog 差距 12：controller/sensor 任务源）", () => {
+  it("schedule 触发：到点发布观测任务（间隔生效 + maxFires 防风暴）", async () => {
+    const hub = new ActivityHub();
+    const memory = mockMemory([{ id: "trig-sched", def: { name: "周期观测", schedule: { everySec: 1 }, task: { title: "观测窗口", text: "采集任务池分布", role: "sensor:worker-opt", tags: ["sensor", "observe"] }, maxFires: 2 } }]);
+    const tasks = mockTasks();
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: memory as never });
+    await engine.start();
+    await new Promise((r) => setTimeout(r, 2600));
+    engine.stop();
+    expect(tasks.published.length).toBeGreaterThanOrEqual(1);
+    expect(tasks.published.length).toBeLessThanOrEqual(2);   // maxFires=2——不超发
+    const first = tasks.published[0];
+    expect(first.title).toBe("观测窗口");
+    expect(first.createdBy).toContain("trigger:周期观测");
+    expect((first.payload as { triggeredBy: { source: string } }).triggeredBy.source).toBe("schedule");
+  });
+
+  it("schedule 与 event 互斥语义：有 event 的 trigger 不因 schedule 空值双触发", async () => {
+    const hub = new ActivityHub();
+    const memory = mockMemory([{ id: "trig-e", def: { name: "事件链", event: "task.done", task: { title: "验收 {{taskId}}", text: "验收 {{role}} 的产物", role: "acceptor" } } }]);
+    const tasks = mockTasks();
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: memory as never });
+    await engine.start();
+    hub.publish({ kind: "task.done", taskId: "x1", role: "developer", at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(1);   // 仅事件触发一次（无 schedule 字段不重复）
+    engine.stop();
+  });
+});
