@@ -27,7 +27,7 @@ async function strategiesDir(ctx: ExtContext): Promise<string> {
   return base;
 }
 
-async function readStrategies(ctx: ExtContext): Promise<PerfStrategy[]> {
+export async function readStrategies(ctx: ExtContext): Promise<PerfStrategy[]> {
   const dir = await strategiesDir(ctx);
   try {
     const files = await fs.readdir(dir);

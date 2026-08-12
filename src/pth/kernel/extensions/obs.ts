@@ -67,6 +67,80 @@ export const obsExtension: TsReplExtension = {
         }
       },
 
+      /** PG 系统视图（固定模板白名单——pgStat 通道：连接状态/缓存命中/后台写） */
+      pg: async (opts: Record<string, unknown> = {}) => {
+        const view = str(opts["view"], "activity");
+        if (!["activity", "database", "bgwriter"].includes(view)) return { error: `obs.pg: 未知视图 "${view}"（activity/database/bgwriter）` };
+        try {
+          return await ctx.dataWorld.pgStat(view as "activity" | "database" | "bgwriter");
+        } catch (e) {
+          return { error: (e as Error).message };
+        }
+      },
+
+      /** 存储占用（df 概览 + compiled-cache 目录用量——容器内文件系统视角） */
+      storage: async () => {
+        try {
+          const { execFile } = await import("node:child_process");
+          const df = await new Promise<string>((resolve) => {
+            execFile("df", ["-h", "/data", "/"], { timeout: 5000 }, (err, stdout) => resolve(err ? "" : stdout));
+          });
+          // compiled-cache 用量（有限深度遍历——防大目录递归失控）
+          const cacheDir = process.env.PTH_COMPILED_CACHE_DIR ?? "/data/compiled-cache/c";
+          let cacheBytes = 0;
+          const walk = async (dir: string, depth: number): Promise<void> => {
+            if (depth > 3) return;
+            const entries = await (await import("node:fs/promises")).readdir(dir, { withFileTypes: true }).catch(() => []);
+            for (const e of entries) {
+              if (e.isDirectory()) await walk(`${dir}/${e.name}`, depth + 1);
+              else if (e.isFile()) {
+                const st = await (await import("node:fs/promises")).stat(`${dir}/${e.name}`).catch(() => null);
+                if (st) cacheBytes += st.size;
+              }
+            }
+          };
+          await walk(cacheDir, 0);
+          return { df: df.split("\n").filter(Boolean).slice(0, 6), compiledCacheDir: cacheDir, compiledCacheBytes: cacheBytes };
+        } catch (e) {
+          return { error: (e as Error).message };
+        }
+      },
+
+      /** 记忆空间质量聚合（memory_entries 只读统计——kind/status 分布/hit_count/重复度） */
+      memory: async () => {
+        try {
+          const byKind = await ctx.dataWorld.queryReadOnly(
+            `SELECT kind, status, count(*) AS n, round(avg(hit_count)::numeric, 1) AS avg_hits FROM memory_entries GROUP BY kind, status ORDER BY n DESC LIMIT 30`,
+          );
+          const total = await ctx.dataWorld.queryReadOnly(`SELECT count(*) AS n, sum(hit_count) AS total_hits FROM memory_entries`);
+          return { byKind, total };
+        } catch (e) {
+          return { error: (e as Error).message };
+        }
+      },
+
+      /** 调用点统计（task-scorecard 按角色聚合——2026-08-12 管理 SDK：内环 sensor 数据源） */
+      callpoint: async (opts: Record<string, unknown> = {}) => {
+        const role = str(opts["role"]);
+        const since = str(opts["since"]);
+        try {
+          const conds: string[] = [];
+          if (role && /^[a-z0-9-]+$/.test(role)) conds.push(`meta->>'role' = '${role}'`);
+          if (since && /^\d+$/.test(since)) conds.push(`created_at > now() - make_interval(secs => ${since})`);
+          const where = conds.length ? ` WHERE ${conds.join(" AND ")}` : "";
+          const rows = await ctx.dataWorld.queryReadOnly(
+            `SELECT meta->>'role' AS role, count(*) AS tasks, round(avg((content->>'steps')::int)::numeric, 1) AS avg_steps,
+             round(avg(((content->'tokens')->>'input')::bigint)::numeric, 0) AS avg_tokens_in,
+             round(avg((content->>'failedActions')::int)::numeric, 2) AS avg_fails
+             FROM memory_entries WHERE kind = 'task-scorecard'${where}
+             GROUP BY meta->>'role' ORDER BY tasks DESC LIMIT 20`,
+          );
+          return { rows };
+        } catch (e) {
+          return { error: (e as Error).message };
+        }
+      },
+
       /** sandbox 内核池调查（直查宿主——batch 已知 URL） */
       kernels: async () => {
         const url = process.env.PTH_SANDBOX_KERNEL_URL ?? process.env.SANDBOX_URL;
@@ -93,5 +167,6 @@ export const obsExtension: TsReplExtension = {
       },
     },
   }),
-  doc: `- obs: 可监控数据调查——obs.tasks({status?, role?, since?, limit?}) 任务池状态分布/耗时；obs.metrics({pattern?}) 主进程指标（pth_* 系列）；obs.batches() 批次状态；obs.kernels() sandbox 内核池（inFlight/idle/容量）；obs.search({query?, limit?}) 事件检索（transcripts）`,
+  doc: `- obs: 可监控数据调查——obs.tasks({status?, role?, since?, limit?}) 任务池状态分布/耗时；obs.metrics({pattern?}) 主进程指标（pth_* 系列）；obs.batches() 批次状态；obs.kernels() sandbox 内核池（inFlight/idle/容量）；obs.search({query?, limit?}) 事件检索（transcripts）；
+  obs.pg({view}) PG 系统视图（activity/database/bgwriter——连接/缓存命中）；obs.storage() 存储占用（df + compiled-cache）；obs.memory() 记忆质量聚合（kind/status/hit_count）；obs.callpoint({role?, since?}) 调用点统计（task-scorecard 按角色聚合——sensor 内环数据源）`,
 };

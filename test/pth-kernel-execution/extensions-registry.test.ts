@@ -13,7 +13,7 @@ const mockDataWorld = {
 
 describe("ts REPL 标准扩展包", () => {
   it("注册表：memory/context/model/perf 四成员在位", () => {
-    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs"]);
+    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs", "manage"]);
   });
 
   it("buildExtensions：能力注入（memory.query 受限 SQL）+ 预置对象（context/results/model）", () => {
@@ -71,7 +71,7 @@ describe("ts REPL 标准扩展包", () => {
 
 describe("model 会话切换 + perf 能力面（Phase 3）", () => {
   it("注册表四成员（perf 加入）", () => {
-    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs"]);
+    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs", "manage"]);
   });
 
   it("model 管理面裁剪（权限 v2 R3）：worker 面只读（set 摘除，get/usage 保留）", async () => {
@@ -153,8 +153,8 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
 });
 
 describe("obs 可监控数据调查（Phase 4）", () => {
-  it("注册表五成员（obs 加入）", () => {
-    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs"]);
+  it("注册表六成员（manage 加入——2026-08-12 管理 SDK）", () => {
+    expect(EXTENSIONS.map((e) => e.id)).toEqual(["memory", "context", "model", "perf", "obs", "manage"]);
   });
 
   it("obs.tasks：任务池状态分布（pg 封装 SQL——mock dataWorld）", async () => {

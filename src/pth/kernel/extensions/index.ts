@@ -31,13 +31,14 @@ export interface TsReplExtension {
 }
 
 import { memoryExtension } from "./memory.js";
+import { manageExtension } from "./manage.js";
 import { contextExtension } from "./context.js";
 import { modelExtension } from "./model.js";
 import { perfExtension } from "./perf.js";
 import { obsExtension } from "./obs.js";
 
 /** 注册表：新扩展 = 模块 + 加入此数组 */
-export const EXTENSIONS: TsReplExtension[] = [memoryExtension, contextExtension, modelExtension, perfExtension, obsExtension];
+export const EXTENSIONS: TsReplExtension[] = [memoryExtension, contextExtension, modelExtension, perfExtension, obsExtension, manageExtension];
 
 export interface BuiltExtensions {
   /** 合并后的 vm 能力注入（provide 结果） */
