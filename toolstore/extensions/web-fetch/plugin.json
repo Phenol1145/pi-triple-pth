@@ -1,0 +1,12 @@
+{
+  "id": "web-fetch",
+  "name": "Web Fetch Extension",
+  "version": "1.0.0",
+  "description": "只读 web 检索——https http get（超时/大小上限/协议约束）",
+  "contracts": {
+    "tools": ["web.get"],
+    "capabilities": []
+  },
+  "activation": { "onStartup": true },
+  "compat": { "pluginApi": ">=0.6.0" }
+}

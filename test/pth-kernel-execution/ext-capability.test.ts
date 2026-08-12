@@ -230,3 +230,60 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
     await expect(ext.kernel("bad")).rejects.toThrow();
   });
 });
+
+describe("扩展编排面——SDK 完善（2026-08-12：index.js 入口 + 标准通道注入）", () => {
+  let dir: string;
+  let toolstore: ReturnType<typeof createToolstore>;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "ext-cap2-"));
+    toolstore = createToolstore(dir);
+    await mkdir(join(dir, "extensions", "js-ext"), { recursive: true });
+    await writeFile(join(dir, "extensions", "js-ext", "plugin.json"), JSON.stringify({ id: "js-ext", name: "JS Ext", contracts: { tools: ["js.tool"] }, activation: { onStartup: true }, compat: { pluginApi: ">=0.6.0" } }));
+    await writeFile(join(dir, "extensions", "js-ext", "index.js"),
+      `module.exports = async function factory(ctx) {
+        return { tools: {
+          "js.tool": async (args) => {
+            if (ctx.exec) { const r = await ctx.exec("node", ["-e", "console.log('ok')"]); return { ok: r.ok, result: r.stdout }; }
+            return { ok: false, error: "no exec channel" };
+          },
+        } };
+      };`);
+  });
+  afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  it("scanExtensions：index.js 入口识别（entry 指向 index.js）", async () => {
+    const entries = await scanExtensions(toolstore);
+    expect(entries.length).toBe(1);
+    expect(entries[0]!.entry).toBe("extensions/js-ext/index.js");
+  });
+
+  it("ext.use：index.js 入口 + ctx.exec 标准通道注入（不再裸 import child_process）", async () => {
+    const dbQuery = async (t: string, s: string) => [{ table: t }];
+    const ext = createExtCapability({ toolstore, dbQuery });
+    const r = await (ext["ext"] as { use: (n: string, a?: unknown) => Promise<{ ok: boolean; result?: string; error?: string }> }).use("js-ext", { tool: "js.tool" });
+    expect(r.ok).toBe(true);
+    expect(r.result).toContain("ok");
+  });
+
+  it("ext.use：ctx.db 通道（表白名单 + where 过滤——通道层保证）", async () => {
+    const seen: string[] = [];
+    const dbQuery = async (t: string, s: string) => { seen.push(s); return [{ id: "x" }]; };
+    const ext = createExtCapability({ toolstore, dbQuery });
+    // 用 sql-readonly 同构扩展验证通道（js-ext 内直接调 ctx.db）
+    await mkdir(join(dir, "extensions", "db-ext"), { recursive: true });
+    await writeFile(join(dir, "extensions", "db-ext", "plugin.json"), JSON.stringify({ id: "db-ext", name: "DB Ext", contracts: { tools: ["db.q"] }, activation: { onStartup: true }, compat: { pluginApi: ">=0.6.0" } }));
+    await writeFile(join(dir, "extensions", "db-ext", "index.js"),
+      `module.exports = async function factory(ctx) {
+        return { tools: { "db.q": async (args) => ctx.db ? await ctx.db.query(String(args.table), { where: { status: "pending" }, limit: 3 }) : { ok: false, error: "no db" } } };
+      };`);
+    const r = await (ext["ext"] as { use: (n: string, a?: unknown) => Promise<{ ok: boolean; rows?: unknown; error?: string }> }).use("db-ext", { tool: "db.q", args: { table: "tasks" } });
+    expect(r.ok).toBe(true);
+    expect(seen[0]).toContain("FROM tasks");
+    expect(seen[0]).toContain("status = 'pending'");
+    // 白名单拒绝（表不在白名单）
+    const bad = await (ext["ext"] as { use: (n: string, a?: unknown) => Promise<{ ok: boolean; error?: string }> }).use("db-ext", { tool: "db.q", args: { table: "users" } });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain("白名单");
+  });
+});

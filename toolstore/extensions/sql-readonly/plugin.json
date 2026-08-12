@@ -1,0 +1,12 @@
+{
+  "id": "sql-readonly",
+  "name": "SQL Readonly Extension",
+  "version": "1.0.0",
+  "description": "受控只读 SQL——表白名单（tasks/memory_entries/transcripts）+ 键值对过滤（无注入面）",
+  "contracts": {
+    "tools": ["sql.query"],
+    "capabilities": []
+  },
+  "activation": { "onStartup": true },
+  "compat": { "pluginApi": ">=0.6.0" }
+}

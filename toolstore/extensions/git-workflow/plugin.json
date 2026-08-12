@@ -1,0 +1,12 @@
+{
+  "id": "git-workflow",
+  "name": "Git Workflow Extension",
+  "version": "1.0.0",
+  "description": "git 助手——status/diff/log/commit（developer 族高频操作封装；作用于 PTH 工作区仓库）",
+  "contracts": {
+    "tools": ["git.status", "git.diff", "git.log", "git.commit"],
+    "capabilities": []
+  },
+  "activation": { "onStartup": true },
+  "compat": { "pluginApi": ">=0.6.0" }
+}

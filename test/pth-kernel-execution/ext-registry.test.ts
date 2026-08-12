@@ -85,3 +85,65 @@ describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
     await expect(reg.loadOne("bad")).rejects.toThrow(/factory/);
   });
 });
+
+describe("扩展 SDK 标准通道（2026-08-12 完善——buildStdExtChannels）", () => {
+  it("exec：正常执行 + 超时/输出上限受控 + 白名单", async () => {
+    const { buildStdExtChannels } = await import("../../src/pth/kernel/extensions/ext-registry.js");
+    const ch = buildStdExtChannels({ dbQuery: async () => [] });
+    const r = await ch.exec!("node", ["-e", "console.log(1+1)"]);
+    expect(r.ok).toBe(true);
+    expect(r.stdout).toContain("2");
+    // 白名单拒绝
+    const ch2 = buildStdExtChannels({ dbQuery: async () => [], execAllowlist: ["node"] });
+    const bad = await ch2.exec!("rm", ["-rf", "/"]);
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain("白名单");
+  });
+
+  it("http.get：协议约束（ftp 拒绝 / https 允许）+ 超时", async () => {
+    const { buildStdExtChannels } = await import("../../src/pth/kernel/extensions/ext-registry.js");
+    const ch = buildStdExtChannels({ dbQuery: async () => [] });
+    const bad = await ch.http!.get("ftp://x.example/f");
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain("协议");
+    const unreachable = await ch.http!.get("https://127.0.0.1:1/x", { timeoutMs: 2000 });
+    expect(unreachable.ok).toBe(false);   // 连接失败——不抛（返回 ok:false）
+  });
+
+  it("db.query：表白名单 + where 过滤构建 + limit 上限", async () => {
+    const seen: Array<{ table: string; sql: string }> = [];
+    const { buildStdExtChannels } = await import("../../src/pth/kernel/extensions/ext-registry.js");
+    const ch = buildStdExtChannels({ dbQuery: async (table, sql) => { seen.push({ table, sql }); return [{ id: "t1" }]; } });
+    const r = await ch.db!.query("tasks", { where: { status: "pending", assigned_role: "developer" }, limit: 5 });
+    expect(r.ok).toBe(true);
+    expect(seen[0]?.sql).toContain("SELECT id, title, status, assigned_role, created_at FROM tasks");
+    expect(seen[0]?.sql).toContain("status = 'pending'");
+    expect(seen[0]?.sql).toContain("LIMIT 5");
+    // 白名单拒绝
+    const bad = await ch.db!.query("users");
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain("白名单");
+    // 注入防护（值含非法字符——白名单直接拒绝，不进入 SQL）
+    const r2 = await ch.db!.query("tasks", { where: { status: "pending'; DROP TABLE tasks; --" } });
+    expect(r2.ok).toBe(false);
+    expect(r2.error).toContain("非法字符");
+  });
+
+  it("evalFactory：TS 语法误用 → 友好错误提示（含 TS 语法提示）", async () => {
+    const dir2 = await mkdtemp(join(tmpdir(), "ext-ts-"));
+    try {
+      await mkdir(join(dir2, "extensions", "ts-bad"), { recursive: true });
+      await writeFile(join(dir2, "extensions", "ts-bad", "plugin.json"), JSON.stringify({ id: "ts-bad", name: "x", contracts: {}, activation: { onStartup: true }, compat: { pluginApi: ">=0.6.0" } }));
+      await writeFile(join(dir2, "extensions", "ts-bad", "index.ts"), `module.exports = async function factory(ctx) { const x: number = 1; return {}; };`);
+      const ts2 = createToolstore(dir2);
+      const errors: string[] = [];
+      const reg = new ExtRegistry({ toolstore: ts2, extContext: {}, onError: (id, e) => errors.push(e.message) });
+      const loaded = await reg.loadAll();
+      expect(loaded).toEqual([]);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors[0]).toContain("TS 语法");
+    } finally {
+      await rm(dir2, { recursive: true, force: true });
+    }
+  });
+});

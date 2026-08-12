@@ -10,6 +10,7 @@
  */
 
 import type { ExtManifest } from "../extensions/ext-manifest.js";
+import { buildStdExtChannels } from "../extensions/ext-registry.js";
 import type { Toolstore } from "./toolstore.js";
 import type { Interpreter } from "./types.js";
 import type { PgMemoryStore } from "../storage/memory-store-pg.js";
@@ -28,6 +29,23 @@ export interface ExtCapabilityOptions {
   memory?: { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> };
   /** 新执行核注册（kernel-manager.registerKernel——ext.kernel 按需接线） */
   registerKernel?: (language: string, interpreter: unknown) => void;
+  /** 只读数据库通道（ctx.db——2026-08-12 SDK 完善：扩展标准通道；白名单/过滤由通道层保证） */
+  dbQuery?: (table: string, sql: string) => Promise<unknown>;
+}
+
+/** 扩展入口探测（2026-08-12 SDK 完善：index.js 优先（checkJs 友好）——index.ts 向后兼容） */
+async function resolveExtEntry(toolstore: Toolstore, id: string): Promise<string> {
+  try {
+    await toolstore.readText(`extensions/${id}/index.js`);
+    return `extensions/${id}/index.js`;
+  } catch {
+    return `extensions/${id}/index.ts`;
+  }
+}
+
+/** 扩展工厂 ctx（标准通道 + log——2026-08-12 SDK 完善） */
+function buildExtCtx(opts: ExtCapabilityOptions): Record<string, unknown> {
+  return { log: () => {}, ...buildStdExtChannels({ dbQuery: opts.dbQuery }) };
 }
 
 /** 扫描 toolstore/extensions/ → 索引（manifest 元数据 + 入口） */
@@ -43,7 +61,7 @@ export async function scanExtensions(toolstore: Toolstore): Promise<ExtIndexEntr
         name: manifest.name ?? id,
         description: manifest.description,
         version: manifest.version,
-        entry: `extensions/${id}/index.ts`,
+        entry: await resolveExtEntry(toolstore, id),
         contracts: [
           ...(manifest.contracts?.tools ?? []).map((t) => `tool:${t}`),
           ...(manifest.contracts?.capabilities ?? []).map((c) => `capability:${c}`),
@@ -63,9 +81,9 @@ export function createExtCapability(opts: ExtCapabilityOptions): Record<string, 
     ext: {
       /** 扩展清单（按需——不注册不装载） */
       index: async (): Promise<ExtIndexEntry[]> => scanExtensions(opts.toolstore),
-      /** 引用扩展代码库（读 index.ts → eval 重放 → factory(extCtx) → 调用目标工具） */
+      /** 引用扩展代码库（读入口 → eval 重放 → factory(ctx) → 调用目标工具） */
       use: async (name: string, args: Record<string, unknown> = {}): Promise<unknown> => {
-        const code = await opts.toolstore.readText(`extensions/${name}/index.ts`);
+        const code = await opts.toolstore.readText(await resolveExtEntry(opts.toolstore, name));
         // eval 重放（复用 recall 通道语义——扩展工厂约定 module.exports = factory(ctx)）
         const wrapped = `"use strict";
           const module = { exports: {} };
@@ -76,7 +94,8 @@ export function createExtCapability(opts: ExtCapabilityOptions): Record<string, 
         const fn = new Function(wrapped)() as unknown;
         const factory = typeof fn === "function" ? fn as (ctx: Record<string, unknown>) => unknown : null;
         if (!factory) throw new Error(`ext.use: ${name}/index.ts 未导出 factory`);
-        const result = factory({ log: () => {} }) as { tools?: Record<string, (a: unknown) => Promise<unknown>> };
+        // async factory 兼容（2026-08-12 SDK 完善：工厂约定 async——需 await 再取 contracts）
+        const result = await factory(buildExtCtx(opts)) as { tools?: Record<string, (a: unknown) => Promise<unknown>> };
         // 目标工具：args.tool 指定扩展内工具（缺省取第一个）
         const toolName = (args["tool"] as string | undefined)
           ?? Object.keys(result.tools ?? {})[0];
@@ -95,7 +114,7 @@ export function createExtCapability(opts: ExtCapabilityOptions): Record<string, 
           throw new Error("ext.kernel: 不接受任务内联代码（RCE 风险）——请引用 toolstore 扩展：ext.kernel('<扩展名>')");
         }
         if (!opts.registerKernel) throw new Error("ext.kernel: registerKernel 未注入（batch 环境）");
-        const extCode = await opts.toolstore.readText(`extensions/${name}/index.ts`);
+        const extCode = await opts.toolstore.readText(await resolveExtEntry(opts.toolstore, name));
         const wrapped = `"use strict";
           const module = { exports: {} };
           const exports = module.exports;
@@ -103,7 +122,8 @@ export function createExtCapability(opts: ExtCapabilityOptions): Record<string, 
           return module.exports.default ?? module.exports;`;
         // eslint-disable-next-line @typescript-eslint/no-implied-eval
         const fn = new Function(wrapped)() as unknown;
-        const mod = typeof fn === "function" ? fn({ log: () => {} }) : fn;
+        // async factory 兼容（2026-08-12：await 后再取 create/interpreter）
+        const mod = typeof fn === "function" ? await fn(buildExtCtx(opts)) : fn;
         const created = (mod as { create?: (ctx: Record<string, unknown>) => unknown }).create?.({ log: () => {} })
           ?? (mod as Record<string, unknown>)["interpreter"]
           ?? mod;

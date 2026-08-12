@@ -156,6 +156,26 @@ describe("管理 SDK——obs 观测面扩展", () => {
     expect(r.compiledCacheDir.length).toBeGreaterThan(0);
   });
 
+  it("obs.container：cgroup 容器级观测（不抛错——非容器环境降级 available:false）", async () => {
+    const ctx = fakeCtx({
+      dataWorld: { memory: { write: async () => ({ ok: true }), get: async () => null, update: async () => ({ ok: true }), retrieve: async () => [] }, queryReadOnly: async () => [], pgStat: async () => [] },
+    });
+    const ext = buildExtensions(ctx);
+    const obs = (ext.capabilities as Record<string, unknown>)["obs"] as Record<string, unknown>;
+    const container = obs["container"] as () => Promise<Record<string, unknown>>;
+    const r = await container();
+    expect(r.error).toBeUndefined();
+    expect("available" in r).toBe(true);
+    if (r.available === true) {
+      expect(typeof r.hostname).toBe("string");
+      expect(r.cpu).toHaveProperty("quotaCores");
+      expect(r.memory).toHaveProperty("currentMb");
+      expect(r.pids).toHaveProperty("current");
+    } else {
+      expect(String(r.note)).toContain("非容器");
+    }
+  });
+
   it("runReadOnlyPgView：固定模板执行（fake pool）", async () => {
     const pool = {
       query: vi.fn(async () => ({ rows: [{ state: "active", n: 2 }] })),

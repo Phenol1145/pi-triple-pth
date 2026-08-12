@@ -157,6 +157,49 @@ export const obsExtension: TsReplExtension = {
         }
       },
 
+      /** 容器级观测（cgroup v2 只读——backlog 差距 7：资源闭环外环多数据源最后一块）
+       *  CPU：cpu.max（quota/period——容器核数限额）、cpu.stat（usage_usec 累计）
+       *  内存：memory.current/max（max="max"=无限制）· pids.current/max
+       *  非容器环境（无 cgroup 文件）降级返回 { available: false }——不报错 */
+      container: async () => {
+        const read = async (p: string): Promise<string | null> => {
+          try {
+            return (await (await import("node:fs/promises")).readFile(p, "utf8")).trim();
+          } catch {
+            return null;
+          }
+        };
+        const base = "/sys/fs/cgroup";
+        const cpuMax = await read(`${base}/cpu.max`);
+        const memCurrent = await read(`${base}/memory.current`);
+        const memMax = await read(`${base}/memory.max`);
+        const pidsCurrent = await read(`${base}/pids.current`);
+        const pidsMax = await read(`${base}/pids.max`);
+        const usageUsec = await read(`${base}/cpu.stat`);
+        if (cpuMax === null && memCurrent === null) return { available: false, note: "非容器 cgroup v2 环境（无 /sys/fs/cgroup 指标）" };
+        const [quota, period] = cpuMax?.split(/\s+/).map(Number) ?? [NaN, NaN];
+        const cpuSec = usageUsec?.split("\n")[0]?.split(/\s+/)[1]; // usage_usec
+        const mb = (v: string): number | null => (v && v !== "max" ? Math.round(Number(v) / 1024 / 1024) : null);
+        return {
+          available: true,
+          hostname: (await import("node:os")).hostname(),
+          cpu: {
+            quotaCores: Number.isFinite(quota) && quota > 0 && period > 0 ? quota / period : null,
+            periodUs: period,
+            usageUs: cpuSec ? Number(cpuSec) : null,
+          },
+          memory: {
+            currentMb: mb(memCurrent ?? ""),
+            maxMb: memMax === "max" ? null : mb(memMax ?? ""),
+            unlimited: memMax === "max",
+          },
+          pids: {
+            current: pidsCurrent ? Number(pidsCurrent) : null,
+            max: pidsMax && pidsMax !== "max" ? Number(pidsMax) : null,
+          },
+        };
+      },
+
       /** 事件检索（pg transcripts） */
       search: async (opts: Record<string, unknown> = {}) => {
         try {
@@ -168,5 +211,5 @@ export const obsExtension: TsReplExtension = {
     },
   }),
   doc: `- obs: 可监控数据调查——obs.tasks({status?, role?, since?, limit?}) 任务池状态分布/耗时；obs.metrics({pattern?}) 主进程指标（pth_* 系列）；obs.batches() 批次状态；obs.kernels() sandbox 内核池（inFlight/idle/容量）；obs.search({query?, limit?}) 事件检索（transcripts）；
-  obs.pg({view}) PG 系统视图（activity/database/bgwriter——连接/缓存命中）；obs.storage() 存储占用（df + compiled-cache）；obs.memory() 记忆质量聚合（kind/status/hit_count）；obs.callpoint({role?, since?}) 调用点统计（task-scorecard 按角色聚合——sensor 内环数据源）`,
+  obs.pg({view}) PG 系统视图（activity/database/bgwriter——连接/缓存命中）；obs.storage() 存储占用（df + compiled-cache）；obs.memory() 记忆质量聚合（kind/status/hit_count）；obs.callpoint({role?, since?}) 调用点统计（task-scorecard 按角色聚合——sensor 内环数据源）；obs.container() 容器级 cgroup 观测（cpu 核数限额/内存用量/pids——非容器环境降级 {available:false}）`,
 };
