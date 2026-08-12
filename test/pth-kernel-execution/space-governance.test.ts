@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { spaceRegistry } from "../../src/pth/kernel/execution/space-registry.js";
 import { buildSpaceIndex } from "../../src/pth/kernel/execution/space-index.js";
-import { PyKernel } from "../../src/pth/kernel/interpreter/py-kernel.js";
-import { BashKernel } from "../../src/pth/kernel/interpreter/bash-kernel.js";
+import { PyKernel } from "../../src/pth/impls/kernels/py-kernel.js";
+import { BashKernel } from "../../src/pth/impls/kernels/bash-kernel.js";
 
 /**
  * 空间治理 v2（2026-08-12 用户裁决批 3）：

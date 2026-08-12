@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
 
 export interface CompiledKernelOptions {
   /** 工作区根（编译运行目录——可临时可删） */

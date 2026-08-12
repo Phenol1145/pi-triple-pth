@@ -1,7 +1,7 @@
 import { createContext, runInContext, type Context } from "node:vm";
 import { stripTypeScriptTypes } from "node:module";
-import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
-import { buildSeeds } from "../extensions/index.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
+import { buildSeeds } from "../../kernel/extensions/index.js";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
 

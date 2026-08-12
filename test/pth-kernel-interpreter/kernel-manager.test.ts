@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/kernel/interpreter/kernel-manager";
+import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager";
 import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn";
 
 describe("KernelManager（多语言路由）", () => {

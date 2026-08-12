@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Fastify from "fastify";
 import { buildKernelHostApp } from "../../src/sandbox/kernel-host.js";
-import { createKernelManager } from "../../src/pth/kernel/interpreter/kernel-manager.js";
+import { createKernelManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 
 /**
  * KernelManager sandbox-kernel 模式集成——真实 HTTP 宿主 + 三语言路由。

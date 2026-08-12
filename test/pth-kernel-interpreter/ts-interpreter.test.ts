@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TsInterpreter } from "../../src/pth/kernel/interpreter/ts-interpreter";
+import { TsInterpreter } from "../../src/pth/impls/kernels/ts-interpreter";
 
 describe("ts interpreter", () => {
   it("executes simple expression and returns value", async () => {

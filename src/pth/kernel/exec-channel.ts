@@ -18,7 +18,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { InterpreterResult } from "./interpreter/types.js";
-import { createKernelManager, createWorkerKernelWithManager, type KernelManager } from "./interpreter/kernel-manager.js";
+import { createKernelManager, createWorkerKernelWithManager, type KernelManager } from '../impls/kernels/kernel-manager.js';
 import { loadKernelConfig } from "./interpreter/kernel-config.js";
 import { createLlmFn, type LlmFn } from "./interpreter/llm-fn.js";
 import { createToolstore, type Toolstore } from "./interpreter/toolstore.js";

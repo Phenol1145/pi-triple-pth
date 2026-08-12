@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { buildCapabilities } from "../../src/pth/kernel/interpreter/capability";
-import { createWorkerKernel } from "../../src/pth/kernel/interpreter/index";
-import { TsInterpreter } from "../../src/pth/kernel/interpreter/ts-interpreter";
+import { buildCapabilities } from "../../src/pth/impls/kernels/capability";
+import { createWorkerKernel } from "../../src/pth/impls/kernels/index";
+import { TsInterpreter } from "../../src/pth/impls/kernels/ts-interpreter";
 
 /** mock DataWorldAccess（Spec C 接口） */
 function mockDataWorld() {
@@ -219,7 +219,7 @@ describe("exec 执行模式（2026-08-11 元命令拆分——single/program/aut
 
 describe("SandboxKernel 自愈（2026-08-12 复测发现）", () => {
   it("disposed 后 execute 自动重建（重新 acquire——不再永久失败）", async () => {
-    const { SandboxKernel } = await import("../../src/pth/kernel/interpreter/sandbox-kernel.js");
+    const { SandboxKernel } = await import("../../src/pth/impls/kernels/sandbox-kernel.js");
     const calls: string[] = [];
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {

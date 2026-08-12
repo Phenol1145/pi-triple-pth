@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { SandboxDebugSession } from "../../src/pth/kernel/interpreter/sandbox-debug-session.js";
+import { SandboxDebugSession } from "../../src/pth/impls/kernels/sandbox-debug-session.js";
 
 describe("SandboxDebugSession（debug 核 sandbox 适配器）", () => {
   const okJson = (data: unknown) => ({ ok: true, status: 200, json: async () => data, text: async () => "" });

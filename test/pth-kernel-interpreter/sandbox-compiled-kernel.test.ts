@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { SandboxCompiledKernel } from "../../src/pth/kernel/interpreter/sandbox-compiled-kernel.js";
+import { SandboxCompiledKernel } from "../../src/pth/impls/kernels/sandbox-compiled-kernel.js";
 
 describe("SandboxCompiledKernel（编译核 sandbox 适配器）", () => {
   it("execute 转发 /kernel/compiled（Bearer 认证 + 代码体）", async () => {
@@ -50,7 +50,7 @@ describe("SandboxCompiledKernel（编译核 sandbox 适配器）", () => {
   });
 
   it("无 sandbox 配置时 manager 侧降级（c 不可用明确错误）", async () => {
-    const { createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createKernelManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const mgr = createKernelManager({
       pythonMode: "kernel", bashMode: "kernel",
       kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },

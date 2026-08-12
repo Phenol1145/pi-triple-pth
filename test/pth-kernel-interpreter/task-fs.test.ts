@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createWorkerKernelWithManager, createKernelManager } from "../../src/pth/kernel/interpreter/kernel-manager.js";
+import { createWorkerKernelWithManager, createKernelManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

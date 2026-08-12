@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createWorkerKernelWithManager } from "../../src/pth/kernel/interpreter/kernel-manager.js";
+import { createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 
 function makeManager(): any {
   return {

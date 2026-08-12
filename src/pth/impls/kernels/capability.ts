@@ -1,10 +1,10 @@
-import type { LlmFn } from "./llm-fn.js";
-import type { Interpreter } from "./types.js";
-import type { DataWorldAccess } from "../storage/index.js";
-import type { PgMemoryStore } from "../storage/memory-store-pg.js";
-import type { Toolstore } from "./toolstore.js";
-import { buildExtensions } from "../extensions/index.js";
-import { createExtCapability } from "./ext-capability.js";
+import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
+import type { Interpreter } from "../../kernel/interpreter/types.js";
+import type { DataWorldAccess } from "../../kernel/storage/index.js";
+import type { PgMemoryStore } from "../../kernel/storage/memory-store-pg.js";
+import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
+import { buildExtensions } from "../../kernel/extensions/index.js";
+import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
 
 /** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */
 function createTaskFs(resolve: (rel: string) => string): Record<string, unknown> {

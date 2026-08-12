@@ -191,7 +191,7 @@ describe("收敛 agent 行为 v1（重复动作检测——轨迹分析 2026-08-
     const kernel = mockKernel();
     // 模拟 step 13-26 模式：同一 readSource 但每步微变（变量名/注释）
     const steps = Array.from({ length: 6 }, (_, i) => ({
-      toolCalls: [{ name: "ts.run", arguments: { code: `// v${i} 重写\nconst s${i} = await fs.readSource("src/pth/kernel/interpreter/ts-interpreter.ts"); s${i};` } }],
+      toolCalls: [{ name: "ts.run", arguments: { code: `// v${i} 重写\nconst s${i} = await fs.readSource("src/pth/impls/kernels/ts-interpreter.ts"); s${i};` } }],
     }));
     const llm = mockLlm(steps);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "读文件" }, maxSteps: 8 });

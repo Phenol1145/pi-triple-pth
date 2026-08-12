@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PythonInterpreter } from "../../src/pth/kernel/interpreter/python-interpreter";
+import { PythonInterpreter } from "../../src/pth/impls/kernels/python-interpreter";
 
 describe("python interpreter", () => {
   it("executes simple python program", async () => {

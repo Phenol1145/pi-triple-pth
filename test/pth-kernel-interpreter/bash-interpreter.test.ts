@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BashInterpreter } from "../../src/pth/kernel/interpreter/bash-interpreter";
+import { BashInterpreter } from "../../src/pth/impls/kernels/bash-interpreter";
 import { SandboxForwardError, SANDBOX_ERROR_UNAVAILABLE } from "../../src/pth/tools/sandbox-bash";
 
 /** mock SandboxExecClient（对齐 src/pth/tools/sandbox-bash.ts 的 exec 签名） */

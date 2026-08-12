@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createWebCapability } from "../../src/pth/kernel/interpreter/capability";
+import { createWebCapability } from "../../src/pth/impls/kernels/capability";
 
 afterEach(() => vi.unstubAllGlobals());
 

@@ -9,7 +9,7 @@
  *       独立临时工作区（编译-运行管道——天然隔离，宿主侧清理）。
  */
 
-import type { ExecuteOptions, Interpreter, InterpreterResult } from "./types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult } from "../../kernel/interpreter/types.js";
 
 export interface SandboxCompiledKernelOptions {
   /** sandbox 宿主 base URL（如 http://sandbox:8080） */
@@ -69,7 +69,7 @@ export class SandboxCompiledKernel implements Interpreter {
   /** 编译核无持久状态——no-op（接口兼容） */
   reset(): void {}
   dispose(): void {}
-  async snapshot(): Promise<import("./types.js").InterpreterSnapshot> {
+  async snapshot(): Promise<import("../../kernel/interpreter/types.js").InterpreterSnapshot> {
     return { variables: [], functions: [], oversized: [] };
   }
 }

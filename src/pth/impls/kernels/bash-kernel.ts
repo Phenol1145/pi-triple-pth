@@ -13,7 +13,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
 
 /** 记忆库函数（2026-08-11 库化——bash 核 seed：curl 封装记忆桥只读三操作；SQL/JSON 由调用方传） */
 // API 约定：memory_query "SQL"（SQL 用单引号字符串字面量——双引号会破 JSON）；

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/kernel/interpreter/kernel-manager.js";
+import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
 import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
 

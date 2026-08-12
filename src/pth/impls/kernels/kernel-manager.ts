@@ -10,7 +10,7 @@
  *   - 超时 kill + 冷备补位（由 PyKernel/BashKernel 内部实现）
  */
 
-import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
 import { TsInterpreter } from "./ts-interpreter.js";
 import { PythonInterpreter } from "./python-interpreter.js";
 import { BashInterpreter } from "./bash-interpreter.js";
@@ -18,10 +18,10 @@ import { PyKernel } from "./py-kernel.js";
 import { BashKernel } from "./bash-kernel.js";
 import { SandboxKernel } from "./sandbox-kernel.js";
 import { SandboxCompiledKernel } from "./sandbox-compiled-kernel.js";
-import { getEventBus } from "../execution/event-bus.js";
+import { getEventBus } from "../../kernel/execution/event-bus.js";
 import { buildCapabilities } from "./capability.js";
-import type { LlmFn } from "./llm-fn.js";
-import type { DataWorldAccess } from "../storage/index.js";
+import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
+import type { DataWorldAccess } from "../../kernel/storage/index.js";
 
 export interface KernelManagerOptions {
   /** python 执行模式：kernel（持久管道，默认）| interpreter（每次 spawn）| sandbox-kernel（宿主池） */
@@ -39,7 +39,7 @@ export interface KernelManagerOptions {
   /** 性能计量（SPEC L1）：kernel 执行事件（batch 内经 IPC 转发主进程） */
   onKernelMetric?: (metric: { type: string; language: string; durationMs?: number; ok?: boolean; field?: string; count?: number; depth?: number }) => void;
   /** kernel 参数化（懒 spawn/空闲回收/reset 模式——PTH_KERNEL_* env 加载） */
-  kernelConfig?: import("./kernel-config.js").KernelConfig;
+  kernelConfig?: import("../../kernel/interpreter/kernel-config.js").KernelConfig;
 }
 
 export interface KernelManager {
@@ -171,7 +171,7 @@ export function createWorkerKernelWithManager(deps: {
   dataWorld: DataWorldAccess;
   manager: KernelManager;
   /** toolstore 文件通道（§0.5）：注入 fs.readText */
-  toolstore?: import("./toolstore.js").Toolstore;
+  toolstore?: import("../../kernel/interpreter/toolstore.js").Toolstore;
   /** 新执行核注册（ext.kernel 接线——转发 manager.registerKernel） */
   registerKernel?: (language: string, interpreter: unknown) => void;
   /** 自修改（v1）：只读 PTH 源码（buildCapabilities 注入面） */
@@ -190,11 +190,11 @@ export function createWorkerKernelWithManager(deps: {
   bash: Interpreter;
   c: Interpreter;
   /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels 经此执行（dev.build/run .s 分发） */
-  execute(language: string, program: string, opts?: import("./types.js").ExecuteOptions): Promise<InterpreterResult>;
+  execute(language: string, program: string, opts?: import("../../kernel/interpreter/types.js").ExecuteOptions): Promise<InterpreterResult>;
   /** 新执行核注册（ext.kernel 接线——转发 manager.registerKernel） */
   registerKernel(language: string, interpreter: unknown): void;
   /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */
-  toolstore?: import("./toolstore.js").Toolstore;
+  toolstore?: import("../../kernel/interpreter/toolstore.js").Toolstore;
   llm: LlmFn;
   dataWorld: DataWorldAccess;
   /** capability 白名单（web/state/fs/memory）——agent 循环与 vm 注入同一份 */
@@ -254,7 +254,7 @@ export function createWorkerKernelWithManager(deps: {
         ...orig,
         // 双签名归一（对象/位置——normalizeWriteArgs）+ role 命名空间 anchor 注入（对象签名下传）
         write: async (a: unknown, b?: unknown, c?: unknown) => {
-          const { normalizeWriteArgs } = await import("../extensions/memory-policy.js");
+          const { normalizeWriteArgs } = await import("../../kernel/extensions/memory-policy.js");
           const entry = normalizeWriteArgs(a, b, c);
           entry.anchors = [`role:${role}`, ...((entry.anchors as unknown[]) ?? [])];
           return (orig["write"] as (e: unknown) => Promise<unknown>)(entry);
@@ -278,7 +278,7 @@ export function createWorkerKernelWithManager(deps: {
     c: deps.manager.c,
     /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels（ext.kernel 注册）经此执行——
      *  dev.build/dev.run 的 .s 分发调 ctx.kernel.execute("asm", ...) */
-    execute: (language: string, program: string, executeOpts?: import("./types.js").ExecuteOptions) =>
+    execute: (language: string, program: string, executeOpts?: import("../../kernel/interpreter/types.js").ExecuteOptions) =>
       deps.manager.execute(language, program, executeOpts),
     registerKernel: (language: string, interpreter: unknown) => registerHook?.(language, interpreter),
     /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */

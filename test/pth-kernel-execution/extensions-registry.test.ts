@@ -52,7 +52,7 @@ describe("ts REPL 标准扩展包", () => {
   });
 
   it("ts 核预置：model 对象在 vm 内可见（seed 生效）", async () => {
-    const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const manager = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
     const kernel = createWorkerKernelWithManager({
       llm: null as any,
@@ -76,7 +76,7 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
 
   it("model 管理面裁剪（权限 v2 R3）：worker 面只读（set 摘除，get/usage 保留）", async () => {
     const { modelState } = await import("../../src/pth/kernel/extensions/model.js");
-    const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const manager = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
     const kernel = createWorkerKernelWithManager({
       llm: null as any,
@@ -100,7 +100,7 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
   it("perf 管理面裁剪（权限 v2 R3）：worker 面只读（params 可读，set 摘除）", async () => {
     const { resetConfig } = await import("../../src/pth/kernel/extensions/perf-params.js");
     resetConfig({ PTH_AGENT_MODEL: "m1" });
-    const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const manager = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
     const kernel = createWorkerKernelWithManager({
       llm: null as any,

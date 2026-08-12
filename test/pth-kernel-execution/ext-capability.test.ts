@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createToolstore } from "../../src/pth/kernel/interpreter/toolstore.js";
 import { scanExtensions, createExtCapability } from "../../src/pth/kernel/interpreter/ext-capability.js";
-import { createWorkerKernelWithManager } from "../../src/pth/kernel/interpreter/kernel-manager.js";
+import { createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 
 /** 代码库式扩展（hello-world——复用 toolstore/extensions/hello-world 真实示例） */
 describe("扩展编排面（代码库式——ext 能力 + 公共记忆区索引）", () => {
@@ -117,7 +117,7 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
   afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
 
   it("注册新执行核 → kernel-manager execute(language) 路由扩展 → ts 程序可用", async () => {
-    const { createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createKernelManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const mgr = createKernelManager({
       pythonMode: "kernel", bashMode: "kernel",
       kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },
@@ -137,7 +137,7 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
   });
 
   it("ext.kernel：引用 toolstore 扩展（index.ts eval 重放）→ 注册 → ts 程序内 rust.execute 可用（能力面）", async () => {
-    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const mgr = createKernelManager({
       pythonMode: "kernel", bashMode: "kernel",
       kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },
@@ -163,7 +163,7 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
   });
 
   it("ext.kernel：拒绝任务内联代码（RCE 防护——code 参数一律拒绝，必须走 toolstore）", async () => {
-    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const mgr = createKernelManager({
       pythonMode: "kernel", bashMode: "kernel",
       kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },
@@ -187,7 +187,7 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
   });
 
   it("ext.kernel 后注册 → 同一 ts 程序内 rust.execute 可用（动态注入 vm context）", async () => {
-    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const mgr = createKernelManager({
       pythonMode: "kernel", bashMode: "kernel",
       kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },
@@ -213,7 +213,7 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
   });
 
   it("ext.kernel：toolstore 扩展代码未导出 execute → 明确错误", async () => {
-    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const mgr = createKernelManager({
       pythonMode: "kernel", bashMode: "kernel",
       kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },

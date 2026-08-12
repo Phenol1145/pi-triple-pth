@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { createPgPool } from "../storage/pg.js";
 import { applySchema } from "../storage/schema.js";
 import { createDataWorld } from "../storage/index.js";
-import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../interpreter/index.js";
+import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../../impls/kernels/index.js";
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
 import { DEFAULT_ROLES, GOVERNANCE_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById } from "./worker-cluster.js";

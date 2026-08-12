@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/kernel/interpreter/kernel-manager.js";
+import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
 import { AGENT_TOOL_IDS } from "../../src/pth/kernel/execution/parse-agent-action.js";
 import { AGENT_CAPABILITY_DOC, AGENT_TOOLS_DESCRIPTION } from "../../src/pth/kernel/execution/agent-tools.js";

@@ -9,7 +9,7 @@
  * 解析器为纯函数（可单测）；适配器本机无 gdb 时跳过（sandbox Linux 集成验证）。
  */
 
-import type { DebugSession, DebugStackFrame, DebugVariable, DebugStopped, DebugBreakpoint, DebugEvent, DebugSnapshot } from "./types.js";
+import type { DebugSession, DebugStackFrame, DebugVariable, DebugStopped, DebugBreakpoint, DebugEvent, DebugSnapshot } from "../../kernel/interpreter/types.js";
 
 // ─── MI 输出解析（纯函数）────────────────────────────────────────────
 

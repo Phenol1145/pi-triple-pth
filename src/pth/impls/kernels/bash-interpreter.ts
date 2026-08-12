@@ -1,4 +1,4 @@
-import type { ExecuteOptions, Interpreter, InterpreterResult } from "./types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult } from "../../kernel/interpreter/types.js";
 import type { SandboxExecClient, SandboxExecRequest, SandboxExecResult } from "../../tools/sandbox-bash.js";
 
 export const DEFAULT_BASH_CWD = "/data/workspaces";

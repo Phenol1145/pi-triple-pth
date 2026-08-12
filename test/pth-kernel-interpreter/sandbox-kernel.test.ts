@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Fastify from "fastify";
 import { buildKernelHostApp } from "../../src/sandbox/kernel-host.js";
-import { SandboxKernel } from "../../src/pth/kernel/interpreter/sandbox-kernel.js";
+import { SandboxKernel } from "../../src/pth/impls/kernels/sandbox-kernel.js";
 
 /**
  * SandboxKernel 适配器集成测试——真实 HTTP（fastify listen :0）+ 真实 python/bash。

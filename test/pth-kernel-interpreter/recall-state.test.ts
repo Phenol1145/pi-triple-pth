@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { createRecallState } from "../../src/pth/kernel/interpreter/capability";
+import { createRecallState } from "../../src/pth/impls/kernels/capability";
 
 function mockMemory(entries: any[]) {
   return {
