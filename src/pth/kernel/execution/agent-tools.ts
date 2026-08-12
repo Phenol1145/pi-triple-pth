@@ -692,15 +692,66 @@ export function toolsForExecTool(execTool: string): import("@earendil-works/pi-a
   return out;
 }
 
+/** 工具族（2026-08-12 动作面裁剪——按角色目标最小化分组的单元）
+ * 角色声明 actionTools 时按族/逐工具 id 白名单过滤 LLM 工具面——
+ * in-tokens 削减（memory-stats 背 debug.* 定义的历史问题消除）。
+ * 维护类收编：spaceMaint（asp.create/destroy）默认只授 controller 系/origin——
+ * 空间治理走 controller 维护任务（worker 不做空间生成/注销）。 */
+export const TOOL_GROUPS: Record<string, string[]> = {
+  execTs: ["ts.run", "ts.eval"],
+  execPy: ["python.run", "python.eval"],
+  execBash: ["bash.run", "bash.eval"],
+  dev: ["dev.write", "dev.edit", "dev.build", "dev.run", "dev.save", "dev.list"],
+  debug: ["debug.attach", "debug.breakpoint", "debug.continue", "debug.step", "debug.snapshot", "debug.evaluate", "debug.detach", "debug.sessions"],
+  write: ["write.create", "write.edit", "write.read", "write.list", "write.save", "write.section"],
+  nav: ["asp.cd", "asp.index", "memory.index"],
+  spaceMaint: ["asp.create", "asp.destroy"],
+  cache: ["cache.load", "cache.index", "cache.cancel"],
+};
+
+/** 展开工具族（组名 → 工具 id 列表；未知组名忽略——保持前向兼容） */
+export function expandToolGroups(ids: string[]): string[] {
+  const out: string[] = [];
+  for (const id of ids) {
+    if (TOOL_GROUPS[id]) out.push(...TOOL_GROUPS[id]);
+    else out.push(id);
+  }
+  return out;
+}
+
+/** 按角色动作面过滤工具（actionTools 未声明/空 → 全量——向后兼容：扩展角色/自定义角色不受影响） */
+export function filterToolSchemas(ids: string[] | undefined): typeof TOOL_SCHEMAS {
+  if (!ids || ids.length === 0) return TOOL_SCHEMAS;
+  const wanted = new Set(expandToolGroups(ids));
+  const out: typeof TOOL_SCHEMAS = {};
+  for (const [name, s] of Object.entries(TOOL_SCHEMAS)) {
+    if (wanted.has(name)) out[name] = s;
+  }
+  return out;
+}
+
 /** 工具声明 → pi-ai Tool[]（OpenAI function 格式——Context.tools 原生 tool_calls）
  * name 去点（OpenAI tool name pattern ^[a-zA-Z0-9_-]+$——python.execute 非法 → python_execute）
- */
-export function toolsToSchema(): import("@earendil-works/pi-ai").Tool[] {
-  return Object.entries(TOOL_SCHEMAS).map(([name, s]) => ({
+ * actionTools 过滤：按角色白名单裁剪（缺省全量）。 */
+export function toolsToSchema(actionTools?: string[]): import("@earendil-works/pi-ai").Tool[] {
+  const schemas = filterToolSchemas(actionTools);
+  return Object.entries(schemas).map(([name, s]) => ({
     name: name.replace(/\./g, "_"),
     description: s.description,
     parameters: { type: "object", properties: s.properties, required: s.required },
   }));
+}
+
+/** 裁剪后的工具描述（prompt 注入面与 schema 同步——in-tokens 削减；done/输出模式为固定协议段） */
+export function toolsDescription(actionTools?: string[]): string {
+  const schemas = filterToolSchemas(actionTools);
+  return `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
+${Object.entries(schemas)
+    .map(([name, s]) => `- ${name}: ${s.description}`)
+    .join("\n")}
+- done: {result, summary?} —— 完成任务，result 为最终产出对象
+
+输出模式（mode 可选——控制回填带宽）：default=完整；value-only=只回 value（大数据省 token）；errors-only=成功只回 ok 失败回全错（快速试错）；quiet=静默（状态准备不污染轨迹）`;
 }
 
 export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：

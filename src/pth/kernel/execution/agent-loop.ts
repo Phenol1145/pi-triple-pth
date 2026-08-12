@@ -12,7 +12,7 @@
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION, AGENT_CAPABILITY_DOC, toolsToSchema, toolsForExecTool, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
+import { AGENT_TOOLS, AGENT_CAPABILITY_DOC, toolsToSchema, toolsDescription, toolsForExecTool, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "../extensions/perf-params.js";
 import { modelState } from "../extensions/model.js";
@@ -215,7 +215,7 @@ const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='pr
 ${roleBlock}
 ${thinkingBlock}
 ${exploreBlock}
-${AGENT_TOOLS_DESCRIPTION}
+${toolsDescription(role?.actionTools)}
 
 ${capBlock}
 
@@ -327,7 +327,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     { role: "user", content: `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}` },
   ];
   (input as { __messages?: unknown }).__messages = messages;   // 压缩包装器读取（同一引用——循环内持续 push）
-  const staticTools = toolsToSchema();
+  const staticTools = toolsToSchema(input.role?.actionTools);
 
   const start = Date.now();
   let steps = 0;

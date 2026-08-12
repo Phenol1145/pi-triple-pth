@@ -227,3 +227,59 @@ describe("asm-kernel 接线（2026-08-12：dev.build/dev.run .s 分发）", () =
     await (await import("node:fs/promises")).rm("/tmp/ws", { recursive: true, force: true });
   });
 });
+
+describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理面削减）", () => {
+  it("memory-stats 最窄面：仅 asp.cd/ts.run/ts.eval/memory.index（无 debug/write/cache）", async () => {
+    const { DEFAULT_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const ms = DEFAULT_ROLES.find((r) => r.id === "memory-stats")!;
+    expect(ms.actionTools).toEqual(["asp.cd", "ts.run", "ts.eval", "memory.index"]);
+  });
+
+  it("developer 面：执行核+dev+debug+导航+缓存——无 write 文档族/spaceMaint 治理面", async () => {
+    const { DEFAULT_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const dev = DEFAULT_ROLES.find((r) => r.id === "developer")!;
+    const schemas = filterToolSchemas(dev.actionTools);
+    const names = Object.keys(schemas);
+    expect(names).toContain("dev.build");
+    expect(names).toContain("debug.attach");
+    expect(names).toContain("ts.run");
+    expect(names).not.toContain("write.create");
+    expect(names).not.toContain("asp.create");
+    expect(names).not.toContain("asp.destroy");
+    // 裁剪量级：34 → 26（dev6+debug8+exec6+nav3+cache3）
+    expect(names.length).toBe(26);
+  });
+
+  it("acceptor 只读面：dev.run/dev.list/write.read/write.list——无 dev.write/write.create（验收不写）", async () => {
+    const { DEFAULT_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const acc = DEFAULT_ROLES.find((r) => r.id === "acceptor")!;
+    const schemas = filterToolSchemas(acc.actionTools);
+    const names = Object.keys(schemas);
+    expect(names).toContain("dev.run");
+    expect(names).toContain("write.read");
+    expect(names).not.toContain("dev.write");
+    expect(names).not.toContain("dev.edit");
+    expect(names).not.toContain("write.create");
+    expect(names).not.toContain("write.edit");
+  });
+
+  it("controller 系含 spaceMaint（维护收编点）——worker 角色均无", async () => {
+    const { DEFAULT_ROLES, GOVERNANCE_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const ctrl = GOVERNANCE_ROLES.find((r) => r.id === "controller:pth-opt")!;
+    expect(ctrl.actionTools).toContain("spaceMaint");
+    for (const r of DEFAULT_ROLES) {
+      expect(r.actionTools ?? []).not.toContain("spaceMaint");   // 普通 worker 无空间治理面
+    }
+  });
+
+  it("toolsDescription 与 schema 同步（裁剪后 prompt 面一致——in-tokens 削减）", async () => {
+    const { filterToolSchemas, toolsDescription } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const schemas = filterToolSchemas(["execTs", "nav", "cache"]);
+    const desc = toolsDescription(["execTs", "nav", "cache"]);
+    for (const n of Object.keys(schemas)) expect(desc).toContain(n);
+    expect(desc).not.toContain("debug.attach");   // 未裁剪工具不进 prompt
+    expect(desc).toContain("- done:");            // 协议固定段保留
+  });
+});
