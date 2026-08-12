@@ -558,13 +558,13 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     description: "空间生成（ASP 元工具·治理 v2）——在声明 allowChildren 的父空间内注册子空间（数据驱动：新空间=一条注册记录，即可被 asp.cd 进入）。meta 禁建（凭据根级固化）；父空间 childParams 必填表单校验（能力面 execTool/extraTools 收窄 + 记忆域 memoryScope 分配——缺字段拒绝并展示表单）；深度 ≤ 父 maxDepth；extraTools 只能收窄不能扩权。asp.index 查看空间树与表单。",
     properties: {
       id: { type: "string", description: "新空间 id（小写字母数字连字符 ≤32）" },
-      execTool: { type: "string", description: "子空间语言执行工具名（能力面收窄——下划线形，如 sandbox_exec）" },
-      memoryScope: { type: "string", description: "记忆域分配（子空间记忆可见性域——缺省继承父空间）" },
+      execTool: { type: "string", description: "子空间语言执行工具名（能力面收窄——须为已注册语言族：ts/python/bash/dev/write）" },
+      memoryScope: { type: "string", description: "记忆域标注（子空间记忆域名——缺省继承父空间；实际可见性过滤按空间 id 树）" },
       extraTools: { type: "string", description: "工具族收窄（逗号分隔——父空间 extraTools 的子集）" },
       skeleton: { type: "string", description: "语言骨架摘要（索引/prompt 用）" },
       description: { type: "string", description: "子空间说明（必填）" },
     },
-    required: ["id", "execTool", "description"],
+    required: ["id", "execTool", "memoryScope", "description"],
   },
   "asp.destroy": {
     description: "空间注销（ASP 元工具·治理 v2）——注销子空间。位置约束：仅子空间的父空间内可注销自己的子空间（meta 兜底可注销任何非内置空间）；内置空间保护不变（parent=meta 的不可注销）。",

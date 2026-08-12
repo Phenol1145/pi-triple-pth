@@ -116,7 +116,10 @@ export function stoppedFromRecord(rec: MiRecord | null): DebugStopped | null {
   const frame = r["frame"];
   const frameObj = frame && typeof frame === "object" && !Array.isArray(frame) ? (frame as { [k: string]: MiValue }) : null;
   return {
-    reason: reason.includes("breakpoint") ? "breakpoint-hit" : reason === "exited" ? "exited" : "step",
+    // 2026-08-12 审计 BUG-3：reason 归一化与现代 gdb 一致——gdb8+ 发 exited-normally/exited-signalled
+    // （旧 gdb 是裸 "exited"）——includes 覆盖两种；与 onData 的 exited 标志判定（startsWith("exited-")→includes）
+    // 统一——否则 agent 侧"程序已退出"分支永不触发
+    reason: reason.includes("breakpoint") ? "breakpoint-hit" : reason.includes("exited") ? "exited" : "step",
     breakpointId: typeof r["bkptno"] === "string" ? r["bkptno"] : undefined,
     frame: frameObj ? {
       id: 0,

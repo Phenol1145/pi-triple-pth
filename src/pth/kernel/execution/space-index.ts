@@ -102,12 +102,7 @@ export async function buildSpaceIndex(opts: { mode?: string; space?: string }, c
     const snap = await interp.snapshot();
     return snapshotByType(snap, space);   // 持久 REPL 无"包"概念——两模式同构（类型视图）
   }
-  if (space === "c") {
-    // 编译核：命名单元注册表（by-package 语义——单元即包）
-    const c = (ctx.caps as { c?: { listUnits?: () => Promise<string[]> } }).c;
-    const units = c?.listUnits ? await c.listUnits() : [];
-    return truncateLayer(`【c 空间 · 编译单元】\n${units.join("\n") || "（空——c.saveUnit 保存命名单元）"}`);
-  }
+
   // 空间治理 v2（2026-08-12 批 3）：生产空间/自定义子空间——工具族视图（by-package 语义——族=包）
   const def = spaceRegistry.get(space);
   if (def?.execTool) {

@@ -86,6 +86,11 @@ def main():
                 continue
             code = req.get("code", "")
             mode = req.get("exec", "auto")   # 2026-08-11 元命令拆分：single=eval 表达式求值 / program=exec 程序
+            # 记忆桥盖章（2026-08-12 批 3）：协议级 space 字段——每次 execute 显式设置（含空串清章——
+            # 防 REPL 跨任务残留）；写 _NAMESPACE（本库从 _NAMESPACE 读取）。single 模式不走代码前缀
+            # （eval 单表达式——前缀注入必 SyntaxError——2026-08-12 审计 BUG-1 修复）。
+            _space = req.get("space", "") or ""
+            exec("_PTH_SPACE = " + json.dumps(_space), _NAMESPACE)
             out = io.StringIO()
             err = io.StringIO()
             old_out, old_err = sys.stdout, sys.stderr
@@ -255,13 +260,13 @@ export class PyKernel implements Interpreter {
     if (!this.child || this.child.exitCode !== null) this.spawn();
     this.touch();
 
-    // 记忆桥盖章（2026-08-12 批 3）：内核层前置注入当前空间（写 _NAMESPACE——本库从 _NAMESPACE 读取，
-    // 程序无法伪造空间身份；PTH 侧 isVisible(meta, space) 过滤可见性）
-    const stamped = opts?.space ? `_PTH_SPACE = ${JSON.stringify(opts.space)};
-${program}` : program;
+    // 记忆桥盖章（2026-08-12 批 3 审计修复）：协议字段 space 透传 PY_RUNTIME（single/program 统一——
+    // 代码前缀注入在 single 模式必炸（eval 单表达式）；PY_RUNTIME 每次 execute 显式设置 _PTH_SPACE
+    // （含空串清章——防 REPL 跨任务残留）。软治理注：空间内程序可自改 _PTH_SPACE（同 namespace）——
+    // 防的是空间维度的可见性错配与任务间残留，不防同任务内自欺（LLM 无益）。
     let msg: PyProtocolMsg;
     try {
-      msg = await this.call({ code: stamped, timeoutMs, ...(opts?.exec ? { exec: opts.exec } : {}) });    } catch (e) {
+      msg = await this.call({ code: program, timeoutMs, ...(opts?.exec ? { exec: opts.exec } : {}), ...(opts?.space ? { space: opts.space } : {}) });    } catch (e) {
       // 管道错误/超时——kill 置空（冷备补位：下个 execute 懒 spawn——失败场景不二次 spawn 浪费）
       this.kill();
       return { ok: false, error: { message: (e as Error).message }, durationMs: Date.now() - start, language: "python" };
@@ -405,7 +410,7 @@ ${program}` : program;
   }
 
   /** 单请求：等就绪 → 写入管道 + 等响应；超时 → 抛错（调用方 kill 重启） */
-  private async call(req: { code?: string; type?: "exec" | "snapshot" | "clear"; timeoutMs: number; exec?: "single" | "program" | "auto" }): Promise<PyProtocolMsg> {
+  private async call(req: { code?: string; type?: "exec" | "snapshot" | "clear"; timeoutMs: number; exec?: "single" | "program" | "auto"; space?: string }): Promise<PyProtocolMsg> {
     const child0 = this.child;
     if (!child0 || !child0.stdin || !child0.stdin.writable) {
       throw new Error("kernel not writable");
@@ -436,6 +441,7 @@ ${program}` : program;
       else {
         body.code = req.code;
         if (req.exec) body.exec = req.exec;   // 元命令拆分（2026-08-11）：single/program 透传 PY_RUNTIME
+        if (req.space !== undefined) body.space = req.space;   // 记忆桥盖章（2026-08-12 批 3 审计 BUG 修复：body 重建透传——此前丢失致盖章恒空）
       }
       const child = this.child;
       if (child?.stdin) child.stdin.write(JSON.stringify(body) + "\n");

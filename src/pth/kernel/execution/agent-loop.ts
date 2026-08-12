@@ -467,6 +467,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
             content: `asp.create: id 非法（小写字母数字连字符 ≤32）——got "${id}"` });
           return undefined;
         }
+        // execTool 白名单（2026-08-12 审计 ROBUST-3 修复）：须为已注册语言族（toolsForExecTool 能展开的）——
+        // 否则子空间工具面为空（纯 ambient 壳）——"隔离执行"承诺落空
+        const KNOWN_EXEC_TOOLS = ["ts", "python", "bash", "dev", "write"];
+        if (!KNOWN_EXEC_TOOLS.includes(execTool)) {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp.create 拒绝：execTool "${execTool}" 不是已注册语言族（可用: ${KNOWN_EXEC_TOOLS.join("/")}）——子空间凭据的能力面收窄须落在既有执行面上` });
+          return undefined;
+        }
         // 深度校验：子空间深度 = 父深度 + 1 ≤ 父 maxDepth
         const childDepth = spaceRegistry.depthOf(currentSpace()) + 1;
         if (parentDef.maxDepth !== undefined && childDepth > parentDef.maxDepth) {

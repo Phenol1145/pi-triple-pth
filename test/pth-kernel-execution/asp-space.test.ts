@@ -247,7 +247,7 @@ describe("asp.create / asp.destroy（空间生成/注销——治理 v2）", () 
       { toolCalls: [{ name: "asp_create", arguments: { id: "x1", execTool: "x_exec", description: "在 meta 建" } }] },
       // dev 内 create 缺 childParams 必填（memoryScope）→ 表单拒绝
       { toolCalls: [{ name: "asp_cd", arguments: { space: "dev" } }] },
-      { toolCalls: [{ name: "asp_create", arguments: { id: "x2", execTool: "x_exec", description: "缺 memoryScope" } }] },
+      { toolCalls: [{ name: "asp_create", arguments: { id: "x2", execTool: "python", description: "缺 memoryScope" } }] },
       // destroy 内置空间（dev 内——父空间领地对内置无效）
       { toolCalls: [{ name: "asp_destroy", arguments: { id: "ts" } }] },   // 内置空间保护
       { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },

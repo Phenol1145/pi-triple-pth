@@ -58,7 +58,7 @@ export class SpaceRegistry {
       // 幂等（2026-08-12 审计：关键字段比较——extraTools/skeleton/description/parent 变化报冲突，防静默忽略）
       const same =
         existing.kind === def.kind && existing.execTool === def.execTool &&
-        existing.parent === def.parent &&
+        existing.parent === def.parent && existing.builtin === def.builtin &&
         existing.allowChildren === def.allowChildren && existing.maxDepth === def.maxDepth &&
         existing.memoryScope === def.memoryScope &&
         JSON.stringify(existing.extraTools ?? []) === JSON.stringify(def.extraTools ?? []) &&
@@ -88,12 +88,17 @@ export class SpaceRegistry {
     return this.list().filter((s) => s.parent === id);
   }
 
-  /** 注销（asp.destroy——内置空间保护：builtin 标记的空间不可注销） */
+  /** 注销（asp.destroy——内置空间保护：builtin 标记的空间不可注销；有子空间拒绝——2026-08-12
+   * 审计 BUG-4：孤儿后代会断 parent 链（深度/记忆可见性上溯中断、可绕过深度封顶）——需先注销后代） */
   unregister(id: string): boolean {
     const def = this.spaces.get(id);
     if (!def) return false;
     if (def.builtin) {
       throw new Error(`space "${id}" 是内置空间——不可注销`);
+    }
+    const children = this.childrenOf(id);
+    if (children.length > 0) {
+      throw new Error(`space "${id}" 有 ${children.length} 个子空间（${children.map((c) => c.id).join("/")}）——先注销后代再注销本空间`);
     }
     return this.spaces.delete(id);
   }
@@ -143,8 +148,8 @@ spaceRegistry.register({ id: "dev", kind: "action", execTool: "dev", extraTools:
   // childParams = 子空间凭据必填参量表单（能力面 execTool/extraTools 收窄 + 记忆域 memoryScope 分配）
   allowChildren: true, maxDepth: 2,
   childParams: [
-    { name: "execTool", required: true, description: "子空间语言执行工具名（能力面收窄——下划线形，如 sandbox_exec）" },
-    { name: "memoryScope", required: true, description: "记忆域分配（子空间记忆可见性域——缺省继承父空间）" },
+    { name: "execTool", required: true, description: "子空间语言执行工具名（能力面收窄——须为已注册语言族：ts/python/bash/dev/write）" },
+    { name: "memoryScope", required: true, description: "记忆域标注（子空间记忆域名——缺省继承父空间；实际可见性过滤按空间 id 树）" },
     { name: "extraTools", description: "工具族收窄（父空间 extraTools 的子集——dev 下仅可挂 debug 族）" },
     { name: "description", required: true, description: "子空间说明" },
   ],

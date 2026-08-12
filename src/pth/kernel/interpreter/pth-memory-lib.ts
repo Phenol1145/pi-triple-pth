@@ -7,9 +7,11 @@
  * 治理不变：PTH gateway 三层（认证/白名单/可见性过滤）不动——库只是语言侧封装。
  * bridge URL：env PTH_MEMORY_BRIDGE（kernel 模式=localhost:3000 直通；sandbox=localhost:8080 转发——spawn 时注入）。
  *
- * 空间盖章（2026-08-12 批 3 已修复）：桥 body.space 由内核层注入——PyKernel 每次 execute 前置
- * `_PTH_SPACE = <当前空间>`（写 _NAMESPACE——本库从 _NAMESPACE 读取，程序无法伪造空间身份）；
- * BashKernel 前置 `export PTH_MEMORY_SPACE`。PTH 侧 isVisible(meta, space) 过滤可见性。
+ * 空间盖章（2026-08-12 批 3 + 审计修复）：桥 body.space 由内核层注入——PyKernel 每次 execute 协议级
+ * 显式设置 `_PTH_SPACE`（写 _NAMESPACE——本库从 _NAMESPACE 读取；无 space 清章防跨任务残留）；
+ * BashKernel 每次 execute 前置 `export PTH_MEMORY_SPACE`。PTH 侧 isVisible(meta, space) 过滤可见性。
+ * 软治理注（2026-08-12 审计）：空间内程序可自改盖章（同 namespace）——防的是空间维度可见性错配与
+ * 任务间残留，不防同任务内自欺（LLM 自欺无益）；强隔离需请求层带外盖章（后续架构项）。
  */
 
 export const PTH_MEMORY_LIB_PY = `# -*- coding: utf-8 -*-

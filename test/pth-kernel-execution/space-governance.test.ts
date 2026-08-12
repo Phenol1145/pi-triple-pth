@@ -38,6 +38,16 @@ describe("空间治理 v2（批 3）——SpaceDef 声明", () => {
     spaceRegistry.unregister("gv-depth");
   });
 
+  it("unregister 拒绝有子空间的目标（2026-08-12 审计 BUG-4——防孤儿子空间断 parent 链）", () => {
+    spaceRegistry.register({ id: "gv-orphan-p", kind: "action", execTool: "bash", parent: "dev", description: "t" });
+    spaceRegistry.register({ id: "gv-orphan-c", kind: "action", execTool: "bash", parent: "gv-orphan-p", description: "c" });
+    expect(() => spaceRegistry.unregister("gv-orphan-p")).toThrow(/先注销后代/);
+    expect(spaceRegistry.get("gv-orphan-p")).toBeDefined();   // 未被删
+    spaceRegistry.unregister("gv-orphan-c");
+    spaceRegistry.unregister("gv-orphan-p");   // 后代清完后可注销
+    expect(spaceRegistry.get("gv-orphan-p")).toBeUndefined();
+  });
+
   it("注册幂等比较含治理字段（allowChildren 变化报冲突）", () => {
     expect(() => spaceRegistry.register({ id: "dev", kind: "action", execTool: "dev", parent: "meta", allowChildren: false, description: "x", builtin: true })).toThrow(/注册冲突/);
   });
@@ -74,11 +84,18 @@ describe("空间治理 v2——记忆桥盖章（kernel 层注入当前空间）
       const r1 = await k.execute("print('stamp=' + str(globals().get('_PTH_SPACE', '(none)')))", { space: "dev" });
       expect(r1.ok).toBe(true);
       expect(r1.stdout).toContain("stamp=dev");
-      // 无 space → 不覆盖（REPL 持久语义——变量跨 cell 保留；agent-loop 每次执行都盖章，
-      // 直接 kernel.execute 无空间概念——残留上次值无害）
+      // 无 space → 协议级清章（2026-08-12 审计 ROBUST-2 修复——防 REPL 跨任务残留）
       const r2 = await k.execute("print('stamp2=' + str(globals().get('_PTH_SPACE', '(none)')))");
       expect(r2.ok).toBe(true);
-      expect(r2.stdout).toContain("stamp2=dev");   // REPL 残留语义
+      expect(r2.stdout).toContain("stamp2=");
+      // single 模式 + space 不再炸（2026-08-12 审计 BUG-1：前缀注入在 eval 单表达式必 SyntaxError）
+      const r3 = await k.execute("1 + 1", { exec: "single", space: "dev" });
+      expect(r3.ok).toBe(true);
+      expect(r3.value).toBe(2);
+      // single 模式的盖章由 PY_RUNTIME 统一设置（eval 前 exec——协议级）——单表达式直接求值验证
+      const r4 = await k.execute("globals().get('_PTH_SPACE', '(none)')", { exec: "single", space: "python" });
+      expect(r4.ok).toBe(true);
+      expect(r4.value).toBe("python");
     } finally {
       k.dispose();
     }
@@ -140,10 +157,10 @@ describe("空间治理 v2——asp.create 深度衰减与工具族收窄（agent
         // 子空间未声明 maxDepth → 继承父（dev maxDepth=2）——创建孙空间深度2 ≤2 应通过？
         // 校验语义：childDepth=depthOf(parent)+1；parent=gv-sandbox-a depth=1 → childDepth=2 ≤ parent.maxDepth
         // parent 无 maxDepth → 继承父链 dev 的 2 → 2≤2 通过（先建 gv-grand 再验证三层拒绝）
-        { toolCalls: [{ name: "asp_create", arguments: { id: "gv-grand", execTool: "g_exec", memoryScope: "m", description: "孙" } }] },
+        { toolCalls: [{ name: "asp_create", arguments: { id: "gv-grand", execTool: "bash", memoryScope: "m", description: "孙" } }] },
         // 三层：gv-grand（depth=2）内创建 → childDepth=3 > maxDepth=2 → 拒绝
         { toolCalls: [{ name: "asp_cd", arguments: { space: "gv-grand" } }] },
-        { toolCalls: [{ name: "asp_create", arguments: { id: "gv-great", execTool: "g2_exec", memoryScope: "m", description: "曾孙" } }] },
+        { toolCalls: [{ name: "asp_create", arguments: { id: "gv-great", execTool: "bash", memoryScope: "m", description: "曾孙" } }] },
         { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
         { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
       ]);
@@ -165,9 +182,9 @@ describe("空间治理 v2——asp.create 深度衰减与工具族收窄（agent
     const llm = govMockLlm([
       { toolCalls: [{ name: "asp_cd", arguments: { space: "dev" } }] },
       // extraTools=write 不是 dev 的工具族 → 拒绝
-      { toolCalls: [{ name: "asp_create", arguments: { id: "gv-x", execTool: "x_exec", memoryScope: "m", extraTools: "write", description: "扩权" } }] },
+      { toolCalls: [{ name: "asp_create", arguments: { id: "gv-x", execTool: "python", memoryScope: "m", extraTools: "write", description: "扩权" } }] },
       // extraTools=debug（收窄——父有）→ 通过
-      { toolCalls: [{ name: "asp_create", arguments: { id: "gv-y", execTool: "y_exec", memoryScope: "m", extraTools: "debug", description: "收窄" } }] },
+      { toolCalls: [{ name: "asp_create", arguments: { id: "gv-y", execTool: "python", memoryScope: "m", extraTools: "debug", description: "收窄" } }] },
       { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
       { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
     ]);

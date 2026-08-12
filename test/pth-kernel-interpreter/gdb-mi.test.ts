@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMiLine, stoppedFromRecord, framesFromResult, variablesFromResult, CDebugSession } from "../../src/pth/kernel/interpreter/gdb-mi.js";
+import { parseMiLine, stoppedFromRecord, stoppedFromRecord, framesFromResult, variablesFromResult, CDebugSession } from "../../src/pth/kernel/interpreter/gdb-mi.js";
 
 /**
  * gdb MI 协议解析（纯函数——调试协议基本集）。
@@ -42,7 +42,15 @@ describe("gdb MI 解析", () => {
     expect(s?.frame?.line).toBe(7);
   });
 
-  it("*stopped exited", () => {
+  it("*stopped exited-normally（现代 gdb——2026-08-12 审计 BUG-3）", () => {
+    const rec = parseMiLine('*stopped,reason="exited-normally"');
+    expect(rec?.kind).toBe("exec");
+    expect(rec?.cls).toBe("stopped");
+    const stopped = stoppedFromRecord(rec);
+    expect(stopped?.reason).toBe("exited");
+  });
+
+  it("*stopped exited（旧 gdb 格式）", () => {
     const s = stoppedFromRecord(parseMiLine('*stopped,reason="exited"'));
     expect(s?.reason).toBe("exited");
   });
