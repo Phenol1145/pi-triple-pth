@@ -94,3 +94,7 @@ spaceRegistry.register({ id: "bash", kind: "action", execTool: "bash", parent: "
 // 生产核·代码产物（2026-08-11 用户裁决：探索核/生产核分立——编译类语言无探索核，C 的一切归 dev 空间；
 // 原 c 空间（c_execute 空壳）撤销——C 产物编写/构建/运行/调试/单元管理全在 dev 空间）
 spaceRegistry.register({ id: "dev", kind: "action", execTool: "dev", extraTools: ["debug"], parent: "meta", skeleton: "生产核·代码产物（dev.write/edit/build/run/save/list + debug.* 调试会话——产物代码写任务工作区，sandbox 编译/调试）", description: "代码产物开发生产空间（编译类语言唯一入口）", builtin: true });
+// 生产核·文档产物（2026-08-12 批 2：编写类任务独立空间——代码/文档两空间分立。
+// 工具面 create/edit/read/list/save + section 章节组织（章节走文档内工具——非子空间）；
+// 无 build/debug——文档不编译；allowChildren=false 章节不建子空间）
+spaceRegistry.register({ id: "write", kind: "action", execTool: "write", parent: "meta", skeleton: "生产核·文档产物（write.create/edit/read/list/save + write.section 章节组织——大纲→草稿→修订→定稿；文档写任务工作区，章节用 write.section 管理）", description: "文档产物生产空间（编写类任务唯一入口）", builtin: true });

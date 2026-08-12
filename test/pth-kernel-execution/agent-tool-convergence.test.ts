@@ -34,12 +34,14 @@ describe("工具面收敛终态", () => {
     manager.dispose();
   });
 
-  it("白名单收缩：语言元命令 + 生产核 dev.*/debug.* + done", () => {
+  it("白名单收缩：语言元命令 + 生产核 dev.*/debug.* + write.* + done", () => {
     expect(AGENT_TOOL_IDS).toEqual([
       "ts.eval", "ts.run", "python.eval", "python.run", "bash.eval", "bash.run",
       // 生产核（2026-08-11 dev 空间——编译类语言唯一入口 + 调试会话族）
       "dev.write", "dev.edit", "dev.build", "dev.run", "dev.save", "dev.list",
       "debug.attach", "debug.breakpoint", "debug.continue", "debug.step", "debug.snapshot", "debug.evaluate", "debug.detach", "debug.sessions",
+      // 生产核·文档（2026-08-12 批 2 write 空间——编写类任务）
+      "write.create", "write.edit", "write.read", "write.list", "write.save", "write.section",
       "done",
     ]);
     expect(AGENT_TOOLS_DESCRIPTION).toContain("ts");

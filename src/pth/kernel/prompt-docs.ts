@@ -91,6 +91,7 @@ export function buildCapabilityIndex(): string {
 - bash.run(command: string) → Promise<{ok, stdout, stderr, durationMs}>（命令序列——command = shell 命令字符串——第一参数字符串）
 - bash.eval(command: string) → Promise<{ok, stdout, stderr, durationMs}>（单条命令——简单命令快速执行）
 - 【生产核】C 产物开发：asp.cd("dev") → dev.write/build/run/save/list + debug.* 调试会话（动作工具——ts 程序内不可调；2026-08-11 探索核/生产核分立）
+- 【生产核·文档】编写类任务：asp.cd("write") → write.create/edit/read/list/save + write.section 章节组织（大纲→草稿→修订→定稿；无 build/debug——文档不编译；2026-08-12 批 2）
 - ts 程序：能力函数 await 调用；return 值 + stdout 回填
 
 ## web/llm/state/ext/env（扩展能力包）

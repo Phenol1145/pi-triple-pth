@@ -27,6 +27,13 @@ export const AGENT_TOOL_IDS = [
   "debug.evaluate",
   "debug.detach",
   "debug.sessions",
+  // 生产核·文档（write 空间——2026-08-12 批 2：编写类任务独立空间）
+  "write.create",
+  "write.edit",
+  "write.read",
+  "write.list",
+  "write.save",
+  "write.section",
   "done",
 ] as const;
 

@@ -21,7 +21,7 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     }
     // gen2：父为三族之一
     const gen2 = DEFAULT_ROLES.filter((r) => r.generation === 2);
-    expect(gen2.length).toBe(7);
+    expect(gen2.length).toBe(8);   // 7 + writer（2026-08-12 批 2）
     for (const r of gen2) expect(midIds).toContain(r.parent);
     // gen3：memory-stats 分化自 scout（热点任务再收窄——统计窄域）
     const gen3 = DEFAULT_ROLES.filter((r) => r.generation === 3);
@@ -51,14 +51,14 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 3);   // 7 叶 + origin + 3 中间层
   });
 
-  it("buildRoleLineage 构建三层树（Origin → 3 中间层 → 7 叶子）", () => {
+  it("buildRoleLineage 构建三层树（Origin → 3 中间层 → 8 叶子）", () => {
     const tree = buildRoleLineage();
     expect(tree.role.id).toBe("origin");
     expect(tree.children.length).toBe(3);   // 3 中间层
     const executor = tree.children.find((c) => c.role.id === "executor");
     const explorer = tree.children.find((c) => c.role.id === "explorer");
     const governor = tree.children.find((c) => c.role.id === "governor");
-    expect(executor?.children.map((c) => c.role.id).sort()).toEqual(["developer", "tester"]);
+    expect(executor?.children.map((c) => c.role.id).sort()).toEqual(["developer", "tester", "writer"]);   // writer 2026-08-12 批 2
     expect(explorer?.children.map((c) => c.role.id).sort()).toEqual(["analyst", "scout"]);
     expect(governor?.children.map((c) => c.role.id).sort()).toEqual(["acceptor", "memory-keeper", "planner"]);
   });

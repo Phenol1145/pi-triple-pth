@@ -99,6 +99,13 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     description: "能力测试与行为验证", thinking: "high",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer",
     parent: "executor", generation: 2, differentiation: "测试类任务诱导——能力/行为验证需要全部执行核（含 c 编译核）写测试产物" },
+  // 批 2（2026-08-12）：writer 角色分化——编写类任务（小说/文档/教程）独立空间 write（生产核·文档）。
+  // 窄能力面：无执行核（python/bash/c 全无——文档不运行代码）——只有读取/记忆/文档工具面。
+  // 工具面由 prompt 引导 asp.cd("write")（write.* 族）；capabilities 裁剪能力文档到读写包。
+  { id: "writer", tags: ["write", "doc", "story", "tutorial", "article"], prompt: "你是写作者——负责文档编写、小说创作、教程撰写、内容生产。工作流：大纲→草稿→修订→定稿——文档写任务工作区（asp.cd(\"write\") → write.create/edit/read/list/save + write.section 章节组织）。不写代码不调试——文档不编译。",
+    description: "文档/内容创作（write 空间生产核·文档——无执行核窄能力面）", thinking: "medium",
+    capabilities: ["fs", "memory", "readSource", "readText"], output: "documentation",
+    parent: "executor", generation: 2, differentiation: "编写类任务诱导——文档创作不需要执行核——能力收窄至读写+记忆，工具面引导 write 空间" },
 ];
 
 // ── batch 构成参数化（2026-08-09：取消固定 7 角色限制）────────────────

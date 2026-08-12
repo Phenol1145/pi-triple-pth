@@ -276,6 +276,114 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     } catch (e) { return { ok: false, error: (e as Error).message }; }
   },
 
+  // ─── 生产核·文档产物（write 空间——2026-08-12 批 2：编写类任务独立空间）───
+  // 工作流：大纲→草稿→修订→定稿；无 build/debug（文档不编译）；章节走 write.section（非子空间）
+  "write.create": async (ctx, args) => {
+    const abs = resolveArtifact(ctx.taskWorkspace, str(args, "path"));
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    await mkdir(dirname(abs), { recursive: true });
+    const content = str(args, "content");
+    await writeFile(abs, content, "utf-8");
+    return { ok: true, value: { path: str(args, "path") }, stdout: `已创建文档 ${str(args, "path")}（${content.length} 字符）` };
+  },
+  "write.edit": async (ctx, args) => {
+    const abs = resolveArtifact(ctx.taskWorkspace, str(args, "path"));
+    const content = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+    const oldText = str(args, "oldText"), newText = str(args, "newText");
+    const hits = content.split(oldText).length - 1;
+    if (hits === 0) return { ok: false, error: `write.edit: oldText 未匹配（${str(args, "path")}）` };
+    if (hits > 1) return { ok: false, error: `write.edit: oldText 匹配 ${hits} 处——需唯一（提供更多上下文）` };
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(abs, content.replace(oldText, newText), "utf-8");
+    return { ok: true, value: { path: str(args, "path") }, stdout: `已编辑 ${str(args, "path")}（1 处替换）` };
+  },
+  "write.read": async (ctx, args) => {
+    const content = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+    return { ok: true, value: { path: str(args, "path"), length: content.length }, stdout: truncate(content, 6000).text };
+  },
+  "write.list": async (ctx) => {
+    const { readdir } = await import("node:fs/promises");
+    const root = ctx.taskWorkspace ?? "/tmp";
+    const docs: string[] = [];
+    const walk = async (dir: string, prefix = ""): Promise<void> => {
+      let entries: import("node:fs").Dirent[] = [];
+      try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        if (e.name.startsWith(".") || e.name === "node_modules") continue;
+        const rel = prefix ? `${prefix}/${e.name}` : e.name;
+        if (e.isDirectory()) await walk(`${dir}/${e.name}`, rel);
+        else if (/.(md|txt|rst|adoc)$/i.test(e.name)) docs.push(rel);
+      }
+    };
+    await walk(root);
+    return { ok: true, value: docs, stdout: docs.length ? docs.join("\n") : "（无文档）" };
+  },
+  "write.save": async (ctx, args) => {
+    if (!ctx.toolstore) return { ok: false, error: "write.save: toolstore 未配置" };
+    const name = str(args, "name");
+    if (!/^[\w.-]+$/.test(name)) return { ok: false, error: `write.save: 非法文档名 "${name}"（限 [a-zA-Z0-9_.-]）` };
+    const content = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+    await ctx.toolstore.writeText(`docs/${name}.md`, content);
+    return { ok: true, value: { name }, stdout: `已保存文档 ${name}.md（${content.length} 字符——跨任务复用）` };
+  },
+  "write.section": async (ctx, args) => {
+    // 章节组织（非子空间——文档内结构操作）：op=list 列出标题结构；op=split 拆后段到新文件；op=reorder 重排章节
+    const abs = resolveArtifact(ctx.taskWorkspace, str(args, "path"));
+    const content = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+    const op = str(args, "op") || "list";
+    // 标题定位（# 或 ## 或 ###——`# 一级` 至 `###### 六级`）
+    const headingRe = /^#{1,6}\s+.+$/gm;
+    const matches = [...content.matchAll(headingRe)];
+    const headings = matches.map((m) => ({ line: content.slice(0, m.index).split("\n").length, text: m[0].trim() }));
+    if (op === "list") {
+      const { writeFile } = await import("node:fs/promises");
+      // 临时：直接返回标题结构（无副作用）
+      return { ok: true, value: headings, stdout: headings.length ? headings.map((h) => `${h.line}: ${h.text}`).join("\n") : "（无标题结构——纯文本文档）" };
+    }
+    if (op === "split") {
+      // split: 从指定标题（title 参数）开始拆出后段 → 新文件（target 参数）
+      const title = str(args, "title");
+      const target = str(args, "target");
+      const idx = content.indexOf(`\n${title}`);
+      if (idx < 0) return { ok: false, error: `write.section split: 标题 "${title}" 未找到` };
+      const head = content.slice(0, idx);
+      const tail = content.slice(idx + 1).trimStart();
+      const { writeFile, mkdir } = await import("node:fs/promises");
+      const { dirname } = await import("node:path");
+      const targetAbs = resolveArtifact(ctx.taskWorkspace, target);
+      await mkdir(dirname(targetAbs), { recursive: true });
+      await writeFile(abs, head.trimEnd() + "\n", "utf-8");
+      await writeFile(targetAbs, tail, "utf-8");
+      return { ok: true, value: { path: str(args, "path"), splitAt: title, target }, stdout: `已从 "${title}" 拆分 → ${target}（原文件保留 ${head.length} 字符）` };
+    }
+    if (op === "reorder") {
+      // reorder: 将 title 章节移动到 before（目标标题前）；无 before 则移到末尾
+      const title = str(args, "title");
+      const before = str(args, "before") as string | undefined;
+      const startIdx = content.indexOf(`\n${title}`);
+      if (startIdx < 0) return { ok: false, error: `write.section reorder: 标题 "${title}" 未找到` };
+      const headingIdx = matches.findIndex((m) => m[0].trim() === title);
+      if (headingIdx < 0) return { ok: false, error: `write.section reorder: 标题 "${title}" 未找到（标题行）` };
+      const segStart = matches[headingIdx]!.index!;
+      const segEnd = headingIdx + 1 < matches.length ? matches[headingIdx + 1]!.index! : content.length;
+      const segment = content.slice(segStart, segEnd);
+      let rest = content.slice(0, segStart) + content.slice(segEnd);
+      // 移除段后——在 before 前插入
+      if (before) {
+        const bIdx = rest.indexOf(`\n${before}`);
+        if (bIdx < 0) return { ok: false, error: `write.section reorder: before 标题 "${before}" 未找到` };
+        rest = rest.slice(0, bIdx + 1) + segment + rest.slice(bIdx + 1);
+      } else {
+        rest = rest.trimEnd() + "\n\n" + segment.trimStart();
+      }
+      const { writeFile } = await import("node:fs/promises");
+      await writeFile(abs, rest, "utf-8");
+      return { ok: true, value: { path: str(args, "path"), moved: title, before: before ?? "末尾" }, stdout: `已移动章节 "${title}" → ${before ? `"${before}" 前` : "文档末尾"}` };
+    }
+    return { ok: false, error: `write.section: 未知 op "${op}"（list|split|reorder）` };
+  },
+
   // done 由 agent-loop 拦截（不执行）
   done: async () => ({ ok: true, value: null, stdout: "done" }),
 };
@@ -396,9 +504,39 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     properties: { mode: { type: "string" } },
     required: [],
   },
+  "write.create": {
+    description: "【文档】创建文档（path 相对工作区；content 初稿全文——大纲→草稿→修订→定稿工作流第一步）",
+    properties: { path: { type: "string" }, content: { type: "string" }, mode: { type: "string" } },
+    required: ["path", "content"],
+  },
+  "write.edit": {
+    description: "【文档】唯一匹配替换（oldText 必须唯一——多处匹配报错引导提供更多上下文；修订工作流核心）",
+    properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" }, mode: { type: "string" } },
+    required: ["path", "oldText", "newText"],
+  },
+  "write.read": {
+    description: "【文档】读文档（全文回传，截断 6000 字符——长文档分段或读章节）",
+    properties: { path: { type: "string" }, mode: { type: "string" } },
+    required: ["path"],
+  },
+  "write.list": {
+    description: "【文档】列工作区文档（*.md/txt/rst/adoc 递归）",
+    properties: { mode: { type: "string" } },
+    required: [],
+  },
+  "write.save": {
+    description: "【文档】存记忆单元 docs/<name>.md（跨任务复用——定稿后保存）",
+    properties: { path: { type: "string" }, name: { type: "string" }, mode: { type: "string" } },
+    required: ["path", "name"],
+  },
+  "write.section": {
+    description: "【文档】章节组织（非子空间——文档内结构操作）：op=list 列标题结构 / op=split 从 title 拆后段到新文件 target / op=reorder 移动 title 章节到 before 前（缺省末尾）",
+    properties: { path: { type: "string" }, op: { type: "string" }, title: { type: "string" }, target: { type: "string" }, before: { type: "string" }, mode: { type: "string" } },
+    required: ["path"],
+  },
   "asp.cd": {
-    description: "空间迁移（ASP 元工具）——cd 到目标空间。目标必须已注册（内置：meta 元空间/ts/python/bash/c；asp.create 生成的自定义子空间亦可）。语言代码只能在对应动作空间执行；done 仅在元空间可用。",
-    properties: { space: { type: "string", description: "目标空间 id（meta/ts/python/bash/c 或自定义注册空间）" } },
+    description: "空间迁移（ASP 元工具）——cd 到目标空间。目标必须已注册（内置：meta 元空间/ts/python/bash + 生产核 dev 代码/write 文档；asp.create 生成的自定义子空间亦可）。语言代码只能在对应动作空间执行；done 仅在元空间可用。",
+    properties: { space: { type: "string", description: "目标空间 id（meta/ts/python/bash/dev/write 或自定义注册空间）" } },
     required: ["space"],
   },
   "asp.create": {

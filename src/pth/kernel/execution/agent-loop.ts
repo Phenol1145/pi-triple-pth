@@ -37,7 +37,7 @@ function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] 
 const ASP_BLOCK = `【动作空间协议（ASP）】
 你在【元空间】开始——元空间无执行核，语言代码不可在此解析。
 - 探索：asp_index() 查看当前空间的可达函数/数据（无参默认当前空间；mode=by-package 按扩展包 / by-type 按变量函数；space 指定目标空间）
-- 执行：asp_cd 迁移到语言空间——asp_cd("ts")（ts 程序空间——能力包 memory/llm/web/fs/state 等）/ asp_cd("python") / asp_cd("bash")
+- 执行：asp_cd 迁移到语言/生产空间——asp_cd("ts")（ts 程序空间——能力包 memory/llm/web/fs/state 等）/ asp_cd("python") / asp_cd("bash")；产物生产：asp_cd("dev")（代码——dev.*/debug.*）/ asp_cd("write")（文档——write.*）
 - 空间数据是本地的：ts 里声明的变量在 python 空间不可见（跨空间携带信息用记忆/缓存工具）
 - 完成任务：asp_cd("meta") 回到元空间 → done 提交（done 仅在元空间可用）`;
 

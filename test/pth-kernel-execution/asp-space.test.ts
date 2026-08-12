@@ -4,9 +4,9 @@ import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
 import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
 
 describe("space-registry（空间注册表——数据驱动）", () => {
-  it("内置空间随模块加载（meta + ts/python/bash/dev——2026-08-11 c 空间撤销/生产核 dev 上线）", () => {
+  it("内置空间随模块加载（meta + ts/python/bash/dev/write——2026-08-11 c 撤销/生产核 dev 上线；2026-08-12 批 2 write 上线）", () => {
     expect(spaceRegistry.get("meta")?.kind).toBe("meta");
-    for (const id of ["ts", "python", "bash", "dev"]) {
+    for (const id of ["ts", "python", "bash", "dev", "write"]) {
       expect(spaceRegistry.isActionSpace(id)).toBe(true);
     }
     expect(spaceRegistry.get("c")).toBeUndefined();   // c 空间已撤销（编译类归 dev 生产核）
@@ -22,6 +22,9 @@ describe("space-registry（空间注册表——数据驱动）", () => {
     expect(spaceRegistry.spaceOfExecTool("debug_attach")).toBe("dev");
     expect(spaceRegistry.spaceOfExecTool("debug.snapshot")).toBe("dev");
     expect(spaceRegistry.spaceOfExecTool("c_execute")).toBeNull();   // c 空间已撤销
+    // 生产核 write 空间（2026-08-12 批 2）：execTool="write" 族名展开/反查
+    expect(spaceRegistry.spaceOfExecTool("write_create")).toBe("write");
+    expect(spaceRegistry.spaceOfExecTool("write.section")).toBe("write");
   });
 
   it("内置空间不可注销", () => {
