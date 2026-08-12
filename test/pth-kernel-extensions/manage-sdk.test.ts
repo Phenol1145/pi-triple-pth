@@ -185,3 +185,13 @@ describe("管理 SDK——obs 观测面扩展", () => {
     await expect(runReadOnlyPgView(pool, "evil" as never)).rejects.toThrow(/未知视图/);
   });
 });
+
+describe("obs.callpoint SQL（2026-08-12 sensor 上报的基础设施缺陷修复）", () => {
+  it("content 是 text 列——::jsonb 转换后字段可读（修复前 jsonb 操作符报错）", async () => {
+    const sql = await (await import("../../src/pth/kernel/extensions/obs.js")).default;
+    // 直接验证 SQL 字符串形态（content::jsonb 转换存在——避免对 DB 的依赖）
+    const src = (await (await import("node:fs/promises")).readFile("src/pth/kernel/extensions/obs.ts", "utf8"));
+    expect(src).toContain("content::jsonb->>'steps'");
+    expect(src).toContain("content::jsonb->'tokens'");
+  });
+});

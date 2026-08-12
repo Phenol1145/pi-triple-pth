@@ -129,9 +129,11 @@ export const obsExtension: TsReplExtension = {
           if (since && /^\d+$/.test(since)) conds.push(`created_at > now() - make_interval(secs => ${since})`);
           const where = conds.length ? ` WHERE ${conds.join(" AND ")}` : "";
           const rows = await ctx.dataWorld.queryReadOnly(
-            `SELECT meta->>'role' AS role, count(*) AS tasks, round(avg((content->>'steps')::int)::numeric, 1) AS avg_steps,
-             round(avg(((content->'tokens')->>'input')::bigint)::numeric, 0) AS avg_tokens_in,
-             round(avg((content->>'failedActions')::int)::numeric, 2) AS avg_fails
+            // 2026-08-12 sensor:worker-opt 观测报告的基础设施缺陷：content 是 text 列——
+            // jsonb 操作符（->>）对 text 非法——需 ::jsonb 转换（sensor 已上报并绕过）
+            `SELECT meta->>'role' AS role, count(*) AS tasks, round(avg((content::jsonb->>'steps')::int)::numeric, 1) AS avg_steps,
+             round(avg(((content::jsonb->'tokens')->>'input')::bigint)::numeric, 0) AS avg_tokens_in,
+             round(avg((content::jsonb->>'failedActions')::int)::numeric, 2) AS avg_fails
              FROM memory_entries WHERE kind = 'task-scorecard'${where}
              GROUP BY meta->>'role' ORDER BY tasks DESC LIMIT 20`,
           );
