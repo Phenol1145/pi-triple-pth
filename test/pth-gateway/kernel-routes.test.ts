@@ -186,8 +186,12 @@ describe("flow role 路由（body.flow 顶层——发布即路由到指定角�
 });
 
 describe("memory-bridge（ASP-5：sandbox python 空间记忆入口）", () => {
-  const SECRET = "sandbox-dev-secret";
+  // H4 修复：不再使用公开默认密钥——测试显式注入（fail-closed）
+  const SECRET = "test-secret-12345";
   const visibleMeta = { space: "public", scope: "space" };
+
+  beforeAll(() => { process.env.SANDBOX_SHARED_SECRET = SECRET; });
+  afterAll(() => { delete process.env.SANDBOX_SHARED_SECRET; });
 
   function bridgeApp() {
     return buildApp({
@@ -211,6 +215,22 @@ describe("memory-bridge（ASP-5：sandbox python 空间记忆入口）", () => {
       payload: { op: "query", sql: "SELECT 1" },
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("H4：SANDBOX_SHARED_SECRET 未配置（无公开默认值）→ fail-closed 401", async () => {
+    const saved = process.env.SANDBOX_SHARED_SECRET;
+    delete process.env.SANDBOX_SHARED_SECRET;
+    try {
+      const app = bridgeApp();
+      const res = await app.inject({
+        method: "POST", url: "/api/v1/kernel/memory-bridge",
+        headers: { authorization: "Bearer sandbox-dev-secret" }, // 旧默认值不得再有效
+        payload: { op: "query", sql: "SELECT 1" },
+      });
+      expect(res.statusCode).toBe(401);
+    } finally {
+      if (saved !== undefined) process.env.SANDBOX_SHARED_SECRET = saved;
+    }
   });
 
   it("query：白名单 SQL 经 queryReadOnly 返回并过滤空间可见性", async () => {

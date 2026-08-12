@@ -17,6 +17,8 @@ export interface TaskLoopDeps {
   workspaceMgr: TaskWorkspaceManager;
   /** Refine 钩子（T4）：任务完成后快照+提炼+持久化。默认 undefined = 不 refine。 */
   refiner?: Pick<import("./refiner.js").Refiner, "refine">;
+  /** 优化循环（2026-08-12 大项）：任务完成点收集 scorecard → 窗口检测 → 建议（draft）。默认 undefined = 不启用。 */
+  optimizer?: Pick<import("./optimizer-loop.js").Optimizer, "collect">;
   /** 日志（日志体系 T2）：链路 ctx（taskId/role）自动携带 */
   logger?: import("../logger.js").KernelLogger;
   /** 性能计量（SPEC L2）：任务事件 → IPC 转发主进程 */
@@ -88,7 +90,13 @@ export class TaskLoop {
   /** terminal reject 统一出口（Origin 升级链事件源——task.rejected 活动事件供 trigger 消费） */
   private async rejectTerminal(task: Task, reason: string, chain: { chainDepth: number; triggerId?: string }, metricReason?: string): Promise<void> {
     const { role, taskStore } = this.deps;
-    await taskStore.reject(role.id, task.id, reason, { terminal: true });
+    const affected = await taskStore.reject(role.id, task.id, reason, { terminal: true });
+    if (affected === 0) {
+      // 审计 H5：认领已不属于本 worker（回收重领后执行失败）——告警但不覆盖他人认领
+      this.deps.logger?.child?.("taskloop", { taskId: task.id, role: role.id })?.warn?.(
+        `reject 0 rows（认领已被回收重领？task=${task.id}）——不覆盖他人认领`,
+      );
+    }
     this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
     this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: metricReason ?? classifyReason(reason) });
@@ -214,7 +222,12 @@ export class TaskLoop {
         return;
       }
       this.bus.emit("task.execute.end", { taskId: task.id, role: role.id, ok: true, durationMs: Date.now() - execStart });
-      await taskStore.submit(role.id, task.id, { ref: result });
+      const affected = await taskStore.submit(role.id, task.id, { ref: result });
+      if (affected === 0) {
+        // 审计 H5：认领已不属于本 worker（任务被回收重领）——结果静默丢失，告警审计
+        taskLogger?.warn(`submit 0 rows（认领已被回收重领？task=${task.id}）——结果未落库`);
+        this.deps.onActivity?.({ kind: "task.submit-conflict", taskId: task.id, role: role.id, ok: false, detail: "submit 0 rows——claim 已被回收/重领" });
+      }
       this.bus.emit("task.submit", { taskId: task.id, role: role.id });
       await this.archive(task, ws, result);
       taskLogger?.info("task completed", { durationMs: execMs });
@@ -225,6 +238,20 @@ export class TaskLoop {
       // 性能修复（摸底发现）：refine 的 LLM 调用（1-2s）必须在 execute 循环外异步完成——
       // 否则同角色串行任务被 refine 阻塞（submit 间隔 = 上个任务的 refine 时长）。
       // snapshot 必须同步 await（下一任务 reset 会清 context）；LLM 提炼 fire-and-forget。
+      // 优化循环（2026-08-12 大项）：任务完成点收集 scorecard（agent 分支有 trace——fast-path 跳过）。
+      // fire-and-forget（与 refine 同异步模式——不阻塞任务循环）；缓冲/落库失败降级记日志。
+      if (this.deps.optimizer) {
+        const traceForOpt = (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents;
+        if (Array.isArray(traceForOpt) && traceForOpt.length > 0) {
+          try {
+            const { buildScorecard } = await import("./worker-scorecard.js");
+            const { getEventBus } = await import("./event-bus.js");
+            this.deps.optimizer.collect(buildScorecard(traceForOpt as never), { role: role.id, taskId: task.id });
+          } catch (e) {
+            taskLogger?.error(`optimizer collect failed: ${(e as Error).message}`);
+          }
+        }
+      }
       if (this.deps.refiner) {
         // Per-task refine 开关（P6 增强）：payload.refine = "off" 关闭；缺省跟随全局
         const taskRefine = ((task.payload ?? {}) as { refine?: string }).refine;

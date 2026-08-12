@@ -85,6 +85,29 @@ suite("task store pg", () => {
     expect(row.rows[0].status).toBe("completed");
   });
 
+  it("H5: submit 返回 rowCount——非本人认领（已被回收重领）→ 0 行（双执行信号）", async () => {
+    const t = await store.publish({ title: "t6b", text: "sub-race", createdBy: "me", tags: ["code"] });
+    await store.claimTopN("w1", [t.id]);
+    // 模拟：claim 被回收后另一 worker 重领
+    await store.recoverStaleClaims(0.0001);
+    await store.claimTopN("w2", [t.id]);
+    // 原 worker w1 提交 → 0 行（claim 已不属于 w1）
+    const n = await store.submit("w1", t.id, { ref: "stale" });
+    expect(n).toBe(0);
+    const row = await pool.query("SELECT status, claimed_by FROM tasks WHERE id = $1", [t.id]);
+    expect(row.rows[0].status).toBe("claimed"); // w2 的认领不受影响
+    expect(row.rows[0].claimed_by).toBe("w2");
+  });
+
+  it("H5: reject 返回 rowCount——非本人认领 → 0 行", async () => {
+    const t = await store.publish({ title: "t6c", text: "rej-race", createdBy: "me", tags: ["code"] });
+    await store.claimTopN("w1", [t.id]);
+    const n = await store.reject("w2", t.id, "not mine");
+    expect(n).toBe(0);
+    const row = await pool.query("SELECT claimed_by FROM tasks WHERE id = $1", [t.id]);
+    expect(row.rows[0].claimed_by).toBe("w1"); // w1 认领保持
+  });
+
   it("countPending counts only pending tasks (relative to current state)", async () => {
     // 同 suite 前序测试在共享 DB 累积了各种状态的任务，故用相对断言（跨 spec 扩展：Task 5 负载统计依赖）。
     const before = await store.countPending();

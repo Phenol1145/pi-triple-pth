@@ -86,4 +86,31 @@ describe("batch manager", () => {
     const batches = await mgr.listBatches();
     expect(batches.some((b) => b.id === handle.id)).toBe(false);
   }, 3000);
+
+  it("H6: status 消息含 ts → 更新 lastHeartbeat（watchdog v2 心跳面）", async () => {
+    // stub 子进程在收到 ping 时回 status+ts（模拟 batch-process 心跳）
+    const hbPath = join(dir, "hb-batch.mjs");
+    await writeFile(hbPath, `
+      process.send?.({ type: "status", tasks: [], ts: Date.now() });
+      process.on("message", (msg) => {
+        if (msg.type === "ping") process.send?.({ type: "status", tasks: [], ts: Date.now() });
+        if (msg.type === "shutdown") process.exit(0);
+      });
+    `);
+    const mgr = new BatchManager({ batchProcessPath: hbPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 150));  // 等首条 status 到达
+    const ts1 = mgr.lastHeartbeatOf(handle.id);
+    expect(ts1).toBeGreaterThan(0);
+    // 再 ping 一次 → 心跳更新（新 ts 更大）——通过 mgr 内部 child 通道发送
+    await new Promise((r) => setTimeout(r, 30));
+    const before = Date.now();
+    const rec = (mgr as unknown as { batches: Map<string, { child: { send?: (m: unknown) => void } }> }).batches.get(handle.id);
+    rec?.child.send?.({ type: "ping" });
+    await new Promise((r) => setTimeout(r, 100));
+    const ts2 = mgr.lastHeartbeatOf(handle.id);
+    expect(ts2).toBeGreaterThanOrEqual(ts1);
+    expect(ts2).toBeLessThanOrEqual(before + 500);
+    await mgr.killBatch(handle.id);
+  }, 5000);
 });

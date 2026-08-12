@@ -45,7 +45,7 @@ export interface BatchManagerDeps {
  *   batch → 主: {type:"status", tasks:[{workerId,taskId}]} | {type:"error", message}
  */
 export class BatchManager {
-  private batches = new Map<string, { id: string; child: ChildProcess; workers: string[]; currentTasks: Map<string, string> }>();
+  private batches = new Map<string, { id: string; child: ChildProcess; workers: string[]; currentTasks: Map<string, string>; lastHeartbeat: number }>();
 
   constructor(private deps: BatchManagerDeps) {}
 
@@ -68,10 +68,12 @@ export class BatchManager {
       stdio: ["ignore", "inherit", "inherit", "ipc"],
     });
     getEventBus().emit("batch.spawn", { batchId: id, workers });
-    const record = { id, child, workers, currentTasks: new Map<string, string>() };
+    const record = { id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now() };
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
+        // H6（watchdog v2）：status 消息即心跳——记录最近到达时间（batch-process 每 2s 上报）
+        record.lastHeartbeat = typeof msg.ts === "number" ? msg.ts : Date.now();
       } else if (msg?.kind === "activity" && this.deps.onActivity) {
         // 活动事件流（console --follow 数据源）：batch IPC → ActivityHub 广播
         this.deps.onActivity(msg.activity as import("./activity-hub.js").ActivityEvent);
@@ -231,6 +233,11 @@ export class BatchManager {
     const rec = this.batches.get(id);
     if (!rec) return false;
     return rec.child.exitCode === null && rec.child.signalCode === null && !rec.child.killed;
+  }
+
+  /** H6（watchdog v2）：最近心跳时间（ms epoch）——无记录返回 0（视为从未心跳/挂死）。 */
+  lastHeartbeatOf(id: string): number {
+    return this.batches.get(id)?.lastHeartbeat ?? 0;
   }
   async suggest(): Promise<BatchSuggestion> {
     const batches = await this.listBatches();

@@ -58,4 +58,18 @@ describe("buildReadOnlyQuery（受限只读 SQL 校验）", () => {
     const r = buildReadOnlyQuery("select * from memory_entries");
     expect(r).toMatch(/LIMIT\s+50/i);
   });
+
+  it("引号标识符逃逸 → 拒绝（FROM \"tasks\" 不得绕过名单）", () => {
+    expect(() => buildReadOnlyQuery('SELECT * FROM "tasks"')).toThrow(/表 "tasks" 不开放/);
+    expect(() => buildReadOnlyQuery('SELECT * FROM "credit_tx" LIMIT 1')).toThrow(/不开放/);
+  });
+
+  it("注释分隔逃逸 → 拒绝（FROM/*x*/tasks 不得绕过名单）", () => {
+    expect(() => buildReadOnlyQuery("SELECT * FROM/*x*/tasks")).toThrow(/表 "tasks" 不开放/);
+  });
+
+  it("子查询内嵌未开放表（引号/注释绕过）→ 拒绝", () => {
+    expect(() => buildReadOnlyQuery("SELECT * FROM memory_entries WHERE id IN (SELECT id FROM \"audit_log\")")).toThrow(/不开放/);
+    expect(() => buildReadOnlyQuery("SELECT * FROM memory_entries WHERE id IN (SELECT id FROM/*c*/transcripts)")).toThrow(/不开放/);
+  });
 });

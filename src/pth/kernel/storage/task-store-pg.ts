@@ -34,8 +34,10 @@ export interface PublishInput {
 export interface TaskStore {
   candidates(agentId: string, opts?: { limit?: number }): Promise<Task[]>;
   claimTopN(agentId: string, ids: string[]): Promise<Task[]>;
-  reject(agentId: string, taskId: string, reason: string, opts?: { terminal?: boolean }): Promise<void>;
-  submit(agentId: string, taskId: string, outputRef: unknown): Promise<void>;
+  /** 返回受影响行数（0 = 认领已不属于该 agent——审计 H5：双执行/结果丢失信号） */
+  reject(agentId: string, taskId: string, reason: string, opts?: { terminal?: boolean }): Promise<number>;
+  /** 返回受影响行数（0 = 认领已不属于该 agent——审计 H5：任务可能已被回收重领） */
+  submit(agentId: string, taskId: string, outputRef: unknown): Promise<number>;
   publish(input: PublishInput): Promise<Task>;
   /** 按 id 取任务（Origin 升级链 retask——重发布需原任务正文） */
   getById(id: string): Promise<Task | null>;
@@ -166,12 +168,12 @@ export class PgTaskStore implements TaskStore {
     return res.rowCount ?? 0;
   }
 
-  async reject(agentId: string, taskId: string, reason: string, opts: { terminal?: boolean } = {}): Promise<void> {
+  async reject(agentId: string, taskId: string, reason: string, opts: { terminal?: boolean } = {}): Promise<number> {
     // 允许拒绝：未认领（claimed_by IS NULL）或本人已认领的任务；记录原因并释放认领。
     // terminal=true：坏任务终态化（status='rejected' 不回池）——执行失败（语法/崩溃）的任务
     // 永远无法成功，回池会导致无限 claim→reject 空转（摸底实测 claims_count=252）。
     // 默认（assessed-as-unfit 等软失败）：回到 pending（保持既有语义）。
-    await this.pool.query(
+    const res = await this.pool.query(
       `UPDATE tasks SET
          status = ${opts.terminal ? "'rejected'" : "'pending'"},
          claimed_by = NULL,
@@ -180,10 +182,11 @@ export class PgTaskStore implements TaskStore {
        WHERE id = $1 AND (claimed_by IS NULL OR claimed_by = $2)`,
       [taskId, agentId, JSON.stringify([{ agentId, reason, at: Date.now() }])],
     );
+    return res.rowCount ?? 0;
   }
 
-  async submit(agentId: string, taskId: string, outputRef: unknown): Promise<void> {
-    await this.pool.query(
+  async submit(agentId: string, taskId: string, outputRef: unknown): Promise<number> {
+    const res = await this.pool.query(
       `UPDATE tasks SET
          status = 'completed',
          submitted_at = now(),
@@ -193,6 +196,7 @@ export class PgTaskStore implements TaskStore {
        WHERE id = $1 AND claimed_by = $2`,
       [taskId, agentId, JSON.stringify(outputRef)],
     );
+    return res.rowCount ?? 0;
   }
 }
 

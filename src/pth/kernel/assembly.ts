@@ -26,6 +26,8 @@ export interface KernelWatchdogEvent {
   batchId: string;
   pid: number;
   ts: number;
+  /** H6（watchdog v2）：'hung-restarted' = 心跳陈旧挂死已自动重启；缺省 = 崩溃记录 */
+  kind?: "hung-restarted";
 }
 
 /**
@@ -36,6 +38,8 @@ export interface KernelWatchdogEvent {
 export class KernelWatchdog {
   private timer: ReturnType<typeof setInterval> | null = null;
   private crashLog: KernelWatchdogEvent[] = [];
+  /** H6（watchdog v2）：挂死判定阈值——心跳超过该时长未到即视为挂死（默认 3×status 上报周期 2s） */
+  private static readonly HEARTBEAT_STALE_MS = 15_000;
 
   constructor(
     private batchManager: BatchManager,
@@ -55,17 +59,38 @@ export class KernelWatchdog {
     }
   }
 
-  /** 探测一轮：遍历 BatchManager 存活 batch，崩溃则记录。返回本轮新增崩溃事件数。 */
+  /**
+   * 探测一轮（watchdog v2——审计 H6）：
+   * - 崩溃（进程退出）→ 记录事件（v1 语义保留）
+   * - 存活但心跳陈旧（事件循环挂死——ts 死循环/单任务 DoS）→ kill + 自动重启 + 记录事件
+   * 返回本轮新增事件数（崩溃 + 挂死重启）。
+   */
   async probe(): Promise<number> {
-    let crashes = 0;
+    let events = 0;
     for (const status of await this.batchManager.listBatches()) {
-      if (this.batchManager.isBatchAlive(status.id)) continue;
-      const evt: KernelWatchdogEvent = { batchId: status.id, pid: status.pid, ts: Date.now() };
-      this.crashLog.push(evt);
-      this.logger(`[watchdog] batch ${status.id} crashed (pid ${status.pid}) — recorded, no auto-restart (v1)`);
-      crashes++;
+      if (!this.batchManager.isBatchAlive(status.id)) {
+        const evt: KernelWatchdogEvent = { batchId: status.id, pid: status.pid, ts: Date.now() };
+        this.crashLog.push(evt);
+        this.logger(`[watchdog] batch ${status.id} crashed (pid ${status.pid}) — recorded`);
+        events++;
+        continue;
+      }
+      // H6：存活但心跳陈旧 → 挂死（进程在，事件循环被阻塞——kill + 重启恢复）
+      const lastBeat = this.batchManager.lastHeartbeatOf(status.id);
+      if (Date.now() - lastBeat > KernelWatchdog.HEARTBEAT_STALE_MS) {
+        try {
+          await this.batchManager.killBatch(status.id);
+          await this.batchManager.spawnBatch();
+          const evt: KernelWatchdogEvent = { batchId: status.id, pid: status.pid, ts: Date.now(), kind: "hung-restarted" };
+          this.crashLog.push(evt);
+          this.logger(`[watchdog] batch ${status.id} hung (no heartbeat ${Date.now() - lastBeat}ms) — killed & restarted`);
+          events++;
+        } catch (e) {
+          this.logger(`[watchdog] batch ${status.id} hung but restart failed: ${(e as Error).message}`);
+        }
+      }
     }
-    return crashes;
+    return events;
   }
 
   getCrashLog(): KernelWatchdogEvent[] {
@@ -102,6 +127,20 @@ function resolveBatchProcessPath(explicit: string | undefined): string {
   if (explicit) return explicit;
   if (process.env.PTH_BATCH_TS === "1") return "src/pth/kernel/execution/batch-process.ts";
   return "dist/pth/kernel/execution/batch-process.js";
+}
+
+/**
+ * Claim 超时默认值解析（审计 H5 修复）：长任务执行期间不得被误回收重领（双执行/结果丢失）。
+ * - 显式 PTH_CLAIM_TIMEOUT_MS → 优先
+ * - 未显式配置但任务超时 PTH_AGENT_TIMEOUT_MS 已设 → 任务超时 + 10min 余量（保证 claim 阈值 > 任务最长时长）
+ * - 均未配置 → 600s 下限（本地默认任务超时 120s 场景足够）
+ */
+export function resolveClaimTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const explicit = Number(env.PTH_CLAIM_TIMEOUT_MS);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const agentTimeout = Number(env.PTH_AGENT_TIMEOUT_MS);
+  if (Number.isFinite(agentTimeout) && agentTimeout > 0) return agentTimeout + 600_000;
+  return 600_000;
 }
 
 export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<KernelRuntime> {
@@ -226,8 +265,9 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   }
 
   // Claim 超时回收（batch 崩溃/重启僵尸认领）：周期扫描回收 claimed_at 超时任务回 pending
-  // 参数：PTH_CLAIM_REAP_MS（扫描周期，默认 30s）/ PTH_CLAIM_TIMEOUT_MS（超时阈值，默认 600s）
-  const claimTimeoutMs = Number(process.env.PTH_CLAIM_TIMEOUT_MS ?? 600_000);
+  // 参数：PTH_CLAIM_REAP_MS（扫描周期，默认 30s）/ PTH_CLAIM_TIMEOUT_MS（超时阈值——
+  // 默认联动任务超时 +10min 余量，见 resolveClaimTimeoutMs——审计 H5 防长任务误回收）
+  const claimTimeoutMs = resolveClaimTimeoutMs();
   const claimReapMs = Number(process.env.PTH_CLAIM_REAP_MS ?? 30_000);
   const claimReaperTimer = setInterval(() => {
     void dataWorld.tasks

@@ -83,6 +83,16 @@ describe("优化建议批准应用器（闭环部署动作——2026-08-12）", 
     expect(String(idx2.content)).toBe(`base【优化规则 · gate-heavy】${fullRule}`);   // 无重复追加
   });
 
+  it("text 列形态：content 为 JSON 字符串（真实存储——get 返回字符串）", async () => {
+    const store = fakeStore([
+      { id: "capability-index", kind: "capability-index", status: "official", content: "base" },
+      { ...sug(), id: "opt-str", content: JSON.stringify(SUGGESTION.content) },
+    ]);
+    const r = await applyOptimizerSuggestion(store, "opt-str");
+    expect(r.ok).toBe(true);
+    expect(String(store._rows.find((x) => x.id === "capability-index")!.content)).toContain("优化规则");
+  });
+
   it("role-doc 目标：role-doc:<role> 追加规则", async () => {
     const store = fakeStore([
       { id: "role-doc:executor", kind: "role-doc", status: "official", content: "你是执行者。" },

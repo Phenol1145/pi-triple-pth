@@ -85,6 +85,37 @@ describe("扩展编排面（代码库式——ext 能力 + 公共记忆区索引
 });
 
 describe("ext.kernel 接线（新执行核——代码库式）", () => {
+  let dir: string;
+  let toolstore: ReturnType<typeof createToolstore>;
+  const RUST_EXT = `
+      module.exports = {
+        create: () => ({
+          language: "rust",
+          state: {},
+          execute: async (code) => ({ ok: true, result: "rust-compiled:" + code.slice(0, 10), durationMs: 1, language: "rust" }),
+          reset() {}, dispose() {},
+          snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
+        }),
+      };`;
+  const RUST_EXT2 = `
+      module.exports = {
+        create: () => ({
+          language: "rust",
+          state: {},
+          execute: async (code) => ({ ok: true, result: "rust:" + code.trim(), durationMs: 1, language: "rust" }),
+          reset() {}, dispose() {},
+          snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
+        }),
+      };`;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "ext-kernel-"));
+    toolstore = createToolstore(dir);
+    await mkdir(join(dir, "extensions", "rust"), { recursive: true });
+    await writeFile(join(dir, "extensions", "rust", "index.ts"), RUST_EXT);
+  });
+  afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
+
   it("注册新执行核 → kernel-manager execute(language) 路由扩展 → ts 程序可用", async () => {
     const { createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
     const mgr = createKernelManager({
@@ -105,7 +136,7 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
     expect(() => mgr.registerKernel("python", {} as never)).toThrow(/不可覆盖/);
   });
 
-  it("ext.kernel：eval 扩展代码 → 注册 → ts 程序内 rust.execute 可用（能力面）", async () => {
+  it("ext.kernel：引用 toolstore 扩展（index.ts eval 重放）→ 注册 → ts 程序内 rust.execute 可用（能力面）", async () => {
     const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
     const mgr = createKernelManager({
       pythonMode: "kernel", bashMode: "kernel",
@@ -120,24 +151,39 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
       } as never,
       manager: mgr,
       registerKernel: (language, interpreter) => mgr.registerKernel(language, interpreter as never),
+      toolstore,
     });
-    const ext = k.capabilities["ext"] as { kernel: (lang: string, code: string) => Promise<{ ok: boolean }> };
-    // 扩展代码（代码库式——module.exports 导出 create）
-    const extCode = `
-      module.exports = {
-        create: () => ({
-          language: "rust",
-          state: {},
-          execute: async (code) => ({ ok: true, result: "rust-compiled:" + code.slice(0, 10), durationMs: 1, language: "rust" }),
-          reset() {}, dispose() {},
-          snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
-        }),
-      };`;
-    const reg = await ext.kernel("rust", extCode);
+    const ext = k.capabilities["ext"] as { kernel: (name: string, code?: string) => Promise<{ ok: boolean }> };
+    // 仅按名字引用 toolstore 扩展（管理员放置）——不传内联代码
+    const reg = await ext.kernel("rust");
     expect(reg).toEqual({ language: "rust", ok: true });
     // manager 路由可用
     const r = await mgr.execute("rust", "fn main(){}");
     expect(r).toMatchObject({ ok: true, result: "rust-compiled:fn main(){" });
+  });
+
+  it("ext.kernel：拒绝任务内联代码（RCE 防护——code 参数一律拒绝，必须走 toolstore）", async () => {
+    const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
+    const mgr = createKernelManager({
+      pythonMode: "kernel", bashMode: "kernel",
+      kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },
+    } as never);
+    const k = createWorkerKernelWithManager({
+      llm: { complete: async () => ({ ok: false }) } as never,
+      dataWorld: {
+        memory: { retrieve: async () => [], write: async () => {} },
+        tasks: { candidates: async () => [], submit: async () => {} },
+        queryReadOnly: async () => [],
+      } as never,
+      manager: mgr,
+      registerKernel: (language, interpreter) => mgr.registerKernel(language, interpreter as never),
+      toolstore,
+    });
+    const ext = k.capabilities["ext"] as { kernel: (name: string, code?: string) => Promise<unknown> };
+    // 任务代码试图传入任意内联代码（旧 RCE 路径）→ 必须拒绝
+    await expect(ext.kernel("evil", "module.exports = { create: () => ({ execute: async () => process.exit(1) }) };")).rejects.toThrow(/内联代码|toolstore/);
+    // 未放置的扩展名 → 读取失败（不得 eval 任何任务输入）
+    await expect(ext.kernel("evil")).rejects.toThrow();
   });
 
   it("ext.kernel 后注册 → 同一 ts 程序内 rust.execute 可用（动态注入 vm context）", async () => {
@@ -155,27 +201,18 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
       } as never,
       manager: mgr,
       registerKernel: (language, interpreter) => mgr.registerKernel(language, interpreter as never),
+      toolstore,
     });
-    const ext = k.capabilities["ext"] as { kernel: (lang: string, code: string) => Promise<{ ok: boolean }> };
-    const extCode = `
-      module.exports = {
-        create: () => ({
-          language: "rust",
-          state: {},
-          execute: async (code) => ({ ok: true, result: "rust:" + code.trim(), durationMs: 1, language: "rust" }),
-          reset() {}, dispose() {},
-          snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
-        }),
-      };`;
-    await ext.kernel("rust", extCode);
+    const ext = k.capabilities["ext"] as { kernel: (name: string) => Promise<{ ok: boolean }> };
+    await ext.kernel("rust");
     // 同一 worker ts 程序（同一 context——模拟任务代码后续 cell）调用 rust.execute
     // （顶层 await 写法——与生产任务程序一致；async IIFE 是 wrapAwait 已知边缘坑）
     const r = await k.ts.execute(`(await rust.execute("hi")).result`);
     expect(r.ok).toBe(true);
-    expect(r.value).toBe("rust:hi");
+    expect(r.value).toBe("rust-compiled:hi");
   });
 
-  it("ext.kernel：代码未导出 execute → 明确错误", async () => {
+  it("ext.kernel：toolstore 扩展代码未导出 execute → 明确错误", async () => {
     const { createWorkerKernelWithManager, createKernelManager } = await import("../../src/pth/kernel/interpreter/kernel-manager.js");
     const mgr = createKernelManager({
       pythonMode: "kernel", bashMode: "kernel",
@@ -186,8 +223,10 @@ describe("ext.kernel 接线（新执行核——代码库式）", () => {
       dataWorld: { memory: { retrieve: async () => [], write: async () => {} }, tasks: { candidates: async () => [], submit: async () => {} }, queryReadOnly: async () => [] } as never,
       manager: mgr,
       registerKernel: (language, interpreter) => mgr.registerKernel(language, interpreter as never),
+      toolstore,
     });
-    const ext = k.capabilities["ext"] as { kernel: (lang: string, code: string) => Promise<unknown> };
-    await expect(ext.kernel("bad", "module.exports = { notKernel: 1 };")).rejects.toThrow(/execute/);
+    const ext = k.capabilities["ext"] as { kernel: (name: string) => Promise<unknown> };
+    // 未放置扩展 → 读取即失败（toolstore 内无 bad 扩展）
+    await expect(ext.kernel("bad")).rejects.toThrow();
   });
 });

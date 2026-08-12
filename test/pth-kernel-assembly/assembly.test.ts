@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { resolveClaimTimeoutMs } from "../../src/pth/kernel/assembly";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createKernelRuntime, type KernelRuntime } from "../../src/pth/kernel/assembly";
+import { createKernelRuntime, type KernelRuntime, KernelWatchdog } from "../../src/pth/kernel/assembly";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 kernel storage/execution 套件：getContainerRuntimeClient() 内部执行 dockerode.info()，
@@ -59,6 +60,54 @@ suite("pth kernel assembly", () => {
   });
 });
 
+describe("KernelWatchdog v2（审计 H6：心跳陈旧挂死 → kill + 自动重启）", () => {
+  it("存活但心跳陈旧（>15s 无 status）→ killBatch + spawnBatch + 记录 hung-restarted 事件", async () => {
+    const calls: string[] = [];
+    const fakeMgr = {
+      listBatches: async () => [{ id: "b-hung", pid: 999, workers: [], currentTasks: {} }],
+      isBatchAlive: () => true,                       // 进程活着（事件循环却卡死——ts 死循环场景）
+      lastHeartbeatOf: () => Date.now() - 60_000,     // 但心跳 60s 前就停了
+      killBatch: async () => { calls.push("kill"); },
+      spawnBatch: async () => { calls.push("spawn"); return { id: "b-new", pid: 1000, workers: [], currentTasks: new Map(), idleRatio: 1 }; },
+    } as never;
+    const wd = new KernelWatchdog(fakeMgr);
+    const n = await wd.probe();
+    expect(n).toBe(1);
+    expect(calls).toEqual(["kill", "spawn"]);
+    expect(wd.getCrashLog()[0]?.kind).toBe("hung-restarted");
+  });
+
+  it("心跳新鲜（<15s）→ 不干预", async () => {
+    const calls: string[] = [];
+    const fakeMgr = {
+      listBatches: async () => [{ id: "b-ok", pid: 1001, workers: [], currentTasks: {} }],
+      isBatchAlive: () => true,
+      lastHeartbeatOf: () => Date.now() - 3_000,
+      killBatch: async () => { calls.push("kill"); },
+      spawnBatch: async () => { calls.push("spawn"); return { id: "b-new", pid: 1002, workers: [], currentTasks: new Map(), idleRatio: 1 }; },
+    } as never;
+    const wd = new KernelWatchdog(fakeMgr);
+    const n = await wd.probe();
+    expect(n).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  it("崩溃（进程退出）→ 记录但不重启（v1 语义保留）", async () => {
+    const calls: string[] = [];
+    const fakeMgr = {
+      listBatches: async () => [{ id: "b-dead", pid: 1003, workers: [], currentTasks: {} }],
+      isBatchAlive: () => false,                      // 进程已退出
+      lastHeartbeatOf: () => 0,
+      killBatch: async () => { calls.push("kill"); },
+      spawnBatch: async () => { calls.push("spawn"); return { id: "b-new", pid: 1004, workers: [], currentTasks: new Map(), idleRatio: 1 }; },
+    } as never;
+    const wd = new KernelWatchdog(fakeMgr);
+    const n = await wd.probe();
+    expect(n).toBe(1);
+    expect(calls).toEqual([]); // 崩溃不自动重启（v1 约束）
+  });
+});
+
 describe("batch tsx 化（dev 源码模式——PTH_BATCH_TS=1——Kernel 代码热更新）", () => {
   it("PTH_BATCH_TS=1 → batchProcessPath 指向 src TS + execArgv tsx loader", () => {
     const old = process.env.PTH_BATCH_TS;
@@ -73,5 +122,24 @@ describe("batch tsx 化（dev 源码模式——PTH_BATCH_TS=1——Kernel 代�
     } finally {
       if (old === undefined) delete process.env.PTH_BATCH_TS; else process.env.PTH_BATCH_TS = old;
     }
+  });
+});
+
+describe("resolveClaimTimeoutMs（审计 H5：claim 超时默认值联动任务超时——防长任务误回收双执行）", () => {
+  it("显式 PTH_CLAIM_TIMEOUT_MS 优先", () => {
+    const r = resolveClaimTimeoutMs({ PTH_CLAIM_TIMEOUT_MS: "120000" });
+    expect(r).toBe(120_000);
+  });
+  it("未显式配置时默认 = 任务超时 + 10min 余量（跟随 PTH_AGENT_TIMEOUT_MS）", () => {
+    const r = resolveClaimTimeoutMs({ PTH_AGENT_TIMEOUT_MS: "10800000" }); // compose 3h
+    expect(r).toBe(10_800_000 + 600_000); // 3h10m > 任务最长 3h
+  });
+  it("任务超时也未配置 → 回退 600s 下限", () => {
+    const r = resolveClaimTimeoutMs({});
+    expect(r).toBe(600_000);
+  });
+  it("非法输入 → 回退安全默认（不小干任务超时）", () => {
+    const r = resolveClaimTimeoutMs({ PTH_CLAIM_TIMEOUT_MS: "abc", PTH_AGENT_TIMEOUT_MS: "xyz" });
+    expect(r).toBe(600_000);
   });
 });

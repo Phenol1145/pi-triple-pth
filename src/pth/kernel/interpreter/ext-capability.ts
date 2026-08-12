@@ -87,12 +87,19 @@ export function createExtCapability(opts: ExtCapabilityOptions): Record<string, 
       },
       /** 注册新执行核（代码库式接线：eval 代码 → Interpreter 实例 → kernel-manager 路由）——
        *  code 约定：module.exports = { create: (ctx) => ({ language, execute, reset, dispose, snapshot }) } */
-      kernel: async (language: string, code: string): Promise<{ language: string; ok: boolean }> => {
+      /** 注册新执行核（代码库式接线：仅引用 toolstore 中管理员放置的扩展——
+       *  安全边界：不接收任务内联代码（RCE 防护——2026-08-12 审计收敛）——
+       *  code 约定：module.exports = { create: (ctx) => ({ language, execute, reset, dispose, snapshot }) }） */
+      kernel: async (name: string, code?: string): Promise<{ language: string; ok: boolean }> => {
+        if (code !== undefined) {
+          throw new Error("ext.kernel: 不接受任务内联代码（RCE 风险）——请引用 toolstore 扩展：ext.kernel('<扩展名>')");
+        }
         if (!opts.registerKernel) throw new Error("ext.kernel: registerKernel 未注入（batch 环境）");
+        const extCode = await opts.toolstore.readText(`extensions/${name}/index.ts`);
         const wrapped = `"use strict";
           const module = { exports: {} };
           const exports = module.exports;
-          ${code}
+          ${extCode}
           return module.exports.default ?? module.exports;`;
         // eslint-disable-next-line @typescript-eslint/no-implied-eval
         const fn = new Function(wrapped)() as unknown;
@@ -101,10 +108,10 @@ export function createExtCapability(opts: ExtCapabilityOptions): Record<string, 
           ?? (mod as Record<string, unknown>)["interpreter"]
           ?? mod;
         if (!created || typeof (created as { execute?: unknown }).execute !== "function") {
-          throw new Error(`ext.kernel: ${language} 代码未导出 execute 实现（Interpreter 接口）`);
+          throw new Error(`ext.kernel: ${name} 代码未导出 execute 实现（Interpreter 接口）`);
         }
-        opts.registerKernel(language, created as Interpreter);
-        return { language, ok: true };
+        opts.registerKernel(name, created as Interpreter);
+        return { language: name, ok: true };
       },
       /** 同步索引到公共记忆区（memory kind:extension-index——编排面进公共记忆） */
       syncIndex: async (): Promise<{ count: number }> => {
