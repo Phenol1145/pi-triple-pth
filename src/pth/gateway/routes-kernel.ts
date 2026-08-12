@@ -39,7 +39,9 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!kernel) return unavailable(reply);
     const header = req.headers.authorization ?? "";
     const token = header.startsWith("Bearer ") ? header.slice(7) : header;
-    const secret = process.env.SANDBOX_SHARED_SECRET ?? "sandbox-dev-secret";
+    // H4 修复：密钥未配置时 fail-closed（拒绝）——不再使用公开默认值 sandbox-dev-secret
+    const secret = process.env.SANDBOX_SHARED_SECRET;
+    if (!secret) return reply.status(401).send({ error: "unauthorized: SANDBOX_SHARED_SECRET 未配置" });
     if (token !== secret) return reply.status(401).send({ error: "unauthorized" });
     const body = (req.body ?? {}) as { op?: string; sql?: string; anchors?: string[]; kinds?: string[]; id?: string; space?: string };
     const { isVisible } = await import("../kernel/execution/memory-visibility.js");
@@ -175,6 +177,32 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   });
 
   // ── batch 控制 ───────────────────────────────────────────
+  // ── 优化闭环（2026-08-12 体系自制）：建议列表 + 批准应用（监督通道）──
+  app.get("/api/v1/kernel/optimizer/suggestions", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    try {
+      const rows = await kernel.dataWorld.queryReadOnly(
+        `SELECT id, status, kind, left(content::text, 200) AS preview, created_at FROM memory_entries WHERE kind = 'optimizer-suggestion' ORDER BY created_at DESC LIMIT 20`,
+      );
+      return rows;
+    } catch (e) {
+      return reply.code(500).send({ error: (e as Error).message });
+    }
+  });
+  app.post("/api/v1/kernel/optimizer/apply", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const body = (req.body ?? {}) as { id?: string };
+    const id = String(body.id ?? "").trim();
+    if (!id) return reply.code(400).send({ error: "id required" });
+    try {
+      const { applyOptimizerSuggestion } = await import("../kernel/execution/optimizer-apply.js");
+      const r = await applyOptimizerSuggestion(kernel.dataWorld.memory, id);
+      if (!r.ok) return reply.code(400).send(r);
+      return r;
+    } catch (e) {
+      return reply.code(500).send({ error: (e as Error).message });
+    }
+  });
   app.post("/api/v1/kernel/batch/add", async (req, reply) => {
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;

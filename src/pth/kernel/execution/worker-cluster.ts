@@ -130,11 +130,16 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
     for (const r of allWorkerRoles()) out.set(r.id, 1);
     return out;
   }
-  const known = new Set(allWorkerRoles().map((r) => r.id));
+  // known 集合含 governance（sensor/controller 系——显式可列；默认展开不含——MID 同款）
+  const known = new Set([...allWorkerRoles(), ...MID_ROLES, ...GOVERNANCE_ROLES].map((r) => r.id));
   const specStr = spec as string;
   for (const part of specStr.split(",")) {
-    const [role, copiesRaw] = part.trim().split(":");
-    const roleId = role?.trim();
+    // 角色 id 可含冒号（sensor:worker-opt）——copies 是末尾数字段——从右找数字段拆分
+    // （2026-08-12 体系自制修复：split(":") 对含冒号 id 拆碎——MID 无冒号未暴露）
+    const trimmed = part.trim();
+    const ci = trimmed.lastIndexOf(":");
+    const copiesRaw = ci > 0 && /^\d+$/.test(trimmed.slice(ci + 1)) ? trimmed.slice(ci + 1) : undefined;
+    const roleId = copiesRaw !== undefined ? trimmed.slice(0, ci).trim() : trimmed;
     if (!roleId || !known.has(roleId)) throw new Error(`parseRoleWeights: 未知角色 "${roleId}"（可选: ${[...known].join("/")}）`);
     if (out.has(roleId)) throw new Error(`parseRoleWeights: 角色重复 "${roleId}"`);
     const copies = copiesRaw === undefined || copiesRaw.trim() === "" ? 1 : Number(copiesRaw.trim());
@@ -218,7 +223,8 @@ export function profileToWeights(profile: BatchProfile): Map<string, number> {
 export function validateWeights(weights: Map<string, number>): void {
   let total = 0;
   for (const [role, copies] of weights) {
-    if (!allWorkerRoles().some((r) => r.id === role)) throw new Error(`parseRoleWeights: 未知角色 "${role}"`);
+    const knownSet = new Set([...allWorkerRoles(), ...MID_ROLES, ...GOVERNANCE_ROLES].map((r) => r.id));
+    if (!knownSet.has(role)) throw new Error(`parseRoleWeights: 未知角色 "${role}"`);
     if (!Number.isInteger(copies) || copies < 0 || copies > MAX_WORKER_COPIES) {
       throw new Error(`parseRoleWeights: ${role} 副本数须为 0-${MAX_WORKER_COPIES}`);
     }
@@ -283,6 +289,61 @@ export const MID_ROLES: WorkerRole[] = [
     parent: "origin", generation: 1, differentiation: "治理类任务族诱导——秩序型任务（规划/验收/记忆维护）从 Origin 分出独立分支" },
 ];
 
+/**
+ * GOVERNANCE_ROLES —— 治理族·控制论骨架（2026-08-12 体系自制——Origin 控制论分割）。
+ *
+ * 用户裁决：Origin 分割为 sensor（观测）/ controller（调节）/ actuator（执行）三类根角色。
+ * actuator = 既有执行族（developer/writer/…）；sensor/controller 新增（generation=1 中间层）：
+ *   sensor 系 4 子类：worker-opt（内环观测）/ system-opt（系统观测）/ resource（资源观测）/ memory（记忆观测）
+ *   controller 系 5 子类：router（任务路由——guard 占位）/ worker-opt（worker 优化）/
+ *     pth-opt（PTH 面优化）/ resource（资源优化——方案管理）/ memory（记忆管理）
+ * worker 三元组（动作空间×记忆空间×承诺任务类型）：capabilities=动作空间、memoryScope=记忆空间、
+ * 承诺任务类型在 prompt/description 声明（观测任务/控制任务——由 trigger 生成任务源驱动）。
+ *
+ * 派发：MID_ROLES 同款——谱系可见（allLineageRoles）但默认不进 batch（池容量安全）；
+ * PTH_WORKER_ROLES 显式列出时启用（parseRoleWeights known 集合含 governance）。
+ */
+export const GOVERNANCE_ROLES: WorkerRole[] = [
+  // ── sensor 系（观测根子角色——承诺任务类型=观测/调查——capabilities 含 obs 观测面）──
+  { id: "sensor:worker-opt", tags: ["sensor", "observe"], prompt: "你是调用点观测者（sensor:worker-opt）——JIT 内环的测量角色。任务：统计调用点流量（工具调用频率/token 分布/失败率/门控率），识别反模式（gate-heavy/repeated-fail/fragmented-read/nav-heavy/no-progress），输出观测报告——建议动作空间/记忆空间优化方向（worker 分解/合并/新扩展）。数据源：obs.callpoint（task-scorecard 聚合）/ obs.metrics。产物：memory.write kind=optimizer-suggestion（status=draft——监督层流转）。",
+    description: "调用点观测（JIT 内环 sensor——工具频率/token 分布/反模式识别）", thinking: "medium",
+    capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
+    parent: "origin", generation: 1, differentiation: "控制论分割——观测职责从 Origin 分出（内环：调用点级测量）", acceptanceRole: "read-only" },
+  { id: "sensor:system-opt", tags: ["sensor", "observe"], prompt: "你是系统观测者（sensor:system-opt）——控制论中环的测量角色。任务：调查 PTH 面状态（记忆空间+动作空间快照、任务池分布、批次健康），交叉调查其他 sensor 的观测（一致性校验——防单点噪声误报），输出系统观测报告。数据源：obs.tasks/obs.metrics/obs.batches/obs.memory。产物：memory.write kind=optimizer-suggestion draft。",
+    description: "系统观测（中环 sensor——记忆+动作空间/PTH 面/交叉调查）", thinking: "medium",
+    capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
+    parent: "origin", generation: 1, differentiation: "控制论分割——观测职责从 Origin 分出（中环：系统级测量）", acceptanceRole: "read-only" },
+  { id: "sensor:resource", tags: ["sensor", "observe"], prompt: "你是资源观测者（sensor:resource）——控制论外环（资源层）的测量角色。任务：多数据源采集资源状态（obs.pg 系统视图/obs.storage 存储占用/obs.metrics 指标），识别资源瓶颈（连接数/缓存命中/存储增长/排队），输出资源观测报告。产物：memory.write kind=optimizer-suggestion draft（含资源域建议——batch 数量/核池/存储清理）。",
+    description: "资源观测（外环 sensor——PG/存储/指标多源）", thinking: "medium",
+    capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
+    parent: "origin", generation: 1, differentiation: "控制论分割——观测职责从 Origin 分出（外环：资源级测量）", acceptanceRole: "read-only" },
+  { id: "sensor:memory", tags: ["sensor", "observe"], prompt: "你是记忆观测者（sensor:memory）——记忆管理的测量角色。任务：观测记忆空间健康（obs.memory 质量聚合：kind/status 分布/hit_count 均值/重复度），识别记忆问题（重复条目/僵尸 draft/低命中/容量增长），输出记忆观测报告。产物：memory.write kind=optimizer-suggestion draft（记忆整理建议——归档/合并/清理）。",
+    description: "记忆观测（记忆空间健康——容量/质量/重复度）", thinking: "medium",
+    capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
+    parent: "origin", generation: 1, differentiation: "控制论分割——观测职责从 Origin 分出（记忆管理测量）", acceptanceRole: "read-only" },
+  // ── controller 系（调节根子角色——承诺任务类型=控制/调节——capabilities 含 manage 控制面）──
+  { id: "controller:router", tags: ["controller", "route"], prompt: "你是任务路由者（controller:router）——任务分流决策角色（guard 占位——v1 不实现分流判断）。任务：评审任务-角色匹配（task-resolver 分配合理性），记录路由观察（哪些任务类型反复在角色间迁移），输出路由建议（任务分化/合并方向——任务分化优先于 worker 分化）。",
+    description: "任务路由（调用点截断/分流——占位）", thinking: "medium",
+    capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "plan",
+    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（任务路由）", acceptanceRole: "read-only" },
+  { id: "controller:worker-opt", tags: ["controller", "optimize"], prompt: "你是 worker 优化者（controller:worker-opt）——JIT 内环的调节角色。任务：读取 sensor:worker-opt 的观测建议（optimizer-suggestion draft），裁决 worker 分解/合并（任务分化优先于 worker 分化；任务类型合并优先于 worker 合并），用 manage.worker.propose 落分化提案（draft——监督层批准注册）。",
+    description: "worker 优化（JIT 内环 controller——分解/合并裁决）", thinking: "high",
+    capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
+    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（worker 优化）", acceptanceRole: "read-only" },
+  { id: "controller:pth-opt", tags: ["controller", "optimize"], prompt: "你是 PTH 面优化者（controller:pth-opt）——控制论中环的调节角色。任务：读取 sensor:system-opt 观测，裁决 PTH 面优化（扩展编写/工具面调整/系统参数），用 manage.params.set 热调参（PTH_*），用 manage.resource.config 落重启级参数 draft，新扩展经 toolstore 产物链路。",
+    description: "PTH 面优化（中环 controller——扩展/工具面/系统参数）", thinking: "high",
+    capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "implementation",
+    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（PTH 面优化）", acceptanceRole: "read-only" },
+  { id: "controller:resource", tags: ["controller", "optimize"], prompt: "你是资源优化者（controller:resource）——控制论外环（资源层）的调节角色。任务：读取 sensor:resource 观测，管理资源优化方案（默认方案=perf-autopilot 规则表保留）：热调节（batch 数量/核池参数/存储清理——manage.params.set + manage.resource.scheme 方案管理）、重启级参数落 draft（manage.resource.config）、复测验证（下窗口对比——恶化回滚）。",
+    description: "资源优化（外环 controller——方案管理/热调参/重启级 draft）", thinking: "high",
+    capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "implementation",
+    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（资源优化）", acceptanceRole: "read-only" },
+  { id: "controller:memory", tags: ["controller", "optimize"], prompt: "你是记忆管理者（controller:memory）——记忆管理的调节角色。任务：读取 sensor:memory 观测，裁决记忆整理（归档/合并/清理策略），用 manage.memory.archive 落归档提案（draft——监督层批准执行；记忆是核心资产删除类不自动），写入策略调整经 manage.params 热参数。",
+    description: "记忆管理（记忆整理/归档/清理策略——治理层流转）", thinking: "high",
+    capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
+    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（记忆管理）", acceptanceRole: "read-only" },
+];
+
 /** 已注册扩展角色（监控/调试） */
 export function getExtraRoles(): WorkerRole[] { return [...extraRoles]; }
 
@@ -292,6 +353,7 @@ export function allLineageRoles(): WorkerRole[] {
   const base = roles.some((r) => r.id === ORIGIN_ROLE.id) ? roles : [ORIGIN_ROLE, ...roles];
   const withMid = [...base];
   for (const mid of MID_ROLES) if (!withMid.some((r) => r.id === mid.id)) withMid.push(mid);
+  for (const g of GOVERNANCE_ROLES) if (!withMid.some((r) => r.id === g.id)) withMid.push(g);
   return withMid;
 }
 

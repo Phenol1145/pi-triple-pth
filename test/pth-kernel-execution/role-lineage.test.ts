@@ -44,17 +44,20 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(allLineageRoles().some((r) => r.id === "human-interface")).toBe(false);
   });
 
-  it("allLineageRoles 含 Origin+中间层（allWorkerRoles 不含——batch 构成不变）", () => {
+  it("allLineageRoles 含 Origin+中间层+治理骨架（allWorkerRoles 不含——batch 构成不变）", () => {
     const lineage = allLineageRoles();
     expect(lineage.some((r) => r.id === "origin")).toBe(true);
     expect(lineage.some((r) => r.id === "executor")).toBe(true);
-    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 3);   // 7 叶 + origin + 3 中间层
+    // 2026-08-12 体系自制：+9 governance（sensor×4/controller×5——谱系可见默认不派发）
+    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 3 + 9);
+    const gov = lineage.filter((r) => r.id.startsWith("sensor:") || r.id.startsWith("controller:"));
+    expect(gov.length).toBe(9);
   });
 
-  it("buildRoleLineage 构建三层树（Origin → 3 中间层 → 8 叶子）", () => {
+  it("buildRoleLineage 构建三层树（Origin → 3 中间层+9 治理骨架 → 8 叶子）", () => {
     const tree = buildRoleLineage();
     expect(tree.role.id).toBe("origin");
-    expect(tree.children.length).toBe(3);   // 3 中间层
+    expect(tree.children.length).toBe(3 + 9);   // 3 中间层 + 9 治理骨架（2026-08-12）
     const executor = tree.children.find((c) => c.role.id === "executor");
     const explorer = tree.children.find((c) => c.role.id === "explorer");
     const governor = tree.children.find((c) => c.role.id === "governor");

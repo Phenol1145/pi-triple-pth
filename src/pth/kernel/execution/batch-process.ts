@@ -5,7 +5,7 @@ import { createDataWorld } from "../storage/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../interpreter/index.js";
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
-import { DEFAULT_ROLES, allWorkerRoles, parseRoleWeights, expandRoleWeights, registerWorkerRole } from "./worker-cluster.js";
+import { DEFAULT_ROLES, GOVERNANCE_ROLES, allWorkerRoles, parseRoleWeights, expandRoleWeights, registerWorkerRole } from "./worker-cluster.js";
 import { getEventBus } from "./event-bus.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
@@ -13,6 +13,7 @@ import { archiveTask, type ArchiveDeps } from "./archive.js";
 import { createKernelModelRouter } from "./model-router.js";
 import { createLlmFn } from "../interpreter/llm-fn.js";
 import { Refiner } from "./refiner.js";
+import { Optimizer } from "./optimizer-loop.js";
 import { createToolstore } from "../interpreter/toolstore.js";
 import { createKernelLogger } from "../logger.js";
 import { loadKernelConfig } from "../interpreter/kernel-config.js";
@@ -261,8 +262,14 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       memory: dataWorld.memory,
       onMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "refine" } }); } catch { /* IPC 不可用 */ } },
     }) : undefined;
+    // 优化循环（2026-08-12 大项 §10.3）：窗口聚合检测 → 建议 draft（PTH_OPTIMIZER=off 关闭）
+    const optimizerEnabled = process.env.PTH_OPTIMIZER !== "off";
+    const optimizer = optimizerEnabled ? new Optimizer({
+      memory: dataWorld.memory,
+      windowSize: Number(process.env.PTH_OPTIMIZER_WINDOW ?? 10),
+    }) : undefined;
     const loop = new BatchTaskLoop({
-      kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, logger: batchLogger,
+      kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
       // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
       llm,
       // agent 循环的 capability 白名单（与 vm 注入同一份）
@@ -297,8 +304,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   await tick();   // 立即跑一轮
   const timer = setInterval(tick, intervalMs);
   // 每轮后发 status 给主进程（v1：tasks 占位空——BatchManager 消费 {type,tasks} 契约）
+  // H6（watchdog v2）：ts 字段 = 心跳时间戳（主进程 watchdog 据此探测挂死）
   const statusTimer = setInterval(() => {
-    process.send?.({ type: "status", tasks: [] });
+    process.send?.({ type: "status", tasks: [], ts: Date.now() });
   }, 2000);
   // keep-alive（试运行发现修正）：pg 连接池在 Node 24 下不 hold 事件循环（socket 默认 unref），
   // 空闲且仅剩 unref 定时器时进程会立即退出——batch 必须保持存活直到主进程显式 shutdown。

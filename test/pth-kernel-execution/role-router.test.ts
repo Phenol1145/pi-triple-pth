@@ -78,3 +78,28 @@ describe("checkTaskRouting（publish 前严格校验）", () => {
     if (!r.ok) expect(r.error).toContain("未注册");
   });
 });
+
+describe("GOVERNANCE_ROLES（控制论骨架——2026-08-12 体系自制）", () => {
+  it("谱系可见：sensor/controller 9 角色在 allLineageRoles（默认不派发）", async () => {
+    const { allLineageRoles, allWorkerRoles, GOVERNANCE_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    expect(GOVERNANCE_ROLES.length).toBe(9);
+    const lineage = allLineageRoles().map((r) => r.id);
+    for (const g of GOVERNANCE_ROLES) expect(lineage).toContain(g.id);
+    // 默认派发面（allWorkerRoles）不含 governance（池容量安全——显式启用才进 batch）
+    const dispatched = allWorkerRoles().map((r) => r.id);
+    for (const g of GOVERNANCE_ROLES) expect(dispatched).not.toContain(g.id);
+    // controller 系带 manage 控制面；sensor 系不带
+    const c = GOVERNANCE_ROLES.find((r) => r.id === "controller:resource")!;
+    const s = GOVERNANCE_ROLES.find((r) => r.id === "sensor:resource")!;
+    expect(c.capabilities).toContain("manage");
+    expect(s.capabilities).not.toContain("manage");
+  });
+
+  it("PTH_WORKER_ROLES 显式列出 governance 角色可派发（parseRoleWeights known 含）", async () => {
+    const { parseRoleWeights } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const w = parseRoleWeights("sensor:worker-opt:1,controller:resource:1");
+    expect(w.get("sensor:worker-opt")).toBe(1);
+    expect(w.get("controller:resource")).toBe(1);
+    expect(w.get("developer")).toBe(1);   // 未列角色默认 1
+  });
+});
