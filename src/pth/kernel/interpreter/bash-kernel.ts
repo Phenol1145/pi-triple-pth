@@ -18,14 +18,10 @@ import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapsho
 /** 记忆库函数（2026-08-11 库化——bash 核 seed：curl 封装记忆桥只读三操作；SQL/JSON 由调用方传） */
 // API 约定：memory_query "SQL"（SQL 用单引号字符串字面量——双引号会破 JSON）；
 // memory_get "id"；memory_retrieve '["a","b"]'（紧凑 JSON——无空格）。
-// 引号策略：JSON body 用单引号包裹（bash 单引号零转义——双引号内 \" 在 seed 链路会被吞）；
-// $1 用 '"'"' 拼接（单引号串 → 双引号内变量 → 单引号串）。
-// 引号策略：JSON body 用单引号包裹（bash 单引号零转义——双引号内 \\" 在 seed 链路会被吞）；
-// $1 用 '"'"' 拼接（单引号串 → 双引号内变量 → 单引号串）。
+// 记忆库函数（2026-08-11 库化——bash 核 seed）：JSON body 委托 python3 json.dumps 构造
+// （$1 作 argv 单层传递——bash 引号嵌套易错：双引号内 \" 在 seed 链路被吞、
+//  '"'"'$1'"'"' 把 $1 锁进单引号不展开——argv 方案零嵌套）。
 // 反引号模板串：bash 代码无 ${ 冲突（$PTH_MEMORY_BRIDGE / $1 均非 ${ 前缀）。
-// 记忆库函数（2026-08-11 库化——bash 核 seed）。
-// 引号策略：JSON body 委托 python3 json.dumps 构造（$1 作 argv 单层传递——bash 引号嵌套易错：
-// 双引号内 \" 在 seed 链路被吞、'"'"'$1'"'"' 把 $1 锁进单引号不展开——argv 方案零嵌套）。
 const BASH_MEMORY_LIB = [
   `memory_query() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"query","sql":sys.argv[1]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET"; }`,
   `memory_get() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"get","id":sys.argv[1]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET"; }`,
@@ -205,6 +201,8 @@ export class BashKernel implements Interpreter {
       old.removeAllListeners("exit");
       old.removeAllListeners("error");
       try { old.kill("SIGKILL"); } catch { /* ignore */ }
+      // stdio 销毁（2026-08-12 审计——同 py-kernel：失败场景句柄残留）
+      try { old.stdout?.destroy(); old.stderr?.destroy(); old.stdin?.destroy(); } catch { /* ignore */ }
       this.child = null;
     }
     this.buffer = "";

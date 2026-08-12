@@ -35,6 +35,8 @@ def snapshot_globals():
     for key, val in list(ns.items()):
         if key.startswith("_"):
             continue
+        if key == "memory":
+            continue   # 记忆桥实例非序列化——固定 oversized 噪音（2026-08-12 审计）
         if inspect.ismodule(val):
             continue   # 模块不进快照（是运行时导入的依赖，非任务产物）
         if inspect.isfunction(val) or inspect.isclass(val):
@@ -256,9 +258,8 @@ export class PyKernel implements Interpreter {
     let msg: PyProtocolMsg;
     try {
       msg = await this.call({ code: program, timeoutMs, ...(opts?.exec ? { exec: opts.exec } : {}) });    } catch (e) {
-      // 管道错误/超时——kill 重启（冷备补位）
+      // 管道错误/超时——kill 置空（冷备补位：下个 execute 懒 spawn——失败场景不二次 spawn 浪费）
       this.kill();
-      this.spawn();
       return { ok: false, error: { message: (e as Error).message }, durationMs: Date.now() - start, language: "python" };
     }
 
@@ -329,6 +330,8 @@ export class PyKernel implements Interpreter {
   }
 
   private spawn(): void {
+    // 占位符校验（2026-08-12 审计）：错配时 python 侧 exec 抛 base64 解码错——启动即崩且难诊断
+    if (!PY_RUNTIME.includes("__PTH_MEMORY_LIB_B64__")) throw new Error("PY_RUNTIME 缺失记忆库占位符（__PTH_MEMORY_LIB_B64__）");
     const runtime = PY_RUNTIME.replace("__PTH_MEMORY_LIB_B64__", PTH_MEMORY_LIB_B64);
     const child = spawn(this.pythonBin, ["-u", "-c", runtime], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -340,7 +343,14 @@ export class PyKernel implements Interpreter {
     this.ready = false;
     child.stdout.on("data", (d: Buffer) => this.onData(d.toString()));
     child.stderr.on("data", (d: Buffer) => { this.onStderr?.(d.toString()); });
-    child.on("error", () => { /* 由 pending reject 兜底 */ });
+    child.on("error", (err) => {
+      // 2026-08-12 审计修复：spawn 失败（ENOENT 等）只发 error+close 不发 exit——pending 会悬挂满 timeout。
+      // error 即 reject 全部 pending（exit 路径仍兜底）
+      const pending = this.pending;
+      this.pending = [];
+      this.ready = false;
+      for (const p of pending) p.resolve({ ok: false, result: null, stdout: "", stderr: "", error: `kernel spawn failed: ${err.message}` });
+    });
     child.on("exit", () => {
       // 进程退出——reject 所有 pending
       const pending = this.pending;
@@ -356,7 +366,10 @@ export class PyKernel implements Interpreter {
       // 移除旧会话 handler（防误 reject 新会话 pending）
       old.removeAllListeners("exit");
       old.removeAllListeners("error");
-      try { old.kill("SIGKILL"); } catch { /* ignore */ }
+      try { old.kill("SIGKILL"); } catch (e) { }
+      // stdio 销毁（2026-08-12 审计）：ENOENT 等失败场景进程已死但 pipe 句柄残留——
+      // 事件循环不退出（vitest 挂住/批处理泄漏）——显式 destroy
+      try { old.stdout?.destroy(); old.stderr?.destroy(); old.stdin?.destroy(); } catch (e) { }
       this.child = null;
     }
     this.buffer = "";
@@ -396,7 +409,7 @@ export class PyKernel implements Interpreter {
     // 等就绪信号（防 spawn 后 stdin 写入丢失——超时 kill 重启场景）
     if (!this.ready) {
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => resolve(), 2000);
+        const timer = setTimeout(() => { resolve(); }, 2000);
         this.readyWaiters.push(() => { clearTimeout(timer); resolve(); });
       });
     }

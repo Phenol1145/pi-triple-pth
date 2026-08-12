@@ -6,6 +6,11 @@
  *
  * 治理不变：PTH gateway 三层（认证/白名单/可见性过滤）不动——库只是语言侧封装。
  * bridge URL：env PTH_MEMORY_BRIDGE（kernel 模式=localhost:3000 直通；sandbox=localhost:8080 转发——spawn 时注入）。
+ *
+ * ⚠ 已知风险（2026-08-12 审计记录——批 3 空间治理 v2 修复）：桥 body.space 由调用方自传——
+ * python/bash 库不传 space → PTH 侧 visible=isVisible(meta, undefined)=true——所有条目可见
+ * （含其他空间 private 条目）。修复方向：库形态改为进程环境注入盖章（PTH_MEMORY_SPACE env）——
+ * 程序无法伪造空间身份。当前仅 dev 内部任务使用，可接受。
  */
 
 export const PTH_MEMORY_LIB_PY = `# -*- coding: utf-8 -*-

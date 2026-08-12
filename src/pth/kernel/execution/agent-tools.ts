@@ -97,14 +97,25 @@ async function readArtifact(taskWorkspace: string | undefined, relPath: string):
 async function debugCall(ctx: AgentToolCtx, op: string, body: Record<string, unknown>): Promise<unknown> {
   const url = ctx.debugApi?.url ?? process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080";
   const secret = ctx.debugApi?.secret ?? process.env.SANDBOX_SHARED_SECRET ?? "";
-  const r = await fetch(`${url.replace(/\/+$/, "")}/kernel/debug/${op}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-    body: JSON.stringify(body),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`debug.${op} failed (${r.status}): ${text.slice(0, 300)}`);
-  try { return JSON.parse(text); } catch { return text; }
+  // 超时（2026-08-12 审计：与 SandboxKernel.call 对齐——防 sandbox 无响应悬挂工具调用）
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 35_000);
+  try {
+    const r = await fetch(`${url.replace(/\/+$/, "")}/kernel/debug/${op}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    const text = await r.text();
+    if (!r.ok) throw new Error(`debug.${op} failed (${r.status}): ${text.slice(0, 300)}`);
+    try { return JSON.parse(text); } catch { return text; }
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw new Error(`debug.${op} timed out after 35s（sandbox 无响应）`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 工具表（元工具——id → 执行器） */
@@ -300,7 +311,9 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
   },
   "write.read": async (ctx, args) => {
     const content = await readArtifact(ctx.taskWorkspace, str(args, "path"));
-    return { ok: true, value: { path: str(args, "path"), length: content.length }, stdout: truncate(content, 6000).text };
+    const out = truncate(content, 6000);
+    const hint = out.truncated ? `\n\n【截断提示】全文 ${content.length} 字符，仅显示前 6000——长文档可分段写（write.section op=split 拆章节）` : "";
+    return { ok: true, value: { path: str(args, "path"), length: content.length, truncated: out.truncated }, stdout: out.text + hint };
   },
   "write.list": async (ctx) => {
     const { readdir } = await import("node:fs/promises");
@@ -313,7 +326,7 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
         if (e.name.startsWith(".") || e.name === "node_modules") continue;
         const rel = prefix ? `${prefix}/${e.name}` : e.name;
         if (e.isDirectory()) await walk(`${dir}/${e.name}`, rel);
-        else if (/.(md|txt|rst|adoc)$/i.test(e.name)) docs.push(rel);
+        else if (/\.(md|txt|rst|adoc)$/i.test(e.name)) docs.push(rel);
       }
     };
     await walk(root);
@@ -332,28 +345,28 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     const abs = resolveArtifact(ctx.taskWorkspace, str(args, "path"));
     const content = await readArtifact(ctx.taskWorkspace, str(args, "path"));
     const op = str(args, "op") || "list";
-    // 标题定位（# 或 ## 或 ###——`# 一级` 至 `###### 六级`）
+    // 标题定位（行级匹配——`# 一级` 至 `###### 六级`；统一辅助，split/reorder/before 同语义）
     const headingRe = /^#{1,6}\s+.+$/gm;
     const matches = [...content.matchAll(headingRe)];
+    const findHeading = (title: string): number => matches.findIndex((m) => m[0].trim() === title.trim());
     const headings = matches.map((m) => ({ line: content.slice(0, m.index).split("\n").length, text: m[0].trim() }));
     if (op === "list") {
-      const { writeFile } = await import("node:fs/promises");
-      // 临时：直接返回标题结构（无副作用）
       return { ok: true, value: headings, stdout: headings.length ? headings.map((h) => `${h.line}: ${h.text}`).join("\n") : "（无标题结构——纯文本文档）" };
     }
     if (op === "split") {
       // split: 从指定标题（title 参数）开始拆出后段 → 新文件（target 参数）
       const title = str(args, "title");
       const target = str(args, "target");
-      const idx = content.indexOf(`\n${title}`);
-      if (idx < 0) return { ok: false, error: `write.section split: 标题 "${title}" 未找到` };
-      const head = content.slice(0, idx);
-      const tail = content.slice(idx + 1).trimStart();
+      const headingIdx = findHeading(title);
+      if (headingIdx < 0) return { ok: false, error: `write.section split: 标题 "${title}" 未找到（用 write.section op=list 查看标题行——需完整如 "## 章节名"）` };
+      const segStart = matches[headingIdx]!.index!;
+      const head = content.slice(0, segStart).trimEnd() + "\n";
+      const tail = content.slice(segStart).trimStart();
       const { writeFile, mkdir } = await import("node:fs/promises");
       const { dirname } = await import("node:path");
       const targetAbs = resolveArtifact(ctx.taskWorkspace, target);
       await mkdir(dirname(targetAbs), { recursive: true });
-      await writeFile(abs, head.trimEnd() + "\n", "utf-8");
+      await writeFile(abs, head, "utf-8");
       await writeFile(targetAbs, tail, "utf-8");
       return { ok: true, value: { path: str(args, "path"), splitAt: title, target }, stdout: `已从 "${title}" 拆分 → ${target}（原文件保留 ${head.length} 字符）` };
     }
@@ -361,19 +374,19 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
       // reorder: 将 title 章节移动到 before（目标标题前）；无 before 则移到末尾
       const title = str(args, "title");
       const before = str(args, "before") as string | undefined;
-      const startIdx = content.indexOf(`\n${title}`);
-      if (startIdx < 0) return { ok: false, error: `write.section reorder: 标题 "${title}" 未找到` };
-      const headingIdx = matches.findIndex((m) => m[0].trim() === title);
-      if (headingIdx < 0) return { ok: false, error: `write.section reorder: 标题 "${title}" 未找到（标题行）` };
+      const headingIdx = findHeading(title);
+      if (headingIdx < 0) return { ok: false, error: `write.section reorder: 标题 "${title}" 未找到（需完整标题行如 "## 章节名"）` };
       const segStart = matches[headingIdx]!.index!;
       const segEnd = headingIdx + 1 < matches.length ? matches[headingIdx + 1]!.index! : content.length;
       const segment = content.slice(segStart, segEnd);
       let rest = content.slice(0, segStart) + content.slice(segEnd);
-      // 移除段后——在 before 前插入
+      // 移除段后——在 before 前插入（before 也走行级匹配——防子串误插）
       if (before) {
-        const bIdx = rest.indexOf(`\n${before}`);
-        if (bIdx < 0) return { ok: false, error: `write.section reorder: before 标题 "${before}" 未找到` };
-        rest = rest.slice(0, bIdx + 1) + segment + rest.slice(bIdx + 1);
+        const bIdx = findHeading(before);
+        if (bIdx < 0) return { ok: false, error: `write.section reorder: before 标题 "${before}" 未找到（需完整标题行）` };
+        const bStart = rest.indexOf(matches[bIdx]![0]);
+        if (bStart < 0) return { ok: false, error: `write.section reorder: before 标题 "${before}" 定位失败` };
+        rest = rest.slice(0, bStart) + segment.trimEnd() + "\n\n" + rest.slice(bStart);
       } else {
         rest = rest.trimEnd() + "\n\n" + segment.trimStart();
       }
@@ -630,12 +643,13 @@ export function toolsToSchema(): import("@earendil-works/pi-ai").Tool[] {
 }
 
 export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
-- ts.run: {code, mode?} —— 【程序模式（优先）】执行完整 TypeScript 程序：可声明变量/多语句/控制流；await 调用 python.run/bash.run/c.execute/c.saveUnit/c.executeUnit/c.listUnits/memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
+- ts.run: {code, mode?} —— 【程序模式（优先）】执行完整 TypeScript 程序：可声明变量/多语句/控制流；await 调用 memory.query/memory.write/llm.complete/web.fetchText/fs.readText 等能力函数；读写 results/context 对象；return 值作为结果（组合多 kernel 一步完成）
 - ts.eval: {code, mode?} —— 【单表达式求值】一行查询/计算（不声明变量——表达式值即结果）：await memory.query(...) 统计等
-- c.execute: {code, mode?} —— C 编译核快捷（sandbox 编译运行——源码内嵌字符串）
-- c.executeUnit: {name, mode?} —— 命名编译单元（toolstore compiled-units/<name>.c——跨任务复用；c.saveUnit 保存）
 - python.run: {code, mode?} —— python 程序执行（_result = 值 回传）；python.eval: {code} —— 单表达式求值（值即结果）
 - bash.run: {command, mode?} —— 命令序列；bash.eval: {command} —— 单条命令
+- 【生产核·代码】dev.write/edit/build/run/save/list —— C 产物开发（asp.cd("dev")；编译类语言唯一入口）
+- 【调试】debug.attach/breakpoint/continue/step/snapshot/evaluate/detach/sessions —— C 调试会话（句柄化 sessionId——状态在 sandbox）
+- 【生产核·文档】write.create/edit/read/list/save/section —— 文档创作（asp.cd("write")；大纲→草稿→修订→定稿；section 章节组织）
 - done: {result, summary?} —— 完成任务，result 为最终产出对象
 
 输出模式（mode 可选——控制回填带宽）：default=完整；value-only=只回 value（大数据省 token）；errors-only=成功只回 ok 失败回全错（快速试错）；quiet=静默（状态准备不污染轨迹）`;

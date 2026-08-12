@@ -185,3 +185,16 @@ describe("记忆库注入（2026-08-11 库化——pth-memory-lib）", () => {
     k.dispose();
   });
 });
+
+describe("审计修复（2026-08-12）", () => {
+  it("spawn 失败（ENOENT）快速失败不悬挂（call 同步 throw kernel not writable / timer 兜底 / error 事件三重路径）", async () => {
+    const k = new PyKernel({ pythonBin: "/nonexistent/python3", timeoutMs: 3_000 });
+    const started = Date.now();
+    const r = await k.execute("print(1)");
+    expect(r.ok).toBe(false);
+    const msg = (r.error as { message: string }).message;
+    expect(msg).toMatch(/kernel not writable|timed out|spawn failed/);
+    expect(Date.now() - started).toBeLessThan(15_000);   // 不等满默认 300s 超时
+    k.dispose();
+  });
+});

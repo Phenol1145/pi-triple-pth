@@ -257,3 +257,12 @@ describe("asp.create / asp.destroy（空间生成/注销——数据驱动注册
     expect(toolContents).toContain("不可注销");
   });
 });
+
+describe("审计修复（2026-08-12）", () => {
+  it("注册幂等完整比较：extraTools 变化报冲突；相同定义幂等通过", () => {
+    expect(() => spaceRegistry.register({ id: "dev", kind: "action", execTool: "dev", parent: "meta", skeleton: "不同 skeleton", description: "x", builtin: true })).toThrow(/注册冲突/);
+    // 与现有完全一致 → 幂等通过
+    const existing = spaceRegistry.get("dev")!;
+    expect(() => spaceRegistry.register(existing)).not.toThrow();
+  });
+});

@@ -109,3 +109,52 @@ describe("write.* 文档工作流（大纲→草稿→修订→定稿）", () =>
     // 清理临时工作区（每个 ctx 独立）
   });
 });
+
+describe("审计修复（2026-08-12）", () => {
+  async function makeCtx2() {
+    const ws = await mkdtemp(join(tmpdir(), "write-audit-"));
+    return {
+      ctx: { kernel: {} as never, caps: {}, taskWorkspace: ws, toolstore: undefined } as never,
+      ws,
+    };
+  }
+
+  it("split 首个标题（无前导换行——修复假阴性）", async () => {
+    const { ctx, ws } = await makeCtx2();
+    await AGENT_TOOLS["write.create"](ctx, { path: "doc.md", content: "# 首章\n\n内容 A\n\n## 次章\n\n内容 B\n" });
+    const sp = await AGENT_TOOLS["write.section"](ctx, { path: "doc.md", op: "split", title: "# 首章", target: "part1.md" });
+    expect(sp.ok).toBe(true);
+    const head = await readFile(join(ws, "doc.md"), "utf-8");
+    const tail = await readFile(join(ws, "part1.md"), "utf-8");
+    expect(head.trim()).toBe("");   // 首章被拆走——原文件只剩空
+    expect(tail).toContain("# 首章");
+    expect(tail).toContain("内容 A");
+  });
+
+  it("split/reorder 标题匹配统一行级语义（无 # 前缀的部分标题拒绝）", async () => {
+    const { ctx } = await makeCtx2();
+    await AGENT_TOOLS["write.create"](ctx, { path: "doc.md", content: "# 首章\n\n内容 A\n\n## 次章\n\n内容 B\n" });
+    const bad = await AGENT_TOOLS["write.section"](ctx, { path: "doc.md", op: "split", title: "首章", target: "x.md" });
+    expect(bad.ok).toBe(false);
+    expect((bad.error ?? "")).toMatch(/未找到.*完整/);
+  });
+
+  it("write.read 截断提示（LLM 感知截断）", async () => {
+    const { ctx } = await makeCtx2();
+    await AGENT_TOOLS["write.create"](ctx, { path: "long.md", content: "# L\n\n" + "x".repeat(8000) + "\n" });
+    const r = await AGENT_TOOLS["write.read"](ctx, { path: "long.md" });
+    expect(r.ok).toBe(true);
+    expect((r.value as { truncated: boolean }).truncated).toBe(true);
+    expect((r.stdout ?? "")).toContain("【截断提示】");
+  });
+
+  it("reorder 首章节移动（假阴性修复）", async () => {
+    const { ctx, ws } = await makeCtx2();
+    await AGENT_TOOLS["write.create"](ctx, { path: "doc.md", content: "# 甲\n\nA\n\n## 乙\n\nB\n" });
+    const r = await AGENT_TOOLS["write.section"](ctx, { path: "doc.md", op: "reorder", title: "# 甲", before: "## 乙" });
+    // 甲 已在乙前——移动到乙前 = 无变化（不报错即可——匹配语义修复的验证）
+    expect(r.ok).toBe(true);
+    const after = await readFile(join(ws, "doc.md"), "utf-8");
+    expect(after).toContain("# 甲");
+  });
+});

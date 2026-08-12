@@ -37,8 +37,14 @@ export class SpaceRegistry {
   register(def: SpaceDef): void {
     const existing = this.spaces.get(def.id);
     if (existing) {
-      if (existing.kind === def.kind && existing.execTool === def.execTool) return;   // 幂等
-      throw new Error(`space "${def.id}" 注册冲突（已存在 kind=${existing.kind}）`);
+      // 幂等（2026-08-12 审计：关键字段比较——extraTools/skeleton/description/parent 变化报冲突，防静默忽略）
+      const same =
+        existing.kind === def.kind && existing.execTool === def.execTool &&
+        existing.parent === def.parent &&
+        JSON.stringify(existing.extraTools ?? []) === JSON.stringify(def.extraTools ?? []) &&
+        existing.skeleton === def.skeleton && existing.description === def.description;
+      if (same) return;
+      throw new Error(`space "${def.id}" 注册冲突（已存在 kind=${existing.kind} execTool=${existing.execTool} parent=${existing.parent}）`);
     }
     this.spaces.set(def.id, def);
   }
