@@ -216,3 +216,31 @@ describe("exec 执行模式（2026-08-11 元命令拆分——single/program/aut
     expect(r3.ok).toBe(true);
   });
 });
+
+describe("SandboxKernel 自愈（2026-08-12 复测发现）", () => {
+  it("disposed 后 execute 自动重建（重新 acquire——不再永久失败）", async () => {
+    const { SandboxKernel } = await import("../../src/pth/kernel/interpreter/sandbox-kernel.js");
+    const calls: string[] = [];
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {
+      const u = String(url);
+      calls.push(u.split("/").pop() ?? "");
+      const body = JSON.parse(init?.body ?? "{}") as Record<string, unknown>;
+      if (u.endsWith("/kernel/acquire")) return new Response(JSON.stringify({ kernelId: `py-x-${calls.length}` }), { status: 200 });
+      if (u.endsWith("/kernel/execute")) return new Response(JSON.stringify({ ok: true, value: 1, stdout: "1", durationMs: 1, language: "python" }), { status: 200 });
+      if (u.endsWith("/kernel/release")) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const k = new SandboxKernel({ url: "http://mock", secret: "s", language: "python", acquireOnInit: false });
+      const r1 = await k.execute("1+1");
+      expect(r1.ok).toBe(true);
+      k.dispose();   // 模拟 dispose 事件（shutdown 竞态）
+      const r2 = await k.execute("1+1");   // 自愈：不抛 disposed——重新 acquire
+      expect(r2.ok).toBe(true);
+      expect(calls.filter((c) => c === "acquire").length).toBe(2);   // 第二次重新 acquire
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+});

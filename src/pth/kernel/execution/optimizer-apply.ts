@@ -38,7 +38,8 @@ export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionI
   if (sug.status !== "draft") {
     return { ok: false, error: `建议状态 ${sug.status}——仅 draft 可批准（幂等：已应用/已拒绝不重复）` };
   }
-  const content = sug.content as unknown as OptimizerSuggestion;
+  // memory_entries.content 是 text 列——对象写入时序列化为 JSON 字符串（get 返回字符串）
+  const content = (typeof sug.content === "string" ? JSON.parse(sug.content) : sug.content) as OptimizerSuggestion;
   const target = content.target;
   const pattern = content.evidence?.pattern ?? "rule";
   if (target !== "capability-index" && !target.startsWith("role-doc:")) {

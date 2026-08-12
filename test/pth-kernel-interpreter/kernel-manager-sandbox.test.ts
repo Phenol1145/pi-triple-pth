@@ -52,7 +52,9 @@ describe("KernelManager sandbox-kernel 模式（P5 接线）", () => {
       sandboxKernel: { url: baseUrl, secret: SECRET },
     });
     await mgr.execute("python", "x = 123");
-    mgr.reset();
+    // 2026-08-12：await reset（此前不 await 是竞态——依赖微任务时序侥幸通过；
+    // SandboxKernel 自愈改动的 catch 链多一跳微任务后时序翻转——测试暴露）
+    await mgr.reset();
     const r = await mgr.execute("python", "_result = 'x' in dir()");
     expect(r.value).toBe(false);
     mgr.dispose();

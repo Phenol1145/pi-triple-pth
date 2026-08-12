@@ -109,7 +109,15 @@ export class SandboxKernel implements Interpreter {
   }
 
   async execute(program: string, opts?: ExecuteOptions): Promise<InterpreterResult> {
-    const kernelId = await this.withKernelId();
+    let kernelId: string;
+    try {
+      kernelId = await this.withKernelId();
+    } catch (e) {
+      if ((e as Error).message === "SandboxKernel disposed") {
+        this.revive();
+        kernelId = await this.withKernelId();   // 重新 acquire（旧条目已 release——池复用立即生效）
+      } else throw e;
+    }
     return this.call<InterpreterResult>("/kernel/execute", {
       kernelId,
       code: program,
@@ -120,7 +128,10 @@ export class SandboxKernel implements Interpreter {
   }
 
   async reset(): Promise<void> {
-    const kernelId = await this.withKernelId();
+    const kernelId = await this.withKernelId().catch((e) => {
+      if ((e as Error).message === "SandboxKernel disposed") { this.revive(); return this.withKernelId(); }
+      throw e;
+    });
     await this.call("/kernel/reset", { kernelId });
   }
 
@@ -137,11 +148,25 @@ export class SandboxKernel implements Interpreter {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // 诊断（2026-08-12 复测发现）：dispose 来源追踪——PTH_DEBUG_SANDBOX 门控
+    if (process.env.PTH_DEBUG_SANDBOX) {
+      console.error(`[sandbox-debug] ${this.language} disposed（调用方堆栈）\n${new Error().stack?.split("\n").slice(1, 6).join("\n")}`);
+    }
     const kernelId = this.kernelId;
     if (kernelId) {
       // fire-and-forget：归还池（失败不阻塞——宿主不可达时环境已死）
       this.releasePromise = this.call("/kernel/release", { kernelId }).then(() => undefined, () => undefined);
     }
+  }
+
+  /** 自愈（2026-08-12 复测发现）：disposed 后 execute 自动重建（重新 acquire 池条目）——
+   * 否则 dispose 事件（batch shutdown 竞态/重启路径）后 worker 的 python 永久不可用，
+   * agent 反复失败重试拖慢任务（复测窗口 5x 慢的根因） */
+  private revive(): void {
+    this.disposed = false;
+    this.kernelId = null;
+    this.acquirePromise = null;
+    this.releasePromise = null;
   }
 
   /** 等待 dispose 的 release 请求落地（测试/优雅关闭用——池复用立即生效） */
