@@ -59,6 +59,42 @@ function truncate(s: string, max = 2000): { text: string; truncated: boolean } {
  *   errors-only 成功只回 ok，失败回完整错误（快速试错）
  *   quiet       静默（无轨迹——纯状态准备步骤）
  */
+/**
+ * asm-kernel 惰性注册（2026-08-12 asm 核接线——设计 §4 选项 b）：dev.build/dev.run 遇 .s/.S
+ * 时从 toolstore 装载 asm-kernel 扩展（new Function eval——与 ext-capability 同通道——受信
+ * toolstore 代码）→ registerKernel("asm")。WeakSet 防重复注册。C 核路径完全不受影响。
+ */
+const asmKernels = new WeakSet<object>();
+async function ensureAsmKernel(ctx: { kernel: object; toolstore?: { readText: (p: string) => Promise<string> } }): Promise<{ ok: boolean; error?: string }> {
+  if (asmKernels.has(ctx.kernel)) return { ok: true };
+  if (!ctx.toolstore) return { ok: false, error: "asm-kernel: toolstore 未配置" };
+  try {
+    const code = await ctx.toolstore.readText("extensions/asm-kernel/index.js");
+    const wrapped = `"use strict";
+      const module = { exports: {} };
+      const exports = module.exports;
+      ${code}
+      return module.exports.default ?? module.exports;`;
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const fn = new Function(wrapped)();
+    const mod = typeof fn === "function" ? fn : (fn as { default?: unknown }).default;
+    const ext = await (mod as (c: unknown) => Promise<{ kernels?: Array<{ language: string; create: (o: unknown) => unknown }>; create?: (o: unknown) => unknown }>)({ log: () => {} });
+    const kern = (ext.kernels ?? []).find((k) => k.language === "asm");
+    const kernel = kern ? kern.create({}) : ext.create?.({});
+    if (!kernel || typeof (kernel as { execute?: unknown }).execute !== "function") {
+      return { ok: false, error: "asm-kernel: 未找到 asm 核 execute 实现" };
+    }
+    (ctx.kernel as { registerKernel: (l: string, k: unknown) => void }).registerKernel("asm", kernel);
+    asmKernels.add(ctx.kernel);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: `asm-kernel 惰性注册失败: ${(e as Error).message}` };
+  }
+}
+
+/** 扩展名分发判定（.s/.S——asm-kernel 生产核） */
+const isAsmSource = (p: string): boolean => /\.s$/i.test(p);
+
 function applyOutputMode(r: AgentToolResult, mode: unknown): AgentToolResult {
   if (typeof mode !== "string" || mode === "default") return r;
   if (mode === "quiet") return { ok: r.ok, quiet: true, value: undefined, stdout: "", stderr: "" };
@@ -204,6 +240,16 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     return { ok: true, value: { path: str(args, "path") }, stdout: `已编辑 ${str(args, "path")}（1 处替换）` };
   },
   "dev.build": async (ctx, args) => {
+    // asm 分发（2026-08-12 asm-kernel 接线）：.s/.S 走汇编核（as+ld——target 可选多平台）——C 路径不变
+    if (isAsmSource(str(args, "path"))) {
+      const reg = await ensureAsmKernel(ctx);
+      if (!reg.ok) return { ok: false, error: reg.error ?? "asm 核不可用" };
+      if (!ctx.kernel.execute) return { ok: false, error: "asm 核: worker kernel 无 execute 路由" };
+      const asmCode = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+      const ar = await ctx.kernel.execute("asm", asmCode, { buildOnly: true, target: args.target } as never);
+      if (!ar.ok) return { ok: false, error: ar.error?.message ?? "汇编/链接失败" };
+      return { ok: true, value: ar.value, stdout: `汇编链接成功（${str(args, "path")}${args.target ? ` → ${args.target}` : ""}）` };
+    }
     if (!ctx.kernel.c) return { ok: false, error: "dev.build: C 编译核不可用（sandbox 未配置）" };
     const code = await readArtifact(ctx.taskWorkspace, str(args, "path"));
     const r = await ctx.kernel.c.execute(code, { buildOnly: true } as never);
@@ -211,6 +257,17 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     return { ok: true, value: r.value, stdout: `编译成功（${str(args, "path")}）` };
   },
   "dev.run": async (ctx, args) => {
+    // asm 分发（2026-08-12 asm-kernel 接线）：.s/.S 走汇编核（host 直跑 / qemu-<arch>）——C 路径不变
+    if (isAsmSource(str(args, "path"))) {
+      const reg = await ensureAsmKernel(ctx);
+      if (!reg.ok) return { ok: false, error: reg.error ?? "asm 核不可用" };
+      if (!ctx.kernel.execute) return { ok: false, error: "asm 核: worker kernel 无 execute 路由" };
+      const asmCode = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+      const ar = await ctx.kernel.execute("asm", asmCode, { target: args.target, timeoutMs: args.timeoutMs } as never);
+      if (!ar.ok) return { ok: false, error: ar.error?.message ?? "运行失败" };
+      const out = truncate(ar.stdout ?? "", 4000);
+      return applyOutputMode({ ok: true, value: ar.value, stdout: out.text, stderr: (ar.stderr ?? "").slice(0, 2000), truncated: out.truncated }, args["mode"]);
+    }
     if (!ctx.kernel.c) return { ok: false, error: "dev.run: C 编译核不可用（sandbox 未配置）" };
     const code = await readArtifact(ctx.taskWorkspace, str(args, "path"));
     const r = await ctx.kernel.c.execute(code, { timeoutMs: args.timeoutMs as number | undefined } as never);

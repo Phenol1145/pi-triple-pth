@@ -67,8 +67,10 @@ interface PthExtFactoryResult {
   events?: Record<string, (e: { payload?: Record<string, unknown>; taskId?: string; role?: string }) => void | Promise<void>>;
   /** 角色注册（谱系——registerWorkerRole 装载） */
   roles?: Array<{ id: string; tags: string[]; prompt: string; capabilities?: string[]; memoryScope?: "own" | "all" }>;
-  /** 语言核 */
+  /** 语言核（ext.kernel 接线——language 为注册名，create 返回 Interpreter 接口） */
   kernels?: Array<{ language: string; create: (opts: unknown) => unknown }>;
+  /** 语言核（直接导出——ext.kernel 回退取 create；与 kernels 契约等价） */
+  create?: (opts: unknown) => unknown;
   /** 调试适配器 */
   debugAdapters?: Array<{ language: string; create: (opts: unknown) => unknown }>;
 }

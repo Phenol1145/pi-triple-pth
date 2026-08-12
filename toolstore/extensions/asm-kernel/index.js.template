@@ -1,0 +1,265 @@
+/// <reference path="../sdk.d.ts" />
+// @ts-check
+// asm-kernel —— PTH 多平台汇编开发核（生产核 + 探索核）
+//
+// 工具（设计 §1.3）：assemble / link / build / run / disasm / simulate / status
+//   assemble ({source?|path?, target?})        → {ok, result:{objRef,...}}   .s → .o
+//   link     ({objRef?|path?, target?, static?}) → {ok, result:{binaryRef}}   .o → 可执行
+//   build    ({source?|path?, target?, static?}) → {ok, result:{binaryRef}}   as+ld 合并（sha256 增量缓存）
+//   run      ({binaryRef?|path?, target?, args?, timeoutMs?}) → {stdout, stderr, exitCode, timedOut}
+//   disasm   ({objRef?|binaryRef?|path?, target?}) → {text}
+//   simulate ({source?|path?, arch="rv32i", maxSteps?, timeoutMs?, stdin?}) → {stdout, exitCode, steps}
+//   status   ({}) → {host, perTarget:{aarch64,x86_64,riscv64:{as,ld,qemu,ok}}}
+// kernels：asm（生产核——as/ld/qemu 系统工具链）、asm-sim（探索核——RV32I 纯 JS 模拟器）
+//
+// 说明：入口单文件自包含（eval 通道无 require/相对 import）——RV32I 模拟器段由构建脚本
+//   （test/build-index.js）从 rv32i-sim.js 注入（保持同源）；本文件为构建产物。
+// 子进程：优先 ctx.exec（SDK 标准受控通道——超时/输出上限）；缺失时回退动态 import node:child_process。
+module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
+  const log = typeof ctx?.log === "function" ? ctx.log : () => {};
+  // ── 受控子进程通道 ──
+  const execCmd = typeof ctx?.exec === "function" ? ctx.exec : null;
+  const cp = execCmd ? null : await import("node:child_process");
+  const fsp = await import("node:fs/promises");
+  const nodePath = await import("node:path");
+  const os = await import("node:os");
+  const crypto = await import("node:crypto");
+
+  const HOST_ARCH = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : (process.arch || "unknown");
+  // 工作目录：PTH_WORKSPACES_PATH（batch 注入）> cwd > tmp；缓存 workDir/.build-cache/asm/{sha}/main.{s,o}
+  const workBase = process.env.PTH_WORKSPACES_PATH || process.cwd();
+  const workDir = nodePath.join(workBase, ".asm-work");
+  const cacheDir = nodePath.join(workDir, ".build-cache", "asm");
+  let cacheReady = false;
+  const ensureCache = async () => { if (!cacheReady) { await fsp.mkdir(cacheDir, { recursive: true }); cacheReady = true; } };
+
+  /** 受控子进程（ctx.exec 优先；回退 execFile）——统一 {ok, stdout, stderr, error, code} */
+  const runCmd = async (cmd, args = [], opts = {}) => {
+    const timeoutMs = opts.timeoutMs ?? 30000;
+    const maxOut = opts.maxOutputBytes ?? 4 * 1024 * 1024;
+    if (execCmd) {
+      const r = await execCmd(cmd, args, { cwd: opts.cwd, timeoutMs, maxOutputBytes: maxOut });
+      return { ok: !!r?.ok, stdout: r?.stdout ?? "", stderr: r?.stderr ?? "", error: r?.error, code: r?.code };
+    }
+    return new Promise((resolve) => {
+      cp.execFile(cmd, args, { cwd: opts.cwd, timeout: timeoutMs, maxBuffer: maxOut }, (err, stdout, stderr) => {
+        if (err) {
+          const e = /** @type {Error & {code?: number}} */ (err);
+          resolve({ ok: false, stdout: String(stdout ?? ""), stderr: String(stderr ?? ""), error: String(stderr || e.message).slice(0, 800), code: e.code });
+        } else resolve({ ok: true, stdout: String(stdout ?? ""), stderr: String(stderr ?? ""), code: 0 });
+      });
+    });
+  };
+  const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
+  const resolveFile = (p) => nodePath.resolve(String(p));
+
+  // ── 工具链命令矩阵（设计 §2.2）──
+  const TARGETS = {
+    aarch64: { as: ["aarch64-linux-gnu-as", "as"], ld: ["aarch64-linux-gnu-ld", "ld"], qemu: "qemu-aarch64", host: "aarch64" },
+    x86_64:  { as: ["x86_64-linux-gnu-as"], ld: ["x86_64-linux-gnu-ld"], qemu: "qemu-x86_64", host: "x86_64" },
+    riscv64: { as: ["riscv64-linux-gnu-as"], ld: ["riscv64-linux-gnu-ld"], qemu: "qemu-riscv64", host: "riscv64" },
+  };
+  /** 探测 PATH 中首个可用二进制（which——受控子进程） */
+  const findBin = async (candidates) => {
+    for (const c of candidates) {
+      const r = await runCmd("which", [c], { timeoutMs: 3000, maxOutputBytes: 4096 });
+      if (r.ok) return c;
+    }
+    return null;
+  };
+  const pickBin = (candidates) => findBin(candidates);
+  const tgt = (target) => {
+    const t = TARGETS[String(target ?? HOST_ARCH).toLowerCase()];
+    return t || null;
+  };
+
+  // ── RV32I 模拟器（探索核——构建时从 rv32i-sim.js 注入，同源）──
+  /*__RV32I_SIM_SECTION__*/
+  const sim = { assemble, simulate, ARCH: "rv32i", ISA: ISA_SUMMARY, DEFAULT_MAX_STEPS, DEFAULT_TIMEOUT_MS, version: "0.1.0" };
+
+  // ── 工具 ──
+  const tools = {
+    /** 汇编 .s → .o（单一阶段） */
+    assemble: async (args = {}) => {
+      const t = tgt(args.target);
+      if (!t) return { ok: false, error: `assemble: 不支持目标 '${args.target}'（aarch64/x86_64/riscv64）` };
+      let source = args.source;
+      if (typeof source !== "string" && args.path) {
+        try { source = await fsp.readFile(resolveFile(args.path), "utf8"); }
+        catch (e) { return { ok: false, error: `assemble: 读取 ${args.path} 失败: ${e instanceof Error ? e.message : e}` }; }
+      }
+      if (typeof source !== "string") return { ok: false, error: "assemble: 需要 source 或 path" };
+      await ensureCache();
+      const sha = sha256(`a:${t.host}:${source}`);
+      const dir = nodePath.join(cacheDir, sha);
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(nodePath.join(dir, "main.s"), source, "utf8");
+      const as = await pickBin(t.as);
+      if (!as) return { ok: false, error: `assemble: ${t.host} 汇编器未安装（run status 查看；Dockerfile 增补见 README）` };
+      const r = await runCmd(as, [nodePath.join(dir, "main.s"), "-o", nodePath.join(dir, "main.o")], { timeoutMs: 60000 });
+      if (!r.ok) return { ok: false, error: `assemble: ${t.host} as 失败\n${(r.stderr || r.error || "").slice(0, 4000)}` };
+      return { ok: true, result: { objRef: sha, target: t.host, objPath: nodePath.join(dir, "main.o") } };
+    },
+
+    /** 链接 .o → 可执行（交叉默认 -static——纯 syscall 无 libc 依赖） */
+    link: async (args = {}) => {
+      const t = tgt(args.target);
+      if (!t) return { ok: false, error: `link: 不支持目标 '${args.target}'` };
+      let objPath = args.objRef ? nodePath.join(cacheDir, String(args.objRef), "main.o") : (args.path ? resolveFile(args.path) : null);
+      if (!objPath) return { ok: false, error: "link: 需要 objRef 或 path" };
+      const st = await fsp.stat(objPath).catch(() => null);
+      if (!st) return { ok: false, error: `link: 找不到对象文件 ${objPath}（先 assemble）` };
+      await ensureCache();
+      const ld = await pickBin(t.ld);
+      if (!ld) return { ok: false, error: `link: ${t.host} 链接器未安装（run status 查看）` };
+      const binDir = nodePath.join(cacheDir, args.objRef ? String(args.objRef) : sha256(await fsp.readFile(objPath).then((b) => b.toString("latin1"))));
+      await fsp.mkdir(binDir, { recursive: true });
+      const binPath = nodePath.join(binDir, "main");
+      const flags = args.static === false || t.host === HOST_ARCH ? [] : ["-static"];
+      const r = await runCmd(ld, [...flags, objPath, "-o", binPath], { timeoutMs: 60000 });
+      if (!r.ok) return { ok: false, error: `link: ${t.host} ld 失败\n${(r.stderr || r.error || "").slice(0, 4000)}` };
+      return { ok: true, result: { binaryRef: nodePath.basename(binDir), binaryPath: binPath, target: t.host } };
+    },
+
+    /** as+ld 合并（对标 dev.build 语义；sha256 增量缓存） */
+    build: async (args = {}) => {
+      const t = tgt(args.target);
+      if (!t) return { ok: false, error: `build: 不支持目标 '${args.target}'` };
+      let source = args.source;
+      if (typeof source !== "string" && args.path) {
+        try { source = await fsp.readFile(resolveFile(args.path), "utf8"); }
+        catch (e) { return { ok: false, error: `build: 读取 ${args.path} 失败: ${e instanceof Error ? e.message : e}` }; }
+      }
+      if (typeof source !== "string") return { ok: false, error: "build: 需要 source 或 path" };
+      await ensureCache();
+      const sha = sha256(`b:${t.host}:${source}`);
+      const dir = nodePath.join(cacheDir, sha);
+      const binPath = nodePath.join(dir, "main");
+      if (await fsp.stat(binPath).catch(() => null)) return { ok: true, result: { binaryRef: sha, binaryPath: binPath, target: t.host, cacheHit: true } };
+      await fsp.mkdir(dir, { recursive: true });
+      const sPath = nodePath.join(dir, "main.s"), oPath = nodePath.join(dir, "main.o");
+      await fsp.writeFile(sPath, source, "utf8");
+      const as = await pickBin(t.as);
+      if (!as) return { ok: false, error: `build: ${t.host} 汇编器未安装（run status 查看）` };
+      let r = await runCmd(as, [sPath, "-o", oPath], { timeoutMs: 60000 });
+      if (!r.ok) return { ok: false, error: `build: ${t.host} as 失败\n${(r.stderr || r.error || "").slice(0, 4000)}` };
+      const ld = await pickBin(t.ld);
+      if (!ld) return { ok: false, error: `build: ${t.host} 链接器未安装（run status 查看）` };
+      const flags = args.static === false || t.host === HOST_ARCH ? [] : ["-static"];
+      r = await runCmd(ld, [...flags, oPath, "-o", binPath], { timeoutMs: 60000 });
+      if (!r.ok) return { ok: false, error: `build: ${t.host} ld 失败\n${(r.stderr || r.error || "").slice(0, 4000)}` };
+      return { ok: true, result: { binaryRef: sha, binaryPath: binPath, target: t.host, cacheHit: false } };
+    },
+
+    /** 执行：target==host 直接跑；否则 qemu-<arch> 包装（受控子进程；默认 10s/上限 30s/输出 4MB） */
+    run: async (args = {}) => {
+      const t = tgt(args.target);
+      if (!t) return { ok: false, error: `run: 不支持目标 '${args.target}'` };
+      const bin = args.binaryRef ? nodePath.join(cacheDir, String(args.binaryRef), "main") : (args.path ? resolveFile(args.path) : null);
+      if (!bin) return { ok: false, error: "run: 需要 binaryRef 或 path（先 build/link）" };
+      const st = await fsp.stat(bin).catch(() => null);
+      if (!st) return { ok: false, error: `run: 找不到可执行文件 ${bin}（先 build/link）` };
+      const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || 10000, 100), 30000);
+      const direct = t.host === HOST_ARCH;
+      if (!direct) {
+        const q = await findBin([t.qemu]);
+        if (!q) return { ok: false, error: `run: ${t.host} 需 qemu 包装（${t.qemu} 未安装——status 查看；Dockerfile 增补见 README）` };
+      }
+      const cmd = direct ? bin : t.qemu;
+      const cmdArgs = direct ? (args.args ?? []) : [bin, ...(args.args ?? [])];
+      const r = await runCmd(cmd, cmdArgs, { timeoutMs, maxOutputBytes: 4 * 1024 * 1024 });
+      const timedOut = !r.ok && /timed ?out|ETIMEDOUT|timeout|SIGTERM/i.test(r.error ?? "");
+      return { ok: true, result: { stdout: r.stdout, stderr: r.stderr, exitCode: r.code ?? (r.ok ? 0 : 1), timedOut } };
+    },
+
+    /** 反汇编（objdump -d——验证/调试辅助） */
+    disasm: async (args = {}) => {
+      let file = null;
+      if (args.objRef) file = nodePath.join(cacheDir, String(args.objRef), "main.o");
+      else if (args.binaryRef) file = nodePath.join(cacheDir, String(args.binaryRef), "main");
+      else if (args.path) file = resolveFile(args.path);
+      if (!file) return { ok: false, error: "disasm: 需要 objRef / binaryRef / path" };
+      if (!(await fsp.stat(file).catch(() => null))) return { ok: false, error: `disasm: 找不到 ${file}` };
+      const r = await runCmd("objdump", ["-d", file], { timeoutMs: 60000 });
+      if (!r.ok) return { ok: false, error: `disasm: objdump 失败\n${(r.stderr || r.error || "").slice(0, 1000)}` };
+      return { ok: true, result: { text: r.stdout, target: args.target ?? null } };
+    },
+
+    /** 探索核：RV32I 纯 JS 解释执行（不碰系统工具链） */
+    simulate: async (args = {}) => {
+      const arch = String(args.arch ?? "rv32i").toLowerCase();
+      if (arch !== "rv32i") return { ok: false, error: `simulate: 探索核 v1 仅支持 arch=rv32i（收到 '${arch}'）` };
+      let source = args.source;
+      if (typeof source !== "string" && args.path) {
+        try { source = await fsp.readFile(resolveFile(args.path), "utf8"); }
+        catch (e) { return { ok: false, error: `simulate: 读取 ${args.path} 失败: ${e instanceof Error ? e.message : e}` }; }
+      }
+      if (typeof source !== "string") return { ok: false, error: "simulate: 需要 source 或 path" };
+      const maxSteps = Math.min(Math.max(Number(args.maxSteps) || sim.DEFAULT_MAX_STEPS, 1), 10000000);
+      const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || sim.DEFAULT_TIMEOUT_MS, 1), 10000);
+      const r = sim.simulate(source, { maxSteps, timeoutMs });
+      if (!r.ok) return { ok: false, error: r.error ?? "模拟失败" };
+      return { ok: true, result: { stdout: r.stdout, stderr: r.stderr, exitCode: r.exitCode, steps: r.steps } };
+    },
+
+    /** 工具链可用性诊断 */
+    status: async () => {
+      const perTarget = {};
+      for (const [arch, t] of Object.entries(TARGETS)) {
+        const as = await findBin(t.as);
+        const ld = await findBin(t.ld);
+        const qemu = await findBin([t.qemu]);
+        perTarget[arch] = { as: !!as, asBin: as, ld: !!ld, ldBin: ld, qemu: !!qemu, qemuBin: qemu, ok: !!(as && ld) };
+      }
+      return { ok: true, result: { host: HOST_ARCH, workDir, cacheDir, perTarget } };
+    },
+  };
+
+  // ── kernels（Interpreter 接口：{language, execute, reset, dispose, snapshot}）──
+  const createAsmKernel = (opts = {}) => {
+    let disposed = false;
+    return {
+      language: "asm",
+      /** @type {(program: string, executeOpts?: any) => Promise<any>} */
+      async execute(program, executeOpts = {}) {
+        const t0 = Date.now();
+        if (disposed) return { ok: false, error: { message: "asm kernel: 已 dispose" }, durationMs: Date.now() - t0 };
+        const target = String(executeOpts.target ?? HOST_ARCH).toLowerCase();
+        const b = await tools.build({ source: program, target });
+        if (!b.ok) return { ok: false, error: { message: b.error ?? "构建失败" }, durationMs: Date.now() - t0 };
+        if (executeOpts.buildOnly) return { ok: true, value: b.result, durationMs: Date.now() - t0 };
+        const rr = await tools.run({ binaryRef: b.result.binaryRef, target, timeoutMs: executeOpts.timeoutMs, args: executeOpts.args });
+        if (!rr.ok) return { ok: false, error: { message: rr.error ?? "运行失败" }, durationMs: Date.now() - t0 };
+        return { ok: true, value: rr.result, stdout: rr.result.stdout, stderr: rr.result.stderr, durationMs: Date.now() - t0 };
+      },
+      async reset() { cacheReady = false; await fsp.rm(cacheDir, { recursive: true, force: true }).catch(() => {}); return { ok: true, result: { cleared: true } }; },
+      async dispose() { disposed = true; return { ok: true }; },
+      async snapshot() { const n = await fsp.readdir(cacheDir).catch(() => []); return { ok: true, result: { cacheEntries: n.length, workDir } }; },
+    };
+  };
+
+  const createAsmSimKernel = (opts = {}) => ({
+    language: "asm-sim",
+    /** @type {(program: string, executeOpts?: any) => Promise<any>} */
+    async execute(program, executeOpts = {}) {
+      const t0 = Date.now();
+      const maxSteps = Number(executeOpts.maxSteps) || sim.DEFAULT_MAX_STEPS;
+      const timeoutMs = Number(executeOpts.timeoutMs) || sim.DEFAULT_TIMEOUT_MS;
+      const r = sim.simulate(program, { maxSteps, timeoutMs });
+      if (!r.ok) return { ok: false, error: { message: r.error ?? "模拟失败" }, durationMs: Date.now() - t0 };
+      return { ok: true, value: { steps: r.steps, exitCode: r.exitCode }, stdout: r.stdout, stderr: r.stderr, durationMs: Date.now() - t0 };
+    },
+    async reset() { return { ok: true }; },
+    async dispose() { return { ok: true }; },
+    async snapshot() { return { ok: true, result: { arch: "rv32i", maxSteps: sim.DEFAULT_MAX_STEPS, timeoutMs: sim.DEFAULT_TIMEOUT_MS } }; },
+  });
+
+  return {
+    tools,
+    kernels: [
+      { language: "asm", create: createAsmKernel },
+      { language: "asm-sim", create: createAsmSimKernel },
+    ],
+    create: createAsmKernel,
+  };
+};

@@ -189,6 +189,10 @@ export function createWorkerKernelWithManager(deps: {
   python: Interpreter;
   bash: Interpreter;
   c: Interpreter;
+  /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels 经此执行（dev.build/run .s 分发） */
+  execute(language: string, program: string, opts?: import("./types.js").ExecuteOptions): Promise<InterpreterResult>;
+  /** 新执行核注册（ext.kernel 接线——转发 manager.registerKernel） */
+  registerKernel(language: string, interpreter: unknown): void;
   /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */
   toolstore?: import("./toolstore.js").Toolstore;
   llm: LlmFn;
@@ -272,6 +276,11 @@ export function createWorkerKernelWithManager(deps: {
     python: deps.manager.python,
     bash: deps.manager.bash,
     c: deps.manager.c,
+    /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels（ext.kernel 注册）经此执行——
+     *  dev.build/dev.run 的 .s 分发调 ctx.kernel.execute("asm", ...) */
+    execute: (language: string, program: string, executeOpts?: import("./types.js").ExecuteOptions) =>
+      deps.manager.execute(language, program, executeOpts),
+    registerKernel: (language: string, interpreter: unknown) => registerHook?.(language, interpreter),
     /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */
     toolstore: deps.toolstore,
     llm: deps.llm,

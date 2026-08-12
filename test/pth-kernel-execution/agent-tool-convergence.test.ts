@@ -181,3 +181,49 @@ describe("能力函数动作降级（LLM 误写 memory.query 为动作）", () =
     manager4.dispose();
   });
 });
+
+describe("asm-kernel 接线（2026-08-12：dev.build/dev.run .s 分发）", () => {
+  it("dev.build .s 文件 → asm 惰性注册 + execute(\"asm\") 路由（C 路径不触碰）", async () => {
+    const { AGENT_TOOLS: agentTools } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const calls: string[] = [];
+    const kernel = {
+      c: { execute: async () => { calls.push("c"); return { ok: true, value: {} }; } },
+      registerKernel: (l: string) => { calls.push(`register:${l}`); },
+      execute: async (l: string) => { calls.push(`execute:${l}`); return { ok: true, value: { binaryRef: "abc" }, stdout: "ok" }; },
+    };
+    const ctx = {
+      kernel,
+      toolstore: { readText: async (p: string) => {
+        calls.push(`read:${p}`);
+        return `module.exports = async function factory(ctx) { return { kernels: [{ language: "asm", create: () => ({ execute: async () => ({ ok: true, value: {} }) }) }] }; };`;
+      } },
+      taskWorkspace: "/tmp/ws",
+      taskWorkspaceResolve: () => "/tmp/ws",
+    } as never;
+    // 写入工作区 hello.s
+    await (await import("node:fs/promises")).mkdir("/tmp/ws", { recursive: true });
+    await (await import("node:fs/promises")).writeFile("/tmp/ws/hello.s", "mov x0, #1\n");
+    const r = await (agentTools as Record<string, (c: typeof ctx, a: Record<string, unknown>) => Promise<{ ok: boolean; error?: string; stdout?: string }>>)["dev.build"](ctx, { path: "hello.s" });
+    expect(r.ok).toBe(true);
+    expect(calls).toContain("read:extensions/asm-kernel/index.js");
+    expect(calls).toContain("register:asm");
+    expect(calls).toContain("execute:asm");
+    expect(calls).not.toContain("c");   // C 核路径未触碰
+    await (await import("node:fs/promises")).rm("/tmp/ws", { recursive: true, force: true });
+  });
+
+  it("dev.build 非 .s（.c）→ 原 C 路径（分发不误伤）", async () => {
+    const { AGENT_TOOLS: agentTools } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const calls: string[] = [];
+    const ctx = {
+      kernel: { c: { execute: async () => { calls.push("c"); return { ok: true, value: {} }; } } },
+      toolstore: null,
+      taskWorkspace: "/tmp/ws",
+    } as never;
+    await (await import("node:fs/promises")).mkdir("/tmp/ws", { recursive: true });
+    await (await import("node:fs/promises")).writeFile("/tmp/ws/main.c", "int main(){return 0;}\n");
+    const r = await (agentTools as Record<string, (c: typeof ctx, a: Record<string, unknown>) => Promise<{ ok: boolean }>>)["dev.build"](ctx, { path: "main.c" });
+    expect(calls).toEqual(["c"]);
+    await (await import("node:fs/promises")).rm("/tmp/ws", { recursive: true, force: true });
+  });
+});

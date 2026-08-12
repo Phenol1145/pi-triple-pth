@@ -1,0 +1,85 @@
+--- a/src/pth/kernel/execution/agent-tools.ts
++++ b/src/pth/kernel/execution/agent-tools.ts
+@@ 适用说明
++目标：src/pth/kernel/execution/agent-tools.ts（设计 §4 选项 b——dev.build/dev.run 按扩展名分发
++      + asm 惰性注册；本补丁为参考实现——上下文行以 dist 构建产物为基准，应用时以 src 实况微调）
++asm-kernel 扩展文件落 toolstore/extensions/asm-kernel/ 后，本补丁即接通 dev.build/dev.run 的
++.s/.S 分发（不改 C 核路径——非 .s 扩展完全走原逻辑）。
++
++--- 改动 1：模块级加惰性注册助手（AGENT_TOOLS 定义之前） ---
+@@
+ function applyOutputMode(r, mode) {
+@@
+ }
++
++/**
++ * asm-kernel 惰性注册（设计 §4 选项 b——toolstore 扩展；首次 dev.build/dev.run 遇 .s/.S 时装载）。
++ * 读取 toolstore/extensions/asm-kernel/index.js → new Function eval（与 ext-capability 同款
++ * 装载通道）→ factory(ctx) → 取 kernels 中 language==="asm" 的 create → registerKernel("asm", k)。
++ * WeakSet 防重复注册（registerKernel 不暴露 kernel.asm 属性——以 ctx.kernel 对象为键跟踪）。
++ */
++const asmKernels = new WeakSet<object>();
++async function ensureAsmKernel(ctx: { kernel: object; toolstore: { readText: (p: string) => Promise<string> } }): Promise<{ ok: boolean; error?: string }> {
++    if (asmKernels.has(ctx.kernel)) return { ok: true };
++    try {
++        const code = await ctx.toolstore.readText("extensions/asm-kernel/index.js");
++        const wrapped = `"use strict";\nconst module = { exports: {} };\nconst exports = module.exports;\n${code}\nreturn module.exports.default ?? module.exports;`;
++        // eslint-disable-next-line @typescript-eslint/no-implied-eval
++        const fn = new Function(wrapped)();
++        const mod = typeof fn === "function" ? fn : fn.default;
++        const ext = await mod({ log: () => {} });
++        const kern = (ext.kernels ?? []).find((k: { language: string }) => k.language === "asm");
++        const kernel = kern ? kern.create({}) : ext.create?.({});
++        if (!kernel?.execute) return { ok: false, error: "asm-kernel: 未找到 asm 核 execute 实现" };
++        (ctx.kernel as { registerKernel: (l: string, k: unknown) => void }).registerKernel("asm", kernel);
++        asmKernels.add(ctx.kernel);
++        return { ok: true };
++    } catch (e) {
++        return { ok: false, error: `asm-kernel 惰性注册失败: ${e instanceof Error ? e.message : String(e)}` };
++    }
++}
++
++/** 扩展名分发判定（.s / .S——asm-kernel 生产核） */
++const isAsmSource = (p: string) => /\.s$/i.test(p);
+@@
+--- 改动 2：dev.build 增加 .s/.S 分发（保留原 C 路径） ---
+@@
+     "dev.build": async (ctx, args) => {
++        if (isAsmSource(str(args, "path"))) {
++            const reg = await ensureAsmKernel(ctx);
++            if (!reg.ok) return { ok: false, error: reg.error ?? "asm 核不可用" };
++            const asmCode = await readArtifact(ctx.taskWorkspace, str(args, "path"));
++            const ar = await ctx.kernel.execute("asm", asmCode, { buildOnly: true, target: args.target });
++            if (!ar.ok) return { ok: false, error: ar.error?.message ?? "汇编/链接失败" };
++            return { ok: true, value: ar.value, stdout: `汇编链接成功（${str(args, "path")}${args.target ? ` → ${args.target}` : ""}）` };
++        }
+         if (!ctx.kernel.c)
+             return { ok: false, error: "dev.build: C 编译核不可用（sandbox 未配置）" };
+         const code = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+         const r = await ctx.kernel.c.execute(code, { buildOnly: true });
+         if (!r.ok)
+             return { ok: false, error: r.error?.message ?? "编译失败" };
+         return { ok: true, value: r.value, stdout: `编译成功（${str(args, "path")}）` };
+     },
+     "dev.run": async (ctx, args) => {
++        if (isAsmSource(str(args, "path"))) {
++            const reg = await ensureAsmKernel(ctx);
++            if (!reg.ok) return { ok: false, error: reg.error ?? "asm 核不可用" };
++            const asmCode = await readArtifact(ctx.taskWorkspace, str(args, "path"));
++            const ar = await ctx.kernel.execute("asm", asmCode, { target: args.target, timeoutMs: args.timeoutMs });
++            if (!ar.ok) return { ok: false, error: ar.error?.message ?? "运行失败" };
++            const out = truncate(ar.stdout ?? "", 4000);
++            return applyOutputMode({ ok: true, value: ar.value, stdout: out.text, stderr: out.truncated ? "（输出截断）" : undefined });
++        }
+         if (!ctx.kernel.c)
+             return { ok: false, error: "dev.run: C 编译核不可用（sandbox 未配置）" };
+         const code = await readArtifact(ctx.taskWorkspace, str(args, "path"));
+         const r = await ctx.kernel.c.execute(code, { timeoutMs: args.timeoutMs });
+         if (!r.ok)
+             return { ok: false, error: r.error?.message ?? "运行失败" };
+         const out = truncate(r.stdout ?? "", 4000);
+         return applyOutputMode({ ok: true, value: r.value, stdout: out.text, stderr: out.truncated ? "（输出截断）" : undefined });
+     },
++
++--- 改动 3（可选——不阻塞）：dev 空间工具面 schema 标注 .s 为合法扩展名 ---
++如 toolsToSchema()/AGENT_TOOLS_DESCRIPTION 对 dev.build path 有扩展名校验，将 ".s"/".S" 加入白名单。

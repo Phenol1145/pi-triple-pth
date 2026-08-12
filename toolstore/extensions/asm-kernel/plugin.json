@@ -1,0 +1,14 @@
+{
+  "id": "asm-kernel",
+  "name": "asm-kernel",
+  "version": "0.1.0",
+  "description": "多平台汇编开发核：生产核（as/ld+qemu 系统工具链——aarch64 原生 + x86_64/riscv64 交叉）+ 探索核（RV32I 纯 JS 模拟器）",
+  "contracts": {
+    "tools": ["assemble", "link", "build", "run", "disasm", "simulate", "status"],
+    "kernels": [
+      { "language": "asm", "impl": "index.js#createAsmKernel", "mode": "compiled" },
+      { "language": "asm-sim", "impl": "index.js#createAsmSimKernel", "mode": "repl" }
+    ]
+  },
+  "compat": { "pluginApi": "0.7.0" }
+}

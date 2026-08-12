@@ -6,7 +6,7 @@ import { BashInterpreter } from "./bash-interpreter.js";
 import { PythonInterpreter } from "./python-interpreter.js";
 import { createLlmFn, type LlmFn } from "./llm-fn.js";
 import { buildCapabilities } from "./capability.js";
-import type { Interpreter } from "./types.js";
+import type { Interpreter, InterpreterResult } from "./types.js";
 
 export interface WorkerKernel {
   ts: Interpreter;
@@ -14,6 +14,9 @@ export interface WorkerKernel {
   python: Interpreter;
   /** C 编译核（可选——createWorkerKernelWithManager + sandboxKernel 配置时存在；生产核 dev.build/dev.run 用） */
   c?: Interpreter;
+  /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels（ext.kernel 注册）经此执行——
+   *  可选（普通版 createWorkerKernel 无 extra kernels——不提供） */
+  execute?(language: string, program: string, opts?: import("./types.js").ExecuteOptions): Promise<InterpreterResult>;
   llm: LlmFn;
   dataWorld: DataWorldAccess;
   /** 聚合快照（T4 refine 输入）：ts + python + bash 三 kernel 状态 */
