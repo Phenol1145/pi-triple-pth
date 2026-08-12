@@ -123,6 +123,28 @@ export const obsExtension: TsReplExtension = {
       callpoint: async (opts: Record<string, unknown> = {}) => {
         const role = str(opts["role"]);
         const since = str(opts["since"]);
+        // 聚合快照优先（2026-08-12 审批面 B 实施：sensor 不逐条 parse——存在即用）
+        try {
+          const aggRows = (await ctx.dataWorld.queryReadOnly(
+            `SELECT id, content FROM memory_entries WHERE kind = 'task-scorecard-aggregate'${role ? ` AND meta->>'role' = '${role}'` : ""}`,
+          )) as Array<{ id: string; content: unknown }>;
+          if (aggRows.length > 0) {
+            const rows = aggRows.map((r: { id: string; content: unknown }) => {
+              const a = JSON.parse(String(r.content));
+              const cacheHit = a.sumCacheRead + Math.max(0, a.sumTokIn - a.sumCacheRead - a.sumCacheWrite);
+              return {
+                role: a.role, tasks: a.taskCount,
+                avg_steps: a.taskCount ? Math.round((a.sumSteps / a.taskCount) * 10) / 10 : 0,
+                avg_tokens_in: a.taskCount ? Math.round(a.sumTokIn / a.taskCount) : 0,
+                avg_cache_read: a.taskCount ? Math.round(a.sumCacheRead / a.taskCount) : 0,
+                cache_hit_pct: cacheHit > 0 ? Math.round((100 * a.sumCacheRead) / cacheHit) : 0,
+                avg_fails: a.taskCount ? Math.round((a.sumFails / a.taskCount) * 100) / 100 : 0,
+                gated_total: a.sumGated,
+              };
+            });
+            return { rows, source: "aggregate" };
+          }
+        } catch { /* 聚合读失败降级明细 */ }
         try {
           const conds: string[] = [];
           if (role && /^[a-z0-9-]+$/.test(role)) conds.push(`meta->>'role' = '${role}'`);
@@ -141,7 +163,7 @@ export const obsExtension: TsReplExtension = {
              FROM memory_entries WHERE kind = 'task-scorecard'${where}
              GROUP BY meta->>'role' ORDER BY tasks DESC LIMIT 20`,
           );
-          return { rows };
+          return { rows, source: "detail" };
         } catch (e) {
           return { error: (e as Error).message };
         }

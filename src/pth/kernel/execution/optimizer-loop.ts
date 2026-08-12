@@ -41,8 +41,13 @@ export interface OptimizerSuggestion {
 
 export interface OptimizerDeps {
   /** 落库通道（memory.write——knowledge 层自由写；缺省 = 纯内存（测试））。
-   * 用 MemoryEntry 形（PgMemoryStore.write 签名）——避免泛 Record 不兼容 */
-  memory?: { write(e: { id?: string; kind: string; anchors?: unknown; content: unknown; status?: string; meta?: Record<string, unknown> }): Promise<unknown> };
+   * 用 MemoryEntry 形（PgMemoryStore.write 签名）——避免泛 Record 不兼容。
+   * incrementAggregate：scorecard 聚合快照原子 upsert（2026-08-12 审批面 B——
+   * 单条 SQL 增量——避免读-改-写竞态）；缺省 = 跳过聚合（明细仍落库——降级逐条读） */
+  memory?: {
+    write(e: { id?: string; kind: string; anchors?: unknown; content: unknown; status?: string; meta?: Record<string, unknown> }): Promise<unknown>;
+    incrementAggregate?(id: string, kind: string, anchors: unknown[], deltas: Record<string, number>, meta: Record<string, unknown>): Promise<void>;
+  };
   /** 窗口任务数（缺省 10）——满窗触发检测 */
   windowSize?: number;
   /** 建议事件钩子（测试断言 / console 观察） */
@@ -200,7 +205,7 @@ export class Optimizer {
     this.deadbandWindows = Math.max(0, deps.deadbandWindows ?? 2);
   }
 
-  /** 任务完成点收集（scorecard）——窗口满触发检测 */
+  /** 任务完成点收集（scorecard + 聚合快照）——窗口满触发检测 */
   collect(sc: WorkerScorecard, ctx: { role: string; taskId: string }): void {
     this.buffer.push(sc);
     if (this.buffer.length > MAX_BUFFER) this.buffer.shift();
@@ -212,6 +217,27 @@ export class Optimizer {
       status: "official",
       meta: { taskId: ctx.taskId, role: ctx.role, ts: Date.now() },
     }).catch(() => { /* 落库失败不阻塞任务循环 */ });
+    // 增量聚合快照（2026-08-12 JIT 审批面 B——diff-scorecard-aggregate-msq36a60 实施）：
+    // kind=task-scorecard-aggregate 按角色累积——sensor 直接读聚合视图不逐条 parse。
+    // 原子 upsert（单条 SQL jsonb 增量——并发同角色任务无 lost update）
+    if (this.deps.memory?.incrementAggregate) {
+      void this.deps.memory.incrementAggregate(
+        `task-scorecard-aggregate:${ctx.role}`,
+        "task-scorecard-aggregate",
+        [ctx.role, "scorecard-aggregate"],
+        {
+          taskCount: 1,
+          sumSteps: sc.steps ?? 0,
+          sumTokIn: sc.tokens?.input ?? 0,
+          sumTokOut: sc.tokens?.output ?? 0,
+          sumCacheRead: sc.tokens?.cacheRead ?? 0,
+          sumCacheWrite: sc.tokens?.cacheWrite ?? 0,
+          sumFails: sc.failedActions ?? 0,
+          sumGated: sc.gatedActions ?? 0,
+        },
+        { role: ctx.role, ts: Date.now() },
+      ).catch(() => { /* 聚合失败不阻塞（明细仍在——降级逐条读） */ });
+    }
     if (this.buffer.length >= this.windowSize) {
       const window = this.buffer.splice(0, this.windowSize);
       this.detect(window);

@@ -148,6 +148,29 @@ export class PgMemoryStore {
     );
   }
 
+  /** 原子增量聚合（2026-08-12 审批面 B：scorecard 聚合快照——单条 SQL upsert——
+   *  jsonb 数值增量避免读-改-写竞态（同角色并发任务 lost update）。 */
+  async incrementAggregate(
+    id: string,
+    kind: string,
+    anchors: unknown[],
+    deltas: Record<string, number>,
+    meta: Record<string, unknown>,
+  ): Promise<void> {
+    const keys = Object.keys(deltas);
+    if (keys.length === 0) return;
+    // 增量表达式：每个键 = content 现值 + 增量（缺省 0）
+    const parts = keys.map((k, i) => `'${k}', COALESCE((content::jsonb->>'${k}')::numeric, 0) + $${i + 1}`);
+    await this.pool.query(
+      `INSERT INTO memory_entries (id, tenant_id, kind, status, content, anchors, meta, created_at, updated_at)
+       VALUES ($1, 'default', $2, 'official', jsonb_build_object(${parts.join(", ")})::text, $3::jsonb, $4::jsonb, now(), now())
+       ON CONFLICT (id) DO UPDATE SET
+         content = (content::jsonb || jsonb_build_object(${parts.join(", ")}))::text,
+         updated_at = now()`,
+      [id, kind, JSON.stringify(anchors ?? []), JSON.stringify(meta ?? {}), ...keys.map((k) => deltas[k])],
+    );
+  }
+
   async listIds(): Promise<string[]> {
     const res = await this.pool.query(`SELECT id FROM memory_entries`);
     return (res.rows as Array<{ id: string }>).map((r) => r.id);

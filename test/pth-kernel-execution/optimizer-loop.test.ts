@@ -167,3 +167,33 @@ describe("Optimizer 环——振荡防护（待决点 4：死区 + 应用上限�
     expect(seen).toEqual(["nav-heavy", "nav-heavy"]);
   });
 });
+
+describe("scorecard 聚合快照（2026-08-12 审批面 B 实施）", () => {
+  it("collect 同步 upsert 聚合（读-改-写——两任务累积）", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const entries: Array<Record<string, unknown>> = [];
+    const aggs = new Map<string, Record<string, number>>();
+    const memory = {
+      write: async (e: Record<string, unknown>) => { entries.push(e); },
+      incrementAggregate: async (id: string, _kind: string, _anchors: unknown[], deltas: Record<string, number>) => {
+        const cur = aggs.get(id) ?? {};
+        const next: Record<string, number> = {};
+        for (const [k, v] of Object.entries(deltas)) next[k] = (cur[k] ?? 0) + v;
+        aggs.set(id, next);
+      },
+    };
+    const opt = new Optimizer({ memory: memory as never });
+    opt.collect({ steps: 10, toolFreq: {}, tokens: { input: 1000, output: 100, cacheRead: 600, cacheWrite: 200 }, failedActions: 1, gatedActions: 0, aspNav: { cds: 1, indexes: 0 }, finish: { ok: true } } as never, { role: "tester", taskId: "t1" });
+    opt.collect({ steps: 20, toolFreq: {}, tokens: { input: 2000, output: 200, cacheRead: 1400, cacheWrite: 0 }, failedActions: 2, gatedActions: 1, aspNav: { cds: 2, indexes: 0 }, finish: { ok: true } } as never, { role: "tester", taskId: "t2" });
+    // 聚合是 fire-and-forget（void async）——等微任务队列排空
+    await new Promise((r) => setTimeout(r, 10));
+    const c = aggs.get("task-scorecard-aggregate:tester") ?? {};
+    expect(c.taskCount).toBe(2);
+    expect(c.sumSteps).toBe(30);
+    expect(c.sumTokIn).toBe(3000);
+    expect(c.sumCacheRead).toBe(2000);
+    expect(c.sumFails).toBe(3);
+    // scorecard 明细也在（2 条）
+    expect(entries.filter((e) => e.kind === "task-scorecard").length).toBe(2);
+  });
+});
