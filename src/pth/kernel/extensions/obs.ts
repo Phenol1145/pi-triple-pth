@@ -125,20 +125,27 @@ export const obsExtension: TsReplExtension = {
         const since = str(opts["since"]);
         // 聚合快照优先（2026-08-12 审批面 B 实施：sensor 不逐条 parse——存在即用）
         try {
+          // 2026-08-12 审计 HIGH-2 修复：聚合路径 role 同样校验（与明细路径一致——防注入）
+          const roleCond = role && /^[a-z0-9-]+$/.test(role) ? ` AND meta->>'role' = '${role}'` : "";
           const aggRows = (await ctx.dataWorld.queryReadOnly(
-            `SELECT id, content FROM memory_entries WHERE kind = 'task-scorecard-aggregate'${role ? ` AND meta->>'role' = '${role}'` : ""}`,
-          )) as Array<{ id: string; content: unknown }>;
+            `SELECT id, content, meta->>'role' AS role FROM memory_entries WHERE kind = 'task-scorecard-aggregate'${roleCond}`,
+          )) as Array<{ id: string; content: unknown; role: string | null }>;
           if (aggRows.length > 0) {
-            const rows = aggRows.map((r: { id: string; content: unknown }) => {
-              const a = JSON.parse(String(r.content));
-              const cacheHit = a.sumCacheRead + Math.max(0, a.sumTokIn - a.sumCacheRead - a.sumCacheWrite);
+            const rows = aggRows.map((r: { id: string; content: unknown; role: string | null }) => {
+              const a = JSON.parse(String(r.content)) as Record<string, number | undefined>;
+              // 旧聚合行（pre-95a2d74）无缓存键——NaN 保护（2026-08-12 审计 LOW-12）
+              const sumCacheRead = a.sumCacheRead ?? 0;
+              const sumCacheWrite = a.sumCacheWrite ?? 0;
+              const sumTokIn = a.sumTokIn ?? 0;
+              const cacheHit = sumCacheRead + Math.max(0, sumTokIn - sumCacheRead - sumCacheWrite);
               return {
-                role: a.role, tasks: a.taskCount,
-                avg_steps: a.taskCount ? Math.round((a.sumSteps / a.taskCount) * 10) / 10 : 0,
-                avg_tokens_in: a.taskCount ? Math.round(a.sumTokIn / a.taskCount) : 0,
-                avg_cache_read: a.taskCount ? Math.round(a.sumCacheRead / a.taskCount) : 0,
-                cache_hit_pct: cacheHit > 0 ? Math.round((100 * a.sumCacheRead) / cacheHit) : 0,
-                avg_fails: a.taskCount ? Math.round((a.sumFails / a.taskCount) * 100) / 100 : 0,
+                role: r.role,   // 2026-08-12 审计 MEDIUM-5 修复：归因取 meta->>'role'（content jsonb 无 role 键）
+                tasks: a.taskCount,
+                avg_steps: a.taskCount ? Math.round((((a.sumSteps ?? 0) / a.taskCount) * 10)) / 10 : 0,
+                avg_tokens_in: a.taskCount ? Math.round(sumTokIn / a.taskCount) : 0,
+                avg_cache_read: a.taskCount ? Math.round(sumCacheRead / a.taskCount) : 0,
+                cache_hit_pct: cacheHit > 0 ? Math.round((100 * sumCacheRead) / cacheHit) : 0,
+                avg_fails: a.taskCount ? Math.round((((a.sumFails ?? 0) / a.taskCount) * 100)) / 100 : 0,
                 gated_total: a.sumGated,
               };
             });

@@ -101,3 +101,18 @@ suite("memory store pg", () => {
     ).rejects.toThrow(); // schema CHECK jsonb_array_length(anchors) > 0
   });
 });
+
+// 键名校验在 SQL 之前（不需要 docker/连接）——suite 外独立 describe
+describe("incrementAggregate 键名校验（2026-08-12 审计 CRITICAL-1 修复）", () => {
+  it("非法键抛错（SQL 注入防护——引号/分号/括号拒收）", async () => {
+    const store = new PgMemoryStore({ query: async () => { throw new Error("不应触达 pool"); } } as never);
+    await expect(store.incrementAggregate("a", "k", [], { "x' OR 1=1--": 1 }, {})).rejects.toThrow(/非法增量键/);
+    await expect(store.incrementAggregate("a", "k", [], { "k; DROP TABLE x": 1 }, {})).rejects.toThrow(/非法增量键/);
+  });
+  it("合法键通过校验（抵达 pool 层——query 被调用）", async () => {
+    let called = false;
+    const store = new PgMemoryStore({ query: async () => { called = true; } } as never);
+    await store.incrementAggregate("a", "k", [], { taskCount: 1, sumSteps: 2 }, {});
+    expect(called).toBe(true);
+  });
+});

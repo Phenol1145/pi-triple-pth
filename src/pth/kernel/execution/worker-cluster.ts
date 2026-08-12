@@ -238,14 +238,6 @@ export function knownRoleById(id: string): WorkerRole | undefined {
  * 默认不进 batch（池容量安全——叶子角色直接接任务）；PTH_WORKER_ROLES 显式启用时
  * 接族内泛化任务（未明确特化方向的族级任务）；也是未来三代分化的挂载点。
  */
-// governance 标签注册（2026-08-12：sensor/controller 系显式启用后可派发——publish 校验
-// 通过；kind=governance 不参与 routeRole（同标签多角色——派发走 flow 显式）；
-// 置于 GOVERNANCE_ROLES 声明之后（TDZ——const 后置引用））
-for (const r of GOVERNANCE_ROLES) {
-  for (const tag of r.tags) {
-    tagRegistry.register({ name: tag, kind: "governance", description: `治理角色共享标签（${r.id} 等）`, registeredBy: `governance:${r.id}` });
-  }
-}
 
 export function getExtraRoles(): WorkerRole[] { return [...extraRoles]; }
 

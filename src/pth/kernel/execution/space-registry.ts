@@ -138,9 +138,7 @@ export class SpaceRegistry {
 export const spaceRegistry = new SpaceRegistry();
 
 // 内置空间装配（2026-08-12 分层：注册表=核心——内置空间=实现——impls/spaces/builtin-spaces.ts；
-// 本行是核心对默认实现的装配引用——未来无内置发行版 = 移除本行 + 装配注入）
-import "../../impls/spaces/builtin-spaces.js";
-// 内置空间装配（2026-08-12 分层：注册表=核心——内置空间=实现——impls/spaces/builtin-spaces.ts；
 // 函数式注册（参数注入）——避免顶层副作用循环 TDZ；未来无内置发行版 = 移除装配调用）
+// 2026-08-12 审计 LOW-10：删除冗余 side-effect import（builtin-spaces 无顶层副作用）
 import { registerBuiltinSpaces } from "../../impls/spaces/builtin-spaces.js";
 registerBuiltinSpaces(spaceRegistry);

@@ -1,6 +1,6 @@
 import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
-import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights } from "./execution/worker-cluster.js";
+import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles } from "./execution/worker-cluster.js";
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { createKernelLogger } from "./logger.js";
@@ -254,6 +254,23 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
       assemblyLogger?.warn?.(`[assembly] 扩展装载失败（放行——不影响 kernel 启动）: ${(e as Error).message}`);
     }
   }
+
+  // 持久化扩展角色恢复（2026-08-12 审计 MEDIUM-8 修复：approve 注册的角色重启后恢复——
+  // DB 谱系与源码谱系一致；registerWorkerRole 自动重建标签注册）
+  try {
+    const persisted = await dataWorld.memory.retrieve({ kinds: ["worker-role"], status: ["official"] });
+    for (const e of persisted) {
+      try {
+        const role = JSON.parse(e.content) as { id?: string; parent?: string; tags?: string[] };
+        if (role?.id && role.parent && !allWorkerRoles().some((r) => r.id === role.id)) {
+          registerWorkerRole(role as never);
+        }
+      } catch (e2) {
+        assemblyLogger?.warn?.(`[assembly] worker-role 恢复失败 ${e.id}: ${(e2 as Error).message}`);
+      }
+    }
+    if (persisted.length > 0) assemblyLogger?.info?.(`[assembly] 恢复持久化角色 ${persisted.length} 个（${persisted.map((e) => e.id.replace("worker-role:", "")).join(",")}）`);
+  } catch { /* 表未就绪容忍——首次启动无表 */ }
 
   // 单大 batch 默认（2026-08-09）：启动即拉 1 个全量构成 batch——worker 级控制为主，
   // batch add/remove 降级为特殊手段。构成 = PTH_WORKER_ROLES 展开（不设置 = 7×1）。

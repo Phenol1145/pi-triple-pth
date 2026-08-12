@@ -12,22 +12,35 @@
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, AGENT_CAPABILITY_DOC, toolsToSchema, toolsDescription, toolsForExecTool, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
+import { AGENT_TOOLS, AGENT_CAPABILITY_DOC, toolsToSchema, toolsDescription, toolsForExecTool, toolSchemaFor, expandToolGroups, type AgentToolResult } from "./agent-tools.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "../extensions/perf-params.js";
 import { modelState } from "../extensions/model.js";
 import { spaceRegistry } from "./space-registry.js";
 
-/** ASP 模式工具面（按当前空间动态计算——环境函数全空间可用，语言工具仅本空间，done 仅元空间） */
-function toolsForSpace(spaceId: string): import("@earendil-works/pi-ai").Tool[] {
-  const ambient = [toolSchemaFor("asp.cd")!, toolSchemaFor("asp.index")!, toolSchemaFor("asp.create")!, toolSchemaFor("asp.destroy")!,
-    toolSchemaFor("memory.index")!,
-    toolSchemaFor("cache.load")!, toolSchemaFor("cache.index")!, toolSchemaFor("cache.cancel")!];
+/** 执行面角色授权（2026-08-12 审计 HIGH-2 修复）：语言/生产工具需对应 capability——
+ *  capabilities 声明了但未含所需 → 拒绝（未声明 = 全量兼容；ts 族为基础执行面不校验） */
+const EXEC_TOOL_CAP: Record<string, string[]> = {
+  python: ["python"], bash: ["bash"],
+  dev: ["c", "dev", "python", "bash"],   // dev.run/list 只读——验收角色（python/bash）可用
+  write: ["fs", "write"],
+};
+
+/** ASP 模式工具面（按当前空间动态计算——环境函数全空间可用，语言工具仅本空间，done 仅元空间）
+ *  actionTools 白名单过滤（2026-08-12 审计 HIGH-2 修复）：角色声明了 actionTools →
+ *  schema 面按其过滤（与 prompt 文本描述一致）；未声明 = 全量兼容（用户裁决）。 */
+function toolsForSpace(spaceId: string, actionTools?: string[]): import("@earendil-works/pi-ai").Tool[] {
+  const allowed = actionTools ? new Set(expandToolGroups(actionTools)) : null;
+  const ok = (t: import("@earendil-works/pi-ai").Tool | null): t is import("@earendil-works/pi-ai").Tool =>
+    t !== null && (allowed === null || allowed.has(t.name.replace(/_/g, ".")));
+  const ambient = [toolSchemaFor("asp.cd"), toolSchemaFor("asp.index"), toolSchemaFor("asp.create"), toolSchemaFor("asp.destroy"),
+    toolSchemaFor("memory.index"),
+    toolSchemaFor("cache.load"), toolSchemaFor("cache.index"), toolSchemaFor("cache.cancel")].filter(ok);
   if (spaceId === "meta") return [...ambient, toolSchemaFor("done")!];
   const sp = spaceRegistry.get(spaceId);
   if (sp?.execTool) {
     // extraTools 族展开（2026-08-11 生产核——dev 空间 = dev 族 + debug 族）
-    const execs = [...toolsForExecTool(sp.execTool), ...(sp.extraTools ?? []).flatMap((t) => toolsForExecTool(t))];
+    const execs = [...toolsForExecTool(sp.execTool), ...(sp.extraTools ?? []).flatMap((t) => toolsForExecTool(t))].filter(ok);
     if (execs.length > 0) return [...ambient, ...execs];
   }
   return ambient;
@@ -365,7 +378,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     }
 
     // ASP：工具面随当前空间动态计算（语言工具仅本空间可调用）
-    const tools = aspMode ? toolsForSpace(currentSpace()) : staticTools;
+    const tools = aspMode ? toolsForSpace(currentSpace(), input.role?.actionTools) : staticTools;
     const res = await complete(tools);
     if (typeof res === "string") {
       if (res.startsWith("__llm_error__")) {
@@ -423,6 +436,17 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
 
     // ── ASP 门控（asp 模式——空间状态机）────────────────────────────
     if (aspMode) {
+      // 空间治理授权（2026-08-12 审计 HIGH-2 修复）：维护类动作（asp.create/destroy）——
+      // 角色声明了 actionTools 但未含维护工具 → 拒绝；未声明 = 全量兼容（用户裁决）；
+      // 治理由 controller 系/origin 执行（actionTools 含 spaceMaint）。
+      const spaceMaintGranted = !input.role?.actionTools
+        || expandToolGroups(input.role.actionTools).some((t) => t === "asp.create" || t === "asp.destroy");
+      if (!spaceMaintGranted && (tool === "asp_create" || tool === "asp_destroy")) {
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `${tool} 拒绝：本角色（${input.role?.id ?? "?"}）actionTools 未授空间维护（spaceMaint）——治理由 controller 系/origin 执行。` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "治理授权拒绝" });
+        return undefined;
+      }
       if (tool === "asp_cd") {
         const target = String(args["space"] ?? "");
         const sp = spaceRegistry.get(target);
@@ -675,8 +699,9 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     const executorKey = tool.replace(/_/g, ".");
     const executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
     if (!executor) {
-      // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行
-      const wrap = AGENT_CAPABILITY_AS_ACTION[tool];
+      // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行。
+      // 2026-08-12 审计 LOW-11 修复：下划线形（memory_query）同样降级——归一后查表
+      const wrap = AGENT_CAPABILITY_AS_ACTION[tool] ?? AGENT_CAPABILITY_AS_ACTION[tool.replace(/_/g, ".")];
       if (wrap) {
         const code = wrap(args);
         input.logger?.(`[agent] step=${steps + 1} capability-action ${tool} → ts 程序降级`);
@@ -695,6 +720,16 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         return undefined;
       }
       return { ok: false, error: `未知工具 ${tool}`, steps: steps + 1 };
+    }
+    // 执行面角色授权（模块级 EXEC_TOOL_CAP——见顶部定义）
+    const execFam = executorKey.split(".")[0];
+    const needCaps = EXEC_TOOL_CAP[execFam];
+    const roleCaps = input.role?.capabilities;
+    if (needCaps && roleCaps && !needCaps.some((c) => (roleCaps as string[]).includes(c))) {
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+        content: `[授权] ${tool} 拒绝：本角色 capabilities 未含 ${needCaps.join("/")}（能力面声明了白名单——执行面按白名单门控）。` });
+      input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "capabilities 授权拒绝" });
+      return undefined;
     }
     try {
       const result = await executor(

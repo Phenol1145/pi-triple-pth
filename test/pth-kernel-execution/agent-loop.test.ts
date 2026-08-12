@@ -336,3 +336,62 @@ describe("filterCapabilityDoc（Agent-JIT 路径 B——能力文档按包裁剪
     expect(filterCapabilityDoc("plain doc no sections", ["memory"])).toBe("plain doc no sections");
   });
 });
+
+describe("执行面授权（2026-08-12 审计 HIGH-2 修复）", () => {
+  it("asp 模式：actionTools 未授 spaceMaint → asp_create 拒绝且不注册空间", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "asp_create", arguments: { id: "auth-x", execTool: "ts", description: "d" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const traces: string[] = [];
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "planner", labelPatterns: [], prompt: "p", actionTools: ["nav", "cache"], capabilities: ["fs", "memory"] } as never,
+      asp: true, maxSteps: 6,
+      onTrace: ((t: { type: string; resultPreview?: string }) => { if (t.type === "tool-result") traces.push(t.resultPreview ?? ""); }) as never,
+    });
+    expect(r.ok).toBe(true);
+    expect(traces.some((t) => t.includes("治理授权拒绝"))).toBe(true);
+    const { spaceRegistry } = await import("../../src/pth/kernel/execution/space-registry.js");
+    expect(spaceRegistry.get("auth-x")).toBeUndefined();   // 未注册
+  });
+
+  it("asp 模式：capabilities 无 python → python.run 拒绝（不触达 kernel）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "python" } }] },
+      { toolCalls: [{ name: "python_run", arguments: { code: "x" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const traces: string[] = [];
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "planner", labelPatterns: [], prompt: "p", capabilities: ["fs", "memory"] } as never,
+      asp: true, maxSteps: 8,
+      onTrace: ((t: { type: string; resultPreview?: string }) => { if (t.type === "tool-result") traces.push(t.resultPreview ?? ""); }) as never,
+    });
+    expect(r.ok).toBe(true);
+    expect(traces.some((t) => t.includes("capabilities 授权拒绝"))).toBe(true);
+    expect(kernel.python.execute).not.toHaveBeenCalled();
+  });
+
+  it("全量兼容：未声明 capabilities → python.run 正常执行", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "python" } }] },
+      { toolCalls: [{ name: "python_run", arguments: { code: "fib" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "developer", labelPatterns: [], prompt: "p" } as never,   // 无 capabilities 声明 = 全量兼容
+      asp: true, maxSteps: 8,
+    });
+    expect(r.ok).toBe(true);
+    expect(kernel.python.execute).toHaveBeenCalled();
+  });
+});

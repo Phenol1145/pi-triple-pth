@@ -8,35 +8,23 @@ import type { TsReplExtension } from "./index.js";
 import { checkWrite, checkUpdate, normalizeWriteArgs } from "./memory-policy.js";
 import { checkVisibilityDeclaration, stampScope, isVisible } from "../execution/memory-visibility.js";
 
-/** bindAll：对象函数属性逐个 bind（防 vm 解构丢 this——Finding F1） */
-function bindAll<T extends object>(obj: T): T {
-  const out: Record<string, unknown> = {};
-  const targets: Array<[string, (...args: unknown[]) => unknown]> = [];
-  let proto: object | null = obj;
-  const seen = new Set<string>();
-  while (proto !== null && proto !== Object.prototype) {
-    for (const key of Object.getOwnPropertyNames(proto)) {
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const desc = Object.getOwnPropertyDescriptor(proto, key);
-      if (desc && typeof desc.value === "function" && key !== "constructor") {
-        targets.push([key, desc.value]);
-      }
-    }
-    proto = Object.getPrototypeOf(proto);
-  }
-  for (const [key, fn] of targets) out[key] = fn.bind(obj);
-  return out as T;
-}
-
 export const memoryExtension: TsReplExtension = {
   id: "memory",
   provide: (ctx) => {
     const store = ctx.dataWorld.memory;
     return {
       // 记忆查询：受限只读 SQL（与 agent 侧同源执行器——仅 SELECT/单语句/强制 LIMIT/禁 pg 系统表）
+      // 2026-08-12 审计 CRITICAL-1 修复：bindAll(store) 曾把 raw 方法（incrementAggregate/get/bumpHitCount/
+      // listIds…）直接暴露给 ts 程序——incrementAggregate 键拼 SQL 可注入——改为显式白名单
+      // （只有策略包装过的 query/retrieve/write/update + 可见性过滤的 get）。
       memory: {
-        ...bindAll(store),
+        // get 包装：可见性过滤（与 query/retrieve 对齐——避免读隐藏条目）
+        get: async (id: string) => {
+          const entry = await store.get(id);
+          const space = ctx.sessionRef?.current?.currentSpace;
+          if (!entry || !space) return entry;
+          return isVisible(entry.meta as Record<string, unknown>, space) ? entry : undefined;
+        },
         // ASP 可见性过滤（读侧——仅在会话态（ASP 模式）下生效；无会话=过渡兼容不过滤）
         query: async (sql: string) => {
           const rows = await ctx.dataWorld.queryReadOnly(sql) as Array<{ meta?: Record<string, unknown> }>;

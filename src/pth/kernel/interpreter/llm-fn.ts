@@ -224,8 +224,16 @@ async function directOpenAiComplete(
   if (!res.ok) throw new Error(`directComplete ${res.status}: ${text.slice(0, 200)}`);
   const json = JSON.parse(text) as {
     choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
+    usage?: {
+      prompt_tokens?: number; completion_tokens?: number;
+      // DeepSeek 缓存字段（2026-08-12 审计 HIGH-3 修复：direct 路径此前不读缓存——命中率永久 0）；
+      // OpenAI 兼容格式 prompt_tokens_details.cached_tokens 同步兼容
+      prompt_cache_hit_tokens?: number; prompt_cache_miss_tokens?: number;
+      prompt_tokens_details?: { cached_tokens?: number };
+    };
   };
+  const cacheReadTokens = json.usage?.prompt_cache_hit_tokens ?? json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const cacheWriteTokens = json.usage?.prompt_cache_miss_tokens ?? 0;
   const msg = json.choices?.[0]?.message as {
     content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
     reasoning_content?: string | null;
@@ -234,15 +242,20 @@ async function directOpenAiComplete(
     try { return { id: tc.id, name: tc.function.name, arguments: JSON.parse(tc.function.arguments) as Record<string, unknown> }; }
     catch { return { id: tc.id, name: tc.function.name, arguments: {} }; }
   });
-  if (depsMetric) depsMetric({ provider: String(model.provider), model: model.id, durationMs: Date.now() - start, inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0 });
+  if (depsMetric) depsMetric({ provider: String(model.provider), model: model.id, durationMs: Date.now() - start, inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0, cacheReadTokens, cacheWriteTokens });
   return {
     content: msg?.content ?? "",
     model: model.id,
-    usage: { inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0 },
+    usage: {
+      inputTokens: json.usage?.prompt_tokens ?? 0,
+      outputTokens: json.usage?.completion_tokens ?? 0,
+      cacheReadTokens,   // 2026-08-12 审计 HIGH-3：direct 路径补缓存字段（此前 agent loop 永远 0%）
+      cacheWriteTokens,
+    },
     ...(toolCalls.length > 0 ? { toolCalls } : {}),
     ...(msg?.reasoning_content ? { thinking: msg.reasoning_content } : {}),
   };
 }
 
 // direct 路径计量：模块级 depsMetric（createLlmFn 构造时注入——onMetric 同源）
-let depsMetric: ((m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number }) => void) | null = null;
+let depsMetric: ((m: { provider: string; model: string; durationMs: number; inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number }) => void) | null = null;

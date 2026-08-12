@@ -89,20 +89,20 @@ function mockDataWorldWithThis(records?: Array<{ agentId: string; taskId: string
 }
 
 describe("capability this-binding (F1)", () => {
-  it("memory capability methods are this-bound (survive method extraction)", async () => {
+  it("memory capability methods are closure-bound (survive method extraction) + 白名单面（2026-08-12 审计 CRITICAL-1）", async () => {
     const caps = buildCapabilities({
       llm: { complete: async () => ({ content: "x" }) } as any,
       dataWorld: mockDataWorldWithThis(),
     });
-    const { retrieve, write, bumpHitCount } = caps.memory as {
+    const { retrieve, write } = caps.memory as {
       retrieve: () => Promise<unknown[]>;
       write: () => Promise<void>;
-      bumpHitCount: () => Promise<void>;
     };
-    // 解构后裸调用——未 bindAll 前 this = undefined → this.pool undefined → reject
+    // 解构后裸调用——白名单方法用闭包捕获 store（this 无关）；raw 方法（bumpHitCount/incrementAggregate）不再暴露
     await expect(retrieve()).resolves.toEqual([]);
     await expect(write({ kind: "memory", content: "x", meta: { visibility: "public" } } as never)).resolves.toBeUndefined();   // 权限 v2：kind 必填 + ASP 可见性声明
-    await expect(bumpHitCount()).resolves.toBeUndefined();
+    expect((caps.memory as Record<string, unknown>)["bumpHitCount"]).toBeUndefined();
+    expect((caps.memory as Record<string, unknown>)["incrementAggregate"]).toBeUndefined();
   });
 
   it("memory.retrieve from VM program still works via bound wrapper", async () => {

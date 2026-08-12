@@ -59,6 +59,11 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
   // ── 批准分化建议 → 注册新角色（树生长）──
   // body: { proposalId, overrides?: { id?, tags?, prompt?, thinking?, capabilities?, acceptanceRole? } }
   app.post("/api/v1/kernel/lineage/approve", async (req, reply) => {
+    // 监督层通道（2026-08-12 审计 MEDIUM-HIGH-3 修复）：approve 仅限 platform-admin——
+    // tenant-agent token 不可批准角色注册（防自批分化提案）；鉴权先于资源可用性检查
+    if (req.auth?.role !== "platform-admin") {
+      return reply.status(403).send({ error: "approve 仅限 platform-admin（监督层通道）" });
+    }
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const proposalId = typeof body.proposalId === "string" ? body.proposalId : "";
@@ -131,6 +136,19 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
       }, { force: true });
     } catch { /* 文档注入失败容忍——角色已注册 */ }
 
+    // 5b. 角色定义持久化（2026-08-12 审计 MEDIUM-8 修复：运行时注册角色重启丢失——
+    // 落库 kind=worker-role——assembly 启动时加载恢复（registerWorkerRole + tags 重建））
+    try {
+      await kernel.dataWorld.memory.write({
+        id: `worker-role:${newRole.id}`,
+        kind: "worker-role",
+        anchors: ["worker-role", newRole.id],
+        content: JSON.stringify(newRole),
+        status: "official",
+        meta: { source: "lineage-approve", role: newRole.id, proposalId, persistedAt: Date.now() },
+      }, { force: true });
+    } catch (e) { console.warn(`[lineage] worker-role 持久化失败: ${e instanceof Error ? e.message : String(e)}`); }
+
     // 6. proposal 状态流转（draft → official——approved）
     await kernel.dataWorld.memory.write({
       id: proposal.id,
@@ -152,6 +170,9 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
 
   // ── 拒绝分化建议（draft → archived）──
   app.post("/api/v1/kernel/lineage/reject", async (req, reply) => {
+    if (req.auth?.role !== "platform-admin") {
+      return reply.status(403).send({ error: "reject 仅限 platform-admin（监督层通道）" });
+    }
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const proposalId = typeof body.proposalId === "string" ? body.proposalId : "";

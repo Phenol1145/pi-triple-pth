@@ -91,3 +91,23 @@ describe("llm function", () => {
     expect(seenModel).toEqual({ provider: "p1", model: "qwen3.8-max" });
   });
 });
+
+describe("direct 路径缓存字段（2026-08-12 审计 HIGH-3 修复）", () => {
+  it("tools 非空走 direct——解析 prompt_cache_hit_tokens/miss_tokens 到 usage", async () => {
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({
+      choices: [{ message: { content: "ok", tool_calls: [{ id: "t1", function: { name: "ts.run", arguments: "{}" } }] } }],
+      usage: { prompt_tokens: 100, completion_tokens: 10, prompt_cache_hit_tokens: 60, prompt_cache_miss_tokens: 40 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const llm = createLlmFn({ modelRouter: mockRouter(mockRuntime()) });
+    const res = await llm.complete([{ role: "user", content: "x" }], {
+      model: "deepseek-v4-flash", provider: "deepseek",
+      tools: [{ name: "ts.run", description: "d", parameters: { type: "object", properties: {} } }],
+    });
+    expect(res.usage?.cacheReadTokens).toBe(60);
+    expect(res.usage?.cacheWriteTokens).toBe(40);
+    expect(res.usage?.inputTokens).toBe(100);
+    vi.unstubAllGlobals();
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+});

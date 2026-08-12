@@ -216,7 +216,9 @@ export class Optimizer {
       content: sc,
       status: "official",
       meta: { taskId: ctx.taskId, role: ctx.role, ts: Date.now() },
-    }).catch(() => { /* 落库失败不阻塞任务循环 */ });
+    }).catch((e: unknown) => { /* 2026-08-12 审计 MEDIUM-7：不再静默——落库失败可见（历史三连 SQL bug 曾此吞掉） */
+      console.warn(`[optimizer] scorecard 落库失败: ${e instanceof Error ? e.message : String(e)}`);
+    });
     // 增量聚合快照（2026-08-12 JIT 审批面 B——diff-scorecard-aggregate-msq36a60 实施）：
     // kind=task-scorecard-aggregate 按角色累积——sensor 直接读聚合视图不逐条 parse。
     // 原子 upsert（单条 SQL jsonb 增量——并发同角色任务无 lost update）
@@ -236,7 +238,9 @@ export class Optimizer {
           sumGated: sc.gatedActions ?? 0,
         },
         { role: ctx.role, ts: Date.now() },
-      ).catch(() => { /* 聚合失败不阻塞（明细仍在——降级逐条读） */ });
+      ).catch((e: unknown) => { /* 聚合失败不阻塞（明细仍在——降级逐条读）；但错误须可见（2026-08-12 审计 MEDIUM-7） */
+        console.warn(`[optimizer] 聚合快照失败（降级明细）: ${e instanceof Error ? e.message : String(e)}`);
+      });
     }
     if (this.buffer.length >= this.windowSize) {
       const window = this.buffer.splice(0, this.windowSize);

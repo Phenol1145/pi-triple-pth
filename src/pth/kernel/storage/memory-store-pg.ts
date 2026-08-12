@@ -159,6 +159,11 @@ export class PgMemoryStore {
   ): Promise<void> {
     const keys = Object.keys(deltas);
     if (keys.length === 0) return;
+    // 键名校验（2026-08-12 审计 CRITICAL-1 修复）：键直接拼入 SQL（jsonb_build_object 键位）——
+    // 非法键（引号/分号/括号）可注入——白名单 [a-zA-Z0-9_]
+    for (const k of keys) {
+      if (!/^[a-zA-Z0-9_]{1,64}$/.test(k)) throw new Error(`incrementAggregate: 非法增量键 "${k}"（仅字母数字下划线 ≤64）`);
+    }
     // 两套表达式：INSERT（新行——纯增量值）；UPDATE（现值 + 增量——jsonb || 合并）。
     // ⚠ VALUES 分支不能引用 content 列（新行无列值——2026-08-12 实机修复：INSERT 用纯参数）
     // ⚠ 显式 ::numeric——jsonb_build_object 的 value 参数是 any——pg 无法推断参数类型
@@ -204,5 +209,6 @@ function mapEntry(row: any): MemoryEntry {
 export function isSystemDocId(id: string): boolean {
   return id === "capability-index" || id === "self-modify-guide" || id.startsWith("role-doc:")
     || id === "skill:api-investigation" || id === "pth-worker-system" || id === "project-map"
+    || id === "extension-index" || id.startsWith("skill:")   // 2026-08-12 审计：补齐 PROMPT_KINDS 对齐（extension-index 缺失 + skill: 前缀）
     || id.startsWith("refine-task:");   // refine 任务清单（解硬编码——worker 不可改 refine 行为——管理面 force 演化）
 }
