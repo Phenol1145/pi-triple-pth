@@ -13,7 +13,7 @@
 // kernels：asm（生产核——as/ld/qemu 系统工具链）、asm-sim（探索核——RV32I 纯 JS 模拟器）
 //
 // 说明：入口单文件自包含（eval 通道无 require/相对 import）——RV32I 模拟器段由构建脚本
-//   （test/build-index.js）从 rv32i-sim.js 注入（保持同源）；本文件为构建产物。
+//   （test/build-index.js）从 rv32i-sim.cjs 注入（保持同源）；本文件为构建产物。
 // 子进程：优先 ctx.exec（SDK 标准受控通道——超时/输出上限）；缺失时回退动态 import node:child_process。
 module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
   const log = typeof ctx?.log === "function" ? ctx.log : () => {};
@@ -81,7 +81,7 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
     return t || null;
   };
 
-  // ── RV32I 模拟器（探索核——构建时从 rv32i-sim.js 注入，同源）──
+  // ── RV32I 模拟器（探索核——构建时从 rv32i-sim.cjs 注入，同源）──
     
   // ─── 编码常量 ─────────────────────────────────────────────
   const OP_LUI     = 0x37;

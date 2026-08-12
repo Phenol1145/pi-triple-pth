@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * rv32i-sim 单元测试（设计 §5.2/5.3）——Node 直接 require rv32i-sim.js
+ * rv32i-sim 单元测试（设计 §5.2/5.3）——Node 直接 require rv32i-sim.cjs
  * 用例：运算 / 分支 / 子例程 / 数组求和 / 死循环止损 + 失败路径（未知助记符/缺标签/内存越界）
  * 运行：node test/run-sim-tests.js  → 每用例 PASS/FAIL + 汇总
  */
 "use strict";
 const path = require("path");
-const { assemble, simulate } = require(path.join(__dirname, "..", "rv32i-sim.js"));
+const { assemble, simulate } = require(path.join(__dirname, "..", "rv32i-sim.cjs"));
 
 let pass = 0, fail = 0;
 const results = [];

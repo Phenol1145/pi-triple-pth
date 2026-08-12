@@ -1,0 +1,13 @@
+{
+  "argv": [
+    "python3",
+    "{resource_dir}/kernel.py",
+    "-f",
+    "{connection_file}"
+  ],
+  "display_name": "RV32I (asm-sim)",
+  "language": "rv32i-asm",
+  "env": {
+    "PTH_ASM_SIM_PATH": "__PTH_ASM_SIM_PATH__"
+  }
+}

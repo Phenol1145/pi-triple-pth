@@ -4,7 +4,7 @@
 > `agent-tools.asm.patch`）。设计：memory kind=design-doc（2026-08-12）。
 > 入口 `index.js`（SDK 约定：`/// <reference path="../sdk.d.ts" />` + `// @ts-check` +
 > `module.exports = factory(ctx)`——eval 通道友好；模拟器段由 `test/build-index.js` 从
-> `rv32i-sim.js` 注入，二者同源勿手工改 index.js 模拟器段）。
+> `rv32i-sim.cjs` 注入，二者同源勿手工改 index.js 模拟器段）。
 
 ## 1. 工具（7）
 
@@ -29,7 +29,7 @@ syscall 仅 write/exit。
 - `asm`（生产核）：`create(ctx) → {language:"asm", execute(program, {buildOnly?, target?, timeoutMs?}), reset, dispose, snapshot}`
   —— 与 dev.build/dev.run 接线（见 patch）。execute 返回 `{ok, value, stdout, stderr, durationMs}`。
 - `asm-sim`（探索核）：`create(ctx) → {language:"asm-sim", execute(program, {maxSteps?, timeoutMs?}), ...}`
-  —— RV32I 模拟器（`rv32i-sim.js` 可独立 `require` 复用）。
+  —— RV32I 模拟器（`rv32i-sim.cjs` 可独立 `require` 复用）。
 
 ## 3. 探索核指令集（RV32I 核心子集）
 
@@ -113,7 +113,7 @@ _start:
 .data
 msg: .asciz "hello rv32i\n"
 ```
-`node -e "console.log(require('./rv32i-sim.js').simulate(process.argv[1]))" "$(cat hello.s)"`
+`node -e "console.log(require('./rv32i-sim.cjs').simulate(process.argv[1]))" "$(cat hello.s)"`
 
 ABI 对照：syscall 号统一放 `x8`（aarch64）/ `rax`（x86_64）/ `a7`（riscv64/rv32i）；
 参数依次 `x0-x5` / `rdi,rsi,rdx,r10,r8,r9` / `a0-a5`；`svc #0`（aarch64）/ `syscall`（x86_64）/ `ecall`（riscv）。
@@ -133,12 +133,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 - `node test/run-sim-tests.js` —— 模拟器单测（运算/分支/子例程/数组求和/死循环止损 + 失败路径）
 - `node test/ext-check.js` —— 工厂装载（new Function eval 同装载通道）+ 工具冒烟（status/simulate/build/run/disasm）
-- `node test/build-index.js` —— 从 rv32i-sim.js 重建 index.js（注入模拟器段）
+- `node test/build-index.js` —— 从 rv32i-sim.cjs 重建 index.js（注入模拟器段）
 - aarch64 原生冒烟：见 §4 模板（as→ld→run——容器已实测）
 
 ## 7. 安装（监督层）
 
-将 `plugin.json`、`index.js`、`rv32i-sim.js`、`README.md` 落入 `toolstore/extensions/asm-kernel/`；
+将 `plugin.json`、`index.js`、`rv32i-sim.cjs`、`README.md` 落入 `toolstore/extensions/asm-kernel/`；
 应用 `agent-tools.asm.patch`（src/pth/kernel/execution/agent-tools.ts——dev.build/dev.run 按
 扩展名分发 + asm 惰性注册）；重启 batch。零 PTH 改动即可用：ts 空间
 `ext.use("asm-kernel", {tool:"build", args:{source, target}})` / `ext.kernel("asm-kernel")`。

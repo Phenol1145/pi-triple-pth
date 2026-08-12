@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 /**
- * 构建 index.js：从 rv32i-sim.js 抽取模拟器实现（剥离头部注释/"use strict"/尾部 module.exports）
- * 注入 index.js.template 的模拟器段标记——保持单一权威源（rv32i-sim.js）。
+ * 构建 index.js：从 rv32i-sim.cjs 抽取模拟器实现（剥离头部注释/"use strict"/尾部 module.exports）
+ * 注入 index.js.template 的模拟器段标记——保持单一权威源（rv32i-sim.cjs）。
  * 用法：node test/build-index.js
  */
 "use strict";
 const fs = require("fs");
 const path = require("path");
 const dir = path.join(__dirname, "..");
-const sim = fs.readFileSync(path.join(dir, "rv32i-sim.js"), "utf8");
+const sim = fs.readFileSync(path.join(dir, "rv32i-sim.cjs"), "utf8");
 const tpl = fs.readFileSync(path.join(dir, "index.js.template"), "utf8");
 const marker = "/*__RV32I_SIM_SECTION__*/";
 if (!tpl.includes(marker)) { console.error("template 缺标记"); process.exit(1); }
