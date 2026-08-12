@@ -35,6 +35,8 @@ export interface AgentToolCtx {
   toolstore?: import("../interpreter/toolstore.js").Toolstore;
   /** 调试会话接入（debug.*——缺省读 env PTH_SANDBOX_KERNEL_URL/SANDBOX_SHARED_SECRET；测试注入覆盖） */
   debugApi?: { url: string; secret: string };
+  /** 当前动作空间（记忆桥盖章——2026-08-12 批 3：语言执行带 space，kernel 层注入记忆访问可见性） */
+  space?: string;
 }
 
 export type AgentTool = (ctx: AgentToolCtx, args: Record<string, unknown>) => Promise<AgentToolResult>;
@@ -120,22 +122,22 @@ async function debugCall(ctx: AgentToolCtx, op: string, body: Record<string, unk
 
 /** 工具表（元工具——id → 执行器） */
 export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
-  "python.run": async ({ kernel }, args) => {
-    const r = await kernel.python.execute(str(args, "code"), { exec: "program" });
+  "python.run": async ({ kernel, space }, args) => {
+    const r = await kernel.python.execute(str(args, "code"), { exec: "program", ...(space ? { space } : {}) });
     if (!r.ok) return { ok: false, error: r.error?.message ?? "python execute failed" };
     const value = JSON.stringify(r.value ?? null);
     return applyOutputMode({ ok: true, value: r.value, stdout: truncate(value, 2000).text }, args["mode"]);
   },
 
-  "python.eval": async ({ kernel }, args) => {
-    const r = await kernel.python.execute(str(args, "code"), { exec: "single" });
+  "python.eval": async ({ kernel, space }, args) => {
+    const r = await kernel.python.execute(str(args, "code"), { exec: "single", ...(space ? { space } : {}) });
     if (!r.ok) return { ok: false, error: r.error?.message ?? "python eval failed" };
     const value = JSON.stringify(r.value ?? null);
     return applyOutputMode({ ok: true, value: r.value, stdout: truncate(value, 2000).text }, args["mode"]);
   },
 
-  "bash.run": async ({ kernel }, args) => {
-    const r = await kernel.bash.execute(str(args, "command"));
+  "bash.run": async ({ kernel, space }, args) => {
+    const r = await kernel.bash.execute(str(args, "command"), ...(space ? [{ space }] : []));
     const out = truncate(r.stdout ?? "", 4000);
     return applyOutputMode(
       { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
@@ -143,8 +145,8 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     );
   },
 
-  "bash.eval": async ({ kernel }, args) => {
-    const r = await kernel.bash.execute(str(args, "command"));
+  "bash.eval": async ({ kernel, space }, args) => {
+    const r = await kernel.bash.execute(str(args, "command"), ...(space ? [{ space }] : []));
     const out = truncate(r.stdout ?? "", 4000);
     return applyOutputMode(
       { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
@@ -553,17 +555,19 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: ["space"],
   },
   "asp.create": {
-    description: "空间生成（ASP 元工具）——注册一个自定义动作空间（数据驱动：新空间=一条注册记录，即可被 asp.cd 进入）。仅元空间可用。",
+    description: "空间生成（ASP 元工具·治理 v2）——在声明 allowChildren 的父空间内注册子空间（数据驱动：新空间=一条注册记录，即可被 asp.cd 进入）。meta 禁建（凭据根级固化）；父空间 childParams 必填表单校验（能力面 execTool/extraTools 收窄 + 记忆域 memoryScope 分配——缺字段拒绝并展示表单）；深度 ≤ 父 maxDepth；extraTools 只能收窄不能扩权。asp.index 查看空间树与表单。",
     properties: {
-      id: { type: "string", description: "新空间 id（小写字母数字连字符）" },
-      execTool: { type: "string", description: "该空间的语言执行工具名（LLM 原生工具面下划线形，如 custom_exec）" },
+      id: { type: "string", description: "新空间 id（小写字母数字连字符 ≤32）" },
+      execTool: { type: "string", description: "子空间语言执行工具名（能力面收窄——下划线形，如 sandbox_exec）" },
+      memoryScope: { type: "string", description: "记忆域分配（子空间记忆可见性域——缺省继承父空间）" },
+      extraTools: { type: "string", description: "工具族收窄（逗号分隔——父空间 extraTools 的子集）" },
       skeleton: { type: "string", description: "语言骨架摘要（索引/prompt 用）" },
-      description: { type: "string", description: "空间说明" },
+      description: { type: "string", description: "子空间说明（必填）" },
     },
     required: ["id", "execTool", "description"],
   },
   "asp.destroy": {
-    description: "空间注销（ASP 元工具）——注销自定义子空间（内置空间保护：parent=meta 或元空间本身不可注销）。仅元空间可用。",
+    description: "空间注销（ASP 元工具·治理 v2）——注销子空间。位置约束：仅子空间的父空间内可注销自己的子空间（meta 兜底可注销任何非内置空间）；内置空间保护不变（parent=meta 的不可注销）。",
     properties: { id: { type: "string", description: "要注销的空间 id" } },
     required: ["id"],
   },

@@ -255,9 +255,13 @@ export class PyKernel implements Interpreter {
     if (!this.child || this.child.exitCode !== null) this.spawn();
     this.touch();
 
+    // 记忆桥盖章（2026-08-12 批 3）：内核层前置注入当前空间（写 _NAMESPACE——本库从 _NAMESPACE 读取，
+    // 程序无法伪造空间身份；PTH 侧 isVisible(meta, space) 过滤可见性）
+    const stamped = opts?.space ? `_PTH_SPACE = ${JSON.stringify(opts.space)};
+${program}` : program;
     let msg: PyProtocolMsg;
     try {
-      msg = await this.call({ code: program, timeoutMs, ...(opts?.exec ? { exec: opts.exec } : {}) });    } catch (e) {
+      msg = await this.call({ code: stamped, timeoutMs, ...(opts?.exec ? { exec: opts.exec } : {}) });    } catch (e) {
       // 管道错误/超时——kill 置空（冷备补位：下个 execute 懒 spawn——失败场景不二次 spawn 浪费）
       this.kill();
       return { ok: false, error: { message: (e as Error).message }, durationMs: Date.now() - start, language: "python" };

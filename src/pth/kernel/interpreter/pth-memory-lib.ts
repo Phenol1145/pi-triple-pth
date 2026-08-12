@@ -7,10 +7,9 @@
  * 治理不变：PTH gateway 三层（认证/白名单/可见性过滤）不动——库只是语言侧封装。
  * bridge URL：env PTH_MEMORY_BRIDGE（kernel 模式=localhost:3000 直通；sandbox=localhost:8080 转发——spawn 时注入）。
  *
- * ⚠ 已知风险（2026-08-12 审计记录——批 3 空间治理 v2 修复）：桥 body.space 由调用方自传——
- * python/bash 库不传 space → PTH 侧 visible=isVisible(meta, undefined)=true——所有条目可见
- * （含其他空间 private 条目）。修复方向：库形态改为进程环境注入盖章（PTH_MEMORY_SPACE env）——
- * 程序无法伪造空间身份。当前仅 dev 内部任务使用，可接受。
+ * 空间盖章（2026-08-12 批 3 已修复）：桥 body.space 由内核层注入——PyKernel 每次 execute 前置
+ * `_PTH_SPACE = <当前空间>`（写 _NAMESPACE——本库从 _NAMESPACE 读取，程序无法伪造空间身份）；
+ * BashKernel 前置 `export PTH_MEMORY_SPACE`。PTH 侧 isVisible(meta, space) 过滤可见性。
  */
 
 export const PTH_MEMORY_LIB_PY = `# -*- coding: utf-8 -*-
@@ -40,9 +39,11 @@ class Memory:
         self.secret = secret or os.environ.get("SANDBOX_SHARED_SECRET", "")
 
     def _call(self, op, **kw):
+        # 空间盖章：读 _NAMESPACE（PyKernel 每次 execute 前置写入——内核层注入，程序无法伪造）
+        space = globals().get("_NAMESPACE", {}).get("_PTH_SPACE", "")
         req = urllib.request.Request(
             self.base,
-            data=json.dumps({"op": op, **kw}).encode(),
+            data=json.dumps({"op": op, "space": space, **kw}).encode(),
             headers={
                 "Content-Type": "application/json",
                 "Authorization": "Bearer " + self.secret,

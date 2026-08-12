@@ -15,6 +15,14 @@
 
 export type SpaceKind = "meta" | "action";
 
+/** 子空间必填参量表单（childParams 声明——2026-08-12 用户裁决批 3）：
+ * 创建者必须提供能力面收窄（execTool/extraTools）+ 记忆域分配（memoryScope）的取值。 */
+export interface ChildParamDef {
+  name: string;
+  required?: boolean;
+  description?: string;
+}
+
 export interface SpaceDef {
   id: string;
   kind: SpaceKind;
@@ -29,6 +37,16 @@ export interface SpaceDef {
   builtin?: boolean;
   /** 额外工具族（2026-08-11 生产核——dev 空间挂 debug 族）：族名清单，工具面/门控反查同 execTool 族名展开 */
   extraTools?: string[];
+  // ── 空间治理 v2（2026-08-12 用户裁决批 3）──────────────────────────────
+  /** 是否允许 asp.create 生成子空间（缺省 false；meta 恒 false——凭据根级固化） */
+  allowChildren?: boolean;
+  /** 最大深度（meta=0、内置空间=1、子空间=2……）——asp.create 校验子空间深度 ≤ 父 maxDepth */
+  maxDepth?: number;
+  /** 子空间必填参量表单（asp.create 缺字段拒绝并展示表单——索引即引导） */
+  childParams?: ChildParamDef[];
+  /** 记忆域（worker 分化凭据第二轴：动作空间 × 记忆空间；索引/prompt 展示用——
+   * 实际过滤由 PTH 网关 space 维度 + role 前缀域承担） */
+  memoryScope?: string;
 }
 
 export class SpaceRegistry {
@@ -41,12 +59,33 @@ export class SpaceRegistry {
       const same =
         existing.kind === def.kind && existing.execTool === def.execTool &&
         existing.parent === def.parent &&
+        existing.allowChildren === def.allowChildren && existing.maxDepth === def.maxDepth &&
+        existing.memoryScope === def.memoryScope &&
         JSON.stringify(existing.extraTools ?? []) === JSON.stringify(def.extraTools ?? []) &&
+        JSON.stringify(existing.childParams ?? []) === JSON.stringify(def.childParams ?? []) &&
         existing.skeleton === def.skeleton && existing.description === def.description;
       if (same) return;
       throw new Error(`space "${def.id}" 注册冲突（已存在 kind=${existing.kind} execTool=${existing.execTool} parent=${existing.parent}）`);
     }
     this.spaces.set(def.id, def);
+  }
+
+  /** 深度（沿 parent 链——meta=0） */
+  depthOf(id: string): number {
+    let depth = 0;
+    let cur = this.spaces.get(id);
+    const seen = new Set<string>();
+    while (cur?.parent && cur.parent !== "meta" && !seen.has(cur.parent)) {
+      seen.add(cur.parent);
+      depth += 1;
+      cur = this.spaces.get(cur.parent);
+    }
+    return depth;
+  }
+
+  /** 子空间清单（直接后代） */
+  childrenOf(id: string): SpaceDef[] {
+    return this.list().filter((s) => s.parent === id);
   }
 
   /** 注销（asp.destroy——内置空间保护：builtin 标记的空间不可注销） */
@@ -99,7 +138,17 @@ spaceRegistry.register({ id: "python", kind: "action", execTool: "python", paren
 spaceRegistry.register({ id: "bash", kind: "action", execTool: "bash", parent: "meta", skeleton: "BashKernel 持久会话（元命令 bash.run/bash.eval）", description: "Bash 持久会话空间（sandbox 执行）", builtin: true });
 // 生产核·代码产物（2026-08-11 用户裁决：探索核/生产核分立——编译类语言无探索核，C 的一切归 dev 空间；
 // 原 c 空间（c_execute 空壳）撤销——C 产物编写/构建/运行/调试/单元管理全在 dev 空间）
-spaceRegistry.register({ id: "dev", kind: "action", execTool: "dev", extraTools: ["debug"], parent: "meta", skeleton: "生产核·代码产物（dev.write/edit/build/run/save/list + debug.* 调试会话——产物代码写任务工作区，sandbox 编译/调试）", description: "代码产物开发生产空间（编译类语言唯一入口）", builtin: true });
+spaceRegistry.register({ id: "dev", kind: "action", execTool: "dev", extraTools: ["debug"], parent: "meta", skeleton: "生产核·代码产物（dev.write/edit/build/run/save/list + debug.* 调试会话——产物代码写任务工作区，sandbox 编译/调试）", description: "代码产物开发生产空间（编译类语言唯一入口）", builtin: true,
+  // 空间治理 v2（批 3）：dev 是唯一可建子空间的内置空间——"把不确定的代码放进自制隔离子空间执行，用完注销"；
+  // childParams = 子空间凭据必填参量表单（能力面 execTool/extraTools 收窄 + 记忆域 memoryScope 分配）
+  allowChildren: true, maxDepth: 2,
+  childParams: [
+    { name: "execTool", required: true, description: "子空间语言执行工具名（能力面收窄——下划线形，如 sandbox_exec）" },
+    { name: "memoryScope", required: true, description: "记忆域分配（子空间记忆可见性域——缺省继承父空间）" },
+    { name: "extraTools", description: "工具族收窄（父空间 extraTools 的子集——dev 下仅可挂 debug 族）" },
+    { name: "description", required: true, description: "子空间说明" },
+  ],
+});
 // 生产核·文档产物（2026-08-12 批 2：编写类任务独立空间——代码/文档两空间分立。
 // 工具面 create/edit/read/list/save + section 章节组织（章节走文档内工具——非子空间）；
 // 无 build/debug——文档不编译；allowChildren=false 章节不建子空间）

@@ -22,10 +22,12 @@ import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapsho
 // （$1 作 argv 单层传递——bash 引号嵌套易错：双引号内 \" 在 seed 链路被吞、
 //  '"'"'$1'"'"' 把 $1 锁进单引号不展开——argv 方案零嵌套）。
 // 反引号模板串：bash 代码无 ${ 冲突（$PTH_MEMORY_BRIDGE / $1 均非 ${ 前缀）。
+// 记忆桥盖章（2026-08-12 批 3）：body 带 space=sys.argv[4]（$PTH_MEMORY_SPACE——BashKernel 每次 execute 前置 export——
+// 内核层注入当前空间，调用方无法伪造身份；PTH 侧 isVisible(meta, space) 过滤可见性）
 const BASH_MEMORY_LIB = [
-  `memory_query() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"query","sql":sys.argv[1]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET"; }`,
-  `memory_get() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"get","id":sys.argv[1]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET"; }`,
-  `memory_retrieve() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"retrieve","anchors":json.loads(sys.argv[1])}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET"; }`,
+  `memory_query() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"query","sql":sys.argv[1],"space":sys.argv[4]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET" "$PTH_MEMORY_SPACE"; }`,
+  `memory_get() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"get","id":sys.argv[1],"space":sys.argv[4]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET" "$PTH_MEMORY_SPACE"; }`,
+  `memory_retrieve() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"retrieve","anchors":json.loads(sys.argv[1]),"space":sys.argv[4]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET" "$PTH_MEMORY_SPACE"; }`,
 ].join("\n");
 
 
@@ -96,10 +98,12 @@ export class BashKernel implements Interpreter {
     if (!this.child || this.child.exitCode !== null) this.spawn();
     this.lastUsedAt = Date.now();
 
+    // 记忆桥盖章（2026-08-12 批 3）：内核层注入当前空间——用户命令无法伪造空间身份
+    const stamped = opts?.space ? `export PTH_MEMORY_SPACE='${opts.space.replace(/'/g, `'\\''`)}';\n${program}` : program;
     try {
       // 等会话就绪（spawn 后立即执行会丢命令）
       await this.waitReady(2_000);
-      const res = await this.run(program, timeoutMs);
+      const res = await this.run(stamped, timeoutMs);
       const out: InterpreterResult = {
         ok: res.code === 0,
         stdout: res.stdout,

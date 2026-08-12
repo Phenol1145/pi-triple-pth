@@ -16,6 +16,9 @@ export interface ExecuteOptions {
   exec?: "single" | "program" | "auto";
   /** 仅编译不运行（生产核 dev.build——编译核专用；其他核忽略） */
   buildOnly?: boolean;
+  /** 记忆桥盖章（2026-08-12 批 3）：当前空间注入——kernel 层前置 stamp 到执行环境，
+   * 记忆库访问带 space（PTH 侧 isVisible(meta, space) 过滤）。由 agent-loop 按 asp 会话空间传入。 */
+  space?: string;
 }
 
 export interface InterpreterResult {

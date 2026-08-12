@@ -39,13 +39,29 @@ function keysOf(v: unknown, max = 12): string {
   return shown.join("/") + (keys.length > max ? `…(+${keys.length - max})` : "");
 }
 
-/** meta 空间索引：子空间清单 */
+/** meta 空间索引：空间树（治理 v2——2026-08-12：索引即引导——展示子空间表单/深度/记忆域） */
 function indexMeta(): string {
-  const lines = spaceRegistry.list().map((s) => {
-    if (s.kind === "meta") return `meta —— ${s.description}`;
-    return `${s.id}/ —— ${s.description}${s.skeleton ? `\n    骨架: ${s.skeleton}` : ""}`;
-  });
-  return truncateLayer(`【元空间】可用动作空间（asp_cd 迁移进入）：\n${lines.join("\n")}`);
+  const all = spaceRegistry.list();
+  const roots = all.filter((s) => !s.parent || s.parent === "meta");
+  const lines: string[] = [];
+  for (const s of roots) {
+    if (s.kind === "meta") {
+      lines.push(`meta —— ${s.description}`);
+      continue;
+    }
+    const gov: string[] = [];
+    if (s.allowChildren) {
+      gov.push(`可建子空间(maxDepth=${s.maxDepth ?? "∞"})`);
+      const form = (s.childParams ?? []).map((p) => `${p.name}${p.required ? "*" : ""}`).join(" ");
+      if (form) gov.push(`表单: ${form}`);
+    }
+    if (s.memoryScope) gov.push(`记忆域: ${s.memoryScope}`);
+    lines.push(`${s.id}/ —— ${s.description}${gov.length ? `\n    [治理] ${gov.join("；")}` : ""}`);
+    for (const child of spaceRegistry.childrenOf(s.id)) {
+      lines.push(`  └─ ${child.id}/ —— ${child.description}${child.memoryScope ? `（记忆域: ${child.memoryScope}）` : ""}`);
+    }
+  }
+  return truncateLayer(`【元空间】空间树（asp_cd 迁移进入；asp.create 在声明可建子空间的空间内创建——meta 禁建；done 仅本空间可用）：\n${lines.join("\n")}`);
 }
 
 /** ts 空间 by-package：扩展包 → 各包能力键 */
@@ -91,6 +107,23 @@ export async function buildSpaceIndex(opts: { mode?: string; space?: string }, c
     const c = (ctx.caps as { c?: { listUnits?: () => Promise<string[]> } }).c;
     const units = c?.listUnits ? await c.listUnits() : [];
     return truncateLayer(`【c 空间 · 编译单元】\n${units.join("\n") || "（空——c.saveUnit 保存命名单元）"}`);
+  }
+  // 空间治理 v2（2026-08-12 批 3）：生产空间/自定义子空间——工具族视图（by-package 语义——族=包）
+  const def = spaceRegistry.get(space);
+  if (def?.execTool) {
+    const families = [def.execTool, ...(def.extraTools ?? [])];
+    const gov: string[] = [];
+    if (def.allowChildren) {
+      const form = (def.childParams ?? []).map((p) => `${p.name}${p.required ? "*" : ""}`).join(" ");
+      gov.push(`可建子空间(maxDepth=${def.maxDepth ?? "∞"}${form ? `；表单: ${form}` : ""})`);
+    }
+    if (def.memoryScope) gov.push(`记忆域: ${def.memoryScope}`);
+    const children = spaceRegistry.childrenOf(space);
+    return truncateLayer(
+      `【${space} 空间 · 工具族】\n${families.map((f) => `- ${f}.*`).join("\n")}${def.description ? `\n说明: ${def.description}` : ""}` +
+        (gov.length ? `\n[治理] ${gov.join("；")}` : "") +
+        (children.length ? `\n子空间: ${children.map((c) => c.id).join(", ")}` : ""),
+    );
   }
   return `asp.index: 空间 "${space}" 暂无索引构造器`;
 }

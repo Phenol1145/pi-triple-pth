@@ -442,18 +442,56 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         return undefined;
       }
       if (tool === "asp_create") {
-        // ASP-6：空间生成（仅元空间——asp.create 是元工具）
-        if (currentSpace() !== "meta") {
+        // 空间治理 v2（2026-08-12 用户裁决批 3）：meta 禁建子空间（凭据根级固化——顶层空间是
+        // 系统内置的凭据模板，不由 LLM 演化）；创建在声明 allowChildren 的父空间内进行。
+        if (currentSpace() === "meta") {
           messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: "asp.create 仅元空间可用——先 asp_cd(\"meta\")" });
+            content: "asp.create 拒绝：meta 空间禁建子空间（凭据根级固化——顶层空间是系统内置凭据模板，不由 LLM 演化）。请在声明 allowChildren 的父空间内创建（asp.index 查看空间树与表单）。" });
+          return undefined;
+        }
+        const parentDef = spaceRegistry.get(currentSpace());
+        if (!parentDef || parentDef.allowChildren !== true) {
+          const form = parentDef?.childParams?.length
+            ? `（childParams 表单: ${parentDef.childParams.map((p) => `${p.name}${p.required ? "*" : ""}`).join("/")}）`
+            : "";
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp.create 拒绝：空间 "${currentSpace()}" 未声明 allowChildren（不可建子空间）${form}——asp.index 查看可建空间` });
           return undefined;
         }
         const id = String(args["id"] ?? "").trim();
         const execTool = String(args["execTool"] ?? "").trim();
         const desc = String(args["description"] ?? "").trim();
+        const memoryScope = String(args["memoryScope"] ?? "").trim();
         if (!/^[a-z0-9-]{1,32}$/.test(id)) {
           messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
             content: `asp.create: id 非法（小写字母数字连字符 ≤32）——got "${id}"` });
+          return undefined;
+        }
+        // 深度校验：子空间深度 = 父深度 + 1 ≤ 父 maxDepth
+        const childDepth = spaceRegistry.depthOf(currentSpace()) + 1;
+        if (parentDef.maxDepth !== undefined && childDepth > parentDef.maxDepth) {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp.create 拒绝：深度 ${childDepth} 超过父空间 maxDepth=${parentDef.maxDepth}（空间树已到最大深度）` });
+          return undefined;
+        }
+        // childParams 必填表单校验（缺字段 → 展示表单——索引即引导）
+        const missing = (parentDef.childParams ?? [])
+          .filter((p) => p.required && String(args[p.name] ?? "").trim() === "")
+          .map((p) => p.name);
+        if (missing.length > 0) {
+          const form = (parentDef.childParams ?? [])
+            .map((p) => `  - ${p.name}${p.required ? "（必填）" : "（可选）"}: ${p.description ?? ""}`).join("\n");
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp.create 拒绝：缺必填参量 [${missing.join(", ")}]。子空间凭据表单（${currentSpace()} 空间声明）：\n${form}` });
+          return undefined;
+        }
+        // extraTools 收窄（子空间工具族 ⊆ 父空间——只能收窄不能扩权）
+        const extraRaw = String(args["extraTools"] ?? "").trim();
+        const parentExtra = parentDef.extraTools ?? [];
+        const extraTools = extraRaw ? extraRaw.split(/[,\s]+/).filter(Boolean) : undefined;
+        if (extraTools && extraTools.some((t) => !parentExtra.includes(t))) {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp.create 拒绝：extraTools 只能收窄不能扩权——可用工具族 ⊆ 父空间（${parentExtra.length ? parentExtra.join("/") : "无——子空间不得挂工具族"}）` });
           return undefined;
         }
         try {
@@ -462,7 +500,13 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
             execTool: execTool.replace(/\./g, "_"),   // 归一为下划线形
             skeleton: typeof args["skeleton"] === "string" ? args["skeleton"] : undefined,
             description: desc,
-            parent: "meta",
+            parent: currentSpace(),
+            extraTools,
+            memoryScope: memoryScope || parentDef.memoryScope,   // 缺省继承父空间记忆域
+            // 治理继承（批 3）：allowChildren/maxDepth 沿父链继承——深度封顶连续（dev maxDepth=2 两代封顶），
+            // 子空间不会凭白获得/丢失建子空间权（只能收窄不能扩权）
+            allowChildren: parentDef.allowChildren,
+            maxDepth: parentDef.maxDepth,
           });
         } catch (e) {
           messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
@@ -470,17 +514,20 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
           return undefined;
         }
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `空间 ${id} 已注册（execTool=${execTool}）——asp_cd("${id}") 可进入` });
+          content: `子空间 ${id} 已注册（父=${currentSpace()} execTool=${execTool}${memoryScope ? ` memoryScope=${memoryScope}` : ""}）——asp_cd("${id}") 可进入` });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `create → ${id}` });
         return undefined;
       }
       if (tool === "asp_destroy") {
-        if (currentSpace() !== "meta") {
+        // 位置约束：meta 兜底（注销任何非内置）+ 子空间的父空间内可注销自己的子空间
+        const id = String(args["id"] ?? "").trim();
+        const target = spaceRegistry.get(id);
+        const here = currentSpace();
+        if (here !== "meta" && target?.parent !== here) {
           messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: "asp.destroy 仅元空间可用——先 asp_cd(\"meta\")" });
+            content: `asp.destroy 拒绝：仅子空间的父空间（或 meta 兜底）可注销——"${id}" 的父空间是 ${target?.parent ?? "(不存在)"}，当前在 ${here}` });
           return undefined;
         }
-        const id = String(args["id"] ?? "").trim();
         try {
           const ok = spaceRegistry.unregister(id);
           if (!ok) {
@@ -633,7 +680,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       return { ok: false, error: `未知工具 ${tool}`, steps: steps + 1 };
     }
     try {
-      const result = await executor({ kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore }, args);
+      const result = await executor(
+        { kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore, space: aspMode ? aspSession.currentSpace : undefined },
+        args,
+      );
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
       // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用
       const resultKey = `result_${steps + 1}`;

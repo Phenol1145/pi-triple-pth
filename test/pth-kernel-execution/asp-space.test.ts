@@ -220,41 +220,49 @@ describe("ASP 门控归一化（e2e 实测发现——点形工具名绕过）",
   });
 });
 
-describe("asp.create / asp.destroy（空间生成/注销——数据驱动注册面）", () => {
-  it("create 注册新空间 → cd 可进入 → destroy 注销后不可进入", async () => {
+describe("asp.create / asp.destroy（空间生成/注销——治理 v2）", () => {
+  it("dev 空间内 create 子空间（childParams 表单）→ cd 可进入 → 回 meta destroy（兜底）注销后不可进入", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      // 元空间 create 自定义空间
-      { toolCalls: [{ name: "asp_create", arguments: { id: "matlab", execTool: "matlab_exec", description: "MATLAB 风格计算空间" } }] },
-      // cd 进入自定义空间（execTool 无 schema → 门控提示但仍可进入）
+      // 迁移到 dev 生产空间（allowChildren=true 的唯一内置空间）
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "dev" } }] },
+      // dev 内创建隔离子空间（childParams 必填表单：execTool/memoryScope/description）
+      { toolCalls: [{ name: "asp_create", arguments: { id: "matlab", execTool: "matlab_exec", memoryScope: "dev-sandbox", description: "MATLAB 风格隔离计算子空间" } }] },
+      // cd 进入自定义子空间
       { toolCalls: [{ name: "asp_cd", arguments: { space: "matlab" } }] },
-      // 回 meta destroy
+      // 回 meta destroy（meta 兜底注销任何非内置）
       { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
       { toolCalls: [{ name: "asp_destroy", arguments: { id: "matlab" } }] },
       { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 12 });
     expect(r.ok).toBe(true);
-    // 注册/注销各发生一次
     expect(spaceRegistry.get("matlab")).toBeUndefined();   // 注销后不残留
   });
 
-  it("create 非法 id → 拒绝；destroy 内置空间 → 拒绝", async () => {
+  it("meta 禁建子空间 → 拒绝；childParams 缺必填 → 拒绝；destroy 内置空间 → 拒绝", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
-      { toolCalls: [{ name: "asp_create", arguments: { id: "Bad ID!", execTool: "x_exec", description: "非法" } }] },
+      // 元空间直接 create → 禁建拒绝
+      { toolCalls: [{ name: "asp_create", arguments: { id: "x1", execTool: "x_exec", description: "在 meta 建" } }] },
+      // dev 内 create 缺 childParams 必填（memoryScope）→ 表单拒绝
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "dev" } }] },
+      { toolCalls: [{ name: "asp_create", arguments: { id: "x2", execTool: "x_exec", description: "缺 memoryScope" } }] },
+      // destroy 内置空间（dev 内——父空间领地对内置无效）
       { toolCalls: [{ name: "asp_destroy", arguments: { id: "ts" } }] },   // 内置空间保护
       { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
     ]);
-    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 6 });
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
     expect(r.ok).toBe(true);
     expect(spaceRegistry.get("ts")).toBeDefined();   // 内置未删
+    expect(spaceRegistry.get("x1")).toBeUndefined();   // meta 禁建未注册
+    expect(spaceRegistry.get("x2")).toBeUndefined();   // 缺表单未注册
     // 拒绝消息回填给了 LLM（工具结果含拒绝文案）
     const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
-    const secondMsgs = calls[1]![0] as Array<{ role: string; content: string }>;
-    const toolContents = secondMsgs.filter((m) => m.role === "tool").map((m) => m.content).join("\n");
-    expect(toolContents).toContain("id 非法");
-    expect(toolContents).toContain("不可注销");
+    const allTool = calls.slice(1).flatMap((c) => (c[0] as Array<{ role: string; content: string }>).filter((m) => m.role === "tool").map((m) => m.content)).join("\n");
+    expect(allTool).toContain("meta 空间禁建子空间");
+    expect(allTool).toContain("缺必填参量");
+    expect(allTool).toMatch(/仅子空间的父空间|不可注销/);   // destroy 内置：位置约束或 builtin 保护任一拦截
   });
 });
 
