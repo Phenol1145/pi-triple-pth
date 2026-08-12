@@ -159,13 +159,16 @@ export class PgMemoryStore {
   ): Promise<void> {
     const keys = Object.keys(deltas);
     if (keys.length === 0) return;
-    // 增量表达式：每个键 = content 现值 + 增量（缺省 0）
-    const parts = keys.map((k, i) => `'${k}', COALESCE((content::jsonb->>'${k}')::numeric, 0) + $${i + 1}`);
+    // 两套表达式：INSERT（新行——纯增量值）；UPDATE（现值 + 增量——jsonb || 合并）。
+    // ⚠ VALUES 分支不能引用 content 列（新行无列值——2026-08-12 实机修复：INSERT 用纯参数）
+    const insertParts = keys.map((k, i) => `'${k}', $${i + 1}`);
+    // ⚠ 表名限定（memory_entries.content）——SET 目标列与 RHS 同名列歧义（2026-08-12 实机修复）
+    const updateParts = keys.map((k, i) => `'${k}', COALESCE((memory_entries.content::jsonb->>'${k}')::numeric, 0) + $${i + 1}`);
     await this.pool.query(
       `INSERT INTO memory_entries (id, tenant_id, kind, status, content, anchors, meta, created_at, updated_at)
-       VALUES ($1, 'default', $2, 'official', jsonb_build_object(${parts.join(", ")})::text, $3::jsonb, $4::jsonb, now(), now())
+       VALUES ($1, 'default', $2, 'official', jsonb_build_object(${insertParts.join(", ")})::text, $3::jsonb, $4::jsonb, now(), now())
        ON CONFLICT (id) DO UPDATE SET
-         content = (content::jsonb || jsonb_build_object(${parts.join(", ")}))::text,
+         content = (content::jsonb || jsonb_build_object(${updateParts.join(", ")}))::text,
          updated_at = now()`,
       [id, kind, JSON.stringify(anchors ?? []), JSON.stringify(meta ?? {}), ...keys.map((k) => deltas[k])],
     );
