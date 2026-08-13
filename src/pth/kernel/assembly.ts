@@ -1,6 +1,6 @@
 import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
-import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles } from "./execution/worker-cluster.js";
+import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles } from "./execution/worker-cluster.js";
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { createKernelLogger } from "./logger.js";
