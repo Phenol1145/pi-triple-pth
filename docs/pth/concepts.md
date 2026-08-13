@@ -267,7 +267,7 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 
 ---
 
-## 1. 系统定位
+## 1. 系统定位（v2）
 
 **PTH = 服务器端任务内核。**
 
@@ -277,181 +277,247 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
            自我调节（控制论外环）    按需优化（JIT 内环）
 ```
 
-一句话：**把工作正交分解给专职角色，每个角色用最小工具面闭环完成任务，系统用闭环机制持续优化自己——所有自改变经过人工裁决闸门。**
+一句话：**把工作正交分解给专职角色，每个角色在它的空间里以最小工具面闭环完成任务（空间导航），系统用多级闭环持续优化自己——所有自改变经过人工裁决闸门。**
+
+理论→定位：§0.9 空间导航是执行隐喻；§0.6 多级闭环是演化隐喻；两者经"硬性分解规范"衔接。
 
 ---
 
-## 2. 概念词表（按域组织）
+## 2. 概念词表（v2——按理论坐标重构）
 
-### 域 A：任务与角色（世界构成）
+> 每个域标注理论坐标（§0 五节）与实现落点。术语统一：本表为唯一词表。
 
-| 概念 | 定义 |
-|---|---|
-| **任务（task）** | 最小工作单元：标题/文本/标签 → 路由到角色 |
-| **任务池** | 排队容器——claim 认领制（回收重领） |
-| **路由（routing）** | 标签 → 角色匹配（task-resolver） |
-| **角色（worker type）** | 正交分工的执行者定义：id / tags / prompt / thinking / capabilities / actionTools / description |
-| **worker** | 角色实例（进程循环：peek → claim → run → 再 peek） |
-| **谱系（lineage）** | 角色的父子分化树（origin → 3 支 → n 级） |
-| **分化（differentiation）** | 新角色从父角色派生——提案 → 裁决 → 注册 |
-| **worker-index** | 可用角色清单（全员注入 + 记忆条目——规划/路由的依据） |
+### 域 A：任务与角色（理论坐标：0.1 思考量分摊 · 0.9.3 硬性分解规范）
 
-### 域 B：知识（记忆体系）
+| 概念 | 定义 | 落点 |
+|---|---|---|
+| **任务（task）** | 最小工作单元：标题/文本/标签/路由/meta | routes-trigger |
+| **任务上下文（task ctx）** | 任务的完整上下文载体（tag/route/meta/附加约束）——渐进降输入的接入口 | task payload |
+| **任务状态机** | pending → claimed → completed / rejected（claim 回收重领——超时回收） | task-store-pg |
+| **任务约束** | maxSteps / 超时——任务级执行上限 | agent-loop |
+| **任务池** | 排队容器——claim 认领制 | task-store-pg |
+| **路由（routing）** | 标签 → 角色匹配——任务正交路由 | task-resolver · role-router |
+| **角色（worker type）** | 正交分工的执行者定义：id / tags / prompt / thinking / capabilities / actionTools / description / model | worker-cluster · default-roles |
+| **worker** | 角色实例（进程循环：peek → claim → run）——无状态上下文（任务结束清零——0.9.4） | worker-cluster |
+| **worker 生命周期** | fork 子进程 / 热上线广播 / 重启恢复（role-register 幂等） | worker-cluster · assembly |
+| **batch** | worker 拓扑：角色×副本数（7×1 默认 / PTH_WORKER_ROLES 配比）——同角色单副本=串行 | batch-process |
+| **谱系（lineage）** | 角色父子分化树（origin → 3 支 → n 级）——权威源=official proposal | routes-lineage |
+| **分化（differentiation）** | 新角色从父角色派生——提案 → 裁决 → 注册 | worker-cluster |
+| **worker-index** | 可用角色清单（注入规划系 + 记忆条目——路由/协作依据——0.8 锚点实例） | worker-cluster |
 
-| 概念 | 定义 |
-|---|---|
-| **记忆（memory）** | PTH 共享知识层——SQL 表 `memory_entries`（先查后写） |
-| **role-doc** | 角色文档——人设/职责/任务类型/产物约定 |
-| **能力索引（capability-index）** | 能力函数清单（按角色 capabilities 裁剪注入） |
-| **worker-index** | 角色清单（按需注入——域 A 通道的文档形态） |
-| **洞察（insight）** | 可复用经验（task-insight / tool-function） |
-| **知识分层** | 条目 status 分级：protected 受保护 / official 官方 / proposal 提案 / draft 草稿 |
-| **污染防线** | 写入前断言与注册表核对——矛盾拒写（"X 无工具"类） |
-| **project-map** | 代码库结构地图（找文件用——生成脚本维护） |
+### 域 B：知识（理论坐标：0.8 锚点-原文 · 0.9.2 上下文-空间绑定）
 
-### 域 C：空间与工具面
+| 概念 | 定义 | 落点 |
+|---|---|---|
+| **记忆（memory）** | PTH 共享知识层——SQL 表 `memory_entries`——**记忆空间**（0.9.1） | memory.ts |
+| **记忆查询** | SQL（memory.query）——锚点→原文的展开通道 | memory.ts |
+| **知识分层** | 条目 status：protected 受保护 / official 官方 / proposal 提案 / draft 草稿 | memory-policy |
+| **可见性策略** | 谁可见什么（读侧分层——与 status 写侧对应） | memory-visibility |
+| **role-doc** | 角色文档（人设/职责/任务类型/产物约定）——原文（锚点=id） | memory 条目 |
+| **能力索引（capability-index）** | 能力函数清单——分节裁剪注入（## 基础/## memory/## fs/…） | prompt-docs |
+| **worker-index** | 角色清单（域 A 的文档形态） | worker-cluster |
+| **project-map** | 代码库结构地图 | gen-project-map |
+| **索引（index 工具族）** | 空间顶层视图——锚点列表（memory.index/asp.index） | agent-tools |
+| **洞察（insight）** | 可复用经验（task-insight / tool-function）——返回简报的沉淀形态 | memory |
+| **聚合（aggregate）** | 数值型记忆原子累加（incrementAggregate——jsonb upsert 防 lost update） | memory-store-pg |
+| **注入模式** | eager（全文入前缀——稳定高频）/ lazy（指针——0.8 锚点模式）/ auto | agent-loop |
+| **污染防线** | 写入断言与注册表核对——矛盾拒写 | memory-policy |
+| **归档（两种）** | ① 任务归档：产物存 artifacts 卷 ② 记忆归档：controller:memory 的整理（两个不同概念） | task-loop / controller |
 
-| 概念 | 定义 |
-|---|---|
-| **空间（space）** | 工具面容器（asp 模式：创建/切换/白名单） |
-| **工具面（actionTools）** | 角色可调用工具白名单 |
-| **三重交集** | 声明（角色 capabilities）∩ 空间面 ∩ 能力函数——运行时实际可用面 |
-| **pick_tools** | 元工具——声明下一轮工具面（动态裁剪） |
-| **场景化描述** | 工具 description 三要素：【场景锚点】/ 何时用 / 效果预告 + 反模式 |
-| **别名表** | 直觉名 → 真实工具名映射（write_doc→file.write 等） |
-| **未知工具引导** | 回填别名/引导替代方案——不直接判失败 |
-| **最小工具面** | 目标驱动裁剪——目标-动作映射（动作面裁剪规则） |
+### 域 C：空间与工具面（理论坐标：0.9.1 动作空间 · 0.7 核心区编排 · 0.8 工具锚点）
 
-### 域 D：进化（闭环与 JIT）
+**概念澄清（v2 核心修正）："工具"是双层概念——**
 
-| 概念 | 定义 |
-|---|---|
-| **控制论外环** | 慢环——sensor 观测 → controller 裁决 → actuator 执行 |
-| **传感器（sensor）** | 观测者（worker-opt / system-opt / memory / resource）——scorecard 聚合快照 + obs.callpoint |
-| **控制器（controller）** | 裁决者（router / worker-opt / pth-opt / resource / memory）——官方化 / 拒绝 / 合并 |
-| **提案（proposal）** | 调节建议——draft → 裁决 → official |
-| **审批面（A/B/C）** | 人工闸门：A 代码层 / B scorecard 聚合快照 / C 角色注册 |
-| **JIT 内环** | 快环——optimizer-loop：收集 → propose → apply → verify |
-| **deopt 回滚** | JIT 劣化自动撤销（成熟=基线后窗口；劣化 = failRate/steps 升 50%+） |
-| **时间复用率** | 并行度指标 = 1 − 关键路径任务数 / 总任务数 |
-| **执行器（actuator）** | 闭环执行者——把官方建议落为实际修改 |
+| 层 | 定义 | 例 |
+|---|---|---|
+| **能力函数（PTC）** | ts 程序内可调用的函数——能力空间 | memory.query / fs.readSource / bash |
+| **LLM 工具调用** | 模型函数调用协议里的 tool（带 JSON schema） | bash_run / asp.index / dev.write |
+| **核（kernel）** | 执行后端——bash / python / ts / fs（工具族 toolFamily 的根基） | interpreter/ |
 
-### 域 E：执行防护（防失控）
+| 概念 | 定义 | 落点 |
+|---|---|---|
+| **动作空间** | 所有可做动作的集合——索引基础（0.9.1） | asp.index |
+| **空间（space）** | 动作空间的分区容器——生命周期：创建 → 使用 → 持久化 → 恢复（或归档） | space-registry |
+| **空间层级** | 空间树——逐级展开（根 → 空间 → 工具） | space-index |
+| **上下文-空间绑定** | 切入空间 → 上下文只装该空间内容（工具面随之切换） | ASP 模式 |
+| **工具面（actionTools）** | 角色可用 LLM 工具白名单 | agent-tools |
+| **三重交集** | 声明（capabilities）∩ 空间面 ∩ 能力函数 = 实际可用面 | agent-tools |
+| **最小工具面** | 目标驱动裁剪——目标-动作映射 | 动作面裁剪规则 |
+| **pick_tools** | 元工具声明下一轮工具面（空间切换重置；空数组恢复默认） | agent-tools |
+| **场景化描述** | 工具 description 三要素锚点：【场景锚点】/ 何时用 / 效果预告 | agent-tools |
+| **别名表** | 直觉名 → 真实工具名映射 | agent-tools |
+| **未知工具引导** | 回填别名/引导——不直接判失败 | agent-loop |
+| **特殊空间** | write / dev（白名单语义特殊——write 族裁剪教训） | write-space |
 
-| 概念 | 定义 |
-|---|---|
-| **负结果收敛** | 同工具族+同目标连续负结果：N=3 引导（换策略）/ N=5 强制终止 |
-| **参数指纹** | 连续相同动作检测（参数级——与负结果收敛并存互补） |
-| **探索纪律** | 先查（memory → 能力索引 → 源码）后试——不盲探测 |
-| **五步工作流** | 理解 → 探索 → 执行 → 产物 → done（共享世界观） |
+### 域 D：进化（理论坐标：0.6 控制论×JIT · 0.9.3 易监督）
 
-### 域 F：协作（对外）
+| 概念 | 定义 | 落点 |
+|---|---|---|
+| **scorecard** | 每任务计分卡（步数/tokens/失败率/cacheRead/timeReuse）——外环数据根基 | worker-scorecard |
+| **scorecard 聚合快照** | 审批面 B——原子 upsert 聚合视图 | memory-store-pg |
+| **观测（obs）** | sensor 上报通道（obs.callpoint / aggregate 优先） | obs.ts |
+| **传感器（sensor）** | 观测者（worker-opt / system-opt / memory / resource） | default-roles |
+| **控制器（controller）** | 裁决者×5（router / worker-opt / pth-opt / resource / memory）——official/reject/merge | default-roles |
+| **执行器（actuator）** | 把 official 提案落为实际修改 | default-roles |
+| **提案（proposal）** | 调节建议——draft → 裁决 → official；类型学：differentiation（角色）/ optimizer-suggestion（JIT）/ 资源方案 | optimizer-loop |
+| **审批面（A/B/C）** | 人工闸门：A 代码层 / B scorecard 快照 / C 角色注册 | gateway · 监督层 |
+| **控制论外环** | 慢环——sensor 聚合 → controller 裁决 → 审批面 → actuator 应用（批次/小时级） | optimizer-loop |
+| **JIT 内环** | 快环——collect → propose → apply → verify（任务/分钟级） | optimizer-apply |
+| **资源环（第三级）** | 更慢环——资源调参（batch/核池/模型配比——perf-autopilot） | controller:resource |
+| **防护环（第零级）** | 单步制动——负结果收敛/参数指纹（秒级——域 E） | agent-loop |
+| **deopt 回滚** | JIT 劣化 50%+ 自动撤销（baseline 对比 + rolled_back） | optimizer-apply |
+| **时间复用率** | 1 − 关键路径任务数/总任务数——计划并行度 | worker-scorecard |
+| **反模式（hotspot）** | repeated-fail / no-progress / gate-heavy / token-bloat——JIT 热点 | optimizer-loop |
 
-| 概念 | 定义 |
-|---|---|
-| **hook（pth-notify）** | PTH 完成/失败 → POST → PTL 扩展收 → 通知 + 会话消息注入 |
-| **扩展（ext）** | toolstore 插件——capability 注入（登录态/互联网/数据库…） |
-| **异步模式** | 派发不阻塞主会话——推送唤醒（subagent 式体验） |
-| **渐进降输入** | 任务文本只写核心意图——上下文靠 PTH 内部状态自取 |
+### 域 E：执行防护（理论坐标：0.9.4 有界上下文 · 0.6 稳定性）
+
+| 概念 | 定义 | 落点 |
+|---|---|---|
+| **五步工作流** | 理解 → 探索 → 执行 → 产物 → done（共享世界观） | PTH_WORKER_SYSTEM |
+| **探索纪律** | 先查（memory → 能力 → 源码）后试 | 世界观 |
+| **负结果收敛** | 同工具族+同目标连续负结果：N=3 引导 / N=5 终止（语义正则+路径模式化） | agent-loop |
+| **参数指纹** | 连续相同动作检测（与负结果收敛并存互补） | agent-loop |
+| **步数上限** | maxSteps 强制终止（负结果收敛之外的兜底） | agent-loop |
+| **LLM 超时保护** | 调用级超时（防模型挂起循环冻结） | agent-loop |
+| **上下文压缩** | context-compaction——压中间历史（0.7 位置效应） | context-compaction |
+| **token 缓存** | prompt cache 命中链路（llm-fn → scorecard cacheRead——前缀稳定 0.7.2） | llm-fn |
+| **claim 回收** | 认领超时回收重领（任务级防护） | task-store-pg |
+| **引导注入位** | N=3 引导注入会话结尾（0.7 高注意力区） | agent-loop |
+
+### 域 F：协作（理论坐标：0.9.3 简报/监督 · 0.9.4 主会话有界化）
+
+| 概念 | 定义 | 落点 |
+|---|---|---|
+| **PTL↔PTH 桥（bridge）** | 程序提交通道（主会话 → PTH 的派发通道） | packages/framework |
+| **任务派发（submit）** | pth-cli submit——异步模式（派发不阻塞） | scripts/pth-cli |
+| **产物交付（artifacts）** | 产物归档到卷 → 宿主机提取（docker cp）——协作交付物 | task-loop archive |
+| **hook（pth-notify）** | PTH 完成/失败 → POST → PTL 扩展 → 通知+会话消息注入（subagent 式唤醒） | task-loop · 扩展 |
+| **扩展（ext）** | toolstore 插件——capability 注入（经 caps 白名单门控） | ext-registry |
+| **扩展安全边界** | EXEC_TOOL_CAP 门控——ext 能力与执行核映射校验 | capability |
+| **监督层（人）** | 审批面裁决者——协作主体（不在自动化环内） | 审批面 A/B/C |
+| **异步模式** | 派发不阻塞主会话——推送唤醒 | pth-cli · hook |
+| **渐进降输入** | 任务文本只写核心意图——上下文靠 PTH 内部状态自取 | 任务派发规范 |
 
 ---
 
-## 3. 概念关系（主干）
+## 3. 概念关系（v2）
 
 ```
 【执行主干】
-  任务 ──路由──▶ 角色 ──claim──▶ worker ──五步工作流──▶ 产物 ──提交──▶ 应用
-   ▲                │                │
-   └─ worker-index  │                ├─ system prompt 注入：世界观+角色文档+角色清单+能力索引
-    (派发依据)       └─ 谱系分化      └─ 工具面：三重交集 + pick_tools + 场景化描述
+  任务 ──路由──▶ 角色 ──claim──▶ worker（batch 副本×N）──五步工作流──▶ 产物 ──提交──▶ 应用
+   ▲                │                  │
+   └─ worker-index  │                  ├─ system prompt：世界观→角色文档→角色清单→能力文档→任务标题
+    (派发依据)       └─ 谱系分化        └─ 动作空间导航：asp.index → 切入空间 → 三重交集工具面
 
 【演化主干】
-  scorecard ──sensor 聚合──▶ 观测 ──controller 裁决──▶ 提案 ──审批面──▶ 应用
+  scorecard ──sensor 聚合──▶ 观测 ──controller 裁决──▶ 提案 ──审批面──▶ actuator 应用
       ▲                                                        │
       └──── deopt 回滚 ◀── 劣化 50%+ ◀── verify 复测 ◀──────────┘
+  （第零环：agent-loop 防护 · 内环：JIT · 外环：控制论 · 第三环：资源）
 
-【防护主干】（贯穿执行全程）
-  负结果收敛 · 参数指纹 · 探索纪律 · 未知工具引导 · 洞察污染防线
+【知识主干】
+  记忆空间 ──锚点（index/worker-index/role-doc id）──▶ 按需展开（memory.query）──▶ 原文
+  洞察 ──返回简报──▶ 沉淀（task-insight）──▶ 后续任务锚点
 
 【协作主干】
-  PTH 完成 ──hook──▶ PTL 主会话（推送 + 消息注入）──▶ 用户裁决
+  主会话 ──bridge──▶ 任务池 ──...──▶ 完成 ──hook──▶ 主会话（推送+注入）──▶ 用户裁决
 ```
 
 ---
 
-## 4. 设计原则（从机制提炼——每条带依据）
+## 4. 设计原则（v2——从理论推导）
 
-1. **正交分工** —— 角色谱系分化，任务正交路由。（谱系树 / 标签制）
-2. **先查后试** —— 探索纪律：memory → 能力索引 → 源码。（五步工作流 / capability-index）
-3. **最小信息原则** —— 工具面裁剪 / pick_tools / 场景化描述 / 渐进降输入。上下文成本即质量成本。（三轮描述实验：15 步 117K）
-4. **负反馈收敛** —— 一切失控都有制动：负结果收敛 / 参数指纹 / deopt 回滚。（agent-reach 279 步教训）
-5. **人工裁决闸门** —— 自修改永不自动：审批面 A/B/C。（体系自制闭环）
-6. **数据驱动调节** —— 调节有度量依据：scorecard 聚合 / 时间复用率 / obs.callpoint。
-7. **异步协作** —— 任务循环不阻塞主会话——hook 推送唤醒。（异步模式）
-8. **持久化优先** —— 空间/角色/洞察落库——重启恢复。（空间持久化 / 官方 proposal 重建）
-9. **权威谱系源** —— official proposal 是谱系真相源——重启从它重建。（重建幂等）
+1. **正交分工**（0.1 思考量分摊 + 0.9.3 分解规范）
+2. **先查后试**（0.8 锚点-原文——探索纪律）
+3. **锚点先行**（0.8——默认只提供锚点，原文按需展开；部署层 PTH_AGENT_MODE=lazy）
+4. **最小信息原则**（0.1 专注度 + 0.7 核心区寸土寸金——工具面裁剪/描述密度/降输入）
+5. **负反馈收敛**（0.6 稳定性——一切失控有制动：负结果收敛/参数指纹/deopt 回滚）
+6. **人工裁决闸门**（0.6.1 人在回路——自修改不自动生效；可逆微调 JIT 自动+deopt 制动）
+7. **数据驱动调节**（0.6 JIT——有观测证据才调节：scorecard/时间复用率/obs）
+8. **异步协作**（0.9.4——任务循环不阻塞主会话——hook 推送唤醒）
+9. **持久化优先**（0.9.2——空间/角色/洞察落库——重启恢复）
+10. **权威谱系源**（official proposal 是谱系真相源——重启从它重建）
+11. **时间尺度分离**（0.6.3——快环调微变、慢环调大变——环间不互相干扰）
 
 ---
 
-## 5. 机制 ↔ 概念映射（近期 18 提交）
+## 5. 机制 ↔ 概念映射（近 20 提交）
 
-| 提交 | 机制 | 主概念 | 原则 |
+| 提交 | 机制 | 主概念 | 理论/原则 |
 |---|---|---|---|
-| 33fa4db | 负结果收敛 | 负结果收敛 | 负反馈收敛 |
-| dec057f | PTH→PTL hook | hook | 异步协作 |
-| edf6b41 | worker-index | worker-index | 先查后试 |
-| 673a019 | planner 模型升级 | 角色（智力分层） | 正交分工 |
-| 1065316 | 洞察污染防线 / deopt 回滚 / 空间持久化 | 污染防线 / deopt / 空间 | 负反馈收敛 / 持久化优先 |
-| ab5b45a | 时间复用率 | 时间复用率 | 数据驱动调节 |
-| fefb741 | description 场景化 / 别名表 | 场景化描述 / 别名表 | 最小信息原则 |
-| 19badd9 | pick_tools 动态工具面 | pick_tools / 三重交集 | 最小信息原则 |
-| a260170 | 审计修复批（权限/SQL/缓存字段） | 三重交集 / 知识分层 | 人工裁决闸门 |
-| 9bb48cf | 审批面 B 聚合快照 | 审批面 / 传感器 | 数据驱动调节 |
-| 95a2d74 | 缓存命中率链路 | 传感器 | 数据驱动调节 |
-| c234884 | 官方 proposal 重建 / 角色热上线 | 权威谱系源 | 持久化优先 |
-| 1065316 前 | 鲁棒性/描述/工具面（更早批次同映射） | — | — |
+| 9c1cfc1..49764c7.. | 概念设计 §0 理论五节 | 理论层 | 全部 |
+| 673a019 | planner 模型升级 | 角色（智力分层） | 0.2 高低结合 |
+| edf6b41 | worker-index | worker-index | 0.8 锚点 |
+| 33fa4db | 负结果收敛 | 负结果收敛 | 0.6 稳定性 |
+| dec057f | PTH→PTL hook | hook | 0.9.4 异步 |
+| 1065316 | 污染防线/deopt/空间持久化 | 污染防线/deopt/空间生命周期 | 0.6/0.9.2 |
+| ab5b45a | 时间复用率 | 时间复用率 | 0.6 JIT |
+| fefb741 | description 场景化/别名表 | 场景化描述（0.8.2 锚点标准） | 0.8 |
+| 19badd9 | pick_tools | pick_tools/三重交集 | 0.7/0.8 |
+| a260170 | 审计修复批 | 三重交集/知识分层/扩展安全 | 0.6.1 |
+| 9bb48cf | 审批面 B 聚合 | scorecard 聚合快照 | 0.6 JIT |
+| 95a2d74 | 缓存链路 | token 缓存 | 0.7.2 |
+| c234884 | 官方 proposal 重建/热上线 | 权威谱系源/worker 生命周期 | 0.9.2 |
+| 更早 | 分层/审核/actuator/扩展生态 | — | — |
 
 ---
 
-## 6. 概念 → 代码地图（关键文件）
+## 6. 概念 → 代码地图
 
 | 概念 | 落点 |
 |---|---|
-| 任务池/claim | kernel/storage/task-store-pg.ts |
+| 任务池/状态机/claim | kernel/storage/task-store-pg.ts |
 | 路由 | kernel/execution/task-resolver.ts · role-router.ts |
-| 角色/谱系/worker-index | kernel/execution/worker-cluster.ts（+ impls/roles/default-roles.ts） |
-| 五步工作流/防护 | kernel/execution/agent-loop.ts（负结果收敛/参数指纹/pick_tools） |
+| 角色/谱系/batch/worker-index | kernel/execution/worker-cluster.ts · batch-process.ts（+ impls/roles/default-roles.ts） |
+| 五步工作流/防护/注入编排 | kernel/execution/agent-loop.ts |
 | 任务循环/提交/hook | kernel/execution/task-loop.ts（notifyTaskDone） |
-| 记忆/知识分层/污染防线 | kernel/extensions/memory.ts · memory-policy.ts |
-| 能力索引 | kernel/prompt-docs.ts（filterCapabilityDoc） |
-| 空间/工具面 | kernel/execution/space-registry.ts · agent-tools.ts |
-| 控制论外环 | kernel/execution/optimizer-loop.ts · observability/ |
-| JIT 内环 | kernel/execution/optimizer-apply.ts（deopt 回滚） |
+| 记忆/分层/可见性/聚合 | kernel/extensions/memory.ts · memory-policy.ts · memory-visibility.ts · storage/memory-store-pg.ts |
+| 能力索引/注入模式 | kernel/prompt-docs.ts · agent-loop.ts（buildAgentSystemPrompt） |
+| 空间/工具面/场景化描述 | kernel/execution/space-registry.ts · space-index.ts · agent-tools.ts |
+| 控制论外环/JIT/防护环 | kernel/execution/optimizer-loop.ts · optimizer-apply.ts · observability/ |
 | 审批面 | gateway/routes-lineage.ts（C）+ optimizer-loop（B）+ 监督层（A） |
-| 扩展 | kernel/extensions/ext-registry.ts · manage.ts |
-| 组装/恢复 | kernel/assembly.ts（空间/角色持久化恢复 + worker-index 维护） |
+| 扩展/安全门控 | kernel/extensions/ext-registry.ts · interpreter/ext-capability.ts |
+| 组装/恢复 | kernel/assembly.ts |
+| PTL 桥 | packages/framework/src/bridge/ |
+| 派发/异步 | scripts/pth-cli.ts |
 
 ---
 
-## 7. 演进脉络（v0.9 → 现在）
+## 7. 演进脉络
 
 ```
 v0.9（动作面/权限/任务池纯化）
  → v0.10（体系自制闭环：控制论×JIT + 审批面 + 空间持久化）
  → 工具调用模式优化（pick_tools + 场景化描述 + 别名表）
- → 鲁棒性三项（污染防线 / deopt 回滚 / 空间持久化）
- → 双视角审计 + 修复批
- → 扩展生态（agent-reach）
+ → 鲁棒性三项 · 双视角审计修复批 · 扩展生态（agent-reach）
  → 传感器行为分析 + controller 裁决（死循环机制）
- → 死循环落地（负结果收敛）· hook（异步协作）· worker-index · planner 升级
- →【当前】概念整合（本文件）+ agentic 测试集（建设中）
+ → 死循环落地 · hook · worker-index · planner 升级
+ →【当前】理论五节（§0）→ 概念重构 v2（本文件）+ agentic 测试集（建设中）
 ```
 
 ---
 
-## 8. 概念债务（整合时识别的待办）
+## 8. 设计张力清单与概念债务
 
-- [ ] 术语统一：role-doc / 工具 description 中的旧术语向本词表对齐
-- [ ] "工作流 SOP"——角色特定标准作业步骤尚未成为一等概念（下一步设计）
-- [ ] 双 storage 层（pth/storage vs kernel/storage）概念归属待定
-- [ ] 机制无单一索引（本文件 §5 是起点——后续机制落地先登记）
+### 8.1 设计张力（自相矛盾检查——待用户裁决）
+
+| # | 张力 | 双方 | 状态 |
+|---|---|---|---|
+| T1 | worker-index 全员注入 vs 专注度核心 | 执行类角色收到 22 行无关清单（0.7 核心区寸土寸金 vs 0.8 锚点） | ⚠️ 待裁决：改规划系注入+其他 lazy |
+| T2 | 代码缺省 eager vs 锚点先行原则 | agent-loop 缺省 eager（部署层 compose 已 lazy——但无 compose 部署会 eager 全文） | ⚠️ 建议：缺省改 lazy |
+| T3 | pick_tools 动态面 vs 缓存命中率 | 工具列表变→前缀变→缓存失效（0.7.2 已承认） | ⚠️ 需使用条件：何时值得牺牲缓存 |
+| T4 | JIT 自动 apply vs 审批面人工闸门 | 0.6.1"控制量不自动生效"vs optimizer-apply 自动 | ⚠️ 待分层裁决：可逆微调自动+deopt / 不可逆大变人工 |
+| T5 | 负结果收敛 N=5 终止 vs 合法多探测 | scout 侦察任务合法查多源——"同目标"路径归一可能误终止 | ⚠️ 需"同目标"判定边界 |
+| T6 | 空间持久化 vs 空间治理 | 临时空间永久化→治理负担增长（治理 v2 的裁剪与持久化的张力） | ⚠️ 需空间生命周期（临时/持久/归档） |
+| T7 | 记忆空间单调增长 vs 有界上下文 | 0.9.4 上下文有界，但记忆库无限增长 | ⚠️ controller:memory 归档未实装 |
+| T8 | 能力文档格式 vs 描述三要素锚点标准 | 两套描述标准（清单式 vs 三要素锚点） | ⚠️ 统一到锚点标准 |
+| T9 | 渐进降输入 vs 任务理解质量 | "最短指令"下界——核心意图必须完整到可分派 | 📌 边界条件（非矛盾） |
+| T10 | 环间同对象仲裁 | JIT 环与控制环作用于同一角色/空间——无仲裁机制 | ⚠️ 低优先级 |
+
+### 8.2 概念债务
+
+- [ ] T1-T10 裁决后落地（部分需代码修改：T1/T2 简单——T3/T4/T5/T6 需设计）
+- [ ] 术语统一：role-doc / 工具 description 旧术语向本词表对齐
+- [ ] 工作流 SOP——角色特定标准作业步骤还不是一等概念
+- [ ] 双 storage 层（pth/storage vs kernel/storage）归属待定
+- [ ] agentic 测试集（建设中——planner 规划已产出——执行按计划）
