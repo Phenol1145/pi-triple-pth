@@ -5,7 +5,7 @@ import { createDataWorld } from "../storage/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../../impls/kernels/index.js";
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
-import { DEFAULT_ROLES, GOVERNANCE_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById } from "./worker-cluster.js";
+import { DEFAULT_ROLES, GOVERNANCE_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles } from "./worker-cluster.js";
 import { getEventBus } from "./event-bus.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
@@ -162,10 +162,15 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       }
       process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
     } else if (msg?.type === "role-register" && msg.role && typeof msg.role === "object") {
-      // 分化上线（lineage approve）：batch 内注册新角色 + 创建 worker（树生长——即刻接任务）
+      // 分化上线（lineage approve）：batch 内注册新角色 + 创建 worker（树生长——即刻接任务）。
+      // 2026-08-13 幂等修复：fork 子进程继承主进程 extraRoles——恢复角色热上线时已在——
+      // 直接 createWorker（旧逻辑 registerWorkerRole 抛"已存在"被 catch 吞——worker 不创建）
       try {
-        registerWorkerRole(msg.role as never);
-        const roleDef = knownRoleById((msg.role as { id: string }).id);
+        const roleId = (msg.role as { id: string }).id;
+        if (!allWorkerRoles().some((r) => r.id === roleId)) {
+          registerWorkerRole(msg.role as never);
+        }
+        const roleDef = knownRoleById(roleId);
         if (roleDef) {
           createWorker(roleDef);
           process.send?.({ type: "worker-status", batchPid: process.pid, role: roleDef.id, state: "added", copies: 1, registered: true });

@@ -258,6 +258,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // 官方 proposal 恢复（2026-08-13 补录：持久化机制建立前 approve 的角色——重启丢失历史债务）。
   // 已 approved 的 differentiation-proposal → suggestedRole 缺省构造（与 routes-lineage 批准缺省逻辑一致：
   // tags=[roleId]、capabilities/thinking 继承 parent）→ registerWorkerRole + 落 worker-role 条目（幂等）。
+  const recoveredRoles: Array<{ id: string }> = [];   // 恢复角色清单（spawnBatch 后热上线）
   try {
     const approved = await dataWorld.memory.retrieve({ kinds: ["differentiation-proposal"], status: ["official"] });
     let rebuilt = 0;
@@ -276,13 +277,14 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
           prompt: `你是 ${sug.id}——${sug.specialization ?? "专门"}角色（从 ${sug.parent} 分化）。分化理由：${sug.rationale ?? "任务分化诱导"}。按 PTC 模式用 ts 程序组合能力完成——done 提交实际产物。`,
           description: sug.specialization ?? `${sug.id}（分化自 ${sug.parent}）`,
           thinking: parentRole?.thinking ?? "medium",
-          capabilities: parentRole?.capabilities,
+          capabilities: [...(parentRole?.capabilities ?? []), "ext"],   // 扩展通道是执行面基础（developer 同款）——spider 需 ext.use(agent-reach)
           acceptanceRole: "writer",
           parent: sug.parent,
           generation: (parentRole?.generation ?? 0) + 1,
           differentiation: sug.rationale ?? `proposal ${e.id} 分化诱导（重建）`,
         };
         registerWorkerRole(role as never);
+        recoveredRoles.push(role);
         await dataWorld.memory.write({
           id: `worker-role:${sug.id}`,
           kind: "worker-role",
@@ -308,6 +310,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
         const role = JSON.parse(e.content) as { id?: string; parent?: string; tags?: string[] };
         if (role?.id && role.parent && !allWorkerRoles().some((r) => r.id === role.id)) {
           registerWorkerRole(role as never);
+          recoveredRoles.push(role as { id: string });
         }
       } catch (e2) {
         assemblyLogger?.warn?.(`[assembly] worker-role 恢复失败 ${e.id}: ${(e2 as Error).message}`);
@@ -347,6 +350,16 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   try {
     const handle = await batchManager.spawnBatch();
     assemblyLogger?.info?.(`[assembly] 默认 batch 已启动（pid=${handle.pid} workers=${handle.workers.length}）`);
+    // 恢复角色热上线（2026-08-13：proposal 重建/worker-role 恢复的角色不在默认构成——
+    // 同 approve 流程 batchesSent——广播 role-register 即刻接任务）
+    // 延迟 1s：spawnBatch resolve 时子进程 IPC 监听可能未就绪（启动竞态——消息丢失实测）
+    await new Promise((r) => setTimeout(r, 1000));
+    for (const role of recoveredRoles) {
+      try {
+        const sent = batchManager.registerRoleToBatches(role as unknown as Record<string, unknown>);
+        if (sent > 0) assemblyLogger?.info?.(`[assembly] 恢复角色热上线 ${role.id}（${sent} batch）`);
+      } catch { /* 容忍 */ }
+    }
   } catch (e) {
     assemblyLogger?.error?.(`[assembly] 默认 batch 启动失败（可手动 batch add）: ${(e as Error).message}`);
   }
