@@ -681,7 +681,7 @@ v0.9（动作面/权限/任务池纯化）
  → 鲁棒性三项 · 双视角审计修复批 · 扩展生态（agent-reach）
  → 传感器行为分析 + controller 裁决（死循环机制）
  → 死循环落地 · hook · worker-index · planner 升级
- →【当前】理论五节（§0）→ 概念重构 v2（本文件）+ agentic 测试集（建设中）
+ →【当前】理论五节（§0）→ 概念重构 v2（本文件）→ 体系分账（§10 待建账本）+ agentic 测试集（建设中）
 ```
 
 ---
@@ -759,5 +759,5 @@ v0.9（动作面/权限/任务池纯化）
 | N7 | 记忆归档执行 | 0.8 · 域 B | manage.memory.archive 未实装 | sensor:memory / controller:memory 已有（T7） | ⚠️ 未实装 |
 | N8 | 空间生命周期 | 0.9.2 · 域 C | space-registry 无临时/持久/归档与 TTL | 治理 v2 承接（T6） | ⚠️ 未实装 |
 | N9 | 术语统一 | 域 B 全域 | api.md/deployment.md 残留 tenant；role-doc/工具 description 旧术语 | 百科类型落地同步 | ⚠️ 待执行 |
-| N10 | agentic 测试集 | 0.5 · 全域 | 建设中——planner 规划已产出 | 测试基线 1503 全绿 | 🏗️ 建设中 |
+| N10 | agentic 测试集 | 0.5 · 全域 | 规划 v2 在记忆库（official design-doc——28 子任务/3 族）；执行 4/28（T2 三轮通过 ✅ / T1·T3·T4 被拒 ❌——4 个 rejected 未消化）；24 子任务未派发；产物未入 git 文档树 | 测试基线 1503 全绿 | 🏗️ 建设中 |
 
