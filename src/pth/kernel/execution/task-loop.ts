@@ -138,6 +138,7 @@ export class TaskLoop {
       const agentMode = process.env.PTH_AGENT_MODE !== "off";
       let code: string | null = null;
       let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
+      let cacheStore: import("./cache-store.js").CacheStore | undefined;   // 任务完成点取利用率（N3）
       if (agentMode && this.deps.llm && this.deps.agentCaps) {
           // 任务工作区 = 正式工作区（workspaceMgr.allocate 的 ws.dir——archive 归档同一目录——
           // fs.task 白名单含 /tasks/ ✓——agent 产物随归档持久化——不丢）
@@ -149,13 +150,15 @@ export class TaskLoop {
           (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;  // refine 任务 3 输入
           // 随身缓存（ASP——任务级行李）：元空间级状态——agent-loop 元工具与 ts vm 注入同源
           const { CacheStore } = await import("./cache-store.js");
-          const cacheStore = new CacheStore();
+          cacheStore = new CacheStore();
+          const cs = cacheStore;   // 闭包内非空收窄（TS 控制流不穿透闭包）
           (kernel.ts as { injectCapability?: (n: string, v: unknown) => void }).injectCapability?.("cache", {
-            get: (k: string) => cacheStore.get(k),
-            keys: () => cacheStore.keys(),
-            load: (k: string, c: string) => cacheStore.load(k, String(c), "ts-program"),
-            cancel: (k: string) => cacheStore.cancel(k),
-            index: () => cacheStore.index(),
+            get: (k: string) => cs.get(k),
+            keys: () => cs.keys(),
+            load: (k: string, c: string) => cs.load(k, String(c), "ts-program"),
+            cancel: (k: string) => cs.cancel(k),
+            index: () => cs.index(),
+            utilization: () => cs.utilization(),
           });
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
@@ -165,7 +168,7 @@ export class TaskLoop {
             role,
             asp: process.env.PTH_ASP_MODE === "on",   // ASP 状态机（compose 默认 on——全件落地）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
-            cache: cacheStore,
+            cache: cs,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
             logger: (m) => taskLogger?.info(m),
             onTrace: (e) => {
@@ -274,6 +277,8 @@ export class TaskLoop {
             if (Array.isArray(subtasks) && subtasks.length > 0) {
               sc.timeReuse = computeTimeReuse(subtasks as Array<{ id?: string; dependsOn?: string[] }>);
             }
+            // 数据缓存利用率（2026-08-13 N3——0.11.4.2：scorecard 新指标——fast-path 无缓存为空）
+            if (cacheStore) sc.cacheUtilization = cacheStore.utilization();
             this.deps.optimizer.collect(sc, { role: role.id, taskId: task.id });
           } catch (e) {
             taskLogger?.error(`optimizer collect failed: ${(e as Error).message}`);

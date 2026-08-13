@@ -340,7 +340,7 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 |---|---|---|
 | 是什么 | 请求前缀命中——省输入 token 成本 | 模型主动把信息读入的存储夹 |
 | 场景 | 每轮 LLM 请求自动发生 | 机械化处理大量数据（读入→多步处理） |
-| 指标 | cacheHitRate（cacheRead/(cacheRead+非缓存输入)——已实现） | cacheUtilization（读入后是否使用——待实现） |
+| 指标 | cacheHitRate（cacheRead/(cacheRead+非缓存输入)——已实现） | cacheUtilization（读入后是否使用——✅ 2026-08-13 N3） |
 | 理论坐标 | 0.7.2 | 本节 |
 
 #### 0.11.2 数据缓存机制
@@ -356,13 +356,15 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | 缓存夹本体 | cache-store.ts（随身缓存——元空间级状态——随 asp.cd 携带——与空间本地状态严格区分） |
 | 容量约束 | 双上限（字符+条目）——load 超容拒绝 + cache.cancel 腾位——**背包约束**：迫使对信息价值做判断，防无限囤积 |
 | 生命周期 | 任务级（任务结束随会话消亡——持久化走 memory.save） |
-| ⚠️ 缺口 | **使用追踪缺失**——只有 set/load 无 get 计数——利用率不可算 |
+| ✅ 已补（2026-08-13 N3） | 使用追踪落地——get 命中标记 used → utilization()（字符量加权）→ scorecard.cacheUtilization + 聚合快照 |
 
 #### 0.11.4 设计含义
 
 1. cache-store 加使用追踪（key 级 loaded→used 配对）
 2. scorecard 新增 cacheUtilization（与 cacheHitRate 命名严格区分）
 3. sensor 观测新维度：**数据流效率**——低利用率=读入未用浪费信号——引导/JIT 优化缓存策略（0.6）
+
+> **（2026-08-13 N3 已落地）**：使用追踪 utilization() → scorecard.cacheUtilization + 聚合快照（sumCacheLoaded/sumCacheUsed）→ sensor:worker-opt 观测维度 + cache-waste 热点（窗口 ≥3 任务、载入 ≥500 字符、利用率 <50%）——§10 N3 勾销。
 
 ### 0.12 生态转化（外部生态接入流程）
 
@@ -477,7 +479,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | 类型 | 定义 | 治理 | 锚点形态 | 现有 kind |
 |---|---|---|---|---|
 | **设定（setting）**〔桥〕 | 系统不可变核心档案 | 修改走审批面（protected） | id 即锚点（role-doc:developer） | role-doc · capability-index · worker-index · pth-worker-system · worker-role · space-reg · project-map |
-| **百科（wiki）**〔新〕 | 术语解释——词表一致性 | 写入需词表校验（矛盾检测） | 术语即锚点 | ⚠️ 无实现（concepts.md 词表待条目化——§10 N1） |
+| **百科（wiki）**〔桥〕 | 术语解释——词表一致性 | 写入需词表校验（矛盾检测——§10 N1b） | 术语即锚点 | ✅ pth-wiki（2026-08-13 条目化——scripts/seed-wiki.ts 幂等可重跑） |
 | **skill**〔新〕 | 系统化描述怎么做某件事（SOP） | JIT 优化对象（版本化+deopt） | 场景锚点（三要素） | ⚠️ 无实现（工作流 SOP 债务落点——§10 N2） |
 | **日志（log）**〔桥〕 | 系统运行过程记录 | 只增 + 聚合/归档（T7） | 时间/任务锚点 | scorecard · transcript · audit · obs · task-insight |
 
@@ -561,7 +563,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **LLM 超时保护**〔旧〕 | 调用级超时（防模型挂起循环冻结） | agent-loop |
 | **上下文压缩**〔旧〕 | context-compaction——压中间历史（0.7 位置效应） | context-compaction |
 | **token 缓存**〔旧〕 | prompt cache 命中链路（llm-fn → scorecard cacheRead——前缀稳定 0.7.2） | llm-fn |
-| **数据缓存（cache 夹）**〔桥〕 | 模型主动读入的随身存储夹（load→get 反复取用——与 token 缓存严格区分——0.11） | cache-store.ts（使用追踪缺失——§10 N3） |
+| **数据缓存（cache 夹）**〔桥〕 | 模型主动读入的随身存储夹（load→get 反复取用——与 token 缓存严格区分——0.11） | cache-store.ts（使用追踪 ✅ utilization()——§10 N3 已勾销） |
 | **claim 回收**〔旧〕 | 认领超时回收重领（任务级防护） | task-store-pg |
 | **引导注入位**〔旧〕 | N=3 引导注入会话结尾（0.7 高注意力区） | agent-loop |
 
@@ -706,7 +708,7 @@ v0.9（动作面/权限/任务池纯化）
 ### 8.2 概念债务
 
 - [ ] T1-T10 裁决后落地（部分需代码修改：T1/T2 简单——T3/T4/T5/T6 需设计）
-- [ ] 术语统一：role-doc / 工具 description 旧术语向本词表对齐
+- [ ] 术语统一（剩余）：role-doc / 工具 description 旧术语向本词表对齐（tenant 为认证概念保留；pit→ptl 容器入口已修——§10 N9）
 - [ ] 工作流 SOP——角色特定标准作业步骤还不是一等概念
 - [ ] 双 storage 层（pth/storage vs kernel/storage）归属待定
 - [ ] agentic 测试集（建设中——planner 规划已产出——执行按计划）
@@ -723,7 +725,7 @@ v0.9（动作面/权限/任务池纯化）
 | **L1 worker 级** | 任务/角色 | steps 步数 | ✅ scorecard | sensor:worker-opt |
 | | | tokens in/out | ✅ | |
 | | | cacheRead/cacheWrite（token 缓存） | ✅ | |
-| | | cacheUtilization（数据缓存利用率） | ⚠️ 待加（0.11） | |
+| | | cacheUtilization（数据缓存利用率） | ✅ scorecard（2026-08-13 N3——字符量加权） | sensor:worker-opt |
 | | | failedActions / gated | ✅ | |
 | | | timeReuse（时间复用率） | ✅ | |
 | | | 行为轨迹（trace 步骤级） | ✅ onTrace | |
@@ -750,14 +752,15 @@ v0.9（动作面/权限/任务池纯化）
 
 | # | 新概念/机制 | 理论坐标 | 缺口 | 承接/关联 | 状态 |
 |---|---|---|---|---|---|
-| N1 | 百科记忆类型（词表条目化） | 0.8 · 域 B | 无实现——concepts.md 词表待条目化 | 污染防线（词表校验）· 术语统一债务 | ⚠️ 未实装 |
+| N1 | 百科记忆类型（词表条目化） | 0.8 · 域 B | ✅ 已实装（2026-08-13——kind=pth-wiki + scripts/seed-wiki.ts——87 条落库，幂等可重跑） | memory.query 按 anchors 检索 · 术语即锚点 | ✅ 已实装 |
+| N1b | 百科写入矛盾检测（词表校验） | 0.8 · 域 B | 写入时新旧术语一致性校验未实装（治理列预留） | 污染防线（写侧断言）· N1 治理列 | ⚠️ 未实装 |
 | N2 | skill 记忆类型（工作流 SOP 一等化） | 0.8 · 0.12 · 域 B | 无实现 | JIT 优化对象（版本化+deopt）· 0.12 外部 skill 映射 | ⚠️ 未实装 |
-| N3 | 数据缓存使用追踪（cacheUtilization） | 0.11 · 域 E/域 D | cache-store 只有 set/load 无 get 计数 | scorecard 新指标 · sensor 观测（数据流效率） | ⚠️ 待加 |
+| N3 | 数据缓存使用追踪（cacheUtilization） | 0.11 · 域 E/域 D | ✅ 已实装（2026-08-13——get 命中标记 used→utilization()→scorecard+聚合快照+cache-waste 热点+sensor 观测维度；测试 10 全绿） | scorecard 新指标 · sensor 观测（数据流效率） | ✅ 已实装 |
 | N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.12 · 域 B/域 F | skill 无转化流程；MCP 无 | ext-registry（agent-reach 已验证） | ⚠️ 部分 |
 | N5 | 资源环采集（perf-autopilot） | 0.6.3 · 域 D · §9 | L3 容器级全缺；L2 worker 健康/DB 慢查询缺 | controller:resource 角色已有 | ❌ 未实装 |
 | N6 | 复测（verify）一等化 | 0.6.2 · 域 D | verifyAfterWindow 标志已有；独立复测任务未一等化 | optimizer-apply baseline/deopt | ⚠️ 半实装 |
 | N7 | 记忆归档执行 | 0.8 · 域 B | manage.memory.archive 未实装 | sensor:memory / controller:memory 已有（T7） | ⚠️ 未实装 |
 | N8 | 空间生命周期 | 0.9.2 · 域 C | space-registry 无临时/持久/归档与 TTL | 治理 v2 承接（T6） | ⚠️ 未实装 |
-| N9 | 术语统一 | 域 B 全域 | api.md/deployment.md 残留 tenant；role-doc/工具 description 旧术语 | 百科类型落地同步 | ⚠️ 待执行 |
+| N9 | 术语统一 | 域 B 全域 | ✅ 容器入口统一（2026-08-13——Dockerfile.sandbox /usr/local/bin/pit→ptl）；tenant 为认证租户概念保留（非残留——PTH sections preserved）；role-doc/工具 description 词表对齐为持续事项 | 百科类型落地同步（N1 ✅） | ✅ 已实装 |
 | N10 | agentic 测试集 | 0.5 · 全域 | 规划 v2 在记忆库（official design-doc——28 子任务/3 族）；执行 4/28（T2 三轮通过 ✅ / T1·T3·T4 被拒 ❌——4 个 rejected 未消化）；24 子任务未派发；产物未入 git 文档树 | 测试基线 1503 全绿 | 🏗️ 建设中 |
 

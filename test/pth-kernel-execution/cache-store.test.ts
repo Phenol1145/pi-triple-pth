@@ -48,4 +48,42 @@ describe("CacheStore（随身缓存——硬容量限制）", () => {
     expect(view).toContain("k1");
     expect(view).toContain("memory:e1");
   });
+
+  it("使用追踪：get 命中标记 used——利用率按字符量加权（0.11.2）", () => {
+    const c = new CacheStore({ maxChars: 1000, maxEntries: 10 });
+    c.load("a", "xx", "s");            // 2 字符
+    c.load("b", "yyy", "s");           // 3 字符
+    c.get("a");                        // 只用了 a
+    const u = c.utilization();
+    expect(u.loadedChars).toBe(5);
+    expect(u.usedChars).toBe(2);
+    expect(u.loadedEntries).toBe(2);
+    expect(u.usedEntries).toBe(1);
+    expect(u.ratio).toBe(0.4);
+  });
+
+  it("使用追踪：未 get 的条目算浪费（读入未用）", () => {
+    const c = new CacheStore({ maxChars: 100, maxEntries: 5 });
+    c.load("only", "abcdef", "s");
+    expect(c.utilization()).toEqual({ loadedChars: 6, usedChars: 0, loadedEntries: 1, usedEntries: 0, ratio: 0 });
+  });
+
+  it("使用追踪：index 视图含利用率行", () => {
+    const c = new CacheStore({ maxChars: 100, maxEntries: 5 });
+    c.load("k1", "abc", "memory:e1");
+    c.get("k1");
+    const view = c.index();
+    expect(view).toContain("利用率");
+    expect(view).toContain("100.0%");
+  });
+
+  it("使用追踪：同键覆盖后 used 标记重置（新内容未使用）", () => {
+    const c = new CacheStore({ maxChars: 100, maxEntries: 5 });
+    c.load("k", "abc", "s");
+    c.get("k");
+    c.load("k", "de", "s2");   // 覆盖 → 旧 usedAt 随旧条目一起清除
+    const u = c.utilization();
+    expect(u.loadedChars).toBe(2);
+    expect(u.usedChars).toBe(0);
+  });
 });

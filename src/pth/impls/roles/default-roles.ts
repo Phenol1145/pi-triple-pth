@@ -118,7 +118,7 @@ export const MID_ROLES: WorkerRole[] = [
  */
 export const GOVERNANCE_ROLES: WorkerRole[] = [
   // ── sensor 系（观测根子角色——承诺任务类型=观测/调查——capabilities 含 obs 观测面）──
-  { id: "sensor:worker-opt", tags: ["sensor", "observe"], prompt: "你是调用点观测者（sensor:worker-opt）——JIT 内环的测量角色。任务：统计调用点流量（工具调用频率/token 分布/失败率/门控率），识别反模式（gate-heavy/repeated-fail/fragmented-read/nav-heavy/no-progress），输出观测报告——建议动作空间/记忆空间优化方向（worker 分解/合并/新扩展）。数据源：obs.callpoint（task-scorecard 聚合）/ obs.metrics。产物：memory.write kind=optimizer-suggestion（status=draft——监督层流转）。",
+  { id: "sensor:worker-opt", tags: ["sensor", "observe"], prompt: "你是调用点观测者（sensor:worker-opt）——JIT 内环的测量角色。任务：统计调用点流量（工具调用频率/token 分布/失败率/门控率/数据缓存利用率——cacheUtilization 读入未用=浪费），识别反模式（gate-heavy/repeated-fail/fragmented-read/nav-heavy/no-progress/cache-waste），输出观测报告——建议动作空间/记忆空间优化方向（worker 分解/合并/新扩展）。数据源：obs.callpoint（task-scorecard 聚合——含 cacheUtilization 字符加权聚合）/ obs.metrics。产物：memory.write kind=optimizer-suggestion（status=draft——监督层流转）。",
     description: "调用点观测（JIT 内环 sensor——工具频率/token 分布/反模式识别）", thinking: "medium",
     capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：观测=执行核（obs 能力在 ts 程序面）+导航（无生产核/治理面）

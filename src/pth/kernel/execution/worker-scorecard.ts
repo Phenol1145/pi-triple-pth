@@ -27,6 +27,8 @@ export interface WorkerScorecard {
   aspNav: { cds: number; indexes: number };
   /** 时间复用率（planner 计划扁平度——2026-08-13：关键路径法 1-关键路径/总数；非 planner 任务 null） */
   timeReuse?: number | null;
+  /** 数据缓存利用率（读入后是否使用——按字符量加权——2026-08-13 N3；与 token 缓存 cacheRead 严格区分——0.11） */
+  cacheUtilization?: { loadedChars: number; usedChars: number; loadedEntries: number; usedEntries: number; ratio: number } | null;
   /** 完成状态与警告（maxSteps/重复终止等） */
   finish?: { ok: boolean; warning?: string };
 }

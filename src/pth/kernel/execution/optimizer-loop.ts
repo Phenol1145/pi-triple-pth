@@ -175,6 +175,23 @@ export function detectHotspots(scs: WorkerScorecard[]): HotspotHit[] {
     }
   }
 
+  // 7. cache-waste：数据缓存读入未用（2026-08-13 N3——0.11.4.3 数据流效率——低利用率=读入未用浪费信号）
+  const cacheScs = scs.filter((s) => s.cacheUtilization && s.cacheUtilization.loadedChars > 0);
+  if (cacheScs.length >= 3) {
+    const totLoaded = cacheScs.reduce((a, s) => a + (s.cacheUtilization?.loadedChars ?? 0), 0);
+    const totUsed = cacheScs.reduce((a, s) => a + (s.cacheUtilization?.usedChars ?? 0), 0);
+    const ratio = totLoaded > 0 ? totUsed / totLoaded : 0;
+    if (totLoaded >= 500 && ratio < 0.5) {
+      hits.push({
+        pattern: "cache-waste",
+        path: "rule",
+        target: "capability-index",
+        section: "## 缓存策略",
+        metric: { loadedChars: totLoaded, usedChars: totUsed, ratio: +ratio.toFixed(2), cacheTasks: cacheScs.length },
+      });
+    }
+  }
+
   return hits;
 }
 
@@ -187,6 +204,7 @@ const PATTERN_DESC: Record<string, string> = {
   "nav-heavy": "空间导航频繁——多次 asp_cd 往返决策，导航路径未规划（先 asp.index 看全貌再 cd）",
   "no-progress": "任务卡死——高步数 + 失败收场：角色-任务匹配或任务设计问题，需要更窄域角色承接",
   "plan-deep": "计划过深（时间复用率低）——planner 产出的计划串行链过长，无依赖子任务未并行化——时间复用率 = 1-关键路径/总任务数",
+  "cache-waste": "数据缓存读入未用——cache.load 读入大量数据但未 get 取用（读入成本已付、信息未消费——0.11 数据流效率）",
 };
 
 export function renderSuggestion(hit: HotspotHit, windowSize: number): string {
@@ -259,6 +277,10 @@ export class Optimizer {
           sumGated: sc.gatedActions ?? 0,
           // 时间复用率（2026-08-13 监测量）：sum/planCount 均值——obs 端 avg_time_reuse
           ...(sc.timeReuse != null ? { sumTimeReuse: sc.timeReuse, planCount: 1 } : {}),
+          // 数据缓存利用率（2026-08-13 N3）：字符量加权——sensor 读聚合视图算利用率（读入未用=浪费）
+          ...(sc.cacheUtilization
+            ? { sumCacheLoaded: sc.cacheUtilization.loadedChars, sumCacheUsed: sc.cacheUtilization.usedChars }
+            : {}),
         },
         { role: ctx.role, ts: Date.now() },
       ).catch((e: unknown) => { /* 聚合失败不阻塞（明细仍在——降级逐条读）；但错误须可见（2026-08-12 审计 MEDIUM-7） */
