@@ -1,0 +1,52 @@
+{
+  "T1": {
+    "decision": "A",
+    "note": "借此机会规范化不同 worker 类型的 systemPrompt 差异化注入",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T2": {
+    "decision": "custom",
+    "note": "不是很理解这个问题（待 agent 解释后重新录入）",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T3": {
+    "decision": "custom",
+    "note": "新架构已放弃动态工具注入设计——废弃 pick_tools 动态工具注入（结构化动作空间+记忆空间已减少同时暴露的工具数）",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T4": {
+    "decision": "A",
+    "note": "允许用户设定审核策略（可配置）",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T5": {
+    "decision": "custom",
+    "note": "为什么需要死循环制动？（待 agent 解释后重新录入）",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T6": {
+    "decision": "custom",
+    "note": "动作空间与 worker 类型深度绑定；新建空间与空间分化属于优化行为，不应由 worker 直接执行",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T7": {
+    "decision": "custom",
+    "note": "是否有专门的 actuator 子类负责维护记忆？（待 agent 确认后重新录入）",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T8": {
+    "decision": "A",
+    "note": "",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T9": {
+    "decision": "custom",
+    "note": "任务文本不应只提交核心意图——PTL 侧确保理解用户全部需求后，把概念设计发给 PTH 生成实施方案",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  },
+  "T10": {
+    "decision": "C",
+    "note": "",
+    "decidedAt": "2026-08-14T00:00:00.000Z"
+  }
+}
