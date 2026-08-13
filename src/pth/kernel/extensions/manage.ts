@@ -12,7 +12,7 @@
  * 安全边界：所有写动作经用途层策略（draft 强制/系统资产只读）；无任意 SQL/任意文件写。
  */
 
-import type { TsReplExtension, ExtContext } from "./index.js";
+import type { TsReplExtension, ExtContext } from "./types.js";
 import { config } from "./perf-params.js";
 import { readStrategies } from "./perf.js";
 import type { PerfStrategy } from "./perf.js";

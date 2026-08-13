@@ -8,27 +8,9 @@
  *       perf/obs 为 Phase 3/4（SPEC 落地阶段）
  */
 
-import type { DataWorldAccess } from "../storage/index.js";
-import type { Toolstore } from "../interpreter/toolstore.js";
-
-export interface ExtContext {
-  dataWorld: DataWorldAccess;
-  toolstore?: Toolstore;
-  /** 策略目录（perf.publish/apply/list——默认 toolstore/strategies） */
-  strategiesDir?: string;
-  /** ASP 会话空间引用（2026-08-10）：可见性盖章/过滤依赖当前空间——任务级会话状态（agent-loop cd 更新） */
-  sessionRef?: { current: { currentSpace: string } | null };
-}
-
-export interface TsReplExtension {
-  id: string;
-  /** 注入 vm 的能力对象（键值合并进 capabilities——provide 返回空 = 无函数注入） */
-  provide?(ctx: ExtContext): Record<string, unknown>;
-  /** ts 核预置对象（vm context 初始化时创建——results/context/model 等会话状态） */
-  seed?(): Record<string, unknown>;
-  /** API 文档片段（自动聚合进 AGENT_CAPABILITY_DOC——LLM 可见） */
-  doc: string;
-}
+// 共享类型抽出至 types.ts（2026-08-13 审计 P1——子文件从 types 取类型，杀 barrel 型循环）
+import type { ExtContext, TsReplExtension, BuiltExtensions } from "./types.js";
+export type { ExtContext, TsReplExtension, BuiltExtensions } from "./types.js";
 
 import { memoryExtension } from "./memory.js";
 import { manageExtension } from "./manage.js";
@@ -39,15 +21,6 @@ import { obsExtension } from "./obs.js";
 
 /** 注册表：新扩展 = 模块 + 加入此数组 */
 export const EXTENSIONS: TsReplExtension[] = [memoryExtension, contextExtension, modelExtension, perfExtension, obsExtension, manageExtension];
-
-export interface BuiltExtensions {
-  /** 合并后的 vm 能力注入（provide 结果） */
-  capabilities: Record<string, unknown>;
-  /** ts 核预置对象（seed 结果——vm context 初始化） */
-  seeds: Record<string, unknown>;
-  /** 聚合能力文档（AGENT_CAPABILITY_DOC 数据源） */
-  doc: string;
-}
 
 /** 构建扩展包：能力注入 + 预置对象 + 文档聚合 */
 export function buildExtensions(ctx: ExtContext): BuiltExtensions {

@@ -1,4 +1,4 @@
-import type { WorkerKernel } from "../interpreter/index.js";
+import type { WorkerKernel } from "../interpreter/types.js";
 import { tagRegistry } from "./tag-registry.js";
 // 内置角色谱系（具体实现层——2026-08-12 分层：核心机制与本文件消费 impls 数据）
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";

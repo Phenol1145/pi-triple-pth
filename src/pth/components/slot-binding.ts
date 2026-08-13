@@ -14,7 +14,7 @@
  */
 
 import type { Redis } from "ioredis";
-import type { ComponentType } from "./store.js";
+import type { ComponentType } from "./types.js";
 import type { Result } from "../programs/types.js";
 
 /** 空位绑定记录（slot 查询/审计追溯用） */

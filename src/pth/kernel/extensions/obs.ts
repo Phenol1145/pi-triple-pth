@@ -7,7 +7,7 @@
  * 与 perf 分工：obs=读（发生了什么）/ perf=写（怎么改）——闭环：obs 发现→perf 策略→obs 验证
  */
 
-import type { TsReplExtension, ExtContext } from "./index.js";
+import type { TsReplExtension, ExtContext } from "./types.js";
 import { requestMain } from "./obs-ipc.js";
 
 function str(v: unknown, fallback = ""): string {

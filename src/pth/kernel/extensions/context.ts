@@ -3,7 +3,7 @@
  * ts 核内工作台对象（跨步骤 KV）+ results 结果注册表（agent 状态——内部管理语言语义）。
  */
 
-import type { TsReplExtension } from "./index.js";
+import type { TsReplExtension } from "./types.js";
 
 export const contextExtension: TsReplExtension = {
   id: "context",

@@ -4,7 +4,7 @@
  * + 封装写入（bindAll——方法提取 this 防护）。
  */
 
-import type { TsReplExtension } from "./index.js";
+import type { TsReplExtension } from "./types.js";
 import { checkWrite, checkUpdate, normalizeWriteArgs } from "./memory-policy.js";
 import { checkVisibilityDeclaration, stampScope, isVisible } from "../execution/memory-visibility.js";
 import { spaceRegistry } from "../execution/space-registry.js";

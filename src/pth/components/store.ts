@@ -29,14 +29,9 @@ import { SlotBindingStore, validateSlotId } from "./slot-binding.js";
 
 // ── component types ──────────────────────────────────────────────
 
-export const COMPONENT_TYPES = [
-  "agent-program",
-  "scheduler",
-  "optimizer",
-  "memory-pack",
-  "skeleton-update",
-] as const;
-export type ComponentType = (typeof COMPONENT_TYPES)[number];
+// 组件类型抽出至 types.ts（2026-08-13 审计 P1——store↔slot-binding 类型对偶断环）
+import { COMPONENT_TYPES, type ComponentType } from "./types.js";
+export { COMPONENT_TYPES, type ComponentType };
 
 /**
  * 构件 manifest：type 分派；agent-program 时携带原 ProgramManifest 全部字段

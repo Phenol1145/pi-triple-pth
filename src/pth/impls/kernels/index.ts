@@ -42,18 +42,6 @@ export function createWorkerKernel(deps: WorkerKernelDeps): WorkerKernel {
   };
 }
 
-export { createWorkerKernelWithManager, createKernelManager, type KernelManager, type KernelManagerOptions } from "./kernel-manager.js";
-export { TsInterpreter } from "./ts-interpreter.js";
-export * from "./bash-interpreter.js";
-// 适配说明：python-interpreter 与 ts-interpreter 均导出 DEFAULT_EXECUTION_TIMEOUT_MS，
-// 双 star re-export 触发 TS2308（歧义成员）。显式只 re-export PythonInterpreter 类。
-export { PythonInterpreter } from "./python-interpreter.js";
-export * from "./capability.js";
-export * from "./py-kernel.js";
-export * from "./bash-kernel.js";
-export * from "./compiled-kernel.js";
-export * from "./sandbox-kernel.js";
-export * from "./sandbox-compiled-kernel.js";
-export * from "./sandbox-debug-session.js";
-export * from "./gdb-mi.js";
-export * from "./pth-memory-lib.js";
+// 2026-08-13 审计 P1 瘦身：barrel 消费面仅 batch-process 的 3 个符号——其余重导出删除
+// （ts-prune 实测 25 个死重导出；消费者直连子文件——ts-interpreter/kernel-manager 等）
+export { createWorkerKernelWithManager, createKernelManager } from "./kernel-manager.js";

@@ -7,7 +7,7 @@
  *   读到同一对象 → 选择链动态层成立
  */
 
-import type { TsReplExtension } from "./index.js";
+import type { TsReplExtension } from "./types.js";
 
 export interface ModelState {
   current: { provider?: string; model: string } | null;

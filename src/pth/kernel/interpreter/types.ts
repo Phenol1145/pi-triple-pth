@@ -1,3 +1,7 @@
+import type { ModelRouter } from "@away_from/infra";
+import type { DataWorldAccess } from "../storage/index.js";
+import type { LlmFn } from "./llm-fn.js";
+
 export interface ExecuteOptions {
   timeoutMs?: number;
   stepLimit?: number;
@@ -129,4 +133,31 @@ export interface DebugSession {
 /** 可调试解释器（实现调试会话——无则返回 null） */
 export interface Debuggable extends Interpreter {
   debug(): DebugSession | null;
+}
+
+// ── WorkerKernel（2026-08-13 审计 P1：从 index.ts 移入——核心协议面类型归 types.ts，
+//    断 worker-cluster→interpreter/index barrel 型循环；index.ts 保持 re-export）───
+
+export interface WorkerKernel {
+  ts: Interpreter;
+  bash: Interpreter;
+  python: Interpreter;
+  /** C 编译核（可选——createWorkerKernelWithManager + sandboxKernel 配置时存在；生产核 dev.build/dev.run 用） */
+  c?: Interpreter;
+  /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels（ext.kernel 注册）经此执行——
+   *  可选（普通版 createWorkerKernel 无 extra kernels——不提供） */
+  execute?(language: string, program: string, opts?: ExecuteOptions): Promise<InterpreterResult>;
+  llm: LlmFn;
+  dataWorld: DataWorldAccess;
+  /** 聚合快照（T4 refine 输入）：ts + python + bash 三 kernel 状态 */
+  snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
+  reset(): void;
+  dispose(): void;
+}
+
+export interface WorkerKernelDeps {
+  modelRouter: ModelRouter;
+  dataWorld: DataWorldAccess;
+  sandbox?: { exec(req: any, signal?: AbortSignal): Promise<any> };
+  pythonBin?: string;
 }

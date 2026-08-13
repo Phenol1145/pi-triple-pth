@@ -6,7 +6,7 @@
  * 数据源：配置中心（perf-params）+ toolstore 策略目录（ExtContext.strategiesDir）
  */
 
-import type { TsReplExtension, ExtContext } from "./index.js";
+import type { TsReplExtension, ExtContext } from "./types.js";
 import { config } from "./perf-params.js";
 import fs from "node:fs/promises";
 import path from "node:path";
