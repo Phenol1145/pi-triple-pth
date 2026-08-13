@@ -675,3 +675,32 @@ v0.9（动作面/权限/任务池纯化）
 - [ ] 工作流 SOP——角色特定标准作业步骤还不是一等概念
 - [ ] 双 storage 层（pth/storage vs kernel/storage）归属待定
 - [ ] agentic 测试集（建设中——planner 规划已产出——执行按计划）
+
+---
+
+## 9. 监测数据分级一览表（2026-08-13 用户裁决）
+
+监测数据分三级——从 worker 行为到容器资源：
+
+| 级 | 粒度 | 数据项 | 现有状态 | sensor 对应 |
+|---|---|---|---|---|
+| **L1 worker 级** | 任务/角色 | steps 步数 | ✅ scorecard | sensor:worker-opt |
+| | | tokens in/out | ✅ | |
+| | | cacheRead/cacheWrite（token 缓存） | ✅ | |
+| | | cacheUtilization（数据缓存利用率） | ⚠️ 待加（0.11） | |
+| | | failedActions / gated | ✅ | |
+| | | timeReuse（时间复用率） | ✅ | |
+| | | 行为轨迹（trace 步骤级） | ✅ onTrace | |
+| | | 任务状态/耗时 | ✅ | |
+| **L2 进程及数据级** | 主容器/子进程/DB | worker 子进程数/内存/CPU | ⚠️ 部分（IPC metric 耗时——健康/卡死缺失） | sensor:system-opt |
+| | | 任务队列深度（pending/claimed） | ✅ 可查 | |
+| | | memory 条目数/按 kind 分布 | ✅ 可查 | |
+| | | 空间数/角色数/trigger 数 | ✅ 可查 | |
+| | | DB 连接/慢查询 | ⚠️ 无 | |
+| **L3 容器级** | 容器 | 各容器 CPU/内存/网络/磁盘 | ❌ 缺失（perf-autopilot 设计未实装） | sensor:resource |
+| | | sandbox 核池负载（session 数/TTL 回收数） | ❌ 缺失 | |
+| | | postgres/redis 容器资源 | ❌ 缺失 | |
+
+**采集机制**：L1 已闭环（scorecard 落库 + obs 上报 + 聚合快照）；L2 半闭环（IPC metric + DB 统计查询）；L3 无采集（资源环只有设计角色无数据源）。
+
+**对齐 0.6 多级循环**：L1 → JIT 内环数据源；L2 → 控制环数据源；L3 → 资源环（第三级闭环）数据源。
