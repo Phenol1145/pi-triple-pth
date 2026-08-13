@@ -235,7 +235,7 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
     expect(ms.actionTools).toEqual(["asp.cd", "asp.index", "ts.run", "ts.eval", "memory.index"]);
   });
 
-  it("developer 面：执行核+dev+debug+导航+缓存——无 write 文档族/spaceMaint 治理面", async () => {
+  it("developer 面：执行核+dev+debug+write+导航+缓存——无 spaceMaint 治理面（2026-08-13 write 补回）", async () => {
     const { DEFAULT_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
     const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
     const dev = DEFAULT_ROLES.find((r) => r.id === "developer")!;
@@ -244,11 +244,11 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
     expect(names).toContain("dev.build");
     expect(names).toContain("debug.attach");
     expect(names).toContain("ts.run");
-    expect(names).not.toContain("write.create");
+    expect(names).toContain("write.create");   // 2026-08-13：write 文档族补回（写文档是 developer 常见交付）
     expect(names).not.toContain("asp.create");
     expect(names).not.toContain("asp.destroy");
-    // 裁剪量级：34 → 26（dev6+debug8+exec6+nav3+cache3）
-    expect(names.length).toBe(26);
+    // 裁剪量级：34 → 32（dev6+debug8+exec6+write6+nav3+cache3）
+    expect(names.length).toBe(32);
   });
 
   it("acceptor 只读面：dev.run/dev.list/write.read/write.list——无 dev.write/write.create（验收不写）", async () => {

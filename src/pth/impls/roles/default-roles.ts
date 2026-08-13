@@ -40,7 +40,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     description: "实现与开发（worker 对应——narrow coherent edits）", thinking: "high",
     // 权限 v2 R4：显式声明（缺省全量废止）——core+data 全量，无管理面
     capabilities: ["python", "bash", "c", "fs", "web", "llm", "state", "ext", "env", "memory", "skills", "obs"],
-    actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "nav", "cache"],   // 2026-08-12 裁剪：执行核+生产核 dev/debug（无 write 文档族/spaceMaint 治理面）
+    actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "write", "nav", "cache"],   // 2026-08-12 裁剪：执行核+生产核 dev/debug+文档 write（2026-08-13 修复：写文档是 developer 常见交付——write 族必须授）+导航/缓存（无 spaceMaint 治理面）
     output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer",
     parent: "executor", generation: 2, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
   { id: "scout", tags: ["recon", "investigate"], prompt: "你是侦查者——负责信息收集、代码侦察、环境探查。",

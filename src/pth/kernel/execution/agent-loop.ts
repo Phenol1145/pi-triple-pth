@@ -368,6 +368,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   let lastFingerprint = "";
   let repeatCount = 0;
   let emptyReplies = 0;
+  let unknownToolCount = 0;   // 未知工具引导计数（连续 ≥3 才终止——2026-08-13）
 
   const complete = async (tools: import("@earendil-works/pi-ai").Tool[]): Promise<import("../interpreter/llm-fn.js").LlmResult | string> => {
     try {
@@ -735,7 +736,20 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     }
 
     // tool_calls 名是 API 形式（下划线——python_execute）——映射回执行器（点）
-    const executorKey = tool.replace(/_/g, ".");
+    // 直觉别名（2026-08-13：模型对工具名的自然猜测——write_doc 幻视失败根因）——
+    // 工具名应符合模型直觉：别名表把常见直觉名映射到正式工具
+    const TOOL_ALIASES: Record<string, string> = {
+      "write.doc": "write.create", "write_doc": "write.create", "doc.create": "write.create",
+      "write.file": "write.create", "write_file": "write.create",
+      "file.write": "dev.write", "file_write": "dev.write",
+      "code.write": "dev.write", "code_write": "dev.write",
+      "run": "dev.run", "build": "dev.build",
+      "mem.index": "memory.index", "mem_index": "memory.index",
+      "space.index": "asp.index", "space_index": "asp.index",
+      "cd": "asp.cd", "goto": "asp.cd",
+    };
+    const rawKey = tool.replace(/_/g, ".");
+    const executorKey = TOOL_ALIASES[rawKey] ?? TOOL_ALIASES[tool] ?? rawKey;
     const executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
     if (!executor) {
       // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行。
@@ -758,7 +772,16 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
         return undefined;
       }
-      return { ok: false, error: `未知工具 ${tool}`, steps: steps + 1 };
+      // 未知工具回填引导（2026-08-13：不再直接失败——给模型纠错机会——
+      // 模型幻觉工具名（write_doc）时引导正确工具名——连续 3 次才终止）
+      unknownToolCount += 1;
+      const knownNames = Object.keys(AGENT_TOOLS).filter((n) => n !== "done");
+      const hint = knownNames.slice(0, 12).join("/");
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+        content: `未知工具 ${tool}（第 ${unknownToolCount} 次）——可用工具如: ${hint}… 请用已注册工具名重试（下划线形也可）。` });
+      input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: `未知工具引导 ${tool}` });
+      if (unknownToolCount >= 3) return { ok: false, error: `未知工具 ${tool}（连续 ${unknownToolCount} 次）`, steps: steps + 1 };
+      return undefined;
     }
     // 执行面角色授权（模块级 EXEC_TOOL_CAP——见顶部定义）
     const execFam = executorKey.split(".")[0];

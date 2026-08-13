@@ -481,3 +481,26 @@ describe("动态工具选择（2026-08-12 路径 1——模型声明式）", () 
     expect(kernel.python.execute).toHaveBeenCalled();   // cd 重置声明后 python 可用
   });
 });
+
+describe("未知工具引导 + 直觉别名（2026-08-13）", () => {
+  it("幻觉工具名 write_doc → 回填引导不终止（模型改 write.create 完成）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "write_doc", arguments: { path: "a.md", content: "x" } }] },
+      { toolCalls: [{ name: "write.create", arguments: { path: "a.md", content: "x" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 6 });
+    expect(r.ok).toBe(true);   // 引导后模型用正确工具名完成
+  });
+
+  it("直觉别名 write_doc → write.create（直接映射——不占引导轮）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "write_doc", arguments: { path: "a.md", content: "x" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
+    expect(r.ok).toBe(true);
+  });
+});
