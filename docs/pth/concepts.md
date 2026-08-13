@@ -265,6 +265,62 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 | 硬性分解规范 | planner 计划格式（subtasks+dependsOn）· 任务正交路由 · worker 分化 |
 | 注意力稀释防线 | worker 无状态上下文 · pick_tools 空间切换重置 · 主会话渐进降输入 |
 
+### 0.10 交互核：动作空间分类与前后端分离
+
+> 第六个理论根基（2026-08-13 用户）——worker 结构的动作空间维度。
+> 交互核 = LLM 与计算机之间的交互层——负责执行 LLM 发出的指令并操作计算机。
+
+#### 0.10.1 统一概念：生产核 + 探索核 → 交互核
+
+之前的"生产核/探索核"是**使用场景**的区别（正式执行 vs 探索验证）——不是核的种类——**同一交互核既可用于生产也可用于探索**——统一为一个概念。
+
+**PTC 范式**：ts 程序组合能力函数——一次执行完成多步逻辑——把多步逻辑从 LLM 轮次卸载到计算机（0.1 思考量分摊的极致：思考归模型，执行归计算机）。
+
+#### 0.10.2 动作空间三分类（嵌套包含——不是并列）
+
+```
+③ 纯工具调用（基础工具支撑）⊂ ① 单语言核 ⊂ ② 多语言核
+```
+
+| 类型 | 定义 | 适用 |
+|---|---|---|
+| ③ 纯工具调用 | 无多步逻辑——tool call 序列（能力函数工具化——asp 工具族形态） | 只读规划/快速侦察——不需要写程序 |
+| ① 单语言核 | 基础工具 + 一种语言组织方式（纯 ts PTC） | developer——专注单一执行模式 |
+| ② 多语言核 | 多个单语言核的结合——**每种语言带职责定位** | origin/executor——全能 + A/B 验证 |
+
+**多语言的"不完全包含"**：多语言 ≠ 语言简单并集——每种语言在 worker 里有职责定位（如 python 负责计算、bash 负责沙盒环境管理）——同时提供多种语言**组织方式**，各自服务不同交互意图。
+
+**嵌套继承**：声明 python 核的 worker 自动获得基础工具面 + python 组织方式——无需重复声明。
+
+#### 0.10.3 与 0.2 高低智力分层的咬合
+
+| 交互核 × 推理档 × 模型 | 角色族 |
+|---|---|
+| ③ 纯工具 × low × flash | scout/memory-stats——最轻量（不写程序=最低心智负担） |
+| ③ 纯工具 × high × pro | planner（写计划靠工具——不写代码） |
+| ① 单核 ts × medium × flash/pro | developer——专注单一执行模式 |
+| ② 多核 × high × pro | origin/executor/controller——A/B 验证与全栈能力 |
+
+#### 0.10.4 前后端分离
+
+**前端抽象**：模型按一个抽象交互核理解自己的交互对象——WorkerKernel 接口——类型①②③是前端授权面（决定 worker 被授权哪些交互通道）。
+
+**后端实体**：分布式共享后端——sandbox 容器 kernel-host（"持久 kernel 宿主池"）——python/ts/bash 核同时处理所有 worker 的请求。
+
+**状态隔离（多租户）**：exec-channel 双模式——stateless（每调用独立 kernel——vm context 新建）/ repl（sessionId 持久 context——变量/函数/声明保留 + idle TTL 回收）——每个 worker 的函数/变量互不泄漏。
+
+**好处**：前端抽象稳定（worker 不感知后端拓扑——加核/换后端无感）· 后端池化（资源效率）· 隔离是安全边界。
+
+#### 0.10.5 实现映射
+
+| 理论元素 | 落点 |
+|---|---|
+| 交互核声明 | exploreKernels 字段（语义升级：探索核→交互核——含生产+探索） |
+| 后端宿主 | sandbox/kernel-host.ts（SANDBOX_URL 通道 + 共享密钥） |
+| 前后端通信 | kernel/exec-channel.ts（stateless/repl——"代码级执行唯一入口"） |
+| 前端抽象 | interpreter/index.ts WorkerKernel · sandbox-kernel.ts（转发代理） |
+| 模式切换 | PTH_PYTHON_MODE/PTH_BASH_MODE = sandbox-kernel（生产默认）\| kernel（本地调试） |
+
 ---
 
 ## 1. 系统定位（v2）
