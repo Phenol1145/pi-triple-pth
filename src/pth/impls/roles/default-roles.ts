@@ -62,7 +62,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "memory-stats", tags: ["stats", "count", "summarize"], prompt: "你是记忆统计员——专门统计记忆库条目：按 kind/tag 计数、汇总数量、报告统计结果。只做聚合统计——不做分析、不改数据、不写代码。",
     description: "记忆统计窄域（scout 分化——计数/汇总专用）", thinking: "low", model: "deepseek-v4-flash",
     capabilities: ["memory"], output: "stats",
-    actionTools: ["asp.cd", "ts.run", "ts.eval", "memory.index"],   // 2026-08-12 裁剪：最窄面——asp.cd 进 ts 空间 + 记忆索引（无 asp.index/缓存——统计不需要）
+    actionTools: ["asp.cd", "asp.index", "ts.run", "ts.eval", "memory.index"],   // 2026-08-12 裁剪：最窄面——asp.cd/asp.index 导航 + ts 面 + 记忆索引（探索引导必须保留）
     parent: "scout", generation: 3, differentiation: "统计类任务诱导——记忆计数是最高频侦察子模式——能力收窄至 memory 单包 + 低推理档" },
   { id: "acceptor", tags: ["accept", "verify"], prompt: "你是验收者——负责结果验证、质量检查、交付验收。",
     description: "结果验证与交付验收（reviewer 对应——只读审查）", thinking: "high",

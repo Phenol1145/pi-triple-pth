@@ -395,3 +395,89 @@ describe("执行面授权（2026-08-12 审计 HIGH-2 修复）", () => {
     expect(kernel.python.execute).toHaveBeenCalled();
   });
 });
+
+describe("动态工具选择（2026-08-12 路径 1——模型声明式）", () => {
+  function capturingLlm(steps: Array<{ toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; content?: string }>): { llm: LlmFn; toolsSeen: string[][] } {
+    let i = 0;
+    const toolsSeen: string[][] = [];
+    return {
+      llm: {
+        complete: vi.fn(async (_messages: never, opts: { tools?: Array<{ name: string }> }) => {
+          toolsSeen.push((opts?.tools ?? []).map((t) => t.name));
+          const step = steps[Math.min(i, steps.length - 1)]!;
+          i++;
+          return {
+            content: step.content ?? "",
+            model: "mock",
+            usage: { inputTokens: 1, outputTokens: 1 },
+            ...(step.toolCalls
+              ? { toolCalls: step.toolCalls.map((tc, idx) => ({ id: `c${i}_${idx}`, name: tc.name, arguments: tc.arguments })) }
+              : {}),
+          };
+        }),
+      },
+      toolsSeen,
+    };
+  }
+
+  it("pick_tools 声明后下一轮工具面收窄（done 兜底常驻）", async () => {
+    const kernel = mockKernel();
+    const { llm, toolsSeen } = capturingLlm([
+      { toolCalls: [{ name: "pick_tools", arguments: { tools: ["ts.run"] } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "developer", labelPatterns: [], prompt: "p" } as never,
+      maxSteps: 5,
+    });
+    expect(r.ok).toBe(true);
+    // 首轮全量面；声明后第二轮只有 pick/done + 声明工具（非 asp——staticTools+pickSchema）
+    expect(toolsSeen[1]!.some((n) => n === "done")).toBe(true);
+    expect(toolsSeen[1]!.some((n) => n === "pick_tools")).toBe(true);
+    expect(toolsSeen[1]!.some((n) => n === "ts_run")).toBe(true);
+    expect(toolsSeen[1]!.every((n) => ["done", "pick_tools", "ts_run"].includes(n))).toBe(true);
+    // 声明收窄生效：非 ts 族工具（如 python_run/bash_run）不在第二轮
+    expect(toolsSeen[1]!.some((n) => n.includes("python"))).toBe(false);
+    expect(toolsSeen[1]!.some((n) => n.includes("bash"))).toBe(false);
+  });
+
+  it("越权声明被忽略（角色白名单外）+ 空列表恢复默认", async () => {
+    const kernel = mockKernel();
+    const { llm, toolsSeen } = capturingLlm([
+      { toolCalls: [{ name: "pick_tools", arguments: { tools: ["python.run"] } }] },
+      { toolCalls: [{ name: "pick_tools", arguments: { tools: [] } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "planner", labelPatterns: [], prompt: "p", actionTools: ["nav", "cache"], capabilities: ["fs", "memory"] } as never,
+      maxSteps: 6,
+    });
+    expect(r.ok).toBe(true);
+    // 越权 python.run 不在 planner 白名单 → 声明后回退默认（valid 空 → null）
+    expect(toolsSeen[1]!.some((n) => n.includes("python"))).toBe(false);
+    // 空列表恢复默认（第三轮）
+    expect(toolsSeen[2]!.length).toBeGreaterThan(2);
+  });
+
+  it("asp 模式：声明与空间面求交 + 空间切换重置", async () => {
+    const kernel = mockKernel();
+    const { llm, toolsSeen } = capturingLlm([
+      { toolCalls: [{ name: "pick_tools", arguments: { tools: ["ts.run", "python.run"] } }] },
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "python" } }] },
+      { toolCalls: [{ name: "python_run", arguments: { code: "x" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "developer", labelPatterns: [], prompt: "p" } as never,
+      asp: true, maxSteps: 8,
+    });
+    expect(r.ok).toBe(true);
+    expect(kernel.python.execute).toHaveBeenCalled();   // cd 重置声明后 python 可用
+  });
+});

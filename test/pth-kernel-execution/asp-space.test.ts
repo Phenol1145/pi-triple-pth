@@ -69,7 +69,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 3 });
     const firstCall = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { tools: Array<{ name: string }> };
-    expect(firstCall.tools.map((t) => t.name).sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "done", "memory_index"]);
+    expect(firstCall.tools.map((t) => t.name).sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "done", "memory_index", "pick_tools"]);
   });
 
   it("元空间直调 ts → 门控引导（不执行）", async () => {
@@ -107,7 +107,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
     const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
     const secondCallTools = (calls[1]![1] as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
-    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "memory_index", "python_eval", "python_run"]);
+    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "memory_index", "pick_tools", "python_eval", "python_run"]);
   });
 
   it("cd 未知空间 → 报错引导（不迁移）", async () => {

@@ -471,6 +471,11 @@ ${buildDoc()}`;
 /** 工具动作描述（元工具面） */
 /** 工具参数 JSON Schema 定义（OpenAI function 格式——原生 tool_calls 声明） */
 const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<string, unknown>; required: string[] }> = {
+  "pick.tools": {
+    description: "【工具面声明（2026-08-12 动态工具选择协议）】声明下一轮 LLM 调用只暴露的工具清单（点形/下划线形均可）——聚焦注意力防误选。生效于下一轮并持续到空间切换或新声明；可在同一条消息里与其他工具并行调用（不增加轮次）；越权/当前空间不可用的名字会被忽略；done 与 asp_cd 始终可用；空数组 = 恢复默认全量面。",
+    properties: { tools: { type: "array", items: { type: "string" }, description: "下一轮要用的工具名清单（如 ts.run/memory.query/ts_run）——只声明本轮真正需要的" } },
+    required: ["tools"],
+  },
   "python.run": {
     description: "在 python kernel（sandbox 持久 REPL）执行程序——可多语句/声明/循环；设 _result = 值 回传结构化值（与 ts return 对齐）。",
     properties: { code: { type: "string", description: "python 程序（多语句；_result = 值 作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
@@ -629,7 +634,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: ["id"],
   },
   "asp.index": {
-    description: "空间索引（ASP 元工具）——逐层展示空间的可达函数/可达数据。无参数 = 当前空间索引。mode: by-package（按扩展包展开）/ by-type（按变量/对象/函数展开）；space: 目标空间（缺省当前）。",
+    description: "【空间地图（探索引导——新任务/要切空间时先用它）】一次展示空间树/当前空间可达函数与数据。无参数 = 当前空间；space: 指定空间——避免盲目 asp_cd 往返。",
     properties: {
       mode: { type: "string", enum: ["by-package", "by-type"], description: "聚合模式（缺省 by-package）" },
       space: { type: "string", description: "目标空间 id（缺省当前空间）" },
@@ -637,7 +642,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: [],
   },
   "memory.index": {
-    description: "记忆空间索引（图导航——严格单跳）。无参=顶层视图（层/kind/tag 词表）；{tag} = 该 tag 关联条目清单；{id} = 条目的 tag 列表+摘要。",
+    description: "【记忆库地图（查询/统计/找条目第一步必用——避免逐条 SQL 盲查）】无参=顶层视图（一次拿到所有 kind 的条数分布 + 热门 tag 词表——统计/清点任务直接用它）；{tag} = 该 tag 条目清单；{id} = 条目摘要+出边。先看地图再决定查什么。",
     properties: {
       tag: { type: "string", description: "按 tag 查关联条目" },
       id: { type: "string", description: "按条目 id 查其 tag 出边" },
@@ -750,6 +755,7 @@ ${Object.entries(schemas)
     .map(([name, s]) => `- ${name}: ${s.description}`)
     .join("\n")}
 - done: {result, summary?} —— 完成任务，result 为最终产出对象
+- pick.tools: {tools: string[]} —— 声明下一轮只暴露的工具清单（聚焦防误选；done/asp.cd 始终可用；空数组恢复默认）
 
 输出模式（mode 可选——控制回填带宽）：default=完整；value-only=只回 value（大数据省 token）；errors-only=成功只回 ok 失败回全错（快速试错）；quiet=静默（状态准备不污染轨迹）`;
 }

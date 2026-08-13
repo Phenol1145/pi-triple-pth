@@ -342,6 +342,26 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   (input as { __messages?: unknown }).__messages = messages;   // 压缩包装器读取（同一引用——循环内持续 push）
   const staticTools = toolsToSchema(input.role?.actionTools);
 
+  // ── 动态工具选择（路径 1——模型声明式——2026-08-12）─────────────────────
+  // pick_tools 声明下一轮工具面：声明 ∩ 角色白名单 ∩ 当前空间面；
+  // 持续到空间切换或新声明；done/asp_cd/pick_tools 兑底常驻。
+  let declaredTools: Set<string> | null = null;
+  const pickSchema = toolSchemaFor("pick.tools");
+
+  /** 当前轮 LLM 调用实际工具面（声明过滤后） */
+  function currentTools(aspCurrent: string): import("@earendil-works/pi-ai").Tool[] {
+    const base = aspMode
+      ? (pickSchema ? [pickSchema, ...toolsForSpace(aspCurrent, input.role?.actionTools)] : toolsForSpace(aspCurrent, input.role?.actionTools))
+      : [...staticTools, ...(pickSchema && !staticTools.some((t) => t.name === "pick_tools") ? [pickSchema] : [])];
+    // 同名工具去重（OpenAI 对重复工具名 400——pick.tools 已由全量白名单含入时不再追加）
+    const deduped = [...new Map(base.map((t) => [t.name, t])).values()];
+    if (!declaredTools) return deduped;
+    return deduped.filter((t) => {
+      const dot = t.name.replace(/_/g, ".");
+      return dot === "done" || dot === "pick.tools" || (aspMode && dot === "asp.cd") || declaredTools!.has(dot);
+    });
+  }
+
   const start = Date.now();
   let steps = 0;
   let emptyDoneCount = 0;  // done 空 result 引导计数（连续 ≥DONE_GUIDE_LIMIT 强制失败）
@@ -378,7 +398,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     }
 
     // ASP：工具面随当前空间动态计算（语言工具仅本空间可调用）
-    const tools = aspMode ? toolsForSpace(currentSpace(), input.role?.actionTools) : staticTools;
+    const tools = currentTools(currentSpace());
     const res = await complete(tools);
     if (typeof res === "string") {
       if (res.startsWith("__llm_error__")) {
@@ -434,6 +454,24 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     input.onTrace?.({ type: "tool-call", step: steps + 1, tool, args });
     const stepStart = Date.now();
 
+    // ── pick_tools（动态工具选择协议——2026-08-12 路径 1：模型声明式）──
+    // 声明 ∩ 角色白名单 ∩ 当前空间面（越权/不可用忽略）；空列表 = 恢复默认全量面。
+    if (tool === "pick_tools") {
+      const raw = (Array.isArray(args["tools"]) ? args["tools"] : []).map(String);
+      const norm = raw.map((t) => t.replace(/_/g, ".")).filter(Boolean);
+      const roleAllowed = input.role?.actionTools ? new Set(expandToolGroups(input.role.actionTools)) : null;
+      const spaceAllowed = aspMode
+        ? new Set(toolsForSpace(currentSpace()).map((t) => t.name.replace(/_/g, ".")))
+        : null;
+      const valid = norm.filter((t) => (roleAllowed === null || roleAllowed.has(t)) && (spaceAllowed === null || spaceAllowed.has(t)));
+      declaredTools = valid.length > 0 ? new Set(valid) : null;
+      const rejected = norm.filter((t) => !valid.includes(t));
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+        content: `pick_tools: 工具面${valid.length ? `已收窄 [${valid.join(", ")}]` : "已恢复默认"}${rejected.length ? `——忽略越权/不可用 [${rejected.join(", ")}]` : ""}。done 与 asp_cd 始终可用；空间切换或新声明后重置。` });
+      input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: valid.length ? `pick → ${valid.join("/")}` : "pick → 默认面" });
+      return undefined;
+    }
+
     // ── ASP 门控（asp 模式——空间状态机）────────────────────────────
     if (aspMode) {
       // 空间治理授权（2026-08-12 审计 HIGH-2 修复）：维护类动作（asp.create/destroy）——
@@ -456,6 +494,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
           return undefined;
         }
         aspSession.currentSpace = target;
+        declaredTools = null;   // 空间切换重置工具面声明（新空间重新声明或默认全量）
         const hint = target === "meta"
           ? "元空间：无执行核——可用 done 提交任务。"
           : `可用执行工具：${sp.execTool}（语言代码仅在本空间可解析）。`;
