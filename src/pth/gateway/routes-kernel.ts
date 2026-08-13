@@ -203,6 +203,21 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
       return reply.code(500).send({ error: (e as Error).message });
     }
   });
+  // 记忆治理提案批准（2026-08-14 T7 归档闭环执行端——manage.memory.archive 的 draft → 监督批准 → 执行）
+  app.post("/api/v1/kernel/memory-admin/approve", async (req, reply) => {
+    if (!kernel) return unavailable(reply);
+    const body = (req.body ?? {}) as { id?: string };
+    const id = String(body.id ?? "").trim();
+    if (!id) return reply.code(400).send({ error: "id required" });
+    try {
+      const { applyMemoryAdminProposal } = await import("../kernel/execution/memory-admin.js");
+      const r = await applyMemoryAdminProposal(kernel.dataWorld.memory, id);
+      if (!r.ok) return reply.code(400).send(r);
+      return r;
+    } catch (e) {
+      return reply.code(500).send({ error: (e as Error).message });
+    }
+  });
   app.post("/api/v1/kernel/batch/add", async (req, reply) => {
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;

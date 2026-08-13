@@ -5,9 +5,9 @@
     "decidedAt": "2026-08-14T00:00:00.000Z"
   },
   "T2": {
-    "decision": "custom",
-    "note": "不是很理解这个问题（待 agent 解释后重新录入）",
-    "decidedAt": "2026-08-14T00:00:00.000Z"
+    "decision": "A",
+    "note": "缺省改角色类策略（规划系 eager/其余 lazy，env 显式覆盖）——问询澄清后按推荐 A 落地，可随时否决",
+    "decidedAt": "2026-08-14T01:20:00.000Z"
   },
   "T3": {
     "decision": "custom",
@@ -20,9 +20,9 @@
     "decidedAt": "2026-08-14T00:00:00.000Z"
   },
   "T5": {
-    "decision": "custom",
-    "note": "为什么需要死循环制动？（待 agent 解释后重新录入）",
-    "decidedAt": "2026-08-14T00:00:00.000Z"
+    "decision": "A",
+    "note": "侦察类（scout/explorer）豁免 N=5 强制终止，保留 N=3 引导+maxSteps 兜底——问询澄清后按推荐 A 落地，可随时否决",
+    "decidedAt": "2026-08-14T01:20:00.000Z"
   },
   "T6": {
     "decision": "custom",
@@ -30,9 +30,9 @@
     "decidedAt": "2026-08-14T00:00:00.000Z"
   },
   "T7": {
-    "decision": "custom",
-    "note": "是否有专门的 actuator 子类负责维护记忆？（待 agent 确认后重新录入）",
-    "decidedAt": "2026-08-14T00:00:00.000Z"
+    "decision": "A",
+    "note": "归档闭环执行端实装（memory-admin 批准通道）；actuator 确认存在——缺口为执行端+定期触发——按推荐 A 落地，可随时否决",
+    "decidedAt": "2026-08-14T01:20:00.000Z"
   },
   "T8": {
     "decision": "A",

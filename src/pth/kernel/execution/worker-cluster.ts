@@ -240,6 +240,14 @@ export function allWorkerRoles(): WorkerRole[] {
   return [...(originRole ? [originRole] : []), ...defaultRoles, ...extraRoles];
 }
 
+/** 规划系角色判定（2026-08-14 T1/T2 裁决：注入策略按角色类分化——
+ *  规划系 = planner / governor / controller 系 / sensor 系（worker-index 与角色文档 eager 注入）；
+ *  执行族/信息族走 lazy 锚点（memory.query 按需展开）。 */
+export function isPlanningRole(roleId: string | undefined): boolean {
+  if (!roleId) return false;
+  return roleId === "planner" || roleId === "governor" || roleId.startsWith("controller:") || roleId.startsWith("sensor:");
+}
+
 /**
  * worker-index 渲染（2026-08-13：planner 的 worker 类型获取通道）。
  * 从 allWorkerRoles 渲染可派发角色清单——每角色一行：id | 职责 | 标签 | 代数。

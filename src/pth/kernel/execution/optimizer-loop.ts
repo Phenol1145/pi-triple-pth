@@ -59,6 +59,11 @@ export interface OptimizerDeps {
   /** 振荡防护死区（待决点 4 落地——2026-08-12）：同 pattern 在 N 个窗口内不重复建议
    *  （规则已应用则等待复测验证——连续窗口重复建议 = 振荡）。缺省 2（死区 = 2×windowSize 任务）。 */
   deadbandWindows?: number;
+  /** 可逆微调自动应用（2026-08-14 T4 分层闸门）：PTH_APPLY_POLICY=auto-reversible 时装配层注入。
+   *  仅可逆建议（capability-index/role-doc）自动 apply + deopt 兜底；不可逆永远走人工。 */
+  autoApplyReversible?: boolean;
+  /** 自动应用执行器（装配层注入 applyOptimizerSuggestion） */
+  applySuggestion?: (id: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 // 热点检测与建议渲染抽出至 optimizer-hotspots.ts（2026-08-13 审计 P2——纯函数独立模块）
@@ -131,7 +136,20 @@ export class Optimizer {
     }
     if (this.buffer.length >= this.windowSize) {
       const window = this.buffer.splice(0, this.windowSize);
-      this.detect(window);
+      const created = this.detect(window);
+      // 2026-08-14 T4 分层闸门：可逆微调自动 apply（仅当装配层开启策略）+ deopt 兜底；
+      // 不可逆建议（分化/代码/删除）不在此列——人工闸门。
+      if (this.deps.autoApplyReversible && this.deps.applySuggestion) {
+        for (const s of created) {
+          if (s.target === "capability-index" || s.target.startsWith("role-doc:")) {
+            void this.deps.applySuggestion(s.id).then((r) => {
+              if (!r.ok) console.warn(`[optimizer] 自动应用失败 ${s.id}: ${r.error ?? "unknown"}`);
+            }).catch((e: unknown) => {
+              console.warn(`[optimizer] 自动应用异常 ${s.id}: ${e instanceof Error ? e.message : String(e)}`);
+            });
+          }
+        }
+      }
     }
   }
 

@@ -33,6 +33,13 @@ export function extractRuleLine(suggestionText: string): string {
   return suggestionText.split("\n").find((l) => l.trim().length > 10)?.trim() ?? suggestionText.trim();
 }
 
+/** 可逆微调判定（2026-08-14 T4 裁决：分层闸门——
+ *  可逆 = prompt 资产（capability-index/role-doc 规则追加——deopt 可回滚）；
+ *  不可逆 = 角色分化/代码/删除类——必须人工闸门，不经本自动通道） */
+export function isReversibleSuggestion(target: string): boolean {
+  return target === "capability-index" || target.startsWith("role-doc:");
+}
+
 /** 批准并应用一条优化建议（draft → official + 目标资产追加规则） */
 export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionId: string, queryReadOnly?: (sql: string) => Promise<unknown>): Promise<ApplyResult> {
   const sug = await store.get(suggestionId);
@@ -46,8 +53,8 @@ export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionI
   const content = (typeof sug.content === "string" ? JSON.parse(sug.content) : sug.content) as OptimizerSuggestion;
   const target = content.target;
   const pattern = content.evidence?.pattern ?? "rule";
-  if (target !== "capability-index" && !target.startsWith("role-doc:")) {
-    return { ok: false, error: `target "${target}" 暂不支持自动应用（v1：capability-index/role-doc:*）` };
+  if (!isReversibleSuggestion(target)) {
+    return { ok: false, error: `target "${target}" 为不可逆大变——自动应用通道不接（人工闸门：角色分化→lineage 审批，代码/删除类→监督层）` };
   }
   const existing = await store.get(target).catch(() => undefined);
   const base = existing ? String(existing.content ?? "") : "";

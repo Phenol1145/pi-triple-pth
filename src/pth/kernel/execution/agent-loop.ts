@@ -160,8 +160,11 @@ export async function buildAgentSystemPrompt(
   taskTitle: string,
   opts: { mode?: "eager" | "lazy" | "auto"; memory?: { query(sql: string): Promise<Array<{ content: string }>> } } = {},
 ): Promise<string> {
-  // 模式：auto 按模型智力（v1 简化：env PTH_AGENT_MODE 覆盖；auto 缺省 eager——后续按模型映射）
-  const mode = opts.mode ?? (process.env.PTH_AGENT_MODE === "lazy" ? "lazy" : "eager");
+  const { renderWorkerIndex, isPlanningRole } = await import("./worker-cluster.js");
+  // 模式（2026-08-14 T2 裁决）：env 显式覆盖 > 角色类缺省——规划系 eager（高频稳定、缓存价值高），
+  // 执行族/信息族 lazy（锚点先行——代码缺省不再 eager）；auto 按模型智力映射留待后续
+  const planningRole = isPlanningRole(role?.id);
+  const mode = opts.mode ?? (process.env.PTH_AGENT_MODE === "eager" ? "eager" : process.env.PTH_AGENT_MODE === "lazy" ? "lazy" : (planningRole ? "eager" : "lazy"));
 
   // 角色块：eager = 角色文档全文（memory query）；lazy = 指针
   let roleBlock = "";
@@ -201,12 +204,14 @@ const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='pr
     }
   }
 
-  // worker-index 块（2026-08-13：planner 的 worker 类型获取通道——全员注入）
-  // 每个 worker 开局即知全部可派发角色（id/标签/代数/职责）——规划/路由/协作有可靠依据
+  // worker-index 块（2026-08-14 T1 裁决：规划系注入全文；执行族/信息族 lazy 指针——锚点先行）
   let workerIndexBlock = "";
   try {
-    const { renderWorkerIndex } = await import("./worker-cluster.js");
-    workerIndexBlock = `\n${renderWorkerIndex()}\n`;
+    if (planningRole) {
+      workerIndexBlock = `\n${renderWorkerIndex()}\n`;
+    } else {
+      workerIndexBlock = "\n可派发角色清单（worker-index）：需要路由/协作时用 memory.query 查询（kind='worker-index'）——不常驻上下文（锚点先行——2026-08-14 T1）。\n";
+    }
   } catch { /* 渲染失败降级——不影响启动 */ }
 
   // 推理预算块（role.thinking 从声明到作用——2026-08-10 PTH worker 实现）：角色声明推理深度 → system prompt 生效
@@ -368,7 +373,7 @@ function isNegativeResult(result: { ok?: boolean; error?: unknown; stdout?: unkn
 }
 
 /** 负结果收敛检查：窗口内同 family+target 的连续负结果计数 → 引导/终止 */
-function negativeLoopCheck(win: RecentAction[], family: string, target: string, neg: boolean): { action: "none" | "guide" | "terminate"; count: number } {
+function negativeLoopCheck(win: RecentAction[], family: string, target: string, neg: boolean, allowTerminate = true): { action: "none" | "guide" | "terminate"; count: number } {
   if (!neg) return { action: "none", count: 0 };
   let count = 0;
   for (let i = win.length - 1; i >= 0; i--) {
@@ -377,7 +382,8 @@ function negativeLoopCheck(win: RecentAction[], family: string, target: string, 
     if (!r.neg) break;                                          // 同目标正结果中断连续
     count++;
   }
-  if (count >= NEG_TERMINATE_THRESHOLD) return { action: "terminate", count };
+  // 2026-08-14 T5 裁决：侦察类（scout/explorer）豁免强制终止（合法多源探测——maxSteps 兜底）
+  if (allowTerminate && count >= NEG_TERMINATE_THRESHOLD) return { action: "terminate", count };
   if (count >= NEG_GUIDE_THRESHOLD) return { action: "guide", count };
   return { action: "none", count };
 }
@@ -417,7 +423,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   // 随身缓存（任务级行李——task-loop 注入或本函数自建）
   const cache: import("./cache-store.js").CacheStore = input.cache ?? new (await import("./cache-store.js")).CacheStore();
   let system = await buildAgentSystemPrompt(input.role, input.task.title, {
-    mode: (process.env.PTH_AGENT_MODE === "lazy" || process.env.PTH_AGENT_MODE === "eager" ? process.env.PTH_AGENT_MODE : "eager") as "eager" | "lazy",
+    // 2026-08-14 T2：仅显式 env 覆盖才传入——缺省交由角色类策略（规划系 eager/其余 lazy）
+    mode: (process.env.PTH_AGENT_MODE === "lazy" || process.env.PTH_AGENT_MODE === "eager" ? process.env.PTH_AGENT_MODE : undefined) as "eager" | "lazy" | undefined,
     memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
   });
   if (aspMode) system = `${system}\n\n${ASP_BLOCK}`;
@@ -436,24 +443,15 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   (input as { __messages?: unknown }).__messages = messages;   // 压缩包装器读取（同一引用——循环内持续 push）
   const staticTools = toolsToSchema(input.role?.actionTools);
 
-  // ── 动态工具选择（路径 1——模型声明式——2026-08-12）─────────────────────
-  // pick_tools 声明下一轮工具面：声明 ∩ 角色白名单 ∩ 当前空间面；
-  // 持续到空间切换或新声明；done/asp_cd/pick_tools 兑底常驻。
-  let declaredTools: Set<string> | null = null;
-  const pickSchema = toolSchemaFor("pick.tools");
-
-  /** 当前轮 LLM 调用实际工具面（声明过滤后） */
+  // ── 工具面（2026-08-14 T3 裁决：废弃 pick_tools 动态注入——结构化动作空间+记忆空间
+  //    已减少同时暴露的工具数；工具面 = 空间面 ∩ 角色白名单，不再动态收窄）──
+  /** 当前轮 LLM 调用实际工具面 */
   function currentTools(aspCurrent: string): import("@earendil-works/pi-ai").Tool[] {
     const base = aspMode
-      ? (pickSchema ? [pickSchema, ...toolsForSpace(aspCurrent, input.role?.actionTools)] : toolsForSpace(aspCurrent, input.role?.actionTools))
-      : [...staticTools, ...(pickSchema && !staticTools.some((t) => t.name === "pick_tools") ? [pickSchema] : [])];
-    // 同名工具去重（OpenAI 对重复工具名 400——pick.tools 已由全量白名单含入时不再追加）
-    const deduped = [...new Map(base.map((t) => [t.name, t])).values()];
-    if (!declaredTools) return deduped;
-    return deduped.filter((t) => {
-      const dot = t.name.replace(/_/g, ".");
-      return dot === "done" || dot === "pick.tools" || (aspMode && dot === "asp.cd") || declaredTools!.has(dot);
-    });
+      ? toolsForSpace(aspCurrent, input.role?.actionTools)
+      : [...staticTools];
+    // 同名工具去重（OpenAI 对重复工具名 400）
+    return [...new Map(base.map((t) => [t.name, t])).values()];
   }
 
   const start = Date.now();
@@ -550,24 +548,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     input.onTrace?.({ type: "tool-call", step: steps + 1, tool, args });
     const stepStart = Date.now();
 
-    // ── pick_tools（动态工具选择协议——2026-08-12 路径 1：模型声明式）──
-    // 声明 ∩ 角色白名单 ∩ 当前空间面（越权/不可用忽略）；空列表 = 恢复默认全量面。
-    if (tool === "pick_tools") {
-      const raw = (Array.isArray(args["tools"]) ? args["tools"] : []).map(String);
-      const norm = raw.map((t) => t.replace(/_/g, ".")).filter(Boolean);
-      const roleAllowed = input.role?.actionTools ? new Set(expandToolGroups(input.role.actionTools)) : null;
-      const spaceAllowed = aspMode
-        ? new Set(toolsForSpace(currentSpace()).map((t) => t.name.replace(/_/g, ".")))
-        : null;
-      const valid = norm.filter((t) => (roleAllowed === null || roleAllowed.has(t)) && (spaceAllowed === null || spaceAllowed.has(t)));
-      declaredTools = valid.length > 0 ? new Set(valid) : null;
-      const rejected = norm.filter((t) => !valid.includes(t));
-      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-        content: `pick_tools: 工具面${valid.length ? `已收窄 [${valid.join(", ")}]` : "已恢复默认"}${rejected.length ? `——忽略越权/不可用 [${rejected.join(", ")}]` : ""}。done 与 asp_cd 始终可用；空间切换或新声明后重置。` });
-      input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: valid.length ? `pick → ${valid.join("/")}` : "pick → 默认面" });
-      return undefined;
-    }
-
+    // （2026-08-14 T3：pick_tools 动态工具选择协议已废弃移除——工具面不再动态收窄）
     // ── ASP 门控（asp 模式——空间状态机）────────────────────────────
     if (aspMode) {
       // 空间治理授权（2026-08-12 审计 HIGH-2 修复）：维护类动作（asp.create/destroy）——
@@ -590,7 +571,6 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
           return undefined;
         }
         aspSession.currentSpace = target;
-        declaredTools = null;   // 空间切换重置工具面声明（新空间重新声明或默认全量）
         const hint = target === "meta"
           ? "元空间：无执行核——可用 done 提交任务。"
           : `可用执行工具：${sp.execTool}（语言代码仅在本空间可解析）。`;
@@ -935,7 +915,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       const tgt = actionTarget(tool, args);
       recentResults.push({ family: fam, target: tgt, neg });
       if (recentResults.length > RECENT_RESULTS_WINDOW) recentResults.shift();
-      const loopCheck = negativeLoopCheck(recentResults, fam, tgt, neg);
+      const reconExempt = input.role?.id === "scout" || input.role?.id === "explorer";   // 2026-08-14 T5：侦察类豁免终止
+      const loopCheck = negativeLoopCheck(recentResults, fam, tgt, neg, !reconExempt);
       if (loopCheck.action === "terminate") {
         return { ok: true, value: null, steps: steps + 1, warning: `连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——负验证循环，强制终止` };
       }

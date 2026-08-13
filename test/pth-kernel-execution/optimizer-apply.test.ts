@@ -110,7 +110,7 @@ describe("优化建议批准应用器（闭环部署动作——2026-08-12）", 
     ]);
     const r = await applyOptimizerSuggestion(store, "opt-x");
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("不支持自动应用");
+    expect(r.error).toContain("不可逆大变");
   });
 
   it("建议不存在拒绝", async () => {

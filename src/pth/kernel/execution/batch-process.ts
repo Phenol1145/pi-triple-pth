@@ -272,9 +272,19 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     }) : undefined;
     // 优化循环（2026-08-12 大项 §10.3）：窗口聚合检测 → 建议 draft（PTH_OPTIMIZER=off 关闭）
     const optimizerEnabled = process.env.PTH_OPTIMIZER !== "off";
+    // 2026-08-14 T4 分层闸门：PTH_APPLY_POLICY=auto-reversible 时可逆微调建议自动 apply（deopt 兜底）；
+    // 缺省 manual——全部走人工 API 通道（routes-kernel /optimizer/apply）。
+    const autoApply = process.env.PTH_APPLY_POLICY === "auto-reversible";
     const optimizer = optimizerEnabled ? new Optimizer({
       memory: dataWorld.memory,
       windowSize: Number(process.env.PTH_OPTIMIZER_WINDOW ?? 10),
+      autoApplyReversible: autoApply,
+      applySuggestion: autoApply
+        ? async (id) => {
+            const { applyOptimizerSuggestion } = await import("./optimizer-apply.js");
+            return applyOptimizerSuggestion(dataWorld.memory, id, dataWorld.queryReadOnly);
+          }
+        : undefined,
     }) : undefined;
     const loop = new BatchTaskLoop({
       kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,

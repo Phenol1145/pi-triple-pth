@@ -470,12 +470,8 @@ ${buildDoc()}`;
 
 /** 工具动作描述（元工具面） */
 /** 工具参数 JSON Schema 定义（OpenAI function 格式——原生 tool_calls 声明） */
+// （2026-08-14 T3：pick.tools 动态工具选择协议已废弃——schema 移除，工具面不再动态收窄）
 const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<string, unknown>; required: string[] }> = {
-  "pick.tools": {
-    description: "【工具面声明（2026-08-12 动态工具选择协议）】声明下一轮 LLM 调用只暴露的工具清单（点形/下划线形均可）——聚焦注意力防误选。生效于下一轮并持续到空间切换或新声明；可在同一条消息里与其他工具并行调用（不增加轮次）；越权/当前空间不可用的名字会被忽略；done 与 asp_cd 始终可用；空数组 = 恢复默认全量面。",
-    properties: { tools: { type: "array", items: { type: "string" }, description: "下一轮要用的工具名清单（如 ts.run/memory.query/ts_run）——只声明本轮真正需要的" } },
-    required: ["tools"],
-  },
   "python.run": {
     description: "【python 程序——需要 python 生态/数据计算时】在 python kernel（sandbox 持久 REPL）执行程序——多语句/循环；_result = 值 回传。ts 能做的用 ts（ts 程序内可 await python 能力）。",
     properties: { code: { type: "string", description: "python 程序（多语句；_result = 值 作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
@@ -755,7 +751,6 @@ ${Object.entries(schemas)
     .map(([name, s]) => `- ${name}: ${s.description}`)
     .join("\n")}
 - done: {result, summary?} —— 完成任务，result 为最终产出对象
-- pick.tools: {tools: string[]} —— 声明下一轮只暴露的工具清单（聚焦防误选；done/asp.cd 始终可用；空数组恢复默认）
 
 输出模式（mode 可选——控制回填带宽）：default=完整；value-only=只回 value（大数据省 token）；errors-only=成功只回 ok 失败回全错（快速试错）；quiet=静默（状态准备不污染轨迹）`;
 }
