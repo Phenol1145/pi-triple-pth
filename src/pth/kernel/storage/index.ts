@@ -19,9 +19,9 @@ export interface DataWorldAccess {
   pgStat(view: "activity" | "database" | "bgwriter"): Promise<unknown>;
 }
 
-export function createDataWorld(pool: pg.Pool): DataWorldAccess {
+export function createDataWorld(pool: pg.Pool, routing?: import("./task-store-pg.js").TaskRouting): DataWorldAccess {
   return {
-    tasks: new PgTaskStore(pool),
+    tasks: new PgTaskStore(pool, routing),
     memory: new PgMemoryStore(pool),
     transcripts: new PgTranscriptStore(pool),
     audit: new PgAuditStore(pool),

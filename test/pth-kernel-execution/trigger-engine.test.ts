@@ -126,9 +126,10 @@ describe("TriggerEngine（事件触发任务——trigger 组件落地）", () =
 });
 
 describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
-  // 侧效导入：worker-cluster 模块加载时注册内置角色标签（origin 等）到全局 tagRegistry
+  // 内置角色标签注册走装配注入（2026-08-13 审计 P2）
   beforeEach(async () => {
-    await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { installDefaultRoles } = await import("../helpers");
+    installDefaultRoles();
   });
   function mockTasksWith(origTask: { id: string; title: string; text: string; assigned_role: string | null } | null) {
     const published: Array<{ title: string; text: string; createdBy: string; tags?: string[]; payload?: unknown }> = [];

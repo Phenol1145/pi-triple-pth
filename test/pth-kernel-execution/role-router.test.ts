@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { routeTaskRole, checkTaskRouting } from "../../src/pth/kernel/execution/role-router.js";
+import { installDefaultRoles } from "../helpers";
+
+beforeEach(() => installDefaultRoles());
 
 describe("role router v2（角色标签制——分选器唯一标准）", () => {
   it("flow 显式 role 优先（payload.flow.stages[0].task.role）", () => {
@@ -81,7 +84,8 @@ describe("checkTaskRouting（publish 前严格校验）", () => {
 
 describe("GOVERNANCE_ROLES（控制论骨架——2026-08-12 体系自制）", () => {
   it("谱系可见：sensor/controller 9 角色在 allLineageRoles（默认不派发）", async () => {
-    const { allLineageRoles, allWorkerRoles, GOVERNANCE_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { allLineageRoles, allWorkerRoles } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { GOVERNANCE_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     expect(GOVERNANCE_ROLES.length).toBe(9);
     const lineage = allLineageRoles().map((r) => r.id);
     for (const g of GOVERNANCE_ROLES) expect(lineage).toContain(g.id);

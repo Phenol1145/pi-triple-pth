@@ -1,6 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { buildRoleDoc, buildCapabilityIndex } from "../../src/pth/kernel/prompt-docs.js";
-import { DEFAULT_ROLES } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { DEFAULT_ROLES } from "../../src/pth/impls/roles/default-roles.js";
+import { installDefaultRoles } from "../helpers";
+
+beforeEach(() => installDefaultRoles());
 
 describe("Prompt 框架化（角色文档/能力索引——memory 数据源）", () => {
   it("角色文档：覆盖全部内置角色（人设/任务类型/工作方式）", () => {

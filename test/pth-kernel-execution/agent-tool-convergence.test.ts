@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
+import { installDefaultRoles } from "../helpers";
+
+beforeEach(() => installDefaultRoles());
 import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
 import { AGENT_TOOL_IDS } from "../../src/pth/kernel/execution/parse-agent-action.js";
@@ -230,13 +233,13 @@ describe("asm-kernel 接线（2026-08-12：dev.build/dev.run .s 分发）", () =
 
 describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理面削减）", () => {
   it("memory-stats 最窄面：导航（asp.cd/asp.index）+ts 面+memory.index（无 debug/write/cache）", async () => {
-    const { DEFAULT_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { DEFAULT_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     const ms = DEFAULT_ROLES.find((r) => r.id === "memory-stats")!;
     expect(ms.actionTools).toEqual(["asp.cd", "asp.index", "ts.run", "ts.eval", "memory.index"]);
   });
 
   it("developer 面：执行核+dev+debug+write+导航+缓存——无 spaceMaint 治理面（2026-08-13 write 补回）", async () => {
-    const { DEFAULT_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { DEFAULT_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
     const dev = DEFAULT_ROLES.find((r) => r.id === "developer")!;
     const schemas = filterToolSchemas(dev.actionTools);
@@ -252,7 +255,7 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
   });
 
   it("acceptor 只读面：dev.run/dev.list/write.read/write.list——无 dev.write/write.create（验收不写）", async () => {
-    const { DEFAULT_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { DEFAULT_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
     const acc = DEFAULT_ROLES.find((r) => r.id === "acceptor")!;
     const schemas = filterToolSchemas(acc.actionTools);
@@ -266,7 +269,7 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
   });
 
   it("controller 系含 spaceMaint（维护收编点）——worker 角色均无", async () => {
-    const { DEFAULT_ROLES, GOVERNANCE_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { DEFAULT_ROLES, GOVERNANCE_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     const ctrl = GOVERNANCE_ROLES.find((r) => r.id === "controller:pth-opt")!;
     expect(ctrl.actionTools).toContain("spaceMaint");
     for (const r of DEFAULT_ROLES) {

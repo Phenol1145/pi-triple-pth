@@ -1,8 +1,7 @@
 import type { WorkerKernel } from "../interpreter/types.js";
 import { tagRegistry } from "./tag-registry.js";
 // 内置角色谱系（具体实现层——2026-08-12 分层：核心机制与本文件消费 impls 数据）
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
-export { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
+// 内置角色数据由装配层注入（2026-08-13 审计 P2——核心不再 import 实现层——见 setDefaultRoles）
 
 export interface WorkerRole {
   id: string;
@@ -79,7 +78,7 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
     return out;
   }
   // known 集合含 governance（sensor/controller 系——显式可列；默认展开不含——MID 同款）
-  const known = new Set([...allWorkerRoles(), ...MID_ROLES, ...GOVERNANCE_ROLES].map((r) => r.id));
+  const known = new Set([...allWorkerRoles(), ...midRoles, ...governanceRoles].map((r) => r.id));
   const specStr = spec as string;
   for (const part of specStr.split(",")) {
     // 角色 id 可含冒号（sensor:worker-opt）——copies 是末尾数字段——从右找数字段拆分
@@ -103,7 +102,7 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
  * 2026-08-12 修复：按 weights 键展开（含显式启用的 governance/MID 角色——
  * 旧实现只遍历 allWorkerRoles——PTH_WORKER_ROLES 显式列出的 governance 被静默丢弃）。 */
 export function expandRoleWeights(weights: Map<string, number>): WorkerRole[] {
-  const byId = new Map([...allWorkerRoles(), ...MID_ROLES, ...GOVERNANCE_ROLES].map((r) => [r.id, r]));
+  const byId = new Map([...allWorkerRoles(), ...midRoles, ...governanceRoles].map((r) => [r.id, r]));
   const out: WorkerRole[] = [];
   for (const [id, n] of weights) {
     const r = byId.get(id);
@@ -175,7 +174,7 @@ export function profileToWeights(profile: BatchProfile): Map<string, number> {
 export function validateWeights(weights: Map<string, number>): void {
   let total = 0;
   for (const [role, copies] of weights) {
-    const knownSet = new Set([...allWorkerRoles(), ...MID_ROLES, ...GOVERNANCE_ROLES].map((r) => r.id));
+    const knownSet = new Set([...allWorkerRoles(), ...midRoles, ...governanceRoles].map((r) => r.id));
     if (!knownSet.has(role)) throw new Error(`parseRoleWeights: 未知角色 "${role}"`);
     if (!Number.isInteger(copies) || copies < 0 || copies > MAX_WORKER_COPIES) {
       throw new Error(`parseRoleWeights: ${role} 副本数须为 0-${MAX_WORKER_COPIES}`);
@@ -197,7 +196,7 @@ let extraRoles: WorkerRole[] = [];
 
 /** 注册扩展角色（id 冲突拒绝——防覆盖内置/已有扩展角色） */
 export function registerWorkerRole(role: WorkerRole): void {
-  if (DEFAULT_ROLES.some((r) => r.id === role.id) || extraRoles.some((r) => r.id === role.id)) {
+  if (defaultRoles.some((r) => r.id === role.id) || extraRoles.some((r) => r.id === role.id)) {
     throw new Error(`registerWorkerRole: 角色 "${role.id}" 已存在（id 冲突）`);
   }
   extraRoles.push(role);
@@ -212,13 +211,33 @@ function registerRoleTags(role: WorkerRole): void {
   }
 }
 
-// 内置角色标签随模块加载注册（origin + DEFAULT_ROLES；MID_ROLES 是谱系结构层非派发目标——不注册）
-registerRoleTags(ORIGIN_ROLE);
-for (const r of DEFAULT_ROLES) registerRoleTags(r);
+// ── 内置角色装配状态（2026-08-13 审计 P2：核心不再 import 实现层——
+//    assembly 层从 impls/roles/default-roles 取数据经 setDefaultRoles 注入）──
+let originRole: WorkerRole | undefined;
+let defaultRoles: WorkerRole[] = [];
+let midRoles: WorkerRole[] = [];
+let governanceRoles: WorkerRole[] = [];
+
+/** 装配期注入：内置角色数据 + 标签注册（原模块顶层副作用随注入解除 TDZ 约束） */
+export function setDefaultRoles(origin: WorkerRole, defaults: WorkerRole[], mid: WorkerRole[], governance: WorkerRole[]): void {
+  originRole = origin;
+  defaultRoles = defaults;
+  midRoles = mid;
+  governanceRoles = governance;
+  // 内置角色标签注册（origin + DEFAULT_ROLES；MID_ROLES 是谱系结构层非派发目标——不注册）
+  registerRoleTags(origin);
+  for (const r of defaults) registerRoleTags(r);
+  // governance 标签注册（sensor/controller 系显式启用后可派发——kind=governance）
+  for (const r of governance) {
+    for (const tag of r.tags) {
+      tagRegistry.register({ name: tag, kind: "governance", description: "治理角色共享标签（" + r.id + " 等）", registeredBy: "governance:" + r.id });
+    }
+  }
+}
 
 /** 全部角色（Origin 根 + 内置 + 扩展——routeTaskRole/worker 构成统一谱系） */
 export function allWorkerRoles(): WorkerRole[] {
-  return [ORIGIN_ROLE, ...DEFAULT_ROLES, ...extraRoles];
+  return [...(originRole ? [originRole] : []), ...defaultRoles, ...extraRoles];
 }
 
 /**
@@ -240,7 +259,7 @@ ${lines.join("\n")}`;
 /** 全部可派发角色（worker + 中间层 + governance——router/batch/expand 统一查找面；
  *  MID/governance 须显式 PTH_WORKER_ROLES 启用才会进 batch——但路由校验/查找不因未启用而拒绝） */
 export function allKnownRoles(): WorkerRole[] {
-  return [...allWorkerRoles(), ...MID_ROLES, ...GOVERNANCE_ROLES];
+  return [...allWorkerRoles(), ...midRoles, ...governanceRoles];
 }
 
 /** 按 id 查找（全已知面——含 governance/MID） */
@@ -260,10 +279,11 @@ export function getExtraRoles(): WorkerRole[] { return [...extraRoles]; }
 /** 谱系全量角色（含 Origin 根——lineage 查询/文档注入用；batch 构成仍由 allWorkerRoles/PTH_WORKER_ROLES 决定） */
 export function allLineageRoles(): WorkerRole[] {
   const roles = allWorkerRoles();
-  const base = roles.some((r) => r.id === ORIGIN_ROLE.id) ? roles : [ORIGIN_ROLE, ...roles];
+  const origin = originRole;
+  const base = origin && !roles.some((r) => r.id === origin.id) ? [origin, ...roles] : roles;
   const withMid = [...base];
-  for (const mid of MID_ROLES) if (!withMid.some((r) => r.id === mid.id)) withMid.push(mid);
-  for (const g of GOVERNANCE_ROLES) if (!withMid.some((r) => r.id === g.id)) withMid.push(g);
+  for (const mid of midRoles) if (!withMid.some((r) => r.id === mid.id)) withMid.push(mid);
+  for (const g of governanceRoles) if (!withMid.some((r) => r.id === g.id)) withMid.push(g);
   return withMid;
 }
 
@@ -279,7 +299,8 @@ export interface RoleLineageNode {
  */
 export function buildRoleLineage(roles: WorkerRole[] = allLineageRoles()): RoleLineageNode {
   const byId = new Map(roles.map((r) => [r.id, r] as const));
-  const rootRole = byId.get(ORIGIN_ROLE.id) ?? ORIGIN_ROLE;
+  const rootRole = originRole ? (byId.get(originRole.id) ?? originRole) : roles[0];
+  if (!rootRole) throw new Error("buildRoleLineage: 角色集为空（未注入内置角色——先 setDefaultRoles）");
   const nodes = new Map<string, RoleLineageNode>(roles.map((r) => [r.id, { role: r, children: [] }]));
   const root = nodes.get(rootRole.id) ?? { role: rootRole, children: [] };
   nodes.set(root.role.id, root);
@@ -331,11 +352,4 @@ export function createWorkerCluster(deps: WorkerClusterDeps): Map<string, Worker
   return map;
 }
 
-// governance 标签注册（2026-08-12：sensor/controller 系显式启用后可派发——publish 校验
-// 通过；kind=governance 不参与 routeRole（同标签多角色——派发走 flow 显式）；
-// 置于 GOVERNANCE_ROLES 声明之后（TDZ——const 后置引用））
-for (const r of GOVERNANCE_ROLES) {
-  for (const tag of r.tags) {
-    tagRegistry.register({ name: tag, kind: "governance", description: `治理角色共享标签（${r.id} 等）`, registeredBy: `governance:${r.id}` });
-  }
-}
+// governance 标签注册移入 setDefaultRoles（2026-08-13 审计 P2——随装配执行）

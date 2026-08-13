@@ -1,9 +1,12 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach } from "vitest";
+import { installDefaultRoles } from "../helpers";
 import {
   parseRoleWeights, expandRoleWeights, MAX_WORKER_COPIES,
   profileToWeights, COMPOSITION_STRATEGIES, reinforcedStrategy, weightsToEnv,
   registerWorkerRole, resetExtraRoles, validateWeights,
 } from "../../src/pth/kernel/execution/worker-cluster.js";
+
+beforeEach(() => installDefaultRoles());
 
 describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
   it("不设置 → 默认 10 角色 ×1（origin+9——Origin 常驻升级链终点）", () => {

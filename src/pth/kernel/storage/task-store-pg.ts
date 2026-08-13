@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "./pg.js";
-import { routeTaskRole, checkTaskRouting } from "../execution/role-router.js";
+/** 路由策略注入（2026-08-13 审计 P2——存储层不再依赖执行层：
+ *  校验/分配由装配层（assembly/batch-process）传入——task-store 只存不判） */
+export interface TaskRouting {
+  validate(input: { tags?: string[]; payload?: unknown }): { ok: boolean; error?: string };
+  assign(input: { id: string; tags?: string[]; payload?: unknown }): string;
+}
 
 /** 单任务最大认领次数（防坏任务无限 claim→reject 空转的兜底） */
 export const MAX_CLAIMS = 10;
@@ -50,21 +55,24 @@ export interface TaskStore {
 }
 
 export class PgTaskStore implements TaskStore {
-  constructor(private pool: pg.Pool) {}
+  constructor(private pool: pg.Pool, private routing?: TaskRouting) {}
 
   async publish(input: PublishInput): Promise<Task> {
     // 任务池纯化（2026-08-10 D5）：publish 唯一入口严格校验——未知标签/歧义/无路由依据
     // 一律拒绝（statusCode 400——fastify 映射；内部发布者同样受约束）。
-    const check = checkTaskRouting({ tags: input.tags, payload: input.payload });
-    if (!check.ok) {
-      const err = new Error(check.error) as Error & { statusCode?: number };
-      err.statusCode = 400;
-      throw err;
+    // 2026-08-13 审计 P2：校验/分配策略由装配层注入（DIP）——本层只存不判。
+    if (this.routing) {
+      const check = this.routing.validate({ tags: input.tags, payload: input.payload });
+      if (!check.ok) {
+        const err = new Error(check.error) as Error & { statusCode?: number };
+        err.statusCode = 400;
+        throw err;
+      }
     }
-    // 任务分配正交化：应用层生成 id（crypto.randomUUID）→ routeTaskRole 确定性路由
+    // 任务分配正交化：应用层生成 id（crypto.randomUUID）→ 路由策略确定性路由
     // （flow 显式 role / tags 精确匹配——校验期已保证有路由依据）——assigned_role 从出生即确定，零抢票。
     const id = randomUUID();
-    const assignedRole = routeTaskRole({ id, tags: input.tags, payload: input.payload });
+    const assignedRole = this.routing?.assign({ id, tags: input.tags, payload: input.payload }) ?? null;
     const res = await this.pool.query(
       `INSERT INTO tasks (id, title, text, created_by, tags, payload, template_id, assigned_role, job_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)

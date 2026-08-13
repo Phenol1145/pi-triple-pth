@@ -8,6 +8,10 @@ import { join } from "node:path";
 import { createPgPool } from "../../src/pth/kernel/storage/pg";
 import { applySchema } from "../../src/pth/kernel/storage/schema";
 import { createDataWorld } from "../../src/pth/kernel/storage/index";
+import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router";
+import { installDefaultRoles } from "../helpers";
+
+beforeEach(() => installDefaultRoles());
 
 // --- Docker 可用性守卫（与 pg.test.ts 同模式；无 docker 环境 SKIP 而非 FAIL）---
 async function hasDocker(): Promise<boolean> {
@@ -66,7 +70,7 @@ suite("batch process integration (真实 pg 全链路)", () => {
   });
 
   it("forked batch process claims and completes a task end-to-end", async () => {
-    const dw = createDataWorld(pool);
+    const dw = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
     // 发布一个任务
     const task = await dw.tasks.publish({ title: "e2e", text: "1 + 1", createdBy: "test", tags: ["code"] });
     // fork batch 子进程（连同一 pg）。TS 入口不能直接跑：execPath=node + execArgv 带

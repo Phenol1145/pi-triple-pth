@@ -1,6 +1,8 @@
 import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
-import { DEFAULT_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles } from "./execution/worker-cluster.js";
+import { parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles } from "./execution/worker-cluster.js";
+import { checkTaskRouting, routeTaskRole } from "./execution/role-router.js";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../impls/roles/default-roles.js";
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { createKernelLogger } from "./logger.js";
@@ -147,7 +149,11 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const pool = await createPgPool({ connectionString: opts.databaseUrl });
   await applySchema(pool);
 
-  const dataWorld = createDataWorld(pool);
+  // 2026-08-13 审计 P2：内置角色在装配层注入（核心 worker-cluster 不再 import 实现层）
+  setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+
+  // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化——task-store 只存不判）
+  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
   const assemblyLogger = createKernelLogger();
   const { ActivityHub } = await import("./execution/activity-hub.js");
   const activityHub = new ActivityHub();

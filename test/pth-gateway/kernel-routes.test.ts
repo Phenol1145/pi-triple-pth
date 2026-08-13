@@ -1,10 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { installDefaultRoles } from "../helpers";
 import Fastify from "fastify";
 import { registerKernelRoutes } from "../../src/pth/gateway/routes-kernel";
 import type { KernelRuntime } from "../../src/pth/kernel/assembly";
 
 // 简化 auth：路由测试直接构造 app 并注册 kernel 路由（不含全局 auth hook——auth 已由
 // server.ts 的 createAuthHook 统一覆盖，本测试聚焦路由逻辑本身）。
+beforeEach(() => installDefaultRoles());
+
 function buildApp(kernel: KernelRuntime | null) {
   const app = Fastify();
   registerKernelRoutes(app, kernel);

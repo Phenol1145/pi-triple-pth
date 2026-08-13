@@ -78,9 +78,10 @@ describe("tag-registry（标签总表——注册通道）", () => {
 });
 
 describe("tag-registry × worker-cluster（内置角色自动挂载）", () => {
-  it("origin + DEFAULT_ROLES 标签随模块加载注册", async () => {
+  it("origin + DEFAULT_ROLES 标签随 setDefaultRoles 注入注册（2026-08-13 审计 P2——装配期）", async () => {
     const { tagRegistry: global } = await import("../../src/pth/kernel/execution/tag-registry.js");
-    await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { installDefaultRoles } = await import("../helpers");
+    installDefaultRoles();
     // origin 升级链标签
     expect(global.get("origin")).toMatchObject({ kind: "role", role: "origin" });
     // 7 默认角色代表抽查

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_ROLES, createWorkerCluster, type WorkerRole } from "../../src/pth/kernel/execution/worker-cluster";
+import { createWorkerCluster, type WorkerRole } from "../../src/pth/kernel/execution/worker-cluster";
+import { DEFAULT_ROLES } from "../../src/pth/impls/roles/default-roles";
+import { installDefaultRoles } from "../helpers";
+
+beforeEach(() => installDefaultRoles());
 
 describe("worker cluster", () => {
   it("DEFAULT_ROLES has 9 leaf roles with unique ids（human-interface 移除——PTL 负责人类交互；memory-stats 2026-08-11 Agent-JIT 分化；writer 2026-08-12 批 2）", () => {

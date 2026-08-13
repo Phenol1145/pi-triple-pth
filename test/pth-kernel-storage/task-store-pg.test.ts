@@ -4,6 +4,8 @@ import { getContainerRuntimeClient } from "testcontainers";
 import { createPgPool } from "../../src/pth/kernel/storage/pg";
 import { applySchema } from "../../src/pth/kernel/storage/schema";
 import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg";
+import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router";
+import { installDefaultRoles } from "../helpers";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1（test/pth-kernel-storage/pg.test.ts）与 Task 2（schema.test.ts）：
@@ -31,7 +33,9 @@ suite("task store pg", () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     pool = await createPgPool({ connectionString: container.getConnectionUri() });
     await applySchema(pool);
-    store = new PgTaskStore(pool);
+    // 2026-08-13 审计 P2：路由策略注入（存储层纯化——publish 校验/分配由装配层传入）
+    installDefaultRoles();
+    store = new PgTaskStore(pool, { validate: checkTaskRouting, assign: routeTaskRole });
   }, 120_000);
 
   afterAll(async () => {

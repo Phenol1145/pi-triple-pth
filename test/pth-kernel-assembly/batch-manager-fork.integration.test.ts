@@ -7,8 +7,13 @@ import { join } from "node:path";
 import { createPgPool } from "../../src/pth/kernel/storage/pg";
 import { applySchema } from "../../src/pth/kernel/storage/schema";
 import { createDataWorld } from "../../src/pth/kernel/storage/index";
+import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router";
 import { BatchManager } from "../../src/pth/kernel/execution/batch-manager";
-import { DEFAULT_ROLES } from "../../src/pth/kernel/execution/worker-cluster";
+import { DEFAULT_ROLES } from "../../src/pth/impls/roles/default-roles";
+import { installDefaultRoles } from "../helpers";
+import { beforeEach } from "vitest";
+
+beforeEach(() => installDefaultRoles());
 
 // --- Docker 可用性守卫（与既有套件同模式；无 docker 环境 SKIP 而非 FAIL）---
 async function hasDocker(): Promise<boolean> {
@@ -81,7 +86,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       },
     });
 
-    const dw = createDataWorld(pool);
+    const dw = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
     const task = await dw.tasks.publish({ title: "e2e", text: "2 + 3", createdBy: "test", tags: ["code"] });
 
     const handle = await manager.spawnBatch();
@@ -129,7 +134,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       obsResolver: async () => ({}),
     });
     const handle = await bm3.spawnBatch();
-    const dw3 = createDataWorld(pool);
+    const dw3 = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
     // 1. developer 任务正常认领（轮询等待——2026-08-12 发布前 flaky 修复：
     //    3s 固定等待在全量并发下不足（fork 子进程启动/轮询慢）——改轮询最多 30s）
     const t1 = await dw3.tasks.publish({ title: "w1", text: "1", createdBy: "test", tags: ["code"] });

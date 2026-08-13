@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { installDefaultRoles } from "../helpers";
 import { createToolstore } from "../../src/pth/kernel/interpreter/toolstore.js";
 import { ExtRegistry } from "../../src/pth/kernel/extensions/ext-registry.js";
 import { getEventBus, resetEventBus } from "../../src/pth/kernel/execution/event-bus.js";
 import { allWorkerRoles, resetExtraRoles, getExtraRoles } from "../../src/pth/kernel/execution/worker-cluster.js";
 import { routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
+
+beforeEach(() => installDefaultRoles());
 
 /**
  * 端到端：hello-world 示例扩展（toolstore/extensions/hello-world——四类 contracts）

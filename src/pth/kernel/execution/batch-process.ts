@@ -5,7 +5,9 @@ import { createDataWorld } from "../storage/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../../impls/kernels/index.js";
 import type { InterpreterResult } from "../interpreter/types.js";
 import type { Task } from "../storage/task-store-pg.js";
-import { DEFAULT_ROLES, GOVERNANCE_ROLES, parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles } from "./worker-cluster.js";
+import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles } from "./worker-cluster.js";
+import { checkTaskRouting, routeTaskRole } from "./role-router.js";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
 import { getEventBus } from "./event-bus.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
@@ -55,7 +57,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // PTH_PG_POOL_MAX 可覆盖（batch 数多时 PG 连接总量 = pool_max × batches 需核算）
   const pool = await createPgPool({ connectionString: deps.databaseUrl, max: Number(process.env.PTH_PG_POOL_MAX ?? 8) });
   await applySchema(pool);
-  const dataWorld = createDataWorld(pool);
+  // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化）
+  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
   const workspaceMgr = new DefaultTaskWorkspaceManager({ basePath: deps.basePath, artifactPath: deps.artifactPath });
   // 产物根必须先存在：archive 用 rename 而非 mkdir——父目录缺失时 rename 抛 ENOENT
   await mkdir(deps.artifactPath, { recursive: true });
@@ -324,6 +327,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
 // 入口判断：env 标志为主（strip-types/transform-types 下 argv[1] 是绝对路径，endsWith 不可靠），
 // argv 兜底兼容直接 node 运行。
 if (process.env.PTH_BATCH_PROCESS === "1" || process.argv[1]?.endsWith("batch-process.ts")) {
+  // 2026-08-13 审计 P2：fork 子进程独立入口——自注入内置角色（父进程注入不跨进程）
+  setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
   const databaseUrl = process.env.PTH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!databaseUrl) {
     console.error("batch process fatal: missing database url (PTH_TEST_DATABASE_URL or DATABASE_URL)");

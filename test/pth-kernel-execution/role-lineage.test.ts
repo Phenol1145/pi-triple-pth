@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
-  ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, allLineageRoles, buildRoleLineage, renderRoleLineage,
+  allLineageRoles, buildRoleLineage, renderRoleLineage,
   registerWorkerRole, resetExtraRoles,
 } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES } from "../../src/pth/impls/roles/default-roles";
+import { installDefaultRoles } from "../helpers";
+
+beforeEach(() => installDefaultRoles());
 import { buildRoleDoc } from "../../src/pth/kernel/prompt-docs.js";
 
 describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导逐代生长）", () => {
