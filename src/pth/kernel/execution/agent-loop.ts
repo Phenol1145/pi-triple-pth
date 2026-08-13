@@ -286,7 +286,92 @@ function actionFingerprint(tool: string, args: Record<string, unknown>): string 
   }
   return `${tool}:${JSON.stringify(args)}`;
 }
+// ── 负结果收敛窗口（S6 死循环机制落地——controller 裁决 2026-08-13）──────────
+// 证据：agent-reach 279 步 maxSteps 强制终止，bash_run=174 反复探测 extensions/<name>/index.ts
+//       （参数微变绕过参数指纹——同目标不同参数的负验证循环无收敛条件）
+// 机制：recentResults 窗口（6 步）按"同工具族+同目标+连续 N 次负结果"判定，
+//       N=3 回填引导（该路径已确认不可用→换策略）、N=5 强制终止（对齐现有阈值）——与参数指纹并存。
+const RECENT_RESULTS_WINDOW = 6;
+const NEG_GUIDE_THRESHOLD = 3;     // 连续负结果 ≥3 → 回填引导
+const NEG_TERMINATE_THRESHOLD = 5; // 连续负结果 ≥5 → 强制终止（防失控）
+const NEG_SEMANTICS = [
+  /not found/i, /no such (file|directory)/i, /ENOENT/i, /cannot find/i,
+  /不存在/i, /未找到/i, /无此/i, /无法找到/i,
+  /failed/i, /failure/i, /失败/i, /\berror\b/i, /错误/i,
+  /reject/i, /拒绝/i, /denied/i, /越权/i, /无权/i,
+  /不可用/i, /unavailable/i, /invalid/i, /missing/i,
+];
+interface RecentAction { family: string; target: string; neg: boolean; }
 
+/** 工具族归一（bash_run/bash_eval→bash；ts_run/ts_eval→ts；fs.*→fs）——负结果按族聚合 */
+function toolFamily(tool: string): string {
+  const t = tool.replace(/_/g, ".");
+  for (const fam of ["bash", "python", "ts", "fs", "memory", "dev", "debug", "write", "cache"]) {
+    if (t === fam || t.startsWith(fam + ".")) return fam;
+  }
+  return t.split(".")[0];
+}
+
+/** 路径模式化：具体文件名/段 → *（保留扩展名与结构）——"同目标不同参数"归一 */
+function normalizePathPattern(p: string): string {
+  const segs = p.split("/");
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    if (!s || s === "." || s === "..") continue;
+    if (/^[A-Za-z0-9_.-]+$/.test(s)) {
+      const ext = s.match(/\.([A-Za-z0-9]+)$/);
+      segs[i] = ext ? `*.${ext[1]}` : "*";
+    }
+  }
+  return segs.join("/");
+}
+
+/** 动作目标提取（语义维度——补参数指纹盲区：同目标不同参数的负验证循环） */
+function actionTarget(tool: string, args: Record<string, unknown>): string {
+  const t = tool.replace(/_/g, ".");
+  if (typeof args.code === "string") {
+    const code = args.code;
+    const reads = [...code.matchAll(/fs\.(?:readSource|readText)\(\s*"([^"]+)"/g)].map((m) => m[1]);
+    if (reads.length > 0) return `file:${reads.map(normalizePathPattern).sort().join("|")}`;
+    const mems = [...code.matchAll(/memory\.query\(\s*"([^"]+)"/g)].map((m) => m[1]);
+    if (mems.length > 0) return `mem:${mems.map((s) => s.replace(/[0-9a-fA-F]{8,}/g, "*id*").replace(/\s+/g, " ").slice(0, 80)).sort().join("|")}`;
+    return `code:${code.replace(/\s+/g, " ").slice(0, 100)}`;
+  }
+  const cmd = String(args.command ?? args.cmd ?? "");
+  if (cmd) {
+    const paths = cmd.match(/[\w./-]+\.(?:ts|js|json|md|txt|py|sh|c|h|yaml|yml)/g) ?? [];
+    if (paths.length > 0) return `path:${paths.map(normalizePathPattern).sort().join("|")}`;
+    return `cmd:${cmd.replace(/\s+/g, " ").slice(0, 100)}`;
+  }
+  const pathArg = String(args.path ?? args.relPath ?? "");
+  if (pathArg) return `file:${normalizePathPattern(pathArg)}`;
+  const sqlArg = String(args.sql ?? "");
+  if (sqlArg) return `mem:${sqlArg.replace(/[0-9a-fA-F]{8,}/g, "*id*").replace(/\s+/g, " ").slice(0, 80)}`;
+  return `${t}:${JSON.stringify(args).slice(0, 120)}`;
+}
+
+/** 负结果语义判定：工具级失败（ok=false）或输出含失败语义（NOT FOUND 等——bash 退出码 0 盲区） */
+function isNegativeResult(result: { ok?: boolean; error?: unknown; stdout?: unknown; value?: unknown } | undefined | null): boolean {
+  if (!result) return true;
+  if (result.ok === false) return true;
+  const text = `${result.error ?? ""} ${result.stdout ?? ""} ${typeof result.value === "string" ? result.value : JSON.stringify(result.value ?? "")}`;
+  return NEG_SEMANTICS.some((p) => p.test(text));
+}
+
+/** 负结果收敛检查：窗口内同 family+target 的连续负结果计数 → 引导/终止 */
+function negativeLoopCheck(win: RecentAction[], family: string, target: string, neg: boolean): { action: "none" | "guide" | "terminate"; count: number } {
+  if (!neg) return { action: "none", count: 0 };
+  let count = 0;
+  for (let i = win.length - 1; i >= 0; i--) {
+    const r = win[i];
+    if (r.family !== family || r.target !== target) continue;  // 不同目标/工具族不影响该目标计数
+    if (!r.neg) break;                                          // 同目标正结果中断连续
+    count++;
+  }
+  if (count >= NEG_TERMINATE_THRESHOLD) return { action: "terminate", count };
+  if (count >= NEG_GUIDE_THRESHOLD) return { action: "guide", count };
+  return { action: "none", count };
+}
 /** 静态环境注入：toolstore 文件清单 + 记忆概览（失败容忍——不阻断任务） */
 async function buildEnvironmentPrelude(caps: Record<string, unknown>): Promise<string> {
   const parts: string[] = [];
@@ -369,6 +454,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   let repeatCount = 0;
   let emptyReplies = 0;
   let unknownToolCount = 0;   // 未知工具引导计数（连续 ≥3 才终止——2026-08-13）
+  let recentResults: RecentAction[] = [];  // 负结果收敛窗口（≤6 步——同工具族+同目标连续负结果 N=3 引导/N=5 终止——S6 死循环机制 2026-08-13）
 
   const complete = async (tools: import("@earendil-works/pi-ai").Tool[]): Promise<import("../interpreter/llm-fn.js").LlmResult | string> => {
     try {
@@ -833,6 +919,23 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}` });
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
       input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500) });
+      // 负结果收敛窗口（S6 死循环机制——2026-08-13）：同工具族+同目标连续负结果
+      // N=3 回填引导（该路径已确认不可用→换策略）、N=5 强制终止（对齐现有阈值）
+      const neg = isNegativeResult(result);
+      const fam = toolFamily(tool);
+      const tgt = actionTarget(tool, args);
+      recentResults.push({ family: fam, target: tgt, neg });
+      if (recentResults.length > RECENT_RESULTS_WINDOW) recentResults.shift();
+      const loopCheck = negativeLoopCheck(recentResults, fam, tgt, neg);
+      if (loopCheck.action === "terminate") {
+        return { ok: true, value: null, steps: steps + 1, warning: `连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——负验证循环，强制终止` };
+      }
+      if (loopCheck.action === "guide") {
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `[收敛] 检测到连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——该路径已确认不可用（${summary.slice(0, 120)}）——不要继续探测/重试同一目标——换策略（优先查 capability-index/ext-registry 权威列表，替代盲探测）。` });
+        input.logger?.(`[agent] step=${steps + 1} 负结果引导（${fam} · ${tgt} ×${loopCheck.count}）`);
+        return undefined;
+      }
       return undefined;  // 继续循环
     } catch (e) {
       // 工具执行异常（参数错误等）→ 回填错误让 LLM 修正（不算失败）

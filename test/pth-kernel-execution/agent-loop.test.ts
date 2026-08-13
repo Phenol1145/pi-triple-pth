@@ -504,3 +504,43 @@ describe("未知工具引导 + 直觉别名（2026-08-13）", () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe("负结果收敛（S6 死循环机制——2026-08-13）", () => {
+  it("同目标连续负结果 N=3 引导 / N=5 强制终止（warning）", async () => {
+    const baseKernel = mockKernel();
+    const kernel = { ...baseKernel, bash: { ...baseKernel.bash, execute: vi.fn(async () => ({ ok: false, error: "No such file or directory", durationMs: 1, language: "bash" })) } } as never;
+    const steps = Array.from({ length: 6 }, (_, i) => ({
+      toolCalls: [{ name: "bash_run", arguments: { command: `ls extensions/probe-${i}/index.ts` } }],
+    }));
+    const llm = {
+      complete: vi.fn(async () => {
+        const i = Math.min((llm.complete as ReturnType<typeof vi.fn>).mock.calls.length - 1, steps.length - 1);
+        return {
+          content: "", model: "mock", usage: { inputTokens: 1, outputTokens: 1 },
+          toolCalls: steps[i]!.toolCalls.map((tc, idx) => ({ id: `c${i}_${idx}`, name: tc.name, arguments: tc.arguments })),
+        };
+      }),
+    };
+    const traces: string[] = [];
+    const r = await runAgentTask({
+      llm: llm as never, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 8,
+      onTrace: ((t: { type: string; resultPreview?: string }) => { if (t.type === "tool-result") traces.push(t.resultPreview ?? ""); }) as never,
+    });
+    // bash 执行结果 ok:false + error "No such file"（负结果语义）——N=5 强制终止
+    expect(r.ok).toBe(true);
+    expect(r.warning).toContain("负验证循环");
+  });
+
+  it("正结果中断重置——负结果计数清零", async () => {
+    const kernel = mockKernel();
+    const seq = [
+      { toolCalls: [{ name: "bash_run", arguments: { command: "ls x1/index.ts" } }] },
+      { toolCalls: [{ name: "bash_run", arguments: { command: "ls x2/index.ts" } }] },
+      { toolCalls: [{ name: "bash_run", arguments: { command: "echo ok" } }] },   // 正结果（stdout ok）
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ];
+    const llm = mockLlm(seq);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 6 });
+    expect(r.ok).toBe(true);   // 正结果重置——未触发终止——正常 done
+  });
+});
