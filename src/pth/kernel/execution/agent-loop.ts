@@ -597,6 +597,18 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
           content: `子空间 ${id} 已注册（父=${currentSpace()} execTool=${execTool}${memoryScope ? ` memoryScope=${memoryScope}` : ""}）——asp_cd("${id}") 可进入` });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `create → ${id}` });
+        // 空间定义持久化（2026-08-13 鲁棒性：子空间重启恢复——与 worker-role 对称）
+        try {
+          const dataWorld = (kernel as unknown as { dataWorld?: { memory?: { write(e: Record<string, unknown>): Promise<unknown> } } } | null)?.dataWorld;
+          await dataWorld?.memory?.write({
+            id: `space-reg:${id}`,
+            kind: "space-reg",
+            anchors: ["space-reg", id],
+            content: JSON.stringify({ id, parent: currentSpace(), execTool, extraTools, memoryScope, description: desc }),
+            status: "official",
+            meta: { source: "asp-create", space: id, persistedAt: Date.now() },
+          });
+        } catch { /* 持久化失败容忍——空间本任务内仍可用 */ }
         return undefined;
       }
       if (tool === "asp_destroy") {

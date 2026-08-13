@@ -45,3 +45,40 @@ describe("ts 程序 memory 白名单", () => {
     expect(r).toBeUndefined();
   });
 });
+
+describe("环境断言守卫（2026-08-13 洞察污染防线）", () => {
+  function provide() {
+    const store = {
+      query: async () => [], retrieve: async () => [], write: async () => {},
+      update: async () => {}, get: async () => undefined,
+    };
+    const mem = memoryExtension.provide({
+      dataWorld: { memory: store },
+      sessionRef: { current: { currentSpace: "ts" } },
+    } as never).memory as { write: (e: Record<string, unknown>) => Promise<void> };
+    return { mem, store };
+  }
+
+  it("与系统事实矛盾的否定断言被拒（write 空间有工具——'无注册工具'拒写）", async () => {
+    const { mem } = provide();
+    await expect(mem.write({
+      kind: "task-insight", status: "draft",
+      anchors: ["洞察"],
+      content: "环境洞察：write 空间无注册工具，文档产物走 fs.task",
+      meta: { visibility: "public" },
+    })).rejects.toThrow(/污染防线/);
+  });
+
+  it("合理的环境断言放行（不存在的空间）", async () => {
+    const { mem, store } = provide();
+    let written: unknown;
+    (store.write as unknown) = async (e: unknown) => { written = e; };
+    await mem.write({
+      kind: "task-insight", status: "draft",
+      anchors: ["洞察"],
+      content: "环境洞察：nosuch 空间无注册工具",
+      meta: { visibility: "public" },
+    });
+    expect(written).toBeDefined();
+  });
+});

@@ -47,6 +47,10 @@ export interface OptimizerDeps {
   memory?: {
     write(e: { id?: string; kind: string; anchors?: unknown; content: unknown; status?: string; meta?: Record<string, unknown> }): Promise<unknown>;
     incrementAggregate?(id: string, kind: string, anchors: unknown[], deltas: Record<string, number>, meta: Record<string, unknown>): Promise<void>;
+    /** 只读查询（deopt 复测读聚合/建议——2026-08-13） */
+    queryReadOnly?(sql: string): Promise<unknown>;
+    /** 条目更新（deopt 回滚移除规则 stamp——2026-08-13） */
+    update?(id: string, patch: { content?: string; status?: string; meta?: Record<string, unknown> }): Promise<unknown>;
   };
   /** 窗口任务数（缺省 10）——满窗触发检测 */
   windowSize?: number;
@@ -272,6 +276,11 @@ export class Optimizer {
    *  规则已应用则等待复测验证；未应用则监督层未批——重复建议无意义） */
   detect(window: WorkerScorecard[]): OptimizerSuggestion[] {
     this.windowSeq++;
+    // deopt 回滚复测（2026-08-13 稳定循环刹车）：窗口检测时顺带检查已应用建议——
+    // 基线对比劣化则移除规则 stamp（fire-and-forget——不阻塞检测）
+    if (this.deps.memory?.queryReadOnly && this.deps.memory?.update) void this.checkDeopt().catch((e: unknown) => {
+      console.warn(`[optimizer] deopt 复测失败: ${e instanceof Error ? e.message : String(e)}`);
+    });
     const hits = detectHotspots(window);
     const out: OptimizerSuggestion[] = [];
     for (const hit of hits) {
@@ -302,6 +311,70 @@ export class Optimizer {
     }
     this.lastDetectAt = Date.now();
     return out;
+  }
+
+  /**
+   * deopt 回滚（2026-08-13 稳定循环刹车——用户裁决"不优于基线 deopt 回滚"落地）。
+   * 已应用建议（meta.baseline 存在且未回滚）→ 目标角色聚合指标与基线对比：
+   * 复测成熟（基线后新任务数 ≥ 窗口）且劣化（avgFails/avgSteps 升 50%+）→
+   * 从目标资产移除规则 stamp + 建议状态 rolled_back + 落回滚 insight。
+   */
+  private async checkDeopt(): Promise<void> {
+    const mem = this.deps.memory!;
+    const rows = await mem.queryReadOnly!(
+      `SELECT id, content, meta FROM memory_entries WHERE kind = 'optimizer-suggestion' AND status = 'official' AND meta->>'baseline' IS NOT NULL AND meta->>'rolledBack' IS NULL`,
+    ) as Array<{ id: string; content: string; meta: Record<string, unknown> }>;
+    for (const row of rows) {
+      try {
+        const sug = (typeof row.content === "string" ? JSON.parse(row.content) : row.content) as OptimizerSuggestion;
+        const target = sug.target;
+        const pattern = sug.evidence?.pattern ?? "rule";
+        const roleId = target.startsWith("role-doc:") ? target.slice("role-doc:".length) : undefined;
+        if (!roleId) continue;   // capability-index 目标暂不做角色指标对比
+        const aggRows = await mem.queryReadOnly!(
+          `SELECT content FROM memory_entries WHERE id = 'task-scorecard-aggregate:${roleId}'`,
+        ) as Array<{ content: string }>;
+        const a = aggRows[0] ? JSON.parse(String(aggRows[0].content)) as Record<string, number> : undefined;
+        if (!a?.taskCount) continue;
+        const baseline = row.meta?.["baseline"] as { avgFails: number; avgSteps: number; taskCount: number } | undefined;
+        if (!baseline) continue;
+        // 复测成熟：基线后新积累任务 ≥ 窗口
+        if (a.taskCount - baseline.taskCount < this.windowSize) continue;
+        const current = { avgFails: (a.sumFails ?? 0) / a.taskCount, avgSteps: (a.sumSteps ?? 0) / a.taskCount };
+        const worse = current.avgFails > baseline.avgFails * 1.5 || current.avgSteps > baseline.avgSteps * 1.5;
+        if (!worse) {
+          // 指标未劣化——规则有效——移除基线（不再反复复测）
+          await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false } } as never);
+          continue;
+        }
+        // 回滚：从目标资产移除该 pattern 的规则 stamp
+        const doc = await mem.queryReadOnly!(`SELECT content FROM memory_entries WHERE id = '${target}'`) as Array<{ content: string }>;
+        const docContent = String(doc[0]?.content ?? "");
+        const stampRe = new RegExp(`\n\n【优化规则 · ${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\n]*】\n- [^\n]*`);
+        const cleaned = docContent.replace(stampRe, "");
+        if (cleaned !== docContent) {
+          await mem.update!(target, { content: cleaned });
+        }
+        await mem.update!(row.id, {
+          status: "rolled_back",
+          meta: { ...row.meta, rolledBack: true, rolledBackAt: Date.now(), rollbackReason: `指标劣化（avgFails ${baseline.avgFails.toFixed(2)}→${current.avgFails.toFixed(2)} / avgSteps ${baseline.avgSteps.toFixed(1)}→${current.avgSteps.toFixed(1)}）` },
+        } as never);
+        void mem.write({
+          kind: "task-insight",
+          anchors: ["deopt", pattern, roleId],
+          content: JSON.stringify({
+            type: "deopt-rollback", pattern, target, roleId,
+            baseline, current, rolledBackAt: Date.now(),
+            note: "优化规则应用后指标劣化——已自动回滚（deopt 刹车——不优于基线即撤）",
+          }),
+          status: "official",
+          meta: { pattern, role: roleId, ts: Date.now() },
+        }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
+        console.warn(`[optimizer] deopt 回滚: ${pattern}（${roleId}——基线 ${baseline.avgFails.toFixed(2)}→${current.avgFails.toFixed(2)} fails）`);
+      } catch (e) {
+        console.warn(`[optimizer] deopt 单条复测失败 ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
   }
 
   /** 观察（测试/console） */

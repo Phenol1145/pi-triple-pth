@@ -272,6 +272,32 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     if (persisted.length > 0) assemblyLogger?.info?.(`[assembly] 恢复持久化角色 ${persisted.length} 个（${persisted.map((e) => e.id.replace("worker-role:", "")).join(",")}）`);
   } catch { /* 表未就绪容忍——首次启动无表 */ }
 
+  // 持久化子空间恢复（2026-08-13 鲁棒性：asp.create 注册的子空间重启后恢复——
+  // 与 worker-role 对称——空间树不因重启丢失）
+  try {
+    const { spaceRegistry } = await import("./execution/space-registry.js");
+    const spaces = await dataWorld.memory.retrieve({ kinds: ["space-reg"], status: ["official"] });
+    let restored = 0;
+    for (const e of spaces) {
+      try {
+        const def = JSON.parse(e.content) as { id?: string; parent?: string; execTool?: string; extraTools?: string[]; memoryScope?: string; description?: string };
+        if (def?.id && def.parent && def.execTool && !spaceRegistry.get(def.id)) {
+          spaceRegistry.register({
+            id: def.id, kind: "action", parent: def.parent, execTool: def.execTool,
+            extraTools: def.extraTools, memoryScope: def.memoryScope, description: def.description ?? "（恢复）",
+            // 治理继承：从父空间继承（与 asp.create 同步）
+            allowChildren: spaceRegistry.get(def.parent)?.allowChildren,
+            maxDepth: spaceRegistry.get(def.parent)?.maxDepth,
+          });
+          restored++;
+        }
+      } catch (e2) {
+        assemblyLogger?.warn?.(`[assembly] space-reg 恢复失败 ${e.id}: ${(e2 as Error).message}`);
+      }
+    }
+    if (restored > 0) assemblyLogger?.info?.(`[assembly] 恢复持久化子空间 ${restored} 个`);
+  } catch { /* 容忍 */ }
+
   // 单大 batch 默认（2026-08-09）：启动即拉 1 个全量构成 batch——worker 级控制为主，
   // batch add/remove 降级为特殊手段。构成 = PTH_WORKER_ROLES 展开（不设置 = 7×1）。
   try {

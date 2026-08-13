@@ -100,17 +100,21 @@ export class PgMemoryStore {
   }
 
   /** 版本递增 CAS：id 不存在 → throw（编程错误，不静默，对齐 FS update 语义）。 */
-  async update(id: string, patch: Partial<MemoryEntry>): Promise<void> {
+  async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }): Promise<void> {
+    // meta 合并更新（2026-08-13 deopt 回滚需要——原实现 meta 只建初始 version）
+    const metaExpr = patch.meta
+      ? `meta || $4::jsonb || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`
+      : `meta || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`;
     const res = await this.pool.query(
       `UPDATE memory_entries SET
          content = COALESCE($2, content),
          status = COALESCE($3, status),
          version = version + 1,
          updated_at = now(),
-         meta = meta || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)
+         meta = ${metaExpr}
        WHERE id = $1
        RETURNING id`,
-      [id, patch.content ?? null, patch.status ?? null],
+      [id, patch.content ?? null, patch.status ?? null, ...(patch.meta ? [JSON.stringify(patch.meta)] : [])],
     );
     if (res.rows.length === 0) throw new Error(`entry not found: ${id}`);
   }

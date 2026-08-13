@@ -197,3 +197,38 @@ describe("scorecard 聚合快照（2026-08-12 审批面 B 实施）", () => {
     expect(entries.filter((e) => e.kind === "task-scorecard").length).toBe(2);
   });
 });
+
+describe("deopt 回滚（2026-08-13 稳定循环刹车）", () => {
+  it("指标劣化 → 移除规则 stamp + rolled_back；未劣化 → 移除基线不再复测", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    // 假 store：聚合/建议/文档 + update 记录
+    const agg = { taskCount: 12, sumFails: 24, sumSteps: 60 };   // 当前（基线后 +2 任务——窗口 2）
+    const docs = new Map<string, string>([
+      ["role-doc:dev", "前文\n\n【优化规则 · test-pattern（2026-08-13 批准）】\n- 规则行\n后文"],
+    ]);
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const mem = {
+      write: async () => {},
+      queryReadOnly: async (sql: string) => {
+        if (sql.includes("optimizer-suggestion")) {
+          return [{ id: "sug-1", content: JSON.stringify({ target: "role-doc:dev", evidence: { pattern: "test-pattern" } }),
+            meta: { baseline: { avgFails: 1, avgSteps: 4, taskCount: 10 } } }];
+        }
+        if (sql.includes("task-scorecard-aggregate:dev")) return [{ content: JSON.stringify(agg) }];
+        if (sql.includes("role-doc:dev")) return [{ content: docs.get("role-doc:dev") }];
+        return [];
+      },
+      update: async (id: string, patch: Record<string, unknown>) => { updates.push({ id, patch }); },
+    };
+    const opt = new Optimizer({ memory: mem as never, windowSize: 2, deadbandWindows: 0 });
+    // 触发 detect（内部调 checkDeopt）
+    const baseSc = { steps: 3, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 0, gatedActions: 0, aspNav: { cds: 0, indexes: 0 }, finish: { ok: true } };
+    opt.collect(baseSc as never, { role: "dev", taskId: "t1" });
+    opt.collect(baseSc as never, { role: "dev", taskId: "t2" });
+    await new Promise((r) => setTimeout(r, 10));   // 等异步 checkDeopt
+    // 劣化判定：avgFails 1→2（+100%）→ 回滚
+    const rollback = updates.find((u) => u.id === "sug-1");
+    expect(rollback?.patch.status).toBe("rolled_back");
+    expect(rollback?.patch.meta?.["rolledBack"]).toBe(true);
+  });
+});

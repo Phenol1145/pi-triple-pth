@@ -7,6 +7,23 @@
 import type { TsReplExtension } from "./index.js";
 import { checkWrite, checkUpdate, normalizeWriteArgs } from "./memory-policy.js";
 import { checkVisibilityDeclaration, stampScope, isVisible } from "../execution/memory-visibility.js";
+import { spaceRegistry } from "../execution/space-registry.js";
+
+/**
+ * 环境断言守卫（2026-08-13 鲁棒性：洞察污染防线）。
+ * 模型基于错误观察的否定性环境断言（"X 空间无注册工具"——write 族裁剪 bug 实机案例）
+ * 会污染共享记忆库——写入前与系统事实源（spaceRegistry）核对：矛盾即拒。
+ */
+function checkEnvAssertion(content: string): { ok: true } | { ok: false; reason: string } {
+  const m = content.match(/([a-z0-9-]{1,32})\s*空间(?:无|没有|不存在)(?:注册)?(?:工具|函数)/);
+  if (!m) return { ok: true };
+  const spaceId = m[1]!;
+  const sp = spaceRegistry.get(spaceId);
+  if (sp?.execTool) {
+    return { ok: false, reason: `环境断言与系统事实矛盾：${spaceId} 空间有执行工具（execTool=${sp.execTool}）——"${m[0]}" 基于错误观察——拒绝写入（污染防线）` };
+  }
+  return { ok: true };   // 空间确实无 execTool——断言合理
+}
 
 export const memoryExtension: TsReplExtension = {
   id: "memory",
@@ -52,6 +69,9 @@ export const memoryExtension: TsReplExtension = {
           const check = checkWrite(entry.kind, entry.status);
           if (!check.ok) throw new Error(check.reason);
           if (check.forceStatus) entry = { ...entry, status: check.forceStatus };
+          // 环境断言守卫（2026-08-13 污染防线）：knowledge 层洞察写前与系统事实核对
+          const envCheck = checkEnvAssertion(String(entry.content ?? ""));
+          if (!envCheck.ok) throw new Error(envCheck.reason);
           const meta = (entry.meta as Record<string, unknown>) ?? {};
           const vc = checkVisibilityDeclaration(meta);
           if (!vc.ok) throw new Error(vc.reason);

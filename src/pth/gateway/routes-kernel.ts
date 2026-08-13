@@ -196,7 +196,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!id) return reply.code(400).send({ error: "id required" });
     try {
       const { applyOptimizerSuggestion } = await import("../kernel/execution/optimizer-apply.js");
-      const r = await applyOptimizerSuggestion(kernel.dataWorld.memory, id);
+      const r = await applyOptimizerSuggestion(kernel.dataWorld.memory, id, kernel.dataWorld.queryReadOnly);
       if (!r.ok) return reply.code(400).send(r);
       return r;
     } catch (e) {

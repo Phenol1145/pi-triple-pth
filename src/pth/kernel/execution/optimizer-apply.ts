@@ -34,7 +34,7 @@ export function extractRuleLine(suggestionText: string): string {
 }
 
 /** 批准并应用一条优化建议（draft → official + 目标资产追加规则） */
-export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionId: string): Promise<ApplyResult> {
+export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionId: string, queryReadOnly?: (sql: string) => Promise<unknown>): Promise<ApplyResult> {
   const sug = await store.get(suggestionId);
   if (!sug || sug.kind !== "optimizer-suggestion") {
     return { ok: false, error: `建议不存在（id=${suggestionId}）` };
@@ -66,9 +66,26 @@ export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionI
   }
   const stamp = `\n\n【优化规则 · ${pattern}（${new Date().toISOString().slice(0, 10)} 批准）】\n- ${rule}`;
   await store.update(target, { content: base + stamp } as never);
+  // deopt 基线快照（2026-08-13 稳定循环刹车）：应用时记目标角色聚合指标——
+  // 复测窗口积累后对比——劣化则回滚（optimizer-loop.checkDeopt）
+  let baseline: { avgFails: number; avgSteps: number; taskCount: number } | undefined;
+  const roleId = target.startsWith("role-doc:") ? target.slice("role-doc:".length) : undefined;
+  if (roleId) {
+    try {
+      const agg = await queryReadOnly?.(
+        `SELECT content FROM memory_entries WHERE id = 'task-scorecard-aggregate:${roleId}'`,
+      ) as Array<{ content: string }> | undefined;
+      const a = agg && agg[0] ? JSON.parse(String(agg[0].content)) as Record<string, number> : undefined;
+      if (a?.taskCount) baseline = {
+        avgFails: (a.sumFails ?? 0) / a.taskCount,
+        avgSteps: (a.sumSteps ?? 0) / a.taskCount,
+        taskCount: a.taskCount,
+      };
+    } catch { /* 基线读取失败——deopt 降级为无回滚（原行为） */ }
+  }
   await store.update(suggestionId, {
     status: "official",
-    meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, appliedCount: appliedCount + 1, verifyAfterWindow: true },
+    meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, appliedCount: appliedCount + 1, verifyAfterWindow: true, ...(baseline ? { baseline, baselineRole: roleId } : {}) },
   } as never);
   return { ok: true, applied: { target, pattern } };
 }
