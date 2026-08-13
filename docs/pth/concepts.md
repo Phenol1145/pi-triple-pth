@@ -461,6 +461,17 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 ### 域 B：知识（理论坐标：0.8 锚点-原文 · 0.9.2 上下文-空间绑定）
 
+**记忆四类型**（2026-08-13 用户裁决——记忆空间的本体分类）：
+
+| 类型 | 定义 | 治理 | 锚点形态 | 现有 kind |
+|---|---|---|---|---|
+| **设定（setting）** | 系统不可变核心档案 | 修改走审批面（protected） | id 即锚点（role-doc:developer） | role-doc · capability-index · worker-index · pth-worker-system · worker-role · space-reg · project-map |
+| **百科（wiki）** | 术语解释——词表一致性 | 写入需词表校验（矛盾检测） | 术语即锚点 | ⚠️ 无实现（concepts.md 词表待条目化） |
+| **skill** | 系统化描述怎么做某件事（SOP） | JIT 优化对象（版本化+deopt） | 场景锚点（三要素） | ⚠️ 无实现（工作流 SOP 债务落点） |
+| **日志（log）** | 系统运行过程记录 | 只增 + 聚合/归档（T7） | 时间/任务锚点 | scorecard · transcript · audit · obs · task-insight |
+
+**债务解法咬合**：工作流 SOP 债务→skill 类型；术语统一债务→百科类型；T7 记忆归档→日志治理；0.12 生态转化→外部 skill 直接映射。
+
 | 概念 | 定义 | 落点 |
 |---|---|---|
 | **记忆（memory）** | PTH 共享知识层——SQL 表 `memory_entries`——**记忆空间**（0.9.1） | memory.ts |
