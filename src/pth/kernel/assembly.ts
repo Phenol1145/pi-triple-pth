@@ -319,6 +319,20 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     if (persisted.length > 0) assemblyLogger?.info?.(`[assembly] 恢复持久化角色 ${persisted.length} 个（${persisted.map((e) => e.id.replace("worker-role:", "")).join(",")}）`);
   } catch { /* 表未就绪容忍——首次启动无表 */ }
 
+  // worker-index 条目维护（2026-08-13：planner 的 worker 类型获取通道——ts 程序内可查；
+  // eager prompt 注入走内存渲染——本条目供 memory.query 自助/lazy 模式）
+  try {
+    const { renderWorkerIndex } = await import("./execution/worker-cluster.js");
+    await dataWorld.memory.write({
+      id: "worker-index",
+      kind: "worker-index",
+      anchors: ["worker-index", "角色清单"],
+      content: renderWorkerIndex(),
+      status: "official",
+      meta: { source: "assembly", updatedAt: Date.now() },
+    }, { force: true });
+  } catch { /* 容忍 */ }
+
   // 持久化子空间恢复（2026-08-13 鲁棒性：asp.create 注册的子空间重启后恢复——
   // 与 worker-role 对称——空间树不因重启丢失）
   try {

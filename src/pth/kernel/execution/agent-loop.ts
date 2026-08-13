@@ -201,6 +201,14 @@ const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='pr
     }
   }
 
+  // worker-index 块（2026-08-13：planner 的 worker 类型获取通道——全员注入）
+  // 每个 worker 开局即知全部可派发角色（id/标签/代数/职责）——规划/路由/协作有可靠依据
+  let workerIndexBlock = "";
+  try {
+    const { renderWorkerIndex } = await import("./worker-cluster.js");
+    workerIndexBlock = `\n${renderWorkerIndex()}\n`;
+  } catch { /* 渲染失败降级——不影响启动 */ }
+
   // 推理预算块（role.thinking 从声明到作用——2026-08-10 PTH worker 实现）：角色声明推理深度 → system prompt 生效
   let thinkingBlock = "";
   if (role?.thinking) {
@@ -226,6 +234,7 @@ const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='pr
 当前任务：${taskTitle}
 
 ${roleBlock}
+${workerIndexBlock}
 ${thinkingBlock}
 ${exploreBlock}
 ${toolsDescription(role?.actionTools)}

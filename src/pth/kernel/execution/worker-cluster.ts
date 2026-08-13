@@ -221,6 +221,22 @@ export function allWorkerRoles(): WorkerRole[] {
   return [ORIGIN_ROLE, ...DEFAULT_ROLES, ...extraRoles];
 }
 
+/**
+ * worker-index 渲染（2026-08-13：planner 的 worker 类型获取通道）。
+ * 从 allWorkerRoles 渲染可派发角色清单——每角色一行：id | 职责 | 标签 | 代数。
+ * 双层供给：① agent-loop system prompt eager 注入（内存渲染——零 DB 往返）；
+ * ② kind=worker-index 记忆条目（ts 程序内 memory.query 可查——lazy/自助）。
+ */
+export function renderWorkerIndex(): string {
+  const lines = allWorkerRoles().map((r) => {
+    const tags = (r.tags ?? []).join("/") || "-";
+    const desc = (r.description ?? r.prompt ?? "").replace(/\s+/g, " ").slice(0, 40);
+    return `- ${r.id} [${tags}] gen${r.generation ?? 0}（父 ${r.parent ?? "-"}）：${desc}`;
+  });
+  return `【可用 worker 角色清单（规划/路由/协作时参考——${lines.length} 个）】
+${lines.join("\n")}`;
+}
+
 /** 全部可派发角色（worker + 中间层 + governance——router/batch/expand 统一查找面；
  *  MID/governance 须显式 PTH_WORKER_ROLES 启用才会进 batch——但路由校验/查找不因未启用而拒绝） */
 export function allKnownRoles(): WorkerRole[] {

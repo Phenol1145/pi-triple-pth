@@ -66,3 +66,19 @@ describe("时间复用率（2026-08-13 监测量——planner 计划扁平化）
     expect(detectHotspots([base]).some((h) => h.pattern === "plan-deep")).toBe(false);
   });
 });
+
+describe("worker-index 渲染（2026-08-13——planner 的 worker 类型获取通道）", () => {
+  it("渲染含全部可派发角色（内置+扩展——id/标签/代数/职责一行）", async () => {
+    const { renderWorkerIndex, registerWorkerRole, resetExtraRoles, allWorkerRoles } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    registerWorkerRole({
+      id: "wi-probe", tags: ["probe-tag"], prompt: "p", description: "探针角色", parent: "origin", generation: 1, differentiation: "测试",
+    } as never);
+    const text = renderWorkerIndex();
+    expect(text).toContain("可用 worker 角色清单");
+    expect(text).toContain("developer");
+    expect(text).toContain("planner");
+    expect(text).toContain("wi-probe [probe-tag] gen1");   // 扩展角色也入清单
+    expect(allWorkerRoles().length).toBeGreaterThan(10);
+    resetExtraRoles();
+  });
+});

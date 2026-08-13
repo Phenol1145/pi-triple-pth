@@ -149,6 +149,19 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
       }, { force: true });
     } catch (e) { console.warn(`[lineage] worker-role 持久化失败: ${e instanceof Error ? e.message : String(e)}`); }
 
+    // 5c. worker-index 更新（2026-08-13：角色清单条目刷新——planner 的 worker 类型获取通道）
+    try {
+      const { renderWorkerIndex } = await import("../kernel/execution/worker-cluster.js");
+      await kernel.dataWorld.memory.write({
+        id: "worker-index",
+        kind: "worker-index",
+        anchors: ["worker-index", "角色清单"],
+        content: renderWorkerIndex(),
+        status: "official",
+        meta: { source: "lineage-approve", updatedAt: Date.now() },
+      }, { force: true });
+    } catch { /* 容忍 */ }
+
     // 6. proposal 状态流转（draft → official——approved）
     await kernel.dataWorld.memory.write({
       id: proposal.id,
