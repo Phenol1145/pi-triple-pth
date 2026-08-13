@@ -764,3 +764,5 @@ v0.9（动作面/权限/任务池纯化）
 | N9 | 术语统一 | 域 B 全域 | ✅ 容器入口统一（2026-08-13——Dockerfile.sandbox /usr/local/bin/pit→ptl）；tenant 为认证租户概念保留（非残留——PTH sections preserved）；role-doc/工具 description 词表对齐为持续事项 | 百科类型落地同步（N1 ✅） | ✅ 已实装 |
 | N10 | agentic 测试集 | 0.5 · 全域 | 规划 v2 在记忆库（official design-doc——28 子任务/3 族）；执行 4/28（T2 三轮通过 ✅ / T1·T3·T4 被拒 ❌——4 个 rejected 未消化）；24 子任务未派发；产物未入 git 文档树 | 测试基线 1503 全绿 | 🏗️ 建设中 |
 
+> **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.10.0（pit 已移除）。
+
