@@ -5,6 +5,24 @@ import { translateTask } from "./nl-translator.js";
 import { runAgentTask } from "./agent-loop.js";
 import { getEventBus } from "./event-bus.js";
 
+/**
+ * 任务完成通知（2026-08-13 hook 机制）：POST 到 PTL 侧 pth-notify 扩展
+ * （http://host.docker.internal:PTH_NOTIFY_PORT/pth-events——主会话消息注入）。
+ * fire-and-forget（超时 2s——不阻塞任务循环；通知失败仅告警）。
+ */
+function notifyTaskDone(ev: { taskId: string; role: string; status: "completed" | "rejected"; summary?: string; error?: string }): void {
+  const url = process.env.PTH_NOTIFY_URL ?? "http://host.docker.internal:19473/pth-events";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 2000);
+  fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...ev, ts: Date.now() }),
+    signal: ctrl.signal,
+  }).catch(() => { /* 通知不可达（PTL 未运行/扩展未装载）——静默 */ })
+    .finally(() => clearTimeout(timer));
+}
+
 export interface TaskWorkspaceManager {
   allocate(taskId: string): Promise<{ dir: string; tenant: string }>;
   archive(taskId: string, dir: string): Promise<{ artifactPath: string }>;
@@ -216,6 +234,7 @@ export class TaskLoop {
         await this.rejectTerminal(task, `execution-failed: ${result.error?.message ?? "unknown"}`, chain);
         await this.archive(task, ws, result);
         taskLogger?.error(`task rejected: ${result.error?.message ?? "unknown"}`, { durationMs: execMs });
+        notifyTaskDone({ taskId: task.id, role: role.id, status: "rejected", error: result.error?.message ?? "unknown" });
         this.bus.emit("task.reject", { taskId: task.id, role: role.id, reason: result.error?.message ?? "unknown", durationMs: execMs });
         // 性能计量（SPEC L2）：阶段耗时
         this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
@@ -232,6 +251,8 @@ export class TaskLoop {
       await this.archive(task, ws, result);
       taskLogger?.info("task completed", { durationMs: execMs });
       this.deps.onTaskMetric?.({ type: "status", status: "completed" });
+      // 完成通知（2026-08-13 hook 机制：PTH→PTL 推送——pth-notify 扩展收事件注入主会话）
+      notifyTaskDone({ taskId: task.id, role: role.id, status: "completed", summary: (result as { summary?: string })?.summary });
       this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
       // Refine（T4）：任务完成后快照+提炼+持久化。kernel.reset 在下一任务才调用——
       // 此刻 context 仍存活，可快照。
