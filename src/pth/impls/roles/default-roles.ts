@@ -33,6 +33,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     parent: "explorer", generation: 2, differentiation: "分析调研类任务诱导——数据洞察/报告撰写需要 web 与数据能力的特化" },
   { id: "planner", tags: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。\n\n【计划产出格式（done.result 必遵）】\n{ \"subtasks\": [ {\"id\": \"s1\", \"type\": \"exploration\", \"dependsOn\": [], \"description\": \"...\"}, ... ] }\n- dependsOn 只标真实数据依赖（上游产出被下游消费才写）——无依赖子任务不串排（同层并行——时间复用率）。\n- 计划扁平化原则：先画依赖 DAG——只有真实依赖才串行；能并行的子任务放同一层。",
     description: "上下文→实施计划（只读——产出计划文档）", thinking: "high",
+    model: "deepseek-v4-pro",   // 2026-08-13：智力核心升级——规划/分解需强推理（flash→pro）
     capabilities: ["fs", "memory", "readSource", "readText"], output: "plan", defaultReads: ["context"], acceptanceRole: "read-only",
     actionTools: ["nav", "cache"],   // 2026-08-12 裁剪：只读推理——仅导航+随身缓存（无执行核）
     parent: "governor", generation: 2, differentiation: "规划类任务诱导——方案设计只需读取/推理——收窄为只读访问权限" },
