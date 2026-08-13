@@ -229,10 +229,10 @@ describe("asm-kernel 接线（2026-08-12：dev.build/dev.run .s 分发）", () =
 });
 
 describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理面削减）", () => {
-  it("memory-stats 最窄面：仅 asp.cd/ts.run/ts.eval/memory.index（无 debug/write/cache）", async () => {
+  it("memory-stats 最窄面：导航（asp.cd/asp.index）+ts 面+memory.index（无 debug/write/cache）", async () => {
     const { DEFAULT_ROLES } = await import("../../src/pth/kernel/execution/worker-cluster.js");
     const ms = DEFAULT_ROLES.find((r) => r.id === "memory-stats")!;
-    expect(ms.actionTools).toEqual(["asp.cd", "ts.run", "ts.eval", "memory.index"]);
+    expect(ms.actionTools).toEqual(["asp.cd", "asp.index", "ts.run", "ts.eval", "memory.index"]);
   });
 
   it("developer 面：执行核+dev+debug+导航+缓存——无 write 文档族/spaceMaint 治理面", async () => {
