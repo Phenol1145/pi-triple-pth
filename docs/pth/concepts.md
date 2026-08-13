@@ -355,6 +355,37 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 2. scorecard 新增 cacheUtilization（与 cacheHitRate 命名严格区分）
 3. sensor 观测新维度：**数据流效率**——低利用率=读入未用浪费信号——引导/JIT 优化缓存策略（0.6）
 
+### 0.12 生态转化（外部生态接入流程）
+
+> 第八个理论根基（2026-08-13 用户）——主流 agent 扩展生态的统一接入。
+
+#### 0.12.1 按类型分流映射
+
+```
+主流生态：skill / plugin / pi-extension / MCP
+        │
+        ├─ 知识型（skill）──▶ 记忆区（0.8 锚点-原文条目化）
+        │
+        └─ 工具型（plugin/pi-extension/MCP）──▶ 交互核扩展（0.10 前端授权面）
+                                                └─ 语言适配：看生态接口语言
+```
+
+**"使用哪种语言看适配程度"**：按生态原生接口语言归入对应交互核——TS 生态（pi-extension/plugin）归 ts 核、Python 生态归 python 核、MCP 走统一协议网关（语言无关 JSON-RPC）。
+
+#### 0.12.2 转化流程三步
+
+1. **分类**——知识型（skill：指令/流程知识）vs 工具型（plugin/extension/MCP：可调用能力）
+2. **转化**——知识型：SKILL.md → memory 条目（锚点+原文——role-doc 式）；工具型：adapter 封装（工具 + **场景化描述三要素**——0.8.2 锚点标准——否则工具不可用）
+3. **门控**——capabilities 白名单 + EXEC_TOOL_CAP（安全边界）
+
+#### 0.12.3 现状映射
+
+| 生态 | 落点 | 状态 |
+|---|---|---|
+| plugin/pi-extension（TS） | toolstore/extensions（ext-registry——agent-reach 已验证） | ✅ 已有 |
+| skill | 记忆区条目化 pipeline（SKILL.md → memory 条目） | ⚠️ 无转化流程 |
+| MCP | 协议网关 | ❌ 无 |
+
 ---
 
 ## 1. 系统定位（v2）
