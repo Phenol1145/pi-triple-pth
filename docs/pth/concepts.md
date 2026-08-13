@@ -48,6 +48,66 @@
 - cacheRead 82.6%（记忆分摊生效——重复知识不重复消费）
 - sensor 数据分析：flash 侦察类角色 37 任务/973 步——低成本高频执行可行性
 
+### 0.6 优化理论：控制理论 × 现代 JIT
+
+> 第二个理论根基（2026-08-13 用户）——回答"系统怎么变好"。
+> 心智负担理论回答"怎么便宜地干活"；优化理论回答"怎么让系统持续变便宜"。
+
+#### 0.6.1 控制论映射：sensor → controller → actuator 反馈回路
+
+经典负反馈回路 → PTH 角色分化：
+
+| 控制论角色 | 职责 | PTH 落点 |
+|---|---|---|
+| **传感器（sensor）** | 测量系统状态 | sensor 族（worker-opt / system-opt / memory / resource）——obs.callpoint 上报 + scorecard 聚合快照 |
+| **控制器（controller）** | 比较设定值与实测——计算控制量 | controller 族×5——裁决 official / reject / merge |
+| **执行器（actuator）** | 控制量作用于系统 | actuator——把 official 提案落为实际修改（代码/参数/角色注册） |
+| **设定值（setpoint）** | 期望状态 | 优化目标：步数↓ 失败率↓ 成本↓ 时间复用率↑ |
+| **人在回路（supervisor）** | 防控制器失控 | 审批面 A/B/C——控制量不自动生效 |
+
+**关键：负反馈而非开环**——每次调节后必观测复测（apply → verify 窗口）——偏差驱动调节，而非一次调好。
+
+#### 0.6.2 现代 JIT 思想：按需优化 + 回退保护
+
+现代 JIT（profiling → 热点识别 → 按需编译 → 失效回退）→ PTH 优化管线：
+
+| JIT 概念 | PTH 落点 |
+|---|---|
+| profiling（画像） | scorecard 聚合快照（审批面 B——原子 upsert） |
+| 热点识别（hotspot） | 反模式检测（repeated-fail / no-progress / gate-heavy / token-bloat） |
+| 按需优化（不是全量预调） | 有观测证据才 propose——不预先调优 |
+| 回退（deopt） | 劣化 50%+ 自动撤销（baseline 对比 + rolled_back 标记） |
+| 版本化 | baseline 记于提案 meta——对比依据 |
+
+**JIT 的精髓：优化是局部、证据驱动、可撤销的——与"全量预设计"相对。**
+
+#### 0.6.3 多级优化循环（不同步长——时间尺度分离）
+
+```
+环 4 · 资源环（日/重启级）   resource-sensor → controller:resource → 资源调参（batch/核池/模型配比）
+环 3 · 控制环（批次/小时级） sensor 聚合 → controller 裁决 → 审批面 → actuator 应用
+环 2 · JIT 环（任务/分钟级）  optimizer-loop：collect → propose → apply → verify（+deopt）
+环 1 · 防护环（单步/秒级）    agent-loop：负结果收敛 / 参数指纹 / 未知工具引导（执行内制动）
+```
+
+时间尺度分离原则（多环控制的核心）：**快环调微变（工具面/引导），慢环调大变（角色/资源）**——环间不互相干扰，防振荡。
+
+#### 0.6.4 稳定性设计（控制论的贡献）
+
+- **增益限制**：每窗口一个提案——调节幅度受限——不激进
+- **复测验证**：apply 后 verify 窗口确认改善才保留——闭环负反馈
+- **振荡防护**：deopt 50% 阈值 + rolled_back 标记——同一优化不反复尝试（防 ping-pong）
+- **人在回路**：审批面 A/B/C——控制器不能无限自动
+- **洞察污染防线**：观测断言与注册表核对——传感器测不准的拒绝入库
+
+#### 0.6.5 理论 → 机制映射
+
+| 理论 | 机制 |
+|---|---|
+| 控制论 | sensor/controller/actuator 分化 · 审批面 · 负反馈复测（verify 窗口） |
+| JIT | scorecard 聚合画像 · 反模式热点 · 按需 propose · deopt 回退 · baseline 版本化 |
+| 多级循环 | 4 环步长分层（防护/JIT/控制/资源）· 时间尺度分离 |
+
 ---
 
 ## 1. 系统定位
