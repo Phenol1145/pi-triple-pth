@@ -156,6 +156,21 @@ export function detectHotspots(scs: WorkerScorecard[]): HotspotHit[] {
     });
   }
 
+  // 6. plan-deep：时间复用率低（2026-08-13 监测量——planner 计划过深——扁平化引导）
+  const plans = scs.filter((s) => s.timeReuse != null);
+  if (plans.length > 0) {
+    const avgReuse = plans.reduce((a, s) => a + (s.timeReuse ?? 0), 0) / plans.length;
+    if (avgReuse < 0.3) {
+      hits.push({
+        pattern: "plan-deep",
+        path: "rule",
+        target: "role-doc:planner",
+        section: "计划格式",
+        metric: { avgTimeReuse: +avgReuse.toFixed(2), planTasks: plans.length },
+      });
+    }
+  }
+
   return hits;
 }
 
@@ -167,6 +182,7 @@ const PATTERN_DESC: Record<string, string> = {
   "fragmented-read": "重复分片读取——多次小读替代一次大读（e2e 压缩产物自评'40% 工具调用多余'的实证反模式）",
   "nav-heavy": "空间导航频繁——多次 asp_cd 往返决策，导航路径未规划（先 asp.index 看全貌再 cd）",
   "no-progress": "任务卡死——高步数 + 失败收场：角色-任务匹配或任务设计问题，需要更窄域角色承接",
+  "plan-deep": "计划过深（时间复用率低）——planner 产出的计划串行链过长，无依赖子任务未并行化——时间复用率 = 1-关键路径/总任务数",
 };
 
 export function renderSuggestion(hit: HotspotHit, windowSize: number): string {
@@ -177,6 +193,7 @@ export function renderSuggestion(hit: HotspotHit, windowSize: number): string {
     : hit.pattern === "repeated-fail" ? `工具 ${hit.metric.topTool ?? "?"} 使用前先查 capability-index/tool-function 对应条目（参数/前置条件）；连续失败后切换策略而非重试`
     : hit.pattern === "fragmented-read" ? "读类操作一次拉全（dev_read 全量/query 带聚合）并本地缓存复用；避免同源数据反复小读"
     : hit.pattern === "nav-heavy" ? "导航先规划：asp.index 一次看全空间树 → 单次 asp_cd 直达；避免往返（cd A→B→A）"
+    : hit.pattern === "plan-deep" ? "计划扁平化：dependsOn 只标真实数据依赖——无依赖子任务不串排（同层并行——时间复用）；先画依赖 DAG 再排顺序"
     : "任务拆分为更窄子任务（参考 refiner differentiation 提案），由更专门的角色承接";
   return `【优化建议 · ${hit.pattern}】（窗口 ${windowSize} 任务 · ${desc}）
 证据: ${metric}
@@ -236,6 +253,8 @@ export class Optimizer {
           sumCacheWrite: sc.tokens?.cacheWrite ?? 0,
           sumFails: sc.failedActions ?? 0,
           sumGated: sc.gatedActions ?? 0,
+          // 时间复用率（2026-08-13 监测量）：sum/planCount 均值——obs 端 avg_time_reuse
+          ...(sc.timeReuse != null ? { sumTimeReuse: sc.timeReuse, planCount: 1 } : {}),
         },
         { role: ctx.role, ts: Date.now() },
       ).catch((e: unknown) => { /* 聚合失败不阻塞（明细仍在——降级逐条读）；但错误须可见（2026-08-12 审计 MEDIUM-7） */

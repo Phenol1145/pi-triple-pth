@@ -147,6 +147,8 @@ export const obsExtension: TsReplExtension = {
                 cache_hit_pct: cacheHit > 0 ? Math.round((100 * sumCacheRead) / cacheHit) : 0,
                 avg_fails: a.taskCount ? Math.round((((a.sumFails ?? 0) / a.taskCount) * 100)) / 100 : 0,
                 gated_total: a.sumGated,
+                // 时间复用率（2026-08-13 监测量）：计划扁平度——sum/planCount 均值
+                avg_time_reuse: (a.planCount ?? 0) > 0 ? Math.round((((a.sumTimeReuse ?? 0) / (a.planCount ?? 1)) * 100)) / 100 : null,
               };
             });
             return { rows, source: "aggregate" };

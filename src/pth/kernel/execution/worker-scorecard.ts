@@ -25,8 +25,39 @@ export interface WorkerScorecard {
   gatedActions: number;
   /** ASP 导航使用（cd/index 次数——协议采纳度指标） */
   aspNav: { cds: number; indexes: number };
+  /** 时间复用率（planner 计划扁平度——2026-08-13：关键路径法 1-关键路径/总数；非 planner 任务 null） */
+  timeReuse?: number | null;
   /** 完成状态与警告（maxSteps/重复终止等） */
   finish?: { ok: boolean; warning?: string };
+}
+
+/**
+ * 时间复用率（用户 2026-08-13 监测量——planner 计划扁平化）。
+ * 关键路径法：DAG 最长路（任务数计）→ 复用率 = 1 - 关键路径/总数。
+ *   全并行（互不依赖）：关键路径 1 → 复用率 (n-1)/n
+ *   全串行（链式依赖）：关键路径 n → 复用率 0
+ * 无依赖标注（缺 dependsOn）视为可并行；单任务/无 subtasks 返回 null（无复用概念）。
+ */
+export function computeTimeReuse(subtasks: Array<{ id?: string; dependsOn?: string[] }> | undefined): number | null {
+  if (!Array.isArray(subtasks) || subtasks.length < 2) return null;
+  const n = subtasks.length;
+  const idx = new Map<string, number>(subtasks.map((s, i) => [String(s.id ?? `s${i}`), i]));
+  const adj: number[][] = subtasks.map(() => []);
+  for (const [i, s] of subtasks.entries()) {
+    for (const d of s.dependsOn ?? []) {
+      const j = idx.get(d);
+      if (j !== undefined && j !== i) adj[j]!.push(i);
+    }
+  }
+  const memo: number[] = new Array(n).fill(-1);
+  const longest = (i: number): number => {
+    if (memo[i]! >= 0) return memo[i]!;
+    let best = 1;
+    for (const j of adj[i]!) best = Math.max(best, 1 + longest(j));
+    return (memo[i] = best);
+  };
+  const crit = Math.max(...subtasks.map((_, i) => longest(i)));
+  return Math.round((1 - crit / n) * 100) / 100;
 }
 
 export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {

@@ -244,9 +244,16 @@ export class TaskLoop {
         const traceForOpt = (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents;
         if (Array.isArray(traceForOpt) && traceForOpt.length > 0) {
           try {
-            const { buildScorecard } = await import("./worker-scorecard.js");
+            const { buildScorecard, computeTimeReuse } = await import("./worker-scorecard.js");
             const { getEventBus } = await import("./event-bus.js");
-            this.deps.optimizer.collect(buildScorecard(traceForOpt as never), { role: role.id, taskId: task.id });
+            const sc = buildScorecard(traceForOpt as never);
+            // 时间复用率（2026-08-13 监测量）：planner 产出计划扁平度——done result 解析
+            const value = (result as { value?: unknown } | undefined)?.value as Record<string, unknown> | undefined;
+            const subtasks = value?.["subtasks"];
+            if (Array.isArray(subtasks) && subtasks.length > 0) {
+              sc.timeReuse = computeTimeReuse(subtasks as Array<{ id?: string; dependsOn?: string[] }>);
+            }
+            this.deps.optimizer.collect(sc, { role: role.id, taskId: task.id });
           } catch (e) {
             taskLogger?.error(`optimizer collect failed: ${(e as Error).message}`);
           }
