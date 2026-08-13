@@ -1,0 +1,20 @@
+{
+  "id": "agent-reach",
+  "name": "Agent Reach Internet Research",
+  "version": "1.0.0",
+  "description": "agent-reach 互联网调研路由扩展（供 spider-web/spider-github 使用）。封装 agent-reach skill 的零配置通道为 PTH 工具面——每个工具均为 bash/http 执行 + 超时保护 + 输出截断。\n\n用法（tools——kebab 前缀域 reach.*）：\n- reach.webSearch({query, n?}) —— Exa 网页搜索（mcporter call exa.web_search_exa——agent-reach 路由后端；n 默认 5，范围 1-20）\n- reach.webRead({url}) —— 通用网页阅读（jina reader：curl https://r.jina.ai/<url>——免 key 零配置，返回 markdown）\n- reach.ghSearch({query, sort?, limit?}) —— GitHub 仓库搜索（gh search repos；sort 默认 stars，可选 forks/updated/best-match；limit 默认 10，范围 1-50；返回结构化 JSON）\n- reach.biliSearch({query, n?}) —— B站搜索（bili search CLI；n 默认 10）\n- reach.v2exHot({n?}) —— V2EX 热门话题（curl https://www.v2ex.com/api/topics/hot.json；n 默认 20）\n- reach.doctor() —— 后端体检（agent-reach doctor --json——返回激活后端/零配置通道/需登录态平台清单）\n- reach.checkUpdate() —— 版本检查（agent-reach check-update）\n\n登录态平台（twitter/reddit/xhs/facebook/instagram/linkedin）不在 v1 封装范围——doctor 返回登录态清单并提示走现有通道（浏览器会话/manual 流程）。",
+  "contracts": {
+    "tools": [
+      "reach.webSearch",
+      "reach.webRead",
+      "reach.ghSearch",
+      "reach.biliSearch",
+      "reach.v2exHot",
+      "reach.doctor",
+      "reach.checkUpdate"
+    ],
+    "capabilities": []
+  },
+  "activation": { "onStartup": true },
+  "compat": { "pluginApi": ">=0.6.0" }
+}

@@ -255,6 +255,50 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     }
   }
 
+  // 官方 proposal 恢复（2026-08-13 补录：持久化机制建立前 approve 的角色——重启丢失历史债务）。
+  // 已 approved 的 differentiation-proposal → suggestedRole 缺省构造（与 routes-lineage 批准缺省逻辑一致：
+  // tags=[roleId]、capabilities/thinking 继承 parent）→ registerWorkerRole + 落 worker-role 条目（幂等）。
+  try {
+    const approved = await dataWorld.memory.retrieve({ kinds: ["differentiation-proposal"], status: ["official"] });
+    let rebuilt = 0;
+    for (const e of approved) {
+      try {
+        if ((e.meta as Record<string, unknown> | undefined)?.["approved"] !== true) continue;
+        const content = JSON.parse(e.content) as { suggestedRole?: { id?: string; parent?: string; specialization?: string; rationale?: string } };
+        const sug = content.suggestedRole;
+        if (!sug?.id || !sug.parent) continue;
+        const already = allWorkerRoles().some((r) => r.id === sug.id);
+        if (already) continue;   // 已恢复（worker-role 恢复段）或内置
+        const parentRole = allKnownRoles().find((r) => r.id === sug.parent);
+        const role = {
+          id: sug.id,
+          tags: [sug.id],   // 缺省唯一 tag（历史 overrides 不可考——roleId 路由等价）
+          prompt: `你是 ${sug.id}——${sug.specialization ?? "专门"}角色（从 ${sug.parent} 分化）。分化理由：${sug.rationale ?? "任务分化诱导"}。按 PTC 模式用 ts 程序组合能力完成——done 提交实际产物。`,
+          description: sug.specialization ?? `${sug.id}（分化自 ${sug.parent}）`,
+          thinking: parentRole?.thinking ?? "medium",
+          capabilities: parentRole?.capabilities,
+          acceptanceRole: "writer",
+          parent: sug.parent,
+          generation: (parentRole?.generation ?? 0) + 1,
+          differentiation: sug.rationale ?? `proposal ${e.id} 分化诱导（重建）`,
+        };
+        registerWorkerRole(role as never);
+        await dataWorld.memory.write({
+          id: `worker-role:${sug.id}`,
+          kind: "worker-role",
+          anchors: ["worker-role", sug.id],
+          content: JSON.stringify(role),
+          status: "official",
+          meta: { source: "proposal-rebuild", role: sug.id, proposalId: e.id, rebuiltAt: Date.now() },
+        }, { force: true });
+        rebuilt++;
+      } catch (e2) {
+        assemblyLogger?.warn?.(`[assembly] proposal 重建失败 ${e.id}: ${(e2 as Error).message}`);
+      }
+    }
+    if (rebuilt > 0) assemblyLogger?.info?.(`[assembly] proposal 重建角色 ${rebuilt} 个`);
+  } catch { /* 容忍 */ }
+
   // 持久化扩展角色恢复（2026-08-12 审计 MEDIUM-8 修复：approve 注册的角色重启后恢复——
   // DB 谱系与源码谱系一致；registerWorkerRole 自动重建标签注册）
   try {
