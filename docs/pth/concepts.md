@@ -321,6 +321,40 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 | 前端抽象 | interpreter/index.ts WorkerKernel · sandbox-kernel.ts（转发代理） |
 | 模式切换 | PTH_PYTHON_MODE/PTH_BASH_MODE = sandbox-kernel（生产默认）\| kernel（本地调试） |
 
+### 0.11 缓存机制（数据缓存——与 token 缓存区分）
+
+> 第七个理论根基（2026-08-13 用户）——机械化处理大量数据的信息载体。
+
+#### 0.11.1 两个缓存概念（严格区分）
+
+| | token 缓存（prompt cache） | 数据缓存（cache 夹） |
+|---|---|---|
+| 是什么 | 请求前缀命中——省输入 token 成本 | 模型主动把信息读入的存储夹 |
+| 场景 | 每轮 LLM 请求自动发生 | 机械化处理大量数据（读入→多步处理） |
+| 指标 | cacheHitRate（cacheRead/(cacheRead+非缓存输入)——已实现） | cacheUtilization（读入后是否使用——待实现） |
+| 理论坐标 | 0.7.2 | 本节 |
+
+#### 0.11.2 数据缓存机制
+
+AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤反复取用（get）——**避免每步重复读取**（重复读取 = 重复 token + 重复注意力——0.1 专注度）。
+
+**缓存利用率**：读入后是否使用读入数据——set/load → get 配对追踪（按 key + 字符量加权）——读入未用 = 浪费（读入成本已付）。
+
+#### 0.11.3 现有实现与缺口
+
+| 元素 | 落点 |
+|---|---|
+| 缓存夹本体 | cache-store.ts（随身缓存——元空间级状态——随 asp.cd 携带——与空间本地状态严格区分） |
+| 容量约束 | 双上限（字符+条目）——load 超容拒绝 + cache.cancel 腾位——**背包约束**：迫使对信息价值做判断，防无限囤积 |
+| 生命周期 | 任务级（任务结束随会话消亡——持久化走 memory.save） |
+| ⚠️ 缺口 | **使用追踪缺失**——只有 set/load 无 get 计数——利用率不可算 |
+
+#### 0.11.4 设计含义
+
+1. cache-store 加使用追踪（key 级 loaded→used 配对）
+2. scorecard 新增 cacheUtilization（与 cacheHitRate 命名严格区分）
+3. sensor 观测新维度：**数据流效率**——低利用率=读入未用浪费信号——引导/JIT 优化缓存策略（0.6）
+
 ---
 
 ## 1. 系统定位（v2）
