@@ -664,6 +664,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **五步工作流**〔旧〕 | 理解 → 探索 → 执行 → 产物 → done（共享世界观） | PTH_WORKER_SYSTEM |
 | **探索纪律**〔旧〕 | 先查（memory → 能力 → 源码）后试 | 世界观 |
 | **负结果收敛**〔旧〕 | 同工具族+同目标连续负结果：N=3 引导 / N=5 终止（语义正则+路径模式化） | agent-loop |
+| **护栏注册表（guard-registry）**〔新〕 | 统一护栏抽象——「观测→判定→处置」三段式守卫：阈值/豁免/处置语义数据化（配置中心 `PTH_GUARD_*` + 豁免矩阵）；五种计数器收敛为注册表实例（重复动作/负结果收敛/空 done/空回复/未知工具）——0.14 相变预警的微观版 | guardrails.ts（§10 N12） |
 | **参数指纹**〔旧〕 | 连续相同动作检测（与负结果收敛并存互补） | agent-loop |
 | **步数上限**〔旧〕 | maxSteps 强制终止（负结果收敛之外的兜底） | agent-loop |
 | **LLM 超时保护**〔旧〕 | 调用级超时（防模型挂起循环冻结） | agent-loop |
@@ -737,6 +738,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 10. **权威谱系源**（official proposal 是谱系真相源——重启从它重建）
 11. **时间尺度分离**（0.7.3——快环调微变、慢环调大变——环间不互相干扰）
 12. **工具制造优先**（0.3 智力代偿〔争议〕——能固化的思考固化成工具〔串联已立〕，不重复思考〔并联待议〕：PTC 程序 / JIT 规则 / skill 类型）
+13. **护栏即数据**（0.7 稳定性——护栏阈值/豁免/处置语义全部数据化：阈值进配置中心、豁免矩阵声明式、处置语义统一 soft/hard——护栏可观测可演化）
 
 ---
 
@@ -821,6 +823,7 @@ v0.9（动作面/权限/任务池纯化）
 
 - [x] T1-T10 裁决后落地（2026-08-14 全部裁决完成——T1/T2/T3/T4/T5/T7 代码已落地；T6/T9 概念层重写；T8 文案对齐分批推进；T10 观察）
 - [x] 术语统一：工具 description 三要素对齐已完成（2026-08-14 T8——35 schema+能力索引全量）；role-doc 文案对齐随 T8 后续批次推进（tenant 为认证概念保留；pit→ptl 已修）
+- [x] 护栏统一抽象（N12——2026-08-14 落地：guardrails.ts 注册表 + 阈值配置化 `PTH_GUARD_*` + 豁免矩阵声明式）
 - [ ] 工作流 SOP——角色特定标准作业步骤还不是一等概念
 - [ ] 双 storage 层（pth/storage vs kernel/storage）归属待定
 - [ ] agentic 测试集（建设中——planner 规划已产出——执行按计划）
@@ -876,8 +879,34 @@ v0.9（动作面/权限/任务池纯化）
 | N9 | 术语统一 | 域 B 全域 | ✅ 容器入口统一（2026-08-13——Dockerfile.sandbox /usr/local/bin/pit→ptl）；tenant 为认证租户概念保留（非残留——PTH sections preserved）；role-doc/工具 description 词表对齐为持续事项 | 百科类型落地同步（N1 ✅） | ✅ 已实装 |
 | N10 | agentic 测试集 | 0.6 · 全域 | 规划 v2 在记忆库（official——28 子任务/3 族）；执行 7/28（2026-08-14 消化：4 个 rejected 全部处置——2×T2+v2 规划为迭代性拒绝、重试已成 ✅ 取代；T1/T3/T4 根因=任务文本非自包含规格，重派为 T01/T03/T04 自包含规格 3/3 完成 ✅）；21 子任务未派发 | 测试基线 1564 全绿（B1 修复 +7） | 🏗️ 建设中 |
 | N11 | 可预测性地图（predictability map） | 0.14 · 全域 | 无对应机制——伪世界模型猜想的落地接口：分尺度可预测性注册 + 相变预警 | 外部数据源接入（sensor 外环） · JIT 环（错误预测→修规则） | 💭 猜想·未启动 |
+| N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | 五种同构「计数→引导→终止」手写五遍；阈值硬编码/配置中心/env 三处混放；处置语义 soft/hard 混用——设计见 10.1 | agent-loop 五计数器收敛 → guardrails.ts 注册表 | 🏗️ 设计中（10.1 已落） |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
-> **2026-08-14 rejected 消化**：①2×tester-T2 与 1×规划 v2 = 迭代性拒绝（llm-timeout/context 未定义），后续重试已成 ✅——取代结案；②T1/T3/T4 根因 = 任务文本是标题片段而非自包含规格（Expected ';' 语法错）——重派 T01/T03/T04 自包含规格 3/3 完成 ✅（监督层直验：T01 三要素+双能力组合、T03 计划含依赖+验收、T04 TDD 12 用例证据链）；③**B1（系统 bug）已修复（2026-08-14 `010c033`）**：acceptor 汇总长任务 directComplete 400「tool 消息必须跟随 tool_calls」根因 = deepseek v4 thinking 模式要求 reasoning_content 随 assistant(tool_calls) 回传（模型配置 `requiresReasoningContentOnAssistantMessages`——本循环只入轨迹不回传，违反契约）+ 多调用提前终止悬挂 tool_calls；修复 = assistant 消息携带 thinking 并序列化 reasoning_content + 悬挂调用补合成 tool 响应；验证 = 同任务重放 129 步零 400（旧故障点 69/252 步）+ 7 新测试 + 全量 1564 绿。遗留观察：验收任务被负结果收敛 N=5 强制终止（设计的 S6 机制——合法重复探测被截断——是否豁免治理族待议）。
+> **2026-08-14 rejected 消化**：①2×tester-T2 与 1×规划 v2 = 迭代性拒绝（llm-timeout/context 未定义），后续重试已成 ✅——取代结案；②T1/T3/T4 根因 = 任务文本是标题片段而非自包含规格（Expected ';' 语法错）——重派 T01/T03/T04 自包含规格 3/3 完成 ✅（监督层直验：T01 三要素+双能力组合、T03 计划含依赖+验收、T04 TDD 12 用例证据链）；③**B1（系统 bug）已修复（2026-08-14 `010c033`）**：acceptor 汇总长任务 directComplete 400「tool 消息必须跟随 tool_calls」根因 = deepseek v4 thinking 模式要求 reasoning_content 随 assistant(tool_calls) 回传（模型配置 `requiresReasoningContentOnAssistantMessages`——本循环只入轨迹不回传，违反契约）+ 多调用提前终止悬挂 tool_calls；修复 = assistant 消息携带 thinking 并序列化 reasoning_content + 悬挂调用补合成 tool 响应；验证 = 同任务重放 129 步零 400（旧故障点 69/252 步）+ 7 新测试 + 全量 1564 绿。遗留观察：验收任务被负结果收敛 N=5 强制终止（设计的 S6 机制——合法重复探测被截断——治理族豁免进 N12 豁免矩阵待裁决）。
+
+### 10.1 护栏统一抽象（N12 设计——2026-08-14）
+
+> 背景（2026-08-14 用户审计）：七层护栏已清点，但无统一抽象——三种不一致：阈值三处混放（硬编码常量 / 配置中心 `PTH_AGENT_*` / env 直读）、「计数→引导→终止」三段式手写五遍、处置语义 soft（ok+warning）/hard（ok:false）混用。B1 验证任务被负结果收敛软终止截断正是语义混乱的表现。
+
+**认知模型**：护栏 = 0.14 伪世界模型「相变预警」的微观版——检测系统从「可预测层」滑向「失控层」，在相变点前制动。
+
+**统一形态（三段式）**：
+- **观测（signal）**：每步事件（hit/reset）由调用点判定（指纹比对/负结果语义/空 done 判定——信号来源各异，保留在调用点）；
+- **判定（verdict）**：守卫实例持有连续计数 + 阈值——阈值全走配置中心（perf-params，`PTH_GUARD_*` 键，运行时可调）；
+- **处置（action）**：语义统一——`guide`（回填引导消息继续）/ `soft`（软终止：ok+warning）/ `hard`（硬失败：ok:false）。
+
+**豁免矩阵（声明式）**：`{ guardId → roleId[] | 谓词 }`——T5 侦察豁免（negative-loop：scout/explorer）进矩阵；B1 遗留「治理族（acceptor 等）是否豁免负结果收敛」从代码硬编码变为配置项，待用户裁决。
+
+**首个实例集（agent-loop 五计数器收敛）**：
+
+| 护栏 id | 信号 | 阈值（配置键/缺省） | 处置 |
+|---|---|---|---|
+| repeat-action | 参数指纹连续相同 | PTH_GUARD_REPEAT_LIMIT=5（引导起 3） | soft |
+| negative-loop | 窗口 6 内同族+同目标负结果 | PTH_GUARD_NEGATIVE_LIMIT=5（引导起 3） | soft（侦察豁免） |
+| empty-done | done 空 result | PTH_GUARD_EMPTY_DONE_LIMIT=3 | hard |
+| empty-reply | LLM 空回复 | PTH_GUARD_EMPTY_REPLY_LIMIT=3 | hard |
+| unknown-tool | 幻觉工具名 | PTH_GUARD_UNKNOWN_TOOL_LIMIT=3 | hard |
+
+**二期（未实装——与 JIT 咬合）**：护栏命中率/误杀率进 scorecard（sensor 观测维度）→ optimizer 把护栏本身当优化对象（JIT 调护栏参数——护栏的护栏=审批面）；治理族豁免裁决（B1 遗留）。
 
