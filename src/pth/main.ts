@@ -4,7 +4,6 @@ import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { createKernelMetrics } from "./observability/kernel-metrics.js";
 import { AuditWriter } from "./observability/audit.js";
 import { RedisSessionStore } from "./kernel/storage/session/redis-session-store.js";
-import { RedisSettingsStore } from "./storage/redis-settings-store.js";
 import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@away_from/infra";
 import { ToolRegistry } from "./tools/registry.js";
 import { ToolPlatform } from "./tools/platform.js";
@@ -54,7 +53,8 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   const kernelMetrics = createKernelMetrics({ registry: metrics.registry });
 
   const sessionStore = new RedisSessionStore(redis);
-  const settingsStore = new RedisSettingsStore(redis);
+  // 设置面：RedisSettingsStore 已删（2026-08-14 A2 Phase 2——创建零消费的死接线；
+  //   SettingsStore 协议保留在 kernel/storage/session/interfaces.ts——tenant settings 需求按契约重建）
   const credentials = new EnvCredentialProvider();
   const audit = new AuditWriter(redis);
 
