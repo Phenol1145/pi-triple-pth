@@ -877,7 +877,7 @@ v0.9（动作面/权限/任务池纯化）
 - [x] 术语统一：工具 description 三要素对齐已完成（2026-08-14 T8——35 schema+能力索引全量）；role-doc 文案对齐随 T8 后续批次推进（tenant 为认证概念保留；pit→ptl 已修）
 - [x] 护栏统一抽象（N12——2026-08-14 落地：guardrails.ts 注册表 + 阈值配置化 `PTH_GUARD_*` + 豁免矩阵声明式）
 - [ ] 工作流 SOP——角色特定标准作业步骤还不是一等概念
-- [ ] 双 storage 层（pth/storage vs kernel/storage）归属待定
+- [x] 双 storage 层归属（2026-08-14 A2 已裁决并落地）：kernel/storage = 持久化基座单一包（会话平面并入 session/，src/pth/storage 退役）；引擎不归一（PG 数据世界 + Redis 热面 + 文件产物——分析见 storage-backend-analysis.md）；审计两平面（会话=Redis Stream，任务=PG audit_log）
 - [ ] agentic 测试集（建设中——planner 规划已产出——执行按计划）
 - [ ] 分账账本维护：新方案待建机制清单见 §10（与本清单一一对应——落地时同步勾除）
 

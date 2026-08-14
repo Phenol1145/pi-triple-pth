@@ -236,7 +236,7 @@ export const PROJECT_DIR_DUTY: Record<string, string> = {
   "src/pth/kernel/execution": "执行层——agent-loop（LLM 循环）/task-loop/batch/角色路由/收敛/PerfAutopilot",
   "src/pth/kernel/interpreter": "解释器——ts 核（PTC vm）/py/bash/编译核/sandbox 连接/kernel 池/llm-fn",
   "src/pth/kernel/extensions": "扩展能力——context/memory/fs/obs/llm/perf——注入 ts 程序全局能力",
-  "src/pth/kernel/storage": "存储——PG 任务/memory 记忆（共享知识层）/claim 回收",
+  "src/pth/kernel/storage": "持久化基座单包（2026-08-14 A2）——PG 数据世界（任务/memory/转录/审计）+ session/ 会话平面（Redis）",
   "src/pth/kernel": "内核根——assembly/prompt-docs（Prompt 框架）/self-modify",
   "src/pth/observability": "可观测——kernel-metrics（prom）/resource-provider",
   "src/sandbox": "沙箱宿主——kernel-host（kernel 池服务）——执行隔离层",

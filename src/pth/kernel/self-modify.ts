@@ -22,7 +22,9 @@ export const SELF_MODIFY_GUIDE = `# PTH 自修改指南（v1——单步修改�
 - src/pth/kernel/interpreter/     kernel-manager（统一路由）/ capability（能力面）
                                   ts-interpreter（vm）/ sandbox-kernel（sandbox 转发）
                                   toolstore（文件通道）/ read-source（源码只读）
-- src/pth/kernel/storage/         task-store-pg（任务表）/ memory-store-pg（记忆）
+- src/pth/kernel/storage/         持久化基座单包（2026-08-14 A2）：task-store-pg（任务表）
+                                  memory-store-pg（记忆）/ transcript-store（轨迹）/ audit-store（审计）
+                                  session/（会话平面——interfaces/types/redis-session-store）
 - src/pth/kernel/extensions/      扩展（ext-manifest/ext-registry/ext-capability）
 - src/sandbox/kernel-host.ts      sandbox kernel 宿主（池/编译核/调试）
 

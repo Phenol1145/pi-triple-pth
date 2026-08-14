@@ -137,7 +137,7 @@
 
 | # | 事项 | 选项 | 推荐 |
 |---|---|---|---|
-| D1 | 双 storage 层归属（pth/storage vs kernel/storage） | A 统一到 kernel/storage，pth/storage 留薄转发层逐步废弃 · B 冻结现状、新代码只进 kernel/storage · C 立即全量迁移 | **A** |
+| D1 | 双 storage 层归属（pth/storage vs kernel/storage） | A 统一到 kernel/storage，pth/storage 留薄转发层逐步废弃 · B 冻结现状、新代码只进 kernel/storage · C 立即全量迁移 | ✅ 已裁决（2026-08-14 A2）：A 落地为**直接迁移无转发层**（消费点全量盘点 7+4+2 后转迁净）——kernel/storage 单包（session/ 平面迁入）；引擎不归一（storage-backend-analysis.md） |
 | D2 | 域 B 新类型落地顺序（百科 / skill） | A 先百科（concepts.md 词表条目化——成本低，直接服务术语统一）· B 先 skill（工作流 SOP 一等概念化——价值大需设计）· C 都缓 | **A** |
 | D3 | 监测缺口优先级（L2 worker 健康 vs L3 容器级） | A 先补 L2 worker 健康/卡死（直接服务稳定性）· B 先补 L3 容器级（资源环闭环）· C 缓 | **A** |
 

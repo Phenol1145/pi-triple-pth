@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS memory_index (
   PRIMARY KEY (anchor, entry_id)
 );
 
+-- 死表标注（2026-08-14 A2 探查 0.5）：lab_events/credit_tx 为 archive/agent-lab 遗留——
+-- 迁档后生产零消费；保留表（历史数据不做 DROP 迁移面），如 agent-lab 生态复活则复用。
 CREATE TABLE IF NOT EXISTS lab_events (
   id BIGSERIAL PRIMARY KEY,
   tenant_id TEXT NOT NULL DEFAULT 'default',
