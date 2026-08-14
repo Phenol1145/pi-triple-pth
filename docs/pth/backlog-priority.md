@@ -135,3 +135,82 @@
 > 但 prompt-docs.ts 的 buildCapabilityIndex 仍为手写散文（覆盖 fs.task/perf/model/obs/ext 等注册表外条目）——
 > 切换需先补齐注册表条目并对齐 golden 断言，另行提交。
 
+
+
+---
+
+## 附录 B：A2 双 storage 层归并实施方案
+
+> 依据：§8.2 概念债务「双 storage 层（pth/storage vs kernel/storage）归属待定」+ 张力表 D1（推荐 A：统一到 kernel/storage）。
+> 探查结论（2026-08-14 全仓盘点——见下），待用户裁决 3 点后按 Phase 落地（每 phase 独立提交）。
+
+### 0. 现状盘点（探查事实——不只是两个目录）
+
+| # | 事实 | 详情 |
+|---|---|---|
+| 0.1 | **双包** | `src/pth/storage/`（会话平面 4 文件·Redis——7 个 src 消费点 + 4 测试 + 2 示例）vs `src/pth/kernel/storage/`（数据世界 8 文件·PG——assembly.ts 与 batch-process.ts 双装配点，各建各的 pg 池） |
+| 0.2 | **审计双后端** | `AuditWriter`（Redis Stream `audit:log`，maxlen 10k——活跃：agent-engine/tools-platform/components-store/fallback 消费）vs `PgAuditStore`（PG `audit_log` 表——createDataWorld 创建但**生产零消费**，仅测试引用） |
+| 0.3 | **设置三面** | `RedisSettingsStore`（main.ts 创建但**零消费**——死接线）；`config/settings.json`（PTL 租户模板——hot-reloader 校验不注入——非存储层，不动）；`perf-params config()`（kernel 运行时参数——第三面，不动） |
+| 0.4 | **发现缺陷** | `obs.tasks`/`obs.search` 走 `queryReadOnly`，但 `READONLY_TABLES` 仅 `memory_entries` → **生产环境两工具必抛「表不开放」**，而错误文案却引导「任务面请用 obs.tasks」——自相矛盾（测试 mock 数据世界未暴露） |
+| 0.5 | **死表** | `lab_events`/`credit_tx`（agent-lab 迁 archive 后零消费——保留表+标注，不做 DROP 避免数据迁移面）；`skills`（v1 占位——B4 范围，不动） |
+| 0.6 | **失效示例** | `examples/custom-store`/`custom-tool` 引用 `../../src/storage/*`（pth/ 前缀化前的旧路径）——已损坏，本批随迁修复 |
+
+### 1. 归属裁决（概念先行）
+
+**kernel/storage = PTH 持久化基座单一包**——记忆/任务/空间/转录/审计/会话六面全穿它：
+
+```
+src/pth/kernel/storage/
+├─ index.ts              # barrel：数据世界 + 会话平面接口统一出口
+├─ world 面（现存量）：pg.ts · schema.ts · task-store-pg.ts · memory-store-pg.ts
+│             · transcript-store.ts · audit-store.ts
+└─ session/（迁入）：interfaces.ts · types.ts · redis-session-store.ts
+```
+
+- **审计两平面**（取代"双后端"）：会话审计 = Redis Stream（PTL 交互面事件——现状唯一活跃面）；
+  任务审计 = PG `audit_log`（kernel 任务事件——本批接线，见 Phase 3）。两平面职责互补不重复。
+- **设置归位**：会话平面协议保留 `SettingsStore` 接口；`RedisSettingsStore` 无消费者删除（见 Phase 2）。
+- **迁移面单一化**：此后 schema 演进（N7/N9/N13 落库）只改 `schema.ts` 一处。
+
+### 2. Phase 划分（每 phase 独立提交、独立全绿）
+
+**Phase 1 —— 目录归并（纯移动 + 全量重接线，行为不变）**
+- `git mv`：src/pth/storage/{interfaces,types,redis-session-store}.ts → src/pth/kernel/storage/session/（redis-settings-store 不迁——Phase 2 删）
+- 6 个 src 消费点重接线：main.ts · gateway/server.ts · gateway/routes-observe.ts · workflow/orchestrator.ts · core/session-pool.ts · core/agent-engine.ts
+- 4 个测试重接线：test/integration/{storage,engine-lifecycle}.test.ts · test/unit/{hub-observe,f-wp5-integration}.test.ts
+- barrel：kernel/storage/index.ts re-export session 接口（SessionStore/SettingsStore/CredentialProvider——不 re-export Redis 实现）
+- 决策点 1：**不留薄转发层**（D1 推荐 A 原文是"留薄转发层逐步废弃"——本仓消费点已全量盘点（7+4+2），转发层本身也是双迁移面的一部分，直接迁净）
+
+**Phase 2 —— 死代码清理（设置面）**
+- 删 `RedisSettingsStore` + main.ts 创建行 + test/integration/storage.test.ts 对应用例
+- `SettingsStore` 接口保留（会话平面协议 + examples 内存实现依赖）
+
+**Phase 3 —— 审计两平面接线（让 PgAuditStore 有真消费者）**
+- task-loop 任务终态事件写 PG 审计：completed/submitted → `kernel.dataWorld.audit.write({ eventType: "task_completed", actor: role.id, taskId, payload })`；rejected → "task_rejected"（fire-and-forget——审计失败不阻断任务）
+- 会话面事件（tool_call/self_modify/recovery）保持 Redis Stream 不变
+- 测试：task-loop 测试断言终态审计写入 + transcript-audit 已有用例保持
+
+**Phase 4 —— obs 只读面修复（探查缺陷 0.4）**
+- 新增 `dataWorld.queryTemplate(sql)`：**受信模板通道**（obs 工具专用——SQL 为固定模板 + 参数白名单校验（status/role/limit 已正则），不经 READONLY_TABLES 的 memory-only 白名单，仍强制 SELECT/单语句/LIMIT 上限）
+- obs.ts 的 tasks/search 改走 queryTemplate；LLM 面（memory.query）不变——memory_entries-only 安全边界不动
+- 测试：真实池链路 obs.tasks/obs.search 可用；LLM SQL 仍拒绝 tasks/transcripts
+
+**Phase 5 —— 文档与概念落档**
+- concepts.md §8.2 勾除「双 storage 层归属待定」+ 写入本裁决；design-tensions-adjudication.md D1 行状态更新
+- prompt-docs.ts PROJECT_DIR_DUTY「src/pth/kernel/storage」职责串更新（数据世界 + 会话平面）
+- self-modify.ts 目录清单串同步；examples/custom-store、custom-tool 引用修复（含 EnvCredentialProvider 改自 @away_from/infra——现路径已不存在）
+- schema.ts 死表标注（lab_events/credit_tx——archive/agent-lab 遗留，保留表+注释归属）
+
+### 3. 验证
+
+- 每 phase 全量测试绿（基线 1612）；Phase 1 纯移动——零行为变化（重接线逐文件对拍）
+- 真实栈：pi-platform 重建 → 冒烟三连：① /observe/sessions 正常（会话平面）② 任务完成后 `audit_log` 有 task_completed 行（审计接线）③ obs.tasks/obs.search 经真实数据世界可用（0.4 修复）
+- 无 schema 变更（SCHEMA_VERSION 不动）；git mv 保留历史
+
+### 4. 待用户裁决（3 点）
+
+| # | 事项 | 选项 | 推荐 |
+|---|---|---|---|
+| A2-1 | 归并方式 | A 直接迁移（无转发层）· B 薄转发层逐步废弃（D1 原文） | **A**——消费点全量盘点，转发层=双迁移面残留 |
+| A2-2 | PgAuditStore 处置 | A 接线（task-loop 终态事件写 audit_log——审计两平面）· B 摘除实例化（audit_log 留作预留）· C 删除 | **A**——让 PG 审计有真消费者，两平面职责互补 |
+| A2-3 | RedisSettingsStore 处置 | A 删除类+接线移除（接口保留）· B 保留待未来 tenant settings 需求 | **A**——死接线违反仓库纪律，需要时按契约重建 |
