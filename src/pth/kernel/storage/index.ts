@@ -129,9 +129,13 @@ export async function runReadOnlyPgView(pool: pg.Pool, view: "activity" | "datab
 // SCHEMA_SQL/applySchema)、task-store-pg.ts(Task/PublishInput/TaskStore/PgTaskStore)、memory-store-pg.ts
 // (MemoryEntry/PgMemoryStore)、transcript-store.ts(PgTranscriptStore)、audit-store.ts(AuditEvent/PgAuditStore)
 // —— 全部唯一，无重名导出。
+// 会话平面（2026-08-14 A2 Phase 1——双 storage 层归并：src/pth/storage 迁入 session/）。
+// 只 re-export 协议面（接口+类型）；Redis 实现由消费方直引文件（main 装配点）。
 export * from "./pg.js";
 export * from "./schema.js";
 export * from "./task-store-pg.js";
 export * from "./memory-store-pg.js";
 export * from "./transcript-store.js";
 export * from "./audit-store.js";
+export type { SessionStore, SettingsStore, CredentialProvider } from "./session/interfaces.js";
+export type { SessionMeta, SessionEntry, Snapshot, VersionSnapshotRecord, Settings } from "./session/types.js";

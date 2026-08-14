@@ -1,6 +1,6 @@
 import type { Redis } from "ioredis";
-import type { SettingsStore } from "./interfaces.js";
-import type { Settings } from "./types.js";
+import type { SettingsStore } from "../kernel/storage/session/interfaces.js";
+import type { Settings } from "../kernel/storage/session/types.js";
 
 export class RedisSettingsStore implements SettingsStore {
   constructor(private redis: Redis) {}

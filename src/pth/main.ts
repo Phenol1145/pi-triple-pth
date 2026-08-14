@@ -3,7 +3,7 @@ import { detectPlatform, createLogger } from "@away_from/infra";
 import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { createKernelMetrics } from "./observability/kernel-metrics.js";
 import { AuditWriter } from "./observability/audit.js";
-import { RedisSessionStore } from "./storage/redis-session-store.js";
+import { RedisSessionStore } from "./kernel/storage/session/redis-session-store.js";
 import { RedisSettingsStore } from "./storage/redis-settings-store.js";
 import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@away_from/infra";
 import { ToolRegistry } from "./tools/registry.js";

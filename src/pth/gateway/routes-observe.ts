@@ -18,7 +18,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { SessionStore } from "../storage/interfaces.js";
+import type { SessionStore } from "../kernel/storage/session/interfaces.js";
 import type { AgentEngine } from "../core/agent-engine.js";
 
 /**

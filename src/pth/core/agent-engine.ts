@@ -11,7 +11,7 @@ import {
 import { EXTERNAL_EVENT_CHANNEL, OBSERVE_EVENTS_REQUEST_CHANNEL, OBSERVE_EVENTS_RESPONSE_CHANNEL, COMPONENT_BOUND_CHANNEL, type ExternalWebhookEvent, type ComponentBoundEvent, type SystemEventFilter, type SystemEventEntry } from "./system-event-bus.js";
 import type { SessionPool, PoolSession } from "./session-pool.js";
 import type { ModelRouter, WorkspaceManager } from "@away_from/infra";
-import type { SessionStore } from "../storage/interfaces.js";
+import type { SessionStore } from "../kernel/storage/session/interfaces.js";
 import type { ToolPlatform } from "../tools/platform.js";
 import type { AuditWriter } from "../observability/audit.js";
 import type { Logger } from "@away_from/infra";

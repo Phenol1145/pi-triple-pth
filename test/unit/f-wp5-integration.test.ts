@@ -22,7 +22,7 @@ import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { createAuthHook } from "../../src/pth/gateway/auth.js";
 import { registerEventsRoutes } from "../../src/pth/gateway/routes-events.js";
 import { registerObserveRoutes } from "../../src/pth/gateway/routes-observe.js";
-import { RedisSessionStore } from "../../src/pth/storage/redis-session-store.js";
+import { RedisSessionStore } from "../../src/pth/kernel/storage/session/redis-session-store.js";
 import {
   EXTERNAL_EVENT_CHANNEL,
   OBSERVE_EVENTS_REQUEST_CHANNEL,
