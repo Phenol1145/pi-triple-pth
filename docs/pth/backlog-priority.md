@@ -333,9 +333,11 @@ src/pth/kernel/storage/
 > §8.2 债务「工作流 SOP——角色特定标准作业步骤还不是一等概念」+ 0.13.2「SKILL.md → memory 条目」。
 > 现状探查（2026-08-14）：skill kind 已入 memory-policy **prompt 层**（worker 只读 ✓）；
 > 手写种子 skill:api-investigation 已有（lazy 指针模式 ✓）；skills 表 v1 占位；skills.get 能力 v1 返回空。
-> **修订（2026-08-14 用户裁决）**：skill 治理从「JIT 优化对象（版本化+deopt）」**改为不可变**——
-> SKILL.md 是声明式知识，不适用断点续跑检测（N6 复测靠受控复跑对比指标，知识 SOP 无法被行为复测）；
-> 自动 deopt 回滚对 skill 是不诚实的闭环。修订 = 人工闸门（显式覆写/归档+新条目）。
+> **修订（2026-08-14 用户裁决 ×2）**：
+> ① skill 治理从「JIT 优化对象（版本化+deopt）」**改为不可变**——SKILL.md 是声明式知识，
+> 不适用断点续跑检测（N6 复测靠受控复跑对比指标，知识 SOP 无法被行为复测）；
+> ② **维护收编 memory-keeper 专项**——skill 是记忆四类型之一（域 B 设定/百科/skill/日志），
+> 维护 = 记忆维护 worker 的角色职责（同 spaceMaint 收编 controller 系的治理模式）。
 > 待用户裁决 B4-2/B4-3 后按 Phase 落地（每 phase 独立提交）。
 
 ### 0. 现状盘点
@@ -352,9 +354,10 @@ src/pth/kernel/storage/
 
 **skill〔新〕** = 系统化描述怎么做某件事（SOP）的**独立不可变知识条目**：
 - **格式**：场景锚点三要素（【场景锚点】/【何时用】/【效果】）+ 有序步骤清单（SOP 正文）——与 T8 锚点标准同构；
-- **治理——不可变（2026-08-14 用户裁决）**：prompt 层、worker 只读；**写后冻结**——
+- **治理——不可变 + 专项维护（2026-08-14 用户裁决）**：prompt 层、非维护角色只读；**写后冻结**——
   不进 JIT 优化对象面（deopt/复测不适用：SOP 是声明式知识，断点续跑检测测的是行为，知识无法被复跑测量）；
-  修订 = 人工闸门（治理通道显式覆写 force / 归档旧条目 + 新条目——审计留痕）；
+  **维护 = memory-keeper 专项**（记忆四类型的维护职责——同 spaceMaint 收编 controller 系）：
+  专属维护面（写新条目/显式覆写 force/归档）仅注入 memory-keeper 角色；修订审计留痕；
 - **与 rule 的分界**：rule = 一句话规则（追加进 role-doc/capability-index 的 stamp——**可 deopt 回滚**）；
   skill = 完整 SOP 条目（独立条目 id=skill:<name>，按场景锚点检索——**不可变**）。
 
@@ -371,12 +374,17 @@ src/pth/kernel/storage/
 - 检索面保持 memory.query（id/anchors——skill:name 指针模式已验证）；system prompt 的 API 调查指针模式推广为「场景锚点 → 查 skill」指引；
 - 测试：skills.get 取条目/未知名空/worker 写拒绝。
 
-**Phase 3 —— 不可变写入通道与保护（替代原 JIT 对象化——按用户裁决取消）**
-- memory-policy：skill 写入后拒绝 update（prompt 层已有 ✓；补 checkUpdate 对 skill 的显式「不可变」语义——
-  修订只能走治理通道：显式覆写 force 或 archived+新条目）；
-- optimizer 面不接 skill（不 propose skill / 不 apply / 不 deopt——复测不适用，诚实闭环让位人工闸门）；
-- 写入通道 = 0.13 转化 pipeline（N4 上游）+ 人工/管理 SDK（与 wiki 条目化同构）；
-- 范围外（记录）：skill 的 JIT 自动生成（热点→SOP 生成器）——若未来做，产物仍是 draft 提案 + 人工批准成不可变条目。
+**Phase 3 —— 不可变 + memory-keeper 专项维护面（替代原 JIT 对象化——按用户裁决取消）**
+- **维护能力按角色注入**：buildCapabilities 增加 roleId 上下文——`skills.maintain`（write 新条目 /
+  显式覆写 force / archive 归档）**仅注入 memory-keeper 角色**（roleFilter 机制同源）；
+  其他角色调 memory.write({kind:skill}) 依旧被 checkWrite 拒绝（prompt 层只读不变）；
+- **不可变语义**：maintain.write 只允许新条目或显式覆写（force + 审计 meta）；写后冻结——
+  checkUpdate 对 skill 拒绝一切隐式修改；修订 = 归档旧条目 + 新条目（审计留痕）；
+- 维护任务流：tags memory/organize → memory-keeper 路由（已有角色）——任务内用维护面写条目，
+  完成后即冻结；optimizer 面不接 skill（不 propose/apply/deopt）；
+- PTC 注册表补 entries：skills.maintain.write/archive（三要素 + 参数校验——A1 契约纪律）；
+- 范围外（记录）：skill 的 JIT 自动生成（热点→SOP 生成器）——若未来做，产物仍是 draft 提案 +
+  memory-keeper 维护任务批准成不可变条目。
 
 **Phase 4 —— 0.13 转化落点 + 落档**
 - SKILL.md → 条目格式映射定稿（0.13.2 转化流程的 skill 分支落点——N4 pipeline 直接写该格式）；
@@ -386,7 +394,7 @@ src/pth/kernel/storage/
 
 | # | 事项 | 选项 | 推荐 |
 |---|---|---|---|
-| B4-1 | skill 的治理语义 | ✅ 已裁决（2026-08-14 用户）：**不可变**——写后冻结；不进 JIT deopt/复测面（SKILL.md 不适用断点续跑检测）；修订 = 人工闸门（显式覆写/归档+新条目） | **D（用户新选项）**——知识不可变，行为才可复测 |
+| B4-1 | skill 的治理语义 | ✅ 已裁决（2026-08-14 用户 ×2）：**不可变**——写后冻结；不进 JIT deopt/复测面（SKILL.md 不适用断点续跑检测）；**维护收编 memory-keeper 专项**（专属维护面按角色注入） | **D**——知识不可变，行为才可复测；维护 = 记忆 worker 职责 |
 | B4-2 | 首批种子 SOP | A 注入 3 个角色 SOP seed（developer/scout/memory-keeper——从 role.prompt 提炼条目化）/ B 不注入（空类型——JIT 自然生长）/ C 全角色 7 个 | **A**——3 个证明格式与检索闭环，JIT 再自然扩展 |
 | B4-3 | skill 检索面 | A 沿用 memory.query（id/anchors 指针——零新索引，已验证模式）/ B 新增独立 skill 索引工具（memory.index 增强——skill 节） | **A**——锚点检索已够；索引增强留给 skill 数量上来后 |
 
