@@ -88,7 +88,7 @@
 3. **buildCapabilities 变薄适配器**：注册表 → Record 注入（兼容垫片，现有核不动）。
 4. **AGENT_CAPABILITY_AS_ACTION 降级模板迁移进注册表**（每个 def 带 asAction 代码生成器）——消灭字符串拼接双维护点。
 
-### Phase 2 —— Seam 解耦（装配上移，核稳定）
+### Phase 2 —— Seam 解耦（装配上移，核稳定）✅ 已实装（2026-08-14 `40a93f9`——ptc/runner.ts 统一执行缝 + 三消费点迁移（agent-tools ts.run/ts.eval / agent-loop 降级 / task-loop 直执行）+ 核契约条目升级 + ptc/docs.ts 生成器（prompt-docs 接线待 golden 对齐）+ 8 测试；全量 1586 绿）
 
 5. **统一执行入口（只管 ts 缝——不建 per-language runner）**：新建 `src/pth/kernel/ptc/runner.ts` ——
    `runPtcProgram({ code, cwd?, exec?, ts, registerResult? })` 返回 `{ raw: InterpreterResult, assembled }`：
