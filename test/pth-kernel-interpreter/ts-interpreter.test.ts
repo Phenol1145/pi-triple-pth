@@ -162,3 +162,41 @@ describe("single-line task snapshot export", () => {
     expect(snap.variables.some(v => v.key === "base")).toBe(true);
   });
 });
+
+describe("ts interpreter——程序级制动（A1 Phase 3 条目 11 abort 契约）", () => {
+  it("abort 终止 in-flight 异步悬挂——execute 以 ok:false aborted 落地（快——不等 timeout）", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    const start = Date.now();
+    const p = itp.execute("await new Promise(() => {})", { timeoutMs: 60_000 });
+    await new Promise((r) => setTimeout(r, 30));   // 进入悬挂
+    await itp.abort();
+    const res = await p;
+    const elapsed = Date.now() - start;
+    expect(res.ok).toBe(false);
+    expect(res.error?.message).toContain("aborted");
+    expect(res.error?.code).toBe("aborted");
+    expect(elapsed).toBeLessThan(5_000);   // 立即落地而非等 60s timeout
+    itp.dispose();
+  });
+
+  it("abort 无 in-flight 时安全 no-op（不抛、不破坏后续执行）", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    await itp.abort();
+    const r = await itp.execute("1 + 1");
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe(2);
+    itp.dispose();
+  });
+
+  it("abort 后内核仍可用（execute 正常路径不受影响）", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    const p = itp.execute("await new Promise(() => {})", { timeoutMs: 60_000 });
+    await new Promise((r) => setTimeout(r, 20));
+    await itp.abort();
+    await p;
+    const r2 = await itp.execute("40 + 2");
+    expect(r2.ok).toBe(true);
+    expect(r2.value).toBe(42);
+    itp.dispose();
+  });
+});

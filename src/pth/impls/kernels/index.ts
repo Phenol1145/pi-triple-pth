@@ -39,6 +39,11 @@ export function createWorkerKernel(deps: WorkerKernelDeps): WorkerKernel {
     },
     reset() { ts.reset(); bash.reset(); python.reset(); },
     dispose() { ts.dispose(); bash.dispose(); python.dispose(); },
+    // 程序级制动（2026-08-14 A1 Phase 3 条目 11）：abort 三核 in-flight（Bash/PythonInterpreter
+    // 无 in-flight 概念——abort 缺省 undefined，仅 ts 核有实现）
+    abort: async () => {
+      await ts.abort();
+    },
   };
 }
 

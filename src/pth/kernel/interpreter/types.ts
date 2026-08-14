@@ -52,6 +52,12 @@ export interface Interpreter {
   snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
+  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11——in-flight 终止契约）：
+   *  终止运行中程序并 await 落地（DSH 对照 ③ "terminate and await in-flight runs during disposal"）。
+   *  未支持的核（无状态转发器/编译核——无 in-flight 概念）缺省 undefined。
+   *  ts 核边界：同步 runaway 由 runInContext timeout 中断（单线程内 abort 无法插入）；
+   *  本契约制动的是异步悬挂（await 永不 resolve——execute 以 ok:false "aborted" 落地）。 */
+  abort?(): Promise<void>;
   /** ts 核专属：结果注册表写入（agent-loop 工具执行后调用——内部管理语言语义） */
   registerResult?(key: string, value: unknown): void;
   /** ts 核专属：读核内对象（results/context——任务尾沉淀等） */
@@ -153,6 +159,9 @@ export interface WorkerKernel {
   snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
+  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11）：abort 三核 in-flight 并 await——
+   *  可选（装配面统一提供；未装配的测试 mock 缺省 undefined） */
+  abort?(): Promise<void>;
 }
 
 export interface WorkerKernelDeps {

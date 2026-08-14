@@ -19,7 +19,7 @@
 
 | # | 事项 | 重要度 | 紧迫度 | 理由 |
 |---|---|---|---|---|
-| A1 | PTC 契约类型化 + Seam 解耦 | 4 | 5 | 契约是 LLM↔核 的接口根——agent-loop/工具/模板/转译全消费它；现在不类型化，每加一层机制就多一层欠债 |
+| A1 | PTC 契约类型化 + Seam 解耦 | 4 | 5 | ~~契约是 LLM↔核 的接口根——agent-loop/工具/模板/转译全消费它；现在不类型化，每加一层机制就多一层欠债~~ ✅ Phase 1–3 全落（2026-08-14 `c45256f`/`40a93f9`/本批） |
 | A2 | 双 storage 层归并 | 3 | 4 | 持久化基座——一切记忆/任务/空间特性都写穿它；晚归并 = 双份迁移面 |
 | B6 | N8 空间-角色绑定校验 | 3 | 4 | 空间是执行基板，T6 治理模型已锁——校验晚做，空间分化会先失控 |
 | B2 | N6 复测（verify）一等化 | 3 | 4 | JIT 闭环的信任锚——deopt 依赖诚实复测；验证不闭合，优化产物全建在沙上 |
@@ -52,7 +52,7 @@
 ## 4. 推荐执行序列（紧迫优先，同档按重要度）
 
 **第一批（根基）**：
-1. A1 PTC 契约化（5）——一切接口改动的先手（实施方案见附录 A）；
+1. ~~A1 PTC 契约化（5）——一切接口改动的先手（实施方案见附录 A）~~ ✅ 全三阶段已落；
 2. A2 storage 归并（4/3）——地基，改完再叠新特性；
 3. N6 复测一等化（4）——先把 JIT 的信任锚闭合成；
 4. N8 空间绑定校验（4）——治理防线，趁空间数量还小；
@@ -103,18 +103,35 @@
      其 TOOL_SCHEMAS 三要素在 Phase 3 由同一注册表生成（工具面 = 契约的 tool_call 投影，能力面 = ts binding 投影）。
 8. **能力索引文档生成器**：capability-index 从注册表生成（三要素格式）——手写散文退役，T8 role-doc 对齐随之自动化。
 
-### Phase 3 —— 契约校验开启 + 执行级制动
+### Phase 3 —— 契约校验开启 + 执行级制动 ✅ 已实装（2026-08-14——全量测试绿）
 
-9. **能力面越界 → 编译前拒绝**（引导消息，而非运行时 undefined——与 N12 unknown-tool 护栏同构）。
-10. **TOOL_SCHEMAS 生成器**：35 个动作工具 schema 从注册表/工具定义生成——工具面与能力面同一契约源。
-11. **in-flight 终止语义**（对比文档 ③）：`dispose()` 显式契约——终止运行中程序并 await（ts/python/bash 统一）；
-    现有只有调用级 LLM 超时与任务级 claim 回收，程序级跑飞无制动。
-12. **cache 注入收敛**：task-loop 的 `injectCapability("cache")` 进 runner 能力面装配（与越界校验同一机制）。
+9. **能力面越界 → 编译前拒绝** ✅：新增 `ptc/surface.ts`——扫描成员访问根/直接调用根，
+   剥离字符串/模板串/注释/正则字面量，收集声明/形参/解构为安全名（保守策略——合法程序零误杀），
+   JS 内建白名单按 node:vm 实测清单。越界 → `raw.ok=false + code=capability-out-of-bounds`
+   + 引导消息（列出注册表派生的可用能力根——与 N12 unknown-tool 护栏同构）；
+   `skipSurfaceCheck` 可关。预检基准 = `ts.state` 注入面键集合。
+10. **TOOL_SCHEMAS 生成器** ✅：新增 `ptc/tools.ts`——35 条工具契约（三要素 anchor/whenToUse/effect
+    + properties/required），`buildToolSchemas()` 派生 agent-tools 的 TOOL_SCHEMAS——
+    与旧手写逐字节一致（生成时 round-trip 校验 + ptc-tools 测试 golden 钉死）。
+11. **in-flight 终止语义**（对比文档 ③）✅：`Interpreter.abort?(): Promise<void>` 显式契约——
+    终止运行中程序并 await 落地。ts 核=reject in-flight execute（ok:false aborted；同步 runaway
+    仍由 runInContext timeout 中断——单线程边界）；PyKernel/BashKernel=同步 resolve pending + kill 进程
+    （下个 execute 懒 spawn 自愈）；SandboxKernel=abort in-flight HTTP + dispose 归还租约 + await release。
+    接线：batch-process shutdown 与 worker-remove 先 abort 后 dispose；KernelManager/worker facade
+    全核转发（allSettled）。
+12. **cache 注入收敛** ✅：task-loop 不再直调 injectCapability——构建 capabilityInject（cache 能力对象）
+    → runAgentTask → agent-loop 透传 → runPtcProgram `caps` 统一装配（注入先于越界预检——同一机制）。
 
 ### 兼容与验证
 
 - 每 phase 独立提交；Phase 1 纯重构——全量 1573 测试必须保持全绿；
 - 行为逐字保留（降级模板/引导消息/结果注册语义不变）；
 - 验收：agentic 测试集 T01（混合任务——PTC 组合）回归 + 新增 contract/runner 单测；
-- 零新依赖（校验器手写；d.ts 预置由 stripTypeScriptTypes 免费吸收）。
+- 零新依赖（校验器手写；d.ts 预置由 stripTypeScriptTypes 免费吸收）；
+- Phase 3 验收：ptc-surface（越界预检 7 组）/ptc-tools（35 条 golden）/ptc-runner（装配+越界 6 例）/
+  ts·py·bash·sandbox 四核 abort 契约测试——全量套件回归绿。
+
+> **A1 遗留（Phase 2 条目 8 尾件）**：能力索引文档生成器（ptc/docs.ts buildCapabilityIndexDoc）已建+已测，
+> 但 prompt-docs.ts 的 buildCapabilityIndex 仍为手写散文（覆盖 fs.task/perf/model/obs/ext 等注册表外条目）——
+> 切换需先补齐注册表条目并对齐 golden 断言，另行提交。
 

@@ -7,6 +7,8 @@ function mockTs(impl?: (code: string, opts: any) => Promise<any>) {
   return {
     execute: vi.fn(impl ?? (async () => ({ ok: true, value: { a: 1 }, stdout: "x", durationMs: 1, language: "ts" }))),
     registerResult: vi.fn(),
+    state: {},
+    injectCapability: vi.fn(),
   };
 }
 
@@ -44,6 +46,59 @@ describe("PTC 统一执行缝（A1 Phase 2——ptc/runner）", () => {
       registerResult: { key: "result_1", build: (r) => ({ tool: "x", ok: r.ok, error: r.ok ? undefined : r.error?.message }) },
     });
     expect(ts.registerResult).toHaveBeenCalledWith("result_1", { tool: "x", ok: false, error: "boom" });
+  });
+});
+
+describe("PTC Phase 3——能力面装配 + 越界预检（ptc/runner）", () => {
+  it("caps 注入先于执行（装配→预检→执行顺序）", async () => {
+    const ts = mockTs();
+    const cacheObj = { get: vi.fn() };
+    await runPtcProgram({ code: "const a = 1;", ts, caps: { cache: cacheObj } });
+    expect(ts.injectCapability).toHaveBeenCalledWith("cache", cacheObj);
+    expect(ts.execute).toHaveBeenCalled();
+  });
+
+  it("越界根 → 编译前拒绝（execute 未调用）+ 引导消息", async () => {
+    const ts = mockTs();
+    const { raw } = await runPtcProgram({ code: "await foo.bar()", ts });
+    expect(raw.ok).toBe(false);
+    expect(raw.error?.code).toBe("capability-out-of-bounds");
+    expect(raw.error?.message).toContain('"foo"');
+    expect(raw.error?.message).toContain("能力面越界");
+    expect(raw.error?.message).toContain("memory");
+    expect(ts.execute).not.toHaveBeenCalled();
+  });
+
+  it("注入面内的能力根 → 放行（state 键为基准）", async () => {
+    const ts = mockTs();
+    ts.state = { memory: { query: vi.fn() }, results: {}, context: {} };
+    const { raw } = await runPtcProgram({ code: 'const r = await memory.query("SELECT 1"); results.result_1 = r;', ts });
+    expect(raw.ok).toBe(true);
+  });
+
+  it("拼写错误能力 → 引导（memeory 场景——LLM 高频失误）", async () => {
+    const ts = mockTs();
+    ts.state = { memory: {} };
+    const { raw } = await runPtcProgram({ code: 'await memeory.query("x")', ts });
+    expect(raw.ok).toBe(false);
+    expect(raw.error?.message).toContain('"memeory"');
+    expect(ts.execute).not.toHaveBeenCalled();
+  });
+
+  it("skipSurfaceCheck 关闭预检", async () => {
+    const ts = mockTs();
+    await runPtcProgram({ code: "await foo.bar()", ts, skipSurfaceCheck: true });
+    expect(ts.execute).toHaveBeenCalled();
+  });
+
+  it("越界拒绝同样走结果注册（工具结果注册不变量）", async () => {
+    const ts = mockTs();
+    const { raw } = await runPtcProgram({
+      code: "await foo.bar()", ts,
+      registerResult: { key: "result_1", build: (r) => ({ tool: "x", ok: r.ok, code: r.error?.code }) },
+    });
+    expect(raw.ok).toBe(false);
+    expect(ts.registerResult).toHaveBeenCalledWith("result_1", { tool: "x", ok: false, code: "capability-out-of-bounds" });
   });
 });
 

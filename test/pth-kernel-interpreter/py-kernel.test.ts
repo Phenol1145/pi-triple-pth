@@ -198,3 +198,32 @@ describe("审计修复（2026-08-12）", () => {
     k.dispose();
   });
 });
+
+describe("PyKernel——程序级制动（A1 Phase 3 条目 11 abort 契约）", () => {
+  it("abort 终止 in-flight 死循环——execute 快落地（不等 timeout）+ 自愈补位", async () => {
+    const k = new PyKernel({ pythonBin: "python3" });
+    const start = Date.now();
+    const p = k.execute("while True: pass", { timeoutMs: 120_000 });
+    await new Promise((r) => setTimeout(r, 400));   // 确保进入执行
+    await k.abort();
+    const r = await p;
+    const elapsed = Date.now() - start;
+    expect(r.ok).toBe(false);
+    expect(r.error?.message ?? "").toContain("aborted");
+    expect(elapsed).toBeLessThan(10_000);   // 立即落地而非等 120s timeout
+    // 自愈：abort 杀进程后，下个 execute 懒 spawn 冷备补位
+    const r2 = await k.execute("_result = 1 + 1");
+    expect(r2.ok).toBe(true);
+    expect(r2.value).toBe(2);
+    k.dispose();
+  }, 20_000);
+
+  it("abort 无 in-flight 时安全 no-op（不抛、不破坏后续执行）", async () => {
+    const k = new PyKernel({ pythonBin: "python3" });
+    await k.abort();
+    const r = await k.execute("_result = 6 * 7");
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe(42);
+    k.dispose();
+  }, 20_000);
+});

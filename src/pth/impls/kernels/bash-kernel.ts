@@ -45,7 +45,7 @@ export class BashKernel implements Interpreter {
   private ready = false;
   private readyWaiters: Array<() => void> = [];
   private onStderr?: (line: string) => void;
-  private pending: Array<{ resolve: (r?: { stdout: string; stderr: string; code: number | null }) => void }> = [];
+  private pending: Array<{ resolve: (r?: { stdout: string; stderr: string; code: number | null }) => void; probe?: boolean }> = [];
   private cwd = DEFAULT_CWD;
   private env: Record<string, string> = {};
   private readonly memoryBridge: string;
@@ -139,6 +139,21 @@ export class BashKernel implements Interpreter {
     this.kill();
   }
 
+  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11）：终止 in-flight——resolve 全部业务 pending
+   *  （probe 条目除外——就绪探测无 in-flight 概念，其 waiter 由 2s 超时兜底）→ kill 会话。
+   *  execute 侧收 ok:false（stderr "bash aborted" / exit-code 语义）；下个 execute 懒 spawn 自愈。 */
+  async abort(): Promise<void> {
+    const pending = this.pending;
+    if (pending.length > 0) {
+      this.pending = [];
+      for (const p of pending) {
+        if (p.probe) continue;
+        p.resolve({ stdout: "", stderr: "bash aborted", code: 1 });
+      }
+    }
+    this.kill();
+  }
+
   // ── 内部 ─────────────────────────────────────────────────
 
   /** 空闲回收：超过 idleMs 无调用 kill 进程（execute 自动冷备补位） */
@@ -187,6 +202,7 @@ export class BashKernel implements Interpreter {
         const w = this.readyWaiters.splice(0);
         for (const fn of w) fn();
       },
+      probe: true,   // Phase 3 abort：probe 条目不 resolve（其 waiter 由 2s 就绪超时兜底）
     };
     this.pending.push(entry);
     child.stdin.write(":\necho __BASH_DONE_$?__\n");

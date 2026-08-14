@@ -322,6 +322,18 @@ export class PyKernel implements Interpreter {
     this.kill();
   }
 
+  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11）：终止 in-flight——同步 resolve 全部 pending
+   *  （不等 timeout）→ kill 进程。execute 侧收 ok:false "kernel aborted"（正常路径返回，不抛）；
+   *  进程已死——下个 execute 懒 spawn 冷备补位（自愈）。 */
+  async abort(): Promise<void> {
+    const pending = this.pending;
+    if (pending.length > 0) {
+      this.pending = [];
+      for (const p of pending) p.resolve({ ok: false, result: null, stdout: "", stderr: "", error: "kernel aborted" });
+    }
+    this.kill();
+  }
+
   // ── 内部 ─────────────────────────────────────────────────
 
   /** 空闲回收：超过 idleMs 无调用 kill 进程（execute/snapshot 自动冷备补位） */

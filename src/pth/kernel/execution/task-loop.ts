@@ -153,14 +153,18 @@ export class TaskLoop {
           const { CacheStore } = await import("./cache-store.js");
           cacheStore = new CacheStore();
           const cs = cacheStore;   // 闭包内非空收窄（TS 控制流不穿透闭包）
-          (kernel.ts as { injectCapability?: (n: string, v: unknown) => void }).injectCapability?.("cache", {
-            get: (k: string) => cs.get(k),
-            keys: () => cs.keys(),
-            load: (k: string, c: string) => cs.load(k, String(c), "ts-program"),
-            cancel: (k: string) => cs.cancel(k),
-            index: () => cs.index(),
-            utilization: () => cs.utilization(),
-          });
+          // 任务级能力装配（2026-08-14 A1 Phase 3 条目 12）：cache 注入收敛进 runner——
+          // 不再直调 injectCapability；agent-loop 透传，每 ts 程序执行前统一装配（与越界预检同一机制）
+          const capabilityInject: Record<string, unknown> = {
+            cache: {
+              get: (k: string) => cs.get(k),
+              keys: () => cs.keys(),
+              load: (k: string, c: string) => cs.load(k, String(c), "ts-program"),
+              cancel: (k: string) => cs.cancel(k),
+              index: () => cs.index(),
+              utilization: () => cs.utilization(),
+            },
+          };
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
@@ -170,6 +174,7 @@ export class TaskLoop {
             asp: process.env.PTH_ASP_MODE === "on",   // ASP 状态机（compose 默认 on——全件落地）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
             cache: cs,
+            capabilityInject,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
             logger: (m) => taskLogger?.info(m),
             onTrace: (e) => {

@@ -10,6 +10,10 @@ function mockKernel(): WorkerKernel {
       reset: vi.fn(),
       dispose: vi.fn(),
       snapshot: vi.fn(async () => ({ variables: [], functions: [], oversized: [] })),
+      registerResult: vi.fn(),
+      injectCapability: vi.fn(),
+      // Phase 3 越界预检基准：注入面键集合（真实核 = seeds + caps + python/bash）
+      state: { results: {}, context: {}, memory: {}, llm: {}, web: {}, fs: {}, env: {}, state: {}, python: {}, bash: {} },
     } as any,
     python: {
       execute: vi.fn(async (code: string) => ({ ok: true, value: code.includes("fib") ? 75025 : 42, durationMs: 1, language: "python" })),

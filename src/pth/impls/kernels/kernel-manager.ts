@@ -54,6 +54,8 @@ export interface KernelManager {
   registerKernel(language: string, interpreter: Interpreter): void;
   reset(): void;
   dispose(): void;
+  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11）：abort 全部核 in-flight 并 await */
+  abort(): Promise<void>;
 }
 
 /**
@@ -109,6 +111,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
       snapshot: () => interp.snapshot(),   // 显式转发（spread 丢 prototype 方法）
       reset: () => interp.reset(),
       dispose: () => interp.dispose(),
+      abort: async () => { await interp.abort?.(); },   // Phase 3 条目 11 转发
       async execute(program, executeOpts) {
         const start = Date.now();
         const result = await interp.execute(program, executeOpts);
@@ -158,6 +161,10 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
     },
     reset() { ts.reset(); bash.reset(); python.reset(); compiled.reset(); },
     dispose() { ts.dispose(); bash.dispose(); python.dispose(); compiled.dispose(); },
+    // Phase 3 条目 11：abort 全核 in-flight（allSettled——单核失败不阻断其余核制动）
+    abort: async () => {
+      await Promise.allSettled([ts.abort?.(), python.abort?.(), bash.abort?.(), compiled.abort?.()]);
+    },
   };
 }
 
@@ -204,6 +211,8 @@ export function createWorkerKernelWithManager(deps: {
   snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
+  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11）：abort ts 核 + manager 全核并 await */
+  abort(): Promise<void>;
 } {
   // 扩展执行核注册钩子（ext.kernel 闭包引用此变量——ts 创建后包装为"注册 manager + 注入 worker ts"）
   let registerHook: ((language: string, interpreter: unknown) => void) | undefined = deps.registerKernel;
@@ -299,5 +308,10 @@ export function createWorkerKernelWithManager(deps: {
     },
     reset() { ts.reset(); deps.manager.reset(); },
     dispose() { ts.dispose(); deps.manager.dispose(); },
+    // Phase 3 条目 11：ts 核 abort（异步悬挂）+ manager 全核 abort（python/bash/compiled）
+    abort: async () => {
+      await ts.abort();
+      await deps.manager.abort();
+    },
   };
 }

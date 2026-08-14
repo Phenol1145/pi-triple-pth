@@ -74,3 +74,32 @@ describe("记忆库 seed（2026-08-11 库化）", () => {
     k.dispose();
   });
 });
+
+describe("BashKernel——程序级制动（A1 Phase 3 条目 11 abort 契约）", () => {
+  it("abort 终止 in-flight 长命令——execute 快落地（不等 timeout）+ 自愈补位", async () => {
+    const k = new BashKernel();
+    const start = Date.now();
+    const p = k.execute("sleep 60", { timeoutMs: 120_000 });
+    await new Promise((r) => setTimeout(r, 400));   // 确保进入执行
+    await k.abort();
+    const r = await p;
+    const elapsed = Date.now() - start;
+    expect(r.ok).toBe(false);
+    expect(r.stderr ?? "").toContain("aborted");
+    expect(elapsed).toBeLessThan(10_000);   // 立即落地而非等 120s timeout
+    // 自愈：abort 杀会话后，下个 execute 懒 spawn 新会话
+    const r2 = await k.execute("echo alive");
+    expect(r2.ok).toBe(true);
+    expect(r2.stdout).toContain("alive");
+    k.dispose();
+  }, 20_000);
+
+  it("abort 无 in-flight 时安全 no-op（不抛、不破坏后续执行）", async () => {
+    const k = new BashKernel();
+    await k.abort();
+    const r = await k.execute("echo ok");
+    expect(r.ok).toBe(true);
+    expect(r.stdout).toContain("ok");
+    k.dispose();
+  }, 20_000);
+});

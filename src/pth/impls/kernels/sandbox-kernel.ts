@@ -38,6 +38,8 @@ export class SandboxKernel implements Interpreter {
   private disposed = false;
   private releasePromise: Promise<void> | null = null;
   private acquirePromise: Promise<void> | null = null;
+  /** in-flight HTTP 请求控制器（Phase 3 条目 11——abort 终止执行中的 /kernel/execute 或 acquire） */
+  private inflightCtrl: AbortController | null = null;
   /** 池条目分配完成的 promise（测试/依赖方等待用——懒 acquire 异步） */
   get ready(): Promise<void> {
     return this.acquire();
@@ -58,6 +60,7 @@ export class SandboxKernel implements Interpreter {
 
   private async call<T>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
     const ctrl = new AbortController();
+    this.inflightCtrl = ctrl;
     const timer = setTimeout(() => ctrl.abort(), timeoutMs ?? this.requestTimeoutMs);
     try {
       // debug: 记录 sandbox 调用（URL/路径——诊断 abort 来源）
@@ -81,6 +84,7 @@ export class SandboxKernel implements Interpreter {
       return json as T;
     } finally {
       clearTimeout(timer);
+      if (this.inflightCtrl === ctrl) this.inflightCtrl = null;
     }
   }
 
@@ -118,13 +122,21 @@ export class SandboxKernel implements Interpreter {
         kernelId = await this.withKernelId();   // 重新 acquire（旧条目已 release——池复用立即生效）
       } else throw e;
     }
-    return this.call<InterpreterResult>("/kernel/execute", {
-      kernelId,
-      code: program,
-      ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
-      ...(opts?.exec ? { exec: opts.exec } : {}),   // 元命令拆分（2026-08-11）：single/program 透传 sandbox
-      ...(opts?.space ? { space: opts.space } : {}),   // 记忆桥盖章（2026-08-12 批 3）透传
-    });
+    try {
+      return await this.call<InterpreterResult>("/kernel/execute", {
+        kernelId,
+        code: program,
+        ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts?.exec ? { exec: opts.exec } : {}),   // 元命令拆分（2026-08-11）：single/program 透传 sandbox
+        ...(opts?.space ? { space: opts.space } : {}),   // 记忆桥盖章（2026-08-12 批 3）透传
+      });
+    } catch (e) {
+      // Phase 3 条目 11：abort 触发的 AbortError → ok:false（其余错误照旧传播）
+      if ((e as Error).name === "AbortError") {
+        return { ok: false, error: { message: "sandbox kernel aborted", code: "aborted" }, durationMs: 0, language: this.language };
+      }
+      throw e;
+    }
   }
 
   async reset(): Promise<void> {
@@ -171,6 +183,15 @@ export class SandboxKernel implements Interpreter {
 
   /** 等待 dispose 的 release 请求落地（测试/优雅关闭用——池复用立即生效） */
   async disposeAndFlush(): Promise<void> {
+    this.dispose();
+    await this.releasePromise;
+  }
+
+  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11）：abort in-flight HTTP（execute/acquire 即时报错）
+   *  → dispose 归还租约（宿主侧杀进程终止程序）→ await release 落地。
+   *  本核此后 disposed——下个 execute 自愈 revive（重新 acquire——池复用立即生效）。 */
+  async abort(): Promise<void> {
+    this.inflightCtrl?.abort();
     this.dispose();
     await this.releasePromise;
   }

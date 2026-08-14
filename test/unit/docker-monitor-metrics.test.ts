@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeMetrics } from "../../tools/docker-monitor/metrics.js";
+// 2026-08-14 重组：docker-monitor 归拢 deploy/——引用随迁
+import { computeMetrics } from "../../deploy/docker-monitor/metrics.js";
 
 function sampleFrame(total: number, system: number, onlineCpus = 4, memUsage = 1_000_000_000, memLimit = 4_000_000_000, netRx = 1000, netTx = 500) {
   return {

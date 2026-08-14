@@ -42,6 +42,12 @@ export class TsInterpreter implements Interpreter {
     return this.context as unknown as Record<string, unknown>;
   }
 
+  /** in-flight 执行制动（2026-08-14 A1 Phase 3 条目 11）：abort 拒绝当前 execute——
+   *  只覆盖异步悬挂（await 永不 resolve）；同步 runaway 由 runInContext timeout 中断
+   *  （单线程内 abort 无法插入）。ts 核 execute 串行调用（agent-loop 单步单执行）——无并发覆盖。 */
+  private inflightAbort: (() => void) | null = null;
+  private inflightSettled: Promise<void> = Promise.resolve();
+
   /** 动态注入能力（兼容性扩展——ext.kernel 后注册的新执行核进 vm context） */
   injectCapability(name: string, value: unknown): void {
     (this.context as Record<string, unknown>)[name] = value;
@@ -84,15 +90,31 @@ export class TsInterpreter implements Interpreter {
           timeoutMs,
         );
       });
+      // Phase 3 条目 11：abort 时拒绝本 execute（结果 ok:false "ts execution aborted"）——
+      // 僵尸延续（runPromise）照常完成但结果被丢弃（外部 promise 已 settle）。
+      const abortPromise = new Promise<never>((_, reject) => {
+        this.inflightAbort = () => reject(Object.assign(new Error("ts execution aborted"), { code: "aborted" }));
+      });
+      let settleInflight!: () => void;
+      this.inflightSettled = new Promise<void>((resolve) => { settleInflight = resolve; });
       try {
-        return await Promise.race([runPromise, guardPromise]);
+        return await Promise.race([runPromise, guardPromise, abortPromise]);
       } finally {
         if (timer) clearTimeout(timer);
+        this.inflightAbort = null;
+        settleInflight();
       }
     } catch (e) {
       const err = e as Error;
-      return { ok: false, error: { message: err.message, stack: err.stack }, durationMs: Date.now() - start };
+      const code = (err as { code?: string }).code;
+      return { ok: false, error: { message: err.message, stack: err.stack, ...(code ? { code } : {}) }, durationMs: Date.now() - start };
     }
+  }
+
+  /** 程序级制动（Phase 3 条目 11）：reject in-flight execute 并 await 其落地 */
+  async abort(): Promise<void> {
+    this.inflightAbort?.();
+    await this.inflightSettled;
   }
 
   snapshot() {

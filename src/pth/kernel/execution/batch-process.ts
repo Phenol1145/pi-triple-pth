@@ -105,7 +105,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     if (disposed) return;
     disposed = true;
     for (const l of loops) {
-      const k = (l as unknown as { kernel?: { dispose?: () => Promise<void> | void } }).kernel;
+      const k = (l as unknown as { kernel?: { dispose?: () => Promise<void> | void; abort?: () => Promise<void> } }).kernel;
+      // Phase 3 条目 11：先 abort in-flight 程序（程序级制动）再 dispose 资源——DSH 对照 ③
+      try { await k?.abort?.(); } catch { /* abort 容错 */ }
       try { await k?.dispose?.(); } catch { /* dispose 容错 */ }
     }
   }
@@ -158,8 +160,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       for (const i of idxs.reverse()) {
         const l = loops[i]!;
         l.stop();
-        // kernel dispose（释放 python 子进程）
-        const k = (l as unknown as { kernel?: { dispose?: () => void } }).kernel;
+        // Phase 3 条目 11：先 abort in-flight（角色移除时跑飞的程序立即制动）再 dispose 资源
+        const k = (l as unknown as { kernel?: { dispose?: () => void; abort?: () => Promise<void> } }).kernel;
+        try { void k?.abort?.(); } catch { /* abort 容错 */ }
         try { k?.dispose?.(); } catch { /* dispose 容错 */ }
         loops.splice(i, 1);
       }

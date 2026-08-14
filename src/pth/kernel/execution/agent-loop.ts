@@ -83,6 +83,9 @@ export interface AgentLoopOptions {
   sessionRef?: { current: { currentSpace: string } | null };
   /** 随身缓存（任务级——task-loop 注入并与 vm cache 对象同源；缺省 loop 自建） */
   cache?: import("./cache-store.js").CacheStore;
+  /** 任务级能力装配（Phase 3 条目 12——cache 收敛）：透传 runner caps
+   *  （task-loop 构建——每 ts 程序执行前统一注入 vm；与越界预检同一机制） */
+  capabilityInject?: Record<string, unknown>;
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
@@ -859,9 +862,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       if (wrap) {
         const code = wrap(args);
         input.logger?.(`[agent] step=${steps + 1} capability-action ${tool} → ts 程序降级`);
-        // PTC 统一执行缝（2026-08-14 A1 Phase 2——执行+注册收敛进 ptc/runner）
+        // PTC 统一执行缝（2026-08-14 A1 Phase 2——执行+注册收敛进 ptc/runner；
+        // Phase 3 条目 12——任务级 caps 装配随缝注入）
         const { raw } = await runPtcProgram({
-          code, cwd: "/tmp", ts: kernel.ts,
+          code, cwd: "/tmp", ts: kernel.ts, caps: input.capabilityInject,
           registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
         });
         const result: AgentToolResult = raw.ok
@@ -897,7 +901,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     }
     try {
       const result = await executor(
-        { kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore, space: aspMode ? aspSession.currentSpace : undefined },
+        { kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore, space: aspMode ? aspSession.currentSpace : undefined, ptcCaps: input.capabilityInject },
         args,
       );
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
