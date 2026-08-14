@@ -340,7 +340,8 @@ src/pth/kernel/storage/
 > 维护 = 记忆维护 worker 的角色职责（同 spaceMaint 收编 controller 系的治理模式）。
 > **外部参考（2026-08-14 调研）**：Hermes Agent（记忆与 skill 稳定进化结构）+ Prime Agent（多级记忆）——
 > 对照见 `docs/superpowers/explorations/2026-08-14-hermes-prime-memory-reference.md`；
-> 可借鉴增量已并入本方案（四段式格式/两级检索/内容上限/staged 审批——见 Phase）。
+> **吸收的设计点已单独列示于 concepts §8.3 待议清单（W1–W7）**——裁决前按〔待议 §8.3〕引用，
+> 不并入默认实施；本方案 Phase 内的借用项均带〔待议〕标注，待逐条裁决后生效。
 > 待用户裁决 B4-2/B4-3 后按 Phase 落地（每 phase 独立提交）。
 
 ### 0. 现状盘点
@@ -356,9 +357,8 @@ src/pth/kernel/storage/
 ### 1. 概念落定（域 B 词条修订）
 
 **skill〔新〕** = 系统化描述怎么做某件事（SOP）的**独立不可变知识条目**：
-- **格式——四段式（2026-08-14 借鉴 Hermes SKILL.md）**：场景锚点三要素（【场景锚点】/【何时用】/【效果】）
-  + Procedure 有序步骤 + **Pitfalls（已知失败模式与修正——负知识结构化）** + **Verification（怎么确认成功——验收标准）**；
-  内容长度上限 4KB——超限报错不静默截断（维护者精简/拆分——Hermes「不自动压缩」同义）；
+- **格式**：场景锚点三要素（【场景锚点】/【何时用】/【效果】）+ 有序步骤清单（SOP 正文）——与 T8 锚点标准同构；
+  〔待议 §8.3 W1〕四段式（+Pitfalls/Verification）；〔待议 §8.3 W3〕内容上限 4KB 超限报错；
 - **治理——不可变 + 专项维护（2026-08-14 用户裁决）**：prompt 层、非维护角色只读；**写后冻结**——
   不进 JIT 优化对象面（deopt/复测不适用：SOP 是声明式知识，断点续跑检测测的是行为，知识无法被复跑测量）；
   **维护 = memory-keeper 专项**（记忆四类型的维护职责——同 spaceMaint 收编 controller 系）：
@@ -376,10 +376,9 @@ src/pth/kernel/storage/
 
 **Phase 2 —— 检索面与能力接线**
 - `skills.get(name)` 真实现：capability.ts v1 占位 → dataWorld.memory.get(`skill:${name}`)（返回结构化条目）；
-- **渐进披露两级检索（2026-08-14 借鉴 Hermes Level 0/1）**：Level 0 = skill 清单（name+description 摘要——
-  memory.index 的 skill 节，或角色指引注入）；Level 1 = 按需全文（memory.query id 查）；
-- 冻结快照友好：skill 不进 system prompt（lazy 按需）——不破坏 prefix cache（Hermes 冻结快照同义）；
-- 测试：skills.get 取条目/未知名空/worker 写拒绝/清单两级。
+- 检索面保持 memory.query（id/anchors——skill:name 指针模式已验证）；
+  〔待议 §8.3 W2〕渐进披露两级（清单+按需全文）；〔待议 §8.3 W6〕冻结快照友好（lazy 不进 system prompt）；
+- 测试：skills.get 取条目/未知名空/worker 写拒绝。
 
 **Phase 3 —— 不可变 + memory-keeper 专项维护面（替代原 JIT 对象化——按用户裁决取消）**
 - **维护能力按角色注入**：buildCapabilities 增加 roleId 上下文——`skills.maintain`（write 新条目 /
@@ -388,10 +387,10 @@ src/pth/kernel/storage/
 - **不可变语义**：maintain.write 只允许新条目或显式覆写（force + 审计 meta）；写后冻结——
   checkUpdate 对 skill 拒绝一切隐式修改；修订 = 归档旧条目 + 新条目（审计留痕）；
 - 维护任务流：tags memory/organize → memory-keeper 路由（已有角色）——任务内用维护面写条目，
-  完成后即冻结；**创建时机对齐 Hermes**：复杂任务成功/踩坑找到正路/用户纠正 → refine insight 已捕捉 →
-  维护任务固化；optimizer 面不接 skill（不 propose/apply/deopt）；
-- **staged 审批流（2026-08-14 借鉴 Hermes write_approval）**：skill 维护写走 draft 提案 → 监督批准 →
-  memory-keeper 执行（与 T7 归档 approve 流同构——复用 manage 通道）；
+  完成后即冻结；optimizer 面不接 skill（不 propose/apply/deopt）；
+  〔待议 §8.3 W4〕创建时机对齐 Hermes（refine insight → 维护任务固化）；
+  〔待议 §8.3 W5〕staged 审批流（draft 提案 → 监督批准 → 执行——与 T7 归档 approve 同构）；
+  〔待议 §8.3 W7〕reward hacking 防线（固化过维护任务与审批门）；
 - PTC 注册表补 entries：skills.maintain.write/archive（三要素 + 参数校验——A1 契约纪律）；
 - 范围外（记录）：skill 的 JIT 自动生成（热点→SOP 生成器）——若未来做，产物仍是 draft 提案 +
   memory-keeper 维护任务批准成不可变条目。
