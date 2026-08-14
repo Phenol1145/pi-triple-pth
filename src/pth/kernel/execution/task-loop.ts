@@ -296,7 +296,8 @@ export class TaskLoop {
             }
             // 数据缓存利用率（2026-08-13 N3——0.11.4.2：scorecard 新指标——fast-path 无缓存为空）
             if (cacheStore) sc.cacheUtilization = cacheStore.utilization();
-            this.deps.optimizer.collect(sc, { role: role.id, taskId: task.id });
+            // 复测任务透传（2026-08-14 N6 一等化）：verifyOf → 复测聚合（受控证据——不进热点窗口/角色聚合）
+            this.deps.optimizer.collect(sc, { role: role.id, taskId: task.id, verifyOf: (task.payload as { verifyOf?: string } | undefined)?.verifyOf });
           } catch (e) {
             taskLogger?.error(`optimizer collect failed: ${(e as Error).message}`);
           }

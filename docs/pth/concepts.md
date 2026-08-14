@@ -704,7 +704,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **审批面（A/B/C）**〔旧〕 | 人工闸门：A 代码层 / B scorecard 快照 / C 角色注册 | gateway · 监督层 |
 | **控制论外环**〔旧〕 | 慢环——sensor 聚合 → controller 裁决 → 审批面 → actuator 应用（批次/小时级） | optimizer-loop |
 | **JIT 内环**〔旧〕 | 快环——collect → propose → apply → verify（任务/分钟级） | optimizer-apply |
-| **复测（verify）**〔桥〕 | JIT 内环闭合步——apply 后复测窗口对比 baseline 判定劣化（verifyAfterWindow 已标志；独立复测任务一等化——§10 N6） | optimizer-apply |
+| **复测（verify）**〔桥〕 | JIT 内环闭合步——apply 后复测对比 baseline 判定劣化（2026-08-14 N6 一等化落地：独立复测任务 + 有机窗口 + 全局聚合三通道证据；超时零进展 → verify_expired 诚实缺口） | optimizer-apply · optimizer-loop.checkDeopt |
 | **资源环（第三级）**〔新〕 | 更慢环——资源调参（batch/核池/模型配比——perf-autopilot） | controller:resource（角色已有——采集未实装 §10 N5） |
 | **防护环（第零级）**〔旧〕 | 单步制动——负结果收敛/参数指纹（秒级——域 E） | agent-loop |
 | **deopt 回滚**〔旧〕 | JIT 劣化 50%+ 自动撤销（baseline 对比 + rolled_back） | optimizer-apply |
@@ -930,7 +930,7 @@ v0.9（动作面/权限/任务池纯化）
 | N3 | 数据缓存使用追踪（cacheUtilization） | 0.12 · 域 E/域 D | ✅ 已实装（2026-08-13——get 命中标记 used→utilization()→scorecard+聚合快照+cache-waste 热点+sensor 观测维度；测试 10 全绿） | scorecard 新指标 · sensor 观测（数据流效率） | ✅ 已实装 |
 | N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 无转化流程；MCP 无 | ext-registry（agent-reach 已验证） | ⚠️ 部分 |
 | N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | L3 容器级全缺；L2 worker 健康/DB 慢查询缺 | controller:resource 角色已有 | ❌ 未实装 |
-| N6 | 复测（verify）一等化 | 0.7.2 · 域 D | verifyAfterWindow 标志已有；独立复测任务未一等化 | optimizer-apply baseline/deopt | ⚠️ 半实装 |
+| N6 | 复测（verify）一等化 | 0.7.2 · 域 D | ~~verifyAfterWindow 标志已有；独立复测任务未一等化~~ ✅ 已实装（2026-08-14 B2）：apply 派发独立复测任务（受控复现）→ 证据三通道结算（verify-task＞organic＞global）→ 超时零进展 verify_expired 诚实闭合 + 独立巡检定时器 | optimizer-apply baseline/deopt | ✅ 已实装 |
 | N7 | 记忆归档执行 | 0.9 · 域 B | ✅ 执行端已实装（2026-08-14 T7——memory-admin.ts + 审批路由：draft→监督批准→archived）；定期触发待 trigger 接线 | sensor:memory / controller:memory 已有 | ⚠️ 半实装 |
 | N8 | 空间-角色绑定治理 | 0.10.2 · 域 C | T6 裁决定模型 + 2026-08-14 概念修订（空间 = worker 拓扑派生结构，生成即绑定）：绑定校验 = bindRoles 注册事实（生成必填）+ asp.cd 进入校验（谱系上溯）+ 空间工具族归属；空间生成走治理通道（spaceRegistry.createChild/unregister）——worker 工具面 asp.create/destroy 退役 | 治理 v2 承接 | ✅ 已实装（2026-08-14 B6——`1e6d785`/`7e0380d`） |
 | N9 | 术语统一 | 域 B 全域 | ✅ 容器入口统一（2026-08-13——Dockerfile.sandbox /usr/local/bin/pit→ptl）；tenant 为认证租户概念保留（非残留——PTH sections preserved）；role-doc/工具 description 词表对齐为持续事项 | 百科类型落地同步（N1 ✅） | ✅ 已实装 |

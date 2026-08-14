@@ -196,7 +196,9 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!id) return reply.code(400).send({ error: "id required" });
     try {
       const { applyOptimizerSuggestion } = await import("../kernel/execution/optimizer-apply.js");
-      const r = await applyOptimizerSuggestion(kernel.dataWorld.memory, id, kernel.dataWorld.queryReadOnly);
+      // 复测任务派发（2026-08-14 N6 一等化）：人工批准路径同样派发受控复现任务
+      const r = await applyOptimizerSuggestion(kernel.dataWorld.memory, id, kernel.dataWorld.queryReadOnly, (t) =>
+        kernel.dataWorld.tasks.publish({ title: t.title, text: t.text, createdBy: "optimizer", tags: t.tags, payload: t.payload }));
       if (!r.ok) return reply.code(400).send(r);
       return r;
     } catch (e) {

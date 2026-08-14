@@ -164,6 +164,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         const k = (l as unknown as { kernel?: { dispose?: () => void; abort?: () => Promise<void> } }).kernel;
         try { void k?.abort?.(); } catch { /* abort 容错 */ }
         try { k?.dispose?.(); } catch { /* dispose 容错 */ }
+        // 停复测巡检表（2026-08-14 N6——Optimizer.stop）
+        const opt = (l as unknown as { optimizer?: { stop?: () => void } }).optimizer;
+        try { opt?.stop?.(); } catch { /* 停表容错 */ }
         loops.splice(i, 1);
       }
       process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
@@ -285,9 +288,15 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       applySuggestion: autoApply
         ? async (id) => {
             const { applyOptimizerSuggestion } = await import("./optimizer-apply.js");
-            return applyOptimizerSuggestion(dataWorld.memory, id, dataWorld.queryReadOnly);
+            // 复测任务派发（2026-08-14 N6 一等化）：flow 路由到目标角色——受控复现
+            return applyOptimizerSuggestion(dataWorld.memory, id, dataWorld.queryReadOnly, (t) =>
+              dataWorld.tasks.publish({ title: t.title, text: t.text, createdBy: "optimizer", tags: t.tags, payload: t.payload }));
           }
         : undefined,
+      // 复测一等化参数（N6——PTH_VERIFY_* 配置中心可调）
+      verifyTasksCount: Number(process.env.PTH_VERIFY_TASKS ?? 3),
+      verifyTimeoutMs: Number(process.env.PTH_VERIFY_TIMEOUT_MS ?? 30 * 60_000),
+      verifySweepMs: Number(process.env.PTH_VERIFY_SWEEP_MS ?? 30_000),
     }) : undefined;
     const loop = new BatchTaskLoop({
       kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
@@ -303,6 +312,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       transcripts: dataWorld.transcripts,
     }, archiveDeps);
     (loop as unknown as { kernel?: unknown }).kernel = kernel;   // remove 时 dispose 用
+    (loop as unknown as { optimizer?: { stop?: () => void } }).optimizer = optimizer;   // remove 时停复测巡检表
     (loop as unknown as { role?: import("./worker-cluster.js").WorkerRole }).role = role;  // remove 寻址用
     loops.push(loop as BatchTaskLoop & { role: import("./worker-cluster.js").WorkerRole });
     return loop;

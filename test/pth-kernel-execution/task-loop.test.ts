@@ -322,3 +322,36 @@ describe("任务终态审计（A2 Phase 3——审计两平面接线：PG audit_
     expect(store.submit).toHaveBeenCalled();
   });
 });
+
+
+describe("复测任务透传（2026-08-14 N6 一等化）", () => {
+  const role = { id: "developer", tags: ["code"], prompt: "dev" };
+
+  it("payload.verifyOf → optimizer.collect 携带（受控证据通道）", async () => {
+    const task = { id: "tv1", text: "verify x", title: "v", payload: { verifyOf: "sug-v" } };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const collect = vi.fn();
+    const kernel = mockKernel();
+    const loop = new TaskLoop({ ...agentDeps(kernel, role, store), optimizer: { collect } as never });
+    await loop.runOnce();
+    expect(collect).toHaveBeenCalled();
+    const call = collect.mock.calls[0] as unknown as [unknown, { verifyOf?: string }];
+    expect(call[1].verifyOf).toBe("sug-v");
+  });
+
+  it("普通任务 → verifyOf undefined（不误标）", async () => {
+    const task = { id: "tv2", text: "normal", title: "n" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const collect = vi.fn();
+    const loop = new TaskLoop({ ...agentDeps(mockKernel(), role, store), optimizer: { collect } as never });
+    await loop.runOnce();
+    const call = collect.mock.calls[0] as unknown as [unknown, { verifyOf?: string }];
+    expect(call[1].verifyOf).toBeUndefined();
+  });
+});

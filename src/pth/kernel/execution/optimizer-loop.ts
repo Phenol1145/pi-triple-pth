@@ -64,6 +64,12 @@ export interface OptimizerDeps {
   autoApplyReversible?: boolean;
   /** 自动应用执行器（装配层注入 applyOptimizerSuggestion） */
   applySuggestion?: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  /** 复测任务数（2026-08-14 N6 一等化）：独立复测任务完成 N 个即结算（受控证据——缺省 3） */
+  verifyTasksCount?: number;
+  /** 复测超时（N6）：无证据进展时 deadline 后标记 verify_expired（诚实缺口可见——缺省 30min） */
+  verifyTimeoutMs?: number;
+  /** 复测巡检周期（N6）：checkDeopt 独立触发——不再只挂窗口检测（缺省 30s；0=禁用——测试） */
+  verifySweepMs?: number;
 }
 
 // 热点检测与建议渲染抽出至 optimizer-hotspots.ts（2026-08-13 审计 P2——纯函数独立模块）
@@ -71,6 +77,23 @@ import { detectHotspots, renderSuggestion, type HotspotHit } from "./optimizer-h
 export { READ_TOOLS, detectHotspots, renderSuggestion, type HotspotHit } from "./optimizer-hotspots.js";
 
 // ── 优化器（窗口收集 → 检测 → 建议 → 落库）───────────────────
+
+// ── 聚合 rollup（2026-08-14 N6 一等化）───────────────────
+
+/** 聚合行 rollup：跨角色聚合求和（capability-index 目标的全局复测基线/对比——
+ * 目标无单一角色指标，用全角色聚合的求和作为诚实证据）。单条坏 JSON 跳过。 */
+export function rollupAggregateRows(rows: Array<{ content: string }>): Record<string, number> {
+  const acc: Record<string, number> = {};
+  for (const r of rows) {
+    try {
+      const a = JSON.parse(String(r.content)) as Record<string, number>;
+      for (const k of ["taskCount", "sumFails", "sumSteps"]) {
+        acc[k] = (acc[k] ?? 0) + (Number(a[k]) || 0);
+      }
+    } catch { /* 单条坏聚合跳过 */ }
+  }
+  return acc;
+}
 
 const MAX_BUFFER = 200;   // 缓冲上限（防内存无界——窗口不触发时丢弃最旧）
 
@@ -84,15 +107,49 @@ export class Optimizer {
   private patternLastSuggested = new Map<string, number>();
   private windowSeq = 0;
   private deadbandWindows: number;
+  private verifyTasksCount: number;
+  private verifyTimeoutMs: number;
+  private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(deps: OptimizerDeps = {}) {
     this.deps = deps;
     this.windowSize = Math.max(1, deps.windowSize ?? 10);
     this.deadbandWindows = Math.max(0, deps.deadbandWindows ?? 2);
+    this.verifyTasksCount = Math.max(1, deps.verifyTasksCount ?? 3);
+    this.verifyTimeoutMs = deps.verifyTimeoutMs ?? 30 * 60_000;
+    // 复测巡检（2026-08-14 N6）：checkDeopt 独立周期触发——不再只挂窗口检测
+    // （流量枯竭时窗口永不填满 → 复测悬挂）。unref 不阻塞进程退出。
+    const sweepMs = deps.verifySweepMs ?? 30_000;
+    if (sweepMs > 0 && deps.memory?.queryReadOnly && deps.memory?.update) {
+      this.sweepTimer = setInterval(() => { void this.checkDeopt().catch(() => { /* 巡检容错 */ }); }, sweepMs);
+      this.sweepTimer.unref?.();
+    }
+  }
+
+  /** 停表（batch 角色移除时调用——清理巡检定时器） */
+  stop(): void {
+    if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
   }
 
   /** 任务完成点收集（scorecard + 聚合快照）——窗口满触发检测 */
-  collect(sc: WorkerScorecard, ctx: { role: string; taskId: string }): void {
+  collect(sc: WorkerScorecard, ctx: { role: string; taskId: string; verifyOf?: string }): void {
+    if (ctx.verifyOf) {
+      // 复测任务（2026-08-14 N6 一等化）：受控证据——不进热点窗口、不进角色聚合
+      // （两者都应是纯有机流量——复测场景会系统性偏置热点检测与基线对比）；
+      // 只进 verify-aggregate（按建议键控——checkDeopt 的受控结算通道）
+      if (this.deps.memory?.incrementAggregate) {
+        void this.deps.memory.incrementAggregate(
+          `verify-aggregate:${ctx.verifyOf}`,
+          "verify-aggregate",
+          [ctx.verifyOf, "verify"],
+          { taskCount: 1, sumFails: sc.failedActions ?? 0, sumSteps: sc.steps ?? 0 },
+          { verifyOf: ctx.verifyOf, role: ctx.role, ts: Date.now() },
+        ).catch((e: unknown) => {
+          console.warn(`[optimizer] 复测聚合失败: ${e instanceof Error ? e.message : String(e)}`);
+        });
+      }
+      return;
+    }
     this.buffer.push(sc);
     if (this.buffer.length > MAX_BUFFER) this.buffer.shift();
     // scorecard 落库（验证闭环数据源——anchors 带角色/任务类型）
@@ -195,11 +252,28 @@ export class Optimizer {
     return out;
   }
 
+  /** 读复测聚合（N6——独立复测任务受控证据） */
+  private async readVerifyAgg(id: string): Promise<Record<string, number> | undefined> {
+    const rows = await this.deps.memory!.queryReadOnly!(`SELECT content FROM memory_entries WHERE id = 'verify-aggregate:${id}'`) as Array<{ content: string }>;
+    return rows[0] ? JSON.parse(String(rows[0].content)) as Record<string, number> : undefined;
+  }
+  /** 读角色聚合（有机流量证据） */
+  private async readRoleAgg(roleId: string): Promise<Record<string, number> | undefined> {
+    const rows = await this.deps.memory!.queryReadOnly!(`SELECT content FROM memory_entries WHERE id = 'task-scorecard-aggregate:${roleId}'`) as Array<{ content: string }>;
+    return rows[0] ? JSON.parse(String(rows[0].content)) as Record<string, number> : undefined;
+  }
+  /** 读全局聚合（capability-index 目标——跨角色 rollup） */
+  private async readGlobalAgg(): Promise<Record<string, number> | undefined> {
+    const rows = await this.deps.memory!.queryReadOnly!(`SELECT content FROM memory_entries WHERE kind = 'task-scorecard-aggregate'`) as Array<{ content: string }>;
+    const acc = rollupAggregateRows(rows);
+    return acc.taskCount ? acc : undefined;
+  }
   /**
-   * deopt 回滚（2026-08-13 稳定循环刹车——用户裁决"不优于基线 deopt 回滚"落地）。
-   * 已应用建议（meta.baseline 存在且未回滚）→ 目标角色聚合指标与基线对比：
-   * 复测成熟（基线后新任务数 ≥ 窗口）且劣化（avgFails/avgSteps 升 50%+）→
-   * 从目标资产移除规则 stamp + 建议状态 rolled_back + 落回滚 insight。
+   * deopt 回滚（2026-08-13 稳定循环刹车——用户裁决「不优于基线 deopt 回滚」落地；
+   * 2026-08-14 N6 复测一等化：证据三通道——独立复测任务（受控）＞角色有机流量 ＞ 全局聚合，
+   * 超时零进展 → verify_expired（诚实缺口可见，不再静默悬挂）。
+   * 已应用建议（meta.baseline 存在且未回滚）→ 对比基线：劣化（avgFails/avgSteps 升 50%+）→
+   * 从目标资产移除规则 stamp + 建议状态 rolled_back + 落回滚 insight；未劣化 → verified。
    */
   private async checkDeopt(): Promise<void> {
     const mem = this.deps.memory!;
@@ -212,21 +286,50 @@ export class Optimizer {
         const target = sug.target;
         const pattern = sug.evidence?.pattern ?? "rule";
         const roleId = target.startsWith("role-doc:") ? target.slice("role-doc:".length) : undefined;
-        if (!roleId) continue;   // capability-index 目标暂不做角色指标对比
-        const aggRows = await mem.queryReadOnly!(
-          `SELECT content FROM memory_entries WHERE id = 'task-scorecard-aggregate:${roleId}'`,
-        ) as Array<{ content: string }>;
-        const a = aggRows[0] ? JSON.parse(String(aggRows[0].content)) as Record<string, number> : undefined;
-        if (!a?.taskCount) continue;
         const baseline = row.meta?.["baseline"] as { avgFails: number; avgSteps: number; taskCount: number } | undefined;
         if (!baseline) continue;
-        // 复测成熟：基线后新积累任务 ≥ 窗口
-        if (a.taskCount - baseline.taskCount < this.windowSize) continue;
-        const current = { avgFails: (a.sumFails ?? 0) / a.taskCount, avgSteps: (a.sumSteps ?? 0) / a.taskCount };
-        const worse = current.avgFails > baseline.avgFails * 1.5 || current.avgSteps > baseline.avgSteps * 1.5;
+
+        // ── 复测证据（N6 一等化——三通道：独立复测任务 > 角色有机流量 > 全局聚合）──
+        const v = await this.readVerifyAgg(row.id);
+        let evidence: { avgFails: number; avgSteps: number; source: string } | null = null;
+        if (v && (v.taskCount ?? 0) >= this.verifyTasksCount) {
+          evidence = { avgFails: (v.sumFails ?? 0) / v.taskCount, avgSteps: (v.sumSteps ?? 0) / v.taskCount, source: "verify-task" };
+        } else if (roleId) {
+          const a = await this.readRoleAgg(roleId);
+          if (a?.taskCount && a.taskCount - baseline.taskCount >= this.windowSize) {
+            evidence = { avgFails: (a.sumFails ?? 0) / a.taskCount, avgSteps: (a.sumSteps ?? 0) / a.taskCount, source: "organic" };
+          }
+        } else {
+          const g = await this.readGlobalAgg();
+          if (g?.taskCount && g.taskCount - baseline.taskCount >= this.windowSize) {
+            evidence = { avgFails: (g.sumFails ?? 0) / g.taskCount, avgSteps: (g.sumSteps ?? 0) / g.taskCount, source: "global" };
+          }
+        }
+
+        if (!evidence) {
+          // 超时未闭合（N6：verify 必须闭合——诚实缺口可见而非静默悬挂）
+          const appliedAt = Number(row.meta?.["appliedAt"] ?? 0);
+          if (appliedAt && Date.now() - appliedAt > this.verifyTimeoutMs) {
+            const progressed = (v?.taskCount ?? 0) > 0 || (roleId ? ((await this.readRoleAgg(roleId))?.taskCount ?? 0) > baseline.taskCount : false);
+            if (!progressed) {
+              await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifyExpired: true, expiredAt: Date.now(), expiryReason: "verify 超时零进展——复测证据未积累（无复测任务完成/无有机流量），验证未闭合需人工复核" } } as never);
+              void mem.write({
+                kind: "task-insight",
+                anchors: ["verify-expired", pattern, roleId ?? "capability-index"],
+                content: JSON.stringify({ type: "verify-expired", suggestionId: row.id, pattern, target, note: "应用后复测超时零证据——已标记 verify_expired（诚实缺口——人工复核或降级人工闸门）" }),
+                status: "official",
+                meta: { pattern, ts: Date.now() },
+              }).catch(() => { /* 洞察落库失败不阻塞 */ });
+              console.warn(`[optimizer] verify 超时未闭合: ${row.id}（${pattern}——${target}）`);
+            }
+          }
+          continue;
+        }
+
+        const worse = evidence.avgFails > baseline.avgFails * 1.5 || evidence.avgSteps > baseline.avgSteps * 1.5;
         if (!worse) {
-          // 指标未劣化——规则有效——移除基线（不再反复复测）
-          await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false } } as never);
+          // 指标未劣化——规则有效——验证闭合（verified）
+          await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifiedAt: Date.now(), verifySource: evidence.source } } as never);
           continue;
         }
         // 回滚：从目标资产移除该 pattern 的规则 stamp
@@ -239,26 +342,26 @@ export class Optimizer {
         }
         await mem.update!(row.id, {
           status: "rolled_back",
-          meta: { ...row.meta, rolledBack: true, rolledBackAt: Date.now(), rollbackReason: `指标劣化（avgFails ${baseline.avgFails.toFixed(2)}→${current.avgFails.toFixed(2)} / avgSteps ${baseline.avgSteps.toFixed(1)}→${current.avgSteps.toFixed(1)}）` },
+          meta: { ...row.meta, rolledBack: true, rolledBackAt: Date.now(), verifySource: evidence.source, rollbackReason: `指标劣化（avgFails ${baseline.avgFails.toFixed(2)}→${evidence.avgFails.toFixed(2)} / avgSteps ${baseline.avgSteps.toFixed(1)}→${evidence.avgSteps.toFixed(1)}——证据: ${evidence.source}）` },
         } as never);
         void mem.write({
           kind: "task-insight",
-          anchors: ["deopt", pattern, roleId],
+          anchors: ["deopt", pattern, roleId ?? "capability-index"],
           content: JSON.stringify({
-            type: "deopt-rollback", pattern, target, roleId,
-            baseline, current, rolledBackAt: Date.now(),
+            type: "deopt-rollback", pattern, target, roleId, source: evidence.source,
+            baseline, current: { avgFails: evidence.avgFails, avgSteps: evidence.avgSteps }, rolledBackAt: Date.now(),
             note: "优化规则应用后指标劣化——已自动回滚（deopt 刹车——不优于基线即撤）",
           }),
           status: "official",
           meta: { pattern, role: roleId, ts: Date.now() },
         }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
-        console.warn(`[optimizer] deopt 回滚: ${pattern}（${roleId}——基线 ${baseline.avgFails.toFixed(2)}→${current.avgFails.toFixed(2)} fails）`);
+        console.warn(`[optimizer] deopt 回滚: ${pattern}（${roleId ?? "capability-index"}——基线 ${baseline.avgFails.toFixed(2)}→${evidence.avgFails.toFixed(2)} fails——${evidence.source}）`);
       } catch (e) {
         console.warn(`[optimizer] deopt 单条复测失败 ${row.id}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   }
-
+  
   /** 观察（测试/console） */
   pending(): OptimizerSuggestion[] {
     return [...this.suggestions];

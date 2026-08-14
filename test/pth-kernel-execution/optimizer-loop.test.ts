@@ -232,3 +232,148 @@ describe("deopt 回滚（2026-08-13 稳定循环刹车）", () => {
     expect(rollback?.patch.meta?.["rolledBack"]).toBe(true);
   });
 });
+
+
+describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/全局聚合）", () => {
+  it("collect verifyOf → 只进 verify-aggregate（不进热点窗口/角色聚合）", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const aggs = new Map<string, Record<string, number>>();
+    const writes: Array<Record<string, unknown>> = [];
+    const memory = {
+      write: async (e: Record<string, unknown>) => { writes.push(e); },
+      incrementAggregate: async (id: string, _kind: string, _anchors: unknown[], deltas: Record<string, number>) => {
+        const cur = aggs.get(id) ?? {};
+        const next: Record<string, number> = {};
+        for (const [k, v] of Object.entries(deltas)) next[k] = (cur[k] ?? 0) + v;
+        aggs.set(id, next);
+      },
+    };
+    const opt = new Optimizer({ memory: memory as never, windowSize: 2, deadbandWindows: 0, verifySweepMs: 0 });
+    const sc = { steps: 7, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 2, gatedActions: 0, aspNav: { cds: 1, indexes: 0 }, finish: { ok: true } };
+    opt.collect(sc as never, { role: "developer", taskId: "v1", verifyOf: "sug-v" });
+    await new Promise((r) => setTimeout(r, 10));
+    const vAgg = aggs.get("verify-aggregate:sug-v") ?? {};
+    expect(vAgg.taskCount).toBe(1);
+    expect(vAgg.sumFails).toBe(2);
+    expect(vAgg.sumSteps).toBe(7);
+    expect(aggs.get("task-scorecard-aggregate:developer")).toBeUndefined();   // 角色聚合不受污染
+    expect(writes.filter((e) => e.kind === "task-scorecard").length).toBe(0);   // 明细也不落（受控证据独立通道）
+  });
+
+  it("checkDeopt：复测任务证据成熟 → 劣化回滚（verify-task 通道优先于有机流量）", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const docs = new Map<string, string>([
+      ["role-doc:dev", "前文\n\n【优化规则 · v-pattern（2026-08-14 批准）】\n- 规则行\n后文"],
+    ]);
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const mem = {
+      write: async () => {},
+      queryReadOnly: async (sql: string) => {
+        if (sql.includes("optimizer-suggestion")) {
+          return [{ id: "sug-v", content: JSON.stringify({ target: "role-doc:dev", evidence: { pattern: "v-pattern" } }),
+            meta: { baseline: { avgFails: 1, avgSteps: 4, taskCount: 10 }, appliedAt: Date.now() } }];
+        }
+        // 复测聚合：3 个受控任务——avgFails 3（劣化 200%）——受控证据优先结算
+        if (sql.includes("verify-aggregate:sug-v")) return [{ content: JSON.stringify({ taskCount: 3, sumFails: 9, sumSteps: 12 }) }];
+        if (sql.includes("role-doc:dev")) return [{ content: docs.get("role-doc:dev") }];
+        return [];
+      },
+      update: async (id: string, patch: Record<string, unknown>) => { updates.push({ id, patch }); },
+    };
+    const opt = new Optimizer({ memory: mem as never, windowSize: 2, deadbandWindows: 0, verifyTasksCount: 3, verifySweepMs: 0 });
+    const baseSc = { steps: 3, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 0, gatedActions: 0, aspNav: { cds: 0, indexes: 0 }, finish: { ok: true } };
+    opt.collect(baseSc as never, { role: "dev", taskId: "t1" });
+    opt.collect(baseSc as never, { role: "dev", taskId: "t2" });
+    await new Promise((r) => setTimeout(r, 10));
+    const rollback = updates.find((u) => u.id === "sug-v");
+    expect(rollback?.patch.status).toBe("rolled_back");
+    expect(rollback?.patch.meta?.["verifySource"]).toBe("verify-task");
+  });
+
+  it("checkDeopt：复测任务证据达标 → verified（不劣化——验证闭合）", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const mem = {
+      write: async () => {},
+      queryReadOnly: async (sql: string) => {
+        if (sql.includes("optimizer-suggestion")) {
+          return [{ id: "sug-ok", content: JSON.stringify({ target: "role-doc:dev", evidence: { pattern: "ok-pattern" } }),
+            meta: { baseline: { avgFails: 1, avgSteps: 4, taskCount: 10 }, appliedAt: Date.now() } }];
+        }
+        // 复测聚合：3 个受控任务——avgFails 0.33（改善）——verified
+        if (sql.includes("verify-aggregate:sug-ok")) return [{ content: JSON.stringify({ taskCount: 3, sumFails: 1, sumSteps: 9 }) }];
+        return [];
+      },
+      update: async (id: string, patch: Record<string, unknown>) => { updates.push({ id, patch }); },
+    };
+    const opt = new Optimizer({ memory: mem as never, windowSize: 2, deadbandWindows: 0, verifyTasksCount: 3, verifySweepMs: 0 });
+    const baseSc = { steps: 3, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 0, gatedActions: 0, aspNav: { cds: 0, indexes: 0 }, finish: { ok: true } };
+    opt.collect(baseSc as never, { role: "dev", taskId: "t1" });
+    opt.collect(baseSc as never, { role: "dev", taskId: "t2" });
+    await new Promise((r) => setTimeout(r, 10));
+    const verified = updates.find((u) => u.id === "sug-ok");
+    expect(verified?.patch.meta?.["verifyAfterWindow"]).toBe(false);
+    expect(verified?.patch.meta?.["verifiedAt"]).toBeDefined();
+    expect(verified?.patch.meta?.["verifySource"]).toBe("verify-task");
+  });
+
+  it("checkDeopt：超时零进展 → verify_expired + 洞察（诚实缺口可见）", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const writes: Array<Record<string, unknown>> = [];
+    const mem = {
+      write: async (e: Record<string, unknown>) => { writes.push(e); },
+      queryReadOnly: async (sql: string) => {
+        if (sql.includes("optimizer-suggestion")) {
+          return [{ id: "sug-stall", content: JSON.stringify({ target: "role-doc:dev", evidence: { pattern: "stall-pattern" } }),
+            meta: { baseline: { avgFails: 1, avgSteps: 4, taskCount: 10 }, appliedAt: Date.now() - 40 * 60_000 } }];   // 40min 前——超 30min 超时
+        }
+        return [];
+      },
+      update: async (id: string, patch: Record<string, unknown>) => { updates.push({ id, patch }); },
+    };
+    const opt = new Optimizer({ memory: mem as never, windowSize: 2, deadbandWindows: 0, verifyTimeoutMs: 30 * 60_000, verifySweepMs: 0 });
+    const baseSc = { steps: 3, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 0, gatedActions: 0, aspNav: { cds: 0, indexes: 0 }, finish: { ok: true } };
+    opt.collect(baseSc as never, { role: "dev", taskId: "t1" });
+    opt.collect(baseSc as never, { role: "dev", taskId: "t2" });
+    await new Promise((r) => setTimeout(r, 10));
+    const expired = updates.find((u) => u.id === "sug-stall");
+    expect(expired?.patch.meta?.["verifyExpired"]).toBe(true);
+    expect(expired?.patch.meta?.["verifyAfterWindow"]).toBe(false);
+    expect(writes.some((w) => w.kind === "task-insight" && JSON.stringify(w.content).includes("verify-expired"))).toBe(true);
+  });
+
+  it("checkDeopt：capability-index 目标走全局聚合（rollup 跨角色）", async () => {
+    const { Optimizer, rollupAggregateRows } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    // rollup 助手单测
+    expect(rollupAggregateRows([{ content: JSON.stringify({ taskCount: 5, sumFails: 10, sumSteps: 20 }) }, { content: JSON.stringify({ taskCount: 3, sumFails: 2, sumSteps: 12 }) }])).toEqual({ taskCount: 8, sumFails: 12, sumSteps: 32 });
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const mem = {
+      write: async () => {},
+      queryReadOnly: async (sql: string) => {
+        if (sql.includes("optimizer-suggestion")) {
+          return [{ id: "sug-global", content: JSON.stringify({ target: "capability-index", evidence: { pattern: "g-pattern" } }),
+            meta: { baseline: { avgFails: 1, avgSteps: 4, taskCount: 10 }, appliedAt: Date.now() } }];
+        }
+        // 全局聚合：taskCount 13（基线 10 后 +3 ≥ 窗口 2）——avgFails 26/13=2（+100% 劣化）
+        if (sql.includes("kind = 'task-scorecard-aggregate'")) {
+          return [
+            { content: JSON.stringify({ taskCount: 7, sumFails: 14, sumSteps: 28 }) },
+            { content: JSON.stringify({ taskCount: 6, sumFails: 12, sumSteps: 24 }) },
+          ];
+        }
+        if (sql.includes("id = 'capability-index'")) return [{ content: "前文\n\n【优化规则 · g-pattern（2026-08-14 批准）】\n- 规则行\n后文" }];
+        return [];
+      },
+      update: async (id: string, patch: Record<string, unknown>) => { updates.push({ id, patch }); },
+    };
+    const opt = new Optimizer({ memory: mem as never, windowSize: 2, deadbandWindows: 0, verifySweepMs: 0 });
+    const baseSc = { steps: 3, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 0, gatedActions: 0, aspNav: { cds: 0, indexes: 0 }, finish: { ok: true } };
+    opt.collect(baseSc as never, { role: "dev", taskId: "t1" });
+    opt.collect(baseSc as never, { role: "dev", taskId: "t2" });
+    await new Promise((r) => setTimeout(r, 10));
+    const rollback = updates.find((u) => u.id === "sug-global");
+    expect(rollback?.patch.status).toBe("rolled_back");
+    expect(rollback?.patch.meta?.["verifySource"]).toBe("global");
+  });
+});

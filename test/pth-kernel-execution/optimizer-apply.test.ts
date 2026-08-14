@@ -118,3 +118,57 @@ describe("优化建议批准应用器（闭环部署动作——2026-08-12）", 
     expect(r.ok).toBe(false);
   });
 });
+
+
+describe("复测任务派发（2026-08-14 N6 一等化——apply 后受控复现）", () => {
+  it("role-doc 目标：派发复测任务（flow 路由到目标角色 + verifyOf payload）", async () => {
+    const roleSug = sug({
+      content: {
+        ...(structuredClone(SUGGESTION.content as Record<string, unknown>)),
+        target: "role-doc:developer",
+        evidence: { pattern: "rep-fail", tasks: 10, metric: { fails: 8 } },
+        content: "【优化建议 · rep-fail】\n建议规则: 失败一次后先读错误信息再重试\n写入目标: role-doc:developer",
+      },
+    });
+    const store = fakeStore([
+      roleSug,
+      { id: "role-doc:developer", kind: "role-doc", status: "official", content: "前文" },
+    ]);
+    const published: Array<Record<string, unknown>> = [];
+    const r = await applyOptimizerSuggestion(store, "opt-test-1", undefined, async (t) => { published.push(t); });
+    expect(r.ok).toBe(true);
+    expect(published).toHaveLength(1);
+    const p = published[0]!;
+    expect(p.title).toContain("复测");
+    expect(p.title).toContain("rep-fail");
+    expect(p.text).toContain("受控复现");
+    expect((p.payload as Record<string, unknown>).verifyOf).toBe("opt-test-1");
+    expect(JSON.stringify(p.payload)).toContain("developer");   // flow 路由到目标角色
+    // verifyTaskPublished 落 meta
+    expect(roleSug.meta["verifyTaskPublished"]).toBe(true);
+    expect(roleSug.status).toBe("official");
+  });
+
+  it("capability-index 目标：不派发任务（无单一角色——走全局聚合复测）", async () => {
+    const store = fakeStore([
+      sug(),
+      { id: "capability-index", kind: "capability-index", status: "official", content: "前文" },
+    ]);
+    const published: Array<Record<string, unknown>> = [];
+    const r = await applyOptimizerSuggestion(store, "opt-test-1", undefined, async (t) => { published.push(t); });
+    expect(r.ok).toBe(true);
+    expect(published).toHaveLength(0);
+  });
+
+  it("派发失败 → 降级有机窗口复测（apply 不失败）", async () => {
+    const store = fakeStore([
+      sug({
+        content: { ...(structuredClone(SUGGESTION.content as Record<string, unknown>)), target: "role-doc:developer", evidence: { pattern: "p", tasks: 1, metric: {} }, content: "【优化建议 · p】\n建议规则: 规则\n写入目标: role-doc:developer" },
+      }),
+      { id: "role-doc:developer", kind: "role-doc", status: "official", content: "前文" },
+    ]);
+    const r = await applyOptimizerSuggestion(store, "opt-test-1", undefined, async () => { throw new Error("publish down"); });
+    expect(r.ok).toBe(true);   // 派发失败不阻断 apply
+    expect((store._rows.find((x) => x.id === "opt-test-1") as { meta: Record<string, unknown> }).meta["verifyTaskPublished"]).toBe(false);
+  });
+});

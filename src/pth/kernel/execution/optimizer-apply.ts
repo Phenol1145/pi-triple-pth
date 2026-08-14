@@ -14,6 +14,7 @@
 
 import type { PgMemoryStore } from "../storage/memory-store-pg.js";
 import type { OptimizerSuggestion } from "./optimizer-loop.js";
+import { rollupAggregateRows } from "./optimizer-loop.js";
 
 export interface ApplyResult {
   ok: boolean;
@@ -40,8 +41,15 @@ export function isReversibleSuggestion(target: string): boolean {
   return target === "capability-index" || target.startsWith("role-doc:");
 }
 
-/** 批准并应用一条优化建议（draft → official + 目标资产追加规则） */
-export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionId: string, queryReadOnly?: (sql: string) => Promise<unknown>): Promise<ApplyResult> {
+/** 批准并应用一条优化建议（draft → official + 目标资产追加规则 + 派发复测任务） */
+export async function applyOptimizerSuggestion(
+  store: PgMemoryStore,
+  suggestionId: string,
+  queryReadOnly?: (sql: string) => Promise<unknown>,
+  /** 复测任务派发（2026-08-14 N6 一等化——独立复测任务）：role-doc 目标派发受控复现任务
+   *  （flow 路由到目标角色）；capability-index 目标无单一角色——不派发（走全局聚合复测） */
+  publishVerifyTask?: (t: { title: string; text: string; tags: string[]; payload: unknown }) => Promise<unknown>,
+): Promise<ApplyResult> {
   const sug = await store.get(suggestionId);
   if (!sug || sug.kind !== "optimizer-suggestion") {
     return { ok: false, error: `建议不存在（id=${suggestionId}）` };
@@ -73,12 +81,14 @@ export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionI
   }
   const stamp = `\n\n【优化规则 · ${pattern}（${new Date().toISOString().slice(0, 10)} 批准）】\n- ${rule}`;
   await store.update(target, { content: base + stamp } as never);
-  // deopt 基线快照（2026-08-13 稳定循环刹车）：应用时记目标角色聚合指标——
-  // 复测窗口积累后对比——劣化则回滚（optimizer-loop.checkDeopt）
+  // deopt 基线快照（2026-08-13 稳定循环刹车）：应用时记目标指标——
+  // 复测窗口积累后对比——劣化则回滚（optimizer-loop.checkDeopt）。
+  // 2026-08-14 N6：基线分两类——role-doc 目标取角色聚合；capability-index 取全局 rollup
+  // （无单一角色指标——跨角色求和；checkDeopt 按 baselineKind 选证据通道）。
   let baseline: { avgFails: number; avgSteps: number; taskCount: number } | undefined;
   const roleId = target.startsWith("role-doc:") ? target.slice("role-doc:".length) : undefined;
-  if (roleId) {
-    try {
+  try {
+    if (roleId) {
       const agg = await queryReadOnly?.(
         `SELECT content FROM memory_entries WHERE id = 'task-scorecard-aggregate:${roleId}'`,
       ) as Array<{ content: string }> | undefined;
@@ -88,11 +98,35 @@ export async function applyOptimizerSuggestion(store: PgMemoryStore, suggestionI
         avgSteps: (a.sumSteps ?? 0) / a.taskCount,
         taskCount: a.taskCount,
       };
-    } catch { /* 基线读取失败——deopt 降级为无回滚（原行为） */ }
+    } else {
+      const rows = await queryReadOnly?.(`SELECT content FROM memory_entries WHERE kind = 'task-scorecard-aggregate'`) as Array<{ content: string }> | undefined;
+      const g = rows ? rollupAggregateRows(rows) : {};
+      if (g.taskCount) baseline = {
+        avgFails: (g.sumFails ?? 0) / g.taskCount,
+        avgSteps: (g.sumSteps ?? 0) / g.taskCount,
+        taskCount: g.taskCount,
+      };
+    }
+  } catch { /* 基线读取失败——deopt 降级为无回滚（原行为） */ }
+  // 独立复测任务派发（2026-08-14 N6 一等化）：role-doc 目标派受控复现任务——
+  // flow 显式路由到目标角色；任务完成 → task-loop verifyOf → verify-aggregate → checkDeopt 受控结算。
+  let verifyTaskPublished = false;
+  if (roleId && publishVerifyTask) {
+    try {
+      await publishVerifyTask({
+        title: `复测：${pattern}（${target} 优化验证）`,
+        text: `优化复测任务（JIT 环自动派发——受控复现）。背景：优化规则「${pattern}」已应用于 ${target}（规则：${rule.slice(0, 200)}）。请按该规则适用的典型场景完整执行一次任务（证据场景：${JSON.stringify(content.evidence?.metric ?? {}).slice(0, 300)}），正常完成并 done 提交。你的执行质量（步数/失败动作数）将作为该规则的复测证据与基线对比——正常完成任务即可，无需额外文档。`,
+        tags: [],
+        payload: { flow: { stages: [{ task: { role: roleId } }] }, verifyOf: suggestionId, pattern, target },
+      });
+      verifyTaskPublished = true;
+    } catch (e) {
+      console.warn(`[optimizer] 复测任务派发失败 ${suggestionId}: ${e instanceof Error ? e.message : String(e)}——降级有机窗口复测`);
+    }
   }
   await store.update(suggestionId, {
     status: "official",
-    meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, appliedCount: appliedCount + 1, verifyAfterWindow: true, ...(baseline ? { baseline, baselineRole: roleId } : {}) },
+    meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, appliedCount: appliedCount + 1, verifyAfterWindow: true, verifyTaskPublished, ...(baseline ? { baseline, baselineKind: roleId ? "role" : "global", baselineRole: roleId } : {}) },
   } as never);
   return { ok: true, applied: { target, pattern } };
 }
