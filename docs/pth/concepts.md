@@ -874,10 +874,10 @@ v0.9（动作面/权限/任务池纯化）
 | N7 | 记忆归档执行 | 0.9 · 域 B | ✅ 执行端已实装（2026-08-14 T7——memory-admin.ts + 审批路由：draft→监督批准→archived）；定期触发待 trigger 接线 | sensor:memory / controller:memory 已有 | ⚠️ 半实装 |
 | N8 | 空间-角色绑定治理 | 0.10.2 · 域 C | T6 裁决定模型：空间与 worker 类型深度绑定，新建/分化走优化通道+审批面（不再设计 TTL 三态）；绑定校验实现待排期 | 治理 v2 承接 | ⚠️ 未实装 |
 | N9 | 术语统一 | 域 B 全域 | ✅ 容器入口统一（2026-08-13——Dockerfile.sandbox /usr/local/bin/pit→ptl）；tenant 为认证租户概念保留（非残留——PTH sections preserved）；role-doc/工具 description 词表对齐为持续事项 | 百科类型落地同步（N1 ✅） | ✅ 已实装 |
-| N10 | agentic 测试集 | 0.6 · 全域 | 规划 v2 在记忆库（official——28 子任务/3 族）；执行 7/28（2026-08-14 消化：4 个 rejected 全部处置——2×T2+v2 规划为迭代性拒绝、重试已成 ✅ 取代；T1/T3/T4 根因=任务文本非自包含规格，重派为 T01/T03/T04 自包含规格 3/3 完成 ✅）；21 子任务未派发 | 测试基线 1503 全绿 | 🏗️ 建设中 |
+| N10 | agentic 测试集 | 0.6 · 全域 | 规划 v2 在记忆库（official——28 子任务/3 族）；执行 7/28（2026-08-14 消化：4 个 rejected 全部处置——2×T2+v2 规划为迭代性拒绝、重试已成 ✅ 取代；T1/T3/T4 根因=任务文本非自包含规格，重派为 T01/T03/T04 自包含规格 3/3 完成 ✅）；21 子任务未派发 | 测试基线 1564 全绿（B1 修复 +7） | 🏗️ 建设中 |
 | N11 | 可预测性地图（predictability map） | 0.14 · 全域 | 无对应机制——伪世界模型猜想的落地接口：分尺度可预测性注册 + 相变预警 | 外部数据源接入（sensor 外环） · JIT 环（错误预测→修规则） | 💭 猜想·未启动 |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
-> **2026-08-14 rejected 消化**：①2×tester-T2 与 1×规划 v2 = 迭代性拒绝（llm-timeout/context 未定义），后续重试已成 ✅——取代结案；②T1/T3/T4 根因 = 任务文本是标题片段而非自包含规格（Expected ';' 语法错）——重派 T01/T03/T04 自包含规格 3/3 完成 ✅（监督层直验：T01 三要素+双能力组合、T03 计划含依赖+验收、T04 TDD 12 用例证据链）；③**新发现（系统 bug）**：acceptor 汇总核查 243 步长任务触发 directComplete 400「tool 消息必须跟随 tool_calls」——长核查+上下文压缩后消息序列错位——立账待修（测试集首次捕获真实缺陷）。
+> **2026-08-14 rejected 消化**：①2×tester-T2 与 1×规划 v2 = 迭代性拒绝（llm-timeout/context 未定义），后续重试已成 ✅——取代结案；②T1/T3/T4 根因 = 任务文本是标题片段而非自包含规格（Expected ';' 语法错）——重派 T01/T03/T04 自包含规格 3/3 完成 ✅（监督层直验：T01 三要素+双能力组合、T03 计划含依赖+验收、T04 TDD 12 用例证据链）；③**B1（系统 bug）已修复（2026-08-14 `010c033`）**：acceptor 汇总长任务 directComplete 400「tool 消息必须跟随 tool_calls」根因 = deepseek v4 thinking 模式要求 reasoning_content 随 assistant(tool_calls) 回传（模型配置 `requiresReasoningContentOnAssistantMessages`——本循环只入轨迹不回传，违反契约）+ 多调用提前终止悬挂 tool_calls；修复 = assistant 消息携带 thinking 并序列化 reasoning_content + 悬挂调用补合成 tool 响应；验证 = 同任务重放 129 步零 400（旧故障点 69/252 步）+ 7 新测试 + 全量 1564 绿。遗留观察：验收任务被负结果收敛 N=5 强制终止（设计的 S6 机制——合法重复探测被截断——是否豁免治理族待议）。
 
