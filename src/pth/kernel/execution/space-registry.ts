@@ -47,15 +47,34 @@ export interface SpaceDef {
   /** 记忆域（worker 分化凭据第二轴：动作空间 × 记忆空间；索引/prompt 展示用——
    * 实际过滤由 PTH 网关 space 维度 + role 前缀域承担） */
   memoryScope?: string;
+  /** 空间-角色绑定（2026-08-14 N8——生成即绑定）：绑定的 worker 类型（角色 id——谱系上溯匹配，
+   *  role.id 或任一祖先命中即匹配）。生成空间（治理通道产物）必填——为谁生成就绑谁；
+   *  语言执行基板（内置空间）不填 = 不绑定（全角色共享基础设施）。 */
+  bindRoles?: string[];
 }
 
 export class SpaceRegistry {
   private readonly spaces = new Map<string, SpaceDef>();
 
   register(def: SpaceDef): void {
+    // 绑定格式校验（2026-08-14 N8）：bindRoles 若声明——非空数组、合法角色 id（小写字母数字连字符冒号）、无重复
+    if (def.bindRoles !== undefined) {
+      if (!Array.isArray(def.bindRoles) || def.bindRoles.length === 0) {
+        throw new Error(`space "${def.id}" 绑定非法：bindRoles 必须是非空数组`);
+      }
+      const seen = new Set<string>();
+      for (const b of def.bindRoles) {
+        if (typeof b !== "string" || !/^[a-z0-9:-]+$/i.test(b)) {
+          throw new Error(`space "${def.id}" 绑定非法：角色 id "${String(b)}"（限小写字母数字连字符冒号）`);
+        }
+        if (seen.has(b)) throw new Error(`space "${def.id}" 绑定重复：${b}`);
+        seen.add(b);
+      }
+    }
     const existing = this.spaces.get(def.id);
     if (existing) {
-      // 幂等（2026-08-12 审计：关键字段比较——extraTools/skeleton/description/parent 变化报冲突，防静默忽略）
+      // 幂等（2026-08-12 审计：关键字段比较——extraTools/skeleton/description/parent 变化报冲突，防静默忽略；
+      // 2026-08-14 N8：bindRoles 加入第 10 字段——绑定可变 → 冲突报错）
       const same =
         existing.kind === def.kind && existing.execTool === def.execTool &&
         existing.parent === def.parent && existing.builtin === def.builtin &&
@@ -63,6 +82,7 @@ export class SpaceRegistry {
         existing.memoryScope === def.memoryScope &&
         JSON.stringify(existing.extraTools ?? []) === JSON.stringify(def.extraTools ?? []) &&
         JSON.stringify(existing.childParams ?? []) === JSON.stringify(def.childParams ?? []) &&
+        JSON.stringify(existing.bindRoles ?? []) === JSON.stringify(def.bindRoles ?? []) &&
         existing.skeleton === def.skeleton && existing.description === def.description;
       if (same) return;
       throw new Error(`space "${def.id}" 注册冲突（已存在 kind=${existing.kind} execTool=${existing.execTool} parent=${existing.parent}）`);
@@ -129,9 +149,49 @@ export class SpaceRegistry {
     return null;
   }
 
+  /** 工具归属（2026-08-14 N8——绑定空间继承基板工具族）：工具是否可在该空间解析。
+   *  execTool/extraTools 族内匹配——同族多空间（基板 ts + 绑定子空间 ts）时以**当前空间**为准，
+   *  而非 spaceOfExecTool 的首个族匹配空间（进入校验与工具面已按当前空间，门控必须同源）。 */
+  spaceOwnsTool(spaceId: string, tool: string): boolean {
+    const s = this.spaces.get(spaceId);
+    if (!s?.execTool) return false;
+    const normalized = tool.replace(/\./g, "_");
+    const family = s.execTool.replace(/\./g, "_");
+    if (!family.includes("_") && (normalized === family || normalized.startsWith(family + "_"))) return true;
+    if (normalized === family) return true;
+    for (const extra of s.extraTools ?? []) {
+      const ef = extra.replace(/\./g, "_");
+      if (normalized === ef || normalized.startsWith(ef + "_")) return true;
+    }
+    return false;
+  }
+
   list(): SpaceDef[] {
     return [...this.spaces.values()];
   }
+}
+
+/** 绑定匹配（2026-08-14 N8——生成即绑定）：role 匹配空间 ⇔ 空间未绑定（基板/全角色）
+ *  ∨ role.id 或任一祖先 ∈ bindRoles（谱系上溯——worker 类型 = 谱系）。
+ *  roles = 现存角色集（外部注入——allLineageRoles 或测试集）；role 缺失 → 放行（兼容——
+ *  无角色上下文的调用不校验）。绑定集与现存谱系零交时由调用方按「无主空间」处理（保守拒绝）。 */
+export function isRoleBoundToSpace(
+  space: SpaceDef,
+  role: { id: string; parent?: string } | undefined,
+  roles: ReadonlyArray<{ id: string; parent?: string }> = [],
+): boolean {
+  const binds = space.bindRoles;
+  if (!binds || binds.length === 0) return true;   // 基板/全角色
+  if (!role) return true;                            // 无角色上下文（测试/兼容）
+  const byId = new Map(roles.map((r) => [r.id, r]));
+  const chain = new Set<string>();
+  let cur: { id: string; parent?: string } | undefined = role;
+  let guard = 0;
+  while (cur && !chain.has(cur.id) && guard++ < 32) {
+    chain.add(cur.id);
+    cur = cur.parent ? byId.get(cur.parent) : undefined;
+  }
+  return binds.some((b) => chain.has(b));
 }
 
 /** 全局注册表（内置空间随模块加载注册） */

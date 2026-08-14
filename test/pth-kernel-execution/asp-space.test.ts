@@ -274,3 +274,101 @@ describe("审计修复（2026-08-12）", () => {
     expect(() => spaceRegistry.register(existing)).not.toThrow();
   });
 });
+
+
+// ── N8 空间-角色绑定（2026-08-14——生成即绑定：注册事实 + 进入校验）────────────────
+import { isRoleBoundToSpace } from "../../src/pth/kernel/execution/space-registry.js";
+
+describe("space-registry 绑定（N8——注册事实）", () => {
+  afterEach(() => {
+    for (const s of spaceRegistry.list()) {
+      if (!s.builtin) { try { spaceRegistry.unregister(s.id); } catch { /* 父空间先于子空间清理——容忍 */ } }
+    }
+  });
+
+  it("bindRoles 格式校验：空数组/非法 id/重复 → 拒绝", () => {
+    expect(() => spaceRegistry.register({ id: "n8-empty", kind: "action", execTool: "ts", description: "x", bindRoles: [] })).toThrow(/非空数组/);
+    expect(() => spaceRegistry.register({ id: "n8-bad", kind: "action", execTool: "ts", description: "x", bindRoles: ["Bad Role!"] })).toThrow(/绑定非法/);
+    expect(() => spaceRegistry.register({ id: "n8-dup", kind: "action", execTool: "ts", description: "x", bindRoles: ["developer", "developer"] })).toThrow(/绑定重复/);
+  });
+
+  it("绑定参与幂等冲突比较（第 10 字段——绑定可变 → 冲突报错）", () => {
+    spaceRegistry.register({ id: "n8-c1", kind: "action", execTool: "ts", description: "x", bindRoles: ["developer"] });
+    spaceRegistry.register({ id: "n8-c1", kind: "action", execTool: "ts", description: "x", bindRoles: ["developer"] });   // 同绑定幂等
+    expect(() => spaceRegistry.register({ id: "n8-c1", kind: "action", execTool: "ts", description: "x", bindRoles: ["analyst"] })).toThrow(/注册冲突/);
+  });
+
+  it("isRoleBoundToSpace：基板放行；直接/祖先命中；非绑定拒绝；无角色上下文放行", () => {
+    const substrate = spaceRegistry.get("ts")!;   // 语言执行基板——无绑定
+    expect(isRoleBoundToSpace(substrate, { id: "anyone" })).toBe(true);
+    const bound = { id: "n8-s1", kind: "action" as const, execTool: "ts", description: "x", bindRoles: ["developer"] };
+    const roles = [
+      { id: "origin" },
+      { id: "developer", parent: "origin" },
+      { id: "scout", parent: "developer" },
+      { id: "analyst", parent: "origin" },
+    ];
+    expect(isRoleBoundToSpace(bound, { id: "developer", parent: "origin" }, roles)).toBe(true);   // 直接命中
+    expect(isRoleBoundToSpace(bound, { id: "scout", parent: "developer" }, roles)).toBe(true);    // 祖先命中（谱系上溯）
+    expect(isRoleBoundToSpace(bound, { id: "analyst", parent: "origin" }, roles)).toBe(false);    // 非绑定类型
+    expect(isRoleBoundToSpace(bound, { id: "origin" }, roles)).toBe(false);                       // 绑定集的父类型不匹配
+    expect(isRoleBoundToSpace(bound, undefined)).toBe(true);                                      // 无角色上下文放行（兼容）
+    // 绑祖先：origin 绑定时 developer/scout/analyst 均可进
+    const byRoot = { ...bound, bindRoles: ["origin"] };
+    expect(isRoleBoundToSpace(byRoot, { id: "developer", parent: "origin" }, roles)).toBe(true);
+    expect(isRoleBoundToSpace(byRoot, { id: "analyst", parent: "origin" }, roles)).toBe(true);
+  });
+});
+
+describe("ASP 状态机——N8 绑定进入校验（asp.cd）", () => {
+  afterEach(() => {
+    for (const s of spaceRegistry.list()) {
+      if (!s.builtin) { try { spaceRegistry.unregister(s.id); } catch { /* 容忍 */ } }
+    }
+  });
+
+  it("绑定空间拒绝非绑定角色进入（ts 未执行）；绑定角色放行", async () => {
+    spaceRegistry.register({ id: "n8-private", kind: "action", execTool: "ts", parent: "meta", description: "developer 专属", bindRoles: ["developer"] });
+    // ① 非绑定角色 analyst：cd 被拒（仍在 meta）→ ts 被空间门控 → done 完成
+    const kernel1 = mockKernel();
+    const llm1 = mockLlm([
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "n8-private" } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: "return 1" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r1 = await runAgentTask({
+      llm: llm1, kernel: kernel1, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 6,
+      role: { id: "analyst", parent: "origin", tags: [], prompt: "a" },
+    });
+    expect(r1.ok).toBe(true);
+    expect(kernel1.ts.execute).not.toHaveBeenCalled();   // 未进入空间——ts 未执行
+    // ② 绑定角色 developer：cd 放行 → ts 执行 → 回 meta done
+    const kernel2 = mockKernel();
+    const llm2 = mockLlm([
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "n8-private" } }] },
+      { toolCalls: [{ name: "ts.run", arguments: { code: "return 42" } }] },
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { v: 42 } } }] },
+    ]);
+    const r2 = await runAgentTask({
+      llm: llm2, kernel: kernel2, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8,
+      role: { id: "developer", parent: "origin", tags: [], prompt: "d" },
+    });
+    expect(r2.ok).toBe(true);
+    expect(kernel2.ts.execute).toHaveBeenCalledWith("return 42", expect.objectContaining({ exec: "program" }));
+  });
+
+  it("基板（无绑定）进入不受影响——全角色共享", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "bash" } }] },
+      { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 6,
+      role: { id: "analyst", parent: "origin", tags: [], prompt: "a" },
+    });
+    expect(r.ok).toBe(true);
+  });
+});

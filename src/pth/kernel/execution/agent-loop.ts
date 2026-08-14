@@ -18,7 +18,7 @@ import { config, configNumber } from "../extensions/perf-params.js";
 import { createGuardRegistry } from "./guardrails.js";
 import { runPtcProgram } from "../ptc/runner.js";
 import { modelState } from "../extensions/model.js";
-import { spaceRegistry } from "./space-registry.js";
+import { spaceRegistry, isRoleBoundToSpace } from "./space-registry.js";
 
 /** 执行面角色授权（2026-08-12 审计 HIGH-2 修复）：语言/生产工具需对应 capability——
  *  capabilities 声明了但未含所需 → 拒绝（未声明 = 全量兼容；ts 族为基础执行面不校验） */
@@ -587,6 +587,15 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
             content: `asp_cd: 未知空间 "${target}"（已注册: ${spaceRegistry.list().map((s) => s.id).join("/")}）` });
           return undefined;
         }
+        // 空间-角色绑定校验（2026-08-14 N8——生成即绑定）：绑定空间拒绝非绑定角色进入（谱系上溯匹配）
+        const { allLineageRoles } = await import("./worker-cluster.js");
+        if (!isRoleBoundToSpace(sp, input.role ? { id: input.role.id, parent: input.role.parent } : undefined, allLineageRoles())) {
+          const bound = (sp.bindRoles ?? []).join("/");
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `asp_cd: 空间 "${target}" 绑定 worker 类型 ${bound}——本角色（${input.role?.id ?? "?"}）不可进入。asp.index 查看你可进入的空间（基板全角色共享，绑定空间仅绑定类型可进）。` });
+          input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: `绑定拒绝 → ${target}` });
+          return undefined;
+        }
         aspSession.currentSpace = target;
         const hint = target === "meta"
           ? "元空间：无执行核——可用 done 提交任务。"
@@ -787,9 +796,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: results.join("; ").slice(0, 120) });
         return undefined;
       }
-      // 语言执行工具仅在本空间可解析（下划线形工具名 → 空间反查）
+      // 语言执行工具仅在本空间可解析（下划线形工具名 → 空间反查；
+      // 2026-08-14 N8：绑定空间继承基板工具族——同族多空间以当前空间族归属判定）
       const requiredSpace = spaceRegistry.spaceOfExecTool(tool);
-      if (requiredSpace && currentSpace() !== requiredSpace) {
+      if (requiredSpace && currentSpace() !== requiredSpace && !spaceRegistry.spaceOwnsTool(currentSpace(), tool)) {
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
           content: `[ASP] 当前位于 ${currentSpace()} 空间——${tool} 不可在此解析执行。先 asp_cd("${requiredSpace}")。` });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: `空间门控：需 ${requiredSpace}` });
