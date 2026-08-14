@@ -154,6 +154,7 @@
 | 0.4 | **发现缺陷** | `obs.tasks`/`obs.search` 走 `queryReadOnly`，但 `READONLY_TABLES` 仅 `memory_entries` → **生产环境两工具必抛「表不开放」**，而错误文案却引导「任务面请用 obs.tasks」——自相矛盾（测试 mock 数据世界未暴露） |
 | 0.5 | **死表** | `lab_events`/`credit_tx`（agent-lab 迁 archive 后零消费——保留表+标注，不做 DROP 避免数据迁移面）；`skills`（v1 占位——B4 范围，不动） |
 | 0.6 | **失效示例** | `examples/custom-store`/`custom-tool` 引用 `../../src/storage/*`（pth/ 前缀化前的旧路径）——已损坏，本批随迁修复 |
+| 0.7 | **后端架构基线** | 引擎不归一（分析见 `docs/pth/storage-backend-analysis.md`）：PG 数据世界 + Redis 热面 + 文件产物 + 内存配置——四类形态各配其适、无同数据双写；A2 全部 Phase **不移动任何引擎**，归并范围 = 包/归属/接线/死代码 |
 
 ### 1. 归属裁决（概念先行）
 
@@ -211,6 +212,6 @@ src/pth/kernel/storage/
 
 | # | 事项 | 选项 | 推荐 |
 |---|---|---|---|
-| A2-1 | 归并方式 | A 直接迁移（无转发层）· B 薄转发层逐步废弃（D1 原文） | **A**——消费点全量盘点，转发层=双迁移面残留 |
+| A2-1 | 包层归并方式（与引擎无关——引擎不归一是架构基线，见 0.7） | A 直接迁移（无转发层）· B 薄转发层逐步废弃（D1 原文） | **A**——消费点全量盘点，转发层=双迁移面残留 |
 | A2-2 | PgAuditStore 处置 | A 接线（task-loop 终态事件写 audit_log——审计两平面）· B 摘除实例化（audit_log 留作预留）· C 删除 | **A**——让 PG 审计有真消费者，两平面职责互补 |
 | A2-3 | RedisSettingsStore 处置 | A 删除类+接线移除（接口保留）· B 保留待未来 tenant settings 需求 | **A**——死接线违反仓库纪律，需要时按契约重建 |
