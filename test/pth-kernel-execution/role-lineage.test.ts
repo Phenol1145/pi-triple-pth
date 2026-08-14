@@ -17,7 +17,7 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(ORIGIN_ROLE.capabilities).toBeUndefined();   // 全能——无访问权限收窄
   });
 
-  it("叶子角色挂四族（generation=3 挂 executor/explorer/governor/researcher；gen4 挂 developer——coder/tester 子类型）", () => {
+  it("角色按问题类型逐代分化（gen3 挂四族；gen4 挂 developer/analyst；gen5 挂 prospector）", () => {
     const midIds = ["executor", "explorer", "governor", "researcher"];
     for (const r of DEFAULT_ROLES) {
       expect(r.generation).toBeGreaterThanOrEqual(3);
@@ -27,10 +27,15 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     const gen3 = DEFAULT_ROLES.filter((r) => r.generation === 3);
     expect(gen3.length).toBe(8);   // analyst/planner/developer/scout/spider/memory-keeper/acceptor/writer
     for (const r of gen3) expect(midIds).toContain(r.parent);
-    // gen4：coder/tester 分化自 developer（纯代码编写 / 功能测试——子类型）
+    // gen4：coder/tester 挂 developer；prospector/solver 挂 analyst（问题类型二分）
     const gen4 = DEFAULT_ROLES.filter((r) => r.generation === 4);
-    expect(gen4.map((r) => r.id)).toEqual(["coder", "tester"]);
-    expect(gen4.every((r) => r.parent === "developer")).toBe(true);
+    expect(gen4.map((r) => r.id).sort()).toEqual(["coder", "prospector", "solver", "tester"]);
+    expect(gen4.filter((r) => r.parent === "developer").map((r) => r.id)).toEqual(["coder", "tester"]);
+    expect(gen4.filter((r) => r.parent === "analyst").map((r) => r.id)).toEqual(["prospector", "solver"]);
+    // gen5：predictor 挂 prospector（开放探索下的预测专精）
+    const gen5 = DEFAULT_ROLES.filter((r) => r.generation === 5);
+    expect(gen5.map((r) => r.id)).toEqual(["predictor"]);
+    expect(gen5[0]!.parent).toBe("prospector");
   });
 
   it("7 中间层角色：控制论三元组 sensor/controller/actuator 挂 Origin（generation=1）；四族挂 actuator（generation=2——2026-08-14 sensor/controller 升格真实类型）", () => {
@@ -89,6 +94,10 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(governor?.children.map((c) => c.role.id).sort()).toEqual(["acceptor", "planner"]);   // memory-keeper 迁出（2026-08-14）
     const developer = executor?.children.find((c) => c.role.id === "developer");
     expect(developer?.children.map((c) => c.role.id).sort()).toEqual(["coder", "tester"]);   // coder/tester 子类型（2026-08-14）
+    const analyst = researcher?.children.find((c) => c.role.id === "analyst");
+    expect(analyst?.children.map((c) => c.role.id).sort()).toEqual(["prospector", "solver"]);   // 问题类型二分：开放探索/封闭限制（2026-08-14）
+    const prospector = analyst?.children.find((c) => c.role.id === "prospector");
+    expect(prospector?.children.map((c) => c.role.id).sort()).toEqual(["predictor"]);   // 开放探索下的预测专精（2026-08-14）
   });
 
   it("扩展角色未填 parent → 挂 Origin 下（兼容——视为初代分化）", () => {

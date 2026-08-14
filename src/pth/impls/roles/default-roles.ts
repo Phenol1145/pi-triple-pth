@@ -25,12 +25,30 @@ export const ORIGIN_ROLE: WorkerRole = {
 //   thinking=推理深度 / capabilities=PTC 访问权限 / output=产出约定 / defaultReads=角色间产物约定
 //   / acceptanceRole=验收角色——谱系元数据声明（thinking 传 LLM/acceptanceRole done 限制后续实现）
 export const DEFAULT_ROLES: WorkerRole[] = [
-  { id: "analyst", tags: ["analysis", "research", "deep-analysis"], prompt: "你是分析者——负责对复杂问题进行深度演化式分析：拆解问题→多假设推演→综合收敛→产出知识结论与研究报告。",
-    description: "深度演化分析问题（researcher 族——复杂问题的深度演化式分析）", thinking: "medium",
+  { id: "analyst", tags: ["analysis", "research", "deep-analysis"], prompt: "你是分析者——负责对复杂问题进行深度演化式分析：拆解问题→多假设推演→综合收敛→产出知识结论与研究报告。族内已有特化（按问题类型二分）：prospector（开放探索型——无定解/发散假设生成）/solver（封闭限制型——有约束/收敛推导）——若任务明确属于特化方向，在产物中注明建议路由。",
+    description: "深度演化分析问题（researcher 族——按问题类型二分：开放探索/封闭限制两子类型）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research",
     exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（backlog 差距 11——分析可双语言核验证）
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：执行核+导航+随身缓存（无生产核 dev/debug/write）
     parent: "researcher", generation: 3, differentiation: "研究类任务诱导——复杂问题深度演化分析需要 web 与数据能力的特化" },
+  // 2026-08-14 用户裁决：analyst 升中间层——按"负责的问题类型"二分：
+  // 开放探索型（无定解/发散）→ prospector；封闭限制型（有约束/收敛）→ solver
+  { id: "prospector", tags: ["open-explore", "hypothesis", "prospect"], prompt: "你是勘探者——负责开放探索型问题：无定解、边界开放的探索。发散式生成假设、勘探可能解空间、发现新方向与新关联，产出假设集合与探索路径。",
+    description: "开放探索型问题（analyst 子类型——无定解/发散假设生成/解空间勘探）", thinking: "medium",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "hypothesis",
+    exploreKernels: ["python", "bash"],   // 发散探索可双语言核对比验证假设
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "analyst", generation: 4, differentiation: "开放探索型任务诱导——无定解/边界开放的探索需要发散假设生成与解空间勘探——从 analyst 分出开放探索专精" },
+  { id: "solver", tags: ["closed-solve", "constraint", "solve"], prompt: "你是求解者——负责封闭限制型问题：有约束/定解、边界封闭的求解。收敛式推导、约束内求解、证据验证，产出确定的结论与验证结果。",
+    description: "封闭限制型问题（analyst 子类型——有约束/收敛推导/证据验证）", thinking: "high",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "conclusion",
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "analyst", generation: 4, differentiation: "封闭限制型任务诱导——有约束/定解的求解需要收敛推导与证据验证——从 analyst 分出封闭求解专精" },
+  { id: "predictor", tags: ["predict", "forecast", "extrapolate"], prompt: "你是预测者——负责预测类任务：在开放探索基础上对趋势、未来状态、结果分布做外推与预测。基于历史/证据外推未来，产出概率化预测与不确定性说明。",
+    description: "预测外推（prospector 子类型——趋势/未来状态/结果分布预测）", thinking: "medium",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "prediction",
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "prospector", generation: 5, differentiation: "预测类任务诱导——开放探索中的趋势外推/未来预测是高频子模式——从 prospector 分出预测专精" },
   { id: "planner", tags: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。\n\n【计划产出格式（done.result 必遵）】\n{ \"subtasks\": [ {\"id\": \"s1\", \"type\": \"exploration\", \"dependsOn\": [], \"description\": \"...\"}, ... ] }\n- dependsOn 只标真实数据依赖（上游产出被下游消费才写）——无依赖子任务不串排（同层并行——时间复用率）。\n- 计划扁平化原则：先画依赖 DAG——只有真实依赖才串行；能并行的子任务放同一层。",
     description: "上下文→实施计划（只读——产出计划文档）", thinking: "high",
     model: "deepseek-v4-pro",   // 2026-08-13：智力核心升级——规划/分解需强推理（flash→pro）
@@ -115,7 +133,7 @@ export const MID_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"],
     parent: "actuator", generation: 2, differentiation: "治理类任务族诱导——秩序型任务（规划/验收/记忆维护）从 actuator 分出独立分支" },
   // 2026-08-14 研究族（用户裁决）：研究/知识生产——explorer 管摄入、researcher 管研究产出、memory-keeper 管维护
-  { id: "researcher", tags: ["research", "knowledge"], prompt: "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（深度演化分析）/memory-keeper（记忆维护）——若任务明确属于特化方向，在产物中注明建议路由。",
+  { id: "researcher", tags: ["research", "knowledge"], prompt: "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（深度演化分析——含 prospector/solver 子类型）/memory-keeper（记忆维护）——若任务明确属于特化方向，在产物中注明建议路由。",
     description: "研究族中间层（知识生产与深度研究——伪世界模型「组装+校准」的知识端）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "context",
     parent: "actuator", generation: 2, differentiation: "知识类任务族诱导——研究型任务（深度分析/知识生产）从 actuator 分出独立分支" },
