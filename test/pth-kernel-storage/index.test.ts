@@ -44,6 +44,22 @@ suite("data world assembly", () => {
     await expect(dw.queryReadOnly("DELETE FROM memory_entries")).rejects.toThrow(/read-only/);
   });
 
+  it("queryTemplate 受信模板通道（A2 Phase 4）：obs 工具可查 tasks/transcripts；LLM 面仍拒绝", async () => {
+    const dw = createDataWorld(pool);
+    const t = await dw.tasks.publish({ title: "obs-template", text: "x", createdBy: "me", tags: ["code"] });
+    // 模板通道：tasks/transcripts 开放（真实池链路 obs.tasks/obs.search 修复）
+    const taskRows = (await dw.queryTemplate("SELECT status FROM tasks WHERE id = '" + t.id + "'")) as Array<{ status: string }>;
+    expect(taskRows.length).toBe(1);
+    const trRows = await dw.queryTemplate("SELECT id FROM transcripts LIMIT 5");
+    expect(Array.isArray(trRows)).toBe(true);
+    // 模板通道同样强制 SELECT/单语句/LIMIT
+    await expect(dw.queryTemplate("DELETE FROM tasks")).rejects.toThrow(/read-only/);
+    await expect(dw.queryTemplate("SELECT 1; DROP TABLE tasks")).rejects.toThrow(/单条语句/);
+    // LLM 面（queryReadOnly）不变——tasks/transcripts 依旧不开放
+    await expect(dw.queryReadOnly("SELECT id FROM tasks LIMIT 5")).rejects.toThrow(/不开放/);
+    await expect(dw.queryReadOnly("SELECT id FROM transcripts LIMIT 5")).rejects.toThrow(/不开放/);
+  });
+
   afterAll(async () => {
     await pool.end();
     await container.stop();

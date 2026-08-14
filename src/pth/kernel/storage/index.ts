@@ -15,6 +15,9 @@ export interface DataWorldAccess {
   audit: PgAuditStore;
   /** 受限只读 SQL（memory.query 能力/agent 工具用）：仅 SELECT 单条语句 + 强制 LIMIT */
   queryReadOnly(sql: string): Promise<unknown>;
+  /** 受信模板通道（2026-08-14 A2 Phase 4——obs 工具专用）：固定 SQL 模板 + 参数白名单，
+   *  开放 tasks/transcripts 只读面——与 queryReadOnly 的 memory-only 面分开（非 LLM 输入面） */
+  queryTemplate(sql: string): Promise<unknown>;
   /** PG 系统视图（obs.pg——2026-08-12 管理 SDK）：固定 SQL 模板白名单——无用户 SQL 注入面 */
   pgStat(view: "activity" | "database" | "bgwriter"): Promise<unknown>;
 }
@@ -26,6 +29,7 @@ export function createDataWorld(pool: pg.Pool, routing?: import("./task-store-pg
     transcripts: new PgTranscriptStore(pool),
     audit: new PgAuditStore(pool),
     queryReadOnly: (sql: string) => runReadOnlyQuery(pool, sql),
+    queryTemplate: (sql: string) => runReadOnlyQuery(pool, sql, TRUSTED_TEMPLATE_TABLES),
     pgStat: (view) => runReadOnlyPgView(pool, view),
   };
 }
@@ -39,6 +43,11 @@ export function createDataWorld(pool: pg.Pool, routing?: import("./task-store-pg
  */
 /** 开放表（worker 查询面——拓扑收敛：记忆库单节点） */
 export const READONLY_TABLES = new Set(["memory_entries"]);
+
+/** 受信模板表（2026-08-14 A2 Phase 4）：obs 工具专用通道——固定 SQL 模板 + 参数白名单校验
+ *  （非 LLM 自由输入），开放任务/转录只读面。与 memory.query 的 memory-only 面分开——
+ *  修复探查缺陷 0.4（obs.tasks/obs.search 此前被 memory-only 白名单误拒，错误文案自相矛盾）。 */
+export const TRUSTED_TEMPLATE_TABLES = new Set(["memory_entries", "tasks", "transcripts"]);
 
 /** 提取 FROM/JOIN 表引用前的噪声剥离：字符串字面量 → 注释 → 引号标识符。
  *  保证：① FROM 后引号标识符不逃逸名单 ② FROM 与表名间插注释分隔不逃逸 ③ 字符串内的 from x 不误捕。 */
@@ -80,14 +89,14 @@ function extractTables(sql: string): string[] {
   return out;
 }
 
-export function buildReadOnlyQuery(sql: string): string {
+export function buildReadOnlyQuery(sql: string, allowedTables: ReadonlySet<string> = READONLY_TABLES): string {
   const trimmed = sql.trim();
   if (!/^select\b/i.test(trimmed)) throw new Error("queryReadOnly: 仅允许 SELECT 查询（read-only）");
   if (trimmed.includes(";")) throw new Error("queryReadOnly: 仅允许单条语句（single statement only）");
   if (/\bpg_catalog\b|\bpg_\w+\b/i.test(trimmed)) throw new Error("queryReadOnly: 禁止访问 pg 系统表");
   for (const t of extractTables(trimmed)) {
-    if (!READONLY_TABLES.has(t)) {
-      throw new Error(`queryReadOnly: 表 "${t}" 不开放（开放表: ${[...READONLY_TABLES].join(", ")}——任务面请用 obs.tasks / 事件检索请用 obs.search）`);
+    if (!allowedTables.has(t)) {
+      throw new Error(`queryReadOnly: 表 "${t}" 不开放（开放表: ${[...allowedTables].join(", ")}——任务面请用 obs.tasks / 事件检索请用 obs.search）`);
     }
   }
   if (!/\blimit\s+\d+/i.test(trimmed)) {
@@ -99,8 +108,8 @@ export function buildReadOnlyQuery(sql: string): string {
   });
 }
 
-export async function runReadOnlyQuery(pool: pg.Pool, sql: string): Promise<unknown> {
-  const safe = buildReadOnlyQuery(sql);
+export async function runReadOnlyQuery(pool: pg.Pool, sql: string, allowedTables?: ReadonlySet<string>): Promise<unknown> {
+  const safe = buildReadOnlyQuery(sql, allowedTables);
   const res = await pool.query(safe);
   return res.rows;
 }

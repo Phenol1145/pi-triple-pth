@@ -162,7 +162,8 @@ describe("obs 可监控数据调查（Phase 4）", () => {
     const dw = {
       memory: { retrieve: async () => [], write: async () => {} },
       tasks: { candidates: async () => [], submit: async () => {} },
-      queryReadOnly: async (sql: string) => {
+      // A2 Phase 4：obs 工具走 queryTemplate 受信模板通道（queryReadOnly 为 memory-only LLM 面）
+      queryTemplate: async (sql: string) => {
         seen.push(sql);
         return [{ status: "completed", n: "5" }];
       },
@@ -190,7 +191,7 @@ describe("obs 可监控数据调查（Phase 4）", () => {
 
   it("obs.search：SQL 注入转义（单引号翻倍）", async () => {
     const seen: string[] = [];
-    const dw = { queryReadOnly: async (sql: string) => { seen.push(sql); return []; } } as any;
+    const dw = { queryTemplate: async (sql: string) => { seen.push(sql); return []; } } as any;   // A2 Phase 4 受信模板通道
     const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
     const obs = obsExtension.provide!({ dataWorld: dw } as any)["obs"] as any;
     await obs.search({ query: "o'Reilly" });

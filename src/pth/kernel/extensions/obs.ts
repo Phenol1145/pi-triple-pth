@@ -40,10 +40,11 @@ export const obsExtension: TsReplExtension = {
   id: "obs",
   provide: (ctx: ExtContext) => ({
     obs: {
-      /** 任务池调查：状态分布/耗时（pg——queryReadOnly 同源执行器） */
+      /** 任务池调查：状态分布/耗时（pg——queryTemplate 受信模板通道：
+       *  固定 SQL + 参数白名单——A2 Phase 4 修复 memory-only 白名单误拒） */
       tasks: async (opts: Record<string, unknown> = {}) => {
         try {
-          return await ctx.dataWorld.queryReadOnly(tasksSql(opts));
+          return await ctx.dataWorld.queryTemplate(tasksSql(opts));
         } catch (e) {
           return { error: (e as Error).message };
         }
@@ -237,10 +238,10 @@ export const obsExtension: TsReplExtension = {
         };
       },
 
-      /** 事件检索（pg transcripts） */
+      /** 事件检索（pg transcripts——queryTemplate 受信模板通道：A2 Phase 4） */
       search: async (opts: Record<string, unknown> = {}) => {
         try {
-          return await ctx.dataWorld.queryReadOnly(searchSql(opts));
+          return await ctx.dataWorld.queryTemplate(searchSql(opts));
         } catch (e) {
           return { error: (e as Error).message };
         }
