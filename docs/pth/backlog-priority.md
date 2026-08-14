@@ -216,3 +216,71 @@ src/pth/kernel/storage/
 | A2-1 | 包层归并方式（与引擎无关——引擎不归一是架构基线，见 0.7） | A 直接迁移（无转发层）· B 薄转发层逐步废弃（D1 原文） | ✅ A 已落地——消费点全量盘点，转发层=双迁移面残留 |
 | A2-2 | PgAuditStore 处置 | A 接线（task-loop 终态事件写 audit_log——审计两平面）· B 摘除实例化（audit_log 留作预留）· C 删除 | ✅ A 已落地——task_completed/task_rejected 写入，PG 审计有真消费者 |
 | A2-3 | RedisSettingsStore 处置 | A 删除类+接线移除（接口保留）· B 保留待未来 tenant settings 需求 | ✅ A 已落地——类已删，SettingsStore 协议保留 |
+
+
+---
+
+## 附录 C：B6 空间-角色绑定校验（N8）实施方案
+
+> 依据：§10 账本 N8「空间-角色绑定治理——T6 裁决定模型：空间与 worker 类型深度绑定，
+> 新建/分化走优化通道+审批面（不再设计 TTL 三态）；绑定校验实现待排期」。
+> 探查结论（2026-08-14——见下），待用户裁决 3 点后按 Phase 落地（每 phase 独立提交）。
+
+### 0. 现状盘点（校验缺位清单——全仓探查）
+
+| # | 缺位 | 详情 |
+|---|---|---|
+| 0.1 | **无绑定维度** | SpaceDef 无任何角色关联字段——任何角色可 asp.cd 任何空间（绑定零校验） |
+| 0.2 | **分化无主约束** | asp.create 现门控 = spaceMaint（actionTools 声明或全量兼容）；与 T6「不经 worker 直接执行」矛盾，且创建的空间不声明为谁服务（无 worker 类型） |
+| 0.3 | **持久化丢绑定** | space-reg 落库 JSON = {id, parent, execTool, extraTools, memoryScope, description}——无绑定字段；assembly.ts 恢复清单同样无（重启后绑定必然丢失） |
+| 0.4 | **冲突比较漏维度** | SpaceRegistry.register() 幂等比较（9 字段）无绑定——绑定可变不被发现 |
+
+### 1. 绑定模型（概念先行）
+
+- `SpaceDef.bindRoles?: string[]`——绑定 worker 类型（角色 id，谱系上溯匹配：role.id ∈ bindRoles **或** 任一祖先 ∈ bindRoles——worker 类型 = 谱系）；
+- **匹配语义**：`isRoleBound(role, space)`——role 缺失（测试/兼容）跳过校验；绑定集与现存谱系零交 → 保守拒绝（"无主空间"——治理面处理）；
+- **缺省 undefined = 不绑定（全角色）**——内置六空间保持现状，存量行为零破坏；
+- **正交性**：bindRoles 是第三轴（动作空间 × 记忆空间 × 角色绑定）——不替代 capabilities（工具能力面）与 actionTools（工具动作面），三者各司其职。
+
+### 2. 校验点（实现清单）
+
+**2.1 注册层（space-registry.ts）**
+- register()：bindRoles 格式校验（非空数组 / 合法 id 字符 / 去重）；绑定参与幂等冲突比较（第 10 字段——绑定可变 → 冲突报错）
+- 匹配函数 `isRoleBound`（谱系上溯——buildRoleLineage 复用；role.id 或祖先命中）
+
+**2.2 进入校验（agent-loop asp_cd）**
+- 目标空间声明 bindRoles 且本角色不匹配 → 拒绝 + 引导：「空间 X 绑定 worker 类型 Y——本角色 Z 不可进入；可用空间见 asp.index」
+
+**2.3 分化校验（agent-loop asp_create）**
+- **绑定必填**：新建子空间必须声明 bindRoles（或显式继承父绑定）——拒绝空绑定分化（防「无主空间」）
+- **自谱系限定**：绑定集合必须 ⊆ 创建者自身谱系（id 或祖先）——不能为别的 worker 类型建空间
+- 与现有治理 v2 校验（深度衰减/extraTools 收窄/childParams 表单/meta 禁建）并存叠加
+
+**2.4 持久化与恢复**
+- asp.create 落库 JSON 增加 bindRoles；assembly.ts 恢复透传（缺失 → 继承父空间绑定——兼容存量 space-reg 条目）
+
+**2.5 索引展示（space-index.ts）**
+- 空间树节点标注绑定集（索引即引导——asp.index 一眼可见谁可进）
+
+**2.6 执行面**
+- 现有空间门控（spaceOfExecTool 工具↔空间 + EXEC_TOOL_CAP 工具↔能力）不动——绑定在 cd 拦截，执行继承
+
+### 3. 待用户裁决（3 点）
+
+| # | 事项 | 选项 | 推荐 |
+|---|---|---|---|
+| B6-1 | T6 与批 3 的通道矛盾 | A 本批先落绑定校验（收紧 asp.create：绑定必填+自谱系+审计），优化通道提案留 D3（proposal kind=space 是治理通道大件）· B 严格执行 T6——worker 侧 asp.create 退役（dev 子空间隔离模式失去） | **A**——校验先行正是 N8 本意，通道迁移不阻塞校验 |
+| B6-2 | 绑定粒度 | A 角色 id/祖先（谱系上溯——worker 类型=谱系）· B 绑定到 capabilities 集合（与能力白名单同轴） | **A**——T6 原文是「worker 类型」，谱系即类型；capabilities 已有独立机制 |
+| B6-3 | 内置空间绑定 | A 全不绑定（现状兼容零破坏）· B 按职责绑定（ts→developer 系等——收紧但破坏执行族/信息族探索现状） | **A**——内置空间是全角色共享基板，绑定留给子空间分化 |
+
+### 4. Phase 划分（每 phase 独立提交、独立全绿）
+
+- **Phase 1 注册层**：SpaceDef.bindRoles + register 校验（格式/幂等第 10 字段）+ isRoleBound 匹配函数 + 单测
+- **Phase 2 agent 层**：asp_cd 进入校验 + asp_create 绑定必填/自谱系限定 + 落库字段 + space-index 绑定标注 + agent-loop 测试
+- **Phase 3 恢复与落档**：assembly 恢复透传（缺省继承父绑定）+ concepts N8 账本勾除/域 C 词条更新 + backlog 行 + 容器重建冒烟
+
+### 5. 验证
+
+- 存量 asp-space（276 行）/space-governance（200 行）全绿（内置空间不绑定——零破坏）
+- 新增：绑定拒绝/放行/谱系上溯/自谱系限定/恢复透传 测试
+- 容器重建 + 冒烟：绑定子空间拒绝非绑定角色进入（真实 agent-loop 链路）
