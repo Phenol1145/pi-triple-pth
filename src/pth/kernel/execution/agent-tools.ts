@@ -473,147 +473,147 @@ ${buildDoc()}`;
 // （2026-08-14 T3：pick.tools 动态工具选择协议已废弃——schema 移除，工具面不再动态收窄）
 const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<string, unknown>; required: string[] }> = {
   "python.run": {
-    description: "【python 程序——需要 python 生态/数据计算时】在 python kernel（sandbox 持久 REPL）执行程序——多语句/循环；_result = 值 回传。ts 能做的用 ts（ts 程序内可 await python 能力）。",
+    description: "【场景锚点：python 程序——python 生态/数据计算的多语句执行】何时用：需要 python 库、多语句/循环、_result 值回传；ts 能做的用 ts（ts 程序内可 await python 能力）。效果：多语句执行，_result 值回传。",
     properties: { code: { type: "string", description: "python 程序（多语句；_result = 值 作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["code"],
   },
   "python.eval": {
-    description: "【python 单表达式——一行计算/查询】表达式值即结果。多语句用 python.run。",
+    description: "【场景锚点：python 单表达式——一行计算/查询】何时用：单表达式求值；多语句用 python.run。效果：表达式值即结果。",
     properties: { code: { type: "string", description: "python 表达式（值即结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["code"],
   },
   "bash.run": {
-    description: "【bash 命令序列——文件操作/环境检查/管道】在 bash kernel（sandbox 持久会话）执行——多命令串联（; && || 换行）；stdout 即结果。",
+    description: "【场景锚点：bash 命令序列——环境操作/文件检查/管道】何时用：多命令串联的环境操作与探测；产物写入不走 bash（走 dev.write/write.create）。效果：stdout 即结果（截断 4000 字符）。",
     properties: { command: { type: "string", description: "shell 命令（可多命令串联）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["command"],
   },
   "bash.eval": {
-    description: "【bash 单命令——ls/cat/grep 等简单命令】stdout 即结果。复杂脚本用 bash.run。",
+    description: "【场景锚点：bash 单命令——ls/cat/grep 等简单探测】何时用：单条命令快速查询；复杂脚本用 bash.run。效果：stdout 即结果。",
     properties: { command: { type: "string", description: "单条 shell 命令" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["command"],
   },
   "ts.run": {
-    description: "【程序模式（优先）】在 ts kernel（vm 沙箱）执行完整 TypeScript 程序——程序内可 await 调用能力函数（memory/llm/web/fs/python/bash/c/ext 等），可声明变量/多语句/控制流；return 的值回填；尾表达式自动捕获。【效率规则】查询/读取大内容一次取回后立即在程序内本地处理（切片/过滤/聚合都在程序里做）——不要多次调用重复分片读取同一内容；一个程序可组合多个能力调用，无需拆成多次工具调用",
+    description: "【场景锚点：ts 程序（程序模式——优先）——一个程序组合多能力】何时用：多步操作/变量/循环/组合能力函数（memory/llm/web/fs/python/bash）——优先写一个程序而非分步发多个动作；大内容一次取回后在程序内本地处理（切片/过滤/聚合），不重复分片读取。效果：return 值回填 + stdout 可见。",
     properties: { code: { type: "string", description: "ts 程序（顶层 await 可用；声明/多语句/控制流；return 对象作为结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["code"],
   },
   "ts.eval": {
-    description: "【单表达式求值】在 ts kernel 计算单个表达式并返回结果（不声明变量——一行查询/计算：await memory.query(...)、count 统计等；表达式值即结果）。多步骤/声明变量/循环请用 ts.run。",
+    description: "【场景锚点：ts 单表达式——一行查询/计算】何时用：无变量无循环的单表达式（await memory.query 计数等）；多步骤用 ts.run。效果：表达式值即结果。",
     properties: { code: { type: "string", description: "ts 单表达式（顶层 await 可用；表达式的值即结果）" }, mode: { type: "string", enum: ["default", "value-only", "errors-only", "quiet"] } },
     required: ["code"],
   },
   done: {
-    description: "完成任务——提交最终产出对象（result 必填：实际产物——实现代码/写入的文件/计算结果等任意 JSON；缺少 result 或 result 为空会被拒绝并回填引导重新提交）【ASP：仅元空间可用】",
+    description: "【场景锚点：任务完成——提交最终产出】何时用：有实际产物（实现/文件/计算结果）或明确无法完成（说明原因）时。效果：任务结案；result 为空会被拒绝并回填引导（ASP：仅元空间可用）。",
     properties: { result: { description: "最终产出对象（任意 JSON）——必填；须为实际产物（实现代码/写入的文件/计算结果），不能为空对象/空数组/空字符串" }, summary: { type: "string", description: "完成说明" } },
     required: ["result"],
   },
   "dev.write": {
-    description: "【写代码——实现第一步：写完整源码一次到位】写产物代码到任务工作区（path 相对路径——自动建目录）。把整个实现写全再 build/run 验证——不要写几行跑一次的小步迭代。",
+    description: "【场景锚点：写代码——实现第一步】何时用：把完整实现一次写完（自动建目录），不要写几行跑一次的小步迭代。效果：源码落任务工作区，可 build/run 验证。",
     properties: { path: { type: "string", description: "工作区相对路径（如 main.c）" }, code: { type: "string", description: "完整源码" }, mode: { type: "string" } },
     required: ["path", "code"],
   },
   "dev.edit": {
-    description: "【改代码——编译/运行报错后精修】唯一匹配替换（oldText 不匹配/多处匹配报错）。整段替换优先于零敲碎打。",
+    description: "【场景锚点：改代码——编译/运行报错后精修】何时用：唯一匹配替换（oldText 不匹配/多处匹配报错）；整段替换优先于零敲碎打。效果：文件中该段被替换。",
     properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" }, mode: { type: "string" } },
     required: ["path", "oldText", "newText"],
   },
   "dev.build": {
-    description: "【编译验证——写完代码后检查语法】编译产物（不运行）。若只是要结果直接用 dev.run（编译+运行一步）。",
+    description: "【场景锚点：编译验证——写完代码检查语法】何时用：只查语法不运行；直接要结果用 dev.run。效果：编译产物（错误回填）。",
     properties: { path: { type: "string" }, cc: { type: "string" }, mode: { type: "string" } },
     required: ["path"],
   },
   "dev.run": {
-    description: "【运行验证——编译+运行一步到位（写-验证循环的终点）】编译并运行产物（源码不变秒回缓存）。写完代码直接 dev.run 拿结果——编译错误回填后 dev.edit 修，不要重写整文件。",
+    description: "【场景锚点：运行验证——编译+运行一步】何时用：写完代码直接拿结果；编译错误回填后 dev.edit 修，不重写整文件。效果：运行结果（源码不变秒回缓存）。",
     properties: { path: { type: "string" }, cc: { type: "string" }, timeoutMs: { type: "number" }, mode: { type: "string" } },
     required: ["path"],
   },
   "dev.save": {
-    description: "【交付——验证通过后保存】保存为命名编译单元（toolstore compiled-units/<name>.c——跨任务复用）。验证通过后再 save。",
+    description: "【场景锚点：交付保存——验证通过后】何时用：保存为命名编译单元供跨任务复用；验证通过后再 save。效果：toolstore compiled-units/<name>.c。",
     properties: { name: { type: "string" }, path: { type: "string" }, mode: { type: "string" } },
     required: ["name", "path"],
   },
   "dev.list": {
-    description: "【查看已有编译单元——实现前先查有没有现成的可复用】列出已保存编译单元。新任务先看 list——复用优于重写。",
+    description: "【场景锚点：查看已有编译单元——实现前先查复用】何时用：新任务先 list——复用优于重写。效果：已保存编译单元清单。",
     properties: { mode: { type: "string" } },
     required: [],
   },
   "debug.attach": {
-    description: "【调试第一步：dev.run 结果异常/崩溃时才用——正常流程不需要调试】建立 C 调试会话（编译 -g + gdb——返回 sessionId 句柄；code 源码或 path 工作区文件二选一）。",
+    description: "【场景锚点：调试第一步——dev.run 异常/崩溃时】何时用：正常流程不需要调试，仅结果异常时。效果：C 调试会话，返回 sessionId 句柄。",
     properties: { code: { type: "string" }, path: { type: "string" }, cc: { type: "string" }, mode: { type: "string" } },
     required: [],
   },
   "debug.breakpoint": {
-    description: "【设断点——attach 后】在指定行停住（line 行号，condition 可选条件表达式）。",
+    description: "【场景锚点：设断点——attach 后】何时用：指定行停住（line 行号，condition 可选）。效果：断点注册，命中时暂停。",
     properties: { sessionId: { type: "string" }, line: { type: "number" }, condition: { type: "string" }, mode: { type: "string" } },
     required: ["sessionId", "line"],
   },
   "debug.continue": {
-    description: "【跑到断点/退出——设好断点后】继续执行（返回 reason + frame）。",
+    description: "【场景锚点：继续执行——设好断点后】何时用：跑到断点/退出。效果：返回 reason + frame。",
     properties: { sessionId: { type: "string" }, mode: { type: "string" } },
     required: ["sessionId"],
   },
   "debug.step": {
-    description: "【单步——定位具体行时】direction: into/over/out。",
+    description: "【场景锚点：单步——定位具体行】何时用：direction into/over/out 逐行推进。效果：执行一步并停住。",
     properties: { sessionId: { type: "string" }, direction: { type: "string" }, mode: { type: "string" } },
     required: ["sessionId", "direction"],
   },
   "debug.snapshot": {
-    description: "【停住后首选——一次看全所有变量】聚合快照（全帧+顶层帧变量——省逐帧查询）。断点命中后先 snapshot 再决定 evaluate 什么。",
+    description: "【场景锚点：变量全览——停住后首选】何时用：断点命中后先 snapshot 再决定 evaluate 什么。效果：全帧+顶层帧变量聚合快照。",
     properties: { sessionId: { type: "string" }, mode: { type: "string" } },
     required: ["sessionId"],
   },
   "debug.evaluate": {
-    description: "【验证假设——snapshot 后对具体变量/表达式求值】当前暂停位置上下文。",
+    description: "【场景锚点：表达式求值——snapshot 后验证假设】何时用：对具体变量/表达式求值。效果：当前暂停位置上下文中的求值结果。",
     properties: { sessionId: { type: "string" }, expr: { type: "string" }, frameId: { type: "number" }, mode: { type: "string" } },
     required: ["sessionId", "expr"],
   },
   "debug.detach": {
-    description: "【调完必调——释放会话（上限 4 个）】排查结束立即 detach 归还句柄。",
+    description: "【场景锚点：释放会话——调完必调】何时用：排查结束立即归还句柄（上限 4 个）。效果：会话销毁。",
     properties: { sessionId: { type: "string" }, mode: { type: "string" } },
     required: ["sessionId"],
   },
   "debug.sessions": {
-    description: "【查看活动会话——需要时】活动调试会话清单。",
+    description: "【场景锚点：查看活动会话】何时用：需要确认存活会话。效果：活动调试会话清单。",
     properties: { mode: { type: "string" } },
     required: [],
   },
   "write.create": {
-    description: "【写文档——初稿一次写完】创建文档（path 相对工作区；content 初稿全文——不要分段多次 create；一次写完再 edit 修订）。",
+    description: "【场景锚点：写文档——初稿一次写完】何时用：创建新文档；一次写完再 edit 修订，不要分段多次 create。效果：工作区文档落盘。",
     properties: { path: { type: "string" }, content: { type: "string" }, mode: { type: "string" } },
     required: ["path", "content"],
   },
   "write.edit": {
-    description: "【修订文档——初稿后改具体段落】唯一匹配替换（oldText 必须唯一——多处匹配报错引导提供更多上下文）。",
+    description: "【场景锚点：修订文档——改具体段落】何时用：唯一匹配替换（oldText 必须唯一）。效果：该段被替换。",
     properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" }, mode: { type: "string" } },
     required: ["path", "oldText", "newText"],
   },
   "write.read": {
-    description: "【读文档——验证/续写前】读文档（全文回传，截断 6000 字符——长文档分段）。",
+    description: "【场景锚点：读文档——验证/续写前】何时用：读全文（截断 6000 字符，长文档分段）。效果：文档内容回传。",
     properties: { path: { type: "string" }, mode: { type: "string" } },
     required: ["path"],
   },
   "write.list": {
-    description: "【看工作区已有文档——避免重复创建】列工作区文档（*.md/txt/rst/adoc 递归）。",
+    description: "【场景锚点：看工作区已有文档——避免重复创建】何时用：动笔前先查。效果：工作区文档清单（*.md/txt/rst/adoc 递归）。",
     properties: { mode: { type: "string" } },
     required: [],
   },
   "write.save": {
-    description: "【定稿后保存——跨任务复用】存记忆单元 docs/<name>.md。",
+    description: "【场景锚点：定稿保存——跨任务复用】何时用：文档定稿后存记忆单元。效果：docs/<name>.md 记忆条目。",
     properties: { path: { type: "string" }, name: { type: "string" }, mode: { type: "string" } },
     required: ["path", "name"],
   },
   "write.section": {
-    description: "【长文档结构整理——章节拆合时】op=list 列标题 / op=split 拆后段到新文件 / op=reorder 移动章节。短文档不需要。",
+    description: "【场景锚点：长文档结构整理——章节拆合】何时用：op=list/split/reorder；短文档不需要。效果：章节结构调整。",
     properties: { path: { type: "string" }, op: { type: "string" }, title: { type: "string" }, target: { type: "string" }, before: { type: "string" }, mode: { type: "string" } },
     required: ["path"],
   },
   "asp.cd": {
-    description: "空间迁移（ASP 元工具）——cd 到目标空间。目标必须已注册（内置：meta 元空间/ts/python/bash + 生产核 dev 代码/write 文档；asp.create 生成的自定义子空间亦可）。语言代码只能在对应动作空间执行；done 仅在元空间可用。",
+    description: "【场景锚点：空间切换】何时用：语言代码须在对应动作空间执行；done 仅元空间可用。效果：切换当前空间（工具面随之切换）。",
     properties: { space: { type: "string", description: "目标空间 id（meta/ts/python/bash/dev/write 或自定义注册空间）" } },
     required: ["space"],
   },
   "asp.create": {
-    description: "空间生成（ASP 元工具·治理 v2）——在声明 allowChildren 的父空间内注册子空间（数据驱动：新空间=一条注册记录，即可被 asp.cd 进入）。meta 禁建（凭据根级固化）；父空间 childParams 必填表单校验（能力面 execTool/extraTools 收窄 + 记忆域 memoryScope 分配——缺字段拒绝并展示表单）；深度 ≤ 父 maxDepth；extraTools 只能收窄不能扩权。asp.index 查看空间树与表单。",
+    description: "【场景锚点：空间生成（治理）】何时用：父空间声明 allowChildren 且填 childParams 表单（能力面收窄+记忆域分配）；meta 禁建。效果：注册子空间，可 asp.cd 进入。",
     properties: {
       id: { type: "string", description: "新空间 id（小写字母数字连字符 ≤32）" },
       execTool: { type: "string", description: "子空间语言执行工具名（能力面收窄——须为已注册语言族：ts/python/bash/dev/write）" },
@@ -625,12 +625,12 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: ["id", "execTool", "memoryScope", "description"],
   },
   "asp.destroy": {
-    description: "空间注销（ASP 元工具·治理 v2）——注销子空间。位置约束：仅子空间的父空间内可注销自己的子空间（meta 兜底可注销任何非内置空间）；内置空间保护不变（parent=meta 的不可注销）。",
+    description: "【场景锚点：空间注销（治理）】何时用：仅子空间的父空间内可注销自己的子空间；内置空间保护不变。效果：子空间注销。",
     properties: { id: { type: "string", description: "要注销的空间 id" } },
     required: ["id"],
   },
   "asp.index": {
-    description: "【空间地图（探索引导——新任务/要切空间时先用它）】一次展示空间树/当前空间可达函数与数据。无参数 = 当前空间；space: 指定空间——避免盲目 asp_cd 往返。",
+    description: "【场景锚点：空间地图——新任务/切空间前先看】何时用：避免盲目 asp_cd 往返。效果：空间树 + 当前空间可达函数与数据。",
     properties: {
       mode: { type: "string", enum: ["by-package", "by-type"], description: "聚合模式（缺省 by-package）" },
       space: { type: "string", description: "目标空间 id（缺省当前空间）" },
@@ -638,7 +638,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: [],
   },
   "memory.index": {
-    description: "【记忆库地图（查询/统计/找条目第一步必用——避免逐条 SQL 盲查）】无参=顶层视图（一次拿到所有 kind 条数分布 + 热门 tag 词表——统计/清点任务直接用，一次就够，不要每步重复索引）；{tag} = 该 tag 条目清单；{id} = 条目摘要+出边。先看地图再决定查什么。",
+    description: "【场景锚点：记忆库地图——查询/统计第一步必用】何时用：避免逐条 SQL 盲查；统计任务一次就够，不要每步重复索引。效果：顶层视图（kind 分布+热门 tag）/ tag 清单 / id 摘要+出边。",
     properties: {
       tag: { type: "string", description: "按 tag 查关联条目" },
       id: { type: "string", description: "按条目 id 查其 tag 出边" },
@@ -646,7 +646,7 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: [],
   },
   "cache.load": {
-    description: "【跨空间携带数据——离开空间前把后续要用的数据先存入】载入随身缓存（任何空间可引用）。来源：{id}/{ids}/{tag} 从记忆空间载入；或 {key, content} 直接载入。硬容量限制——超容拒绝需先 cache.cancel。",
+    description: "【场景锚点：跨空间携带数据——离开空间前先存】何时用：后续步骤要反复取用的数据先载入（任何空间可引用）；来源 id/ids/tag 或 key+content。效果：条目入随身缓存（硬容量限制，超容拒绝需先 cancel）。",
     properties: {
       id: { type: "string", description: "记忆条目 id" },
       ids: { type: "array", items: { type: "string" }, description: "批量条目 id" },
@@ -657,12 +657,12 @@ const TOOL_SCHEMAS: Record<string, { description: string; properties: Record<str
     required: [],
   },
   "cache.index": {
-    description: "【查看随身缓存内容】条目键/大小/剩余容量。",
+    description: "【场景锚点：查看随身缓存】何时用：确认缓存内容/占用/利用率。效果：条目键/大小/剩余容量/利用率一览。",
     properties: {},
     required: [],
   },
   "cache.cancel": {
-    description: "释放缓存条目（容量管理——腾位给更有价值的信息）。",
+    description: "【场景锚点：缓存释放】何时用：腾位给更有价值的信息。效果：条目移除。",
     properties: { key: { type: "string", description: "要释放的缓存键" } },
     required: ["key"],
   },

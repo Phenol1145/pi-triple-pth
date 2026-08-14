@@ -64,48 +64,49 @@ export function buildCapabilityIndex(): string {
   return `# PTH 能力索引（ts 程序内可调用——await 调用；组合/联动在程序内完成）
 
 【能力分节】本索引按能力包分节（## 包名）——角色声明 capabilities 时只注入相关节（Agent-JIT 路径 B：capabilities 收窄 → prompt 减负）。
+【条目格式】每条 = 签名 → 返回 + 何时用 + 效果（0.8.2 三要素锚点——「何时用」决定该不该调用，「效果」预告拿到什么）。
 
 ## 基础（全角色注入——results/context/model/perf/obs）
-- results: ts 核内结果注册表对象——每步工具结果自动注册（results["result_N"] = {tool, value, stdout}）；程序内可读写（results.my_key = ...）
-- context: ts 核内任务工作台对象——跨步骤 KV（context.my_key = ...；后续程序直接读）
-- model: 会话模型状态与切换——model.current 当前模型（{provider, model}）；model.set({model, provider?, reason?}) 切换会话模型（后续 LLM 调用生效）；model.get() 当前；model.usage() token 消耗（{input, output}）
-- perf: 性能调优——perf.params() 当前参数全表；perf.set({key, value}) 运行时调参（PTH_* 立即生效）；perf.status() 性能快照；perf.analyze() 瓶颈诊断（v1 规则）；perf.publish({id?, name, params, actions?}) 发布策略；perf.apply({id}) 应用策略（参数生效）；perf.list() 策略清单
-- obs: 可监控数据调查——obs.tasks({status?, role?, since?, limit?}) 任务池状态分布/耗时；obs.metrics({pattern?}) 主进程指标（pth_* 系列）；obs.batches() 批次状态；obs.kernels() sandbox 内核池（inFlight/idle/容量）；obs.search({query?, limit?}) 事件检索（transcripts）
+- results —— 步骤结果注册表。何时用：跨步骤传值/读上一步工具输出。效果：每步工具结果自动注册（results["result_N"] = {tool, value, stdout}），程序内可读写。
+- context —— 任务工作台 KV。何时用：跨程序保留状态。效果：context.my_key = ... 写入，后续程序直接读。
+- model —— 会话模型状态。何时用：查/切会话模型、查 token 消耗。效果：model.current / model.set({model}) / model.usage()。
+- perf —— 性能参数与策略。何时用：调参/诊断/发布优化策略。效果：perf.params() / perf.set({key, value})（PTH_* 立即生效）/ perf.analyze() / perf.publish() / perf.apply()。
+- obs —— 系统观测。何时用：查任务池/批次/指标/事件。效果：obs.tasks({status?, role?}) / obs.metrics() / obs.batches() / obs.kernels() / obs.search()。
 
 ## memory
-- memory.query: {sql} —— 只读 SQL 查记忆库（仅 SELECT memory_entries；自动 LIMIT 防无界扫描）。memory_entries 表：id text, kind text, anchors jsonb, content text, status text('draft'|'official'|'archived'), version int, hit_count int, created_at timestamptz, updated_at timestamptz
-- memory.write: {id?, kind, anchors, content} —— 写入记忆（沉淀）。【用途层规则】知识层（task-insight/tool-function/dev-artifact 等）自由写；治理层（differentiation-proposal）强制 draft（提交草案——official 由监督层流转）；prompt/config 层（role-doc/trigger/capability-index 等系统资产）只读
-- memory.update: {id, content?} —— 内容修正（系统层不可改；治理层不可改状态）
+- memory.query({sql}) → rows —— 只读 SQL 查记忆库（仅 SELECT memory_entries；自动 LIMIT）。何时用：查条目/统计/锚点→原文展开。效果：行数组（id/kind/anchors/content/status/version/hit_count/created_at/updated_at）。
+- memory.write({id?, kind, anchors, content}) —— 写入记忆（沉淀）。何时用：沉淀知识（task-insight/tool-function 等知识层自由写）。效果：条目落库（治理层强制 draft、prompt/config 层只读——用途层规则）。
+- memory.update({id, content?}) —— 内容修正。何时用：改知识层条目内容。效果：内容更新（系统层不可改；治理层不可改状态）。
 
 ## fs
-- fs.readText(path: string) → Promise<string>（path = toolstore 相对路径，如 "extensions/hello-world/index.ts"）
-- fs.list(dir?: string) → Promise<string[]>（列 toolstore 目录）
-- fs.readSource(relPath: string) → Promise<string>（relPath = 相对【/app/src】——写 src/ 前缀，如 "src/pth/kernel/extensions/context.ts"）
-- fs.task.write(relPath: string, content: string) → Promise<{ok, path, bytes}>（任务工作区相对路径——防穿越——只写自己目录）
-- fs.task.read(relPath: string) → Promise<string>
-- fs.task.list() → Promise<Array<{name, isDir}>>
+- fs.readText(path) → string —— 读 toolstore 文件（如 extensions/hello-world/index.ts）。何时用：读扩展/技能源码。效果：全文。
+- fs.list(dir?) → string[] —— 列 toolstore 目录。何时用：发现可用扩展。效果：文件名数组。
+- fs.readSource(relPath) → string —— 读【/app/src】源码（src/pth/... 前缀）。何时用：调查实现（API 调查技能配套）。效果：源码全文。
+- fs.task.write(relPath, content) → {ok, path, bytes} —— 写任务工作区（防穿越——只写自己目录）。何时用：任务产物落盘。效果：文件写入。
+- fs.task.read(relPath) → string —— 读任务工作区。何时用：回读自己的产物。效果：全文。
+- fs.task.list() → Array<{name, isDir}> —— 列任务工作区。何时用：清点产物。效果：文件清单。
 
 ## 探索核（python/bash——元命令拆分 2026-08-11；C 已迁生产核）
-- python.run(code: string) → Promise<{ok, stdout, stderr, value, durationMs}>（程序执行——code = python 源码字符串——【不是对象】——第一参数字符串；_result = 值 回传）
-- python.eval(code: string) → Promise<{ok, stdout, stderr, value, durationMs}>（单表达式求值——表达式值即结果；语句 → 显式报错）
-- bash.run(command: string) → Promise<{ok, stdout, stderr, durationMs}>（命令序列——command = shell 命令字符串——第一参数字符串）
-- bash.eval(command: string) → Promise<{ok, stdout, stderr, durationMs}>（单条命令——简单命令快速执行）
-- 【生产核】C 产物开发：asp.cd("dev") → dev.write/build/run/save/list + debug.* 调试会话（动作工具——ts 程序内不可调；2026-08-11 探索核/生产核分立）
-- 【生产核·文档】编写类任务：asp.cd("write") → write.create/edit/read/list/save + write.section 章节组织（大纲→草稿→修订→定稿；无 build/debug——文档不编译；2026-08-12 批 2）
+- python.run(code) → {ok, stdout, stderr, value, durationMs} —— python 程序（code = 源码字符串）。何时用：python 生态/数据计算的多语句。效果：_result 值回传。
+- python.eval(code) → 同上 —— 单表达式。何时用：一行计算。效果：表达式值即结果。
+- bash.run(command) → {ok, stdout, stderr, durationMs} —— 命令序列。何时用：环境操作/探测（产物写入不走 bash）。效果：stdout。
+- bash.eval(command) → 同上 —— 单条命令。何时用：ls/cat/grep 快速探测。效果：stdout。
+- 【生产核】C 产物开发：asp.cd("dev") → dev.write/build/run/save/list + debug.*（动作工具——ts 程序内不可调；2026-08-11 探索核/生产核分立）
+- 【生产核·文档】编写类任务：asp.cd("write") → write.create/edit/read/list/save + write.section（大纲→草稿→修订→定稿；无 build/debug；2026-08-12 批 2）
 - ts 程序：能力函数 await 调用；return 值 + stdout 回填
 
 ## web/llm/state/ext/env（扩展能力包）
-- llm.complete: LLM 调用（嵌套 agent/评估）
-- web: HTTP 获取
-- state: 记忆召回（recallFunctions/recallInsights）
-- ext: 扩展编排（index/use/kernel/syncIndex——代码库式扩展）
-- env.inspect: 环境状态摘要
+- llm.complete —— 嵌套 LLM 调用。何时用：子分析/评估/翻译等二次推理。效果：LLM 回复。
+- web —— HTTP 获取。何时用：外部网页/API 数据。效果：响应内容。
+- state —— 记忆召回。何时用：按需回忆（recallFunctions/recallInsights）。效果：相关记忆条目。
+- ext —— 扩展编排。何时用：index/use/kernel/syncIndex 操作代码库式扩展。效果：扩展能力注入。
+- env.inspect —— 环境状态。何时用：确认环境/版本/可用性。效果：状态摘要。
 
 ## 扩展注册（ext——已装载扩展）
 ${extDoc}
 
 ## 新能力接入
-能力函数加入后在本索引追加记录——worker 下次读取即发现（prompt 模板零改动）`;
+能力函数加入后按【签名 → 返回 + 何时用 + 效果】三要素在本索引追加记录——worker 下次读取即发现（prompt 模板零改动；0.8.2 锚点标准）`;
 }
 
 /** API 调查技能文档（lazy 探索方法论——按需读取——不盲试） */
