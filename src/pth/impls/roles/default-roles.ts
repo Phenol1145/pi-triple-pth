@@ -91,12 +91,18 @@ export const DEFAULT_ROLES: WorkerRole[] = [
 ];
 
 export const MID_ROLES: WorkerRole[] = [
-  // 2026-08-14 类型树修理（用户裁决）：executor/explorer/governor 收敛为 actuator 子类型——
-  // 与 2026-08-12 控制论分割裁决对齐（Origin → sensor/controller/actuator 三元组；
-  // actuator = 执行侧——执行/信息/治理三族根；controller/sensor 保持 origin 直属 gen=1）
+  // 2026-08-14 类型树修理（用户裁决）：控制论三元组 sensor/controller/actuator 升格为真实类型（gen=1 挂 Origin）——
+  // actuator = 执行侧（executor/explorer/governor/researcher 四族根）；
+  // sensor = 观测侧（sensor:* 四观测点根）；controller = 调节侧（controller:* 五调节点根）
   { id: "actuator", tags: ["actuate"], prompt: "你是执行器——actuator 控制论执行侧（执行/信息/治理/研究四族根）。族内四大分支：executor（执行——生产交付）/explorer（信息——侦察摄入）/governor（计划——规划治理）/researcher（研究——知识生产）。你不预设分支方向：按任务性质判断归属，并在产物中注明建议路由。",
     description: "执行器中间层（控制论三元组 sensor/controller/actuator 的执行侧——执行/信息/治理/研究四族根）", thinking: "high",
     parent: "origin", generation: 1, differentiation: "Origin 控制论分割（2026-08-12 裁决）执行侧落地——executor/explorer/governor 三族收敛于 actuator（2026-08-14 +researcher 研究族）" },
+  { id: "sensor", tags: ["sensor", "observe"], prompt: "你是观测者——sensor 控制论观测侧（控制论三元组的感知位）。族内四大观测点：worker-opt（内环调用点）/system-opt（中环系统）/resource（外环资源）/memory（记忆健康）。你不预设观测对象：按观测任务性质判断归属，并在产物中注明建议路由。",
+    description: "观测器中间层（控制论三元组 sensor/controller/actuator 的观测侧——4 观测点族根）", thinking: "medium",
+    parent: "origin", generation: 1, differentiation: "Origin 控制论分割（2026-08-12 裁决）观测侧落地——sensor:* 四观测点收敛于 sensor 类型（2026-08-14 用户裁决：sensor/controller 升格为真实类型）" },
+  { id: "controller", tags: ["controller", "regulate"], prompt: "你是调节者——controller 控制论调节侧（控制论三元组的决策位）。族内五大调节点：router（任务路由）/worker-opt（worker 优化）/pth-opt（PTH 面优化）/resource（资源优化）/memory（记忆管理）。你不预设调节对象：按调节任务性质判断归属，并在产物中注明建议路由。",
+    description: "调节器中间层（控制论三元组 sensor/controller/actuator 的调节侧——5 调节点族根）", thinking: "high",
+    parent: "origin", generation: 1, differentiation: "Origin 控制论分割（2026-08-12 裁决）调节侧落地——controller:* 五调节点收敛于 controller 类型（2026-08-14 用户裁决：sensor/controller 升格为真实类型）" },
   { id: "executor", tags: ["execute", "deliver"], prompt: "你是执行者——执行族中间层。负责族内泛化的任务交付（未明确开发/测试之分的执行任务）：按任务需求组合执行能力完成并交付产物。族内已有特化：developer（实现——含 coder/tester 子类型）/writer（编写）——若任务明确属于特化方向，在产物中注明建议路由。",
     description: "执行族中间层（泛化任务交付）", thinking: "high", acceptanceRole: "writer",
     parent: "actuator", generation: 2, differentiation: "执行类任务族诱导——做事型任务（实现/构建/验证）从 actuator 分出独立分支" },
@@ -119,7 +125,8 @@ export const MID_ROLES: WorkerRole[] = [
  * GOVERNANCE_ROLES —— 治理族·控制论骨架（2026-08-12 体系自制——Origin 控制论分割）。
  *
  * 用户裁决：Origin 分割为 sensor（观测）/ controller（调节）/ actuator（执行）三类根角色。
- * actuator = 既有执行族（developer/writer/…）；sensor/controller 新增（generation=1 中间层）：
+ * 2026-08-14 用户裁决：sensor/controller 升格为真实类型（MID_ROLES gen=1 挂 Origin）——
+ * 本数组的 9 个叶子是其子类型（gen=2 挂 sensor/controller）：
  *   sensor 系 4 子类：worker-opt（内环观测）/ system-opt（系统观测）/ resource（资源观测）/ memory（记忆观测）
  *   controller 系 5 子类：router（任务路由——guard 占位）/ worker-opt（worker 优化）/
  *     pth-opt（PTH 面优化）/ resource（资源优化——方案管理）/ memory（记忆管理）
@@ -135,46 +142,46 @@ export const GOVERNANCE_ROLES: WorkerRole[] = [
     description: "调用点观测（JIT 内环 sensor——工具频率/token 分布/反模式识别）", thinking: "medium",
     capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：观测=执行核（obs 能力在 ts 程序面）+导航（无生产核/治理面）
-    parent: "origin", generation: 1, differentiation: "控制论分割——观测职责从 Origin 分出（内环：调用点级测量）", acceptanceRole: "read-only" },
+    parent: "sensor", generation: 2, differentiation: "控制论分割——观测职责从 Origin 分出（内环：调用点级测量）", acceptanceRole: "read-only" },
   { id: "sensor:system-opt", tags: ["sensor", "observe"], prompt: "你是系统观测者（sensor:system-opt）——控制论中环的测量角色。任务：调查 PTH 面状态（记忆空间+动作空间快照、任务池分布、批次健康），交叉调查其他 sensor 的观测（一致性校验——防单点噪声误报），输出系统观测报告。数据源：obs.tasks/obs.metrics/obs.batches/obs.memory。产物：memory.write kind=optimizer-suggestion draft。",
     description: "系统观测（中环 sensor——记忆+动作空间/PTH 面/交叉调查）", thinking: "medium",
     capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：观测=执行核（obs 能力在 ts 程序面）+导航（无生产核/治理面）
-    parent: "origin", generation: 1, differentiation: "控制论分割——观测职责从 Origin 分出（中环：系统级测量）", acceptanceRole: "read-only" },
+    parent: "sensor", generation: 2, differentiation: "控制论分割——观测职责从 Origin 分出（中环：系统级测量）", acceptanceRole: "read-only" },
   { id: "sensor:resource", tags: ["sensor", "observe"], prompt: "你是资源观测者（sensor:resource）——控制论外环（资源层）的测量角色。任务：多数据源采集资源状态（obs.pg 系统视图/obs.storage 存储占用/obs.metrics 指标），识别资源瓶颈（连接数/缓存命中/存储增长/排队），输出资源观测报告。产物：memory.write kind=optimizer-suggestion draft（含资源域建议——batch 数量/核池/存储清理）。",
     description: "资源观测（外环 sensor——PG/存储/指标多源）", thinking: "medium",
     capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：观测=执行核（obs 能力在 ts 程序面）+导航（无生产核/治理面）
-    parent: "origin", generation: 1, differentiation: "控制论分割——观测职责从 Origin 分出（外环：资源级测量）", acceptanceRole: "read-only" },
+    parent: "sensor", generation: 2, differentiation: "控制论分割——观测职责从 Origin 分出（外环：资源级测量）", acceptanceRole: "read-only" },
   { id: "sensor:memory", tags: ["sensor", "observe"], prompt: "你是记忆观测者（sensor:memory）——记忆管理的测量角色。任务：观测记忆空间健康（obs.memory 质量聚合：kind/status 分布/hit_count 均值/重复度），识别记忆问题（重复条目/僵尸 draft/低命中/容量增长），输出记忆观测报告。产物：memory.write kind=optimizer-suggestion draft（记忆整理建议——归档/合并/清理）。",
     description: "记忆观测（记忆空间健康——容量/质量/重复度）", thinking: "medium",
     capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：观测=执行核（obs 能力在 ts 程序面）+导航（无生产核/治理面）
-    parent: "origin", generation: 1, differentiation: "控制论分割——观测职责从 Origin 分出（记忆管理测量）", acceptanceRole: "read-only" },
+    parent: "sensor", generation: 2, differentiation: "控制论分割——观测职责从 Origin 分出（记忆管理测量）", acceptanceRole: "read-only" },
   // ── controller 系（调节根子角色——承诺任务类型=控制/调节——capabilities 含 manage 控制面）──
   { id: "controller:router", tags: ["controller", "route"], prompt: "你是任务路由者（controller:router）——任务分流决策角色（guard 占位——v1 不实现分流判断）。任务：评审任务-角色匹配（task-resolver 分配合理性），记录路由观察（哪些任务类型反复在角色间迁移），输出路由建议（任务分化/合并方向——任务分化优先于 worker 分化）。",
     description: "任务路由（调用点截断/分流——占位）", thinking: "medium",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "plan",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：controller=执行核+导航+空间治理面（asp.create/destroy 维护收编点——worker 无）
-    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（任务路由）", acceptanceRole: "read-only" },
+    parent: "controller", generation: 2, differentiation: "控制论分割——调节职责从 Origin 分出（任务路由）", acceptanceRole: "read-only" },
   { id: "controller:worker-opt", tags: ["controller", "optimize"], prompt: "你是 worker 优化者（controller:worker-opt）——JIT 内环的调节角色。任务：读取 sensor:worker-opt 的观测建议（optimizer-suggestion draft），裁决 worker 分解/合并（任务分化优先于 worker 分化；任务类型合并优先于 worker 合并），用 manage.worker.propose 落分化提案（draft——监督层批准注册）。",
     description: "worker 优化（JIT 内环 controller——分解/合并裁决）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
-    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（worker 优化）", acceptanceRole: "read-only" },
+    parent: "controller", generation: 2, differentiation: "控制论分割——调节职责从 Origin 分出（worker 优化）", acceptanceRole: "read-only" },
   { id: "controller:pth-opt", tags: ["controller", "optimize"], prompt: "你是 PTH 面优化者（controller:pth-opt）——控制论中环的调节角色。任务：读取 sensor:system-opt 观测，裁决 PTH 面优化（扩展编写/工具面调整/系统参数），用 manage.params.set 热调参（PTH_*），用 manage.resource.config 落重启级参数 draft，新扩展经 toolstore 产物链路。",
     description: "PTH 面优化（中环 controller——扩展/工具面/系统参数）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "implementation",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
-    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（PTH 面优化）", acceptanceRole: "read-only" },
+    parent: "controller", generation: 2, differentiation: "控制论分割——调节职责从 Origin 分出（PTH 面优化）", acceptanceRole: "read-only" },
   { id: "controller:resource", tags: ["controller", "optimize"], prompt: "你是资源优化者（controller:resource）——控制论外环（资源层）的调节角色。任务：读取 sensor:resource 观测，管理资源优化方案（默认方案=perf-autopilot 规则表保留）：热调节（batch 数量/核池参数/存储清理——manage.params.set + manage.resource.scheme 方案管理）、重启级参数落 draft（manage.resource.config）、复测验证（下窗口对比——恶化回滚）。",
     description: "资源优化（外环 controller——方案管理/热调参/重启级 draft）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "implementation",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
-    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（资源优化）", acceptanceRole: "read-only" },
+    parent: "controller", generation: 2, differentiation: "控制论分割——调节职责从 Origin 分出（资源优化）", acceptanceRole: "read-only" },
   { id: "controller:memory", tags: ["controller", "optimize"], prompt: "你是记忆管理者（controller:memory）——记忆管理的调节角色。任务：读取 sensor:memory 观测，裁决记忆整理（归档/合并/清理策略），用 manage.memory.archive 落归档提案（draft——监督层批准执行；记忆是核心资产删除类不自动），写入策略调整经 manage.params 热参数。",
     description: "记忆管理（记忆整理/归档/清理策略——治理层流转）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
-    parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（记忆管理）", acceptanceRole: "read-only" },
+    parent: "controller", generation: 2, differentiation: "控制论分割——调节职责从 Origin 分出（记忆管理）", acceptanceRole: "read-only" },
 ];

@@ -246,7 +246,7 @@ export function allWorkerRoles(): WorkerRole[] {
  *  执行族/信息族走 lazy 锚点（memory.query 按需展开）。 */
 export function isPlanningRole(roleId: string | undefined): boolean {
   if (!roleId) return false;
-  return roleId === "planner" || roleId === "governor" || roleId.startsWith("controller:") || roleId.startsWith("sensor:");
+  return roleId === "planner" || roleId === "governor" || roleId === "controller" || roleId === "sensor" || roleId.startsWith("controller:") || roleId.startsWith("sensor:");
 }
 
 /**

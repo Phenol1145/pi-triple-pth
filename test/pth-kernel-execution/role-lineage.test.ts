@@ -33,16 +33,21 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(gen4.every((r) => r.parent === "developer")).toBe(true);
   });
 
-  it("5 中间层角色：actuator 挂 Origin（generation=1）；四族挂 actuator（generation=2——2026-08-14 类型树修理 + researcher）", () => {
+  it("7 中间层角色：控制论三元组 sensor/controller/actuator 挂 Origin（generation=1）；四族挂 actuator（generation=2——2026-08-14 sensor/controller 升格真实类型）", () => {
     const midIds = MID_ROLES.map((r) => r.id).sort();
-    expect(midIds).toEqual(["actuator", "executor", "explorer", "governor", "researcher"]);
+    expect(midIds).toEqual(["actuator", "controller", "executor", "explorer", "governor", "researcher", "sensor"]);
     for (const r of MID_ROLES) {
       expect(r.differentiation).toBeTruthy();
     }
-    const actuator = MID_ROLES.find((r) => r.id === "actuator")!;
-    expect(actuator.parent).toBe("origin");
-    expect(actuator.generation).toBe(1);
-    for (const r of MID_ROLES.filter((r) => r.id !== "actuator")) {
+    // 控制论三元组根：actuator/sensor/controller 挂 Origin gen1
+    for (const root of ["actuator", "sensor", "controller"]) {
+      const r = MID_ROLES.find((x) => x.id === root)!;
+      expect(r.parent).toBe("origin");
+      expect(r.generation).toBe(1);
+    }
+    // 四族挂 actuator gen2
+    for (const fam of ["executor", "explorer", "governor", "researcher"]) {
+      const r = MID_ROLES.find((x) => x.id === fam)!;
       expect(r.parent).toBe("actuator");
       expect(r.generation).toBe(2);
     }
@@ -58,18 +63,22 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(lineage.some((r) => r.id === "origin")).toBe(true);
     expect(lineage.some((r) => r.id === "executor")).toBe(true);
     // 2026-08-12 体系自制：+9 governance（sensor×4/controller×5——谱系可见默认不派发）；
-    // 2026-08-14 类型树修理：中间层 3 → 5（+actuator/+researcher）
-    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 5 + 9);
+    // 2026-08-14 类型树修理：中间层 3 → 7（+actuator/+researcher/+sensor/+controller）
+    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 7 + 9);
     const gov = lineage.filter((r) => r.id.startsWith("sensor:") || r.id.startsWith("controller:"));
     expect(gov.length).toBe(9);
   });
 
-  it("buildRoleLineage 构建四层树（Origin → actuator+9 治理骨架 → 4 族 → 10 叶子——2026-08-14 类型树修理 + researcher）", () => {
+  it("buildRoleLineage 构建四层树（Origin → sensor/controller/actuator 三元组 → 4 族 + 9 治理骨架 → 10 叶子——2026-08-14 类型树修理）", () => {
     const tree = buildRoleLineage();
     expect(tree.role.id).toBe("origin");
-    expect(tree.children.length).toBe(1 + 9);   // actuator + 9 治理骨架
+    expect(tree.children.map((c) => c.role.id).sort()).toEqual(["actuator", "controller", "sensor"]);   // 控制论三元组（真实类型）
     const actuator = tree.children.find((c) => c.role.id === "actuator");
+    const controller = tree.children.find((c) => c.role.id === "controller");
+    const sensor = tree.children.find((c) => c.role.id === "sensor");
     expect(actuator?.children.map((c) => c.role.id).sort()).toEqual(["executor", "explorer", "governor", "researcher"]);
+    expect(controller?.children.map((c) => c.role.id).sort()).toEqual(["controller:memory", "controller:pth-opt", "controller:resource", "controller:router", "controller:worker-opt"]);
+    expect(sensor?.children.map((c) => c.role.id).sort()).toEqual(["sensor:memory", "sensor:resource", "sensor:system-opt", "sensor:worker-opt"]);
     const executor = actuator?.children.find((c) => c.role.id === "executor");
     const explorer = actuator?.children.find((c) => c.role.id === "explorer");
     const governor = actuator?.children.find((c) => c.role.id === "governor");
