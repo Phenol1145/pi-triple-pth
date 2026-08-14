@@ -29,7 +29,7 @@ const OUT = "docs/pth/tension-decisions.json";
 const ITEMS: Item[] = [
   {
     id: "T1", title: "worker-index 注入范围", recommended: "A",
-    conflict: "worker-index 全员注入（执行族约 22 行无关清单）vs 专注度核心（0.7 核心区寸土寸金）",
+    conflict: "worker-index 全员注入（执行族约 22 行无关清单）vs 专注度核心（0.8 核心区寸土寸金——2026-08-14 重编号后）",
     options: [
       { key: "A", label: "规划系注入 + 执行族 lazy", note: "planner/governor/controller/sensor 保留注入；执行族与信息族改 lazy 指针——与锚点先行一致，改 agent-loop 一处" },
       { key: "B", label: "全员 lazy", note: "彻底退出核心区——信息最省，但规划/裁决多一次查询往返" },
