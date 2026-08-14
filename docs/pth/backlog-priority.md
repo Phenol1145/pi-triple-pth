@@ -77,7 +77,7 @@
 > `agent-loop.ts` executeStep（ts.run 直调）、`templates.ts`/`nl-translator.ts`（各自拼 llm.complete）、
 > 能力文档（散文式——T8 已改三要素但仍是手写）；ts-interpreter 只认 `Record<string, unknown>`。
 
-### Phase 1 —— 契约类型化（纯重构，行为不变）
+### Phase 1 —— 契约类型化（纯重构，行为不变）✅ 已实装（2026-08-14 `c45256f`——ptc/contract.ts 注册表 21 条目 + wrapValidated 接线 buildCapabilities + AGENT_CAPABILITY_AS_ACTION 派生 + 5 测试；全量 1578 绿）
 
 1. **注册表单一真相源**：新建 `src/pth/kernel/ptc/contract.ts`——
    `PtcCapabilityDef` = { name、argsSchema（JSON Schema）、returnType（TS 类型串）、
