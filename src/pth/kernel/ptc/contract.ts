@@ -36,6 +36,8 @@ export interface PtcCapabilityDef {
   validate?: (args: unknown[]) => void;
   /** 能力函数被误当动作工具时的降级程序生成器 */
   asAction?: (args: Record<string, unknown>) => string;
+  /** 契约注释（如 Phase 3 dispose 制动点标注） */
+  note?: string;
 }
 
 /** 契约校验错误（结构化——capability + reason 可读） */
@@ -196,21 +198,26 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     whenToUse: '按名取技能包',
     effect: 'skill 对象（v1 返回空）',
   },
+  // 核契约条目（2026-08-14 A1 Phase 2 修订）：其他语言两级落位——
+  // 程序内调用 = Interpreter 核契约（execute → InterpreterResult），不建 per-language 包装；
+  // 单步 LLM 工具 = 动作工具面（bash.run/python.run——Phase 3 工具面生成器投影）。
   'bash': {
     name: 'bash', family: 'kernel',
-    params: '（解释器对象——execute/reset/dispose/snapshot）',
-    returnType: 'Interpreter',
-    anchor: 'bash 核（环境管理）',
-    whenToUse: 'shell 命令/环境操作',
-    effect: '命令执行结果',
+    params: '（核契约——execute(program: string, opts?: ExecuteOptions)）',
+    returnType: 'InterpreterResult { ok, value?, stdout?, stderr?, error?, durationMs, truncated? }',
+    anchor: 'bash 核（环境管理——shell 命令）',
+    whenToUse: '程序内 shell 命令/环境操作（单步 LLM 工具用 bash.run——工具面投影）',
+    effect: 'InterpreterResult——value 为命令输出对象',
+    note: 'Phase 3：dispose 终止语义统一落点（程序级制动）',
   },
   'python': {
     name: 'python', family: 'kernel',
-    params: '（解释器对象——execute/reset/dispose/snapshot）',
-    returnType: 'Interpreter',
-    anchor: 'python 核（计算）',
-    whenToUse: '数值/数据处理',
-    effect: '程序执行结果',
+    params: '（核契约——execute(program: string, opts?: ExecuteOptions)）',
+    returnType: 'InterpreterResult { ok, value?, stdout?, stderr?, error?, durationMs, truncated? }',
+    anchor: 'python 核（计算/数据处理）',
+    whenToUse: '程序内数值/数据处理（单步 LLM 工具用 python.run——工具面投影）',
+    effect: 'InterpreterResult——value 为程序结果',
+    note: 'Phase 3：dispose 终止语义统一落点（程序级制动）',
   },
   'results': {
     name: 'results', family: 'seed',

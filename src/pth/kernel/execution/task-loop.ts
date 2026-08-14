@@ -2,6 +2,7 @@ import type { WorkerKernel } from "../interpreter/index.js";
 import type { Task, TaskStore } from "../storage/task-store-pg.js";
 import type { WorkerRole } from "./worker-cluster.js";
 import { translateTask } from "./nl-translator.js";
+import { runPtcProgram } from "../ptc/runner.js";
 import { runAgentTask } from "./agent-loop.js";
 import { getEventBus } from "./event-bus.js";
 
@@ -227,7 +228,7 @@ export class TaskLoop {
       }
       const result = agentResult
         ? { ok: true, value: agentResult.value, stdout: agentResult.summary ?? "", stderr: "", durationMs: Date.now() - execStart, language: "agent" }
-        : await kernel.ts.execute(code!, { cwd: ws.dir });
+        : (await runPtcProgram({ code: code!, cwd: ws.dir, ts: kernel.ts })).raw;
       const execMs = Date.now() - execStart;
       // 性能计量（SPEC L1）：TS 主执行计入 kernel exec（python/bash 由 metered 包装计）
       this.deps.onTaskMetric?.({ type: "exec", language: "ts", durationMs: execMs, ok: result.ok });

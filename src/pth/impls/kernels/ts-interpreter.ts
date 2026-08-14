@@ -9,6 +9,8 @@ export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
  * TS 解释器：node:vm 持久 context + stripTypeScriptTypes。
  * 能力注入：context 默认空，只注入白名单（构造时传入 capabilities）。
  * 前置校验（对抗性审核 B5）：import/require 拒绝 + top-level await 包装。
+ * Seam（2026-08-14 A1 Phase 2）：本核只管「程序 × 绑定」——构造入参即 bindings，
+ * 能力从哪装配由上层（ptc/runner + buildCapabilities）拥有（对照 DSH：Runtimes know nothing about tools）。
  *
  * 设计级限制（Finding #3，不修代码、固化行为）：context 跨 execute 持久，全局词法绑定
  * （let/const/class 声明）无法在后续 execute 中重声明——重复 `const s = ...` 抛

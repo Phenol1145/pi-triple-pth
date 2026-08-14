@@ -13,6 +13,7 @@
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { AgentToolId } from "./parse-agent-action.js";
 import { buildDoc } from "../extensions/index.js";
+import { runPtcProgram } from "../ptc/runner.js";
 
 export interface AgentToolResult {
   ok: boolean;
@@ -193,27 +194,20 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
   // 元命令拆分（2026-08-11 用户裁决）：ts.run = 程序执行（块包装——声明/多语句/控制流）；
   // ts.eval = 单表达式求值（return 包装——completion value 必回）。显式声明取代启发式猜测。
   "ts.run": async ({ kernel, taskWorkspace }, args) => {
-    const r = await kernel.ts.execute(str(args, "code"), { cwd: taskWorkspace ?? "/tmp", exec: "program" });
-    if (!r.ok) return { ok: false, error: r.error?.message ?? "ts execute failed" };
-    // PTC 程序模式：回填 return 值 + stdout（含中间输出——LLM 可诊断多步组合）
-    const out = truncate(r.stdout ?? "", 4000);
-    const value = JSON.stringify(r.value ?? null);
-    const combined = [out.text, value !== "null" ? `返回值: ${value}` : ""].filter(Boolean).join("\n");
+    // PTC 统一执行缝（2026-08-14 A1 Phase 2——组装逻辑收敛进 ptc/runner）
+    const { raw, assembled } = await runPtcProgram({ code: str(args, "code"), cwd: taskWorkspace ?? "/tmp", exec: "program", ts: kernel.ts });
+    if (!raw.ok) return { ok: false, error: raw.error?.message ?? "ts execute failed" };
     return applyOutputMode(
-      { ok: true, value: r.value, stdout: truncate(combined, 4000).text, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
+      { ok: true, value: raw.value, stdout: assembled.stdout, truncated: assembled.truncated },
       args["mode"],
     );
   },
 
   "ts.eval": async ({ kernel, taskWorkspace }, args) => {
-    const r = await kernel.ts.execute(str(args, "code"), { cwd: taskWorkspace ?? "/tmp", exec: "single" });
-    if (!r.ok) return { ok: false, error: r.error?.message ?? "ts eval failed" };
-    // 单表达式求值：value 即结果（stdout 冗余裁剪）
-    const value = JSON.stringify(r.value ?? null);
-    const out = truncate(r.stdout ?? "", 2000);
-    const combined = [out.text, value !== "null" ? `结果: ${value}` : ""].filter(Boolean).join("\n");
+    const { raw, assembled } = await runPtcProgram({ code: str(args, "code"), cwd: taskWorkspace ?? "/tmp", exec: "single", ts: kernel.ts });
+    if (!raw.ok) return { ok: false, error: raw.error?.message ?? "ts eval failed" };
     return applyOutputMode(
-      { ok: true, value: r.value, stdout: truncate(combined, 2000).text, truncated: out.truncated },
+      { ok: true, value: raw.value, stdout: assembled.stdout, truncated: assembled.truncated },
       args["mode"],
     );
   },

@@ -16,6 +16,7 @@ import { AGENT_TOOLS, AGENT_CAPABILITY_DOC, toolsToSchema, toolsDescription, too
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "../extensions/perf-params.js";
 import { createGuardRegistry } from "./guardrails.js";
+import { runPtcProgram } from "../ptc/runner.js";
 import { modelState } from "../extensions/model.js";
 import { spaceRegistry } from "./space-registry.js";
 
@@ -858,14 +859,15 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       if (wrap) {
         const code = wrap(args);
         input.logger?.(`[agent] step=${steps + 1} capability-action ${tool} → ts 程序降级`);
-        const r = await kernel.ts.execute(code, { cwd: "/tmp" });
-        const result: AgentToolResult = r.ok
-          ? { ok: true, value: r.value, stdout: truncate(JSON.stringify(r.value ?? null), 2000).text }
-          : { ok: false, error: r.error?.message ?? "ts execute failed" };
+        // PTC 统一执行缝（2026-08-14 A1 Phase 2——执行+注册收敛进 ptc/runner）
+        const { raw } = await runPtcProgram({
+          code, cwd: "/tmp", ts: kernel.ts,
+          registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
+        });
+        const result: AgentToolResult = raw.ok
+          ? { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text }
+          : { ok: false, error: raw.error?.message ?? "ts execute failed" };
         input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-        try {
-          kernel.ts.registerResult?.(`result_${steps + 1}`, { tool, ok: result.ok, value: result.ok ? result.value : undefined, error: result.ok ? undefined : result.error });
-        } catch { /* mock 容忍 */ }
         const summary = result.ok
           ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
           : `error: ${result.error ?? "unknown"}`;
