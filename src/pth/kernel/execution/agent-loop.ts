@@ -15,6 +15,7 @@ import type { WorkerRole } from "./worker-cluster.js";
 import { AGENT_TOOLS, AGENT_CAPABILITY_DOC, toolsToSchema, toolsDescription, toolsForExecTool, toolSchemaFor, expandToolGroups, type AgentToolResult } from "./agent-tools.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "../extensions/perf-params.js";
+import { createGuardRegistry } from "./guardrails.js";
 import { modelState } from "../extensions/model.js";
 import { spaceRegistry } from "./space-registry.js";
 
@@ -96,8 +97,6 @@ export type AgentTaskResult =
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
-/** done 收尾引导（worker 设计 2026-08-09——三层防御 L3 计数）：空 done（result 缺失/为空）回填引导继续循环；连续 N 次仍空才强制终止（防死循环） */
-const DONE_GUIDE_LIMIT = 3;
 
 /** 构建 agent system prompt：角色人设 + 工具协议 + 能力文档 + PTC 程序模式引导 + 输出要求 */
 /** PTH Worker 世界观（2026-08-09——参考 pi 系统提示词/AGENTS.md 功能：身份/工作流/框架事实/约束）。
@@ -306,8 +305,8 @@ function actionFingerprint(tool: string, args: Record<string, unknown>): string 
 // 机制：recentResults 窗口（6 步）按"同工具族+同目标+连续 N 次负结果"判定，
 //       N=3 回填引导（该路径已确认不可用→换策略）、N=5 强制终止（对齐现有阈值）——与参数指纹并存。
 const RECENT_RESULTS_WINDOW = 6;
-const NEG_GUIDE_THRESHOLD = 3;     // 连续负结果 ≥3 → 回填引导
-const NEG_TERMINATE_THRESHOLD = 5; // 连续负结果 ≥5 → 强制终止（防失控）
+// 负结果收敛阈值（N12 护栏统一抽象——配置键 PTH_GUARD_NEGATIVE_LIMIT / PTH_GUARD_NEGATIVE_GUIDE_AT，
+// 缺省 5/3——经 guardReg.negativeLimits() 解析后传入 negativeLoopCheck）
 const NEG_SEMANTICS = [
   /not found/i, /no such (file|directory)/i, /ENOENT/i, /cannot find/i,
   /不存在/i, /未找到/i, /无此/i, /无法找到/i,
@@ -372,8 +371,10 @@ function isNegativeResult(result: { ok?: boolean; error?: unknown; stdout?: unkn
   return NEG_SEMANTICS.some((p) => p.test(text));
 }
 
-/** 负结果收敛检查：窗口内同 family+target 的连续负结果计数 → 引导/终止 */
-function negativeLoopCheck(win: RecentAction[], family: string, target: string, neg: boolean, allowTerminate = true): { action: "none" | "guide" | "terminate"; count: number } {
+/** 负结果收敛检查：窗口内同 family+target 的连续负结果计数 → 引导/终止。
+ *  阈值走护栏注册表（N12——PTH_GUARD_NEGATIVE_LIMIT/GUIDE_AT，运行时可调）；
+ *  allowTerminate=false = 豁免矩阵命中（T5 侦察豁免——guardReg.exempt 判定）。 */
+function negativeLoopCheck(win: RecentAction[], family: string, target: string, neg: boolean, allowTerminate = true, terminateAt = 5, guideAt = 3): { action: "none" | "guide" | "terminate"; count: number } {
   if (!neg) return { action: "none", count: 0 };
   let count = 0;
   for (let i = win.length - 1; i >= 0; i--) {
@@ -382,9 +383,8 @@ function negativeLoopCheck(win: RecentAction[], family: string, target: string, 
     if (!r.neg) break;                                          // 同目标正结果中断连续
     count++;
   }
-  // 2026-08-14 T5 裁决：侦察类（scout/explorer）豁免强制终止（合法多源探测——maxSteps 兜底）
-  if (allowTerminate && count >= NEG_TERMINATE_THRESHOLD) return { action: "terminate", count };
-  if (count >= NEG_GUIDE_THRESHOLD) return { action: "guide", count };
+  if (allowTerminate && count >= terminateAt) return { action: "terminate", count };
+  if (count >= guideAt) return { action: "guide", count };
   return { action: "none", count };
 }
 /** 静态环境注入：toolstore 文件清单 + 记忆概览（失败容忍——不阻断任务） */
@@ -456,12 +456,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
 
   const start = Date.now();
   let steps = 0;
-  let emptyDoneCount = 0;  // done 空 result 引导计数（连续 ≥DONE_GUIDE_LIMIT 强制失败）
   let lastFingerprint = "";
-  let repeatCount = 0;
-  let emptyReplies = 0;
-  let unknownToolCount = 0;   // 未知工具引导计数（连续 ≥3 才终止——2026-08-13）
   let recentResults: RecentAction[] = [];  // 负结果收敛窗口（≤6 步——同工具族+同目标连续负结果 N=3 引导/N=5 终止——S6 死循环机制 2026-08-13）
+  // 护栏注册表（2026-08-14 N12——阈值 PTH_GUARD_* 走配置中心、豁免矩阵声明式、处置语义统一 soft/hard）
+  const guardReg = createGuardRegistry((k, d) => configNumber(k, d));
+  const repeatGuard = guardReg.guard("repeat-action");
+  const emptyDoneGuard = guardReg.guard("empty-done");
+  const emptyReplyGuard = guardReg.guard("empty-reply");
+  const unknownToolGuard = guardReg.guard("unknown-tool");
 
   const complete = async (tools: import("@earendil-works/pi-ai").Tool[]): Promise<import("../interpreter/llm-fn.js").LlmResult | string> => {
     try {
@@ -527,9 +529,9 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     if (res.content && res.content.trim().length > 0) {
       return { ok: true, value: res.content, summary: res.content, steps: steps + 1 };
     }
-    // 空回复（deepseek-v4-flash 已知问题）——重试而非完成（连续 3 次判失败）
-    emptyReplies += 1;
-    if (emptyReplies >= 3) return { ok: false, error: "llm 连续空回复（无 tool_calls 无文本）", steps: steps + 1 };
+    // 空回复（deepseek-v4-flash 已知问题）——重试而非完成（连续 N 次判失败——N12 护栏）
+    const ev = emptyReplyGuard.step({ roleId: input.role?.id, tool: "(empty-reply)", steps: steps + 1 }, true);
+    if (ev.kind === "hard") return { ok: false, error: "llm 连续空回复（无 tool_calls 无文本）", steps: steps + 1 };
     continue;
   }
 
@@ -542,15 +544,16 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     // 语义指纹（关键参数）连续相同 → 重复。≥3 次回填引导（不终止——模型修正策略）；
     // ≥5 次强制终止（防失控）。
     const fp = actionFingerprint(tool, args);
-    if (fp === lastFingerprint) repeatCount++;
-    else { lastFingerprint = fp; repeatCount = 0; }
-    if (repeatCount >= 5) {
-      return { ok: true, value: null, steps: steps + 1, warning: `连续 ${repeatCount} 次重复动作（${tool}），强制终止` };
+    const fpHit = fp === lastFingerprint;
+    if (!fpHit) lastFingerprint = fp;
+    const rv = repeatGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, fpHit);
+    if (rv.kind === "soft") {
+      return { ok: true, value: null, steps: steps + 1, warning: `连续 ${rv.count} 次重复动作（${tool}），强制终止` };
     }
-    if (repeatCount >= 3 && isTsFamily(tool)) {
+    if (rv.kind === "guide" && isTsFamily(tool)) {
       // 引导：重复读同一文件无意义——回填提示让模型推进（结果已在历史 tool-result）
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-        content: `[收敛] 检测到重复动作（第 ${repeatCount + 1} 次相同文件读取）——该文件内容已在前面的工具结果中返回过——不要重复读取，直接基于已有结果推进下一步（设计/实现/测试/完成）。` });
+        content: `[收敛] 检测到重复动作（第 ${rv.count + 1} 次相同文件读取）——该文件内容已在前面的工具结果中返回过——不要重复读取，直接基于已有结果推进下一步（设计/实现/测试/完成）。` });
       input.logger?.(`[agent] step=${steps + 1} 重复动作引导（${fp.slice(0, 60)}）`);
       return undefined;
     }
@@ -806,22 +809,22 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         (typeof result === "string" && result.trim().length === 0);
       if (isEmptyResult) {
         // 收尾引导（L2 运行时引导——不再立即 reject——回填引导让模型重新提交正确产物）
-        emptyDoneCount += 1;
+        const dv = emptyDoneGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, true);
         const guide = result === undefined || result === null
           ? "done 缺少 result（必填）——已拒绝：你的 done 调用未携带最终产出对象。请重新调用 done：result 必须为实际产物（实现代码/写入的文件/计算结果等任意 JSON），可附带 summary 说明完成情况。"
           : "done 的 result 为空（无实际产物内容）——已拒绝：空对象/空数组/空字符串不构成产物。请重新调用 done：result 必须为实际产物（实现代码/写入的文件/计算结果等任意 JSON），可附带 summary 说明完成情况。";
-        const remaining = DONE_GUIDE_LIMIT - emptyDoneCount;
+        const remaining = dv.limit - dv.count;
         messages.push({
           role: "tool",
           toolCallId: toolCallId ?? `tc-${steps + 1}`,
           toolName: tool,
-          content: `step ${steps + 1} [done]: ${guide}（第 ${emptyDoneCount} 次空 done——剩余 ${remaining} 次机会，之后将强制终止）`,
+          content: `step ${steps + 1} [done]: ${guide}（第 ${dv.count} 次空 done——剩余 ${remaining} 次机会，之后将强制终止）`,
         });
-        input.logger?.(`[agent] step=${steps + 1} done 空 result 引导（第 ${emptyDoneCount}/${DONE_GUIDE_LIMIT} 次）`);
+        input.logger?.(`[agent] step=${steps + 1} done 空 result 引导（第 ${dv.count}/${dv.limit} 次）`);
         input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: false, args: JSON.stringify(args).slice(0, 300) });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: guide.slice(0, 200) });
-        if (emptyDoneCount >= DONE_GUIDE_LIMIT) {
-          return { ok: false, error: `done 连续 ${emptyDoneCount} 次缺少 result（应携带实际产物）——已按失败终止`, steps: steps + 1 };
+        if (dv.kind === "hard") {
+          return { ok: false, error: `done 连续 ${dv.count} 次缺少 result（应携带实际产物）——已按失败终止`, steps: steps + 1 };
         }
         return undefined;  // 继续循环——模型看到引导后应重新调用 done 提交正确产物
       }
@@ -870,14 +873,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         return undefined;
       }
       // 未知工具回填引导（2026-08-13：不再直接失败——给模型纠错机会——
-      // 模型幻觉工具名（write_doc）时引导正确工具名——连续 3 次才终止）
-      unknownToolCount += 1;
+      // 模型幻觉工具名（write_doc）时引导正确工具名——连续 N 次才终止（N12 护栏））
+      const uv = unknownToolGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, true);
       const knownNames = Object.keys(AGENT_TOOLS).filter((n) => n !== "done");
       const hint = knownNames.slice(0, 12).join("/");
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-        content: `未知工具 ${tool}（第 ${unknownToolCount} 次）——可用工具如: ${hint}… 请用已注册工具名重试（下划线形也可）。` });
+        content: `未知工具 ${tool}（第 ${uv.count} 次）——可用工具如: ${hint}… 请用已注册工具名重试（下划线形也可）。` });
       input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: `未知工具引导 ${tool}` });
-      if (unknownToolCount >= 3) return { ok: false, error: `未知工具 ${tool}（连续 ${unknownToolCount} 次）`, steps: steps + 1 };
+      if (uv.kind === "hard") return { ok: false, error: `未知工具 ${tool}（连续 ${uv.count} 次）`, steps: steps + 1 };
       return undefined;
     }
     // 执行面角色授权（模块级 EXEC_TOOL_CAP——见顶部定义）
@@ -925,8 +928,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       const tgt = actionTarget(tool, args);
       recentResults.push({ family: fam, target: tgt, neg });
       if (recentResults.length > RECENT_RESULTS_WINDOW) recentResults.shift();
-      const reconExempt = input.role?.id === "scout" || input.role?.id === "explorer";   // 2026-08-14 T5：侦察类豁免终止
-      const loopCheck = negativeLoopCheck(recentResults, fam, tgt, neg, !reconExempt);
+      // 2026-08-14 T5 侦察豁免进豁免矩阵（N12）——guardReg.exempt("negative-loop") 声明式判定
+      const reconExempt = guardReg.exempt("negative-loop", { roleId: input.role?.id, tool, steps: steps + 1 });
+      const negLimits = guardReg.negativeLimits();
+      const loopCheck = negativeLoopCheck(recentResults, fam, tgt, neg, !reconExempt, negLimits.terminate, negLimits.guideAt);
       if (loopCheck.action === "terminate") {
         return { ok: true, value: null, steps: steps + 1, warning: `连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——负验证循环，强制终止` };
       }

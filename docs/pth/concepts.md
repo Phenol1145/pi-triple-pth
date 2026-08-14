@@ -879,7 +879,7 @@ v0.9（动作面/权限/任务池纯化）
 | N9 | 术语统一 | 域 B 全域 | ✅ 容器入口统一（2026-08-13——Dockerfile.sandbox /usr/local/bin/pit→ptl）；tenant 为认证租户概念保留（非残留——PTH sections preserved）；role-doc/工具 description 词表对齐为持续事项 | 百科类型落地同步（N1 ✅） | ✅ 已实装 |
 | N10 | agentic 测试集 | 0.6 · 全域 | 规划 v2 在记忆库（official——28 子任务/3 族）；执行 7/28（2026-08-14 消化：4 个 rejected 全部处置——2×T2+v2 规划为迭代性拒绝、重试已成 ✅ 取代；T1/T3/T4 根因=任务文本非自包含规格，重派为 T01/T03/T04 自包含规格 3/3 完成 ✅）；21 子任务未派发 | 测试基线 1564 全绿（B1 修复 +7） | 🏗️ 建设中 |
 | N11 | 可预测性地图（predictability map） | 0.14 · 全域 | 无对应机制——伪世界模型猜想的落地接口：分尺度可预测性注册 + 相变预警 | 外部数据源接入（sensor 外环） · JIT 环（错误预测→修规则） | 💭 猜想·未启动 |
-| N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | 五种同构「计数→引导→终止」手写五遍；阈值硬编码/配置中心/env 三处混放；处置语义 soft/hard 混用——设计见 10.1 | agent-loop 五计数器收敛 → guardrails.ts 注册表 | 🏗️ 设计中（10.1 已落） |
+| N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | ✅ 已实装（2026-08-14——guardrails.ts 注册表：ConsecutiveGuard 三段式 + 豁免矩阵 + `PTH_GUARD_*` 阈值配置化；agent-loop 五计数器收敛，行为逐字保留；9 新测试） | agent-loop 五计数器 → guardrails.ts 注册表 | ✅ 已实装（二期未启：scorecard 观测/JIT 调参/治理族豁免裁决） |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
