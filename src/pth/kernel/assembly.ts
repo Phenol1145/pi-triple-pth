@@ -347,7 +347,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     let restored = 0;
     for (const e of spaces) {
       try {
-        const def = JSON.parse(e.content) as { id?: string; parent?: string; execTool?: string; extraTools?: string[]; memoryScope?: string; description?: string };
+        const def = JSON.parse(e.content) as { id?: string; parent?: string; execTool?: string; extraTools?: string[]; memoryScope?: string; description?: string; bindRoles?: string[] };
         if (def?.id && def.parent && def.execTool && !spaceRegistry.get(def.id)) {
           spaceRegistry.register({
             id: def.id, kind: "action", parent: def.parent, execTool: def.execTool,
@@ -355,6 +355,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
             // 治理继承：从父空间继承（与 asp.create 同步）
             allowChildren: spaceRegistry.get(def.parent)?.allowChildren,
             maxDepth: spaceRegistry.get(def.parent)?.maxDepth,
+            // 2026-08-14 N8：绑定透传（生成即绑定）——存量条目缺字段 → 继承父绑定（兼容）
+            bindRoles: def.bindRoles ?? spaceRegistry.get(def.parent)?.bindRoles,
           });
           restored++;
         }

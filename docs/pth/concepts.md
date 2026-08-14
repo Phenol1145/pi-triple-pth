@@ -932,7 +932,7 @@ v0.9（动作面/权限/任务池纯化）
 | N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | L3 容器级全缺；L2 worker 健康/DB 慢查询缺 | controller:resource 角色已有 | ❌ 未实装 |
 | N6 | 复测（verify）一等化 | 0.7.2 · 域 D | verifyAfterWindow 标志已有；独立复测任务未一等化 | optimizer-apply baseline/deopt | ⚠️ 半实装 |
 | N7 | 记忆归档执行 | 0.9 · 域 B | ✅ 执行端已实装（2026-08-14 T7——memory-admin.ts + 审批路由：draft→监督批准→archived）；定期触发待 trigger 接线 | sensor:memory / controller:memory 已有 | ⚠️ 半实装 |
-| N8 | 空间-角色绑定治理 | 0.10.2 · 域 C | T6 裁决定模型 + 2026-08-14 概念修订（空间 = worker 拓扑派生结构，生成即绑定）：绑定校验 = bindRoles 注册事实 + asp.cd 进入校验 + 分化自谱系限定；空间生成走优化通道+审批面（worker 工具面 asp.create/destroy 退役） | 治理 v2 承接 | ⚠️ 概念已修订（实现见 backlog 附录 C——B6） |
+| N8 | 空间-角色绑定治理 | 0.10.2 · 域 C | T6 裁决定模型 + 2026-08-14 概念修订（空间 = worker 拓扑派生结构，生成即绑定）：绑定校验 = bindRoles 注册事实（生成必填）+ asp.cd 进入校验（谱系上溯）+ 空间工具族归属；空间生成走治理通道（spaceRegistry.createChild/unregister）——worker 工具面 asp.create/destroy 退役 | 治理 v2 承接 | ✅ 已实装（2026-08-14 B6——`1e6d785`/`7e0380d`） |
 | N9 | 术语统一 | 域 B 全域 | ✅ 容器入口统一（2026-08-13——Dockerfile.sandbox /usr/local/bin/pit→ptl）；tenant 为认证租户概念保留（非残留——PTH sections preserved）；role-doc/工具 description 词表对齐为持续事项 | 百科类型落地同步（N1 ✅） | ✅ 已实装 |
 | N10 | agentic 测试集 | 0.6 · 全域 | 规划 v2 在记忆库（official——28 子任务/3 族）；执行 7/28（2026-08-14 消化：4 个 rejected 全部处置——2×T2+v2 规划为迭代性拒绝、重试已成 ✅ 取代；T1/T3/T4 根因=任务文本非自包含规格，重派为 T01/T03/T04 自包含规格 3/3 完成 ✅）；21 子任务未派发 | 测试基线 1564 全绿（B1 修复 +7） | 🏗️ 建设中 |
 | N11 | 可预测性地图（predictability map） | 0.14 · 全域 | 无对应机制——伪世界模型猜想的落地接口：分尺度可预测性注册 + 相变预警 | 外部数据源接入（sensor 外环） · JIT 环（错误预测→修规则） | 💭 猜想·未启动 |
