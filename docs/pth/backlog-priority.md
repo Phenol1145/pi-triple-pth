@@ -90,19 +90,26 @@
 
 ### Phase 2 —— Seam 解耦（装配上移，核稳定）
 
-5. **统一执行入口**：新建 `src/pth/kernel/ptc/runner.ts` ——
-   `runPtcProgram({ code, 能力面, space, kernels, taskWorkspace })`：
-   校验（角色 capabilities ∩ 空间面）→ 注入 → 执行 → 结果注册。
-   agent-loop 的 ts.run 执行器、capability-as-action 降级、templates、nl-translator 全部改走 runner。
+5. **统一执行入口（只管 ts 缝——不建 per-language runner）**：新建 `src/pth/kernel/ptc/runner.ts` ——
+   `runPtcProgram({ code, cwd?, exec?, ts, registerResult? })` 返回 `{ raw: InterpreterResult, assembled }`：
+   raw = 核原始结果（消费点按需取用）；assembled = ts.run/ts.eval 的组装输出（「返回值:/结果:」前缀 + 截断）。
+   消费点迁移：agent-tools 的 ts.run/ts.eval、agent-loop 的 capability-as-action 降级、task-loop 的降级直执行。
 6. **ts-interpreter 只管「程序 × 绑定」**：构造入参收敛为 bindings，不再知道能力从哪来（对照 DSH Seam：
    「Runtimes know nothing about tools」）；buildSeeds 不动。
-7. **能力索引文档生成器**：capability-index 从注册表生成（三要素格式）——手写散文退役，T8 role-doc 对齐随之自动化。
+7. **核契约对齐（其他语言落位）**：python/bash/c 不是 ts 的平级——两级落位：
+   - **核契约层**：registry 的 bash/python 条目升级为 Interpreter 契约描述（`execute(program, ExecuteOptions) → InterpreterResult`；
+     dispose 标注为 Phase 3 制动点）——ts 程序内调 `python.execute/bash.execute` 即此契约，不建 per-language 包装；
+   - **动作工具面**：python.run/bash.run/dev.build（c/asm）留在 AGENT_TOOLS（单步 tool_call 不是程序，不走 runner）；
+     其 TOOL_SCHEMAS 三要素在 Phase 3 由同一注册表生成（工具面 = 契约的 tool_call 投影，能力面 = ts binding 投影）。
+8. **能力索引文档生成器**：capability-index 从注册表生成（三要素格式）——手写散文退役，T8 role-doc 对齐随之自动化。
 
 ### Phase 3 —— 契约校验开启 + 执行级制动
 
-8. **能力面越界 → 编译前拒绝**（引导消息，而非运行时 undefined——与 N12 unknown-tool 护栏同构）。
-9. **in-flight 终止语义**（对比文档 ③）：`dispose()` 显式契约——终止运行中程序并 await；
-   现有只有调用级 LLM 超时与任务级 claim 回收，程序级跑飞无制动。
+9. **能力面越界 → 编译前拒绝**（引导消息，而非运行时 undefined——与 N12 unknown-tool 护栏同构）。
+10. **TOOL_SCHEMAS 生成器**：35 个动作工具 schema 从注册表/工具定义生成——工具面与能力面同一契约源。
+11. **in-flight 终止语义**（对比文档 ③）：`dispose()` 显式契约——终止运行中程序并 await（ts/python/bash 统一）；
+    现有只有调用级 LLM 超时与任务级 claim 回收，程序级跑飞无制动。
+12. **cache 注入收敛**：task-loop 的 `injectCapability("cache")` 进 runner 能力面装配（与越界校验同一机制）。
 
 ### 兼容与验证
 
