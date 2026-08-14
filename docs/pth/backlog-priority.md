@@ -218,69 +218,72 @@ src/pth/kernel/storage/
 | A2-3 | RedisSettingsStore 处置 | A 删除类+接线移除（接口保留）· B 保留待未来 tenant settings 需求 | ✅ A 已落地——类已删，SettingsStore 协议保留 |
 
 
+
 ---
 
-## 附录 C：B6 空间-角色绑定校验（N8）实施方案
+## 附录 C：B6 空间-角色绑定校验（N8）实施方案【修订版——概念先行】
 
-> 依据：§10 账本 N8「空间-角色绑定治理——T6 裁决定模型：空间与 worker 类型深度绑定，
-> 新建/分化走优化通道+审批面（不再设计 TTL 三态）；绑定校验实现待排期」。
-> 探查结论（2026-08-14——见下），待用户裁决 3 点后按 Phase 落地（每 phase 独立提交）。
+> 修订（2026-08-14 用户裁决方向）：原版把绑定校验硬套旧工具面——概念未转变。
+> 旧模型「空间先于 worker 分化存在，worker 在其间导航」→ 新模型「空间随 worker 分化/注意力管理需要生成」。
+> 本修订版按新模型重写：概念转变 → 兼容诊断 → 派生实现。
 
-### 0. 现状盘点（校验缺位清单——全仓探查）
+### 0. 概念转变（先于一切实现）
 
-| # | 缺位 | 详情 |
-|---|---|---|
-| 0.1 | **无绑定维度** | SpaceDef 无任何角色关联字段——任何角色可 asp.cd 任何空间（绑定零校验） |
-| 0.2 | **分化无主约束** | asp.create 现门控 = spaceMaint（actionTools 声明或全量兼容）；与 T6「不经 worker 直接执行」矛盾，且创建的空间不声明为谁服务（无 worker 类型） |
-| 0.3 | **持久化丢绑定** | space-reg 落库 JSON = {id, parent, execTool, extraTools, memoryScope, description}——无绑定字段；assembly.ts 恢复清单同样无（重启后绑定必然丢失） |
-| 0.4 | **冲突比较漏维度** | SpaceRegistry.register() 幂等比较（9 字段）无绑定——绑定可变不被发现 |
+**旧模型（先验基板）——0.10.3 编码了它**：
+- 动作空间/记忆空间先于 worker 分化存在（内置六空间 = 共享基板）；
+- 「每个 worker 在它的空间里导航」——导航为主，空间不动；
+- 0.10.4 注意力解法 = 空间切换重置（切换已有空间）。
 
-### 1. 绑定模型（概念先行）
+**新模型（派生结构）**：
+- 空间 = worker 拓扑的派生结构：
+  1. 随 **worker 分化需要**生成（新 worker 类型上线 → 生成其绑定空间 = 基板收窄 + 工具面裁剪 + 记忆域分配）；
+  2. 随 **注意力管理需要**生成（上下文超限/专注切换 → 生成子空间重置注意力——0.10.4 的「切换重置」升级为「生成即重置」并存）；
+- 空间与 worker 类型深度绑定（T6）——**生成即绑定**；
+- 生成是优化行为 → 优化通道 + 审批面（不经 worker 直接执行）。
 
-- `SpaceDef.bindRoles?: string[]`——绑定 worker 类型（角色 id，谱系上溯匹配：role.id ∈ bindRoles **或** 任一祖先 ∈ bindRoles——worker 类型 = 谱系）；
-- **匹配语义**：`isRoleBound(role, space)`——role 缺失（测试/兼容）跳过校验；绑定集与现存谱系零交 → 保守拒绝（"无主空间"——治理面处理）；
-- **缺省 undefined = 不绑定（全角色）**——内置六空间保持现状，存量行为零破坏；
-- **正交性**：bindRoles 是第三轴（动作空间 × 记忆空间 × 角色绑定）——不替代 capabilities（工具能力面）与 actionTools（工具动作面），三者各司其职。
+**关键区分（旧模型混淆的两件事）**：
+- **语言执行基板**（ts/python/bash/dev/write + kernels）= 能力基础设施——先验、共享、不生成、不绑定——回答「代码在哪里执行」；
+- **绑定空间** = worker 的工作容器（基板收窄 + 工具面裁剪 + 记忆域分配）——派生、生成、绑定——回答「这个 worker 的注意力装什么」；
+- 旧模型把两者混成一个（六个内置空间既是基板又是共享容器）——这就是「空间先于 worker」的根源。
 
-### 2. 校验点（实现清单）
+**概念修订清单（Phase 0 落点）**：
+- 域 C 词条「空间（space）」〔旧〕→ 重写：worker 拓扑派生结构，生成即绑定，生成走优化通道；
+- 域 C 新增词条「语言执行基板」〔桥〕：ts/python/bash/dev/write 共享基础设施；
+- 0.10.3 修订：「每个 worker 在它的空间里导航」→「每个 worker 的空间随它分化生成，在其内导航」；
+- 0.10.4 修订：注意力解法 = 生成即重置 + 切换重置并存（顺带清理已废止的 pick_tools 引用）；
+- §10 账本 N8 更新。
 
-**2.1 注册层（space-registry.ts）**
-- register()：bindRoles 格式校验（非空数组 / 合法 id 字符 / 去重）；绑定参与幂等冲突比较（第 10 字段——绑定可变 → 冲突报错）
-- 匹配函数 `isRoleBound`（谱系上溯——buildRoleLineage 复用；role.id 或祖先命中）
+### 1. asp.* 兼容诊断（对「兼容不好」的直接回答）
 
-**2.2 进入校验（agent-loop asp_cd）**
-- 目标空间声明 bindRoles 且本角色不匹配 → 拒绝 + 引导：「空间 X 绑定 worker 类型 Y——本角色 Z 不可进入；可用空间见 asp.index」
+**是的——概念转变必然改工具面，硬套（旧工具 + 新绑定）才是兼容性最差的路。** 逐工具诊断：
 
-**2.3 分化校验（agent-loop asp_create）**
-- **绑定必填**：新建子空间必须声明 bindRoles（或显式继承父绑定）——拒绝空绑定分化（防「无主空间」）
-- **自谱系限定**：绑定集合必须 ⊆ 创建者自身谱系（id 或祖先）——不能为别的 worker 类型建空间
-- 与现有治理 v2 校验（深度衰减/extraTools 收窄/childParams 表单/meta 禁建）并存叠加
+| 工具 | 旧模型语义（现状） | 新模型下 | 处置 |
+|---|---|---|---|
+| asp.cd | 在全局空间树迁移（共享基板） | 在我的绑定空间集内切换注意力（工具面/记忆域随之切换）；进入未绑定空间拒绝 | 保留工具，描述重写（T8 三要素），新增绑定校验 |
+| asp.index | 全局空间树 | 展示我的绑定空间集 + 生成状态 | 保留，输出改写 |
+| asp.create | worker 运行时建子空间（批 3 dev 隔离） | 退役 worker 侧——生成走优化通道（分化提案联动）/管理 SDK | 移出 worker 工具面（TOOL_SCHEMAS 35→33）+ agent-loop 分支移除；spaceRegistry.register/unregister 保留（治理通道接口） |
+| asp.destroy | worker 注销子空间 | 治理通道（worker 类型退役 → 空间随之注销） | 同 create |
+| ASP_BLOCK prompt | 「探索：asp_index…执行：asp_cd 迁移到语言/生产空间」 | 绑定空间叙事 | 文本重写 |
+| 批 3 测试（space-governance 200 行 / asp-space 276 行） | worker 侧 create/cd 用例 | 按新语义改写（create 用例移至注册表/治理通道层） | 测试批量对齐 |
+| dev 子空间隔离模式（批 3） | worker 用 asp.create 造隔离舱 | 由「注意力管理生成」接管（生成器按需造舱，worker 只 cd） | 能力保留，通道变更 |
 
-**2.4 持久化与恢复**
-- asp.create 落库 JSON 增加 bindRoles；assembly.ts 恢复透传（缺失 → 继承父空间绑定——兼容存量 space-reg 条目）
+### 2. 实现 Phase（修订）
 
-**2.5 索引展示（space-index.ts）**
-- 空间树节点标注绑定集（索引即引导——asp.index 一眼可见谁可进）
+- **Phase 0 概念（先行提交）**：概念修订清单全量落 concepts.md（词条重写 / 0.10.3 / 0.10.4 / N8）。
+- **Phase 1 模型+校验**：SpaceDef.bindRoles（生成空间必填 = 生成即绑定；基板不填）；register 格式/幂等校验；isRoleBound（谱系上溯）；asp.cd 进入校验。
+- **Phase 2 工具面/prompt**：asp.cd/asp.index 描述重写；asp.create/asp.destroy 移出 worker 工具面（TOOL_SCHEMAS 生成器删 2 条——治理通道接口保留）；ASP_BLOCK 重写；space-index 展示绑定集+生成状态。
+- **Phase 3 恢复+测试+落档**：assembly 恢复透传 bindRoles；测试批量对齐（存量 create 用例迁移）；容器重建冒烟（绑定空间拒绝非绑定角色）。
 
-**2.6 执行面**
-- 现有空间门控（spaceOfExecTool 工具↔空间 + EXEC_TOOL_CAP 工具↔能力）不动——绑定在 cd 拦截，执行继承
-
-### 3. 待用户裁决（3 点）
+### 3. 裁决点（修订）
 
 | # | 事项 | 选项 | 推荐 |
 |---|---|---|---|
-| B6-1 | T6 与批 3 的通道矛盾 | A 本批先落绑定校验（收紧 asp.create：绑定必填+自谱系+审计），优化通道提案留 D3（proposal kind=space 是治理通道大件）· B 严格执行 T6——worker 侧 asp.create 退役（dev 子空间隔离模式失去） | **A**——校验先行正是 N8 本意，通道迁移不阻塞校验 |
-| B6-2 | 绑定粒度 | A 角色 id/祖先（谱系上溯——worker 类型=谱系）· B 绑定到 capabilities 集合（与能力白名单同轴） | **A**——T6 原文是「worker 类型」，谱系即类型；capabilities 已有独立机制 |
-| B6-3 | 内置空间绑定 | A 全不绑定（现状兼容零破坏）· B 按职责绑定（ts→developer 系等——收紧但破坏执行族/信息族探索现状） | **A**——内置空间是全角色共享基板，绑定留给子空间分化 |
+| B6-1 | 基板/绑定二分 | A 内置六空间重定位为「语言执行基板」（共享、不绑定、cd 自由）；生成空间 = 绑定容器 / B 内置也绑定化（收紧） | **A**——二分正是新模型的支柱；绑定只约束派生空间 |
+| B6-2 | create/destroy 退役方式 | A 本批移出 worker 工具面（治理通道接口保留）/ B 渐进（先只授优化器系角色，下批移除） | **A**——T6「不经 worker 直接执行」一步到位；旧用例按新语义迁移 |
+| B6-3 | 生成机制接线范围 | A 本批只落概念+语义+校验，生成触发（分化提案联动空间生成）留 D3 / B 本批连带最小生成钩子（role-register 时自动生成绑定空间） | **A**——生成触发是治理通道大件，不阻塞校验；概念已为它留位 |
 
-### 4. Phase 划分（每 phase 独立提交、独立全绿）
+### 4. 验证
 
-- **Phase 1 注册层**：SpaceDef.bindRoles + register 校验（格式/幂等第 10 字段）+ isRoleBound 匹配函数 + 单测
-- **Phase 2 agent 层**：asp_cd 进入校验 + asp_create 绑定必填/自谱系限定 + 落库字段 + space-index 绑定标注 + agent-loop 测试
-- **Phase 3 恢复与落档**：assembly 恢复透传（缺省继承父绑定）+ concepts N8 账本勾除/域 C 词条更新 + backlog 行 + 容器重建冒烟
-
-### 5. 验证
-
-- 存量 asp-space（276 行）/space-governance（200 行）全绿（内置空间不绑定——零破坏）
-- 新增：绑定拒绝/放行/谱系上溯/自谱系限定/恢复透传 测试
-- 容器重建 + 冒烟：绑定子空间拒绝非绑定角色进入（真实 agent-loop 链路）
+- Phase 0：concepts 修订（纯文档）；
+- Phase 1-2：存量 asp-space/space-governance 按新语义对齐后全绿 + 新增绑定拒绝/放行/谱系上溯用例；
+- Phase 3：全量测试 + 容器重建冒烟（绑定空间拒绝非绑定角色进入——真实 agent-loop 链路）。
