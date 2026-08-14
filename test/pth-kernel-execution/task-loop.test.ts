@@ -261,3 +261,64 @@ describe("task loop refiner 钩子", () => {
     expect(store.submit).toHaveBeenCalled();   // 任务仍提交（completed）
   });
 });
+
+describe("任务终态审计（A2 Phase 3——审计两平面接线：PG audit_log）", () => {
+  const role = { id: "developer", tags: ["code"], prompt: "dev" };
+
+  it("completed → audit.write task_completed（actor/taskId/payload）", async () => {
+    const task = { id: "t1", text: "do x", title: "x" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+      submit: vi.fn(async () => 1),
+    });
+    const write = vi.fn(async () => {});
+    const kernel = mockKernel();
+    kernel.dataWorld = { audit: { write } };
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
+    await loop.runOnce();
+    expect(write).toHaveBeenCalledWith({ eventType: "task_completed", actor: "developer", taskId: "t1", payload: { submitAffected: 1 } });
+  });
+
+  it("rejected → audit.write task_rejected（含原因摘要）", async () => {
+    const task = { id: "t2", text: "do y", title: "y" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+      reject: vi.fn(async () => 1),
+    });
+    const write = vi.fn(async () => {});
+    const kernel = mockKernel();
+    kernel.dataWorld = { audit: { write } };
+    mockedRunAgent.mockResolvedValueOnce({ ok: false, error: "boom" } as never);
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
+    await loop.runOnce();
+    expect(write).toHaveBeenCalledWith({ eventType: "task_rejected", actor: "developer", taskId: "t2", payload: { reason: "boom" } });
+  });
+
+  it("审计失败不阻断任务流（write 抛错——任务照常 submit）", async () => {
+    const task = { id: "t3", text: "do z", title: "z" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+      submit: vi.fn(async () => 1),
+    });
+    const kernel = mockKernel();
+    kernel.dataWorld = { audit: { write: vi.fn(async () => { throw new Error("pg down"); }) } };
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
+    await loop.runOnce();
+    expect(store.submit).toHaveBeenCalled();
+  });
+
+  it("dataWorld 无 audit（存量 mock 兼容）——跳过不抛", async () => {
+    const task = { id: "t4", text: "do w", title: "w" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const kernel = mockKernel();   // dataWorld = {}
+    const loop = new TaskLoop(agentDeps(kernel, role, store));
+    await loop.runOnce();
+    expect(store.submit).toHaveBeenCalled();
+  });
+});

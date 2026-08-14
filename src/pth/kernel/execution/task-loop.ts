@@ -116,6 +116,12 @@ export class TaskLoop {
         `reject 0 rows（认领已被回收重领？task=${task.id}）——不覆盖他人认领`,
       );
     }
+    // 审计两平面接线（2026-08-14 A2 Phase 3）：任务终态写 PG audit_log——
+    // 会话面事件（tool_call/self_modify）留 Redis Stream；审计失败不阻断任务流
+    const audit = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit;
+    if (audit?.write) {
+      try { await audit.write({ eventType: "task_rejected", actor: role.id, taskId: task.id, payload: { reason: reason.slice(0, 300) } }); } catch { /* 审计容错 */ }
+    }
     this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
     this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: metricReason ?? classifyReason(reason) });
@@ -255,6 +261,11 @@ export class TaskLoop {
         // 审计 H5：认领已不属于本 worker（任务被回收重领）——结果静默丢失，告警审计
         taskLogger?.warn(`submit 0 rows（认领已被回收重领？task=${task.id}）——结果未落库`);
         this.deps.onActivity?.({ kind: "task.submit-conflict", taskId: task.id, role: role.id, ok: false, detail: "submit 0 rows——claim 已被回收/重领" });
+      }
+      // 审计两平面接线（2026-08-14 A2 Phase 3）：任务终态写 PG audit_log（会话面事件留 Redis Stream）
+      const auditDone = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit;
+      if (auditDone?.write) {
+        try { await auditDone.write({ eventType: "task_completed", actor: role.id, taskId: task.id, payload: { submitAffected: affected } }); } catch { /* 审计容错 */ }
       }
       this.bus.emit("task.submit", { taskId: task.id, role: role.id });
       await this.archive(task, ws, result);
