@@ -340,8 +340,9 @@ src/pth/kernel/storage/
 > 维护 = 记忆维护 worker 的角色职责（同 spaceMaint 收编 controller 系的治理模式）。
 > **外部参考（2026-08-14 调研）**：Hermes Agent（记忆与 skill 稳定进化结构）+ Prime Agent（多级记忆）——
 > 对照见 `docs/superpowers/explorations/2026-08-14-hermes-prime-memory-reference.md`；
-> **吸收的设计点已单独列示于 concepts §8.3 待议清单（W1–W7）**——裁决前按〔待议 §8.3〕引用，
-> 不并入默认实施；本方案 Phase 内的借用项均带〔待议〕标注，待逐条裁决后生效。
+> **吸收的设计点已单独列示于 concepts §8.3 待议清单（W1–W7）——2026-08-14 用户裁决完成**：
+> W1/W2/W4/W6 原案生效；W3 修订为**访问复杂度限制**（不按容量）；W5 修订为**审核策略可配置**
+> （同 T4 分层闸门）；W7 设计为**对抗性安全审核角色**。生效设计已并入下方 Phase。
 > 待用户裁决 B4-2/B4-3 后按 Phase 落地（每 phase 独立提交）。
 
 ### 0. 现状盘点
@@ -357,8 +358,11 @@ src/pth/kernel/storage/
 ### 1. 概念落定（域 B 词条修订）
 
 **skill〔新〕** = 系统化描述怎么做某件事（SOP）的**独立不可变知识条目**：
-- **格式**：场景锚点三要素（【场景锚点】/【何时用】/【效果】）+ 有序步骤清单（SOP 正文）——与 T8 锚点标准同构；
-  〔待议 §8.3 W1〕四段式（+Pitfalls/Verification）；〔待议 §8.3 W3〕内容上限 4KB 超限报错；
+- **格式——四段式（§8.3 W1 ✅）**：场景锚点三要素（【场景锚点】/【何时用】/【效果】）+ Procedure 有序步骤
+  + **Pitfalls**（已知失败模式与修正——负知识结构化）+ **Verification**（怎么确认成功——验收标准）；
+- **有界——访问复杂度限制（§8.3 W3 ✅ 修订——不按容量设限）**：度量①寻址复杂度（场景 → 全文的查询步数，
+  两级检索保证 ≤2）；度量②执行复杂度（Procedure 每步标注所需工具调用数/基本函数语句数，
+  总代价超阈值 → 不合格需拆分——维护任务与审核角色的质检项）；
 - **治理——不可变 + 专项维护（2026-08-14 用户裁决）**：prompt 层、非维护角色只读；**写后冻结**——
   不进 JIT 优化对象面（deopt/复测不适用：SOP 是声明式知识，断点续跑检测测的是行为，知识无法被复跑测量）；
   **维护 = memory-keeper 专项**（记忆四类型的维护职责——同 spaceMaint 收编 controller 系）：
@@ -369,16 +373,17 @@ src/pth/kernel/storage/
 ### 2. Phase 划分
 
 **Phase 1 —— 类型与格式（memory-policy + 种子 SOP）**
-- 定义 skill 条目格式规范（三要素 + 步骤清单——写入 concepts 域 B 词条 + skill 模板常量）；
+- 定义 skill 条目格式规范（四段式——三要素 + Procedure + Pitfalls + Verification，写入 concepts 域 B 词条 + skill 模板常量；
+  Procedure 每步标注调用代价——访问复杂度质检项）；
 - 首批种子：把散落在 role.prompt 的角色 SOP 条目化（developer 实现→验证→交付 / scout 侦察→简报 /
   memory-keeper 沉淀流程——seed skills 注入 + 受保护）；
 - §8.2「工作流 SOP」债务勾除；skills 表标注同步（视图投影语义不变）。
 
 **Phase 2 —— 检索面与能力接线**
 - `skills.get(name)` 真实现：capability.ts v1 占位 → dataWorld.memory.get(`skill:${name}`)（返回结构化条目）；
-- 检索面保持 memory.query（id/anchors——skill:name 指针模式已验证）；
-  〔待议 §8.3 W2〕渐进披露两级（清单+按需全文）；〔待议 §8.3 W6〕冻结快照友好（lazy 不进 system prompt）；
-- 测试：skills.get 取条目/未知名空/worker 写拒绝。
+- **渐进披露两级检索（§8.3 W2 ✅）**：Level 0 = skill 清单（name+description 摘要——memory.index 的 skill 节）；
+  Level 1 = 按需全文（memory.query id 查）；冻结快照友好（§8.3 W6 ✅）——skill 不进 system prompt，不破坏 prefix cache；
+- 测试：skills.get 取条目/未知名空/worker 写拒绝/清单两级。
 
 **Phase 3 —— 不可变 + memory-keeper 专项维护面（替代原 JIT 对象化——按用户裁决取消）**
 - **维护能力按角色注入**：buildCapabilities 增加 roleId 上下文——`skills.maintain`（write 新条目 /
@@ -387,10 +392,13 @@ src/pth/kernel/storage/
 - **不可变语义**：maintain.write 只允许新条目或显式覆写（force + 审计 meta）；写后冻结——
   checkUpdate 对 skill 拒绝一切隐式修改；修订 = 归档旧条目 + 新条目（审计留痕）；
 - 维护任务流：tags memory/organize → memory-keeper 路由（已有角色）——任务内用维护面写条目，
-  完成后即冻结；optimizer 面不接 skill（不 propose/apply/deopt）；
-  〔待议 §8.3 W4〕创建时机对齐 Hermes（refine insight → 维护任务固化）；
-  〔待议 §8.3 W5〕staged 审批流（draft 提案 → 监督批准 → 执行——与 T7 归档 approve 同构）；
-  〔待议 §8.3 W7〕reward hacking 防线（固化过维护任务与审批门）；
+  完成后即冻结；**创建时机（§8.3 W4 ✅）**：复杂任务成功/踩坑找到正路/用户纠正 → refine insight 捕捉 →
+  维护任务固化；optimizer 面不接 skill（不 propose/apply/deopt）；
+- **审核策略可配置（§8.3 W5 ✅ 修订——同 T4 分层闸门）**：PTH_SKILL_WRITE_POLICY 用户可设——
+  manual（缺省，人工闸门）/ staged（draft 提案 → 监督批准 → memory-keeper 执行——与 T7 归档 approve 流同构）；
+- **对抗性安全审核角色（§8.3 W7 ✅ 设计）**：治理族新增 controller:adversarial——skill 固化提案的对抗性审核
+  （reward hacking 显式检验：Pitfalls 完整性 / Verification 可测性 / 作弊捷径——绕过治理/越权/目标函数漏洞）；
+  接入 staged 流：提案 → 对抗性审核 → 监督批准 → memory-keeper 执行；
 - PTC 注册表补 entries：skills.maintain.write/archive（三要素 + 参数校验——A1 契约纪律）；
 - 范围外（记录）：skill 的 JIT 自动生成（热点→SOP 生成器）——若未来做，产物仍是 draft 提案 +
   memory-keeper 维护任务批准成不可变条目。
@@ -405,7 +413,7 @@ src/pth/kernel/storage/
 |---|---|---|---|
 | B4-1 | skill 的治理语义 | ✅ 已裁决（2026-08-14 用户 ×2）：**不可变**——写后冻结；不进 JIT deopt/复测面（SKILL.md 不适用断点续跑检测）；**维护收编 memory-keeper 专项**（专属维护面按角色注入） | **D**——知识不可变，行为才可复测；维护 = 记忆 worker 职责 |
 | B4-2 | 首批种子 SOP | A 注入 3 个角色 SOP seed（developer/scout/memory-keeper——从 role.prompt 提炼条目化）/ B 不注入（空类型——JIT 自然生长）/ C 全角色 7 个 | **A**——3 个证明格式与检索闭环，JIT 再自然扩展 |
-| B4-3 | skill 检索面 | A 沿用 memory.query 指针 / B 独立 skill 索引工具 / **C（调研后新增）清单+按需两级**——Level 0 清单（name+description 摘要，memory.index skill 节）+ Level 1 按需全文（Hermes 渐进披露） | **C**——外部证据（Hermes ~3k tokens 清单 vs 全文按需），且呼应冻结快照友好 |
+| B4-3 | skill 检索面 | A 沿用 memory.query 指针 / B 独立 skill 索引工具 / C 清单+按需两级（Hermes 渐进披露） | ✅ 已裁决 C（=§8.3 W2）——Level 0 清单 + Level 1 按需全文 |
 
 ### 4. 验证
 

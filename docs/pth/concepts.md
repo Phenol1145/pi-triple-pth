@@ -891,20 +891,18 @@ v0.9（动作面/权限/任务池纯化）
 ### 8.3 待议清单（吸收的设计点——2026-08-14 Hermes Agent × Prime Agent 调研）
 
 > 来源：`docs/superpowers/explorations/2026-08-14-hermes-prime-memory-reference.md`（可借鉴清单 1–7）。
-> 性质：**候选设计点——非规范**；逐条裁决后并入 B4（backlog 附录 E），裁决状态在本表勾除。
+> **2026-08-14 用户裁决完成——7 条全部裁定**（生效设计并入 backlog 附录 E；修订处见 W3/W5/W7）。
 > 已裁决不列（skill 不可变 / 维护收编 memory-keeper 专项——用户已裁）。
 
 | # | 设计点 | 吸收自 | 状态 |
 |---|---|---|---|
-| W1 | **skill 格式四段式**：场景锚点三要素 + Procedure 步骤 + **Pitfalls**（已知失败模式与修正——负知识结构化）+ **Verification**（怎么确认成功——验收标准） | Hermes SKILL.md | ⚠️ 待议 |
-| W2 | **渐进披露两级检索**：Level 0 清单（name+description 摘要）→ Level 1 按需全文（token 只付在实际需要处） | Hermes progressive disclosure | ⚠️ 待议 |
-| W3 | **有界记忆**：skill 条目内容上限 4KB——超限报错不静默截断（维护者精简/拆分） | Hermes bounded memory | ⚠️ 待议 |
-| W4 | **创建时机对齐**：复杂任务成功/踩坑找到正路/用户纠正 → refine insight 捕捉 → memory-keeper 维护任务固化 | Hermes skill creation triggers | ⚠️ 待议 |
-| W5 | **staged 审批流**：skill 维护写走 draft 提案 → 监督批准 → memory-keeper 执行（与 T7 归档 approve 流同构） | Hermes write_approval | ⚠️ 待议 |
-| W6 | **冻结快照友好**：skill 不进 system prompt（lazy 按需查）——不破坏 prefix cache（与不可变性组合成论证） | Hermes frozen snapshot | ⚠️ 待议 |
-| W7 | **reward hacking 防线映射**：skill 固化错误行为是 Prime 实证风险——固化必须过维护任务与审批门（Pitfalls/Verification 负知识显式化） | Prime 风险警示 | ⚠️ 待议 |
-
-> 引用规则：上述设计点在裁决前引用必须带〔待议 §8.3〕——不得作为已实现事实引用（与 0.3.6 并联代偿同规则）。
+| W1 | **skill 格式四段式**：场景锚点三要素 + Procedure 步骤 + **Pitfalls**（已知失败模式与修正——负知识结构化）+ **Verification**（怎么确认成功——验收标准） | Hermes SKILL.md | ✅ 已裁决——原案生效 |
+| W2 | **渐进披露两级检索**：Level 0 清单（name+description 摘要）→ Level 1 按需全文（token 只付在实际需要处） | Hermes progressive disclosure | ✅ 已裁决——原案生效 |
+| W3 | **有界——访问复杂度限制**（用户修订：不按容量设限）：度量①寻址复杂度——获取访问信息所在位置（场景 → 全文的查询步数，W2 两级保证 ≤2）；度量②执行复杂度——实际访问指令所需的工具调用数或基本函数/语句数（Procedure 每步标注调用代价，总代价超阈值 → 不合格需拆分） | Hermes bounded memory（修订） | ✅ 已裁决——按修订生效 |
+| W4 | **创建时机对齐**：复杂任务成功/踩坑找到正路/用户纠正 → refine insight 捕捉 → memory-keeper 维护任务固化 | Hermes skill creation triggers | ✅ 已裁决——原案生效 |
+| W5 | **审核策略可配置**（用户修订：同 T4 分层闸门）：PTH_SKILL_WRITE_POLICY 用户可设——manual（缺省，人工闸门）/ staged（draft 提案 → 监督批准 → memory-keeper 执行） | Hermes write_approval（修订） | ✅ 已裁决——按修订生效 |
+| W6 | **冻结快照友好**：skill 不进 system prompt（lazy 按需查）——不破坏 prefix cache（与不可变性组合成论证） | Hermes frozen snapshot | ✅ 已裁决——原案生效 |
+| W7 | **对抗性安全审核角色**（用户设计）：治理族新增专门角色——skill 固化提案的对抗性审核（reward hacking 显式检验：Pitfalls 完整性 / Verification 可测性 / 作弊捷径——绕过治理/越权/目标函数漏洞）；接入 W5 staged 流：提案 → 对抗性审核 → 监督批准 → memory-keeper 执行 | Prime 风险警示（设计） | ✅ 已裁决——角色化落地 |
 
 ---
 
