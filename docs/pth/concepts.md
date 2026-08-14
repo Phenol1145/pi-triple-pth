@@ -579,7 +579,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 #### 0.16.1 谱系是类型树，不是实例树
 
-- worker 谱系（Origin → executor → developer → memory-stats）描述**类型**——每个节点是 worker 类型（角色定义）；
+- worker 谱系（Origin → actuator → executor → developer → memory-stats）描述**类型**——每个节点是 worker 类型（角色定义）；
 - 实例 = batch 副本（类型 × 副本数，PTH_WORKER_ROLES 配比）——进程生命周期独立（fork/回收/扩缩容）；
 - **子 worker 类型 = rlm() 持久化 agent 的等效物**：类型持久存在（可寻址、可续派、可恢复），
   **按需添加**（分化提案 → 裁决 → 注册——即 rlm 的 spawn 语义落在类型层，不在会话层）；
@@ -678,7 +678,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **worker**〔旧〕 | 角色实例（进程循环：peek → claim → run）——无状态上下文（任务结束清零——0.10.4） | worker-cluster |
 | **worker 生命周期**〔旧〕 | fork 子进程 / 热上线广播 / 重启恢复（role-register 幂等） | worker-cluster · assembly |
 | **batch**〔旧〕 | worker 拓扑：角色×副本数（7×1 默认 / PTH_WORKER_ROLES 配比）——同角色单副本=串行 | batch-process |
-| **谱系（lineage）**〔旧〕 | 角色父子分化树（origin → 3 支 → n 级）——权威源=official proposal | routes-lineage |
+| **谱系（lineage）**〔旧〕 | 角色父子分化树（origin → actuator/controller/sensor 三支 → n 级——2026-08-14 类型树修理：executor/explorer/governor 收敛为 actuator 子类型）——权威源=official proposal | routes-lineage |
 | **分化（differentiation）**〔旧〕 | 新角色从父角色派生——提案 → 裁决 → 注册 | worker-cluster |
 | **worker-index**〔旧〕 | 可用角色清单（注入规划系 + 记忆条目——路由/协作依据——0.9 锚点实例） | worker-cluster |
 | **类型树（type tree）**〔新〕 | worker 谱系的语义澄清（2026-08-14 0.16.1）——谱系描述**类型**（节点=角色定义），实例=batch 副本；类型持久、按需分化添加 = rlm() 持久化 agent 的等效物 | worker-cluster |
@@ -753,7 +753,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **观测（obs）**〔旧〕 | sensor 上报通道（obs.callpoint / aggregate 优先） | obs.ts |
 | **传感器（sensor）**〔旧〕 | 观测者（worker-opt / system-opt / memory / resource） | default-roles |
 | **控制器（controller）**〔旧〕 | 裁决者×5（router / worker-opt / pth-opt / resource / memory）——official/reject/merge | default-roles |
-| **执行器（actuator）**〔旧〕 | 把 official 提案落为实际修改（= 既有执行族——developer/writer/…） | default-roles |
+| **执行器（actuator）** | 把 official 提案落为实际修改（2026-08-14 类型树修理：actuator 类型实装——executor/explorer/governor 三族收敛其下，控制论三元组 sensor/controller/actuator 齐） | default-roles |
 | **提案（proposal）**〔旧〕 | 调节建议——draft → 裁决 → official；类型学：differentiation（角色）/ optimizer-suggestion（JIT）/ 资源方案 | optimizer-loop |
 | **审批面（A/B/C）**〔旧〕 | 人工闸门：A 代码层 / B scorecard 快照 / C 角色注册 | gateway · 监督层 |
 | **控制论外环**〔旧〕 | 慢环——sensor 聚合 → controller 裁决 → 审批面 → actuator 应用（批次/小时级） | optimizer-loop |
