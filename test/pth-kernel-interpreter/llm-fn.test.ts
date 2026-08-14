@@ -111,3 +111,86 @@ describe("direct 路径缓存字段（2026-08-12 审计 HIGH-3 修复）", () =>
     delete process.env.DEEPSEEK_API_KEY;
   });
 });
+
+describe("B1 修复（2026-08-14）：reasoning_content 回传 + 序列补全", () => {
+  const TOOL = [{ name: "probe", description: "d", parameters: { type: "object", properties: {} } }];
+
+  it("assistant 带 thinking 时序列化 reasoning_content（deepseek v4 thinking 模式契约）", async () => {
+    let body: any;
+    vi.stubGlobal("fetch", async (_url: string, init: any) => {
+      body = JSON.parse(init.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: {} }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const llm = createLlmFn({ modelRouter: mockRouter(mockRuntime()) });
+    await llm.complete([
+      { role: "user", content: "x" },
+      { role: "assistant", content: "", thinking: "思考内容", toolCalls: [{ id: "t1", name: "probe", arguments: { q: "a" } }] },
+      { role: "tool", toolCallId: "t1", content: "ok" },
+    ], { model: "deepseek-v4-flash", provider: "deepseek", tools: TOOL });
+    // apiMessages = [user, assistant, tool]
+    expect(body.messages[1].reasoning_content).toBe("思考内容");
+    expect(body.messages[1].tool_calls).toEqual([{ id: "t1", type: "function", function: { name: "probe", arguments: "{\"q\":\"a\"}" } }]);
+    vi.unstubAllGlobals();
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+
+  it("无 thinking 的 assistant 不输出 reasoning_content 字段", async () => {
+    let body: any;
+    vi.stubGlobal("fetch", async (_url: string, init: any) => {
+      body = JSON.parse(init.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: {} }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const llm = createLlmFn({ modelRouter: mockRouter(mockRuntime()) });
+    await llm.complete([
+      { role: "user", content: "x" },
+      { role: "assistant", content: "", toolCalls: [{ id: "t1", name: "probe", arguments: {} }] },
+      { role: "tool", toolCallId: "t1", content: "ok" },
+    ], { model: "deepseek-v4-flash", provider: "deepseek", tools: TOOL });
+    expect(body.messages[1].reasoning_content).toBeUndefined();
+    vi.unstubAllGlobals();
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+
+  it("悬挂 tool_calls（多调用只回了部分）→ 补合成 tool 响应保持序列", async () => {
+    let body: any;
+    vi.stubGlobal("fetch", async (_url: string, init: any) => {
+      body = JSON.parse(init.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: {} }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const llm = createLlmFn({ modelRouter: mockRouter(mockRuntime()) });
+    await llm.complete([
+      { role: "user", content: "x" },
+      { role: "assistant", content: "", toolCalls: [{ id: "t1", name: "probe", arguments: {} }, { id: "t2", name: "probe", arguments: {} }] },
+      { role: "tool", toolCallId: "t1", content: "ok" },
+    ], { model: "deepseek-v4-flash", provider: "deepseek", tools: TOOL });
+    // user, assistant, tool(t1), 合成 tool(t2)
+    expect(body.messages.length).toBe(4);
+    expect(body.messages[3]).toMatchObject({ role: "tool", tool_call_id: "t2" });
+    expect(body.messages[3].content).toContain("序列补全");
+    vi.unstubAllGlobals();
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+
+  it("完整回应的多调用不补合成消息", async () => {
+    let body: any;
+    vi.stubGlobal("fetch", async (_url: string, init: any) => {
+      body = JSON.parse(init.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }], usage: {} }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const llm = createLlmFn({ modelRouter: mockRouter(mockRuntime()) });
+    await llm.complete([
+      { role: "user", content: "x" },
+      { role: "assistant", content: "", toolCalls: [{ id: "t1", name: "probe", arguments: {} }, { id: "t2", name: "probe", arguments: {} }] },
+      { role: "tool", toolCallId: "t1", content: "ok" },
+      { role: "tool", toolCallId: "t2", content: "ok2" },
+    ], { model: "deepseek-v4-flash", provider: "deepseek", tools: TOOL });
+    expect(body.messages.length).toBe(4);
+    expect(body.messages[3]).toMatchObject({ role: "tool", tool_call_id: "t2", content: "ok2" });
+    vi.unstubAllGlobals();
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+});

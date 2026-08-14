@@ -31,7 +31,7 @@ function mockKernel(): WorkerKernel {
   };
 }
 
-function mockLlm(steps: Array<{ toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; content?: string }>): LlmFn {
+function mockLlm(steps: Array<{ toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; content?: string; thinking?: string }>): LlmFn {
   let i = 0;
   return {
     complete: vi.fn(async () => {
@@ -41,6 +41,7 @@ function mockLlm(steps: Array<{ toolCalls?: Array<{ name: string; arguments: Rec
         content: step.content ?? "",
         model: "mock",
         usage: { inputTokens: 1, outputTokens: 1 },
+        ...(step.thinking ? { thinking: step.thinking } : {}),
         ...(step.toolCalls
           ? { toolCalls: step.toolCalls.map((tc, idx) => ({ id: `call_${i}_${idx}`, name: tc.name, arguments: tc.arguments })) }
           : {}),
@@ -458,5 +459,61 @@ describe("负结果收敛（S6 死循环机制——2026-08-13）", () => {
     const llm = mockLlm(seq);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 6 });
     expect(r.ok).toBe(true);   // 正结果重置——未触发终止——正常 done
+  });
+});
+
+describe("B1 修复（2026-08-14）：reasoning_content 回传 + 多调用提前终止序列补全", () => {
+  it("assistant 消息携带 thinking（deepseek v4 thinking 模式契约——reasoning_content 回传）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { thinking: "思考A", toolCalls: [{ name: "ts.run", arguments: { code: "const a = 1; a;" } }] },
+      { thinking: "思考B", toolCalls: [{ name: "done", arguments: { result: { ok: true } } }] },
+    ]);
+    const input: any = { llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 };
+    const r = await runAgentTask(input);
+    expect(r.ok).toBe(true);
+    const msgs = input.__messages as Array<{ role: string; thinking?: string }>;
+    const assistants = msgs.filter((m) => m.role === "assistant");
+    expect(assistants.map((m) => m.thinking)).toEqual(["思考A", "思考B"]);
+  });
+
+  it("多工具调用中 done 提前终止 → 未执行调用补合成 tool 响应（序列完整）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [
+        { name: "done", arguments: { result: { ok: true } } },
+        { name: "ts.run", arguments: { code: "const a = 1; a;" } },
+      ] },
+    ]);
+    const input: any = { llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 };
+    const r = await runAgentTask(input);
+    expect(r.ok).toBe(true);
+    const msgs = input.__messages as Array<{ role: string; toolCallId?: string; content?: string }>;
+    const tail = msgs.slice(-2);
+    expect(tail[0].role).toBe("tool");
+    expect(tail[1].role).toBe("tool");
+    expect(tail.every((m) => m.toolCallId && m.content?.includes("未执行"))).toBe(true);
+    // 两个 tool 响应 id 与 assistant tool_calls 一一对应
+    const asst = msgs.filter((m) => m.role === "assistant")[0] as any;
+    const callIds = asst.toolCalls.map((t: { id: string }) => t.id);
+    expect(tail.map((m) => m.toolCallId).sort()).toEqual(callIds.sort());
+  });
+
+  it("正常多工具调用全执行 → 每个调用都有真实 tool 响应（无合成）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [
+        { name: "ts.run", arguments: { code: "const a = 1; a;" } },
+        { name: "ts.run", arguments: { code: "const b = 2; b;" } },
+      ] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 2 } } }] },
+    ]);
+    const input: any = { llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 };
+    const r = await runAgentTask(input);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual({ ok: 2 });
+    const msgs = input.__messages as Array<{ role: string; content?: string }>;
+    const firstBatch = msgs.slice(3, 5);   // 首步 assistant 后的两个 tool 响应（[system, user, assistant, tool, tool]）
+    expect(firstBatch.every((m) => m.role === "tool" && !m.content?.includes("未执行"))).toBe(true);
   });
 });

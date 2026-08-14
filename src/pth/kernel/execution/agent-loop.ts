@@ -436,7 +436,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   //   多轮消息：assistant 回复（含 ToolCall 意图）→ 执行 → toolResult 回填（toolCallId 关联）→
   //   模型在结构化工具调用与文本回复间二选一——不存在"输出大段代码导致 parse 失败"。
   //   单轮模式（旧——文本 JSON 动作）废弃；parseAgentAction 保留为 done 文本降级兼容。
-  const messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string; toolCallId?: string; toolName?: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }> = [
+  const messages: Array<{ role: "system" | "user" | "assistant" | "tool"; content: string; toolCallId?: string; toolName?: string; thinking?: string; toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }> = [
     { role: "system", content: system },
     { role: "user", content: `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}` },
   ];
@@ -502,14 +502,24 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       // LLM 直接文本回复（无工具调用）——视为完成（内容作为结果说明）
       return { ok: true, value: res || null, summary: res, steps: steps + 1 };
     }
-    messages.push({ role: "assistant", content: res.content, ...(res.toolCalls && res.toolCalls.length > 0 ? { toolCalls: res.toolCalls } : {}) });
+    messages.push({ role: "assistant", content: res.content, ...(res.thinking ? { thinking: res.thinking } : {}), ...(res.toolCalls && res.toolCalls.length > 0 ? { toolCalls: res.toolCalls } : {}) });
     input.onTrace?.({ type: "llm-call", step: steps + 1, toolCalls: res.toolCalls, contentPreview: (res.content ?? "").slice(0, 500), ...((res as { thinking?: string }).thinking ? { thinking: (res as { thinking?: string }).thinking!.slice(0, 800) } : {}), ...(res.usage ? { usage: res.usage } : {}) });
 
     // 原生 tool_calls：结构化调用（OpenAI 格式——非文本解析）
     if (res.toolCalls && res.toolCalls.length > 0) {
       for (const tc of res.toolCalls) {
         const r = await executeStep({ tool: tc.name, args: tc.arguments, thought: undefined }, tc.id);
-        if (r !== undefined) return r;
+        if (r !== undefined) {
+          // 序列完整性（2026-08-14 B1）：提前终止时，未回填的调用补合成 tool 消息——
+          // 防止 assistant(tool_calls) 悬挂（DeepSeek v4 校验每个 tool_calls 必须有对应 tool 响应）
+          for (const rest of res.toolCalls) {
+            const key = rest.id ?? `tc-${steps + 1}`;
+            if (!messages.some((m) => m.role === "tool" && m.toolCallId === key)) {
+              messages.push({ role: "tool", toolCallId: key, toolName: rest.name, content: "[终止] 任务已提前结束——该调用未执行。" });
+            }
+          }
+          return r;
+        }
       }
       continue;
     }

@@ -7,6 +7,8 @@ export interface LlmMessage {
   /** tool 角色消息：关联的 toolCallId（OpenAI 原生工具调用回填） */
   toolCallId?: string;
   toolName?: string;
+  /** assistant 推理内容（deepseek reasoning_content）——B1 修复：thinking 模式必须随 assistant 消息回传 */
+  thinking?: string;
 }
 
 export interface LlmCompleteOptions {
@@ -179,7 +181,29 @@ async function directOpenAiComplete(
   const systemText = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n");
   const apiMessages: Array<Record<string, unknown>> = [];
   if (systemText) apiMessages.push({ role: "system", content: systemText });
-  for (const m of messages.filter((x) => x.role !== "system")) {
+  // B1 防御：每个 assistant(tool_calls) 的调用必须有紧随的 tool 响应——
+  // 按 tool_calls 声明顺序重排响应块：已有响应保留、缺失补合成、孤立 tool 消息剔除
+  // （保序列不变式——防御多调用提前终止/异常截断）
+  const normalized: LlmMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    normalized.push(m);
+    if (m.role !== "assistant") continue;
+    const tcs = (m as { toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }> }).toolCalls;
+    if (!tcs || tcs.length === 0) continue;
+    const existing = new Map<string, LlmMessage>();
+    let j = i + 1;
+    while (j < messages.length && messages[j].role === "tool") {
+      const tm = messages[j];
+      if (tm.toolCallId && !existing.has(tm.toolCallId)) existing.set(tm.toolCallId, tm);
+      j++;
+    }
+    i = j - 1;   // 外层跳过已处理的 tool 块
+    for (const t of tcs) {
+      normalized.push(existing.get(t.id) ?? { role: "tool", toolCallId: t.id, toolName: t.name, content: "该调用未执行（序列补全）。" });
+    }
+  }
+  for (const m of normalized.filter((x) => x.role !== "system")) {
     if (m.role === "tool") {
       apiMessages.push({ role: "tool", tool_call_id: m.toolCallId, content: m.content });
     } else if (m.role === "assistant") {
@@ -187,6 +211,7 @@ async function directOpenAiComplete(
       apiMessages.push({
         role: "assistant",
         content: m.content,
+        ...(m.thinking ? { reasoning_content: m.thinking } : {}),
         ...(tc && tc.length > 0
           ? { tool_calls: tc.map((t) => ({ id: t.id, type: "function", function: { name: t.name, arguments: JSON.stringify(t.arguments) } })) }
           : {}),
