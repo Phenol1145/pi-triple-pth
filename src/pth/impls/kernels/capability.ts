@@ -5,6 +5,7 @@ import type { PgMemoryStore } from "../../kernel/storage/memory-store-pg.js";
 import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
+import { wrapValidated } from "../../kernel/ptc/contract.js";
 
 /** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */
 function createTaskFs(resolve: (rel: string) => string): Record<string, unknown> {
@@ -61,6 +62,12 @@ export function buildCapabilities(deps: {
   //   tasks（peek/submit）整体摘除（task-loop 内部走 store——vm 暴露是历史遗留面）。
   //   系统组件（autopilot/console/lineage）主进程直调，不经能力注入——不受影响。
   const extCaps = { ...ext.capabilities } as Record<string, unknown>;
+  // PTC 契约校验接线（2026-08-14 A1 Phase 1）：注册表 validate 的能力函数包一层参数校验
+  const memRaw = extCaps["memory"] as Record<string, (...a: unknown[]) => unknown> | undefined;
+  if (memRaw) {
+    if (memRaw["query"]) memRaw["query"] = wrapValidated("memory.query", memRaw["query"]);
+    if (memRaw["write"]) memRaw["write"] = wrapValidated("memory.write", memRaw["write"]);
+  }
   const perfFull = extCaps["perf"] as Record<string, unknown> | undefined;
   if (perfFull) extCaps["perf"] = { params: perfFull["params"], status: perfFull["status"], analyze: perfFull["analyze"], list: perfFull["list"] };
   const modelFull = extCaps["model"] as Record<string, unknown> | undefined;
@@ -75,18 +82,18 @@ export function buildCapabilities(deps: {
       dbQuery: deps.dataWorld.queryReadOnly?.bind(deps.dataWorld),
     }),
     llm: deps.llm,
-    web: createWebCapability(),
-    ...(deps.inspect ? { env: { inspect: deps.inspect } } : {}),
+    web: { fetchText: wrapValidated("web.fetchText", createWebCapability().fetchText) },
+    ...(deps.inspect ? { env: { inspect: wrapValidated("env.inspect", deps.inspect) } } : {}),
     // 召回能力（T6）：后续任务从记忆区召回工具函数/洞察——扁平化闭环（agent 状态 = 记忆文档）
     state: createRecallState(deps.dataWorld.memory),
     // 文件通道（§0.5）：fs.readText 只读 toolstore + fs.list 枚举可用工具
     ...(deps.toolstore
       ? { fs: {
-          readText: deps.toolstore.readText.bind(deps.toolstore),
+          readText: wrapValidated("fs.readText", deps.toolstore.readText.bind(deps.toolstore)),
           list: deps.toolstore.list.bind(deps.toolstore),
           // 自修改（v0.8→v0.9 铺垫）：readSource 只读 PTH 源码（/app/src 白名单——
           // 路径校验防越权；worker 读源码 → sandbox 编码 → 提交补丁产物）
-          readSource: deps.readSource,
+          readSource: deps.readSource ? wrapValidated("fs.readSource", deps.readSource) : undefined,
           // 任务工作区（workspace 收敛 2026-08-09）：ts 程序写文件落 tasks/<taskId>/——
           // 自修改产物（补丁/源码）落盘 → archive 归档。白名单：相对路径 + 防穿越
           ...(deps.taskWorkspaceResolve

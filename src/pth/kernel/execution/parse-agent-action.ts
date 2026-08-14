@@ -5,6 +5,8 @@
  * 解析失败由调用方重试（PTH_AGENT_RETRY_PARSE）→ 仍失败 terminal reject。
  */
 
+import { buildCapabilityAsActionMap } from "../ptc/contract.js";
+
 export const AGENT_TOOL_IDS = [
   "ts.eval",
   "ts.run",
@@ -39,19 +41,11 @@ export const AGENT_TOOL_IDS = [
 
 /**
  * 能力函数（ts 程序内可用）——LLM 若误把它们当动作工具输出，agent-loop 自动降级为 ts 程序执行。
- * 值 = 包装程序模板（args 注入）
+ * 值 = 包装程序模板（args 注入）。
+ * 2026-08-14 A1 Phase 1：由 PTC 契约注册表（ptc/contract.ts）派生——单一真相源，
+ * 输出与旧手写模板逐字节一致（ptc-contract 测试 golden 断言）。
  */
-export const AGENT_CAPABILITY_AS_ACTION: Record<string, (args: Record<string, unknown>) => string> = {
-  "memory.query": (a) => `return await memory.query(${JSON.stringify(String(a.sql ?? ""))});`,
-  "memory.write": (a) => `return await memory.write(${JSON.stringify(a)});`,
-  "llm.complete": (a) => `return await llm.complete([{ role: "system", content: ${JSON.stringify(String(a.system ?? "你是助手"))} }, { role: "user", content: ${JSON.stringify(String(a.user ?? ""))} }]);`,
-  "web.fetchText": (a) => `return await web.fetchText(${JSON.stringify(String(a.url ?? ""))});`,
-  "fs.readText": (a) => `return await fs.readText(${JSON.stringify(String(a.path ?? ""))});`,
-  "fs.list": (a) => `return await fs.list(${a.dir ? JSON.stringify(String(a.dir)) : "undefined"});`,
-  "env.inspect": (a) => `return await env.inspect(${a.lang ? JSON.stringify(String(a.lang)) : "undefined"});`,
-  "state.recallFunctions": (a) => `return await state.recallFunctions(${a.query ? JSON.stringify(String(a.query)) : "undefined"});`,
-  "state.recallInsights": (a) => `return await state.recallInsights(${a.query ? JSON.stringify(String(a.query)) : "undefined"});`,
-};
+export const AGENT_CAPABILITY_AS_ACTION = buildCapabilityAsActionMap();
 
 export const AGENT_CAPABILITY_IDS = Object.keys(AGENT_CAPABILITY_AS_ACTION);
 
