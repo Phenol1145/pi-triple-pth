@@ -322,3 +322,70 @@ src/pth/kernel/storage/
 - 复测任务的**场景自动生成**仍是模板级（证据 metric 摘要拼入任务文本）——
   场景的语义精准复现（同一任务类型重放）留热点检测 v2/LLM 生成升级；
 - capability-index 目标用全局聚合（角色指标不可归属）——全局 rollup 是近似证据，人工复核兜底。
+
+
+---
+
+## 附录 E：B4 skill 记忆类型（N2——工作流 SOP 一等化）实施方案
+
+> 依据：§10 账本 N2「skill 记忆类型（工作流 SOP 一等化）——无实现」+ 域 B 词条「skill〔新〕：
+> 系统化描述怎么做某件事（SOP）——JIT 优化对象（版本化+deopt）——场景锚点（三要素）」+
+> §8.2 债务「工作流 SOP——角色特定标准作业步骤还不是一等概念」+ 0.13.2「SKILL.md → memory 条目」。
+> 现状探查（2026-08-14）：skill kind 已入 memory-policy **prompt 层**（worker 只读 ✓）；
+> 手写种子 skill:api-investigation 已有（lazy 指针模式 ✓）；skills 表 v1 占位；skills.get 能力 v1 返回空。
+> 待用户裁决 3 点后按 Phase 落地（每 phase 独立提交）。
+
+### 0. 现状盘点
+
+| # | 事实 | 详情 |
+|---|---|---|
+| 0.1 | **类型已半埋** | kind="skill" 在 memory-policy 已是 prompt 层（layerOfKind → 拒绝 worker 写——治理半就位） |
+| 0.2 | **种子已有** | skill:api-investigation 手写条目（受保护系统文档 + system prompt lazy 指针——检索模式已验证） |
+| 0.3 | **占位未接** | schema skills 表（v1 视图占位）；capability skills.get 返回 undefined（v1 占位） |
+| 0.4 | **JIT 缺口** | optimizer 建议 kind 只有 rule/role——skill 不在优化对象面（N2 的「版本化+deopt」无通道） |
+| 0.5 | **SOP 债务** | 角色特定标准作业步骤散落在 role.prompt 散文里——无结构化条目（§8.2 债务） |
+
+### 1. 概念落定（域 B 词条修订）
+
+**skill〔新〕** = 系统化描述怎么做某件事（SOP）的**独立记忆条目**：
+- **格式**：场景锚点三要素（【场景锚点】/【何时用】/【效果】）+ 有序步骤清单（SOP 正文）——与 T8 锚点标准同构；
+- **治理**：prompt 层——worker 只读；写走治理通道（JIT propose / 人工 / 0.13 转化 pipeline——N4 上游）；
+- **JIT 优化对象**：版本化（meta.version 递增）+ deopt（复测劣化回滚——与 rule 同构的诚实闭环）；
+- **与 rule 的分界**：rule = 一句话规则（追加进 role-doc/capability-index 的 stamp）；
+  skill = 完整 SOP 条目（独立条目 id=skill:<name>，按场景锚点检索）。
+
+### 2. Phase 划分
+
+**Phase 1 —— 类型与格式（memory-policy + 种子 SOP）**
+- 定义 skill 条目格式规范（三要素 + 步骤清单——写入 concepts 域 B 词条 + skill 模板常量）；
+- 首批种子：把散落在 role.prompt 的角色 SOP 条目化（developer 实现→验证→交付 / scout 侦察→简报 /
+  memory-keeper 沉淀流程——seed skills 注入 + 受保护）；
+- §8.2「工作流 SOP」债务勾除；skills 表标注同步（视图投影语义不变）。
+
+**Phase 2 —— 检索面与能力接线**
+- `skills.get(name)` 真实现：capability.ts v1 占位 → dataWorld.memory.get(`skill:${name}`)（返回结构化条目）；
+- 检索面保持 memory.query（id/anchors——skill:name 指针模式已验证）；system prompt 的 API 调查指针模式推广为「场景锚点 → 查 skill」指引；
+- 测试：skills.get 取条目/未知名空/worker 写拒绝。
+
+**Phase 3 —— JIT 优化对象化（optimizer 三处扩展）**
+- OptimizerSuggestion.kind 增加 "skill"（target = skill:<name>；证据带 targetRole——基线取该角色聚合）；
+- optimizer-apply：isReversibleSuggestion 纳入 skill 目标；apply = 写入/更新 skill 条目（official + meta.version+1）+ baseline + 派发复测任务（targetRole 路由）；
+- checkDeopt：skill 目标按 targetRole 聚合复测——劣化 50%+ 回滚（见裁决点 B4-1 的回滚语义）+ rolled_back 标记 + insight；
+- 范围外（记录）：JIT **自动生成** skill 建议（热点→SOP 模板生成器）留后续——本批只通治理通道与 apply/deopt 面。
+
+**Phase 4 —— 0.13 转化落点 + 落档**
+- SKILL.md → 条目格式映射定稿（0.13.2 转化流程的 skill 分支落点——N4 pipeline 直接写该格式）；
+- concepts N2 账本 → ✅ / 域 B 词条修订 / backlog B4 行；容器重建冒烟（skills.get 真实链路）。
+
+### 3. 待用户裁决（3 点）
+
+| # | 事项 | 选项 | 推荐 |
+|---|---|---|---|
+| B4-1 | skill 的 deopt 回滚语义 | A 归档式——回滚 = status→archived + rolled_back + insight（skill 不复用即撤，人工可回收）/ B 版本链——存 prior content，回滚恢复上一版（重但可精确回退）/ C stamp 式——skill 作为 role-doc 章节追加（放弃独立条目） | **A**——独立条目 + 归档回滚最简单诚实；版本链留未来多版本 skill 需求 |
+| B4-2 | 首批种子 SOP | A 注入 3 个角色 SOP seed（developer/scout/memory-keeper——从 role.prompt 提炼条目化）/ B 不注入（空类型——JIT 自然生长）/ C 全角色 7 个 | **A**——3 个证明格式与检索闭环，JIT 再自然扩展 |
+| B4-3 | skill 检索面 | A 沿用 memory.query（id/anchors 指针——零新索引，已验证模式）/ B 新增独立 skill 索引工具（memory.index 增强——skill 节） | **A**——锚点检索已够；索引增强留给 skill 数量上来后 |
+
+### 4. 验证
+
+- 每 phase 全量测试绿（基线 1628）；Phase 3 复用 N6 复测闭环（skill 目标走 verify 三通道——targetRole 路由复测任务）；
+- 容器重建 + 冒烟：ts 程序内 skills.get 取种子 SOP 条目（真实链路）。
