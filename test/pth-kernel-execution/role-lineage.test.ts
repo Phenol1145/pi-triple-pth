@@ -17,8 +17,8 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(ORIGIN_ROLE.capabilities).toBeUndefined();   // 全能——无访问权限收窄
   });
 
-  it("叶子角色挂三族（generation=3 挂 executor/explorer/governor；memory-stats gen4 分化自 scout——Agent-JIT 路径 B）", () => {
-    const midIds = ["executor", "explorer", "governor"];
+  it("叶子角色挂四族（generation=3 挂 executor/explorer/governor/researcher；memory-stats gen4 分化自 scout——Agent-JIT 路径 B）", () => {
+    const midIds = ["executor", "explorer", "governor", "researcher"];
     for (const r of DEFAULT_ROLES) {
       expect(r.generation).toBeGreaterThanOrEqual(3);
       expect(r.differentiation).toBeTruthy();
@@ -33,9 +33,9 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(gen4[0]!.parent).toBe("scout");
   });
 
-  it("4 中间层角色：actuator 挂 Origin（generation=1）；三族挂 actuator（generation=2——2026-08-14 类型树修理）", () => {
+  it("5 中间层角色：actuator 挂 Origin（generation=1）；四族挂 actuator（generation=2——2026-08-14 类型树修理 + researcher）", () => {
     const midIds = MID_ROLES.map((r) => r.id).sort();
-    expect(midIds).toEqual(["actuator", "executor", "explorer", "governor"]);
+    expect(midIds).toEqual(["actuator", "executor", "explorer", "governor", "researcher"]);
     for (const r of MID_ROLES) {
       expect(r.differentiation).toBeTruthy();
     }
@@ -58,23 +58,25 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(lineage.some((r) => r.id === "origin")).toBe(true);
     expect(lineage.some((r) => r.id === "executor")).toBe(true);
     // 2026-08-12 体系自制：+9 governance（sensor×4/controller×5——谱系可见默认不派发）；
-    // 2026-08-14 类型树修理：中间层 3 → 4（+actuator）
-    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 4 + 9);
+    // 2026-08-14 类型树修理：中间层 3 → 5（+actuator/+researcher）
+    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 5 + 9);
     const gov = lineage.filter((r) => r.id.startsWith("sensor:") || r.id.startsWith("controller:"));
     expect(gov.length).toBe(9);
   });
 
-  it("buildRoleLineage 构建四层树（Origin → actuator+9 治理骨架 → 3 族 → 8 叶子——2026-08-14 类型树修理）", () => {
+  it("buildRoleLineage 构建四层树（Origin → actuator+9 治理骨架 → 4 族 → 8 叶子——2026-08-14 类型树修理 + researcher）", () => {
     const tree = buildRoleLineage();
     expect(tree.role.id).toBe("origin");
     expect(tree.children.length).toBe(1 + 9);   // actuator + 9 治理骨架
     const actuator = tree.children.find((c) => c.role.id === "actuator");
-    expect(actuator?.children.map((c) => c.role.id).sort()).toEqual(["executor", "explorer", "governor"]);
+    expect(actuator?.children.map((c) => c.role.id).sort()).toEqual(["executor", "explorer", "governor", "researcher"]);
     const executor = actuator?.children.find((c) => c.role.id === "executor");
     const explorer = actuator?.children.find((c) => c.role.id === "explorer");
     const governor = actuator?.children.find((c) => c.role.id === "governor");
+    const researcher = actuator?.children.find((c) => c.role.id === "researcher");
     expect(executor?.children.map((c) => c.role.id).sort()).toEqual(["developer", "tester", "writer"]);   // writer 2026-08-12 批 2
-    expect(explorer?.children.map((c) => c.role.id).sort()).toEqual(["analyst", "scout"]);
+    expect(explorer?.children.map((c) => c.role.id).sort()).toEqual(["scout"]);   // analyst 迁入 researcher（2026-08-14）
+    expect(researcher?.children.map((c) => c.role.id).sort()).toEqual(["analyst"]);
     expect(governor?.children.map((c) => c.role.id).sort()).toEqual(["acceptor", "memory-keeper", "planner"]);
   });
 

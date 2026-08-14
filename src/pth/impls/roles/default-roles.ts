@@ -26,11 +26,11 @@ export const ORIGIN_ROLE: WorkerRole = {
 //   / acceptanceRole=验收角色——谱系元数据声明（thinking 传 LLM/acceptanceRole done 限制后续实现）
 export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "analyst", tags: ["analysis", "research"], prompt: "你是分析者——负责信息分析、数据洞察、研究报告撰写。",
-    description: "信息分析与数据洞察（researcher 对应）", thinking: "medium",
+    description: "信息分析与数据洞察（researcher 族——深度研究）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research",
     exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（backlog 差距 11——分析可双语言核验证）
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：执行核+导航+随身缓存（无生产核 dev/debug/write）
-    parent: "explorer", generation: 3, differentiation: "分析调研类任务诱导——数据洞察/报告撰写需要 web 与数据能力的特化" },
+    parent: "researcher", generation: 3, differentiation: "研究类任务诱导——数据洞察/报告撰写需要 web 与数据能力的特化" },
   { id: "planner", tags: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。\n\n【计划产出格式（done.result 必遵）】\n{ \"subtasks\": [ {\"id\": \"s1\", \"type\": \"exploration\", \"dependsOn\": [], \"description\": \"...\"}, ... ] }\n- dependsOn 只标真实数据依赖（上游产出被下游消费才写）——无依赖子任务不串排（同层并行——时间复用率）。\n- 计划扁平化原则：先画依赖 DAG——只有真实依赖才串行；能并行的子任务放同一层。",
     description: "上下文→实施计划（只读——产出计划文档）", thinking: "high",
     model: "deepseek-v4-pro",   // 2026-08-13：智力核心升级——规划/分解需强推理（flash→pro）
@@ -92,9 +92,9 @@ export const MID_ROLES: WorkerRole[] = [
   // 2026-08-14 类型树修理（用户裁决）：executor/explorer/governor 收敛为 actuator 子类型——
   // 与 2026-08-12 控制论分割裁决对齐（Origin → sensor/controller/actuator 三元组；
   // actuator = 执行侧——执行/信息/治理三族根；controller/sensor 保持 origin 直属 gen=1）
-  { id: "actuator", tags: ["actuate"], prompt: "你是执行器——actuator 控制论执行侧（执行/信息/治理三族根）。族内三大分支：executor（执行——生产交付）/explorer（信息——侦察调研）/governor（治理——质量秩序）。你不预设分支方向：按任务性质判断归属，并在产物中注明建议路由。",
-    description: "执行器中间层（控制论三元组 sensor/controller/actuator 的执行侧——执行/信息/治理三族根）", thinking: "high",
-    parent: "origin", generation: 1, differentiation: "Origin 控制论分割（2026-08-12 裁决）执行侧落地——executor/explorer/governor 三族收敛于 actuator" },
+  { id: "actuator", tags: ["actuate"], prompt: "你是执行器——actuator 控制论执行侧（执行/信息/治理/研究四族根）。族内四大分支：executor（执行——生产交付）/explorer（信息——侦察摄入）/governor（计划——规划治理）/researcher（研究——知识生产）。你不预设分支方向：按任务性质判断归属，并在产物中注明建议路由。",
+    description: "执行器中间层（控制论三元组 sensor/controller/actuator 的执行侧——执行/信息/治理/研究四族根）", thinking: "high",
+    parent: "origin", generation: 1, differentiation: "Origin 控制论分割（2026-08-12 裁决）执行侧落地——executor/explorer/governor 三族收敛于 actuator（2026-08-14 +researcher 研究族）" },
   { id: "executor", tags: ["execute", "deliver"], prompt: "你是执行者——执行族中间层。负责族内泛化的任务交付（未明确开发/测试之分的执行任务）：按任务需求组合执行能力完成并交付产物。族内已有特化：developer（实现）/tester（验证）——若任务明确属于特化方向，在产物中注明建议路由。",
     description: "执行族中间层（泛化任务交付）", thinking: "high", acceptanceRole: "writer",
     parent: "actuator", generation: 2, differentiation: "执行类任务族诱导——做事型任务（实现/构建/验证）从 actuator 分出独立分支" },
@@ -106,6 +106,11 @@ export const MID_ROLES: WorkerRole[] = [
     description: "治理族中间层（泛化质量与秩序）", thinking: "high", acceptanceRole: "read-only",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"],
     parent: "actuator", generation: 2, differentiation: "治理类任务族诱导——秩序型任务（规划/验收/记忆维护）从 actuator 分出独立分支" },
+  // 2026-08-14 研究族（用户裁决）：研究/知识生产——explorer 管摄入、researcher 管研究产出、memory-keeper 管维护
+  { id: "researcher", tags: ["research", "knowledge"], prompt: "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（信息分析与数据洞察）——若任务明确属于特化方向，在产物中注明建议路由。",
+    description: "研究族中间层（知识生产与深度研究——伪世界模型「组装+校准」的知识端）", thinking: "medium",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "context",
+    parent: "actuator", generation: 2, differentiation: "知识类任务族诱导——研究型任务（深度分析/知识生产）从 actuator 分出独立分支" },
 ];
 
 /**

@@ -761,7 +761,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **观测（obs）**〔旧〕 | sensor 上报通道（obs.callpoint / aggregate 优先） | obs.ts |
 | **传感器（sensor）**〔旧〕 | 观测者（worker-opt / system-opt / memory / resource） | default-roles |
 | **控制器（controller）**〔旧〕 | 裁决者×5（router / worker-opt / pth-opt / resource / memory）——official/reject/merge | default-roles |
-| **执行器（actuator）** | 把 official 提案落为实际修改（2026-08-14 类型树修理：actuator 类型实装——executor/explorer/governor 三族收敛其下，控制论三元组 sensor/controller/actuator 齐） | default-roles |
+| **执行器（actuator）** | 把 official 提案落为实际修改（2026-08-14 类型树修理：actuator 类型实装——executor/explorer/governor/researcher 四族收敛其下，控制论三元组 sensor/controller/actuator 齐） | default-roles |
 | **提案（proposal）**〔旧〕 | 调节建议——draft → 裁决 → official；类型学：differentiation（角色）/ optimizer-suggestion（JIT）/ 资源方案 | optimizer-loop |
 | **审批面（A/B/C）**〔旧〕 | 人工闸门：A 代码层 / B scorecard 快照 / C 角色注册 | gateway · 监督层 |
 | **控制论外环**〔旧〕 | 慢环——sensor 聚合 → controller 裁决 → 审批面 → actuator 应用（批次/小时级） | optimizer-loop |
