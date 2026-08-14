@@ -93,7 +93,7 @@
 | 思考量分摊 | 正交分工 · 谱系分化 · worker-index（协调清单） |
 | 记忆量分摊 | 共享记忆库 · role-doc · capability-index · 先查后试 |
 | 专注度核心 | 最小工具面 · 场景化描述 · 五步工作流 · 负结果收敛（防无谓探索） |
-| 高低智力结合 | planner=v4-pro / scout·stats=flash · 推理档声明（high/medium/low） |
+| 高低智力结合 | planner=v4-pro / scout·spider=flash · 推理档声明（high/medium/low） |
 | 智力代偿（0.3〔争议〕） | PTC 程序模式〔已立〕 · agentic-JIT 规则固化〔待议〕 · flash 执行族 |
 | 伪世界模型（0.14〔猜想〕） | 外部数据源接入〔待建〕 · 可预测性地图〔待建——账本 N11〕 |
 | agent 行为分析（0.15） | trace 事件流 · transcript · CoT 压缩 · refine 洞察 · optimizer-hotspots |
@@ -365,7 +365,7 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 
 | 交互核 × 推理档 × 模型 | 角色族 |
 |---|---|
-| ③ 纯工具 × low × flash | scout/memory-stats——最轻量（不写程序=最低心智负担） |
+| ③ 纯工具 × low × flash | scout/spider——最轻量（不写程序=最低心智负担） |
 | ③ 纯工具 × high × pro | planner（写计划靠工具——不写代码） |
 | ① 单核 ts × medium × flash/pro | developer——专注单一执行模式 |
 | ② 多核 × high × pro | origin/executor/controller——A/B 验证与全栈能力 |
@@ -579,7 +579,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 #### 0.16.1 谱系是类型树，不是实例树
 
-- worker 谱系（Origin → actuator → executor → developer → memory-stats）描述**类型**——每个节点是 worker 类型（角色定义）；
+- worker 谱系（Origin → actuator → executor → developer → coder）描述**类型**——每个节点是 worker 类型（角色定义）；
 - 实例 = batch 副本（类型 × 副本数，PTH_WORKER_ROLES 配比）——进程生命周期独立（fork/回收/扩缩容）；
 - **子 worker 类型 = rlm() 持久化 agent 的等效物**：类型持久存在（可寻址、可续派、可恢复），
   **按需添加**（分化提案 → 裁决 → 注册——即 rlm 的 spawn 语义落在类型层，不在会话层）；
@@ -587,7 +587,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 **组织权传播（2026-08-14 用户裁决 A）**：
 - **逐级继承**：每个类型拥有组织自己子树的能力——父类型对自身子树信息理解充分（谱系蕴含），
-  actuator 组织三族、executor 组织 developer/tester/writer、scout 组织 memory-stats——递归向下；
+  actuator 组织四族、executor 组织 developer/writer、developer 组织 coder/tester、explorer 组织 scout/spider、researcher 组织 analyst/memory-keeper——递归向下；
 - **规划/设计类补充**：planner（组织知识专有——plan/design）与 governor（oversight）获得**跨子树组织补充权**
   （可组织非自己子树的执行类型——如 planner 组织 developer 做方案落地）；
 - origin 保持全树组织权（根）；
@@ -686,7 +686,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **worker**〔旧〕 | 角色实例（进程循环：peek → claim → run）——无状态上下文（任务结束清零——0.10.4） | worker-cluster |
 | **worker 生命周期**〔旧〕 | fork 子进程 / 热上线广播 / 重启恢复（role-register 幂等） | worker-cluster · assembly |
 | **batch**〔旧〕 | worker 拓扑：角色×副本数（7×1 默认 / PTH_WORKER_ROLES 配比）——同角色单副本=串行 | batch-process |
-| **谱系（lineage）**〔旧〕 | 角色父子分化树（origin → actuator/controller/sensor 三支 → n 级——2026-08-14 类型树修理：executor/explorer/governor 收敛为 actuator 子类型）——权威源=official proposal | routes-lineage |
+| **谱系（lineage）**〔旧〕 | 角色父子分化树（origin → actuator/controller/sensor 三支 → n 级——2026-08-14 类型树修理：executor/explorer/governor/researcher 收敛为 actuator 子类型）——权威源=official proposal | routes-lineage |
 | **分化（differentiation）**〔旧〕 | 新角色从父角色派生——提案 → 裁决 → 注册 | worker-cluster |
 | **worker-index**〔旧〕 | 可用角色清单（注入规划系 + 记忆条目——路由/协作依据——0.9 锚点实例） | worker-cluster |
 | **类型树（type tree）**〔新〕 | worker 谱系的语义澄清（2026-08-14 0.16.1）——谱系描述**类型**（节点=角色定义），实例=batch 副本；类型持久、按需分化添加 = rlm() 持久化 agent 的等效物 | worker-cluster |

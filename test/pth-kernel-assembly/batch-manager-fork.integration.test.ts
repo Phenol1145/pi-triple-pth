@@ -123,7 +123,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       workers: ["developer"],
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {
-        PTH_WORKER_ROLES: "developer:1,analyst:0,planner:0,scout:0,memory-keeper:0,memory-stats:0,acceptor:0,tester:0,writer:0",
+        PTH_WORKER_ROLES: "developer:1,analyst:0,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0,writer:0,coder:0,spider:0",
         PTH_BATCH_PROCESS: "1",
         PTH_LLM_STUB: "1",   // 任务池纯化：e2e 经 agent 循环——stub LLM 立即 done（无真实凭据）
         PTH_TEST_DATABASE_URL: container.getConnectionUri(),
@@ -169,7 +169,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
       workers: ["developer", "developer", "analyst"],
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {
-        PTH_WORKER_ROLES: "developer:2,analyst:1,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0",
+        PTH_WORKER_ROLES: "developer:2,analyst:1,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0,coder:0,spider:0",
         PTH_BATCH_PROCESS: "1",
         PTH_LLM_STUB: "1",   // 任务池纯化：e2e 经 agent 循环——stub LLM 立即 done（无真实凭据）
         PTH_TEST_DATABASE_URL: container.getConnectionUri(),

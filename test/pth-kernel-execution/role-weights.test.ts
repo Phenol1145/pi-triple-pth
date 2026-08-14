@@ -9,14 +9,14 @@ import {
 beforeEach(() => installDefaultRoles());
 
 describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
-  it("不设置 → 默认 10 角色 ×1（origin+9——Origin 常驻升级链终点）", () => {
+  it("不设置 → 默认 11 角色 ×1（origin+10——Origin 常驻升级链终点）", () => {
     const w = parseRoleWeights(undefined);
-    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
-    expect(expandRoleWeights(w).length).toBe(10);
+    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(expandRoleWeights(w).length).toBe(11);
   });
 
   it("空串 → 默认", () => {
-    expect(expandRoleWeights(parseRoleWeights("")).length).toBe(10);
+    expect(expandRoleWeights(parseRoleWeights("")).length).toBe(11);
   });
 
   it("部分指定：未列出的角色默认 1", () => {
@@ -24,14 +24,14 @@ describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
     expect(w.get("developer")).toBe(3);
     expect(w.get("analyst")).toBe(2);
     expect(w.get("scout")).toBe(1);   // 未列出 → 1
-    expect(expandRoleWeights(w).length).toBe(3 + 2 + 8);  // 2 列出 + 其余 8 角色（含 origin）未列默认 1×8
+    expect(expandRoleWeights(w).length).toBe(3 + 2 + 9);  // 2 列出 + 其余 9 角色（含 origin）未列默认 1×9
   });
 
   it("副本 0 = 禁用角色（不占 worker）", () => {
     const w = parseRoleWeights("developer:4,planner:0,scout:0,memory-keeper:0,acceptor:0,tester:0");
     expect(w.get("planner")).toBe(0);
     const expanded = expandRoleWeights(w);
-    expect(expanded.length).toBe(4 + 4);   // developer×4 + origin/analyst/memory-stats/writer 未列默认 1（origin+9 角色谱系）
+    expect(expanded.length).toBe(4 + 5);   // developer×4 + origin/analyst/coder/spider/writer 未列默认 1（origin+10 角色谱系）
     expect(expanded.every((r) => r.id !== "planner")).toBe(true);
   });
 
@@ -57,15 +57,15 @@ describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
 
   it("副本数为 0 的总数校验正确（0 不占总额）", () => {
     const w = parseRoleWeights("developer:8,analyst:8,planner:8,scout:0,memory-keeper:0,acceptor:0,tester:0");
-    // developer8+analyst8+planner8+未列默认 1×3（origin+memory-stats+writer） = 27 ≤ 32
-    expect(expandRoleWeights(w).length).toBe(27);
+    // developer8+analyst8+planner8+未列默认 1×4（origin+coder+spider+writer） = 28 ≤ 32
+    expect(expandRoleWeights(w).length).toBe(28);
   });
 });
 
 describe("资源分配策略抽象（BatchCompositionStrategy）", () => {
-  it("profileToWeights：balanced 默认 → 10×1（origin+9）", () => {
+  it("profileToWeights：balanced 默认 → 11×1（origin+10）", () => {
     const w = profileToWeights({ mode: "balanced" });
-    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
   });
 
   it("profileToWeights：balanced 自定义权重", () => {
@@ -181,7 +181,7 @@ describe("governance 角色显式启用（2026-08-12 expand 修复）", () => {
     expect(w.get("controller:worker-opt")).toBe(1);
     const expanded = expandRoleWeights(w);
     expect(expanded.some((r) => r.id === "controller:worker-opt")).toBe(true);
-    expect(expanded.length).toBe(11);   // 10 默认 + 1 governance
+    expect(expanded.length).toBe(12);   // 11 默认 + 1 governance
   });
 
   it("governance 0 副本 → 过滤（不展开）", () => {

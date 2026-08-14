@@ -6,12 +6,12 @@ import { installDefaultRoles } from "../helpers";
 beforeEach(() => installDefaultRoles());
 
 describe("worker cluster", () => {
-  it("DEFAULT_ROLES has 9 leaf roles with unique ids（human-interface 移除——PTL 负责人类交互；memory-stats 2026-08-11 Agent-JIT 分化；writer 2026-08-12 批 2）", () => {
-    expect(DEFAULT_ROLES.length).toBe(9);
+  it("DEFAULT_ROLES has 10 leaf roles with unique ids（human-interface 移除——PTL 负责人类交互；memory-stats 2026-08-14 退役——测试遗留物；+coder/+spider 2026-08-14；writer 2026-08-12 批 2）", () => {
+    expect(DEFAULT_ROLES.length).toBe(10);
     const ids = new Set(DEFAULT_ROLES.map((r) => r.id));
-    expect(ids.size).toBe(9);
-    // 自持态角色集（+tester——功能测试通用角色；+writer——编写类任务）
-    expect(ids).toEqual(new Set(["analyst", "planner", "developer", "scout", "memory-keeper", "memory-stats", "acceptor", "tester", "writer"]));
+    expect(ids.size).toBe(10);
+    // 自持态角色集（+tester——功能测试通用角色；+coder——纯代码编写；+spider——网页抓取；+writer——编写类任务）
+    expect(ids).toEqual(new Set(["analyst", "planner", "developer", "coder", "scout", "spider", "memory-keeper", "acceptor", "tester", "writer"]));
   });
 
   it("each role has tags and prompt", () => {
@@ -28,8 +28,8 @@ describe("worker cluster", () => {
       taskStore: {} as any,
       workspaceMgr: {} as any,
     });
-    expect(cluster.size).toBe(10);   // origin + 9 默认角色（2026-08-11 memory-stats 分化；2026-08-12 writer）
-    expect(calls).toBe(10);
+    expect(cluster.size).toBe(11);   // origin + 10 默认角色（2026-08-14 memory-stats 退役 +coder/+spider）
+    expect(calls).toBe(11);
     expect(cluster.has("developer")).toBe(true);
   });
 
@@ -40,7 +40,7 @@ describe("worker cluster", () => {
       taskStore: {} as any,
       workspaceMgr: {} as any,
     });
-    expect(seen.sort()).toEqual(["acceptor", "analyst", "developer", "memory-keeper", "memory-stats", "origin", "planner", "scout", "tester", "writer"]);
+    expect(seen.sort()).toEqual(["acceptor", "analyst", "coder", "developer", "memory-keeper", "origin", "planner", "scout", "spider", "tester", "writer"]);
   });
 });
 
