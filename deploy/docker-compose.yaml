@@ -1,0 +1,274 @@
+name: pi-platform   # 项目名显式固定（compose 文件移入 deploy/ 后缺省名会变成 deploy——卷/容器身份必须保持）
+services:
+  pi-platform:
+    build:
+      context: ..          # 构建上下文 = 仓库根（compose 的 context 相对本文件所在目录解析）
+      dockerfile: deploy/Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - workspaces:/data/workspaces
+      - compiled-cache:/data/compiled-cache   # 编译核持久缓存（跨调用/跨容器重启）
+      - platform:/data/platform
+      - tenants:/data/tenants
+      - components:/data/components
+      - agent-dir:/data/agent-dir
+      - sessions:/data/sessions
+      - agent-lab:/data/agent-lab
+      - dev-artifacts:/data/artifacts   # 产物归档区（与 dev 共享——成品保留）
+      - toolstore:/data/toolstore        # 扩展代码库 + 策略 + 命名编译单元（持久——重启保留）
+    environment:
+      - REDIS_URL=redis://redis:6379
+      # PTH kernel 存储层（Spec C）：postgres 数据世界（凭据 compose 注入，与 postgres 服务一致）
+      - DATABASE_URL=postgresql://pth:${POSTGRES_PASSWORD:-pth-dev-password}@postgres:5432/pth
+      - PI_ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - PI_OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LOG_LEVEL=info
+      - PI_CODING_AGENT_DIR=/data/agent-dir
+      - AGENT_LAB_DB_PATH=/data/agent-lab/agent-lab.db
+      - DATA_DIR=/data
+  # F/WP3 Task 11：sandbox 转发客户端 env（共享密钥 compose 注入，非镜像硬编码）
+      - SANDBOX_URL=http://sandbox:8080
+      - SANDBOX_SHARED_SECRET=${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}
+    # kernel sandbox SPEC §3.3：REPL kernel 执行层落 sandbox 侧（持久 kernel 宿主池）
+    # 模式切换：PTH_PYTHON_MODE/PTH_BASH_MODE = sandbox-kernel（生产默认）| kernel（本地调试）
+      - PTH_PYTHON_MODE=${PTH_PYTHON_MODE:-sandbox-kernel}
+      - PTH_BASH_MODE=${PTH_BASH_MODE:-sandbox-kernel}
+      - PTH_SANDBOX_KERNEL_URL=http://sandbox:8080
+      # 内存硬限制：node 堆上限（主进程 + batch 子进程继承）——防大 payload OOM 主机
+      - NODE_OPTIONS=--max-old-space-size=768
+      # batch 构成参数化（角色:副本数逗号分隔——如 developer:3,analyst:2；未列默认 1；governance 角色显式列出启用）
+      - PTH_WORKER_ROLES=${PTH_WORKER_ROLES:-}
+      # batch 轮询 tick 间隔（ms；自驱动后仅空闲退避用）
+      - PTH_BATCH_TICK_MS=${PTH_BATCH_TICK_MS:-1000}
+      # batch 子进程 PG 连接池上限（7 角色并发 ≤7——8 够；防批量 batch 连接失控）
+      - PTH_PG_POOL_MAX=${PTH_PG_POOL_MAX:-8}
+      # agent 循环步骤上限（模型自主开发——复杂任务需更多步骤）
+      # 不限制推理轮数（实验 2026-08-09：放开 maxSteps——看 worker 边做边找能推进到什么程度）
+      - PTH_AGENT_MAX_STEPS=${PTH_AGENT_MAX_STEPS:-300}
+      # agent 单次 LLM 调用超时（官方 deepseek tools 场景慢——90s）
+      - PTH_AGENT_LLM_TIMEOUT_MS=${PTH_AGENT_LLM_TIMEOUT_MS:-90000}
+      # agent 任务级超时（多步开发任务——每步 ~50s——10 分钟）
+      - PTH_AGENT_TIMEOUT_MS=${PTH_AGENT_TIMEOUT_MS:-10800000}
+      # agent 启动模式（Prompt 框架化）：eager=注入全文 / lazy=指针按需读取 / auto=按模型
+      - PTH_AGENT_MODE=${PTH_AGENT_MODE:-lazy}
+      - PTH_ASP_MODE=${PTH_ASP_MODE:-on}   # 动作空间协议（全件落地——默认开启；off 回退旧空间无关行为）
+    # F/WP3 Task 13：sandbox 失效降级阈值（连续 N 次转发失败置 degraded；默认 3，可 env 覆盖）
+      - SANDBOX_DEGRADED_THRESHOLD=${SANDBOX_DEGRADED_THRESHOLD:-3}
+    # 路径约定统一（F/WP3 Task 12）：pth 侧 WorkspaceManager basePath = <DATA_DIR>/workspaces
+    # = /data/workspaces（DATA_DIR=/data），与 sandbox 侧 cwd 白名单根 workspacesRoot 一致；
+    # 双容器同挂 workspaces 卷同路径 → 转发 cwd 无需任何路径映射（smooth 直通）。
+    # programs→components v1 direct switch + startup alert:
+    # compose detects old programs dir on startup and logs WARN
+    # prompting manual migration (code-side migration is Task 17).
+    # Persistence invariant verification checklist (compose down && up):
+    #   - 构件在 /data/components 持久化
+    #   - agent 能力在 /data/agent-dir 持久化
+    #   - 会话在 /data/sessions 持久化（WP2 后可恢复）
+    #   - 认证不失效（Redis appendonly + 凭据外置）
+    # Redis capacity monitoring runbook:
+    #   - used_memory > 80% maxmemory → human intervention required
+    #   - Metrics exposed at /metrics as pi_redis_used_memory_bytes / pi_redis_max_memory_bytes
+    depends_on:
+      redis:
+        condition: service_healthy
+      # F/WP3 Task 11：pth 的 bash 工具依赖 sandbox 就绪（转发 /exec）
+      sandbox:
+        condition: service_healthy
+      # PTH kernel 存储层（Spec C）：pi-platform 启动前需 postgres 就绪（DATABASE_URL 连接）
+      postgres:
+        condition: service_healthy
+    # pth 需访问 sandbox（bash 转发）→ 双网络：default（出网调 LLM）+ sandbox-internal（内网锁）
+    networks:
+      - default
+      - sandbox-internal
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+          # 进程数硬限制（防 fork 风暴）：主进程 + batch 子进程（≤4 batch × 7 worker）
+          pids: 512
+
+  # F/WP3 Task 10：唯一代码执行 sandbox。egress 锁定 = 仅 internal 网络（无任何外部出口）；
+  # 共享密钥 env 注入；资源限额 CPU/内存；非 root（Dockerfile USER node）。
+  # 执行 API：POST /exec / GET /exec/:id/stream（SSE）/ GET /health。
+  # 路径约定统一（F/WP3 Task 12）：workspaces 共享卷 = pth:/data/workspaces = sandbox:/data/workspaces
+  # （同卷同路径——转发 cwd 无需映射）；sandbox 侧 cwd 白名单根（exec-api workspacesRoot）默认
+  # /data/workspaces，与 pth 侧 WorkspaceManager basePath（DATA_DIR=/data 时）完全一致。
+  sandbox:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.sandbox
+    volumes:
+      - workspaces:/data/workspaces
+      - compiled-cache:/data/compiled-cache   # 编译核持久缓存（跨调用/跨容器重启）
+    environment:
+      - SANDBOX_SHARED_SECRET=${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}
+      - LOG_LEVEL=info
+      # kernel 宿主池容量：需 > 并发 worker 数 × 2（python+bash——留余量吸收启动 acquire 竞争——否则池满排队 abort）
+      - PTH_KERNEL_POOL_SIZE=${PTH_KERNEL_POOL_SIZE:-24}
+      # acquire 排队超时（池满拒绝——短超时快速失败不卡 agent 步骤——步骤内自动重试）
+      - PTH_KERNEL_ACQUIRE_TIMEOUT_MS=${PTH_KERNEL_ACQUIRE_TIMEOUT_MS:-10000}
+      - PTH_KERNEL_ENTRY_TTL_MS=${PTH_KERNEL_ENTRY_TTL_MS:-1800000}
+      - PTH_COMPILED_CACHE_DIR=/data/compiled-cache/c
+      - PTH_COMPILED_CACHE_MAX_MB=${PTH_COMPILED_CACHE_MAX_MB:-200}
+      - PTH_COMPILED_MAX_CACHE=${PTH_COMPILED_MAX_CACHE:-50}
+      - PTH_COMPILED_TIMEOUT_MS=${PTH_COMPILED_TIMEOUT_MS:-60000}
+      - PTH_COMPILED_CONCURRENCY=${PTH_COMPILED_CONCURRENCY:-4}
+    networks:
+      - sandbox-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+          # kernel 池 16 python 进程 + node——进程数硬限制（防池外进程）
+          pids: 256
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+          pids: 64
+
+  # PTH kernel 存储层（Spec C）：postgres 数据世界地基。
+  # 凭据外置（compose 注入，非镜像硬编码）；健康检查由 pi-platform depends_on 消费。
+  postgres:
+    image: postgres:16-alpine
+    # PG 专项调优（2026-08-08，16GB 机器）：默认参数对 PTH 负载不足——
+    # shared_buffers 128MB→2GB（数据全缓存）/ work_mem 4MB→16MB / effective_cache_size 12GB（索引扫描）
+    # maintenance_work_mem 256MB（VACUUM/索引）/ max_connections 100→200（多 batch 直连余量）/ jit off（小查询）
+    # 注：连接池专项（PgBouncer 事务级 pooling）为后续演进，届时 max_connections 可回调
+    command:
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "effective_cache_size=12GB"
+      - "-c"
+      - "maintenance_work_mem=256MB"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "jit=off"
+    environment:
+      - POSTGRES_USER=pth
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pth-dev-password}
+      - POSTGRES_DB=pth
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pth -d pth"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 128
+
+  # ── G 阶段：dev 容器（多语言开发工作区——PTL 工具环境 + 用户开发/学习研究）──
+  # 定位：sandbox=运行产物中间态（无网无密钥不可信）；dev=开发/调试/成品保留（可信出网）。
+  # 非开源工具（kimiim-cli/obsidian 等 Mach-O）保留本机，不入容器（用户裁决）。
+  # 密钥不注入（用户裁决——需时 docker exec -e 临时给）。
+  # ── G 阶段：dev 工具容器（瘦身版 2026-08-12——PTL 外接工具环境）──
+  # 定位：工具执行（agent-reach/yt-dlp/instsci/bf/bfc/chatgpt-share——wrapper exec -T dev <tool>）。
+  # 可信可出网、无密钥注入（用户裁决——需时 docker exec -e 临时给）。
+  # jupyter 已独立为下方 jupyter 服务（官方 minimal-notebook——本容器不再承载）。
+  # 热修改：tools/dev bind 挂载 /opt/tools（改即生效免 rebuild）；agent-reach 配置只读挂 ~/.agents。
+  dev:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+    # root 单用户（工具容器无多用户/jupyter 拒绝 root 的问题）
+    entrypoint: ["/bin/bash", "-lc", "exec tail -f /dev/null"]
+    volumes:
+      # 热改源（精确对齐镜像内 COPY 路径——改即生效免 rebuild）
+      - ${HOME}/pi-platform/tools/dev/bfc:/opt/tools/bfc:rw
+      - ${HOME}/pi-platform/tools/dev/agent-reach-chatgpt:/opt/tools/chatgpt-share:rw
+      - ${HOME}/.agents:/root/.agents:ro                 # agent-reach skill/配置（只读——含凭据，用户自行挂载）
+      - ${HOME}/pi-platform:/works/pi-platform:rw
+      - ${HOME}/docs:/works/docs:rw
+      - ${HOME}/Projects:/works/Projects:rw
+      - ${HOME}/go:/works/go:rw
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "kill -0 1 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── G 阶段：jupyter 独立服务（官方 minimal-notebook——jupyter 原生生态完整保留）──
+  # 定位：数据科学工作台（jovyan/conda/start-notebook.sh 原生）；与 dev 工具容器解耦。
+  jupyter:
+    image: quay.io/jupyter/minimal-notebook:python-3.13
+    ports:
+      - "127.0.0.1:8888:8888"        # jupyter（仅本机）——WeKnora searxng 也占 8888，冲突时改 JUPYTER_PORT
+    volumes:
+      - jupyter-home:/home/jovyan       # /home/jovyan 持久化（conda env/jupyter 配置/uv 缓存/nvm）
+      - dev-artifacts:/data/artifacts   # 成品保留区（sandbox 产物成品落此）
+      - workspaces:/data/workspaces     # 与 pth/sandbox 共享（可选——cwd 语义一致）
+      - ${HOME}/ai-teach-jupyter:/works/ai-teach-jupyter:rw
+      - ${HOME}/pi-platform:/works/pi-platform:rw
+      - ${HOME}/docs:/works/docs:rw
+      - ${HOME}/lifelab:/works/labs/lifelab:rw
+      - ${HOME}/Projects:/works/Projects:rw
+      - ${HOME}/go:/works/go:rw
+      - ${HOME}/.agents:/home/jovyan/.agents:ro   # agent-reach skill/配置（只读——含凭据，用户自行挂载）
+    environment:
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-TokenForJupyter}
+    networks:
+      - default
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8888/api"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  toolstore:        # 扩展代码库 + 策略 + 命名编译单元（持久卷）
+  compiled-cache:   # 编译核持久缓存（CCompiledKernel cacheDir——独立于 workspaces 隔离安全）
+  workspaces:
+  platform:
+  tenants:
+  components:
+  agent-dir:
+  sessions:
+  jupyter-home:     # jupyter 独立服务 /home/jovyan 持久化
+  agent-lab:
+  redis-data:
+  postgres-data:
+  dev-home:
+  dev-artifacts:
+
+# sandbox-internal：internal:true 网络——sandbox 只能被同网容器（pth）访问，自身无外部出口
+# （egress 锁定）；redis/其他服务不在该网（sandbox 无需访问 Redis）。
+networks:
+  default:
+  sandbox-internal:
+    internal: true

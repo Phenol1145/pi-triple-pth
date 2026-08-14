@@ -1,0 +1,18 @@
+# Dev 叠加变体（开发模式——tsx watch 秒级循环——不改生产语义）
+# 启动：docker compose -f deploy/docker-compose.yaml -f deploy/docker-compose.dev.yaml up -d pi-platform
+# 生产：docker compose -f deploy/docker-compose.yaml up（普通——rebuild 后跑）
+services:
+  pi-platform:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.dev
+    # host src/config 挂载（改即同步——tsx watch 自动重启；路径相对本文件（deploy/）→ ..）
+    volumes:
+      - ../src:/app/src:ro
+      - ../config:/app/config:ro
+      - /data                              # named volumes 保留（匿名覆盖空挂载——不覆盖 compose 主文件的数据卷）
+    command: ["node_modules/.bin/tsx", "watch", "src/pth/main.ts"]
+    environment:
+      PTH_BATCH_TS: "1"                    # batch 进程也 tsx（Kernel 代码热更新——fork tsx batch-process.ts）
+      PTH_AGENT_MODE: lazy
+      PTH_DEBUG_SANDBOX: "1"               # dev 开 sandbox debug 日志

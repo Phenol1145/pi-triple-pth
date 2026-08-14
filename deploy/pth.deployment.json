@@ -1,0 +1,96 @@
+{
+  "name": "pi-platform",
+  "services": {
+    "postgres": {
+      "image": "postgres:16-alpine",
+      "env": {
+        "POSTGRES_USER": "pth",
+        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:-pth-dev-password}",
+        "POSTGRES_DB": "pth"
+      },
+      "volumes": ["postgres-data:/var/lib/postgresql/data"],
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U pth"],
+        "interval": "10s",
+        "timeout": "5s",
+        "retries": 5
+      },
+      "limits": { "cpus": 1, "memory": "512M", "pids": 128 }
+    },
+    "redis": {
+      "image": "redis:7-alpine",
+      "volumes": ["redis-data:/data"],
+      "limits": { "cpus": 0.5, "memory": "256M", "pids": 64 }
+    },
+    "pi-platform": {
+      "build": ".",
+      "dockerfile": "Dockerfile",
+      "ports": ["3000:3000"],
+      "env": {
+        "REDIS_URL": "redis://redis:6379",
+        "DATABASE_URL": "postgresql://pth:${POSTGRES_PASSWORD:-pth-dev-password}@postgres:5432/pth",
+        "PI_ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
+        "PI_OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
+        "LOG_LEVEL": "info",
+        "PI_CODING_AGENT_DIR": "/data/agent-dir",
+        "DATA_DIR": "/data",
+        "SANDBOX_URL": "http://sandbox:8080",
+        "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}",
+        "PTH_PYTHON_MODE": "${PTH_PYTHON_MODE:-sandbox-kernel}",
+        "PTH_BASH_MODE": "${PTH_BASH_MODE:-sandbox-kernel}",
+        "PTH_SANDBOX_KERNEL_URL": "http://sandbox:8080",
+        "NODE_OPTIONS": "--max-old-space-size=768",
+        "PTH_BATCH_TICK_MS": "${PTH_BATCH_TICK_MS:-1000}",
+        "PTH_PG_POOL_MAX": "${PTH_PG_POOL_MAX:-8}"
+      },
+      "volumes": [
+        "workspaces:/data/workspaces",
+        "compiled-cache:/data/compiled-cache",
+        "platform:/data/platform",
+        "tenants:/data/tenants",
+        "components:/data/components",
+        "agent-dir:/data/agent-dir",
+        "sessions:/data/sessions",
+        "agent-lab:/data/agent-lab",
+        "dev-artifacts:/data/artifacts",
+        "toolstore:/data/toolstore"
+      ],
+      "healthcheck": {
+        "test": ["CMD", "curl", "-f", "http://localhost:3000/health"],
+        "interval": "30s",
+        "timeout": "5s",
+        "retries": 3
+      },
+      "limits": { "cpus": 2, "memory": "2G", "pids": 512 },
+      "dependsOn": ["postgres", "redis"],
+      "user": "node"
+    },
+    "sandbox": {
+      "build": ".",
+      "dockerfile": "Dockerfile.sandbox",
+      "env": {
+        "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}",
+        "LOG_LEVEL": "info",
+        "PTH_KERNEL_POOL_SIZE": "${PTH_KERNEL_POOL_SIZE:-16}",
+        "PTH_KERNEL_ACQUIRE_TIMEOUT_MS": "${PTH_KERNEL_ACQUIRE_TIMEOUT_MS:-60000}",
+        "PTH_KERNEL_ENTRY_TTL_MS": "${PTH_KERNEL_ENTRY_TTL_MS:-1800000}",
+        "PTH_COMPILED_CACHE_DIR": "/data/compiled-cache/c",
+        "PTH_COMPILED_CACHE_MAX_MB": "${PTH_COMPILED_CACHE_MAX_MB:-200}",
+        "PTH_COMPILED_MAX_CACHE": "${PTH_COMPILED_MAX_CACHE:-50}",
+        "PTH_COMPILED_TIMEOUT_MS": "${PTH_COMPILED_TIMEOUT_MS:-60000}",
+        "PTH_DEBUG_SESSIONS": "${PTH_DEBUG_SESSIONS:-4}"
+      },
+      "volumes": [
+        "workspaces:/data/workspaces",
+        "compiled-cache:/data/compiled-cache"
+      ],
+      "internal": true,
+      "limits": { "cpus": 1, "memory": "1G", "pids": 256 },
+      "user": "node"
+    }
+  },
+  "networks": {
+    "default": {},
+    "sandbox-internal": { "internal": true }
+  }
+}

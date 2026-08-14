@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Docker 容器监控</title>
+<style>
+  :root { --bg:#0f1419; --card:#1a2129; --border:#2a3441; --txt:#e6edf3; --dim:#8b949e; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font:14px/1.5 -apple-system,"PingFang SC",sans-serif; padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:var(--dim); margin-bottom:20px; font-size:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px; }
+  .card.running { border-left:3px solid #3fb950; }
+  .card.exited  { border-left:3px solid #f85149; }
+  .card.created { border-left:3px solid #d29922; }
+  .head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
+  .name { font-weight:600; font-size:15px; word-break:break-all; }
+  .state { font-size:12px; padding:2px 8px; border-radius:10px; }
+  .state.running { background:#1f6f43; }
+  .state.exited  { background:#8b1e1e; }
+  .state.created { background:#6e4a12; }
+  .img { color:var(--dim); font-size:11px; margin-bottom:8px; word-break:break-all; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td { padding:3px 0; color:var(--dim); }
+  td.k { width:55px; }
+  td.v { color:var(--txt); text-align:right; }
+  .bar { height:4px; background:#2a3441; border-radius:2px; margin-top:2px; overflow:hidden; }
+  .bar > div { height:100%; background:#3fb950; transition:width .5s; }
+  .bar.warn > div { background:#d29922; }
+  .bar.crit > div { background:#f85149; }
+  .ports { color:var(--dim); font-size:11px; margin-top:8px; word-break:break-all; }
+  .error { color:#f85149; background:#3a1d1d; padding:8px 12px; border-radius:8px; margin-bottom:14px; }
+  .badge { display:inline-block; font-size:11px; color:var(--dim); margin-left:8px; }
+</style>
+</head>
+<body>
+<h1>Docker 容器监控 <span class="badge" id="ts"></span></h1>
+<div class="sub">实时状态（SSE 自动更新）· 只读面板</div>
+<div id="error" class="error" hidden></div>
+<div id="grid" class="grid"></div>
+
+<script>
+const grid = document.getElementById("grid");
+const tsEl = document.getElementById("ts");
+const errEl = document.getElementById("error");
+
+function fmtBytes(n) {
+  if (n == null) return "-";
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + "G";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  return n + "B";
+}
+function fmtPct(p) { return p == null ? "-" : p.toFixed(1) + "%"; }
+
+function render(snap) {
+  tsEl.textContent = "更新于 " + new Date(snap.ts).toLocaleTimeString();
+  if (snap.error) { errEl.hidden = false; errEl.textContent = "⚠ Docker API 错误: " + snap.error; }
+  else errEl.hidden = true;
+
+  const containers = snap.containers || [];
+  if (containers.length === 0) { grid.innerHTML = "<div class='sub'>无容器（docker 未运行或没有容器）</div>"; return; }
+
+  grid.innerHTML = "";
+  for (const c of containers) {
+    const card = document.createElement("div");
+    card.className = "card " + c.state;
+    const memBar = c.memPct == null ? "" :
+      `<div class="bar ${c.memPct > 85 ? "crit" : c.memPct > 60 ? "warn" : ""}"><div style="width:${Math.min(c.memPct,100).toFixed(0)}%"></div></div>`;
+    const cpuBar = c.cpu == null ? "" :
+      `<div class="bar ${c.cpu > 85 ? "crit" : c.cpu > 60 ? "warn" : ""}"><div style="width:${Math.min(c.cpu,100).toFixed(0)}%"></div></div>`;
+    const health = c.health ? `<span class="badge">health: ${c.health}</span>` : "";
+    card.innerHTML = `
+      <div class="head">
+        <span class="name">${escapeHtml(c.names || c.id)}</span>
+        <span class="state ${c.state}">${c.state}${health}</span>
+      </div>
+      <div class="img">${escapeHtml(c.image || "")}</div>
+      <table>
+        <tr><td class="k">CPU</td><td class="v">${fmtPct(c.cpu)}</td></tr>
+        <tr><td></td><td>${cpuBar}</td></tr>
+        <tr><td class="k">内存</td><td class="v">${fmtBytes(c.mem)} / ${fmtBytes(c.memLimit)} (${fmtPct(c.memPct)})</td></tr>
+        <tr><td></td><td>${memBar}</td></tr>
+        <tr><td class="k">网络</td><td class="v">↓ ${fmtBytes(c.netRx)} · ↑ ${fmtBytes(c.netTx)}</td></tr>
+      </table>
+      <div class="ports">${(c.ports || []).map(escapeHtml).join(" · ") || c.status || ""}</div>`;
+    grid.appendChild(card);
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (m) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[m]));
+}
+
+// 首帧立即拉一次（避免等待 SSE 首个 tick），再订阅动态更新
+fetch("/events")
+  .then((r) => r.text())
+  .catch(() => {});
+const es = new EventSource("/events");
+es.onmessage = (ev) => { try { render(JSON.parse(ev.data)); } catch {} };
+es.onerror = () => { /* EventSource 自动重连 */ };
+</script>
+</body>
+</html>
