@@ -39,9 +39,10 @@ export interface WorkerRole {
    *  探索空间按语言划分 asp.cd("python")/asp.cd("bash")）。未声明 → 沿用 capabilities 推断（现状）。 */
   exploreKernels?: string[];
   /** 动作面白名单（2026-08-12 工具面裁剪——目标驱动最小化）：声明后 LLM 只看到/只可调
-   *  这些工具（族名展开见 TOOL_GROUPS——execTs/execPy/execBash/dev/debug/write/nav/spaceMaint/cache）。
-   *  未声明 → 全量兼容（扩展角色/自定义角色不受影响）。维护类（spaceMaint=asp.create/destroy）
-   *  默认只授 controller 系/origin——空间治理收编 controller 维护任务（worker 不做空间生成/注销）。 */
+   *  这些工具（族名展开见 TOOL_GROUPS——execTs/execPy/execBash/dev/debug/write/nav/cache）。
+   *  未声明 → 全量兼容（扩展角色/自定义角色不受影响）。
+   *  2026-08-14 N8：spaceMaint 族退役——空间生成走治理通道（spaceRegistry.createChild/unregister），
+   *  worker 工具面不再有 asp.create/destroy。 */
   actionTools?: string[];
 }
 

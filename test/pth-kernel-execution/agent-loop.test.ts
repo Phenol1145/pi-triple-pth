@@ -343,7 +343,7 @@ describe("filterCapabilityDoc（Agent-JIT 路径 B——能力文档按包裁剪
 });
 
 describe("执行面授权（2026-08-12 审计 HIGH-2 修复）", () => {
-  it("asp 模式：actionTools 未授 spaceMaint → asp_create 拒绝且不注册空间", async () => {
+  it("asp 模式：asp_create 已退役（2026-08-14 N8）→ 未知工具引导且不注册空间", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([
       { toolCalls: [{ name: "asp_create", arguments: { id: "auth-x", execTool: "ts", description: "d" } }] },
@@ -358,7 +358,7 @@ describe("执行面授权（2026-08-12 审计 HIGH-2 修复）", () => {
       onTrace: ((t: { type: string; resultPreview?: string }) => { if (t.type === "tool-result") traces.push(t.resultPreview ?? ""); }) as never,
     });
     expect(r.ok).toBe(true);
-    expect(traces.some((t) => t.includes("治理授权拒绝"))).toBe(true);
+    expect(traces.some((t) => t.includes("未知工具"))).toBe(true);   // 已移出工具面——空间生成走治理通道
     const { spaceRegistry } = await import("../../src/pth/kernel/execution/space-registry.js");
     expect(spaceRegistry.get("auth-x")).toBeUndefined();   // 未注册
   });

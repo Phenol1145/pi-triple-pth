@@ -268,12 +268,12 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
     expect(names).not.toContain("write.edit");
   });
 
-  it("controller 系含 spaceMaint（维护收编点）——worker 角色均无", async () => {
+  it("spaceMaint 族已退役（2026-08-14 N8）——controller 系与 worker 角色均无（空间生成走治理通道）", async () => {
     const { DEFAULT_ROLES, GOVERNANCE_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     const ctrl = GOVERNANCE_ROLES.find((r) => r.id === "controller:pth-opt")!;
-    expect(ctrl.actionTools).toContain("spaceMaint");
+    expect(ctrl.actionTools ?? []).not.toContain("spaceMaint");   // 工具面退役——生成走 spaceRegistry.createChild（治理通道）
     for (const r of DEFAULT_ROLES) {
-      expect(r.actionTools ?? []).not.toContain("spaceMaint");   // 普通 worker 无空间治理面
+      expect(r.actionTools ?? []).not.toContain("spaceMaint");   // worker 从来无空间治理面
     }
   });
 

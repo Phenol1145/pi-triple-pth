@@ -502,8 +502,8 @@ export function toolsForExecTool(execTool: string): import("@earendil-works/pi-a
 /** 工具族（2026-08-12 动作面裁剪——按角色目标最小化分组的单元）
  * 角色声明 actionTools 时按族/逐工具 id 白名单过滤 LLM 工具面——
  * in-tokens 削减（memory-stats 背 debug.* 定义的历史问题消除）。
- * 维护类收编：spaceMaint（asp.create/destroy）默认只授 controller 系/origin——
- * 空间治理走 controller 维护任务（worker 不做空间生成/注销）。 */
+ * 2026-08-14 N8：spaceMaint 族随 asp.create/destroy 退役移除——空间生成走治理通道
+ * （spaceRegistry.createChild/unregister），worker 工具面不再有空间生成/注销。 */
 export const TOOL_GROUPS: Record<string, string[]> = {
   execTs: ["ts.run", "ts.eval"],
   execPy: ["python.run", "python.eval"],
@@ -512,7 +512,6 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   debug: ["debug.attach", "debug.breakpoint", "debug.continue", "debug.step", "debug.snapshot", "debug.evaluate", "debug.detach", "debug.sessions"],
   write: ["write.create", "write.edit", "write.read", "write.list", "write.save", "write.section"],
   nav: ["asp.cd", "asp.index", "memory.index"],
-  spaceMaint: ["asp.create", "asp.destroy"],
   cache: ["cache.load", "cache.index", "cache.cancel"],
 };
 

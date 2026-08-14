@@ -166,6 +166,64 @@ export class SpaceRegistry {
     return false;
   }
 
+/** 治理通道创建子空间（2026-08-14 N8——空间生成走优化通道/审批面：本方法即通道入口）。
+ *  worker 工具面 asp.create 已退役（agent-loop 分支移除）；原分支的治理校验全量迁入——
+ *  深度衰减/工具族收窄/childParams 表单/meta 禁建/绑定必填全部在此强制执行。
+ *  校验顺序 = 原 asp.create 分支顺序（错误消息逐条兼容迁移）。 */
+createChild(parentId: string, def: {
+  id: string;
+  execTool: string;
+  memoryScope?: string;
+  extraTools?: string[];
+  skeleton?: string;
+  description: string;
+  /** N8 生成即绑定：为哪个 worker 类型生成——必填（角色 id，谱系上溯匹配） */
+  bindRoles: string[];
+}): SpaceDef {
+  const parent = this.spaces.get(parentId);
+  if (!parent) throw new Error(`createChild: 父空间 "${parentId}" 不存在`);
+  if (parentId === "meta") throw new Error(`createChild: meta 空间禁建子空间（凭据根级固化——顶层空间是系统内置凭据模板，不由 worker 演化）`);
+  if (parent.allowChildren !== true) {
+    const form = parent.childParams?.length
+      ? `（childParams 表单: ${parent.childParams.map((p) => p.name + (p.required ? "*" : "")).join("/")}）`
+      : "";
+    throw new Error(`createChild: 空间 "${parentId}" 未声明 allowChildren（不可建子空间）${form}——asp.index 查看可建空间`);
+  }
+  if (!/^[a-z0-9-]{1,32}$/.test(def.id)) throw new Error(`createChild: id 非法（小写字母数字连字符 ≤32）——got "${def.id}"`);
+  const KNOWN_EXEC_TOOLS = ["ts", "python", "bash", "dev", "write"];
+  if (!KNOWN_EXEC_TOOLS.includes(def.execTool)) {
+    throw new Error(`createChild: execTool "${def.execTool}" 不是已注册语言族（可用: ${KNOWN_EXEC_TOOLS.join("/")}）——子空间凭据的能力面收窄须落在既有执行面上`);
+  }
+  const childDepth = this.depthOf(parentId) + 1;
+  if (parent.maxDepth !== undefined && childDepth > parent.maxDepth) {
+    throw new Error(`createChild: 深度 ${childDepth} 超过父空间 maxDepth=${parent.maxDepth}（空间树已到最大深度）`);
+  }
+  const missing = (parent.childParams ?? [])
+    .filter((p) => p.required && String((def as unknown as Record<string, unknown>)[p.name] ?? "").trim() === "")
+    .map((p) => p.name);
+  if (missing.length > 0) {
+    const form = (parent.childParams ?? [])
+      .map((p) => `  - ${p.name}${p.required ? "（必填）" : "（可选）"}: ${p.description ?? ""}`).join("\n");
+    throw new Error(`createChild: 缺必填参量 [${missing.join(", ")}]。子空间凭据表单（${parentId} 空间声明）：\n${form}`);
+  }
+  if ((def.extraTools ?? []).some((t) => !(parent.extraTools ?? []).includes(t))) {
+    throw new Error(`createChild: extraTools 只能收窄不能扩权——可用工具族 ⊆ 父空间（${(parent.extraTools ?? []).length ? (parent.extraTools ?? []).join("/") : "无——子空间不得挂工具族"}）`);
+  }
+  if (!def.bindRoles || def.bindRoles.length === 0) {
+    throw new Error(`createChild: bindRoles 必填（生成即绑定——声明为哪个 worker 类型生成的空间）`);
+  }
+  const full: SpaceDef = {
+    id: def.id, kind: "action", parent: parentId, execTool: def.execTool,
+    extraTools: def.extraTools, memoryScope: def.memoryScope, skeleton: def.skeleton,
+    description: def.description, bindRoles: def.bindRoles,
+    // 治理继承（批 3）：allowChildren/maxDepth 沿父链继承——深度封顶连续
+    allowChildren: parent.allowChildren,
+    maxDepth: parent.maxDepth,
+  };
+  this.register(full);
+  return full;
+}
+
   list(): SpaceDef[] {
     return [...this.spaces.values()];
   }

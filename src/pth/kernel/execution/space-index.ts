@@ -56,12 +56,14 @@ function indexMeta(): string {
       if (form) gov.push(`表单: ${form}`);
     }
     if (s.memoryScope) gov.push(`记忆域: ${s.memoryScope}`);
+    // 2026-08-14 N8：绑定标注——基板无绑定（全角色共享）；绑定空间仅绑定类型可进
+    if (s.bindRoles?.length) gov.push(`绑定: ${s.bindRoles.join("/")}`);
     lines.push(`${s.id}/ —— ${s.description}${gov.length ? `\n    [治理] ${gov.join("；")}` : ""}`);
     for (const child of spaceRegistry.childrenOf(s.id)) {
-      lines.push(`  └─ ${child.id}/ —— ${child.description}${child.memoryScope ? `（记忆域: ${child.memoryScope}）` : ""}`);
+      lines.push(`  └─ ${child.id}/ —— ${child.description}${child.memoryScope ? `（记忆域: ${child.memoryScope}）` : ""}${child.bindRoles?.length ? `（绑定: ${child.bindRoles.join("/")}）` : ""}`);
     }
   }
-  return truncateLayer(`【元空间】空间树（asp_cd 迁移进入；asp.create 在声明可建子空间的空间内创建——meta 禁建；done 仅本空间可用）：\n${lines.join("\n")}`);
+  return truncateLayer(`【元空间】空间树（asp_cd 迁移进入；空间由系统随 worker 分化/注意力管理生成——meta 禁建、绑定空间仅绑定类型可进；done 仅本空间可用）：\n${lines.join("\n")}`);
 }
 
 /** ts 空间 by-package：扩展包 → 各包能力键 */
@@ -113,6 +115,7 @@ export async function buildSpaceIndex(opts: { mode?: string; space?: string }, c
       gov.push(`可建子空间(maxDepth=${def.maxDepth ?? "∞"}${form ? `；表单: ${form}` : ""})`);
     }
     if (def.memoryScope) gov.push(`记忆域: ${def.memoryScope}`);
+    if (def.bindRoles?.length) gov.push(`绑定: ${def.bindRoles.join("/")}`);   // 2026-08-14 N8：生成即绑定
     const children = spaceRegistry.childrenOf(space);
     return truncateLayer(
       `【${space} 空间 · 工具族】\n${families.map((f) => `- ${f}.*`).join("\n")}${def.description ? `\n说明: ${def.description}` : ""}` +

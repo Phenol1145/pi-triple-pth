@@ -35,9 +35,9 @@ function toolsForSpace(spaceId: string, actionTools?: string[]): import("@earend
   const allowed = actionTools ? new Set(expandToolGroups(actionTools)) : null;
   const ok = (t: import("@earendil-works/pi-ai").Tool | null): t is import("@earendil-works/pi-ai").Tool =>
     t !== null && (allowed === null || allowed.has(t.name.replace(/_/g, ".")));
-  const ambient = [toolSchemaFor("asp.cd"), toolSchemaFor("asp.index"), toolSchemaFor("asp.create"), toolSchemaFor("asp.destroy"),
+  const ambient = [toolSchemaFor("asp.cd"), toolSchemaFor("asp.index"),
     toolSchemaFor("memory.index"),
-    toolSchemaFor("cache.load"), toolSchemaFor("cache.index"), toolSchemaFor("cache.cancel")].filter(ok);
+    toolSchemaFor("cache.load"), toolSchemaFor("cache.index"), toolSchemaFor("cache.cancel")].filter(ok);   // 2026-08-14 N8：asp.create/destroy 已退役（生成走治理通道）
   if (spaceId === "meta") return [...ambient, toolSchemaFor("done")!];
   const sp = spaceRegistry.get(spaceId);
   if (sp?.execTool) {
@@ -48,13 +48,10 @@ function toolsForSpace(spaceId: string, actionTools?: string[]): import("@earend
   return ambient;
 }
 
-/** ASP 模式 system prompt 附加块（协议世界观——空间/迁移/完成规则） */
-const ASP_BLOCK = `【动作空间协议（ASP）】
-你在【元空间】开始——元空间无执行核，语言代码不可在此解析。
-- 探索：asp_index() 查看当前空间的可达函数/数据（无参默认当前空间；mode=by-package 按扩展包 / by-type 按变量函数；space 指定目标空间）
-- 执行：asp_cd 迁移到语言/生产空间——asp_cd("ts")（ts 程序空间——能力包 memory/llm/web/fs/state 等）/ asp_cd("python") / asp_cd("bash")；产物生产：asp_cd("dev")（代码——dev.*/debug.*）/ asp_cd("write")（文档——write.*）
-- 空间数据是本地的：ts 里声明的变量在 python 空间不可见（跨空间携带信息用记忆/缓存工具）
-- 完成任务：asp_cd("meta") 回到元空间 → done 提交（done 仅在元空间可用）`;
+/** ASP 模式 system prompt 附加块（协议世界观——空间/迁移/完成规则；
+ *  2026-08-14 N8 修订：空间从「先验基板」到「派生结构」——基板全角色共享，绑定空间仅绑定类型可进；
+ *  空间由系统随 worker 分化/注意力管理生成——worker 不创建/注销空间（生成走优化通道+审批面）） */
+const ASP_BLOCK = "【动作空间协议（ASP）】\n你在【元空间】开始——元空间无执行核，语言代码不可在此解析。\n- 探索：asp_index() 查看你可进入的空间（语言执行基板 ts/python/bash/dev/write 全角色共享；绑定空间仅绑定 worker 类型可进入——索引会标注）\n- 执行：asp_cd 切换——asp_cd(\"ts\")（ts 程序空间——能力包 memory/llm/web/fs/state 等）/ asp_cd(\"python\") / asp_cd(\"bash\")；产物生产：asp_cd(\"dev\")（代码——dev.*/debug.*）/ asp_cd(\"write\")（文档——write.*）\n- 空间数据是本地的：ts 里声明的变量在 python 空间不可见（跨空间携带信息用记忆/缓存工具）\n- 空间由系统生成（随 worker 分化/注意力管理需要）——你不需要也不可创建/注销空间\n- 完成任务：asp_cd(\"meta\") 回到元空间 → done 提交（done 仅在元空间可用）";
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
@@ -568,17 +565,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     // （2026-08-14 T3：pick_tools 动态工具选择协议已废弃移除——工具面不再动态收窄）
     // ── ASP 门控（asp 模式——空间状态机）────────────────────────────
     if (aspMode) {
-      // 空间治理授权（2026-08-12 审计 HIGH-2 修复）：维护类动作（asp.create/destroy）——
-      // 角色声明了 actionTools 但未含维护工具 → 拒绝；未声明 = 全量兼容（用户裁决）；
-      // 治理由 controller 系/origin 执行（actionTools 含 spaceMaint）。
-      const spaceMaintGranted = !input.role?.actionTools
-        || expandToolGroups(input.role.actionTools).some((t) => t === "asp.create" || t === "asp.destroy");
-      if (!spaceMaintGranted && (tool === "asp_create" || tool === "asp_destroy")) {
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `${tool} 拒绝：本角色（${input.role?.id ?? "?"}）actionTools 未授空间维护（spaceMaint）——治理由 controller 系/origin 执行。` });
-        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "治理授权拒绝" });
-        return undefined;
-      }
+      // 空间生成/注销已移出 worker 工具面（2026-08-14 N8——T6 裁决：空间生成走优化通道/审批面；
+      // 治理通道入口 = spaceRegistry.createChild/unregister——asp.create/asp.destroy 工具已退役）
       if (tool === "asp_cd") {
         const target = String(args["space"] ?? "");
         const sp = spaceRegistry.get(target);
@@ -613,130 +601,6 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         );
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: out });
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: out.slice(0, 120) });
-        return undefined;
-      }
-      if (tool === "asp_create") {
-        // 空间治理 v2（2026-08-12 用户裁决批 3）：meta 禁建子空间（凭据根级固化——顶层空间是
-        // 系统内置的凭据模板，不由 LLM 演化）；创建在声明 allowChildren 的父空间内进行。
-        if (currentSpace() === "meta") {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: "asp.create 拒绝：meta 空间禁建子空间（凭据根级固化——顶层空间是系统内置凭据模板，不由 LLM 演化）。请在声明 allowChildren 的父空间内创建（asp.index 查看空间树与表单）。" });
-          return undefined;
-        }
-        const parentDef = spaceRegistry.get(currentSpace());
-        if (!parentDef || parentDef.allowChildren !== true) {
-          const form = parentDef?.childParams?.length
-            ? `（childParams 表单: ${parentDef.childParams.map((p) => `${p.name}${p.required ? "*" : ""}`).join("/")}）`
-            : "";
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.create 拒绝：空间 "${currentSpace()}" 未声明 allowChildren（不可建子空间）${form}——asp.index 查看可建空间` });
-          return undefined;
-        }
-        const id = String(args["id"] ?? "").trim();
-        const execTool = String(args["execTool"] ?? "").trim();
-        const desc = String(args["description"] ?? "").trim();
-        const memoryScope = String(args["memoryScope"] ?? "").trim();
-        if (!/^[a-z0-9-]{1,32}$/.test(id)) {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.create: id 非法（小写字母数字连字符 ≤32）——got "${id}"` });
-          return undefined;
-        }
-        // execTool 白名单（2026-08-12 审计 ROBUST-3 修复）：须为已注册语言族（toolsForExecTool 能展开的）——
-        // 否则子空间工具面为空（纯 ambient 壳）——"隔离执行"承诺落空
-        const KNOWN_EXEC_TOOLS = ["ts", "python", "bash", "dev", "write"];
-        if (!KNOWN_EXEC_TOOLS.includes(execTool)) {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.create 拒绝：execTool "${execTool}" 不是已注册语言族（可用: ${KNOWN_EXEC_TOOLS.join("/")}）——子空间凭据的能力面收窄须落在既有执行面上` });
-          return undefined;
-        }
-        // 深度校验：子空间深度 = 父深度 + 1 ≤ 父 maxDepth
-        const childDepth = spaceRegistry.depthOf(currentSpace()) + 1;
-        if (parentDef.maxDepth !== undefined && childDepth > parentDef.maxDepth) {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.create 拒绝：深度 ${childDepth} 超过父空间 maxDepth=${parentDef.maxDepth}（空间树已到最大深度）` });
-          return undefined;
-        }
-        // childParams 必填表单校验（缺字段 → 展示表单——索引即引导）
-        const missing = (parentDef.childParams ?? [])
-          .filter((p) => p.required && String(args[p.name] ?? "").trim() === "")
-          .map((p) => p.name);
-        if (missing.length > 0) {
-          const form = (parentDef.childParams ?? [])
-            .map((p) => `  - ${p.name}${p.required ? "（必填）" : "（可选）"}: ${p.description ?? ""}`).join("\n");
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.create 拒绝：缺必填参量 [${missing.join(", ")}]。子空间凭据表单（${currentSpace()} 空间声明）：\n${form}` });
-          return undefined;
-        }
-        // extraTools 收窄（子空间工具族 ⊆ 父空间——只能收窄不能扩权）
-        const extraRaw = String(args["extraTools"] ?? "").trim();
-        const parentExtra = parentDef.extraTools ?? [];
-        const extraTools = extraRaw ? extraRaw.split(/[,\s]+/).filter(Boolean) : undefined;
-        if (extraTools && extraTools.some((t) => !parentExtra.includes(t))) {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.create 拒绝：extraTools 只能收窄不能扩权——可用工具族 ⊆ 父空间（${parentExtra.length ? parentExtra.join("/") : "无——子空间不得挂工具族"}）` });
-          return undefined;
-        }
-        try {
-          spaceRegistry.register({
-            id, kind: "action",
-            execTool: execTool.replace(/\./g, "_"),   // 归一为下划线形
-            skeleton: typeof args["skeleton"] === "string" ? args["skeleton"] : undefined,
-            description: desc,
-            parent: currentSpace(),
-            extraTools,
-            memoryScope: memoryScope || parentDef.memoryScope,   // 缺省继承父空间记忆域
-            // 治理继承（批 3）：allowChildren/maxDepth 沿父链继承——深度封顶连续（dev maxDepth=2 两代封顶），
-            // 子空间不会凭白获得/丢失建子空间权（只能收窄不能扩权）
-            allowChildren: parentDef.allowChildren,
-            maxDepth: parentDef.maxDepth,
-          });
-        } catch (e) {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.create: ${e instanceof Error ? e.message : String(e)}` });
-          return undefined;
-        }
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `子空间 ${id} 已注册（父=${currentSpace()} execTool=${execTool}${memoryScope ? ` memoryScope=${memoryScope}` : ""}）——asp_cd("${id}") 可进入` });
-        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `create → ${id}` });
-        // 空间定义持久化（2026-08-13 鲁棒性：子空间重启恢复——与 worker-role 对称）
-        try {
-          const dataWorld = (kernel as unknown as { dataWorld?: { memory?: { write(e: Record<string, unknown>): Promise<unknown> } } } | null)?.dataWorld;
-          await dataWorld?.memory?.write({
-            id: `space-reg:${id}`,
-            kind: "space-reg",
-            anchors: ["space-reg", id],
-            content: JSON.stringify({ id, parent: currentSpace(), execTool, extraTools, memoryScope, description: desc }),
-            status: "official",
-            meta: { source: "asp-create", space: id, persistedAt: Date.now() },
-          });
-        } catch { /* 持久化失败容忍——空间本任务内仍可用 */ }
-        return undefined;
-      }
-      if (tool === "asp_destroy") {
-        // 位置约束：meta 兜底（注销任何非内置）+ 子空间的父空间内可注销自己的子空间
-        const id = String(args["id"] ?? "").trim();
-        const target = spaceRegistry.get(id);
-        const here = currentSpace();
-        if (here !== "meta" && target?.parent !== here) {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.destroy 拒绝：仅子空间的父空间（或 meta 兜底）可注销——"${id}" 的父空间是 ${target?.parent ?? "(不存在)"}，当前在 ${here}` });
-          return undefined;
-        }
-        try {
-          const ok = spaceRegistry.unregister(id);
-          if (!ok) {
-            messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-              content: `asp.destroy: 空间 ${id} 不存在` });
-            return undefined;
-          }
-        } catch (e) {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `asp.destroy: ${e instanceof Error ? e.message : String(e)}` });
-          return undefined;
-        }
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `空间 ${id} 已注销` });
-        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `destroy → ${id}` });
         return undefined;
       }
       if (tool === "memory_index") {

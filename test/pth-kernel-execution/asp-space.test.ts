@@ -69,7 +69,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 3 });
     const firstCall = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]![1] as { tools: Array<{ name: string }> };
-    expect(firstCall.tools.map((t) => t.name).sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "done", "memory_index"]);
+    expect(firstCall.tools.map((t) => t.name).sort()).toEqual(["asp_cd", "asp_index", "cache_cancel", "cache_index", "cache_load", "done", "memory_index"]);   // 2026-08-14 N8：create/destroy 已退役
   });
 
   it("元空间直调 ts → 门控引导（不执行）", async () => {
@@ -107,7 +107,7 @@ describe("ASP 状态机（asp:true——空间门控）", () => {
     await runAgentTask({ llm, kernel: mockKernel(), caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
     const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
     const secondCallTools = (calls[1]![1] as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
-    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_create", "asp_destroy", "asp_index", "cache_cancel", "cache_index", "cache_load", "memory_index", "python_eval", "python_run"]);
+    expect(secondCallTools.sort()).toEqual(["asp_cd", "asp_index", "cache_cancel", "cache_index", "cache_load", "memory_index", "python_eval", "python_run"]);   // 2026-08-14 N8：create/destroy 已退役
   });
 
   it("cd 未知空间 → 报错引导（不迁移）", async () => {
@@ -220,51 +220,9 @@ describe("ASP 门控归一化（e2e 实测发现——点形工具名绕过）",
   });
 });
 
-describe("asp.create / asp.destroy（空间生成/注销——治理 v2）", () => {
-  it("dev 空间内 create 子空间（childParams 表单）→ cd 可进入 → 回 meta destroy（兜底）注销后不可进入", async () => {
-    const kernel = mockKernel();
-    const llm = mockLlm([
-      // 迁移到 dev 生产空间（allowChildren=true 的唯一内置空间）
-      { toolCalls: [{ name: "asp_cd", arguments: { space: "dev" } }] },
-      // dev 内创建隔离子空间（childParams 必填表单：execTool/memoryScope/description）
-      { toolCalls: [{ name: "asp_create", arguments: { id: "matlab", execTool: "matlab_exec", memoryScope: "dev-sandbox", description: "MATLAB 风格隔离计算子空间" } }] },
-      // cd 进入自定义子空间
-      { toolCalls: [{ name: "asp_cd", arguments: { space: "matlab" } }] },
-      // 回 meta destroy（meta 兜底注销任何非内置）
-      { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
-      { toolCalls: [{ name: "asp_destroy", arguments: { id: "matlab" } }] },
-      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
-    ]);
-    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 12 });
-    expect(r.ok).toBe(true);
-    expect(spaceRegistry.get("matlab")).toBeUndefined();   // 注销后不残留
-  });
-
-  it("meta 禁建子空间 → 拒绝；childParams 缺必填 → 拒绝；destroy 内置空间 → 拒绝", async () => {
-    const kernel = mockKernel();
-    const llm = mockLlm([
-      // 元空间直接 create → 禁建拒绝
-      { toolCalls: [{ name: "asp_create", arguments: { id: "x1", execTool: "x_exec", description: "在 meta 建" } }] },
-      // dev 内 create 缺 childParams 必填（memoryScope）→ 表单拒绝
-      { toolCalls: [{ name: "asp_cd", arguments: { space: "dev" } }] },
-      { toolCalls: [{ name: "asp_create", arguments: { id: "x2", execTool: "python", description: "缺 memoryScope" } }] },
-      // destroy 内置空间（dev 内——父空间领地对内置无效）
-      { toolCalls: [{ name: "asp_destroy", arguments: { id: "ts" } }] },   // 内置空间保护
-      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
-    ]);
-    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: true, maxSteps: 8 });
-    expect(r.ok).toBe(true);
-    expect(spaceRegistry.get("ts")).toBeDefined();   // 内置未删
-    expect(spaceRegistry.get("x1")).toBeUndefined();   // meta 禁建未注册
-    expect(spaceRegistry.get("x2")).toBeUndefined();   // 缺表单未注册
-    // 拒绝消息回填给了 LLM（工具结果含拒绝文案）
-    const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
-    const allTool = calls.slice(1).flatMap((c) => (c[0] as Array<{ role: string; content: string }>).filter((m) => m.role === "tool").map((m) => m.content)).join("\n");
-    expect(allTool).toContain("meta 空间禁建子空间");
-    expect(allTool).toContain("缺必填参量");
-    expect(allTool).toMatch(/仅子空间的父空间|不可注销/);   // destroy 内置：位置约束或 builtin 保护任一拦截
-  });
-});
+// ── asp.create/destroy 已退役（2026-08-14 N8——空间生成走治理通道）：
+//    治理校验迁移至 spaceRegistry.createChild——见 space-governance.test.ts「createChild 治理通道」；
+//    worker 工具面拒绝路径见 agent-loop.test.ts「asp_create 已退役」。
 
 describe("审计修复（2026-08-12）", () => {
   it("注册幂等完整比较：extraTools 变化报冲突；相同定义幂等通过", () => {

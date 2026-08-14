@@ -117,84 +117,39 @@ describe("空间治理 v2——记忆桥盖章（kernel 层注入当前空间）
   });
 });
 
-// ── agent-loop 级治理校验（asp.create 深度/收窄——复用 asp-space 的 mock 模式）────────────────
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
-import { vi } from "vitest";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
-
-function govMockKernel() {
-  return {
-    ts: { execute: vi.fn(async (code: string) => ({ ok: true, value: `exec:${code.slice(0, 20)}`, durationMs: 1 })), registerResult: vi.fn() },
-    bash: { execute: async () => ({ ok: true, stdout: "ok" }) },
-    python: { execute: async () => ({ ok: true, value: 1, stdout: "1" }) },
-    llm: { complete: async () => ({ content: "" }) },
-    dataWorld: {} as never,
-    reset: () => {}, dispose: () => {},
-  } as never;
-}
-function govMockLlm(steps: Array<{ toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; content?: string }>): LlmFn {
-  let i = 0;
-  return {
-    complete: vi.fn(async () => {
-      const step = steps[Math.min(i, steps.length - 1)]!;
-      i++;
-      return {
-        content: step.content ?? "", model: "mock", usage: { inputTokens: 1, outputTokens: 1 },
-        ...(step.toolCalls ? { toolCalls: step.toolCalls.map((tc, idx) => ({ id: `c${i}_${idx}`, name: tc.name, arguments: tc.arguments })) } : {}),
-      };
-    }),
-  } as never;
-}
-
-describe("空间治理 v2——asp.create 深度衰减与工具族收窄（agent-loop 校验）", () => {
-  it("maxDepth 超限拒绝（dev 子空间内再建孙空间）", async () => {
-    // 准备：dev 直属子空间 sandbox-a（深度1）；再在 sandbox-a 内创建（深度2 > sandbox-a 继承 maxDepth=2?——见下）
-    // 模拟由 dev 的 asp.create 生成的子空间（治理字段继承：allowChildren + maxDepth=2）
-    spaceRegistry.register({ id: "gv-sandbox-a", kind: "action", execTool: "sb_exec", parent: "dev", allowChildren: true, maxDepth: 2, description: "t" });
-    try {
-      const llm = govMockLlm([
-        { toolCalls: [{ name: "asp_cd", arguments: { space: "gv-sandbox-a" } }] },
-        // 子空间未声明 maxDepth → 继承父（dev maxDepth=2）——创建孙空间深度2 ≤2 应通过？
-        // 校验语义：childDepth=depthOf(parent)+1；parent=gv-sandbox-a depth=1 → childDepth=2 ≤ parent.maxDepth
-        // parent 无 maxDepth → 继承父链 dev 的 2 → 2≤2 通过（先建 gv-grand 再验证三层拒绝）
-        { toolCalls: [{ name: "asp_create", arguments: { id: "gv-grand", execTool: "bash", memoryScope: "m", description: "孙" } }] },
-        // 三层：gv-grand（depth=2）内创建 → childDepth=3 > maxDepth=2 → 拒绝
-        { toolCalls: [{ name: "asp_cd", arguments: { space: "gv-grand" } }] },
-        { toolCalls: [{ name: "asp_create", arguments: { id: "gv-great", execTool: "bash", memoryScope: "m", description: "曾孙" } }] },
-        { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
-        { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
-      ]);
-      const r = await runAgentTask({ llm, kernel: govMockKernel(), caps: {}, task: { title: "t", text: "x" }, asp: true, maxSteps: 10 });
-      expect(r.ok).toBe(true);
-      expect(spaceRegistry.get("gv-grand")).toBeDefined();
-      expect(spaceRegistry.get("gv-great")).toBeUndefined();   // 深度超限未注册
-      const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
-      const allTool = calls.slice(1).flatMap((c) => (c[0] as Array<{ role: string; content: string }>).filter((m) => m.role === "tool").map((m) => m.content)).join("\n");
-      expect(allTool).toContain("超过父空间 maxDepth");
-    } finally {
-      spaceRegistry.unregister("gv-great");
-      spaceRegistry.unregister("gv-grand");
-      spaceRegistry.unregister("gv-sandbox-a");
+// ── 治理通道创建子空间（2026-08-14 N8——asp.create 工具退役：空间生成走优化通道/审批面，
+//   校验从原 agent-loop 分支迁入 spaceRegistry.createChild——生成即绑定）────────────────
+describe("空间治理 v2——createChild 治理通道（N8：生成即绑定）", () => {
+  afterEach(() => {
+    for (const s of spaceRegistry.list()) {
+      if (!s.builtin) { try { spaceRegistry.unregister(s.id); } catch { /* 容忍 */ } }
     }
   });
 
-  it("extraTools 只能收窄不能扩权（dev 子空间挂非 debug 族拒绝）", async () => {
-    const llm = govMockLlm([
-      { toolCalls: [{ name: "asp_cd", arguments: { space: "dev" } }] },
-      // extraTools=write 不是 dev 的工具族 → 拒绝
-      { toolCalls: [{ name: "asp_create", arguments: { id: "gv-x", execTool: "python", memoryScope: "m", extraTools: "write", description: "扩权" } }] },
-      // extraTools=debug（收窄——父有）→ 通过
-      { toolCalls: [{ name: "asp_create", arguments: { id: "gv-y", execTool: "python", memoryScope: "m", extraTools: "debug", description: "收窄" } }] },
-      { toolCalls: [{ name: "asp_cd", arguments: { space: "meta" } }] },
-      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
-    ]);
-    const r = await runAgentTask({ llm, kernel: govMockKernel(), caps: {}, task: { title: "t", text: "x" }, asp: true, maxSteps: 10 });
-    expect(r.ok).toBe(true);
-    expect(spaceRegistry.get("gv-x")).toBeUndefined();
-    expect(spaceRegistry.get("gv-y")?.extraTools).toEqual(["debug"]);
-    const calls = (llm.complete as ReturnType<typeof vi.fn>).mock.calls;
-    const allTool = calls.slice(1).flatMap((c) => (c[0] as Array<{ role: string; content: string }>).filter((m) => m.role === "tool").map((m) => m.content)).join("\n");
-    expect(allTool).toContain("只能收窄不能扩权");
-    spaceRegistry.unregister("gv-y");
+  it("bindRoles 必填（生成即绑定——N8）", () => {
+    expect(() => spaceRegistry.createChild("dev", { id: "gc-nobind", execTool: "ts", memoryScope: "m", description: "x", bindRoles: [] })).toThrow(/bindRoles 必填/);
+  });
+
+  it("maxDepth 超限拒绝（子空间内再建孙空间）", () => {
+    const a = spaceRegistry.createChild("dev", { id: "gc-sandbox-a", execTool: "ts", memoryScope: "m", description: "t", bindRoles: ["developer"] });
+    expect(a.allowChildren).toBe(true);   // 治理继承（allowChildren/maxDepth 沿父链）
+    const grand = spaceRegistry.createChild("gc-sandbox-a", { id: "gc-grand", execTool: "bash", memoryScope: "m", description: "孙", bindRoles: ["developer"] });
+    expect(spaceRegistry.get("gc-grand")).toBeDefined();
+    expect(() => spaceRegistry.createChild("gc-grand", { id: "gc-great", execTool: "bash", memoryScope: "m", description: "曾孙", bindRoles: ["developer"] })).toThrow(/超过父空间 maxDepth/);
+    expect(spaceRegistry.get("gc-great")).toBeUndefined();
+  });
+
+  it("extraTools 只能收窄不能扩权（挂非父族拒绝；父族通过）", () => {
+    expect(() => spaceRegistry.createChild("dev", { id: "gc-x", execTool: "python", memoryScope: "m", extraTools: ["write"], description: "扩权", bindRoles: ["developer"] })).toThrow(/只能收窄不能扩权/);
+    const y = spaceRegistry.createChild("dev", { id: "gc-y", execTool: "python", memoryScope: "m", extraTools: ["debug"], description: "收窄", bindRoles: ["developer"] });
+    expect(y.extraTools).toEqual(["debug"]);
+  });
+
+  it("meta 禁建 + 未声明 allowChildren 拒绝 + execTool 白名单 + childParams 必填 + id 格式", () => {
+    expect(() => spaceRegistry.createChild("meta", { id: "gc-m", execTool: "ts", memoryScope: "m", description: "x", bindRoles: ["developer"] })).toThrow(/meta 空间禁建子空间/);
+    expect(() => spaceRegistry.createChild("ts", { id: "gc-ts", execTool: "ts", memoryScope: "m", description: "x", bindRoles: ["developer"] })).toThrow(/未声明 allowChildren/);
+    expect(() => spaceRegistry.createChild("dev", { id: "gc-bad-tool", execTool: "c", memoryScope: "m", description: "x", bindRoles: ["developer"] })).toThrow(/不是已注册语言族/);
+    expect(() => spaceRegistry.createChild("dev", { id: "gc-missing", execTool: "ts", description: "缺 memoryScope", bindRoles: ["developer"] })).toThrow(/缺必填参量/);
+    expect(() => spaceRegistry.createChild("dev", { id: "Bad ID!", execTool: "ts", memoryScope: "m", description: "x", bindRoles: ["developer"] })).toThrow(/id 非法/);
   });
 });

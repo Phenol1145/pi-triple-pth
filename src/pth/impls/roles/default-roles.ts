@@ -41,7 +41,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     description: "实现与开发（worker 对应——narrow coherent edits）", thinking: "high",
     // 权限 v2 R4：显式声明（缺省全量废止）——core+data 全量，无管理面
     capabilities: ["python", "bash", "c", "fs", "web", "llm", "state", "ext", "env", "memory", "skills", "obs"],
-    actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "write", "nav", "cache"],   // 2026-08-12 裁剪：执行核+生产核 dev/debug+文档 write（2026-08-13 修复：写文档是 developer 常见交付——write 族必须授）+导航/缓存（无 spaceMaint 治理面）
+    actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "write", "nav", "cache"],   // 2026-08-12 裁剪：执行核+生产核 dev/debug+文档 write（2026-08-13 修复：写文档是 developer 常见交付——write 族必须授）+导航/缓存（2026-08-14 N8：spaceMaint 族退役——空间生成走治理通道）
     output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer",
     parent: "executor", generation: 2, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
   { id: "scout", tags: ["recon", "investigate"], prompt: "你是侦查者——负责信息收集、代码侦察、环境探查。",
@@ -142,26 +142,26 @@ export const GOVERNANCE_ROLES: WorkerRole[] = [
   { id: "controller:router", tags: ["controller", "route"], prompt: "你是任务路由者（controller:router）——任务分流决策角色（guard 占位——v1 不实现分流判断）。任务：评审任务-角色匹配（task-resolver 分配合理性），记录路由观察（哪些任务类型反复在角色间迁移），输出路由建议（任务分化/合并方向——任务分化优先于 worker 分化）。",
     description: "任务路由（调用点截断/分流——占位）", thinking: "medium",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "plan",
-    actionTools: ["execTs", "execPy", "execBash", "nav", "cache", "spaceMaint"],   // 2026-08-12 裁剪：controller=执行核+导航+空间治理面（asp.create/destroy 维护收编点——worker 无）
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：controller=执行核+导航+空间治理面（asp.create/destroy 维护收编点——worker 无）
     parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（任务路由）", acceptanceRole: "read-only" },
   { id: "controller:worker-opt", tags: ["controller", "optimize"], prompt: "你是 worker 优化者（controller:worker-opt）——JIT 内环的调节角色。任务：读取 sensor:worker-opt 的观测建议（optimizer-suggestion draft），裁决 worker 分解/合并（任务分化优先于 worker 分化；任务类型合并优先于 worker 合并），用 manage.worker.propose 落分化提案（draft——监督层批准注册）。",
     description: "worker 优化（JIT 内环 controller——分解/合并裁决）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
-    actionTools: ["execTs", "execPy", "execBash", "nav", "cache", "spaceMaint"],
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
     parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（worker 优化）", acceptanceRole: "read-only" },
   { id: "controller:pth-opt", tags: ["controller", "optimize"], prompt: "你是 PTH 面优化者（controller:pth-opt）——控制论中环的调节角色。任务：读取 sensor:system-opt 观测，裁决 PTH 面优化（扩展编写/工具面调整/系统参数），用 manage.params.set 热调参（PTH_*），用 manage.resource.config 落重启级参数 draft，新扩展经 toolstore 产物链路。",
     description: "PTH 面优化（中环 controller——扩展/工具面/系统参数）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "implementation",
-    actionTools: ["execTs", "execPy", "execBash", "nav", "cache", "spaceMaint"],
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
     parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（PTH 面优化）", acceptanceRole: "read-only" },
   { id: "controller:resource", tags: ["controller", "optimize"], prompt: "你是资源优化者（controller:resource）——控制论外环（资源层）的调节角色。任务：读取 sensor:resource 观测，管理资源优化方案（默认方案=perf-autopilot 规则表保留）：热调节（batch 数量/核池参数/存储清理——manage.params.set + manage.resource.scheme 方案管理）、重启级参数落 draft（manage.resource.config）、复测验证（下窗口对比——恶化回滚）。",
     description: "资源优化（外环 controller——方案管理/热调参/重启级 draft）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "implementation",
-    actionTools: ["execTs", "execPy", "execBash", "nav", "cache", "spaceMaint"],
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
     parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（资源优化）", acceptanceRole: "read-only" },
   { id: "controller:memory", tags: ["controller", "optimize"], prompt: "你是记忆管理者（controller:memory）——记忆管理的调节角色。任务：读取 sensor:memory 观测，裁决记忆整理（归档/合并/清理策略），用 manage.memory.archive 落归档提案（draft——监督层批准执行；记忆是核心资产删除类不自动），写入策略调整经 manage.params 热参数。",
     description: "记忆管理（记忆整理/归档/清理策略——治理层流转）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
-    actionTools: ["execTs", "execPy", "execBash", "nav", "cache", "spaceMaint"],
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
     parent: "origin", generation: 1, differentiation: "控制论分割——调节职责从 Origin 分出（记忆管理）", acceptanceRole: "read-only" },
 ];
