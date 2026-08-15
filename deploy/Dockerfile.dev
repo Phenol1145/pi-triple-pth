@@ -47,6 +47,10 @@ RUN chmod +x /opt/tools/chatgpt-share/chatgpt-share \
     && ln -sf /opt/tools/chatgpt-share/chatgpt-share /usr/local/bin/chatgpt-share
 
 # ── 6) PATH 统一 + 工作目录 ──
+# NOTE: 以 root 运行是因为 bind mount 宿主目录（~/pi-platform 等）需要写权限；
+# macOS Docker Desktop/OrbStack 下 bind mount 属主映射依赖 host UID，
+# 非 root 用户需额外 userns 配置或宿主机 chown——当前保持 root 简化。
+# 安全缓解：容器无密钥注入、无特权模式、网络隔离由 compose 控制。
 ENV PATH="/usr/local/bin:/root/.local/bin:${PATH}" \
     UV_LINK_MODE=copy
 
