@@ -23,7 +23,7 @@
 | A2 | 双 storage 层归并 | 3 | 4 | ~~持久化基座——一切记忆/任务/空间特性都写穿它；晚归并 = 双份迁移面~~ ✅ 已落（2026-08-14 `f51a944`→`dcdd4e3` 四提交 + 文档批——附录 B） |
 | B6 | N8 空间-角色绑定校验 | 3 | 4 | ~~空间是执行基板，T6 治理模型已锁——校验晚做，空间分化会先失控~~ ✅ 已落（2026-08-14 `37216d0` 概念 / `1e6d785` 校验 / `7e0380d` 工具面退役——附录 C 修订版） |
 | B2 | N6 复测（verify）一等化 | 3 | 4 | ~~JIT 闭环的信任锚——deopt 依赖诚实复测；验证不闭合，优化产物全建在沙上~~ ✅ 已落（2026-08-14——附录 D） |
-| B4 | N2 skill 记忆类型（SOP 一等化） | 3 | 4 | 知识层根基——N4 生态转化与 §8.2「工作流 SOP」都建在它上面；**B4-2 已裁 A / B4-3 已裁 C（2026-08-15）——Phase 1 可开工** |
+| B4 | N2 skill 记忆类型（SOP 一等化） | 3 | 4 | 知识层根基——N4 生态转化与 §8.2「工作流 SOP」都建在它上面；**B4-2 已裁 A / B4-3 已裁 C（2026-08-15）；Phase 1 已实装（四段式格式 + 3 条角色 SOP 种子）——Phase 2/3 待建** |
 | D1 | N12 二期①：护栏进 scorecard 观测 | 2 | 3 | 护栏的数据层——JIT 调护栏参数（D1b）依赖它；与 N13 共用轨迹 |
 | B3 | N4 生态转化 pipeline | 3 | 3 | 0.13 机制落地——但上游是 N2（先有类型后有转化） |
 | B5 | N1b 百科矛盾检测 | 2 | 3 | 污染防线写侧断言——wiki 在增长（91 条），污染代价随体量上升 |
@@ -373,7 +373,7 @@ src/pth/kernel/storage/
 
 ### 2. Phase 划分
 
-**Phase 1 —— 类型与格式（memory-policy + 种子 SOP）**
+**Phase 1 —— 类型与格式（memory-policy + 种子 SOP）** ✅ 已实装（2026-08-15——`src/pth/kernel/skill-format.ts` 格式模板/种子数据 + `prompt-docs.ts` 注入 3 条种子；测试 `skill-format.test.ts` + `prompt-docs.test.ts`）
 - 定义 skill 条目格式规范（四段式——三要素 + Procedure + Pitfalls + Verification，写入 concepts 域 B 词条 + skill 模板常量；
   Procedure 每步标注调用代价——访问复杂度质检项）；
 - 首批种子：把散落在 role.prompt 的角色 SOP 条目化（developer 实现→验证→交付 / scout 侦察→简报 /

@@ -706,7 +706,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 |---|---|---|---|---|
 | **设定（setting）**〔桥〕 | 系统不可变核心档案 | 修改走审批面（protected） | id 即锚点（role-doc:developer） | role-doc · capability-index · worker-index · pth-worker-system · worker-role · space-reg · project-map |
 | **百科（wiki）**〔桥〕 | 术语解释——词表一致性 | 写入需词表校验（矛盾检测——§10 N1b） | 术语即锚点 | ✅ pth-wiki（2026-08-13 条目化——scripts/seed-wiki.ts 幂等可重跑） |
-| **skill**〔新〕 | 系统化描述怎么做某件事（SOP） | JIT 优化对象（版本化+deopt） | 场景锚点（三要素） | ⚠️ 无实现（工作流 SOP 债务落点——§10 N2） |
+| **skill**〔桥〕 | 独立不可变知识条目——系统化描述怎么做某件事（SOP）。四段式（W1）：场景锚点三要素 + Procedure（每步标注调用代价）+ Pitfalls + Verification；写后冻结（B4-1）；维护 = memory-keeper 专项 | 场景锚点三要素 · 两级检索（Phase 2） | 🏗️ Phase 1 已落（2026-08-15——格式模板 + 3 条角色 SOP 种子；skills.get/清单属 Phase 2） |
 | **日志（log）**〔桥〕 | 系统运行过程记录 | 只增 + 聚合/归档（T7） | 时间/任务锚点 | scorecard · transcript · audit · obs · task-insight |
 
 **债务解法咬合**：工作流 SOP 债务→skill 类型；术语统一债务→百科类型；T7 记忆归档→日志治理；0.13 生态转化→外部 skill 直接映射。
@@ -834,7 +834,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
       └──── deopt 回滚 ◀── 劣化 50%+ ◀── verify 复测 ◀──────────┘
   （第零环：agent-loop 防护 · 内环：JIT · 外环：控制论 · 第三环：资源）
 
-【知识主干】〔半实装——锚点/原文/沉淀已桥接；百科/skill 待建（§10 N1/N2）〕
+【知识主干】〔锚点/原文/沉淀已桥接；百科 ✅ / skill Phase 1（§10 N1/N2）〕
   记忆空间 ──锚点（index/worker-index/role-doc id）──▶ 按需展开（memory.query）──▶ 原文
   洞察 ──返回简报──▶ 沉淀（task-insight）──▶ 后续任务锚点
 
@@ -948,7 +948,7 @@ v0.9（动作面/权限/任务池纯化）
 - [x] T1-T10 裁决后落地（2026-08-14 全部裁决完成——T1/T2/T3/T4/T5/T7 代码已落地；T6/T9 概念层重写；T8 文案对齐分批推进；T10 观察）
 - [x] 术语统一：工具 description 三要素对齐已完成（2026-08-14 T8——35 schema+能力索引全量）；role-doc 文案对齐随 T8 后续批次推进（tenant 为认证概念保留；pit→ptl 已修）
 - [x] 护栏统一抽象（N12——2026-08-14 落地：guardrails.ts 注册表 + 阈值配置化 `PTH_GUARD_*` + 豁免矩阵声明式）
-- [ ] 工作流 SOP——角色特定标准作业步骤还不是一等概念
+- [x] 工作流 SOP——角色特定标准作业步骤还不是一等概念（2026-08-15 B4 Phase 1：四段式 skill 格式 + developer/scout/memory-keeper 3 条种子已注入；其余角色随 W4 创建时机补齐）
 - [x] 双 storage 层归属（2026-08-14 A2 已裁决并落地）：kernel/storage = 持久化基座单一包（会话平面并入 session/，src/pth/storage 退役）；引擎不归一（PG 数据世界 + Redis 热面 + 文件产物——分析见 storage-backend-analysis.md）；审计两平面（会话=Redis Stream，任务=PG audit_log）
 - [ ] agentic 测试集（建设中——planner 规划已产出——执行按计划）
 - [ ] 分账账本维护：新方案待建机制清单见 §10（与本清单一一对应——落地时同步勾除）
@@ -1012,7 +1012,7 @@ v0.9（动作面/权限/任务池纯化）
 |---|---|---|---|---|---|
 | N1 | 百科记忆类型（词表条目化） | 0.9 · 域 B | ✅ 已实装（2026-08-13——kind=pth-wiki + scripts/seed-wiki.ts——87 条落库，幂等可重跑） | memory.query 按 anchors 检索 · 术语即锚点 | ✅ 已实装 |
 | N1b | 百科写入矛盾检测（词表校验） | 0.9 · 域 B | 写入时新旧术语一致性校验未实装（治理列预留） | 污染防线（写侧断言）· N1 治理列 | ⚠️ 未实装 |
-| N2 | skill 记忆类型（工作流 SOP 一等化） | 0.9 · 0.13 · 域 B | 无实现 | JIT 优化对象（版本化+deopt）· 0.13 外部 skill 映射 | ⚠️ 未实装 |
+| N2 | skill 记忆类型（工作流 SOP 一等化） | 0.9 · 0.13 · 域 B | Phase 1 已落（2026-08-15——四段式格式模板 `skill-format.ts` + 3 条角色 SOP 种子注入）；Phase 2 检索面（skills.get/两级清单）/ Phase 3 维护面待建 | 不可变知识条目（B4-1）· 0.13 外部 skill 映射（Phase 4） | 🏗️ 建设中 |
 | N3 | 数据缓存使用追踪（cacheUtilization） | 0.12 · 域 E/域 D | ✅ 已实装（2026-08-13——get 命中标记 used→utilization()→scorecard+聚合快照+cache-waste 热点+sensor 观测维度；测试 10 全绿） | scorecard 新指标 · sensor 观测（数据流效率） | ✅ 已实装 |
 | N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 无转化流程；MCP 无 | ext-registry（agent-reach 已验证） | ⚠️ 部分 |
 | N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | L3 容器级全缺；L2 worker 健康/DB 慢查询缺 | controller:resource 角色已有 | ❌ 未实装 |

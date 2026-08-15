@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_type_time ON audit_log(event_type, created_at);
 
 CREATE TABLE IF NOT EXISTS skills (
-  id TEXT PRIMARY KEY,   -- 视图层：kind='skill' 的 memory_entries 简化投影（v1 独立表占位）
+  id TEXT PRIMARY KEY,   -- 视图层：kind='skill' 的 memory_entries 简化投影（B4 Phase 1：memory_entries 为事实源，本表投影语义不变）
   tenant_id TEXT NOT NULL DEFAULT 'default',
   name TEXT NOT NULL,
   description TEXT,

@@ -57,6 +57,39 @@ describe("系统文档保护（静态上下文——worker 不可覆盖）", () 
   });
 });
 
+describe("角色 SOP 种子（B4 Phase 1 / B4-2 裁决 A——四段式 skill）", () => {
+  it("injectPromptDocs 注入 3 条四段式种子（official + 受保护 + 每步代价）", async () => {
+    const { injectPromptDocs } = await import("../../src/pth/kernel/prompt-docs.js");
+    const written: Array<{ id?: string; kind?: string; status?: string; content?: string; meta?: Record<string, unknown> }> = [];
+    const store = {
+      write: async (entry: { id?: string; kind?: string; status?: string; content?: string; meta?: Record<string, unknown> }) => {
+        written.push(entry);
+      },
+    };
+    await injectPromptDocs(store as never);
+    const ids = ["skill:developer-sop", "skill:scout-sop", "skill:memory-keeper-sop"];
+    for (const id of ids) {
+      const entry = written.find((w) => w.id === id);
+      expect(entry, `缺少种子 ${id}`).toBeDefined();
+      expect(entry!.kind).toBe("skill");
+      expect(entry!.status).toBe("official");
+      expect(entry!.meta?.source).toBe("injectPromptDocs");
+      expect(entry!.meta?.format).toBe("skill-sop-v1");
+      expect(entry!.content).toContain("## Procedure");
+      expect(entry!.content).toContain("## Pitfalls");
+      expect(entry!.content).toContain("## Verification");
+      expect(entry!.content).toMatch(/（代价：.+）/);
+    }
+  });
+
+  it("角色 SOP 种子受保护（worker 不可覆盖——id 前缀 skill:）", async () => {
+    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    expect(isSystemDocId("skill:developer-sop")).toBe(true);
+    expect(isSystemDocId("skill:scout-sop")).toBe(true);
+    expect(isSystemDocId("skill:memory-keeper-sop")).toBe(true);
+  });
+});
+
 describe("API 调查技能（skill:api-investigation——探索方法论）", () => {
   it("skill 文档含调查方法（对象构成/签名/形状/读源码/试错）", async () => {
     const { API_INVESTIGATION_SKILL } = await import("../../src/pth/kernel/prompt-docs.js");
