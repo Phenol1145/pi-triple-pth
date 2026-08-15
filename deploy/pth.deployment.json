@@ -3,6 +3,14 @@
   "services": {
     "postgres": {
       "image": "postgres:16-alpine",
+      "command": [
+        "-c", "shared_buffers=2GB",
+        "-c", "work_mem=16MB",
+        "-c", "effective_cache_size=12GB",
+        "-c", "maintenance_work_mem=256MB",
+        "-c", "max_connections=200",
+        "-c", "jit=off"
+      ],
       "env": {
         "POSTGRES_USER": "pth",
         "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:-pth-dev-password}",
@@ -10,21 +18,28 @@
       },
       "volumes": ["postgres-data:/var/lib/postgresql/data"],
       "healthcheck": {
-        "test": ["CMD-SHELL", "pg_isready -U pth"],
-        "interval": "10s",
-        "timeout": "5s",
+        "test": ["CMD-SHELL", "pg_isready -U pth -d pth"],
+        "interval": "5s",
+        "timeout": "3s",
         "retries": 5
       },
-      "limits": { "cpus": 1, "memory": "512M", "pids": 128 }
+      "limits": { "cpus": 1, "memory": "4G", "pids": 128 }
     },
     "redis": {
       "image": "redis:7-alpine",
+      "command": ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "noeviction"],
       "volumes": ["redis-data:/data"],
+      "healthcheck": {
+        "test": ["CMD", "redis-cli", "ping"],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 5
+      },
       "limits": { "cpus": 0.5, "memory": "256M", "pids": 64 }
     },
     "pi-platform": {
-      "build": ".",
-      "dockerfile": "Dockerfile",
+      "build": "..",
+      "dockerfile": "deploy/Dockerfile",
       "ports": ["3000:3000"],
       "env": {
         "REDIS_URL": "redis://redis:6379",
@@ -33,6 +48,7 @@
         "PI_OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
         "LOG_LEVEL": "info",
         "PI_CODING_AGENT_DIR": "/data/agent-dir",
+        "AGENT_LAB_DB_PATH": "/data/agent-lab/agent-lab.db",
         "DATA_DIR": "/data",
         "SANDBOX_URL": "http://sandbox:8080",
         "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}",
@@ -40,8 +56,15 @@
         "PTH_BASH_MODE": "${PTH_BASH_MODE:-sandbox-kernel}",
         "PTH_SANDBOX_KERNEL_URL": "http://sandbox:8080",
         "NODE_OPTIONS": "--max-old-space-size=768",
+        "PTH_WORKER_ROLES": "${PTH_WORKER_ROLES:-}",
         "PTH_BATCH_TICK_MS": "${PTH_BATCH_TICK_MS:-1000}",
-        "PTH_PG_POOL_MAX": "${PTH_PG_POOL_MAX:-8}"
+        "PTH_PG_POOL_MAX": "${PTH_PG_POOL_MAX:-8}",
+        "PTH_AGENT_MAX_STEPS": "${PTH_AGENT_MAX_STEPS:-300}",
+        "PTH_AGENT_LLM_TIMEOUT_MS": "${PTH_AGENT_LLM_TIMEOUT_MS:-90000}",
+        "PTH_AGENT_TIMEOUT_MS": "${PTH_AGENT_TIMEOUT_MS:-10800000}",
+        "PTH_AGENT_MODE": "${PTH_AGENT_MODE:-lazy}",
+        "PTH_ASP_MODE": "${PTH_ASP_MODE:-on}",
+        "SANDBOX_DEGRADED_THRESHOLD": "${SANDBOX_DEGRADED_THRESHOLD:-3}"
       },
       "volumes": [
         "workspaces:/data/workspaces",
@@ -62,35 +85,37 @@
         "retries": 3
       },
       "limits": { "cpus": 2, "memory": "2G", "pids": 512 },
-      "dependsOn": ["postgres", "redis"],
+      "dependsOn": ["postgres", "redis", "sandbox"],
       "user": "node"
     },
     "sandbox": {
-      "build": ".",
+      "build": "..",
       "dockerfile": "packages/pth-sandbox/Dockerfile.sandbox",
       "env": {
         "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}",
         "LOG_LEVEL": "info",
-        "PTH_KERNEL_POOL_SIZE": "${PTH_KERNEL_POOL_SIZE:-16}",
-        "PTH_KERNEL_ACQUIRE_TIMEOUT_MS": "${PTH_KERNEL_ACQUIRE_TIMEOUT_MS:-60000}",
+        "PTH_KERNEL_POOL_SIZE": "${PTH_KERNEL_POOL_SIZE:-24}",
+        "PTH_KERNEL_ACQUIRE_TIMEOUT_MS": "${PTH_KERNEL_ACQUIRE_TIMEOUT_MS:-10000}",
         "PTH_KERNEL_ENTRY_TTL_MS": "${PTH_KERNEL_ENTRY_TTL_MS:-1800000}",
         "PTH_COMPILED_CACHE_DIR": "/data/compiled-cache/c",
         "PTH_COMPILED_CACHE_MAX_MB": "${PTH_COMPILED_CACHE_MAX_MB:-200}",
         "PTH_COMPILED_MAX_CACHE": "${PTH_COMPILED_MAX_CACHE:-50}",
         "PTH_COMPILED_TIMEOUT_MS": "${PTH_COMPILED_TIMEOUT_MS:-60000}",
-        "PTH_DEBUG_SESSIONS": "${PTH_DEBUG_SESSIONS:-4}"
+        "PTH_COMPILED_CONCURRENCY": "${PTH_COMPILED_CONCURRENCY:-4}"
       },
       "volumes": [
         "workspaces:/data/workspaces",
         "compiled-cache:/data/compiled-cache"
       ],
+      "healthcheck": {
+        "test": ["CMD", "curl", "-f", "http://localhost:8080/health"],
+        "interval": "5s",
+        "timeout": "3s",
+        "retries": 5
+      },
       "internal": true,
       "limits": { "cpus": 1, "memory": "1G", "pids": 256 },
       "user": "node"
     }
-  },
-  "networks": {
-    "default": {},
-    "sandbox-internal": { "internal": true }
   }
 }
