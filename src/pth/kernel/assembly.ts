@@ -166,6 +166,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const { ActivityHub } = await import("./execution/activity-hub.js");
   const activityHub = new ActivityHub();
   const { TriggerEngine } = await import("./execution/trigger-engine.js");
+  const { buildMemorySweepTrigger } = await import("./execution/memory-sweep-trigger.js");
   const triggerEngine = new TriggerEngine({
     activityHub,
     tasks: dataWorld.tasks,
@@ -180,6 +181,9 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     task: { title: "", text: "", retask: true, tags: ["origin"] },
     enabled: true,
   });
+  // B1 / N7：记忆维护定期巡检（默认每天；PTH_MEMORY_SWEEP_SECONDS=0 禁用）——归档提案经监督批准
+  const memorySweep = buildMemorySweepTrigger(opts.env ?? process.env);
+  if (memorySweep) triggerEngine.addSystemTrigger(memorySweep);
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
