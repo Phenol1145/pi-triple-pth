@@ -14,7 +14,7 @@ describe("memory-sweep-trigger（B1/N7）", () => {
     expect(t.name).toBe(MEMORY_SWEEP_TRIGGER_NAME);
     expect(t.schedule).toEqual({ everySec: 3600 });
     expect(t.task.role).toBe("memory-keeper");
-    expect(t.task.tags).toContain("auto-sweep");
+    expect(t.task.tags).toEqual(["memory", "organize"]);   // 全部为已注册标签（auto-sweep 未注册会 400——2026-08-15 修复）
     expect(t.task.text).toContain("memory-admin-proposal");
     expect(t.task.text).toContain("不要直接归档/删除");
   });

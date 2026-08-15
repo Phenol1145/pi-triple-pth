@@ -25,7 +25,7 @@ export function buildMemorySweepTrigger(env: NodeJS.ProcessEnv = process.env): T
       title: "记忆维护巡检（归档候选提案）",
       text: "你是记忆维护巡检任务。用 memory.query 检查：① status='draft' 且长期未更新的条目；② 低 hit_count 的 official 条目；③ 重复条目。对确认应归档的目标，用 memory.write 落一条 kind='memory-admin-proposal' 的 draft 提案，content 为 JSON：{\"action\":\"archive\",\"target\":\"<条目id>\",\"rationale\":\"<归档理由>\"}。不要直接归档/删除——监督层批准后由 memory-admin approve 执行。本次未发现候选则 done 空清单说明即可。",
       role: "memory-keeper",
-      tags: ["memory", "organize", "auto-sweep"],
+      tags: ["memory", "organize"],   // auto-sweep 未注册进 tag 总表——发布校验 400（2026-08-15 实机日志修复）
     },
     enabled: true,
   };
