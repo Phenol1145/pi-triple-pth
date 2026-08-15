@@ -84,7 +84,7 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 
 | 参数 | 默认 | 说明 | 调优 |
 |------|------|------|------|
-| `PTH_KERNEL_POOL_SIZE` | 16 | sandbox kernel 池容量（REPL 持久进程数） | **必须 ≥ 并发 worker 数**（batch×角色，如 2 batch×7 角色=14）→ 设 16 起步；高并发提到 24-32 |
+| `PTH_KERNEL_POOL_SIZE` | 16 | sandbox kernel 池容量（REPL 持久进程数） | **必须 ≥ 并发 worker 数**（默认 batch = origin+13 叶子 = 14 worker；2 batch≈28）→ 默认 16 起步；高并发提到 32-48 |
 
 ### agent 循环（单任务执行成本）
 
@@ -106,13 +106,13 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 | `PTH_COMPILED_TIMEOUT_MS` | 60000 | 单次编译超时 |
 | `PTH_COMPILED_CONCURRENCY` | 4 | 编译并发上限（信号量——超限 503 重试） |
 
-### batch 构成（PTH_WORKER_ROLES——取消固定 7 角色限制）
+### batch 构成（PTH_WORKER_ROLES——任意角色子集 + 副本数）
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
 | `PTH_WORKER_ROLES` | 空 | 角色:副本数逗号分隔（如 `developer:3,analyst:2`）；未列出角色默认 1；副本 0 = 禁用；约束 0-8/总 ≤32 |
 
-**作用**：每 batch 的 worker 构成 = 权重展开（不设置 = 原 7 角色 ×1）。
+**作用**：每 batch 的 worker 构成 = 权重展开（不设置 = origin + 13 内置叶子 ×1，即 14 worker）。
 - developer 瓶颈 → `developer:3` 副本（1 batch 顶 3 batch 的 developer 能力）
 - 低频角色 → `planner:0` 禁用（省进程/内存/池占用）
 - 运行时改权重：batch remove + add 重启生效
@@ -123,13 +123,13 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 | 参数 | 默认 | 说明 |
 |------|------|------|
 | `PTH_BATCH_TICK_MS` | 1000 | 空闲轮询间隔（忙时自驱动——任务完成立即继续认领，零轮询等待） |
-| `PTH_PG_POOL_MAX` | 8 | batch 子进程 PG 连接池上限（7 角色并发 ≤7——8 够；总量 = 8 × batch 数） |
+| `PTH_PG_POOL_MAX` | 8 | batch 子进程 PG 连接池上限（默认 14 worker 并发——8 可能排队，建议 ≥ batch×worker 数，如 16 起步；总量 = 该值 × batch 数） |
 
 ### Batch 架构（2026-08-09 单大 batch 化）
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `PTH_WORKER_ROLES` | 空（7×1） | 默认 batch 的 worker 构成（见上节） |
+| `PTH_WORKER_ROLES` | 空（14×1） | 默认 batch 的 worker 构成（见上节） |
 | `PTH_BATCH_AUTOSCALE` | **off** | 单大 batch 为主——batch 级扩缩是特殊手段（故障隔离/多租户），显式开启 |
 
 **默认形态**：启动即 1 个大 batch（全角色权重一个进程——node 基线不重复，内存最优）。

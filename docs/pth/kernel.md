@@ -193,17 +193,39 @@ src/pth/kernel/
 
 任务分配正交化：**角色间零竞速**——任务发布时确定性路由（flow 显式 → tags 语义 → hash 分片），candidates 只查自己队列。
 
-### 内置角色（origin + 7——2026-08-10 任务池纯化）
+### 内置角色（origin + 13 叶子——2026-08-15 四族谱系定型）
 
-| 角色 | 固定 tags（分选器唯一标准——精确匹配） | 职责 | 权限声明 | memory 域 |
-|------|--------------------------|------|---------|-----------|
-| **origin** | origin | **升级链终点**（terminal reject → trigger 转写 origin 标签 → Origin 全能力兼底完成；Origin 失败即终态） | 全量 | all |
-| analyst | analysis/research | 信息分析/数据洞察/研究报告 | 全量（缺省）| all（缺省）|
-| planner | plan/design | 任务分解/方案设计/步骤规划 | 全量 | all |
-| developer | implement/code/fix | 代码实现/缺陷修复/技术交付 | 全量 | all |
-| scout | recon/investigate | 信息收集/代码侦察/环境探查 | 全量 | all |
-| memory-keeper | memory/organize | 记忆整理/知识沉淀/索引维护 | 全量 | all |
-| acceptor | accept/verify | 结果验证/质量检查/交付验收 | 全量 | all |
+```
+origin
+├─ actuator（执行侧）
+│  ├─ executor → developer{coder, tester} · writer
+│  ├─ explorer → scout · spider
+│  ├─ governor → planner · acceptor
+│  └─ researcher → analyst{prospector{predictor}, solver} · memory-keeper
+├─ sensor（观测侧）→ sensor:worker-opt / system-opt / resource / memory
+└─ controller（调节侧）→ controller:router / worker-opt / pth-opt / resource / memory
+```
+
+> 默认 batch 构成 = `allWorkerRoles ×1`（origin + 13 叶子）；MID（actuator/executor/explorer/governor/researcher）
+> 与 governance 系（sensor/controller 子角色）需 `PTH_WORKER_ROLES` 显式启用才进 batch。
+> 完整定义以 `src/pth/impls/roles/default-roles.ts` 为准。
+
+| 角色 | 固定 tags（分选器唯一标准——精确匹配） | 职责（族属） | 权限特征 |
+|------|--------------------------|------|---------|
+| **origin** | origin | **升级链终点**（terminal reject → trigger 转写 origin 标签 → Origin 全能力兼底完成；Origin 失败即终态） | 全量 |
+| analyst | analysis/research/deep-analysis | researcher 族·深度演化分析（按问题类型二分入口） | fs/memory/web/python/bash（无管理面） |
+| prospector | open-explore/hypothesis/prospect | analyst 子类型·开放探索（无定解/发散假设） | 同 analyst；双语言探索核 |
+| solver | closed-solve/constraint/solve | analyst 子类型·封闭求解（有约束/收敛推导） | 同 analyst；thinking high |
+| predictor | predict/forecast/extrapolate | prospector 子类型·预测外推（趋势/分布/不确定性） | 同 analyst |
+| planner | plan/design | governor 族·任务分解/方案设计（只读推理） | fs/memory/readSource/readText；deepseek-v4-pro |
+| developer | implement/code/fix | executor 族·代码实现/缺陷修复/技术交付 | python/bash/c/fs/web/llm/state/ext/env/memory/skills/obs |
+| coder | coding/write-code/snippet | developer 子类型·纯代码编写（不调试/测试/文档） | python/bash/c/fs/memory/readSource/readText |
+| scout | recon/investigate | explorer 族·快速侦察/环境探查 | fs/memory/readSource/readText/bash；thinking low |
+| spider | crawl/scrape/fetch | explorer 族·网页抓取/结构化采集 | scout 面 + web/ext（agent-reach） |
+| memory-keeper | memory/organize | researcher 族·记忆整理/知识沉淀/索引维护 | memory/fs/readSource |
+| acceptor | accept/verify | governor 族·结果验证/交付验收（只读审查） | fs/memory/python/bash + dev.run/write.read 只读面 |
+| tester | test/qa/verify-func | developer 子类型·功能测试/行为验证 | fs/memory/python/bash/c + dev/debug |
+| writer | write/doc/story/tutorial/article | executor 族·文档/内容创作（write 空间） | fs/memory/readSource/readText（无执行核） |
 
 ### 扩展角色（ExtRegistry 装载注册——兼容性扩展接口）
 

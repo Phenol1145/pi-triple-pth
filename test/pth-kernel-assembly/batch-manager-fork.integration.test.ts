@@ -90,7 +90,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
     const task = await dw.tasks.publish({ title: "e2e", text: "2 + 3", createdBy: "test", tags: ["code"] });
 
     const handle = await manager.spawnBatch();
-    expect(handle.workers).toHaveLength(9);   // DEFAULT_ROLES 9 叶（8 + writer 2026-08-12 批 2）
+    expect(handle.workers).toHaveLength(DEFAULT_ROLES.length);   // 角色谱系随重构演化（2026-08-15 四族 = 13）——断言不写死
     expect(handle.pid).toBeGreaterThan(0);
 
     try {
@@ -146,8 +146,9 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
     }
     expect(["completed", "claimed", "submitted"]).toContain(st);
     // 2. remove developer → 新任务不再被认领
+    // removeWorker 现为回执语义（等 worker-status:removed——loops.splice 后发出）：
+    // resolve=true 即 worker 已移除，无需固定 sleep 再发布（全量并发下 300ms 竞态根修）。
     expect(await bm3.removeWorker(handle.id, "developer")).toBe(true);
-    await new Promise((r) => setTimeout(r, 300));
     const t2 = await dw3.tasks.publish({ title: "w2", text: "2", createdBy: "test", tags: ["code"] });
     await new Promise((r) => setTimeout(r, 3000));
     const t2row = (await pool.query("SELECT status, claimed_by FROM tasks WHERE id = $1", [t2.id])).rows[0];

@@ -45,7 +45,15 @@ export interface BatchManagerDeps {
  *   batch → 主: {type:"status", tasks:[{workerId,taskId}]} | {type:"error", message}
  */
 export class BatchManager {
-  private batches = new Map<string, { id: string; child: ChildProcess; workers: string[]; currentTasks: Map<string, string>; lastHeartbeat: number }>();
+  private batches = new Map<string, {
+    id: string;
+    child: ChildProcess;
+    workers: string[];
+    currentTasks: Map<string, string>;
+    lastHeartbeat: number;
+    /** worker 级控制回执等待表：role → 等待 worker-status 消息的结算回调 */
+    pendingCtl: Map<string, Array<(status: { state?: string; error?: string }) => void>>;
+  }>();
 
   constructor(private deps: BatchManagerDeps) {}
 
@@ -68,7 +76,7 @@ export class BatchManager {
       stdio: ["ignore", "inherit", "inherit", "ipc"],
     });
     getEventBus().emit("batch.spawn", { batchId: id, workers });
-    const record = { id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now() };
+    const record = { id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now(), pendingCtl: new Map() };
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
@@ -87,6 +95,14 @@ export class BatchManager {
           .catch((e: Error) => {
             try { record.child.send({ kind: "obs-resp", id, data: null, error: e.message }); } catch { /* 同上 */ }
           });
+      } else if (msg?.type === "worker-status" && typeof msg.role === "string") {
+        // worker 级控制回执（worker-pause/resume/remove/add——batch-process 先执行后回执）：
+        // 按角色结算等待中的调用（remove 等"removed"——回执在 loops.splice 之后发出，语义可靠）
+        const waiters = record.pendingCtl.get(msg.role);
+        if (waiters?.length) {
+          record.pendingCtl.delete(msg.role);
+          for (const w of waiters) w({ state: msg.state, error: msg.error });
+        }
       } else if (msg?.type === "log" && this.deps.logger) {
         // 日志体系 T3：batch 子进程日志经 IPC 转发 → 主进程统一打标（component/pid）
         const { level, component, msg: logMsg, ctx } = msg as {
@@ -133,16 +149,50 @@ export class BatchManager {
   }
 
   // ── worker 级控制面（2026-08-09 单大 batch 启停灵活性）──────────────────
-  private workerCtl(batchId: string, msg: Record<string, unknown>): Promise<boolean> {
+  /**
+   * worker 级控制通道。expectState 非空时改为"回执语义"：等待子进程 worker-status
+   * （state=expectState）才算成功——remove 等结构性操作不再"发出去就算数"，
+   * 消除"控制消息还在 IPC 队列里、worker 已抢走下一个任务"的竞态。
+   */
+  private workerCtl(batchId: string, msg: Record<string, unknown>, expectState?: string): Promise<boolean> {
     const rec = this.batches.get(batchId);
     if (!rec) return Promise.resolve(false);
     return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let onExit: (() => void) | undefined;
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (onExit) rec.child.off("exit", onExit);
+        resolve(ok);
+      };
+      const role = String(msg.role ?? "");
+      const onAck = (status: { state?: string; error?: string }) => {
+        if (expectState === undefined || status.state === expectState) {
+          finish(status.state !== "error");
+        }
+      };
       try {
-        if (rec.child.connected) {
-          rec.child.send(msg);
-          resolve(true);
-        } else resolve(false);
-      } catch { resolve(false); }
+        if (!rec.child.connected) {
+          finish(false);
+          return;
+        }
+        if (expectState !== undefined) {
+          const waiters = rec.pendingCtl.get(role);
+          if (waiters) waiters.push(onAck);
+          else rec.pendingCtl.set(role, [onAck]);
+          // 子进程异常退出/超时兜底：不让调用方无限挂起
+          timer = setTimeout(() => finish(false), 5000);
+          onExit = () => finish(false);
+          rec.child.once("exit", onExit);
+        }
+        rec.child.send(msg);
+        if (expectState === undefined) finish(true);
+      } catch {
+        finish(false);
+      }
     });
   }
 
@@ -153,7 +203,7 @@ export class BatchManager {
     return this.workerCtl(batchId, { type: "worker-resume", role });
   }
   async removeWorker(batchId: string, role: string): Promise<boolean> {
-    return this.workerCtl(batchId, { type: "worker-remove", role });
+    return this.workerCtl(batchId, { type: "worker-remove", role }, "removed");
   }
   /** 性能自持（v0.8）：下发运行时调参到 batch 子进程（perf config——autopilot 用） */
   async setParam(batchId: string, key: string, value: string | number): Promise<boolean> {
