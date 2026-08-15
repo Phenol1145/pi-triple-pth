@@ -14,7 +14,9 @@
  *     fetch/setTimeout/URL/structuredClone，越界引用本就是运行错误，预检只是把它变成引导消息）。
  * 已知边界（文档化）：
  *   - 模板串 ${} 插值内不检查（整串剥离——插值表达式漏报）；
- *   - 无点无括号的裸引用（const y = foo）不在扫描面——运行时 ReferenceError 兜底。
+ *   - 无点无括号的裸引用（const y = foo）不在扫描面——运行时 ReferenceError 兜底；
+ *   - `if (x) /re/` 这类「语句位正则」会按除法保留、不剥离（前邻 `)`）——正则内
+ *     出现 root.x 形态时可能误报（极罕见——宁误报不漏报）。
  */
 
 import { PTC_CAPABILITIES } from "./contract.js";
@@ -46,8 +48,20 @@ const JS_KEYWORDS = new Set([
 /** 剥离正则字面量/字符串/模板串/注释——其中内容不参与越界判定 */
 export function stripNonCode(code: string): string {
   let s = code;
-  // 正则字面量（启发式：非标识符前缀的 / … / flags——防 // 注释剥离误伤正则内的 /）
-  s = s.replace(/(^|[^\w$)\]])(\/(?:\\.|\[[^\]]*\]|[^/\\\n])+\/[a-z]*)/g, "$1/x/");
+  // 正则字面量（启发式：非标识符前缀的 / … / flags——防 // 注释剥离误伤正则内的 /）。
+  // 用候选前的最后一个非空白字符区分「除号 vs 正则起点」（2026-08-15 筛查）：
+  // 前邻是标识符/数字/) / ] → 除法，保留原样；前邻是 =( : , ; { [ ! & | ? + - * % < >
+  // 或 return/case/throw/typeof/new/delete/void/instanceof/in/of/yield/await → 正则，剥离。
+  // 含空白且上下文不像正则的候选同样保留（`a / b / c` 曾整段被剥成 /x/ 吞掉后续代码）。
+  s = s.replace(/(^|[^\w$)\]])(\/(?:\\.|\[[^\]]*\]|[^/\\\n])+\/[a-z]*)/g, (m, pre, lit, offset) => {
+    const before = code.slice(0, offset + String(pre).length).replace(/\s+$/, "");
+    const last = before.slice(-1);
+    const prevWord = before.match(/([A-Za-z_$][\w$]*)$/)?.[1] ?? "";
+    const regexStartCtx = /^[=(:;,{[!&|?+\-*%<>]$/.test(last)
+      || ["return", "case", "throw", "typeof", "new", "delete", "void", "instanceof", "in", "of", "yield", "await"].includes(prevWord);
+    if (regexStartCtx) return pre + "/x/";
+    return m;   // 除法上下文——不剥（宁可漏报，不可误伤）
+  });
   // 字符串（单/双引号——含转义）
   s = s.replace(/'(\\.|[^'\\\n])*'|"(\\.|[^"\\\n])*"/g, '""');
   // 模板串（含插值——整串剥离：插值内漏报为已知边界）
@@ -58,29 +72,92 @@ export function stripNonCode(code: string): string {
   return s;
 }
 
-/** 收集安全名：声明/形参/解构——过度收集（漏报）是安全方向 */
+/** 收集安全名：声明/形参/解构/方法名——过度收集（漏报）是安全方向 */
 function collectSafeNames(stripped: string, out: Set<string>): void {
   const idRe = /[A-Za-z_$][\w$]*/g;
   const addIdentifiers = (snippet: string) => {
     for (const m of snippet.matchAll(idRe)) out.add(m[0]!);
   };
-  for (const m of stripped.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) out.add(m[1]!);
-  for (const m of stripped.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}/g)) addIdentifiers(m[1]!);
+  const skipWs = (i: number): number => {
+    while (i < stripped.length && /\s/.test(stripped[i]!)) i++;
+    return i;
+  };
+  const skipBalanced = (i: number, open: string, close: string): number => {
+    let depth = 0;
+    for (; i < stripped.length; i++) {
+      const c = stripped[i]!;
+      if (c === open) depth++;
+      else if (c === close && --depth === 0) return i + 1;
+    }
+    return stripped.length;
+  };
+  /** 跳过初始化表达式到顶层 , ; ) }（括号/方括号/花括号深度感知——箭头/对象/调用不误断） */
+  const skipExpression = (i: number): number => {
+    let p = 0, b = 0, c = 0;
+    for (; i < stripped.length; i++) {
+      const ch = stripped[i]!;
+      if (ch === "(") p++;
+      else if (ch === ")" && p > 0) p--;
+      else if (ch === "[") b++;
+      else if (ch === "]" && b > 0) b--;
+      else if (ch === "{") c++;
+      else if (ch === "}" && c > 0) c--;
+      else if ((ch === "," || ch === ";" || ch === ")" || ch === "}") && p === 0 && b === 0 && c === 0) return i;
+    }
+    return stripped.length;
+  };
+  /** 声明词后逐项解析声明符（含逗号连声明 + 解构 + 初始化——2026-08-15 筛查修复） */
+  const collectDeclarationNames = (start: number): void => {
+    let i = skipWs(start);
+    while (i < stripped.length) {
+      const ch = stripped[i]!;
+      if (ch === "{" || ch === "[") {
+        const end = skipBalanced(i, ch, ch === "{" ? "}" : "]");
+        addIdentifiers(stripped.slice(i, end));   // 解构内全部名字（键名过收——安全方向）
+        i = end;
+      } else if (/[A-Za-z_$]/.test(ch)) {
+        const m = /[A-Za-z_$][\w$]*/.exec(stripped.slice(i));
+        if (!m) return;
+        out.add(m[0]!);
+        i += m[0].length;
+      } else {
+        return;
+      }
+      i = skipWs(i);
+      if (stripped[i] === "=") i = skipWs(skipExpression(i + 1));
+      if (stripped[i] === ",") {
+        i = skipWs(i + 1);
+        continue;
+      }
+      return;
+    }
+  };
+  for (const m of stripped.matchAll(/\b(?:const|let|var)\b/g)) collectDeclarationNames(m.index + m[0].length);
   for (const m of stripped.matchAll(/\bfunction\s+([A-Za-z_$][\w$]*)/g)) out.add(m[1]!);
+  // 生成器函数名（function* f——2026-08-15 筛查修复）
+  for (const m of stripped.matchAll(/\bfunction\s*\*\s*([A-Za-z_$][\w$]*)/g)) out.add(m[1]!);
   for (const m of stripped.matchAll(/\bclass\s+([A-Za-z_$][\w$]*)/g)) out.add(m[1]!);
-  for (const m of stripped.matchAll(/\bfor\s*\(\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) out.add(m[1]!);
-  for (const m of stripped.matchAll(/\bcatch\s*\(\s*([A-Za-z_$][\w$]*)/g)) out.add(m[1]!);
+  // catch 参数（含解构）——整体过收为安全方向
+  for (const m of stripped.matchAll(/\bcatch\s*\(([^()]*)\)/g)) addIdentifiers(m[1]!);
   // 形参：function f(a, b) / 箭头 (a, b) => / 单参箭头 x =>
   for (const m of stripped.matchAll(/\bfunction\s*(?:[A-Za-z_$][\w$]*)?\s*\(([^()]*)\)/g)) addIdentifiers(m[1]!);
   for (const m of stripped.matchAll(/\(([^()]*)\)\s*=>/g)) addIdentifiers(m[1]!);
-  for (const m of stripped.matchAll(/(?:^|[^\w$])([A-Za-z_$][\w$]*)\s*=>/g)) out.add(m[1]!);
-  // 方法/块头形参（含 if/for/while/switch/catch 头——过度收集无害）
-  for (const m of stripped.matchAll(/\b[A-Za-z_$][\w$]*\s*\(([^()]*)\)\s*\{/g)) addIdentifiers(m[1]!);
+  for (const m of stripped.matchAll(/(?<![\w$])([A-Za-z_$][\w$]*)\s*=>/g)) out.add(m[1]!);
+  // 方法简写/访问器/类方法名（name(params){ —— 2026-08-15 筛查修复）：
+  // 前置不能是 ( . ?（调用位）——if (foo()) {} 的 foo 仍走越界判定；{ rb(x){ } } 的 rb 记安全。
+  // 控制流关键字整条跳过——if/while/switch/for 头部不是方法头（2026-08-15 审计 M1）。
+  for (const m of stripped.matchAll(/(?<![\w$.(?])([A-Za-z_$][\w$]*)\s*\(([^()]*)\)\s*\{/g)) {
+    if (JS_KEYWORDS.has(m[1]!)) continue;
+    out.add(m[1]!);
+    addIdentifiers(m[2]!);
+  }
 }
 
 /** 扫描成员访问根 + 直接调用根 → 越界根列表（knownGlobals = 注入面键集合） */
 export function findOutOfBoundsRoots(code: string, knownGlobals: ReadonlySet<string>): string[] {
-  const stripped = stripNonCode(code);
+  const stripped0 = stripNonCode(code);
+  // TS 非空断言归一化（foo!.bar / foo!() 与执行面 stripTypeScriptTypes 对齐——2026-08-15 审计 M4）
+  const stripped = stripped0.replace(/!\./g, ".").replace(/!\(/g, "(");
   const safe = new Set<string>();
   collectSafeNames(stripped, safe);
   const out = new Set<string>();
@@ -88,10 +165,11 @@ export function findOutOfBoundsRoots(code: string, knownGlobals: ReadonlySet<str
     if (knownGlobals.has(root) || safe.has(root) || JS_BUILTINS.has(root) || JS_KEYWORDS.has(root)) return;
     out.add(root);
   };
-  // 成员访问根：root.x / root?.x / root[...]（lookbehind 排除属主前的 . / ?. / ) / ]）
-  for (const m of stripped.matchAll(/(?:^|[^\w$)\].?])([A-Za-z_$][\w$]*)\s*(?:\??\.|\[)/g)) consider(m[1]!);
+  // 成员访问根：root.x / root?.x / root[...]（负向后行断言排除属主前的 . / ?. / ) / ]。
+  // 不再消费前导字符——否则 if (foo()) 中 if( 会吃掉 ( 使 foo( 失去前导上下文而漏检）
+  for (const m of stripped.matchAll(/(?<![\w$)\].?])([A-Za-z_$][\w$]*)\s*(?:\??\.|\[)/g)) consider(m[1]!);
   // 直接调用根：root( ——排除方法调用（前导 .）与调用结果（前导 )）
-  for (const m of stripped.matchAll(/(?:^|[^\w$).])([A-Za-z_$][\w$]*)\s*\??\(/g)) consider(m[1]!);
+  for (const m of stripped.matchAll(/(?<![\w$).])([A-Za-z_$][\w$]*)\s*\??\(/g)) consider(m[1]!);
   return [...out];
 }
 

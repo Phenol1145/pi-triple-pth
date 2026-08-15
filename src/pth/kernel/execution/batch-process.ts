@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { resolve as resolvePath, relative as relativePath, isAbsolute, sep } from "node:path";
 import { createPgPool } from "../storage/pg.js";
 import { applySchema } from "../storage/schema.js";
 import { createDataWorld } from "../storage/index.js";
@@ -257,13 +258,20 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         ? (relPath) => import("../interpreter/read-source.js").then((m) => m.createReadSource(process.env.PTH_SOURCE_ROOT!)(relPath))
         : undefined,
       // 任务工作区（fs.task——白名单：仅 tasks/<taskId>/——kernel.ts.currentCwd 动态定位 + 防穿越）
+      // 2026-08-15 筛查 H4：词法归一化 + 包含校验——`sub/../../etc/passwd` 不再逃逸工作区
       taskWorkspaceResolve: (relPath) => {
         const cwd = (kernel.ts as unknown as { currentCwd?: string | null }).currentCwd;
         if (!cwd || !cwd.includes("/tasks/")) throw new Error("fs.task: 任务工作区未就绪（非任务上下文）");
-        if (typeof relPath !== "string" || relPath.startsWith("/") || relPath.startsWith("..")) {
+        if (typeof relPath !== "string" || relPath.trim() === "" || relPath.includes("\0")) {
           throw new Error(`fs.task: 仅允许相对路径（拒绝: ${String(relPath).slice(0, 60)}）`);
         }
-        return cwd.endsWith("/") ? cwd + relPath : cwd + "/" + relPath;
+        const base = resolvePath(cwd);
+        const abs = resolvePath(base, relPath);
+        const rel = relativePath(base, abs);
+        if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+          throw new Error(`fs.task: 路径越出任务工作区（拒绝: ${relPath.slice(0, 60)}）`);
+        }
+        return abs;
       },
     });
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）

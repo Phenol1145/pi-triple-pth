@@ -6,6 +6,8 @@ import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
 import { wrapValidated } from "../../kernel/ptc/contract.js";
+import { isVisible } from "../../kernel/execution/memory-visibility.js";
+import { isIP } from "node:net";
 
 /** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */
 function createTaskFs(resolve: (rel: string) => string): Record<string, unknown> {
@@ -79,13 +81,16 @@ export function buildCapabilities(deps: {
       toolstore: deps.toolstore!,
       memory: (ext.capabilities["memory"] as { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> } | undefined),
       registerKernel: deps.registerKernel,
-      dbQuery: deps.dataWorld.queryReadOnly?.bind(deps.dataWorld),
+      // 2026-08-15 筛查 M3：ext.db.query 契约是 (table, sql)，且开放 tasks/transcripts 模板面——
+      // 此前把 queryReadOnly 单参实现误当双参通道注入，首个参数被当 SQL
+      dbQuery: (_table: string, sql: string) => deps.dataWorld.queryTemplate?.(sql) ?? Promise.resolve([]),
     }),
     llm: deps.llm,
     web: { fetchText: wrapValidated("web.fetchText", createWebCapability().fetchText) },
     ...(deps.inspect ? { env: { inspect: wrapValidated("env.inspect", deps.inspect) } } : {}),
     // 召回能力（T6）：后续任务从记忆区召回工具函数/洞察——扁平化闭环（agent 状态 = 记忆文档）
-    state: createRecallState(deps.dataWorld.memory),
+    // 2026-08-15 筛查 H5：召回面同样按会话空间过滤（raw retrieve 会绕过可见性）
+    state: createRecallState(deps.dataWorld.memory, deps.sessionRef),
     // 文件通道（§0.5）：fs.readText 只读 toolstore + fs.list 枚举可用工具
     ...(deps.toolstore
       ? { fs: {
@@ -147,6 +152,41 @@ function stripHtml(html: string): string {
     .trim();
 }
 
+/** 2026-08-15 筛查 H9：字面量层面 SSRF 防护——拒 localhost/私网/链路本地 IP 字面量。
+ *  主机名 → 私网地址的 DNS rebinding 不在此做（本机 DNS 沙箱把公网域名解析到保留段，
+ *  DNS 级校验会误杀全部出站——留给出站防火墙/网络策略，记录为已知边界）。 */
+function isPrivateIpLiteral(ip: string): boolean {
+  if (isIP(ip) === 4) {
+    const p = ip.split(".").map(Number);
+    const [a, b] = p as [number, number];
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 100 && b! >= 64 && b! <= 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a >= 224) return true;
+    return false;
+  }
+  if (isIP(ip) === 6) {
+    if (ip === "::1" || ip === "::") return true;
+    if (/^f[cd]/.test(ip)) return true;
+    if (/^fe[89ab]/.test(ip)) return true;
+    if (ip.toLowerCase().startsWith("::ffff:")) return isPrivateIpLiteral(ip.slice(7));
+    return false;
+  }
+  return true;   // 无法判定 → 拒绝
+}
+
+function assertPublicLiteralHost(hostname: string): void {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    throw new Error("web.fetchText: localhost 目标被拒（SSRF 防护）");
+  }
+  if (isIP(host) && isPrivateIpLiteral(host)) {
+    throw new Error(`web.fetchText: 非公网 IP 目标被拒（SSRF 防护）: ${host}`);
+  }
+}
+
 export function createWebCapability(): WebCapability {
   return {
     async fetchText(url, opts = {}) {
@@ -155,6 +195,7 @@ export function createWebCapability(): WebCapability {
       if (!/^https?:\/\//i.test(url)) {
         throw new Error(`web.fetchText: only http(s) URLs allowed (got: ${url.slice(0, 50)})`);
       }
+      assertPublicLiteralHost(new URL(url).hostname);
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
@@ -189,10 +230,18 @@ export interface RecallState {
   recallInsights(anchors: string[], opts?: { limit?: number }): Promise<string[]>;
 }
 
-export function createRecallState(memory: Pick<PgMemoryStore, "retrieve">): RecallState {
+export function createRecallState(
+  memory: Pick<PgMemoryStore, "retrieve">,
+  sessionRef?: { current: { currentSpace: string } | null },
+): RecallState {
+  const visible = <T extends { meta?: unknown }>(entries: T[]): T[] => {
+    const space = sessionRef?.current?.currentSpace;
+    if (!space) return entries;   // 非会话态——过渡兼容（与 memory.query 同语义）
+    return entries.filter((e) => isVisible(e.meta as Record<string, unknown>, space));
+  };
   return {
     async recallFunctions(anchors, opts = {}) {
-      const entries = await memory.retrieve({ anchors, kinds: ["tool-function"], status: ["official"] });
+      const entries = visible(await memory.retrieve({ anchors, kinds: ["tool-function"], status: ["official"] }));
       return entries.slice(0, opts.limit ?? 5).map((e) => ({
         key: (e.anchors[0] ?? e.id).replace(/^fn-/, ""),
         source: e.content,
@@ -200,7 +249,7 @@ export function createRecallState(memory: Pick<PgMemoryStore, "retrieve">): Reca
       }));
     },
     async recallInsights(anchors, opts = {}) {
-      const entries = await memory.retrieve({ anchors, kinds: ["task-insight"], status: ["official"] });
+      const entries = visible(await memory.retrieve({ anchors, kinds: ["task-insight"], status: ["official"] }));
       return entries.slice(0, opts.limit ?? 10).map((e) => e.content);
     },
   };

@@ -79,7 +79,9 @@ export async function runPtcProgram(o: PtcRunOptions): Promise<PtcRunOutput> {
   const out = truncate(raw.stdout ?? "", max);
   const value = JSON.stringify(raw.value ?? null);
   const combined = [out.text, value !== "null" ? prefix + value : ""].filter(Boolean).join("\n");
-  const assembled = { stdout: truncate(combined, max).text, truncated: out.truncated || Boolean(raw.truncated) };
+  // 2026-08-15 审计 M7：第二次截断的标志不能丢——stdout 未超长但 value 追加后超长也要 truncated
+  const finalOut = truncate(combined, max);
+  const assembled = { stdout: finalOut.text, truncated: out.truncated || finalOut.truncated || Boolean(raw.truncated) };
   if (o.registerResult) {
     try {
       o.ts.registerResult?.(o.registerResult.key, o.registerResult.build(raw));

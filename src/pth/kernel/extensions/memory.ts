@@ -44,10 +44,14 @@ export const memoryExtension: TsReplExtension = {
         },
         // ASP 可见性过滤（读侧——仅在会话态（ASP 模式）下生效；无会话=过渡兼容不过滤）
         query: async (sql: string) => {
-          const rows = await ctx.dataWorld.queryReadOnly(sql) as Array<{ meta?: Record<string, unknown> }>;
+          const rows = await ctx.dataWorld.queryReadOnly(sql) as Array<Record<string, unknown> | null>;
           const space = ctx.sessionRef?.current?.currentSpace;
           if (!space) return rows;
-          return rows.filter((r) => isVisible(r.meta, space));
+          // 2026-08-15 筛查 H3：缺 meta 列的行无法判定可见性——fail-closed 拒绝（不再默认公开）
+          if (rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
+            throw new Error("memory.query: 会话空间下查询必须包含 meta 列（可见性过滤依据）——请 SELECT ..., meta FROM memory_entries ...");
+          }
+          return rows.filter((r) => isVisible(r!["meta"] as Record<string, unknown>, space));
         },
         retrieve: async (opts?: unknown) => {
           const entries = await store.retrieve(opts as never);
@@ -80,9 +84,14 @@ export const memoryExtension: TsReplExtension = {
           return store.write(entry as never);   // force 不透传——worker 无系统通道
         },
         update: async (id: string, patch: { content?: string; status?: "draft" | "official" | "archived" }) => {
+          // 2026-08-15 筛查 H6：worker 面仅允许 content/status——meta 等额外字段不可透传
+          // （store.update 的 jsonb 合并可被用来覆写 spaceScope 提权）
+          const allowed = new Set(["content", "status"]);
+          const extra = Object.keys(patch ?? {}).filter((k) => !allowed.has(k));
+          if (extra.length > 0) throw new Error(`memory.update: 仅允许 content/status（拒绝: ${extra.join(",")}）`);
           const existing = await store.get(id);
           if (existing) {
-            const check = checkUpdate(existing.kind, patch.status);
+            const check = checkUpdate(existing.kind, patch.status, existing.status);
             if (!check.ok) throw new Error(check.reason);
           }
           return store.update(id, patch);

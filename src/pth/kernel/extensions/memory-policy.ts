@@ -25,6 +25,10 @@ const PROMPT_KINDS = new Set([
   "pth-worker-system",
   "self-modify-guide",
   "extension-index",
+  // 2026-08-15 筛查 H7：系统装配恢复源——worker 可伪造 official 条目 → 重启注册角色/空间
+  "worker-role",
+  "space-reg",
+  "worker-index",
 ]);
 
 /** kind → 用途层（策略的唯一事实源） */
@@ -89,7 +93,7 @@ export function checkWrite(kind: string, status?: string): PolicyCheck {
 }
 
 /** worker 面 update 校验（目标条目的 kind——补 isSystemDocId 不到 update 的洞） */
-export function checkUpdate(kind: string, patchStatus?: string): PolicyCheck {
+export function checkUpdate(kind: string, patchStatus?: string, existingStatus?: string): PolicyCheck {
   const layer = layerOfKind(kind);
   if (layer === "prompt") {
     return { ok: false, reason: `memory.update: kind "${kind}" 属 prompt 层——worker 不可改系统文档（含内容修正）` };
@@ -99,6 +103,10 @@ export function checkUpdate(kind: string, patchStatus?: string): PolicyCheck {
   }
   if (layer === "governance" && patchStatus !== undefined) {
     return { ok: false, reason: `memory.update: governance 层状态流转由监督层执行——worker 不可改 status（draft 内容修正允许）` };
+  }
+  // 2026-08-15 筛查 H6：governance 层 official 条目冻结——内容修正仅限 draft
+  if (layer === "governance" && existingStatus && existingStatus !== "draft" && patchStatus === undefined) {
+    return { ok: false, reason: `memory.update: governance 层 ${existingStatus} 条目不可改内容（仅 draft 可修订）` };
   }
   return { ok: true };
 }

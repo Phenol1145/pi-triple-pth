@@ -44,6 +44,26 @@ describe("ts 程序 memory 白名单", () => {
     const r = await (mem.get as (id: string) => Promise<unknown>)("h");
     expect(r).toBeUndefined();
   });
+
+  it("2026-08-15 筛查 H3：会话空间下 query 缺 meta 列 → fail-closed", async () => {
+    const { store } = provide();
+    const ctx = {
+      dataWorld: {
+        memory: store,
+        queryReadOnly: async () => [{ id: "a", kind: "task-insight", content: "secret" }],
+      },
+      sessionRef: { current: { currentSpace: "ts" } },
+    };
+    const m = memoryExtension.provide(ctx as never).memory as { query: (sql: string) => Promise<unknown> };
+    await expect(m.query("SELECT id, kind, content FROM memory_entries")).rejects.toThrow(/meta/);
+  });
+
+  it("2026-08-15 筛查 H6：update 额外字段（meta 提权）→ 拒绝", async () => {
+    const { mem, store } = provide();
+    (store.get as unknown) = async () => ({ id: "x", kind: "task-insight", status: "official", content: "c", meta: {} });
+    await expect((mem.update as (id: string, patch: Record<string, unknown>) => Promise<unknown>)("x", { content: "new", meta: { spaceScope: { space: "meta", visibility: "public" } } }))
+      .rejects.toThrow(/仅允许 content\/status/);
+  });
 });
 
 describe("环境断言守卫（2026-08-13 洞察污染防线）", () => {

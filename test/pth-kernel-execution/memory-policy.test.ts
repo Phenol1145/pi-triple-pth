@@ -9,6 +9,13 @@ describe("memory-policy 层分类（layerOfKind）", () => {
     }
   });
 
+  it("2026-08-15 筛查 H7：worker-role/space-reg/worker-index 系统恢复源 → prompt 层拒写", () => {
+    for (const k of ["worker-role", "space-reg", "worker-index"]) {
+      expect(layerOfKind(k)).toBe("prompt");
+      expect(checkWrite(k, "official").ok).toBe(false);
+    }
+  });
+
   it("config 层：系统行为配置", () => {
     expect(layerOfKind("trigger")).toBe("config");
     expect(layerOfKind("refine-task")).toBe("config");
@@ -60,7 +67,12 @@ describe("memory-policy update 规则（补 isSystemDocId 不到 update 的洞�
 
   it("governance 层禁状态流转（draft 内容修正允许）", () => {
     expect(checkUpdate("differentiation-proposal", "official").ok).toBe(false);
-    expect(checkUpdate("differentiation-proposal").ok).toBe(true);   // 只改 content
+    expect(checkUpdate("differentiation-proposal").ok).toBe(true);   // 只改 content（未限定现状）
+  });
+
+  it("2026-08-15 筛查 H6：governance 层 official 条目内容冻结", () => {
+    expect(checkUpdate("differentiation-proposal", undefined, "official").ok).toBe(false);
+    expect(checkUpdate("differentiation-proposal", undefined, "draft").ok).toBe(true);
   });
 
   it("knowledge 层放行", () => {

@@ -180,8 +180,11 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
   "bash.run": async ({ kernel, space }, args) => {
     const r = await kernel.bash.execute(str(args, "command"), ...(space ? [{ space }] : []));
     const out = truncate(r.stdout ?? "", 4000);
+    // 2026-08-15 筛查 HIGH-1：失败时把 stderr/error 写回 AgentToolResult——
+    // 此前只回 "error: unknown"，LLM 拿不到真实错误而盲试同一命令
+    const failDetail = r.ok ? undefined : r.error?.message ?? (r.stderr?.trim() ? r.stderr : "bash execute failed");
     return applyOutputMode(
-      { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
+      { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, error: failDetail, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
       args["mode"],
     );
   },
@@ -189,8 +192,9 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
   "bash.eval": async ({ kernel, space }, args) => {
     const r = await kernel.bash.execute(str(args, "command"), ...(space ? [{ space }] : []));
     const out = truncate(r.stdout ?? "", 4000);
+    const failDetail = r.ok ? undefined : r.error?.message ?? (r.stderr?.trim() ? r.stderr : "bash eval failed");
     return applyOutputMode(
-      { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
+      { ok: r.ok, value: r.ok ? r.stdout : undefined, stdout: out.text, stderr: r.stderr, error: failDetail, truncated: out.truncated || (r as { truncated?: boolean }).truncated },
       args["mode"],
     );
   },

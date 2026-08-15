@@ -511,6 +511,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     }
     messages.push({ role: "assistant", content: res.content, ...(res.thinking ? { thinking: res.thinking } : {}), ...(res.toolCalls && res.toolCalls.length > 0 ? { toolCalls: res.toolCalls } : {}) });
     input.onTrace?.({ type: "llm-call", step: steps + 1, toolCalls: res.toolCalls, contentPreview: (res.content ?? "").slice(0, 500), ...((res as { thinking?: string }).thinking ? { thinking: (res as { thinking?: string }).thinking!.slice(0, 800) } : {}), ...(res.usage ? { usage: res.usage } : {}) });
+    // 2026-08-15 审计 MEDIUM-2：空回复护栏只在"真空回复"时 hit——有工具调用/有文本就重置
+    if ((res.toolCalls && res.toolCalls.length > 0) || (res.content && res.content.trim().length > 0)) {
+      emptyReplyGuard.step({ roleId: input.role?.id, tool: "(empty-reply)", steps: steps + 1 }, false);
+    }
 
     // 原生 tool_calls：结构化调用（OpenAI 格式——非文本解析）
     if (res.toolCalls && res.toolCalls.length > 0) {
@@ -544,7 +548,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   return { ok: true, value: null, steps, warning: `达到 maxSteps(${maxSteps}) 强制终止` };
 
   async function executeStep(action: { tool: string; args: Record<string, unknown>; thought?: string }, toolCallId?: string): Promise<AgentTaskResult | undefined> {
-    const { tool, args } = action;
+    const { tool } = action;
+    // 2026-08-15 审计 MEDIUM-4：provider 可能给 null/数组/字符串 arguments——统一对象化再分发
+    const args: Record<string, unknown> =
+      action.args && typeof action.args === "object" && !Array.isArray(action.args) ? action.args : {};
     // 重复检测（收敛 agent 行为 v1——轨迹分析 2026-08-09）：
     // 语义指纹（关键参数）连续相同 → 重复。≥3 次回填引导（不终止——模型修正策略）；
     // ≥5 次强制终止（防失控）。
@@ -710,6 +717,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         }
         return undefined;  // 继续循环——模型看到引导后应重新调用 done 提交正确产物
       }
+      // 2026-08-15 审计 MEDIUM-2：空 done 护栏只在真空 done 时 hit——有效 done 重置计数
+      emptyDoneGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, false);
       const summary = typeof args["summary"] === "string" ? args["summary"] : undefined;
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: true });
       // finish trace（task.done 活动事件源——trigger 引擎/console --follow 的完成信号——之前断链只在失败路径发）
@@ -767,6 +776,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       if (uv.kind === "hard") return { ok: false, error: `未知工具 ${tool}（连续 ${uv.count} 次）`, steps: steps + 1 };
       return undefined;
     }
+    // 2026-08-15 审计 MEDIUM-2：工具已知且到达执行面——unknown-tool 护栏重置（非连续才不累积）
+    unknownToolGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, false);
     // 执行面角色授权（模块级 EXEC_TOOL_CAP——见顶部定义）
     const execFam = executorKey.split(".")[0];
     const needCaps = EXEC_TOOL_CAP[execFam];
@@ -801,10 +812,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         ? "[quiet] 静默执行（无输出）"
         : result.ok
           ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-          : `error: ${result.error ?? "unknown"}`;
-      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}` });
-      input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
-      input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500) });
+          : `error: ${result.error ?? (result.stderr?.trim() ? result.stderr : "unknown")}`;
       // 负结果收敛窗口（S6 死循环机制——2026-08-13）：同工具族+同目标连续负结果
       // N=3 回填引导（该路径已确认不可用→换策略）、N=15 强制终止（2026-08-15 D2：5→15）
       const neg = isNegativeResult(result);
@@ -818,12 +826,18 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       // 2026-08-14 T5 侦察豁免进豁免矩阵（N12）——guardReg.exempt("negative-loop") 声明式判定
       const reconExempt = guardReg.exempt("negative-loop", { roleId: input.role?.id, tool, steps: steps + 1 });
       const loopCheck = negativeLoopCheck(recentResults, fam, tgt, neg, !reconExempt, negLimits.terminate, negLimits.guideAt);
+      // 2026-08-15 审计 MEDIUM-1：引导与真实结果必须合并进同一条 tool 消息——
+      // 同一 toolCallId 两条 tool 消息会被 llm-fn first-wins 去重，引导从未到达模型
+      const guideSuffix = loopCheck.action === "guide"
+        ? `\n[收敛] 检测到连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——该路径已确认不可用——不要继续探测/重试同一目标——换策略（优先查 capability-index/ext-registry 权威列表，替代盲探测）。`
+        : "";
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}${guideSuffix}` });
+      input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
+      input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500) });
       if (loopCheck.action === "terminate") {
         return { ok: true, value: null, steps: steps + 1, warning: `连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——负验证循环，强制终止` };
       }
       if (loopCheck.action === "guide") {
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `[收敛] 检测到连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——该路径已确认不可用（${summary.slice(0, 120)}）——不要继续探测/重试同一目标——换策略（优先查 capability-index/ext-registry 权威列表，替代盲探测）。` });
         input.logger?.(`[agent] step=${steps + 1} 负结果引导（${fam} · ${tgt} ×${loopCheck.count}）`);
         return undefined;
       }

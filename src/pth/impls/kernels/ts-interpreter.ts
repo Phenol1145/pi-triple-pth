@@ -2,6 +2,7 @@ import { createContext, runInContext, type Context } from "node:vm";
 import { stripTypeScriptTypes } from "node:module";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
 import { buildSeeds } from "../../kernel/extensions/index.js";
+import { stripNonCode } from "../../kernel/ptc/surface.js";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
 
@@ -157,12 +158,14 @@ export class TsInterpreter implements Interpreter {
  *   program → 块包装：完整程序执行（声明/多语句/控制流——尾表达式捕获）；
  *   auto    → 旧启发式判别（存量调用兼容）。 */
 function preflight(program: string, exec: "single" | "program" | "auto"): { ok: true; code: string } | { ok: false; error: string } {
+  // 2026-08-15 审计 M6：import/require 检查只应命中真实代码——字符串/模板/注释中的文本不得误拒
+  const scannable = stripNonCode(program);
   // import 语句（行首 import 或 import( 动态导入）
-  if (/^\s*import\s/m.test(program) || /import\s*\(/.test(program)) {
+  if (/^\s*import\s/m.test(scannable) || /import\s*\(/.test(scannable)) {
     return { ok: false, error: "import is not allowed in kernel programs — use injected globals (llm/memory/skills/tasks/bash/python)" };
   }
   // require 调用
-  if (/\brequire\s*\(/.test(program)) {
+  if (/\brequire\s*\(/.test(scannable)) {
     return { ok: false, error: "require is not allowed in kernel programs — use injected globals (llm/memory/skills/tasks/bash/python)" };
   }
   const mode = exec === "auto"

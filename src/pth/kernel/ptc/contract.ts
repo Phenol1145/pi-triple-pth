@@ -68,9 +68,17 @@ function requireObject(args: unknown[], idx: number, what: string): Record<strin
 
 function optionalString(args: unknown[], idx: number, what: string): void {
   const v = args[idx];
-  if (v !== undefined && v !== null && typeof v !== 'string') {
-    throw new PtcContractError(what, '参数 ' + idx + ' 可选——若提供必须是字符串（got: ' + typeof v + '）');
+  if (v !== undefined && typeof v !== 'string') {
+    throw new PtcContractError(what, '参数 ' + idx + ' 可选——若提供必须是字符串（got: ' + (v === null ? 'null' : typeof v) + '）');
   }
+}
+
+function requireStringArray(args: unknown[], idx: number, what: string): string[] {
+  const v = args[idx];
+  if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) {
+    throw new PtcContractError(what, '参数 ' + idx + ' 必须是字符串数组');
+  }
+  return v as string[];
 }
 
 /** PTC 能力注册表（单一真相源——能力面/校验/降级/三要素全部由此派生） */
@@ -79,7 +87,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
   'memory.query': {
     name: 'memory.query', family: 'memory',
     params: '(sql: string)',
-    returnType: 'Promise<{ rows: Array<Record<string, unknown>> }>',
+    returnType: 'Promise<Array<Record<string, unknown>>>',
     anchor: '记忆库只读 SQL（仅 SELECT memory_entries，自动 LIMIT）',
     whenToUse: '查条目 / 统计 / 锚点→原文展开',
     effect: '行数组（id/kind/content/meta…）',
@@ -89,11 +97,16 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
   'memory.write': {
     name: 'memory.write', family: 'memory',
     params: '(entry: { id?: string; kind?: string; anchors?: string[]; content: string })',
-    returnType: 'Promise<{ id: string }>',
+    returnType: 'Promise<void>',
     anchor: '记忆写入（沉淀）',
     whenToUse: '沉淀知识（task-insight / tool-function 等知识层自由写）',
     effect: '条目落库',
     validate: (args) => {
+      // 2026-08-15 筛查 M4：双签名（对象形/位置形）在进入 normalizeWriteArgs 前不误拒
+      if (typeof args[0] === 'string') {
+        requireString(args, 1, 'memory.write');
+        return;
+      }
       const e = requireObject(args, 0, 'memory.write');
       if (typeof e.content !== 'string' || e.content.trim() === '') {
         throw new PtcContractError('memory.write', 'entry.content 必须是非空字符串');
@@ -109,6 +122,13 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     anchor: '嵌套 LLM 调用（子分析/评估/翻译）',
     whenToUse: '二次推理——主循环之外需要独立 LLM 判断时',
     effect: 'LLM 回复（content + usage）',
+    validate: (args) => {
+      const msgs = args[0];
+      if (!Array.isArray(msgs) || msgs.length === 0
+        || msgs.some((m) => !m || typeof m !== 'object' || typeof (m as { content?: unknown }).content !== 'string')) {
+        throw new PtcContractError('llm.complete', 'messages 必须是非空数组，每项含字符串 content');
+      }
+    },
     asAction: (a) => `return await llm.complete([{ role: ${JSON.stringify('system')}, content: ${JSON.stringify(String(a.system ?? '你是助手'))} }, { role: ${JSON.stringify('user')}, content: ${JSON.stringify(String(a.user ?? ''))} }]);`,
   },
   // —— Web ——
@@ -135,12 +155,12 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
   },
   'fs.list': {
     name: 'fs.list', family: 'fs',
-    params: '(dir?: string)',
-    returnType: 'Promise<string[]>',
+    params: '()',
+    returnType: 'Promise<Array<{ name: string; isDir: boolean }>>',
     anchor: 'toolstore 目录枚举',
     whenToUse: '发现可用扩展',
-    effect: '文件名数组',
-    asAction: (a) => `return await fs.list(${a.dir ? JSON.stringify(String(a.dir)) : JSON.stringify('undefined')});`,
+    effect: '目录项数组',
+    asAction: () => `return await fs.list();`,
   },
   'fs.readSource': {
     name: 'fs.readSource', family: 'fs',
@@ -160,26 +180,28 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     whenToUse: '确认环境/版本/可用性',
     effect: '状态摘要（变量/函数概览）',
     validate: (args) => { optionalString(args, 0, 'env.inspect'); },
-    asAction: (a) => `return await env.inspect(${a.lang ? JSON.stringify(String(a.lang)) : JSON.stringify('undefined')});`,
+    asAction: (a) => `return await env.inspect(${a.lang ? JSON.stringify(String(a.lang)) : ''});`,
   },
   // —— 召回 ——
   'state.recallFunctions': {
     name: 'state.recallFunctions', family: 'state',
-    params: '(query: string, opts?)',
+    params: '(anchors: string[], opts?)',
     returnType: 'Promise<Array<{ key: string; source: string; spec: object | null }>>',
     anchor: '召回已沉淀的工具函数',
     whenToUse: '找既有实现复用（先查后写）',
     effect: '函数列表（key + source + spec）',
-    asAction: (a) => `return await state.recallFunctions(${a.query ? JSON.stringify(String(a.query)) : JSON.stringify('undefined')});`,
+    validate: (args) => { if (args[0] !== undefined) requireStringArray(args, 0, 'state.recallFunctions'); },
+    asAction: (a) => `return await state.recallFunctions(${a.query ? JSON.stringify([String(a.query)]) : '[]'});`,
   },
   'state.recallInsights': {
     name: 'state.recallInsights', family: 'state',
-    params: '(query: string, opts?)',
+    params: '(anchors: string[], opts?)',
     returnType: 'Promise<string[]>',
     anchor: '召回已沉淀的洞察',
     whenToUse: '查历史经验（避免重蹈覆辙）',
     effect: '洞察文本列表',
-    asAction: (a) => `return await state.recallInsights(${a.query ? JSON.stringify(String(a.query)) : JSON.stringify('undefined')});`,
+    validate: (args) => { if (args[0] !== undefined) requireStringArray(args, 0, 'state.recallInsights'); },
+    asAction: (a) => `return await state.recallInsights(${a.query ? JSON.stringify([String(a.query)]) : '[]'});`,
   },
   // —— 任务级对象（元数据——不校验） ——
   'cache': {

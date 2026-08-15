@@ -263,9 +263,18 @@ async function directOpenAiComplete(
     content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
     reasoning_content?: string | null;
   } | undefined;
-  const toolCalls = (msg?.tool_calls ?? []).map((tc) => {
-    try { return { id: tc.id, name: tc.function.name, arguments: JSON.parse(tc.function.arguments) as Record<string, unknown> }; }
-    catch { return { id: tc.id, name: tc.function.name, arguments: {} }; }
+  // 2026-08-15 筛查 MEDIUM-4/LOW-4：arguments 解析后必须对象化（null/数组/字符串 → {}）；
+  // 缺 function/id 的畸形 tool_call 直接丢弃——不二次解引用 provider 缺失字段
+  const toolCalls = (msg?.tool_calls ?? []).flatMap((tc) => {
+    const rawArgs = (() => {
+      try { return JSON.parse(tc?.function?.arguments ?? "{}"); }
+      catch { return {}; }
+    })();
+    const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
+      ? rawArgs as Record<string, unknown>
+      : {};
+    if (typeof tc?.id !== "string" || typeof tc?.function?.name !== "string") return [];
+    return [{ id: tc.id, name: tc.function.name, arguments: args }];
   });
   if (depsMetric) depsMetric({ provider: String(model.provider), model: model.id, durationMs: Date.now() - start, inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0, cacheReadTokens, cacheWriteTokens });
   return {

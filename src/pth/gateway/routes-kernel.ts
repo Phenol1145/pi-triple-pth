@@ -49,8 +49,12 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     const visible = (meta: Record<string, unknown> | undefined) => (space ? isVisible(meta, space) : true);
     try {
       if (body.op === "query") {
-        const rows = (await kernel.dataWorld.queryReadOnly(String(body.sql ?? ""))) as Array<{ meta?: Record<string, unknown> }>;
-        return rows.filter((r) => visible(r.meta));
+        const rows = (await kernel.dataWorld.queryReadOnly(String(body.sql ?? ""))) as Array<Record<string, unknown> | null>;
+        // 2026-08-15 筛查 H3：缺 meta 列的行无法判定可见性——fail-closed（不再默认公开）
+        if (space && rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
+          return reply.status(400).send({ error: "bridge query: 会话空间下查询必须包含 meta 列（可见性过滤依据）" });
+        }
+        return rows.filter((r) => visible(r!["meta"] as Record<string, unknown>));
       }
       if (body.op === "retrieve") {
         const entries = await kernel.dataWorld.memory.retrieve({ anchors: body.anchors ?? [], kinds: body.kinds ?? [] });

@@ -22,11 +22,12 @@ describe("PTC 契约注册表（A1 Phase 1）", () => {
     expect(gen["llm.complete"]!({ system: "S", user: "U" })).toBe('return await llm.complete([{ role: "system", content: "S" }, { role: "user", content: "U" }]);');
     expect(gen["web.fetchText"]!({ url: "http://x" })).toBe('return await web.fetchText("http://x");');
     expect(gen["fs.readText"]!({ path: "p" })).toBe('return await fs.readText("p");');
-    expect(gen["fs.list"]!({ dir: "d" })).toBe('return await fs.list("d");');
-    expect(gen["fs.list"]!({})).toBe('return await fs.list("undefined");');
+    expect(gen["fs.list"]!({ dir: "d" })).toBe('return await fs.list();');
+    expect(gen["fs.list"]!({})).toBe('return await fs.list();');
     expect(gen["env.inspect"]!({ lang: "ts" })).toBe('return await env.inspect("ts");');
-    expect(gen["state.recallFunctions"]!({ query: "q" })).toBe('return await state.recallFunctions("q");');
-    expect(gen["state.recallInsights"]!({})).toBe('return await state.recallInsights("undefined");');
+    expect(gen["env.inspect"]!({})).toBe('return await env.inspect();');
+    expect(gen["state.recallFunctions"]!({ query: "q" })).toBe('return await state.recallFunctions(["q"]);');
+    expect(gen["state.recallInsights"]!({})).toBe('return await state.recallInsights([]);');
   });
 
   it("AGENT_CAPABILITY_AS_ACTION 即派生映射（单一真相源）", () => {

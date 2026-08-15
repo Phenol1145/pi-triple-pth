@@ -44,6 +44,38 @@ describe("能力面越界预检（A1 Phase 3 条目 9——ptc/surface）", () =
     expect(findOutOfBoundsRoots("const arr = [1, 2, 3]; const total = arr.reduce((acc, v) => acc + v, 0)", KNOWN)).toEqual([]);
   });
 
+  it("2026-08-15 筛查回归：逗号连声明/方法简写/生成器不误判", () => {
+    // 逗号连声明（此前只收第一个声明符，rb 被误判为未注入能力）
+    expect(findOutOfBoundsRoots("const listB = [], rb = []; listB.push(1); rb.push(2); return {listB, rb};", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("let listB, rb; listB = []; rb = listB.slice(1);", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("for (let i = 0, rb = 0; i < 2; i++, rb++) { rb = rb + i; }", KNOWN)).toEqual([]);
+    // 对象方法简写/访问器/类方法/生成器（此前 name( 被当直接调用根）
+    expect(findOutOfBoundsRoots("const o = { rb(x){ return x + 1; } }; return o.rb(1);", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("const o = { get rb(){ return 1; }, set rb(x){ this.x = x; } }; return o.rb;", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("class A { rb(x){ return x + 1; } } return new A().rb(1);", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("function* rb(){ yield 1; } return [...rb()];", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("async function* rb(){ yield 1; } return rb();", KNOWN)).toEqual([]);
+  });
+
+  it("2026-08-15 筛查回归：if/while 头调用与除法链不被误处理", () => {
+    // if (foo()) 的 foo 不能因 if( 吞掉前导字符而漏检
+    expect(findOutOfBoundsRoots("if (foo()) { return 1; }", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("while (foo()) { break; }", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("const x = foo().bar; return x;", KNOWN)).toEqual(["foo"]);
+    // 除法链 a / b / c 不能被正则字面量启发式剥成 /x/ 而吞掉后续内容
+    expect(findOutOfBoundsRoots("const a = foo.bar / 2; return a;", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("const a = 8, b = 4, c = 2; return a / b / c;", KNOWN)).toEqual([]);
+  });
+
+  it("2026-08-15 审计回归：控制流头部成员访问与 TS 非空断言不漏报", () => {
+    expect(findOutOfBoundsRoots("if (foo.bar) { console.log(1) }", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("while (foo.bar) { break }", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("switch (foo.bar) { case 1: break }", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("for (const x of foo.bar) { console.log(x) }", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("foo!.bar", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("foo!()", KNOWN)).toEqual(["foo"]);
+  });
+
   it("vm 上下文无的内建（fetch/process/setTimeout）→ 越界引导（正确——本就是运行错误）", () => {
     expect(findOutOfBoundsRoots('const d = await fetch("http://x")', KNOWN)).toEqual(["fetch"]);
     expect(findOutOfBoundsRoots("process.env.PTH_X", KNOWN)).toEqual(["process"]);

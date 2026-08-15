@@ -72,4 +72,34 @@ describe("buildReadOnlyQuery（受限只读 SQL 校验）", () => {
     expect(() => buildReadOnlyQuery("SELECT * FROM memory_entries WHERE id IN (SELECT id FROM \"audit_log\")")).toThrow(/不开放/);
     expect(() => buildReadOnlyQuery("SELECT * FROM memory_entries WHERE id IN (SELECT id FROM/*c*/transcripts)")).toThrow(/不开放/);
   });
+
+  it("2026-08-15 筛查 H1：逗号连表 / TABLE 子句旁路 → 拒绝", () => {
+    expect(() => buildReadOnlyQuery("SELECT * FROM memory_entries, tasks LIMIT 1")).toThrow(/逗号连表/);
+    expect(() => buildReadOnlyQuery("SELECT * FROM memory_entries m, tasks t")).toThrow(/逗号连表/);
+    expect(() => buildReadOnlyQuery("SELECT * FROM memory_entries m WHERE EXISTS (TABLE audit_log)")).toThrow(/TABLE 子句/);
+    expect(() => buildReadOnlyQuery("SELECT * FROM memory_entries m WHERE EXISTS (TABLE transcripts)")).toThrow(/TABLE 子句/);
+  });
+
+  it("2026-08-15 筛查 H2：字符串/注释中的假 LIMIT 不生效——外层强制封顶", () => {
+    const r1 = buildReadOnlyQuery("SELECT * FROM memory_entries WHERE kind = 'task-insight' -- limit 999");
+    expect(r1).toMatch(/\bLIMIT\s+50\b/i);           // 注释里的 limit 不算数
+    expect(r1).not.toMatch(/--\s*LIMIT\s+200/);
+    const r2 = buildReadOnlyQuery("SELECT * FROM memory_entries WHERE content = 'x limit 999'");
+    expect(r2).toMatch(/\bLIMIT\s+50\b/i);
+    // 真实 LIMIT 仍被识别并封顶
+    expect(buildReadOnlyQuery("SELECT * FROM memory_entries LIMIT 7")).toMatch(/\bLIMIT\s+7\b/);
+    expect(buildReadOnlyQuery("SELECT * FROM memory_entries LIMIT 9999")).toMatch(/\bLIMIT\s+200\b/);
+  });
+
+  it("2026-08-15 筛查 M1：有副作用的 SELECT → 拒绝", () => {
+    for (const bad of [
+      "SELECT nextval('tasks_id_seq')",
+      "SELECT setval('tasks_id_seq', 1, false)",
+      "SELECT lo_import('/etc/passwd')",
+      "SELECT * FROM memory_entries FOR UPDATE",
+      "SELECT * INTO x FROM memory_entries",
+    ]) {
+      expect(() => buildReadOnlyQuery(bad)).toThrow();
+    }
+  });
 });

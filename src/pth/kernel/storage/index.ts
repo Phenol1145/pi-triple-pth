@@ -89,23 +89,89 @@ function extractTables(sql: string): string[] {
   return out;
 }
 
+/**
+ * 噪声掩码（与 stripSqlNoise 同规则但**保持长度**）：字符串/注释/dollar-quote 内容 → 空格。
+ * 用途：LIMIT 检测必须作用于真实代码位置——否则 `-- limit 999` 或 'limit 999' 会被误认为已有 LIMIT
+ * （2026-08-15 筛查 H2）。
+ */
+function maskSqlNoise(sql: string): string {
+  const out = sql.split("");
+  let i = 0;
+  const fill = (from: number, to: number) => { for (let k = from; k < to; k++) out[k] = " "; };
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    if (ch === "'") {
+      const start = i++;
+      while (i < sql.length) {
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") { i += 2; continue; }
+          i++;
+          break;
+        }
+        i++;
+      }
+      fill(start, i);
+      continue;
+    }
+    if (ch === "-" && sql[i + 1] === "-") {
+      const start = i;
+      while (i < sql.length && sql[i] !== "\n") i++;
+      fill(start, i);
+      continue;
+    }
+    if (ch === "/" && sql[i + 1] === "*") {
+      const start = i;
+      i += 2;
+      while (i < sql.length - 1 && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
+      i = Math.min(sql.length, i + 2);
+      fill(start, i);
+      continue;
+    }
+    if (ch === "$") {
+      const tag = sql.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_$]*\$|\$)/)?.[0];
+      if (tag) {
+        const start = i;
+        const end = sql.indexOf(tag, i + tag.length);
+        i = end >= 0 ? end + tag.length : sql.length;
+        fill(start, i);
+        continue;
+      }
+    }
+    i++;
+  }
+  return out.join("");
+}
+
 export function buildReadOnlyQuery(sql: string, allowedTables: ReadonlySet<string> = READONLY_TABLES): string {
   const trimmed = sql.trim();
   if (!/^select\b/i.test(trimmed)) throw new Error("queryReadOnly: 仅允许 SELECT 查询（read-only）");
   if (trimmed.includes(";")) throw new Error("queryReadOnly: 仅允许单条语句（single statement only）");
   if (/\bpg_catalog\b|\bpg_\w+\b/i.test(trimmed)) throw new Error("queryReadOnly: 禁止访问 pg 系统表");
+  const clean = stripSqlNoise(trimmed);
+  const masked = maskSqlNoise(trimmed);
+  // 有副作用的 SELECT（序列推进/大对象导入/行锁/SELECT INTO）不是只读（2026-08-15 筛查 M1）
+  if (/\b(?:nextval|setval|lo_import|lo_export|dblink|dblink_exec)\s*\(/i.test(masked)) {
+    throw new Error("queryReadOnly: 禁止调用有副作用的函数（nextval/setval/lo_* 等）");
+  }
+  if (/\bfor\s+(?:update|share)\b/i.test(masked)) throw new Error("queryReadOnly: 禁止 FOR UPDATE/FOR SHARE 行锁");
+  if (/\binto\b/i.test(masked)) throw new Error("queryReadOnly: 禁止 SELECT INTO");
+  // 逗号连表 / TABLE 子句是表名白名单的旁路（2026-08-15 筛查 H1）——仅支持单表 memory_entries
+  if (/\b(?:from|join)\s+[a-zA-Z_][\w$.]*(?:\s+(?:as\s+)?[a-zA-Z_][\w$]*)?\s*,/i.test(clean)) {
+    throw new Error("queryReadOnly: 逗号连表不开放（仅支持单表 FROM memory_entries）");
+  }
+  if (/\btable\s+[a-zA-Z_][\w$.]*/i.test(clean)) {
+    throw new Error("queryReadOnly: TABLE 子句不开放（仅支持 FROM memory_entries）");
+  }
   for (const t of extractTables(trimmed)) {
     if (!allowedTables.has(t)) {
       throw new Error(`queryReadOnly: 表 "${t}" 不开放（开放表: ${[...allowedTables].join(", ")}——任务面请用 obs.tasks / 事件检索请用 obs.search）`);
     }
   }
-  if (!/\blimit\s+\d+/i.test(trimmed)) {
-    return `${trimmed} LIMIT 50`;
-  }
-  return trimmed.replace(/\blimit\s+\d+/i, (m) => {
-    const n = Math.min(Number(m.replace(/\D/g, "")) || 50, 200);
-    return `LIMIT ${n}`;
-  });
+  // LIMIT 只看掩码后的真实代码；无论原 SQL 是否有 LIMIT，统一外层再包一次强制封顶
+  // （内层 LIMIT 不会被误用——外层 n 以真实 LIMIT 解析值封顶，假 LIMIT 按无 LIMIT 处理）。
+  const realLimit = masked.match(/\blimit\s+(\d+)\b/i);
+  const n = Math.min(Number(realLimit?.[1] ?? 50) || 50, 200);
+  return `SELECT * FROM (${trimmed}) _pth_q LIMIT ${n}`;
 }
 
 export async function runReadOnlyQuery(pool: pg.Pool, sql: string, allowedTables?: ReadonlySet<string>): Promise<unknown> {
