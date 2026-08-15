@@ -9,6 +9,7 @@ import type { Task } from "../storage/task-store-pg.js";
 import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles } from "./worker-cluster.js";
 import { setSpaceLookup } from "@away_from/pth-memory";
 import { spaceRegistry } from "./space-registry.js";
+import { registerBuiltinSpaces } from "../../impls/spaces/builtin-spaces.js";
 import { checkTaskRouting, routeTaskRole } from "./role-router.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
 import { getEventBus } from "./event-bus.js";
@@ -362,7 +363,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
 if (process.env.PTH_BATCH_PROCESS === "1" || process.argv[1]?.endsWith("batch-process.ts")) {
   // 2026-08-13 审计 P2：fork 子进程独立入口——自注入内置角色（父进程注入不跨进程）
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
-  // 2026-08-15 拆分：fork 子进程同样注入空间查询（记忆包不 import core）
+  // 2026-08-15 拆分：fork 子进程同样注册内置空间 + 注入空间查询（记忆包不 import core）
+  registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
   const databaseUrl = process.env.PTH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!databaseUrl) {

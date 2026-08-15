@@ -152,9 +152,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // 2026-08-13 审计 P2：内置角色在装配层注入（核心 worker-cluster 不再 import 实现层）
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
 
-  // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入
+  // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入；
+  // 内置空间注册移出 space-registry 模块（断 core 实现层环）
   const { setSpaceLookup } = await import("@away_from/pth-memory");
   const { spaceRegistry } = await import("./execution/space-registry.js");
+  const { registerBuiltinSpaces } = await import("../impls/spaces/builtin-spaces.js");
+  registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
 
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化——task-store 只存不判）

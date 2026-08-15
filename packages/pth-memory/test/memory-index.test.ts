@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { buildMemoryIndex } from "@away_from/pth-memory";
 import { isVisible, scopeOf, checkVisibilityDeclaration, stampScope, isDescendantOrSelf } from "@away_from/pth-memory";
-import { installDefaultRoles } from "../helpers";
+import { installDefaultRoles } from "../../../test/helpers";
 
 beforeEach(() => installDefaultRoles());
 

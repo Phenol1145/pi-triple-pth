@@ -4,6 +4,7 @@
  * 本包不 import PTH core——空间查询通过 setSpaceLookup 由装配层注入。
  */
 export * from "./memory-store-pg.js";
+export * from "./schema.js";
 export * from "./memory-policy.js";
 export * from "./memory-visibility.js";
 export * from "./memory-index.js";

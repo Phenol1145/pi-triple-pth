@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildReadOnlyQuery } from "../../src/pth/kernel/storage/index.js";
+import { buildReadOnlyQuery } from "@away_from/pth-memory";
 
 /**
  * 受限只读 SQL（memory.query 能力——LLM/任务代码输入不可信）——安全约束纯函数测试。
