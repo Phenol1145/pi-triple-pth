@@ -17,7 +17,7 @@ import { DEFAULT_REFINE_TASKS } from "./execution/refiner.js";
 import { buildDoc } from "./extensions/index.js";
 import { SEED_SKILL_SOPS, buildSkillContent } from "@away_from/pth-memory";
 
-/** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据——lazy 下 LLM 按需读） */
+/** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据 + T8 场景锚点三要素——lazy 下 LLM 按需读） */
 export function buildRoleDoc(role: {
   id: string; tags: string[]; prompt: string;
   thinking?: string; description?: string; output?: string;
@@ -41,9 +41,22 @@ ${meta.map((m) => `- ${m}`).join("\n")}
   const ioSection = (role.output || role.defaultReads?.length)
     ? `## 产物约定\n${role.output ? `- 默认产出：${role.output}\n` : ""}${role.defaultReads?.length ? `- 默认读取（上游产物）：${role.defaultReads.join(" / ")}\n` : ""}\n`
     : "";
+  // D4（2026-08-15）：role-doc 文案对齐 T8 场景锚点三要素——与工具 schema/能力索引同标准
+  const anchor = role.description ?? `${role.id}——${role.prompt.slice(0, 80)}`;
+  const effect = [
+    role.output ? `默认产出 ${role.output}` : "done 提交实际产物",
+    role.acceptanceRole ? `验收侧 ${role.acceptanceRole}` : "",
+    role.defaultReads?.length ? `默认读取上游产物 ${role.defaultReads.join("/")}` : "",
+  ].filter(Boolean).join("；");
+  const anchorSection = `## 场景锚点三要素（T8）
+- 【场景锚点】${anchor}
+- 【何时用】任务标签命中 ${role.tags.join(" / ")} 之一，且需要本角色职责（${anchor}）时用。
+- 【效果】${effect}
+
+`;
   return `# 角色：${role.id}
 
-## 人设
+${anchorSection}## 人设
 ${role.prompt}
 
 ${role.description ? `## 职责\n${role.description}\n\n` : ""}${metaLine}## 任务类型（你负责的任务标签语义）
@@ -75,7 +88,7 @@ export function buildCapabilityIndex(): string {
 - obs —— 系统观测。何时用：查任务池/批次/指标/事件。效果：obs.tasks({status?, role?}) / obs.metrics() / obs.batches() / obs.kernels() / obs.search()。
 
 ## memory
-- memory.query({sql}) → rows —— 只读 SQL 查记忆库（仅 SELECT memory_entries；自动 LIMIT）。何时用：查条目/统计/锚点→原文展开。效果：行数组（id/kind/anchors/content/status/version/hit_count/created_at/updated_at）。
+- memory.query({sql}) → rows —— 只读 SQL 查记忆库（仅 SELECT memory_entries；自动 LIMIT）。何时用：查条目/统计/锚点→原文展开。效果：行数组（id/kind/anchors/content/status/version/hit_count/created_at/updated_at/meta——ASP 会话空间下 SQL 必须带 meta 列，否则可见性过滤拒绝）。
 - memory.write({id?, kind, anchors, content}) —— 写入记忆（沉淀）。何时用：沉淀知识（task-insight/tool-function 等知识层自由写）。效果：条目落库（治理层强制 draft、prompt/config 层只读——用途层规则）。
 - memory.update({id, content?}) —— 内容修正。何时用：改知识层条目内容。效果：内容更新（系统层不可改；治理层不可改状态）。
 

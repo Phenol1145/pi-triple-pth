@@ -948,7 +948,7 @@ v0.9（动作面/权限/任务池纯化）
 ### 8.2 概念债务
 
 - [x] T1-T10 裁决后落地（2026-08-14 全部裁决完成——T1/T2/T3/T4/T5/T7 代码已落地；T6/T9 概念层重写；T8 文案对齐分批推进；T10 观察）
-- [x] 术语统一：工具 description 三要素对齐已完成（2026-08-14 T8——35 schema+能力索引全量）；role-doc 文案对齐随 T8 后续批次推进（tenant 为认证概念保留；pit→ptl 已修）
+- [x] 术语统一：工具 description 三要素对齐已完成（2026-08-14 T8——35 schema+能力索引全量）；role-doc 文案对齐已完成（2026-08-15 D4——`buildRoleDoc` 场景锚点三要素段 + 注入全量）（tenant 为认证概念保留；pit→ptl 已修）
 - [x] 护栏统一抽象（N12——2026-08-14 落地：guardrails.ts 注册表 + 阈值配置化 `PTH_GUARD_*` + 豁免矩阵声明式）
 - [x] 工作流 SOP——角色特定标准作业步骤还不是一等概念（2026-08-15 B4 Phase 1：四段式 skill 格式 + developer/scout/memory-keeper 3 条种子已注入；其余角色随 W4 创建时机补齐）
 - [x] 双 storage 层归属（2026-08-14 A2 已裁决并落地）：kernel/storage = 持久化基座单一包（会话平面并入 session/，src/pth/storage 退役）；引擎不归一（PG 数据世界 + Redis 热面 + 文件产物——分析见 storage-backend-analysis.md）；审计两平面（会话=Redis Stream，任务=PG audit_log）

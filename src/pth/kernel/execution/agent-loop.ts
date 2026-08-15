@@ -134,7 +134,7 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
 框架事实：
 - 记忆（memory）：PTH 共享知识层——先 query 查已有沉淀（task-insight/tool-function）——有价值洞察 write 沉淀
 - 角色：内置角色正交分工——查你的角色文档：
-  const r = await memory.query("SELECT content FROM memory_entries WHERE id='role-doc:你的角色id' LIMIT 1")
+  const r = await memory.query("SELECT content, meta FROM memory_entries WHERE id='role-doc:你的角色id' LIMIT 1")
 - 产物：fs.task 写任务工作区 → 归档 → 人工/系统应用
 - 改系统：fs.readSource 读源码 + 遵循 self-modify-guide
 
@@ -193,10 +193,10 @@ export async function buildAgentSystemPrompt(
     if (mode === "lazy") {
       roleBlock = `你的角色：${role.id}。角色文档在 memory（id='role-doc:${role.id}'）——
 先用 memory.query 查询它了解你的职责与工作方式：
-SELECT content FROM memory_entries WHERE id='role-doc:${role.id}' LIMIT 1\n（若查询不到——按人设执行：${role.prompt.slice(0, 120)}）`;
+SELECT content, meta FROM memory_entries WHERE id='role-doc:${role.id}' LIMIT 1\n（若查询不到——按人设执行：${role.prompt.slice(0, 120)}）`;
     } else {
       try {
-        const rows = opts.memory ? await opts.memory.query(`SELECT content FROM memory_entries WHERE id='role-doc:${role.id}' LIMIT 1`) : [];
+        const rows = opts.memory ? await opts.memory.query(`SELECT content, meta FROM memory_entries WHERE id='role-doc:${role.id}' LIMIT 1`) : [];
         roleBlock = rows[0]?.content ?? role.prompt;
       } catch {
         roleBlock = role.prompt;
@@ -209,13 +209,13 @@ SELECT content FROM memory_entries WHERE id='role-doc:${role.id}' LIMIT 1\n（�
   if (mode === "lazy") {
     capBlock = `【能力探索（按需读取）】
 ts 程序内可调用能力函数——完整清单在 memory（kind='capability-index'）：
-const idx = await memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1");\n（或用 fs.readText 读 toolstore 文件）——需要什么能力先查索引——不要盲试。
+const idx = await memory.query("SELECT content, meta FROM memory_entries WHERE kind='capability-index' LIMIT 1");\n（或用 fs.readText 读 toolstore 文件）——需要什么能力先查索引——不要盲试。
 代码库结构（找文件/模块在哪/哪个文件做什么）——查 project-map：
-const pm = await memory.query("SELECT content FROM memory_entries WHERE kind='project-map' LIMIT 1");
+const pm = await memory.query("SELECT content, meta FROM memory_entries WHERE kind='project-map' LIMIT 1");
 源码阅读：fs.readSource（读索引可知用法）。任务工作区写入：fs.task（读索引可知）。`;
   } else {
     try {
-      const rows = opts.memory ? await opts.memory.query("SELECT content FROM memory_entries WHERE kind='capability-index' LIMIT 1") : [];
+      const rows = opts.memory ? await opts.memory.query("SELECT content, meta FROM memory_entries WHERE kind='capability-index' LIMIT 1") : [];
       capBlock = rows[0]?.content ?? AGENT_CAPABILITY_DOC;
       // Agent-JIT 路径 B：能力文档按角色 capabilities 裁剪（按包分节——## 包名——
       // 只注入相关节 + 基础节；无 capabilities 声明（全量）→ 原文）。
@@ -268,7 +268,7 @@ ${toolsDescription(role?.actionTools, { asp: opts.asp })}
 ${capBlock}
 
 【API 调查技能】（当你不清楚执行核预定义函数/对象（fs/memory/llm/context 等）的构成、参数、语法或返回值时）
-const skill = await memory.query("SELECT content FROM memory_entries WHERE id='skill:api-investigation' LIMIT 1");
+const skill = await memory.query("SELECT content, meta FROM memory_entries WHERE id='skill:api-investigation' LIMIT 1");
 （按文档方法调查——Object.keys/fn.toString/读实现源码/试错推断——不要盲试）
 
 【程序模式（PTC——优先使用）】
@@ -427,8 +427,14 @@ async function buildEnvironmentPrelude(caps: Record<string, unknown>): Promise<s
   try {
     const memory = caps["memory"] as { query?(sql: string): Promise<unknown> } | undefined;
     if (memory?.query) {
-      const rows = await memory.query("SELECT kind, count(*) AS n FROM memory_entries GROUP BY kind ORDER BY n DESC LIMIT 10");
-      const text = JSON.stringify(rows);
+      // 2026-08-15 修复：ASP 会话空间下 memory.query 强制要求 meta 列（可见性过滤依据）；
+      // 聚合查询无法带行级 meta——改取 kind+meta 行后在 JS 聚合（LIMIT 由只读 SQL 层兜底）
+      const rows = await memory.query("SELECT kind, meta FROM memory_entries LIMIT 200") as Array<{ kind?: string }>;
+      const counts = new Map<string, number>();
+      for (const r of rows) {
+        if (typeof r.kind === "string") counts.set(r.kind, (counts.get(r.kind) ?? 0) + 1);
+      }
+      const text = JSON.stringify([...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([kind, n]) => ({ kind, n })));
       if (text && text !== "[]") parts.push(`记忆概览: ${text.slice(0, 1000)}`);
     }
   } catch { /* 记忆不可用容忍 */ }

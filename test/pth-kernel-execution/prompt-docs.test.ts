@@ -6,13 +6,18 @@ import { installDefaultRoles } from "../helpers";
 beforeEach(() => installDefaultRoles());
 
 describe("Prompt 框架化（角色文档/能力索引——memory 数据源）", () => {
-  it("角色文档：覆盖全部内置角色（人设/任务类型/工作方式）", () => {
+  it("角色文档：覆盖全部内置角色（场景锚点三要素/人设/任务类型/工作方式——D4 2026-08-15）", () => {
     for (const role of DEFAULT_ROLES) {
       const doc = buildRoleDoc(role);
       expect(doc).toContain(`# 角色：${role.id}`);
       expect(doc).toContain(role.prompt);
       expect(doc).toContain(role.tags.join(" / "));
       expect(doc).toContain("PTC 模式");
+      // D4：role-doc 文案三要素与工具 schema/能力索引同标准
+      expect(doc).toContain("## 场景锚点三要素（T8）");
+      expect(doc).toContain("- 【场景锚点】");
+      expect(doc).toContain("- 【何时用】");
+      expect(doc).toContain("- 【效果】");
     }
   });
 

@@ -172,6 +172,14 @@ describe("PTC 程序模式（P1）", () => {
     expect(prompt).toContain("你是开发者");
   });
 
+  it("prompt 中 memory.query 指引全部带 meta（ASP 可见性 fail-closed——2026-08-15 实机崩溃修复）", async () => {
+    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const prompt = await buildAgentSystemPrompt({ id: "planner", labelPatterns: [], prompt: "你是计划者" }, "t", { mode: "lazy" });
+    const queries = [...prompt.matchAll(/memory\.query\("([^"]+)"\)/g)].map((m) => m[1]!);
+    expect(queries.length).toBeGreaterThanOrEqual(4);   // 世界观/能力索引/project-map/skill 指针
+    for (const q of queries) expect(q, q).toContain("meta");
+  });
+
   it("lazy 模式：角色/能力指针（不注入全文——LLM 按需 query）", async () => {
     const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
     const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t", { mode: "lazy" });
