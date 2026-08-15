@@ -71,8 +71,8 @@ token 写入 Redis：`redis-cli -h localhost set auth:token:<token> '{"tenantId"
 | 服务 | CPU | 内存 | PIDs | 说明 |
 |------|-----|------|------|------|
 | pi-platform | 2.0 | 2G | 512 | 主进程 + batch 子进程（≤4 batch × 7 worker） |
-| sandbox | 1.0 | 1G | 256 | kernel 池 16 python + node（池容量与内存联动：16×40MB≈640MB） |
-| postgres | 1.0 | 512M | 128 | 存储 |
+| sandbox | 1.0 | 1G | 256 | kernel 池 24 python + node（池容量与内存联动：24×40MB≈960MB） |
+| postgres | 1.0 | 4G | 128 | 存储（`shared_buffers=2GB`——限额须 >2GB，2026-08-15 由 512M 修正） |
 | redis | 0.5 | 256M | 64 | auth/缓存（另有 maxmemory 1gb 自限） |
 
 node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程 + batch 子进程继承——防大 payload OOM 主机）。
@@ -81,7 +81,7 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 
 | 参数 | 默认 | 说明 | 调优 |
 |------|------|------|------|
-| `PTH_KERNEL_POOL_SIZE` | 16 | sandbox kernel 池容量（REPL 持久进程数） | **必须 ≥ 并发 worker 数**（默认 batch = origin+13 叶子 = 14 worker；2 batch≈28）→ 默认 16 起步；高并发提到 32-48 |
+| `PTH_KERNEL_POOL_SIZE` | 24 | sandbox kernel 池容量（REPL 持久进程数） | **必须 ≥ 并发 worker 数**（默认 batch = origin+13 叶子 = 14 worker；2 batch≈28）→ compose 默认 24 起步；高并发提到 32-48 |
 
 ### agent 循环（单任务执行成本）
 

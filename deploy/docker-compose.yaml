@@ -157,6 +157,7 @@ services:
     # PG 专项调优（2026-08-08，16GB 机器）：默认参数对 PTH 负载不足——
     # shared_buffers 128MB→2GB（数据全缓存）/ work_mem 4MB→16MB / effective_cache_size 12GB（索引扫描）
     # maintenance_work_mem 256MB（VACUUM/索引）/ max_connections 100→200（多 batch 直连余量）/ jit off（小查询）
+    # 内存限额 4G（2026-08-15 修正：shared_buffers=2GB 需 >2GB cgroup，原 512M 起不来）
     # 注：连接池专项（PgBouncer 事务级 pooling）为后续演进，届时 max_connections 可回调
     command:
       - "-c"
@@ -186,7 +187,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 512M
+          memory: 4G
           pids: 128
 
   # ── G 阶段：dev 容器（多语言开发工作区——PTL 工具环境 + 用户开发/学习研究）──
@@ -263,7 +264,6 @@ volumes:
   agent-lab:
   redis-data:
   postgres-data:
-  dev-home:
   dev-artifacts:
 
 # sandbox-internal：internal:true 网络——sandbox 只能被同网容器（pth）访问，自身无外部出口
