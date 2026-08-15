@@ -27,6 +27,11 @@ export interface ExtIndexEntry {
 export interface ExtCapabilityOptions {
   toolstore: Toolstore;
   memory?: { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> };
+  /** 系统索引写通道（2026-08-15 审计修复：ext.syncIndex 此前经 worker 面 memory.write
+   *  写 prompt 层 kind:extension-index 被用途层策略拒绝——永远失败）。
+   *  该通道由 buildCapabilities 用 PgMemoryStore force 注入，固定写 id/kind，
+   *  内容只来自 toolstore 扫描（非 LLM 输入）——不开放泛化系统写。 */
+  writeSystemIndex?: (entry: { id: string; kind: "extension-index"; anchors: string[]; content: string; status: "official" }) => Promise<void>;
   /** 新执行核注册（kernel-manager.registerKernel——ext.kernel 按需接线） */
   registerKernel?: (language: string, interpreter: unknown) => void;
   /** 只读数据库通道（ctx.db——2026-08-12 SDK 完善：扩展标准通道；白名单/过滤由通道层保证） */
@@ -135,14 +140,17 @@ export function createExtCapability(opts: ExtCapabilityOptions): Record<string, 
       },
       /** 同步索引到公共记忆区（memory kind:extension-index——编排面进公共记忆） */
       syncIndex: async (): Promise<{ count: number }> => {
-        if (!opts.memory) throw new Error("ext.syncIndex: memory 未配置");
         const entries = await scanExtensions(opts.toolstore);
         const content = JSON.stringify(entries, null, 2);
-        await opts.memory.write({
-          kind: "extension-index",
-          content,
-          anchors: ["extensions", "index", "extension-index"],
-        });
+        const anchors = ["extensions", "index", "extension-index"];
+        // 2026-08-15 审计修复：优先走系统写通道（force 固定 id——worker 面 memory.write
+        // 对 prompt 层只读，会拒绝 kind:extension-index → 此前永远失败）
+        if (opts.writeSystemIndex) {
+          await opts.writeSystemIndex({ id: "extension-index", kind: "extension-index", anchors, content, status: "official" });
+          return { count: entries.length };
+        }
+        if (!opts.memory) throw new Error("ext.syncIndex: 系统索引写通道未配置（memory/writeSystemIndex 至少其一）");
+        await opts.memory.write({ kind: "extension-index", content, anchors });
         return { count: entries.length };
       },
     },

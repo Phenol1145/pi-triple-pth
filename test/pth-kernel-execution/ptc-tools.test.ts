@@ -58,4 +58,20 @@ describe("工具契约注册表（A1 Phase 3 条目 10——ptc/tools 生成器�
     // OpenAI tool name 合法性（无点）
     expect(tools.every((t) => /^[A-Za-z0-9_-]+$/.test(t.name))).toBe(true);
   });
+
+  it("非 ASP 模式工具面：剔除 ASP-only（schema 与 AGENT_TOOLS 执行面同源——2026-08-15 审计 MEDIUM）", () => {
+    const tools = toolsToSchema(undefined, { asp: false });
+    const names = tools.map((t) => t.name);
+    expect(tools).toHaveLength(27);   // 33 - asp.cd/asp.index/memory.index/cache.load/cache.index/cache.cancel
+    for (const absent of ["asp_cd", "asp_index", "memory_index", "cache_load", "cache_index", "cache_cancel"]) {
+      expect(names).not.toContain(absent);
+    }
+    // 执行面（AGENT_TOOLS）有的全保留
+    expect(names).toContain("ts_run");
+    expect(names).toContain("done");
+    expect(names).toContain("dev_write");
+    // 缺省/ASP 模式仍为全量（向后兼容）
+    expect(toolsToSchema()).toHaveLength(33);
+    expect(toolsToSchema(undefined, { asp: true })).toHaveLength(33);
+  });
 });

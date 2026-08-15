@@ -519,6 +519,13 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   cache: ["cache.load", "cache.index", "cache.cancel"],
 };
 
+/** ASP-only 工具（2026-08-15 审计 MEDIUM：执行面只在 ASP 模式内联实现，AGENT_TOOLS 无对应执行器）。
+ * 非 ASP 模式的 schema/prompt 面剔除——schema 面与执行面同源（非 ASP 调 asp_cd/cache_* 只会落到 unknown-tool）。 */
+export const ASP_ONLY_TOOLS = new Set(["asp.cd", "asp.index", "memory.index", "cache.load", "cache.index", "cache.cancel"]);
+
+/** 工具面选项：asp=false 表示非 ASP 模式（剔除 ASP-only）；缺省保持全量（契约注册表面向后兼容） */
+export interface ToolFaceOptions { asp?: boolean }
+
 /** 展开工具族（组名 → 工具 id 列表；未知组名忽略——保持前向兼容） */
 export function expandToolGroups(ids: string[]): string[] {
   const out: string[] = [];
@@ -529,22 +536,25 @@ export function expandToolGroups(ids: string[]): string[] {
   return out;
 }
 
-/** 按角色动作面过滤工具（actionTools 未声明/空 → 全量——向后兼容：扩展角色/自定义角色不受影响） */
-export function filterToolSchemas(ids: string[] | undefined): typeof TOOL_SCHEMAS {
-  if (!ids || ids.length === 0) return TOOL_SCHEMAS;
-  const wanted = new Set(expandToolGroups(ids));
+/** 按角色动作面过滤工具（actionTools 未声明/空 → 全量——向后兼容：扩展角色/自定义角色不受影响）
+ *  opts.asp=false：剔除 ASP-only（非 ASP 模式 schema 与执行面同源——2026-08-15 审计 MEDIUM） */
+export function filterToolSchemas(ids: string[] | undefined, opts: ToolFaceOptions = {}): typeof TOOL_SCHEMAS {
+  const wanted = ids && ids.length > 0 ? new Set(expandToolGroups(ids)) : null;
   const out: typeof TOOL_SCHEMAS = {};
   for (const [name, s] of Object.entries(TOOL_SCHEMAS)) {
-    if (wanted.has(name)) out[name] = s;
+    if (opts.asp === false && ASP_ONLY_TOOLS.has(name)) continue;
+    if (wanted && !wanted.has(name)) continue;
+    out[name] = s;
   }
   return out;
 }
 
 /** 工具声明 → pi-ai Tool[]（OpenAI function 格式——Context.tools 原生 tool_calls）
  * name 去点（OpenAI tool name pattern ^[a-zA-Z0-9_-]+$——python.execute 非法 → python_execute）
- * actionTools 过滤：按角色白名单裁剪（缺省全量）。 */
-export function toolsToSchema(actionTools?: string[]): import("@earendil-works/pi-ai").Tool[] {
-  const schemas = filterToolSchemas(actionTools);
+ * actionTools 过滤：按角色白名单裁剪（缺省全量）。
+ * opts.asp=false：非 ASP 模式——剔除 asp.cd/asp.index/memory.index/cache.*（执行面只在 ASP 内联）。 */
+export function toolsToSchema(actionTools?: string[], opts: ToolFaceOptions = {}): import("@earendil-works/pi-ai").Tool[] {
+  const schemas = filterToolSchemas(actionTools, opts);
   return Object.entries(schemas).map(([name, s]) => ({
     name: name.replace(/\./g, "_"),
     description: s.description,
@@ -552,12 +562,16 @@ export function toolsToSchema(actionTools?: string[]): import("@earendil-works/p
   }));
 }
 
-/** 裁剪后的工具描述（prompt 注入面与 schema 同步——in-tokens 削减；done/输出模式为固定协议段） */
-export function toolsDescription(actionTools?: string[]): string {
-  const schemas = filterToolSchemas(actionTools);
+/** 裁剪后的工具描述（prompt 注入面与 schema 同步——in-tokens 削减；done/输出模式为固定协议段）
+ *  opts.asp=false：与 toolsToSchema(asp:false) 同步剔除 ASP-only。
+ *  2026-08-15 审计 LOW：列表名用下划线形（与 OpenAI tool_calls 声明一致——命名一致性）；
+ *  done 在固定协议段输出一次（schema 内 done 行跳过——去重）。 */
+export function toolsDescription(actionTools?: string[], opts: ToolFaceOptions = {}): string {
+  const schemas = filterToolSchemas(actionTools, opts);
   return `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
 ${Object.entries(schemas)
-    .map(([name, s]) => `- ${name}: ${s.description}`)
+    .filter(([name]) => name !== "done")
+    .map(([name, s]) => `- ${name.replace(/\./g, "_")}: ${s.description}`)
     .join("\n")}
 - done: {result, summary?} —— 完成任务，result 为最终产出对象
 

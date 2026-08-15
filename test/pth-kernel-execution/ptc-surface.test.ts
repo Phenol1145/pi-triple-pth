@@ -76,6 +76,24 @@ describe("能力面越界预检（A1 Phase 3 条目 9——ptc/surface）", () =
     expect(findOutOfBoundsRoots("foo!()", KNOWN)).toEqual(["foo"]);
   });
 
+  it("2026-08-15 审计回归：模板插值/解构默认值/as 断言不漏检", () => {
+    // 模板串 ${} 插值表达式参与判定；模板文本不参与
+    expect(findOutOfBoundsRoots("const msg = `value: ${foo.bar}`; msg", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots('const msg = `"${foo.bar}"`; msg', KNOWN)).toEqual(["foo"]);   // 模板文本引号不吞插值
+    expect(findOutOfBoundsRoots("const msg = `text foo.bar text`; msg", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("`${foo()}`", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("`${memory.query('x')}`", KNOWN)).toEqual([]);
+    // 解构默认值 RHS 是表达式引用——参与判定；绑定名仍安全
+    expect(findOutOfBoundsRoots("const { a = foo.bar } = obj; a", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("const { rows = memory.query('x') } = obj; rows", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("const { a = foo.bar, b: { c = baz() } } = obj; a + c", KNOWN)).toEqual(["foo", "baz"]);
+    // TS as 断言：断言表达式根参与判定；属性名/本地声明不误报
+    expect(findOutOfBoundsRoots("const x = foo as Bar;", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("const x = obj.foo as Bar;", KNOWN)).toEqual(["obj"]);
+    expect(findOutOfBoundsRoots("const x = (await foo()) as Bar;", KNOWN)).toEqual(["foo"]);
+    expect(findOutOfBoundsRoots("const foo = 1; const x = foo as number;", KNOWN)).toEqual([]);
+  });
+
   it("vm 上下文无的内建（fetch/process/setTimeout）→ 越界引导（正确——本就是运行错误）", () => {
     expect(findOutOfBoundsRoots('const d = await fetch("http://x")', KNOWN)).toEqual(["fetch"]);
     expect(findOutOfBoundsRoots("process.env.PTH_X", KNOWN)).toEqual(["process"]);

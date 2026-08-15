@@ -91,12 +91,17 @@ export const perfExtension: TsReplExtension = {
 
       /** 发布优化策略（toolstore 策略文件） */
       publish: async (opts: { id?: string; name?: string; params?: Record<string, string>; actions?: PerfStrategy["actions"]; condition?: string }) => {
+        const id = opts?.id ?? `strategy-${Date.now().toString(36)}`;
+        // id 进入文件名——防路径穿越（与 manage.resource.scheme.publish 同规则）
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+          return { ok: false, error: `perf.publish: id 非法 "${String(id).slice(0, 60)}"（字母数字开头，仅 [A-Za-z0-9._-]）` };
+        }
         const strategy: PerfStrategy = {
-          id: opts.id ?? `strategy-${Date.now().toString(36)}`,
-          name: opts.name ?? "untitled",
-          params: opts.params ?? {},
-          actions: opts.actions,
-          condition: opts.condition,
+          id,
+          name: opts?.name ?? "untitled",
+          params: opts?.params ?? {},
+          actions: opts?.actions,
+          condition: opts?.condition,
           createdAt: Date.now(),
         };
         const dir = await strategiesDir(ctx);

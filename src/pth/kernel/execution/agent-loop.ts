@@ -28,6 +28,26 @@ const EXEC_TOOL_CAP: Record<string, string[]> = {
   write: ["fs", "write"],
 };
 
+/** 直觉别名（2026-08-13：模型对工具名的自然猜测——write_doc 幻视失败根因）——
+ * 2026-08-15 审计 LOW：别名归一提前到门控/护栏之前（asp 空间门控、execTool 授权
+ * 都按归一后名字判定——此前 cd/space.index 等别名绕过了 ASP 门控）。 */
+const TOOL_ALIASES: Record<string, string> = {
+  "write.doc": "write.create", "write_doc": "write.create", "doc.create": "write.create",
+  "write.file": "write.create", "write_file": "write.create",
+  "file.write": "dev.write", "file_write": "dev.write",
+  "code.write": "dev.write", "code_write": "dev.write",
+  "run": "dev.run", "build": "dev.build",
+  "mem.index": "memory.index", "mem_index": "memory.index",
+  "space.index": "asp.index", "space_index": "asp.index",
+  "cd": "asp.cd", "goto": "asp.cd",
+};
+
+/** 工具名归一：下划线形 → 点形（API tool name 合法化）+ 直觉别名映射 */
+function normalizeToolName(raw: string): string {
+  const dot = raw.replace(/_/g, ".");
+  return TOOL_ALIASES[dot] ?? TOOL_ALIASES[raw] ?? dot;
+}
+
 /** ASP 模式工具面（按当前空间动态计算——环境函数全空间可用，语言工具仅本空间，done 仅元空间）
  *  actionTools 白名单过滤（2026-08-12 审计 HIGH-2 修复）：角色声明了 actionTools →
  *  schema 面按其过滤（与 prompt 文本描述一致）；未声明 = 全量兼容（用户裁决）。 */
@@ -159,7 +179,7 @@ export function filterCapabilityDoc(doc: string, capabilities: string[]): string
 export async function buildAgentSystemPrompt(
   role: WorkerRole | undefined,
   taskTitle: string,
-  opts: { mode?: "eager" | "lazy" | "auto"; memory?: { query(sql: string): Promise<Array<{ content: string }>> } } = {},
+  opts: { mode?: "eager" | "lazy" | "auto"; asp?: boolean; memory?: { query(sql: string): Promise<Array<{ content: string }>> } } = {},
 ): Promise<string> {
   const { renderWorkerIndex, isPlanningRole } = await import("./worker-cluster.js");
   // 模式（2026-08-14 T2 裁决）：env 显式覆盖 > 角色类缺省——规划系 eager（高频稳定、缓存价值高），
@@ -243,7 +263,7 @@ ${roleBlock}
 ${workerIndexBlock}
 ${thinkingBlock}
 ${exploreBlock}
-${toolsDescription(role?.actionTools)}
+${toolsDescription(role?.actionTools, { asp: opts.asp })}
 
 ${capBlock}
 
@@ -431,6 +451,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   let system = await buildAgentSystemPrompt(input.role, input.task.title, {
     // 2026-08-14 T2：仅显式 env 覆盖才传入——缺省交由角色类策略（规划系 eager/其余 lazy）
     mode: (process.env.PTH_AGENT_MODE === "lazy" || process.env.PTH_AGENT_MODE === "eager" ? process.env.PTH_AGENT_MODE : undefined) as "eager" | "lazy" | undefined,
+    // 2026-08-15 审计 MEDIUM：非 ASP 模式 prompt 工具面与 schema 同源（剔除 ASP-only）
+    asp: aspMode,
     memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
   });
   if (aspMode) system = `${system}\n\n${ASP_BLOCK}`;
@@ -447,7 +469,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     { role: "user", content: `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}` },
   ];
   (input as { __messages?: unknown }).__messages = messages;   // 压缩包装器读取（同一引用——循环内持续 push）
-  const staticTools = toolsToSchema(input.role?.actionTools);
+  const staticTools = toolsToSchema(input.role?.actionTools, { asp: aspMode });
 
   // ── 工具面（2026-08-14 T3 裁决：废弃 pick_tools 动态注入——结构化动作空间+记忆空间
   //    已减少同时暴露的工具数；工具面 = 空间面 ∩ 角色白名单，不再动态收窄）──
@@ -550,7 +572,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   return { ok: true, value: null, steps, warning: `达到 maxSteps(${maxSteps}) 强制终止` };
 
   async function executeStep(action: { tool: string; args: Record<string, unknown>; thought?: string }, toolCallId?: string): Promise<AgentTaskResult | undefined> {
-    const { tool } = action;
+    // 2026-08-15 审计 LOW：别名/下划线归一提前到所有门控与护栏之前——
+    // ASP 空间门控、execTool 授权、重复检测、执行器查表都按归一后名字判定。
+    const rawTool = action.tool;
+    const tool = normalizeToolName(rawTool);
     // 2026-08-15 审计 MEDIUM-4：provider 可能给 null/数组/字符串 arguments——统一对象化再分发
     const args: Record<string, unknown> =
       action.args && typeof action.args === "object" && !Array.isArray(action.args) ? action.args : {};
@@ -573,15 +598,16 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       return undefined;
     }
 
-    input.onTrace?.({ type: "tool-call", step: steps + 1, tool, args });
+    input.onTrace?.({ type: "tool-call", step: steps + 1, tool: rawTool, args });
     const stepStart = Date.now();
 
     // （2026-08-14 T3：pick_tools 动态工具选择协议已废弃移除——工具面不再动态收窄）
     // ── ASP 门控（asp 模式——空间状态机）────────────────────────────
     if (aspMode) {
+      try {
       // 空间生成/注销已移出 worker 工具面（2026-08-14 N8——T6 裁决：空间生成走优化通道/审批面；
       // 治理通道入口 = spaceRegistry.createChild/unregister——asp.create/asp.destroy 工具已退役）
-      if (tool === "asp_cd") {
+      if (tool === "asp.cd") {
         const target = String(args["space"] ?? "");
         const sp = spaceRegistry.get(target);
         if (!sp) {
@@ -607,7 +633,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: `cd → ${target}` });
         return undefined;
       }
-      if (tool === "asp_index") {
+      if (tool === "asp.index") {
         const { buildSpaceIndex } = await import("./space-index.js");
         const out = await buildSpaceIndex(
           { mode: typeof args["mode"] === "string" ? args["mode"] : undefined, space: typeof args["space"] === "string" ? args["space"] : undefined },
@@ -617,7 +643,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: out.slice(0, 120) });
         return undefined;
       }
-      if (tool === "memory_index") {
+      if (tool === "memory.index") {
         const { buildMemoryIndex } = await import("@away_from/pth-memory");
         const memory = (caps as { memory?: { query(sql: string): Promise<unknown>; retrieve(o: never): Promise<never[]>; get(id: string): Promise<unknown> } }).memory;
         if (!memory) {
@@ -632,18 +658,18 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: true, durationMs: 0, resultPreview: out.slice(0, 120) });
         return undefined;
       }
-      if (tool === "cache_index") {
+      if (tool === "cache.index") {
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: cache.index() });
         return undefined;
       }
-      if (tool === "cache_cancel") {
+      if (tool === "cache.cancel") {
         const key = String(args["key"] ?? "");
         const removed = cache.cancel(key);
         messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
           content: removed ? `已释放缓存条目 "${key}"。` : `cache.cancel: 键 "${key}" 不存在（cache.index 查看当前条目）` });
         return undefined;
       }
-      if (tool === "cache_load") {
+      if (tool === "cache.load") {
         const memory = (caps as { memory?: { get(id: string): Promise<{ content: string } | undefined>; retrieve(o: never): Promise<Array<{ id: string; content: string }>> } }).memory;
         const push = (key: string, content: string, source: string) => {
           const r = cache.load(key, content, source);
@@ -689,6 +715,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "done 门控：需 meta" });
         return undefined;
       }
+      } catch (e) {
+        // 2026-08-15 审计 MEDIUM：ASP 内联工具（asp_index/memory_index/cache_*）异常回填而非打崩任务
+        const detail = `step ${steps + 1} [${tool}]: 工具异常 ${(e as Error).message}`;
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: detail });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: detail.slice(0, 200) });
+        input.logger?.(`[agent] step=${steps + 1} tool=${tool} error=${(e as Error).message}`);
+        return undefined;
+      }
     }
 
     if (tool === "done") {
@@ -730,21 +764,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       return { ok: true, value: result, summary, steps: steps + 1 };
     }
 
-    // tool_calls 名是 API 形式（下划线——python_execute）——映射回执行器（点）
-    // 直觉别名（2026-08-13：模型对工具名的自然猜测——write_doc 幻视失败根因）——
-    // 工具名应符合模型直觉：别名表把常见直觉名映射到正式工具
-    const TOOL_ALIASES: Record<string, string> = {
-      "write.doc": "write.create", "write_doc": "write.create", "doc.create": "write.create",
-      "write.file": "write.create", "write_file": "write.create",
-      "file.write": "dev.write", "file_write": "dev.write",
-      "code.write": "dev.write", "code_write": "dev.write",
-      "run": "dev.run", "build": "dev.build",
-      "mem.index": "memory.index", "mem_index": "memory.index",
-      "space.index": "asp.index", "space_index": "asp.index",
-      "cd": "asp.cd", "goto": "asp.cd",
-    };
-    const rawKey = tool.replace(/_/g, ".");
-    const executorKey = TOOL_ALIASES[rawKey] ?? TOOL_ALIASES[tool] ?? rawKey;
+    // tool_calls 名已在 executeStep 入口归一（下划线→点 + 直觉别名）——直接查执行器表
+    const executorKey = tool;
     const executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
     if (!executor) {
       // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行。

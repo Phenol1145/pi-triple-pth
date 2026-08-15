@@ -283,8 +283,35 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
     const { filterToolSchemas, toolsDescription } = await import("../../src/pth/kernel/execution/agent-tools.js");
     const schemas = filterToolSchemas(["execTs", "nav", "cache"]);
     const desc = toolsDescription(["execTs", "nav", "cache"]);
-    for (const n of Object.keys(schemas)) expect(desc).toContain(n);
+    for (const n of Object.keys(schemas)) {
+      // 2026-08-15 审计 LOW：描述名与 schema tool name 同为下划线形（命名一致性）
+      if (n === "done") { expect(desc).toContain("- done:"); continue; }
+      expect(desc).toContain(n.replace(/\./g, "_"));
+    }
     expect(desc).not.toContain("debug.attach");   // 未裁剪工具不进 prompt
     expect(desc).toContain("- done:");            // 协议固定段保留
+  });
+
+  it("toolsDescription done 去重 + 下划线命名一致（2026-08-15 审计 LOW）", async () => {
+    const { toolsDescription } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const desc = toolsDescription();
+    expect(desc.match(/- done:/g)).toHaveLength(1);          // schema 内 done 与协议固定段不重复
+    expect(desc).toContain("- ts_run:");
+    expect(desc).not.toContain("- ts.run:");
+    expect(desc).toContain("- asp_cd:");
+  });
+
+  it("toolsDescription 非 ASP 面剔除 ASP-only（schema/prompt 与执行面同源——2026-08-15 审计 MEDIUM）", async () => {
+    const { toolsDescription } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const nonAsp = toolsDescription(undefined, { asp: false });
+    expect(nonAsp).not.toContain("asp.cd");
+    expect(nonAsp).not.toContain("asp.index");
+    expect(nonAsp).not.toContain("memory.index");
+    expect(nonAsp).not.toContain("cache.load");
+    expect(nonAsp).toContain("ts.run");
+    expect(nonAsp).toContain("- done:");
+    const asp = toolsDescription(undefined, { asp: true });
+    expect(asp).toContain("asp_cd:");
+    expect(asp).toContain("cache_load:");
   });
 });

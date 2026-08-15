@@ -107,6 +107,42 @@ describe("runAgentTask（agent 循环）", () => {
     expect(r.ok).toBe(true);  // 异常不终止——LLM 收到错误回填后文本回复完成
   });
 
+  it("非 ASP 模式：schema/prompt 与执行面同源（无 ASP-only 工具——2026-08-15 审计 MEDIUM）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, asp: false, maxSteps: 2 });
+    expect(r.ok).toBe(true);
+    const call = (llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const messages = call[0] as Array<{ role: string; content: string }>;
+    const system = messages.find((m) => m.role === "system")?.content ?? "";
+    const opts = call[1] as { tools?: Array<{ name: string }> };
+    const names = opts.tools?.map((t) => t.name) ?? [];
+    for (const absent of ["asp_cd", "asp_index", "memory_index", "cache_load", "cache_index", "cache_cancel"]) {
+      expect(names).not.toContain(absent);
+      expect(system).not.toContain(absent);
+    }
+    expect(names).toContain("ts_run");
+    expect(names).toContain("done");
+  });
+
+  it("ASP 内联工具异常 → 错误回填不终止（2026-08-15 审计 MEDIUM）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "cache_load", arguments: { id: "x" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const traces: string[] = [];
+    const r = await runAgentTask({
+      llm, kernel,
+      caps: { ...CAPS, memory: { get: async () => { throw new Error("mem-boom"); } } },
+      task: { title: "t", text: "x" },
+      asp: true, maxSteps: 4,
+      onTrace: ((t: { type: string; resultPreview?: string }) => { if (t.type === "tool-result") traces.push(t.resultPreview ?? ""); }) as never,
+    });
+    expect(r.ok).toBe(true);
+    expect(traces.some((t) => t.includes("工具异常") && t.includes("mem-boom"))).toBe(true);
+  });
+
   it("done 缺 result 视为失败", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: {} }] }]);
@@ -423,6 +459,23 @@ describe("未知工具引导 + 直觉别名（2026-08-13）", () => {
     ]);
     const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 5 });
     expect(r.ok).toBe(true);
+  });
+
+  it("ASP 模式：cd 别名在空间门控前归一（此前 alias 绕过 asp_cd 门控——2026-08-15 审计 LOW）", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([
+      { toolCalls: [{ name: "cd", arguments: { space: "python" } }] },
+      { toolCalls: [{ name: "python_run", arguments: { code: "fib" } }] },
+      { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "developer", labelPatterns: [], prompt: "p" } as never,
+      asp: true, maxSteps: 8,
+    });
+    expect(r.ok).toBe(true);
+    expect(kernel.python.execute).toHaveBeenCalled();   // cd 别名切换空间后才放行 python
   });
 });
 

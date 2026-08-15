@@ -68,12 +68,17 @@ export const manageExtension: TsReplExtension = {
             publish: async (opts: { id?: string; name?: string; params?: Record<string, string>; actions?: PerfStrategy["actions"]; condition?: string }) => {
               const dir = ctx.strategiesDir ?? path.join(process.cwd(), "toolstore", "strategies");
               await fs.mkdir(dir, { recursive: true }).catch(() => {});
+              const id = opts?.id ?? `strategy-${Date.now().toString(36)}`;
+              // 2026-08-15 审计修复：id 进入文件名——拒绝路径穿越/保留字符（../ 与 / 等）
+              if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+                return { ok: false, error: `manage.resource.scheme.publish: id 非法 "${String(id).slice(0, 60)}"（字母数字开头，仅 [A-Za-z0-9._-]）` };
+              }
               const strategy: PerfStrategy = {
-                id: opts.id ?? `strategy-${Date.now().toString(36)}`,
-                name: String(opts.name ?? ""),
-                params: opts.params ?? {},
-                actions: opts.actions,
-                condition: opts.condition,
+                id,
+                name: String(opts?.name ?? ""),
+                params: opts?.params ?? {},
+                actions: opts?.actions,
+                condition: opts?.condition,
                 createdAt: Date.now(),
               };
               if (!strategy.name) return { ok: false, error: "manage.resource.scheme.publish: name 必填" };

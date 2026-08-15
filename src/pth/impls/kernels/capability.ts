@@ -82,6 +82,12 @@ export function buildCapabilities(deps: {
     ...createExtCapability({
       toolstore: deps.toolstore!,
       memory: (ext.capabilities["memory"] as { write: (e: { kind: string; content: string; anchors: string[] }) => Promise<unknown> } | undefined),
+      // 2026-08-15 审计修复：extension-index 属 prompt 层系统资产，worker 面 memory.write 只读；
+      // syncIndex 走 PgMemoryStore force 系统通道（固定 id/kind，内容来自 toolstore 扫描）——
+      // 否则 ext.syncIndex 永远被用途层策略拒绝。
+      writeSystemIndex: async (entry) => {
+        await (deps.dataWorld.memory as PgMemoryStore).write(entry as never, { force: true });
+      },
       registerKernel: deps.registerKernel,
       // 2026-08-15 筛查 M3：ext.db.query 契约是 (table, sql)，且开放 tasks/transcripts 模板面——
       // 此前把 queryReadOnly 单参实现误当双参通道注入，首个参数被当 SQL

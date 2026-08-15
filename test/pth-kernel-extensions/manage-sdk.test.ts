@@ -63,17 +63,23 @@ describe("管理 SDK（2026-08-12 第二步）——manage 扩展", () => {
     expect(bad.ok).toBe(false);
   });
 
-  it("manage.resource.scheme：publish/apply 方案闭环（PTH_* 校验）", async () => {
+  it("manage.resource.scheme：publish/apply 方案闭环（PTH_* 校验 + id 防穿越）", async () => {
     const ext = buildExtensions(fakeCtx());
     const manage = (ext.capabilities as Record<string, unknown>)["manage"] as Record<string, unknown>;
     const scheme = manage["scheme"] as {
-      publish: (o: { name: string; params: Record<string, string> }) => Promise<{ ok: boolean; id?: string }>;
+      publish: (o: { id?: string; name: string; params: Record<string, string> }) => Promise<{ ok: boolean; id?: string; error?: string }>;
       apply: (o: { id: string }) => Promise<{ ok: boolean }>;
       list: () => Promise<unknown[]>;
     };
     const bad = await scheme.publish({ name: "s1", params: { EVIL: "1" } });
     expect(bad.ok).toBe(false);   // 非 PTH_* 拒
-    const pub = await scheme.publish({ name: "s1", params: { PTH_BATCH_TICK_MS: "700" } });
+    // 2026-08-15 审计修复：id 进入文件名——路径穿越/非法字符拒绝
+    const traversal = await scheme.publish({ id: "../evil", name: "s1", params: { PTH_BATCH_TICK_MS: "700" } });
+    expect(traversal.ok).toBe(false);
+    expect(traversal.error).toContain("id 非法");
+    const slash = await scheme.publish({ id: "a/b", name: "s1", params: { PTH_BATCH_TICK_MS: "700" } });
+    expect(slash.ok).toBe(false);
+    const pub = await scheme.publish({ id: "strategy-s1.v2", name: "s1", params: { PTH_BATCH_TICK_MS: "700" } });
     expect(pub.ok).toBe(true);
     expect((await scheme.list()).length).toBeGreaterThanOrEqual(1);
     const apply = await scheme.apply({ id: pub.id! });

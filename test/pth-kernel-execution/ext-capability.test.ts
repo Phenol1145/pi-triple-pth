@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,11 +61,34 @@ describe("扩展编排面（代码库式——ext 能力 + 公共记忆区索引
     expect(writes[0]!.content).toContain("hello-world");
   });
 
-  it("ts 程序能力面：buildCapabilities 注入 ext（代码库式——无注册式 contracts）", () => {
+  it("ext.syncIndex：优先走系统写通道（force 固定 id——绕过 worker 面 prompt 层只读；2026-08-15 审计修复）", async () => {
+    const sysWrites: Array<{ id: string; kind: string; status: string; content: string }> = [];
+    const memoryWrite = vi.fn(async () => {});
+    const ext = createExtCapability({
+      toolstore,
+      memory: { write: memoryWrite },
+      writeSystemIndex: async (e) => { sysWrites.push(e); },
+    });
+    const r = await (ext["ext"] as { syncIndex: () => Promise<{ count: number }> }).syncIndex();
+    expect(r).toEqual({ count: 1 });
+    expect(sysWrites[0]).toMatchObject({ id: "extension-index", kind: "extension-index", status: "official" });
+    expect(sysWrites[0]!.content).toContain("hello-world");
+    expect(memoryWrite).not.toHaveBeenCalled();
+  });
+
+  it("ext.syncIndex：两通道都缺 → 明确错误", async () => {
+    const ext = createExtCapability({ toolstore });
+    await expect(
+      (ext["ext"] as { syncIndex: () => Promise<unknown> }).syncIndex(),
+    ).rejects.toThrow(/系统索引写通道未配置/);
+  });
+
+  it("ts 程序能力面：buildCapabilities 注入 ext（代码库式——无注册式 contracts；syncIndex 走 force 系统通道）", async () => {
+    const memoryWrite = vi.fn(async () => ({ ok: true }));
     const k = createWorkerKernelWithManager({
       llm: { complete: async () => ({ ok: false }) } as never,
       dataWorld: {
-        memory: { retrieve: async () => [], write: async () => {} },
+        memory: { retrieve: async () => [], write: memoryWrite },
         tasks: { candidates: async () => [], submit: async () => {} },
         queryReadOnly: async () => [],
       } as never,
@@ -81,6 +104,13 @@ describe("扩展编排面（代码库式——ext 能力 + 公共记忆区索引
     expect(typeof ext["index"]).toBe("function");
     expect(typeof ext["use"]).toBe("function");
     expect(typeof ext["syncIndex"]).toBe("function");
+    // 真实装配：syncIndex 经 PgMemoryStore force 写固定 id（prompt 层 worker 面只读拦截不再命中）
+    const r = await (ext["syncIndex"] as () => Promise<{ count: number }>)();
+    expect(r.count).toBeGreaterThanOrEqual(0);
+    expect(memoryWrite).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "extension-index", kind: "extension-index", status: "official" }),
+      { force: true },
+    );
   });
 });
 

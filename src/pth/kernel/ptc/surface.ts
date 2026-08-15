@@ -13,7 +13,8 @@
  *   - JS 内建全局白名单（node:vm createContext 实测 2026-08-14——vm 上下文无
  *     fetch/setTimeout/URL/structuredClone，越界引用本就是运行错误，预检只是把它变成引导消息）。
  * 已知边界（文档化）：
- *   - 模板串 ${} 插值内不检查（整串剥离——插值表达式漏报）；
+ *   - 模板串 ${} 插值表达式已纳入扫描（2026-08-15 审计修复）；插值内含反引号的
+ *     嵌套模板串不覆盖（外层模板匹配边界）；
  *   - 无点无括号的裸引用（const y = foo）不在扫描面——运行时 ReferenceError 兜底；
  *   - `if (x) /re/` 这类「语句位正则」会按除法保留、不剥离（前邻 `)`）——正则内
  *     出现 root.x 形态时可能误报（极罕见——宁误报不漏报）。
@@ -45,6 +46,51 @@ const JS_KEYWORDS = new Set([
   "undefined", "NaN", "Infinity", "debugger",
 ]);
 
+/** 模板串内容处理：普通文本掩码为空格，${...} 插值表达式原文保留（等长+表达式可见）——
+ * 插值内能力引用参与越界判定（2026-08-15 审计 MEDIUM：此前整串剥离漏检）。 */
+function stripTemplateContent(content: string): string {
+  let out = "";
+  let i = 0;
+  while (i < content.length) {
+    const ch = content[i]!;
+    if (ch === "\\") { out += "  "; i += 2; continue; }
+    if (ch === "$" && content[i + 1] === "{") {
+      const end = findTemplateInterpEnd(content, i + 2);
+      out += ` (${content.slice(i + 2, end)}) `;
+      i = end + 1;
+      continue;
+    }
+    out += " ";
+    i++;
+  }
+  return out;
+}
+
+/** 找 ${...} 的匹配 }（嵌套对象/字符串感知——}` 在字符串内不算） */
+function findTemplateInterpEnd(s: string, start: number): number {
+  let depth = 0;
+  for (let j = start; j < s.length; j++) {
+    const ch = s[j]!;
+    if (ch === "'" || ch === '"' || ch === "`") {
+      const q = ch;
+      let k = j + 1;
+      while (k < s.length) {
+        if (s[k] === "\\") { k += 2; continue; }
+        if (s[k] === q) { k++; break; }
+        k++;
+      }
+      j = k;   // for 的 j++ 落到闭合引号之后
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      if (depth === 0) return j;
+      depth--;
+    }
+  }
+  return s.length;
+}
+
 /** 剥离正则字面量/字符串/模板串/注释——其中内容不参与越界判定 */
 export function stripNonCode(code: string): string {
   let s = code;
@@ -62,10 +108,11 @@ export function stripNonCode(code: string): string {
     if (regexStartCtx) return pre + "/x/";
     return m;   // 除法上下文——不剥（宁可漏报，不可误伤）
   });
-  // 字符串（单/双引号——含转义）
+  // 模板串先于字符串处理：文本掩码、${...} 插值表达式保留（插值内引用可检——2026-08-15 审计 MEDIUM；
+  // 若先剥字符串，模板文本中的引号会被误当 JS 字符串剥掉整段插值）
+  s = s.replace(/\`(?:\\[\s\S]|[^\`\\])*\`/g, (tpl) => ` ${stripTemplateContent(tpl.slice(1, -1))} `);
+  // 字符串（单/双引号——含转义；插值表达式内的字符串在这里剥离）
   s = s.replace(/'(\\.|[^'\\\n])*'|"(\\.|[^"\\\n])*"/g, '""');
-  // 模板串（含插值——整串剥离：插值内漏报为已知边界）
-  s = s.replace(/\`(?:\\[\s\S]|[^\`\\])*\`/g, '""');
   // 注释
   s = s.replace(/\/\*[\s\S]*?\*\//g, " ");
   s = s.replace(/\/\/[^\n]*/g, " ");
@@ -106,6 +153,56 @@ function collectSafeNames(stripped: string, out: Set<string>): void {
     }
     return stripped.length;
   };
+  /** 解构模式名收集（2026-08-15 审计修复：默认值 RHS 不再误收为安全名）：
+   *  绑定名/别名/嵌套绑定全部入 safe；`=` 后的默认值表达式整体跳过（留给越界扫描——
+   *  { a = foo.bar } 的 foo 必须可检）；箭头/函数形参由全局形参正则另行收集。 */
+  const addPattern = (pattern: string): void => {
+    let i = 0;
+    const skipWsIn = (pos: number): number => {
+      while (pos < pattern.length && /\s/.test(pattern[pos]!)) pos++;
+      return pos;
+    };
+    /** 跳过默认值表达式到顶层 , ; ) }（括号/方括号/花括号深度感知——对象默认值/箭头不误断） */
+    const skipExprIn = (pos: number): number => {
+      let p = 0, b = 0, c = 0;
+      for (let j = pos; j < pattern.length; j++) {
+        const ch = pattern[j]!;
+        if (ch === "(") p++;
+        else if (ch === ")" && p > 0) p--;
+        else if (ch === "[") b++;
+        else if (ch === "]" && b > 0) b--;
+        else if (ch === "{") c++;
+        else if (ch === "}" && c > 0) c--;
+        else if ((ch === "," || ch === ";" || ch === ")" || ch === "}") && p === 0 && b === 0 && c === 0) return j;
+      }
+      return pattern.length;
+    };
+    const parse = (): void => {
+      while (i < pattern.length) {
+        i = skipWsIn(i);
+        if (i >= pattern.length) return;
+        const ch = pattern[i]!;
+        if (ch === "{" || ch === "[") { i++; parse(); continue; }   // 嵌套模式
+        if (ch === "}" || ch === "]") { i++; return; }              // 当前模式收口
+        if (ch === "." && pattern[i + 1] === "." && pattern[i + 2] === ".") { i += 3; continue; }   // rest
+        if (/[A-Za-z_$]/.test(ch)) {
+          const m = /[A-Za-z_$][\w$]*/.exec(pattern.slice(i));
+          if (!m) { i++; continue; }
+          out.add(m[0]!);
+          i += m[0].length;
+        } else {
+          i++;
+          continue;
+        }
+        i = skipWsIn(i);
+        if (pattern[i] === ":") { i = skipWsIn(i + 1); continue; }               // 别名/嵌套绑定
+        if (pattern[i] === "=") { i = skipWsIn(skipExprIn(i + 1)); continue; }   // 默认值——不收集 RHS
+        if (pattern[i] === ",") { i++; continue; }
+        return;
+      }
+    };
+    parse();
+  };
   /** 声明词后逐项解析声明符（含逗号连声明 + 解构 + 初始化——2026-08-15 筛查修复） */
   const collectDeclarationNames = (start: number): void => {
     let i = skipWs(start);
@@ -113,7 +210,7 @@ function collectSafeNames(stripped: string, out: Set<string>): void {
       const ch = stripped[i]!;
       if (ch === "{" || ch === "[") {
         const end = skipBalanced(i, ch, ch === "{" ? "}" : "]");
-        addIdentifiers(stripped.slice(i, end));   // 解构内全部名字（键名过收——安全方向）
+        addPattern(stripped.slice(i + 1, end - 1));   // 绑定名入 safe；默认值 RHS 留给扫描
         i = end;
       } else if (/[A-Za-z_$]/.test(ch)) {
         const m = /[A-Za-z_$][\w$]*/.exec(stripped.slice(i));
@@ -170,6 +267,8 @@ export function findOutOfBoundsRoots(code: string, knownGlobals: ReadonlySet<str
   for (const m of stripped.matchAll(/(?<![\w$)\].?])([A-Za-z_$][\w$]*)\s*(?:\??\.|\[)/g)) consider(m[1]!);
   // 直接调用根：root( ——排除方法调用（前导 .）与调用结果（前导 )）
   for (const m of stripped.matchAll(/(?<![\w$).])([A-Za-z_$][\w$]*)\s*\??\(/g)) consider(m[1]!);
+  // TS as 断言根（foo as Bar / await foo() as T——2026-08-15 审计：此前只扫成员/调用漏检）
+  for (const m of stripped.matchAll(/(?<![\w$).])([A-Za-z_$][\w$]*)\s+as\b/g)) consider(m[1]!);
   return [...out];
 }
 
