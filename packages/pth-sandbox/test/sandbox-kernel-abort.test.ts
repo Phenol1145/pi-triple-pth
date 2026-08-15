@@ -11,7 +11,7 @@ function stubSandboxFetch(onRelease: () => void) {
   return vi.fn(async (url: any, init?: any) => {
     const u = String(url);
     if (u.endsWith("/kernel/acquire")) {
-      return new Response(JSON.stringify({ kernelId: "py-1" }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ lease: { id: "4f5e3f44-ec85-4e83-9c99-2d17d343d0e1", generation: 1, expiresAt: "2099-01-01T00:00:00.000Z" } }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (u.endsWith("/kernel/release")) {
       onRelease();
@@ -56,6 +56,6 @@ describe("SandboxKernel——程序级制动（A1 Phase 3 条目 11 abort 契约
     const fn = stubSandboxFetch(() => {});
     vi.stubGlobal("fetch", fn);
     const k = new SandboxKernel({ url: "http://sandbox.test", secret: "s", language: "bash", acquireOnInit: false });
-    await k.abort();   // dispose 置位（kernelId null——无 release 调用）——不抛即通过
+    await k.abort();   // dispose 置位（lease null——无 release 调用）——不抛即通过
   });
 });

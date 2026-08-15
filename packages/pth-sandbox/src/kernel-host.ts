@@ -21,6 +21,7 @@
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { KernelPool, type KernelLang } from "./kernel-pool.js";
+import type { SandboxLease } from "./kernel-lease.js";
 import { CCompiledKernel } from "./compiled-kernel.js";
 import { CDebugSession } from "./gdb-mi.js";
 
@@ -64,6 +65,22 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     python: new KernelPool({ lang: "python", max: poolSize, acquireTimeoutMs, entryTtlMsMs: entryTtlMs, onStderr: opts.onStderr }),
     bash: new KernelPool({ lang: "bash", max: poolSize, acquireTimeoutMs, entryTtlMsMs: entryTtlMs, onStderr: opts.onStderr }),
   };
+  /** leaseId → pool 索引（P0-4：外部只持有 lease，不再暴露/接受 kernelId） */
+  const leasePools = new Map<string, KernelPool>();
+
+  function parseLease(body: unknown): SandboxLease | null {
+    if (!body || typeof body !== "object") return null;
+    const lease = (body as { lease?: unknown }).lease;
+    if (!lease || typeof lease !== "object") return null;
+    const { id, generation } = lease as { id?: unknown; generation?: unknown };
+    if (typeof id !== "string" || id.length === 0) return null;
+    if (typeof generation !== "number" || !Number.isInteger(generation) || generation <= 0) return null;
+    return { id, generation, expiresAt: "" };
+  }
+
+  function poolForLease(leaseId: string): KernelPool | undefined {
+    return leasePools.get(leaseId);
+  }
 
   type AuthResult = "ok" | "unauthorized" | "misconfigured";
   function checkAuth(req: FastifyRequest): AuthResult {
@@ -92,15 +109,22 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       reply.code(400).send({ error: `invalid lang: ${lang ?? "(missing)"}` });
       return;
     }
-    const kernelId = await pools[lang as KernelLang].acquire();
-    return { kernelId };
+    const lease = await pools[lang as KernelLang].acquire();
+    leasePools.set(lease.id, pools[lang as KernelLang]);
+    return { lease };
   });
 
   app.post("/kernel/execute", async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
-    const body = (req.body ?? {}) as { kernelId?: string; code?: string; timeoutMs?: number; env?: unknown; exec?: "single" | "program" | "auto"; space?: string };
-    if (!body.kernelId || typeof body.code !== "string") {
-      reply.code(400).send({ error: "kernelId and code required" });
+    const body = (req.body ?? {}) as { kernelId?: string; lease?: { id: string; generation: number }; code?: string; timeoutMs?: number; env?: unknown; exec?: "single" | "program" | "auto"; space?: string };
+    const lease = parseLease(body);
+    if (!lease || typeof body.code !== "string") {
+      reply.code(400).send({ error: body.kernelId ? "kernelId retired: lease required" : "lease and code required" });
+      return;
+    }
+    const pool = poolForLease(lease.id);
+    if (!pool) {
+      reply.code(400).send({ error: "stale lease: unknown lease id" });
       return;
     }
     if (body.env !== undefined) {
@@ -114,7 +138,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       return;
     }
     try {
-      const result = await pools[poolLang(body.kernelId)].execute(body.kernelId, body.code, { ...(body.timeoutMs ? { timeoutMs: body.timeoutMs } : {}), ...(body.exec ? { exec: body.exec } : {}), ...(body.space ? { space: body.space } : {}) });
+      const result = await pool.execute(lease, body.code, { ...(body.timeoutMs ? { timeoutMs: body.timeoutMs } : {}), ...(body.exec ? { exec: body.exec } : {}), ...(body.space ? { space: body.space } : {}) });
       return result;
     } catch (err) {
       reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
@@ -161,13 +185,14 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
 
   app.post("/kernel/reset", async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
-    const { kernelId } = (req.body ?? {}) as { kernelId?: string };
-    if (!kernelId) {
-      reply.code(400).send({ error: "kernelId required" });
+    const lease = parseLease(req.body);
+    const pool = lease ? poolForLease(lease.id) : undefined;
+    if (!lease || !pool) {
+      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
       return;
     }
     try {
-      await pools[poolLang(kernelId)].reset(kernelId);
+      await pool.reset(lease);
       return { ok: true };
     } catch (err) {
       reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
@@ -176,13 +201,14 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
 
   app.post("/kernel/snapshot", async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
-    const { kernelId } = (req.body ?? {}) as { kernelId?: string };
-    if (!kernelId) {
-      reply.code(400).send({ error: "kernelId required" });
+    const lease = parseLease(req.body);
+    const pool = lease ? poolForLease(lease.id) : undefined;
+    if (!lease || !pool) {
+      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
       return;
     }
     try {
-      return await pools[poolLang(kernelId)].snapshot(kernelId);
+      return await pool.snapshot(lease);
     } catch (err) {
       reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -190,13 +216,18 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
 
   app.post("/kernel/release", async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
-    const { kernelId } = (req.body ?? {}) as { kernelId?: string };
-    if (!kernelId) {
-      reply.code(400).send({ error: "kernelId required" });
+    const lease = parseLease(req.body);
+    const pool = lease ? poolForLease(lease.id) : undefined;
+    if (!lease || !pool) {
+      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
       return;
     }
-    pools[poolLang(kernelId)].release(kernelId);
-    return { ok: true };
+    try {
+      pool.release(lease);
+      return { ok: true };
+    } catch (err) {
+      reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // ── 编译核（2026-08-09 Phase B：C 编译-运行管道落 sandbox 侧）────────────
@@ -383,9 +414,4 @@ export function buildKernelHostApp(opts: KernelHostOptions = {}): FastifyInstanc
   const app = Fastify({ logger: false });
   registerKernelHost(app, opts);
   return app;
-}
-
-/** 从 kernelId 前缀推断池（py- → python；sh- → bash） */
-function poolLang(kernelId: string): KernelLang {
-  return kernelId.startsWith("py-") ? "python" : "bash";
 }

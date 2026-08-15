@@ -1,13 +1,16 @@
 /**
- * sandbox-kernel.ts — PTH 侧 SandboxKernel 适配器（kernel sandbox SPEC §3.3）
+ * sandbox-kernel.ts —— PTH 侧 SandboxKernel 适配器（kernel sandbox SPEC §3.3）
  *
  * 实现统一 Interpreter 接口（execute/reset/snapshot/dispose），把调用转发到
  * sandbox 侧 kernel 宿主（HTTP）。上层（agent 循环/任务代码/KernelManager）零改动。
  *
  * 安全：与 sandbox 通信仅携带共享密钥（SANDBOX_SHARED_SECRET）；不注入业务密钥；
  *       execute 请求体无 env 字段（宿主 400 拒绝——敏感信息约束）。
+ * P0-4：acquire 后只持有 opaque SandboxLease；所有操作按 lease id+generation 校验；
+ *       kernelId 已从协议退役。
  */
 
+import type { SandboxLease } from "./kernel-lease.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
 export interface SandboxKernelOptions {
@@ -17,9 +20,9 @@ export interface SandboxKernelOptions {
   secret: string;
   /** python | bash */
   language: "python" | "bash";
-  /** 构造时 acquire（默认 true）；false 供测试注入已有 kernelId */
+  /** 构造时 acquire（默认 true）；false 供测试注入已有 lease */
   acquireOnInit?: boolean;
-  kernelId?: string;
+  lease?: SandboxLease;
   /** 超时保护（fetch 层，默认 10s——宿主内部有执行超时） */
   requestTimeoutMs?: number;
   /** acquire 排队等待上限（池满时 FIFO 排队——默认 60s） */
@@ -32,7 +35,7 @@ export class SandboxKernel implements Interpreter {
   readonly state: Record<string, unknown> = {};
   private url: string;
   private secret: string;
-  private kernelId: string | null;
+  private lease: SandboxLease | null;
   private requestTimeoutMs: number;
   private acquireTimeoutMs: number;
   private disposed = false;
@@ -49,7 +52,7 @@ export class SandboxKernel implements Interpreter {
     this.language = opts.language;
     this.url = opts.url.replace(/\/+$/, "");
     this.secret = opts.secret;
-    this.kernelId = opts.kernelId ?? null;
+    this.lease = opts.lease ?? null;
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 10_000;
     this.acquireTimeoutMs = opts.acquireTimeoutMs ?? 60_000;
     if (opts.acquireOnInit !== false) {
@@ -64,7 +67,7 @@ export class SandboxKernel implements Interpreter {
     const timer = setTimeout(() => ctrl.abort(), timeoutMs ?? this.requestTimeoutMs);
     try {
       // debug: 记录 sandbox 调用（URL/路径——诊断 abort 来源）
-      if (process.env.PTH_DEBUG_SANDBOX) console.error(`[sandbox-debug] ${this.language} call ${path} url=${this.url} timeout=${timeoutMs ?? this.requestTimeoutMs}ms kernelId=${this.kernelId ?? "(未acquire)"}`);
+      if (process.env.PTH_DEBUG_SANDBOX) console.error(`[sandbox-debug] ${this.language} call ${path} url=${this.url} timeout=${timeoutMs ?? this.requestTimeoutMs}ms lease=${this.lease?.id ?? "(未acquire)"}`);
       const res = await fetch(`${this.url}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${this.secret}` },
@@ -92,12 +95,12 @@ export class SandboxKernel implements Interpreter {
   private acquire(): Promise<void> {
     if (!this.acquirePromise) {
       this.acquirePromise = (async () => {
-        if (this.kernelId) return;
-        const r = await this.call<{ kernelId: string }>("/kernel/acquire", { lang: this.language }, this.acquireTimeoutMs);
-        this.kernelId = r.kernelId;
+        if (this.lease) return;
+        const r = await this.call<{ lease: SandboxLease }>("/kernel/acquire", { lang: this.language }, this.acquireTimeoutMs);
+        this.lease = r.lease;
       })().catch((e) => {
         // 失败不缓存 rejected promise（batch 反复崩时 acquire 排队超时 reject——
-        // 后续 withKernelId await 同一 rejected promise 再抛 → 未 catch 处杀 batch）。
+        // 后续 withLease await 同一 rejected promise 再抛 → 未 catch 处杀 batch）。
         // 重置：下次调用重新 acquire（sandbox 恢复后自动重连）。
         this.acquirePromise = null;
         throw e;
@@ -106,25 +109,25 @@ export class SandboxKernel implements Interpreter {
     return this.acquirePromise;
   }
 
-  private async withKernelId(): Promise<string> {
+  private async withLease(): Promise<SandboxLease> {
     if (this.disposed) throw new Error("SandboxKernel disposed");
-    if (!this.kernelId) await this.acquire();
-    return this.kernelId!;
+    if (!this.lease) await this.acquire();
+    return this.lease!;
   }
 
   async execute(program: string, opts?: ExecuteOptions): Promise<InterpreterResult> {
-    let kernelId: string;
+    let lease: SandboxLease;
     try {
-      kernelId = await this.withKernelId();
+      lease = await this.withLease();
     } catch (e) {
       if ((e as Error).message === "SandboxKernel disposed") {
         this.revive();
-        kernelId = await this.withKernelId();   // 重新 acquire（旧条目已 release——池复用立即生效）
+        lease = await this.withLease();   // 重新 acquire（旧条目已 release——池复用立即生效）
       } else throw e;
     }
     try {
       return await this.call<InterpreterResult>("/kernel/execute", {
-        kernelId,
+        lease,
         code: program,
         ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
         ...(opts?.exec ? { exec: opts.exec } : {}),   // 元命令拆分（2026-08-11）：single/program 透传 sandbox
@@ -140,20 +143,20 @@ export class SandboxKernel implements Interpreter {
   }
 
   async reset(): Promise<void> {
-    const kernelId = await this.withKernelId().catch((e) => {
-      if ((e as Error).message === "SandboxKernel disposed") { this.revive(); return this.withKernelId(); }
+    const lease = await this.withLease().catch((e) => {
+      if ((e as Error).message === "SandboxKernel disposed") { this.revive(); return this.withLease(); }
       throw e;
     });
-    await this.call("/kernel/reset", { kernelId });
+    await this.call("/kernel/reset", { lease });
   }
 
   async snapshot(): Promise<InterpreterSnapshot> {
-    const kernelId = await this.withKernelId();
+    const lease = await this.withLease();
     try {
-      return await this.call<InterpreterSnapshot>("/kernel/snapshot", { kernelId });
+      return await this.call<InterpreterSnapshot>("/kernel/snapshot", { lease });
     } catch (e) {
       // 幂等重试 1 次（abort/瞬时故障——sandbox 恢复后自动成功）
-      return await this.call<InterpreterSnapshot>("/kernel/snapshot", { kernelId });
+      return await this.call<InterpreterSnapshot>("/kernel/snapshot", { lease });
     }
   }
 
@@ -164,10 +167,10 @@ export class SandboxKernel implements Interpreter {
     if (process.env.PTH_DEBUG_SANDBOX) {
       console.error(`[sandbox-debug] ${this.language} disposed（调用方堆栈）\n${new Error().stack?.split("\n").slice(1, 6).join("\n")}`);
     }
-    const kernelId = this.kernelId;
-    if (kernelId) {
+    const lease = this.lease;
+    if (lease) {
       // fire-and-forget：归还池（失败不阻塞——宿主不可达时环境已死）
-      this.releasePromise = this.call("/kernel/release", { kernelId }).then(() => undefined, () => undefined);
+      this.releasePromise = this.call("/kernel/release", { lease }).then(() => undefined, () => undefined);
     }
   }
 
@@ -176,7 +179,7 @@ export class SandboxKernel implements Interpreter {
    * agent 反复失败重试拖慢任务（复测窗口 5x 慢的根因） */
   private revive(): void {
     this.disposed = false;
-    this.kernelId = null;
+    this.lease = null;
     this.acquirePromise = null;
     this.releasePromise = null;
   }

@@ -5,9 +5,10 @@ import path from "node:path";
 import { KernelPool } from "@away_from/pth-sandbox";
 import { buildKernelHostApp } from "@away_from/pth-sandbox";
 import type { FastifyInstance } from "fastify";
+import type { SandboxLease } from "@away_from/pth-sandbox";
 
 /**
- * Kernel sandbox 宿主（P5）——池 + 协议单测。
+ * Kernel sandbox 宿主（P5）——池 + 协议单测（P0-4：opaque lease 协议）。
  * 真实 spawn python/bash（本机）；fastify inject 测协议；认证/敏感约束全覆盖。
  */
 
@@ -17,49 +18,50 @@ function auth(secret = SECRET) {
   return { authorization: `Bearer ${secret}` };
 }
 
-describe("KernelPool（sandbox 侧共享池）", () => {
-  it("acquire：新建 python kernel 并执行代码", async () => {
+describe("KernelPool（sandbox 侧共享池，lease 协议）", () => {
+  it("acquire：返回高熵 lease（不可预测），并执行代码", async () => {
     const pool = new KernelPool({ lang: "python", max: 2 });
-    const id = await pool.acquire();
-    expect(id).toMatch(/^py-/);
-    const r = await pool.execute(id, "x = 6 * 7\n_result = x");
+    const lease = await pool.acquire();
+    expect(lease.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(lease.generation).toBeGreaterThan(0);
+    const r = await pool.execute(lease, "x = 6 * 7\n_result = x");
     expect(r.ok).toBe(true);
     expect(r.value).toBe(42);
     await pool.dispose();
   });
 
-  it("acquire：空闲优先——release 后复用同一 kernel", async () => {
+  it("release 后复用同一内核，但新 lease id 不同（状态延续）", async () => {
     const pool = new KernelPool({ lang: "python", max: 2 });
-    const id1 = await pool.acquire();
-    await pool.execute(id1, "carry = 'state-kept'");
-    await pool.release(id1);
-    const id2 = await pool.acquire();
-    expect(id2).toBe(id1); // 空闲优先复用
-    const r = await pool.execute(id2, "_result = carry");
-    expect(r.value).toBe("state-kept"); // 状态延续
+    const lease1 = await pool.acquire();
+    await pool.execute(lease1, "carry = 'state-kept'");
+    pool.release(lease1);
+    const lease2 = await pool.acquire();
+    expect(lease2.id).not.toBe(lease1.id); // 外部标识不可复用
+    const r = await pool.execute(lease2, "_result = carry");
+    expect(r.value).toBe("state-kept"); // 内部条目状态延续
     await pool.dispose();
   });
 
-  it("acquire：容量内新建、满则排队（FIFO）", async () => {
+  it("容量内新建、满则排队（FIFO）", async () => {
     const pool = new KernelPool({ lang: "bash", max: 1 });
-    const id1 = await pool.acquire();
+    const lease1 = await pool.acquire();
     const wait = pool.acquire(); // 满 → 排队
     let resolved = false;
     wait.then(() => (resolved = true));
     await new Promise((r) => setTimeout(r, 50));
-    expect(resolved).toBe(false); // 未释放前不返回
-    await pool.release(id1);
-    const id2 = await wait;
-    expect(id2).toBe(id1); // 排队的拿到释放的
+    expect(resolved).toBe(false);
+    pool.release(lease1);
+    const lease2 = await wait;
+    expect(lease2.id).toBeTruthy();
     await pool.dispose();
   });
 
   it("reset：ns 清命名空间（变量不延续）", async () => {
     const pool = new KernelPool({ lang: "python", max: 1 });
-    const id = await pool.acquire();
-    await pool.execute(id, "secret_var = 123");
-    await pool.reset(id);
-    const r = await pool.execute(id, "_result = 'secret_var' in dir()");
+    const lease = await pool.acquire();
+    await pool.execute(lease, "secret_var = 123");
+    await pool.reset(lease);
+    const r = await pool.execute(lease, "_result = 'secret_var' in dir()");
     expect(r.value).toBe(false);
     await pool.dispose();
   });
@@ -76,21 +78,48 @@ describe("KernelPool（sandbox 侧共享池）", () => {
 
   it("snapshot：聚合 kernel 状态（变量枚举）", async () => {
     const pool = new KernelPool({ lang: "python", max: 1 });
-    const id = await pool.acquire();
-    await pool.execute(id, "fib = 75025");
-    const snap = await pool.snapshot(id);
+    const lease = await pool.acquire();
+    await pool.execute(lease, "fib = 75025");
+    const snap = await pool.snapshot(lease);
     expect(snap.variables.some((v) => v.key === "fib" && v.value === 75025)).toBe(true);
     await pool.dispose();
   });
 
-  it("未知 kernelId → 拒绝", async () => {
+  it("P0-4：release 后旧 lease 执行/重置/再次 release 全部拒绝", async () => {
     const pool = new KernelPool({ lang: "python", max: 1 });
-    await expect(pool.execute("py-nope", "1+1")).rejects.toThrow(/unknown kernel/i);
+    const lease1 = await pool.acquire();
+    pool.release(lease1);
+    const lease2 = await pool.acquire();
+    await expect(pool.execute(lease1, "1+1")).rejects.toThrow(/stale lease/i);
+    await expect(pool.reset(lease1)).rejects.toThrow(/stale lease/i);
+    await expect(() => pool.release({ ...lease1, generation: lease1.generation + 1 })).toThrow(/stale lease/i);
+    await pool.execute(lease2, "_result = 1");
+    await pool.dispose();
+  });
+
+  it("P0-4：TTL 过期 → 先销毁移出池，旧 lease 失效且不被复用", async () => {
+    let now = 0;
+    const pool = new KernelPool({ lang: "python", max: 1, entryTtlMsMs: 100, clock: () => now });
+    const lease1 = await pool.acquire();
+    expect(pool.status().size).toBe(1);
+    now = 200;
+    pool.sweepForTest();
+    expect(pool.status().size).toBe(0); // 条目已销毁，不是 idle
+    await expect(pool.execute(lease1, "_result = 1")).rejects.toThrow(/stale lease/i);
+    const lease2 = await pool.acquire();
+    expect(lease2.id).not.toBe(lease1.id);
+    await pool.dispose();
+  });
+
+  it("未知 lease → 拒绝", async () => {
+    const pool = new KernelPool({ lang: "python", max: 1 });
+    const fake: SandboxLease = { id: "00000000-0000-4000-8000-000000000000", generation: 1, expiresAt: "" };
+    await expect(pool.execute(fake, "1+1")).rejects.toThrow(/stale lease/i);
     await pool.dispose();
   });
 });
 
-describe("kernel host 协议（buildKernelHostApp）", () => {
+describe("kernel host 协议（buildKernelHostApp，lease）", () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
@@ -113,44 +142,58 @@ describe("kernel host 协议（buildKernelHostApp）", () => {
     expect(ok.statusCode).toBe(200);
   });
 
-  it("acquire/execute/reset/release 全链路（python）", async () => {
+  it("acquire/execute/reset/release 全链路（python，lease）", async () => {
     const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" }, headers: auth() });
     expect(acq.statusCode).toBe(200);
-    const { kernelId } = acq.json();
-    expect(kernelId).toBeTruthy();
+    const { lease } = acq.json() as { lease: SandboxLease };
+    expect(lease.id).toBeTruthy();
 
-    const ex = await app.inject({ method: "POST", url: "/kernel/execute", payload: { kernelId, code: "total = 5050\n_result = total" }, headers: auth() });
+    const ex = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "total = 5050\n_result = total" }, headers: auth() });
     expect(ex.statusCode).toBe(200);
     expect(ex.json().ok).toBe(true);
     expect(ex.json().value).toBe(5050);
 
+    // kernelId 已退役
+    const legacy = await app.inject({ method: "POST", url: "/kernel/execute", payload: { kernelId: "py-1", code: "1" }, headers: auth() });
+    expect(legacy.statusCode).toBe(400);
+    expect(legacy.json().error).toContain("kernelId retired");
+
     // 敏感约束：execute 带 env 字段 → 400
-    const envReq = await app.inject({ method: "POST", url: "/kernel/execute", payload: { kernelId, code: "1", env: { API_KEY: "x" } }, headers: auth() });
+    const envReq = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "1", env: { API_KEY: "x" } }, headers: auth() });
     expect(envReq.statusCode).toBe(400);
 
-    const reset = await app.inject({ method: "POST", url: "/kernel/reset", payload: { kernelId }, headers: auth() });
+    const reset = await app.inject({ method: "POST", url: "/kernel/reset", payload: { lease }, headers: auth() });
     expect(reset.statusCode).toBe(200);
-    const rel = await app.inject({ method: "POST", url: "/kernel/release", payload: { kernelId }, headers: auth() });
+    const rel = await app.inject({ method: "POST", url: "/kernel/release", payload: { lease }, headers: auth() });
     expect(rel.statusCode).toBe(200);
+    // release 后旧 lease 执行被拒
+    const after = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "1" }, headers: auth() });
+    expect(after.statusCode).toBe(400);
+    expect(after.json().error).toContain("stale lease");
   });
 
   it("snapshot 端点返回三字段结构", async () => {
     const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" }, headers: auth() });
-    const { kernelId } = acq.json();
-    await app.inject({ method: "POST", url: "/kernel/execute", payload: { kernelId, code: "marker = 1" }, headers: auth() });
-    const snap = await app.inject({ method: "POST", url: "/kernel/snapshot", payload: { kernelId }, headers: auth() });
+    const { lease } = acq.json() as { lease: SandboxLease };
+    await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "marker = 1" }, headers: auth() });
+    const snap = await app.inject({ method: "POST", url: "/kernel/snapshot", payload: { lease }, headers: auth() });
     expect(snap.statusCode).toBe(200);
     const body = snap.json();
     expect(body).toHaveProperty("variables");
     expect(body).toHaveProperty("functions");
     expect(body).toHaveProperty("oversized");
-    await app.inject({ method: "POST", url: "/kernel/release", payload: { kernelId }, headers: auth() });
+    await app.inject({ method: "POST", url: "/kernel/release", payload: { lease }, headers: auth() });
   });
 
-  it("status 端点报告池状态", async () => {
+  it("status 端点报告池状态（不含 kernel ID）", async () => {
     const st = await app.inject({ method: "GET", url: "/kernel/status", headers: auth() });
     expect(st.statusCode).toBe(200);
-    expect(st.json().pools).toBeInstanceOf(Array);
+    const pools = st.json().pools as Array<Record<string, unknown>>;
+    expect(pools).toBeInstanceOf(Array);
+    for (const p of pools) {
+      expect(p).not.toHaveProperty("kernelIds");
+      expect(p).not.toHaveProperty("ids");
+    }
   });
 
   it("非法 lang → 400", async () => {
@@ -175,8 +218,9 @@ describe("sandbox main 组合形态（exec + kernel 同端口共存）", () => {
 
     const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" }, headers: auth() });
     expect(acq.statusCode).toBe(200);
-    const { kernelId } = acq.json();
-    const ex = await app.inject({ method: "POST", url: "/kernel/execute", payload: { kernelId, code: "combo = 'kernel-ok'\n_result = combo" }, headers: auth() });
+    const { lease } = acq.json() as { lease: SandboxLease };
+    const ex = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "combo = 'kernel-ok'\n_result = combo" }, headers: auth() });
+    expect(ex.statusCode).toBe(200);
     expect(ex.json().value).toBe("kernel-ok");
     await app.close();
     delete process.env.SANDBOX_SHARED_SECRET;
@@ -185,30 +229,29 @@ describe("sandbox main 组合形态（exec + kernel 同端口共存）", () => {
 
 describe("kernel-pool 兜底（acquire 排队超时 + 条目 TTL 回收）", () => {
   it("池满 acquire 排队 → 超时拒绝（不无限卡）", async () => {
-    const { KernelPool } = await import("@away_from/pth-sandbox");
-    const pool = new KernelPool({ lang: "python", max: 1, acquireTimeoutMs: 100, entryTtlMsMs: 0 } as never);
+    const pool = new KernelPool({ lang: "python", max: 1, acquireTimeoutMs: 100, entryTtlMsMs: 0 });
     await pool.acquire();  // 占满
     await expect(pool.acquire()).rejects.toThrow(/pool exhausted/);
   });
 
   it("release 唤醒排队者（清 timer）", async () => {
-    const { KernelPool } = await import("@away_from/pth-sandbox");
-    const pool = new KernelPool({ lang: "python", max: 1, acquireTimeoutMs: 5000, entryTtlMsMs: 0 } as never);
-    const id1 = await pool.acquire();
+    const pool = new KernelPool({ lang: "python", max: 1, acquireTimeoutMs: 5000, entryTtlMsMs: 0 });
+    const lease1 = await pool.acquire();
     const p2 = pool.acquire();
-    pool.release(id1);
+    pool.release(lease1);
     await expect(p2).resolves.toBeTruthy();
   });
 
-  it("条目 TTL：inUse 超时强制回收（崩溃泄漏兜底）", async () => {
-    const { KernelPool } = await import("@away_from/pth-sandbox");
-    const pool = new KernelPool({ lang: "python", max: 2, acquireTimeoutMs: 5000, entryTtlMsMs: 100 } as never);
-    await pool.acquire();  // entry1 inUse
-    // 等待 TTL 扫描（sweep 间隔 = min(ttl, 60s) = 100ms）
-    await new Promise((r) => setTimeout(r, 200));
-    // 现在 acquire 应该可以新建（泄漏条目被回收标记）
-    const id = await pool.acquire();
-    expect(id).toBeTruthy();
-    pool.dispose?.();
+  it("条目 TTL：active 超时强制回收（崩溃泄漏兜底，不标 idle）", async () => {
+    let now = 0;
+    const pool = new KernelPool({ lang: "python", max: 2, acquireTimeoutMs: 5000, entryTtlMsMs: 100, clock: () => now });
+    const lease1 = await pool.acquire();  // entry1 active
+    expect(pool.status().inFlight).toBe(1);
+    now = 200;
+    pool.sweepForTest();
+    expect(pool.status().inFlight).toBe(0);
+    const lease2 = await pool.acquire();
+    expect(lease2.id).not.toBe(lease1.id);
+    await pool.dispose();
   });
 });

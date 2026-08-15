@@ -33,7 +33,7 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
     await k.disposeAndFlush();
   });
 
-  it("python：状态延续（同 kernelId 变量保留）", async () => {
+  it("python：状态延续（同 lease 变量保留）", async () => {
     const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
     await k.execute("acc = 42");
     const r = await k.execute("_result = acc + 1");
@@ -66,18 +66,18 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
     await k.disposeAndFlush();
   });
 
-  it("release 后池内复用（dispose 归还 → 再 acquire 同 id）", async () => {
+  it("release 后池内复用（dispose 归还 → 状态延续，但 lease id 不同）", async () => {
     const k1 = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
     await k1.execute("persist = 'kept'");
-    const id1 = (k1 as any).kernelId;
+    const lease1 = (k1 as any).lease;
     await k1.disposeAndFlush();
 
     const k2 = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
     await k2.ready;
-    const id2 = (k2 as any).kernelId;
-    expect(id2).toBe(id1); // 空闲复用
+    const lease2 = (k2 as any).lease;
+    expect(lease2.id).not.toBe(lease1.id); // 外部租约不复用
     const r = await k2.execute("_result = persist");
-    expect(r.value).toBe("kept"); // 状态延续
+    expect(r.value).toBe("kept"); // 内部条目状态延续
     await k2.disposeAndFlush();
   });
 
@@ -103,7 +103,7 @@ describe("sandbox-kernel 韧性（2026-08-09 端到端：abort 杀 batch 循环�
       calls += 1;
       if (path === "/kernel/acquire") {
         if (calls === 1) throw new Error("acquire timeout");
-        return { kernelId: "py-retry" };
+        return { lease: { id: "4f5e3f44-ec85-4e83-9c99-2d17d343d0e1", generation: 1, expiresAt: "2099-01-01T00:00:00.000Z" } };
       }
       if (path === "/kernel/snapshot") return { variables: [], functions: [], oversized: [] };
       return orig(path, body, timeout);
