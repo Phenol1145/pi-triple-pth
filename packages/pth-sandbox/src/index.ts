@@ -17,3 +17,4 @@ export * from "./sandbox-bash.js";
 export * from "./kernel-pool.js";
 export * from "./kernel-host.js";
 export * from "./exec-api.js";
+export * from "./workload/environment.js";

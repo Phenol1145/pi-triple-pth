@@ -38,7 +38,8 @@ class Memory:
         self.base = base or os.environ.get(
             "PTH_MEMORY_BRIDGE", "http://localhost:8080/kernel/memory-bridge"
         )
-        self.secret = secret or os.environ.get("SANDBOX_SHARED_SECRET", "")
+        # P0-2：优先使用 PTH_MEMORY_BRIDGE_TOKEN（bridge 专用 Bearer token）；沙箱 loopback 无 token 时为空。
+        self.secret = secret or os.environ.get("PTH_MEMORY_BRIDGE_TOKEN", "") or os.environ.get("SANDBOX_SHARED_SECRET", "")
 
     def _call(self, op, **kw):
         # 空间盖章：读 _NAMESPACE（PyKernel 每次 execute 前置写入——内核层注入，程序无法伪造）

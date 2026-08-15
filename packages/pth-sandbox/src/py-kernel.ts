@@ -14,6 +14,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { PTH_MEMORY_LIB_B64 } from "@away_from/pth-memory";
+import { buildWorkloadEnv, workloadIdentity } from "./workload/environment.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
@@ -179,6 +180,7 @@ export class PyKernel implements Interpreter {
   private onStderr?: (line: string) => void;
   private pythonBin: string;
   private timeoutMs: number;
+  private bridgeToken = "";
   private resetMode: "ns" | "restart" = "ns";
   private lazySpawn = true;
   private lastUsedAt = Date.now();
@@ -195,10 +197,13 @@ export class PyKernel implements Interpreter {
     /** 空闲回收（默认 5min）：无调用超时 kill（0=禁用）；execute/snapshot 自动冷备补位 */
     idleMs?: number;
     /** 记忆桥 URL（2026-08-11 库化——spawn env PTH_MEMORY_BRIDGE；缺省 sandbox 模式 8080 转发） */
-    memoryBridge?: string;
+  memoryBridge?: string;
+  /** 记忆桥 Bearer token（仅 PTH kernel-mode 显式注入；sandbox 模式不传） */
+  bridgeToken?: string;
   } = {}) {
     this.pythonBin = deps.pythonBin ?? "python3";
     this.memoryBridge = deps.memoryBridge ?? process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:8080/kernel/memory-bridge";
+    this.bridgeToken = deps.bridgeToken ?? "";
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
     this.onStderr = deps.onStderr;
     this.resetMode = deps.resetMode ?? "ns";
@@ -357,7 +362,9 @@ export class PyKernel implements Interpreter {
     const child = spawn(this.pythonBin, ["-u", "-c", runtime], {
       stdio: ["pipe", "pipe", "pipe"],
       // 记忆桥 URL 注入（2026-08-11 库化——kernel 模式 localhost:3000 直通；sandbox kernel-pool 缺省 8080 转发）
-      env: { ...process.env, PTH_MEMORY_BRIDGE: this.memoryBridge },
+      // P0-2：工作负载 env 走 allowlist——不继承控制器密钥；bridge token 仅 kernel-mode 显式放行
+      env: buildWorkloadEnv({ PTH_MEMORY_BRIDGE: this.memoryBridge, PTH_MEMORY_BRIDGE_TOKEN: this.bridgeToken || undefined }, { allowBridgeToken: Boolean(this.bridgeToken) }),
+      ...workloadIdentity(),
     });
     this.child = child;
     this.buffer = "";

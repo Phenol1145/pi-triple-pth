@@ -13,6 +13,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { buildWorkloadEnv, workloadIdentity } from "./workload/environment.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
 /** 记忆库函数（2026-08-11 库化——bash 核 seed：curl 封装记忆桥只读三操作；SQL/JSON 由调用方传） */
@@ -26,9 +27,9 @@ import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapsho
 // execute 前置 export（无 space 时清章——防 REPL 跨任务残留）。软治理注：空间内程序可自改该 env——
 // 防的是空间维度可见性错配与任务间残留，不防同任务内自欺（LLM 无益））
 const BASH_MEMORY_LIB = [
-  `memory_query() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"query","sql":sys.argv[1],"space":sys.argv[4]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET" "$PTH_MEMORY_SPACE"; }`,
-  `memory_get() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"get","id":sys.argv[1],"space":sys.argv[4]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET" "$PTH_MEMORY_SPACE"; }`,
-  `memory_retrieve() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"retrieve","anchors":json.loads(sys.argv[1]),"space":sys.argv[4]}).encode(); r=u.urlopen(u.Request(sys.argv[2],b,{"Content-Type":"application/json","Authorization":"Bearer "+sys.argv[3]})); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$SANDBOX_SHARED_SECRET" "$PTH_MEMORY_SPACE"; }`,
+  `memory_query() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"query","sql":sys.argv[1],"space":sys.argv[4]}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN" "$PTH_MEMORY_SPACE"; }`,
+  `memory_get() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"get","id":sys.argv[1],"space":sys.argv[4]}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN" "$PTH_MEMORY_SPACE"; }`,
+  `memory_retrieve() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"retrieve","anchors":json.loads(sys.argv[1]),"space":sys.argv[4]}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN" "$PTH_MEMORY_SPACE"; }`,
 ].join("\n");
 
 
@@ -49,6 +50,7 @@ export class BashKernel implements Interpreter {
   private cwd = DEFAULT_CWD;
   private env: Record<string, string> = {};
   private readonly memoryBridge: string;
+  private readonly bridgeToken: string;
   private timeoutMs: number;
   private lazySpawn = true;
   private lastUsedAt = Date.now();
@@ -64,8 +66,11 @@ export class BashKernel implements Interpreter {
     idleMs?: number;
     /** 记忆桥 URL（2026-08-11 库化——memory_* 函数 curl 目标；缺省 sandbox 8080 转发） */
     memoryBridge?: string;
+    /** 记忆桥 Bearer token（仅 PTH kernel-mode 显式注入；sandbox 模式不传） */
+    bridgeToken?: string;
   } = {}) {
     this.memoryBridge = deps.memoryBridge ?? process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:8080/kernel/memory-bridge";
+    this.bridgeToken = deps.bridgeToken ?? "";
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS;
     if (deps.initialCwd) this.cwd = deps.initialCwd;
     this.onStderr = deps.onStderr;
@@ -170,7 +175,12 @@ export class BashKernel implements Interpreter {
     // 非交互模式：bash 读 stdin 逐行执行（不输出提示符，无 job control 噪音）
     const child = spawn("bash", ["--noprofile", "--norc"], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, ...this.env, PTH_MEMORY_BRIDGE: this.memoryBridge },
+      // P0-2：工作负载 env 走 allowlist——不继承控制器密钥；bridge token 仅 kernel-mode 显式放行
+      env: buildWorkloadEnv(
+        { PTH_MEMORY_BRIDGE: this.memoryBridge, PTH_MEMORY_BRIDGE_TOKEN: this.bridgeToken || undefined, ...this.env },
+        { allowBridgeToken: Boolean(this.bridgeToken) },
+      ),
+      ...workloadIdentity(),
     });
     this.child = child;
     this.buffer = "";

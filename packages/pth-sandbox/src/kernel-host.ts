@@ -127,8 +127,14 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   //  未配置 token 时 fail-closed 503——不再把 SANDBOX_SHARED_SECRET 当作业务 API 凭据转发。
   const pthBridgeUrl = (process.env.PTH_BRIDGE_URL ?? "http://pi-platform:3000").replace(/\/+$/, "");
   app.post("/kernel/memory-bridge", async (req, reply) => {
-    if (!enforceAuth(req, reply)) return;
-    const body = (req.body ?? {}) as { op?: string };
+    // P0-2：workload 不再持有 SANDBOX_SHARED_SECRET。本路由允许两种受控调用方：
+    //  ① PTH 侧经 internal 网络调用——仍必须持有共享密钥；
+    //  ② 本容器内 workload 从 loopback 调用——免密钥（只读桥；上游 PTH 按 bridge token 的
+    //     tenant/space 声明过滤，body.space 会被剥除，workload 无法自报空间）。
+    const remote = req.socket.remoteAddress ?? "";
+    const isLoopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+    if (!isLoopback && !enforceAuth(req, reply)) return;
+    const body = (req.body ?? {}) as { op?: string; space?: string };
     if (!body.op || !["query", "retrieve", "get"].includes(body.op)) {
       reply.code(400).send({ error: "op required: query|retrieve|get" });
       return;
@@ -138,11 +144,12 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       reply.code(503).send({ error: "server misconfigured: PTH_MEMORY_BRIDGE_TOKEN not set" });
       return;
     }
+    const { space: _space, ...upstreamBody } = body;
     try {
       const res = await fetch(`${pthBridgeUrl}/api/v1/kernel/memory-bridge`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${bridgeToken}` },
-        body: JSON.stringify(body),
+        body: JSON.stringify(upstreamBody),
         signal: AbortSignal.timeout(35_000),
       });
       const text = await res.text();

@@ -63,4 +63,32 @@ describe("sandbox kernel-host memory-bridge 上游认证（P0-1）", () => {
       delete process.env.PTH_BRIDGE_URL;
     }
   });
+
+  it("loopback workload 免共享密钥，且 body.space 被剥除（P0-2）", async () => {
+    const seen: { auth?: string; body: unknown } = { body: null };
+    const upstream = Fastify();
+    upstream.post("/api/v1/kernel/memory-bridge", async (req) => {
+      seen.auth = String(req.headers.authorization ?? "");
+      seen.body = req.body;
+      return { ok: true };
+    });
+    const address = await upstream.listen({ host: "127.0.0.1", port: 0 });
+    servers.push(upstream);
+
+    process.env.PTH_BRIDGE_URL = address;
+    try {
+      const app = buildKernelHostApp({ getSecret: () => SECRET, getBridgeToken: () => "bridge-token" });
+      const res = await app.inject({
+        method: "POST",
+        url: "/kernel/memory-bridge",
+        payload: { op: "retrieve", anchors: ["a"], space: "forged-space" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(seen.auth).toBe("Bearer bridge-token");
+      expect(seen.body).toEqual({ op: "retrieve", anchors: ["a"] });
+      await app.close();
+    } finally {
+      delete process.env.PTH_BRIDGE_URL;
+    }
+  });
 });

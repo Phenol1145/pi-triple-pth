@@ -26,6 +26,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
+import { buildWorkloadEnv, workloadIdentity } from "./workload/environment.js";
 
 // ─── 类型 ────────────────────────────────────────────────────────────
 export interface ExecRequest {
@@ -125,7 +126,8 @@ function runExec(
     const cmdArray = Array.isArray(opts.cmd) ? opts.cmd : ["bash", "-lc", opts.cmd];
     const child = spawn(cmdArray[0], cmdArray.slice(1), {
       cwd: opts.cwd,
-      env: { ...process.env, ...(opts.env ?? {}) },
+      env: buildWorkloadEnv(opts.env),
+      ...workloadIdentity(),
       // detached：子进程独立进程组 → 超时用 kill(-pid, SIGKILL) 强杀整个子树
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],

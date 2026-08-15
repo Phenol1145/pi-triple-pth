@@ -71,6 +71,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
     ? new PyKernel({ pythonBin: opts.pythonBin, onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("python", l) : undefined,
         // 记忆桥（2026-08-11 库化）：kernel 模式 python 子进程在 pi-platform 容器——localhost:3000 直通（原硬编码 8080 不通——修复）
         memoryBridge: process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:3000/api/v1/kernel/memory-bridge",
+        bridgeToken: process.env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
         ...opts.kernelConfig })
     : pythonMode === "sandbox-kernel"
       ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "python" })
@@ -79,6 +80,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
   const bash: Interpreter = bashMode === "kernel"
     ? new BashKernel({ onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("bash", l) : undefined,
         memoryBridge: process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:3000/api/v1/kernel/memory-bridge",
+        bridgeToken: process.env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
         ...opts.kernelConfig })
     : bashMode === "sandbox-kernel"
       ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "bash" })
