@@ -51,7 +51,7 @@
         "AGENT_LAB_DB_PATH": "/data/agent-lab/agent-lab.db",
         "DATA_DIR": "/data",
         "SANDBOX_URL": "http://sandbox:8080",
-        "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}",
+        "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}",
         "PTH_PYTHON_MODE": "${PTH_PYTHON_MODE:-sandbox-kernel}",
         "PTH_BASH_MODE": "${PTH_BASH_MODE:-sandbox-kernel}",
         "PTH_SANDBOX_KERNEL_URL": "http://sandbox:8080",
@@ -92,7 +92,8 @@
       "build": "..",
       "dockerfile": "packages/pth-sandbox/Dockerfile.sandbox",
       "env": {
-        "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}",
+        "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}",
+        "PTH_MEMORY_BRIDGE_TOKEN": "${PTH_MEMORY_BRIDGE_TOKEN:-}",
         "LOG_LEVEL": "info",
         "PTH_KERNEL_POOL_SIZE": "${PTH_KERNEL_POOL_SIZE:-24}",
         "PTH_KERNEL_ACQUIRE_TIMEOUT_MS": "${PTH_KERNEL_ACQUIRE_TIMEOUT_MS:-10000}",

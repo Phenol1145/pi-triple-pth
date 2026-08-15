@@ -27,12 +27,17 @@ docker-compose.yaml
 ### 2.2 配置 .env（仓库根）
 
 ```bash
-# 安全参数（必改）
+# 安全参数（必改——compose 对 SANDBOX_SHARED_SECRET 使用 :? 强校验，无默认值、缺省拒绝启动）
 POSTGRES_PASSWORD=你的强密码
 SANDBOX_SHARED_SECRET=你的沙盒共享密钥
 
+# 记忆桥 token（可选，缺省时 sandbox 侧记忆桥 fail-closed）：
+# 写入 Redis：auth:token:<token> → {"tenantId":"...","role":"tenant-agent","space":"<记忆空间ID>"}
+# tenant/space 只能来自该 token 声明；请求体自报 space 会被拒绝（P0-1）
+PTH_MEMORY_BRIDGE_TOKEN=你的桥token
+
 # 性能参数（按需——见 §3 全表）
-PTH_KERNEL_POOL_SIZE=16
+PTH_KERNEL_POOL_SIZE=24
 PTH_BATCH_AUTOSCALE=on
 ```
 
