@@ -427,10 +427,10 @@ describe("未知工具引导 + 直觉别名（2026-08-13）", () => {
 });
 
 describe("负结果收敛（S6 死循环机制——2026-08-13）", () => {
-  it("同目标连续负结果 N=3 引导 / N=5 强制终止（warning）", async () => {
+  it("同目标连续负结果 N=3 引导 / N=15 强制终止（warning——2026-08-15 D2：N 5→15）", async () => {
     const baseKernel = mockKernel();
     const kernel = { ...baseKernel, bash: { ...baseKernel.bash, execute: vi.fn(async () => ({ ok: false, error: "No such file or directory", durationMs: 1, language: "bash" })) } } as never;
-    const steps = Array.from({ length: 6 }, (_, i) => ({
+    const steps = Array.from({ length: 16 }, (_, i) => ({
       toolCalls: [{ name: "bash_run", arguments: { command: `ls extensions/probe-${i}/index.ts` } }],
     }));
     const llm = {
@@ -444,10 +444,10 @@ describe("负结果收敛（S6 死循环机制——2026-08-13）", () => {
     };
     const traces: string[] = [];
     const r = await runAgentTask({
-      llm: llm as never, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 8,
+      llm: llm as never, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 18,
       onTrace: ((t: { type: string; resultPreview?: string }) => { if (t.type === "tool-result") traces.push(t.resultPreview ?? ""); }) as never,
     });
-    // bash 执行结果 ok:false + error "No such file"（负结果语义）——N=5 强制终止
+    // bash 执行结果 ok:false + error "No such file"（负结果语义）——N=15 强制终止
     expect(r.ok).toBe(true);
     expect(r.warning).toContain("负验证循环");
   });

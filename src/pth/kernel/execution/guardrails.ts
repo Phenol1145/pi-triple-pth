@@ -13,7 +13,8 @@
  *   hard（硬失败 ok:false）。
  *
  * 豁免矩阵声明式（GUARD_EXEMPTIONS）：T5 侦察豁免（negative-loop → scout/explorer）
- * 进矩阵；治理族（acceptor 等）是否豁免负结果收敛——待用户裁决（B1 遗留）。
+ * 进矩阵；治理族豁免已裁决不做（2026-08-15 D2 custom）——改为负结果收敛阈值
+ * 5→15 全局放宽（给 sensor 留观测窗口；失败任务回收机制缺失期不过早强制闭合）。
  */
 
 export interface GuardContext {
@@ -85,7 +86,7 @@ export const GUARD_DEFS: Record<string, ConsecutiveGuardDef> = {
   "unknown-tool": { id: "unknown-tool", limitKey: "PTH_GUARD_UNKNOWN_TOOL_LIMIT", limitDefault: 3, mode: "hard" },
 };
 
-/** 豁免矩阵（声明式——2026-08-14 T5 裁决进矩阵；治理族待用户裁决） */
+/** 豁免矩阵（声明式——2026-08-14 T5 裁决进矩阵；治理族豁免 2026-08-15 D2 裁为不做——阈值放宽替代） */
 export const GUARD_EXEMPTIONS: Record<string, (ctx: GuardContext) => boolean> = {
   // T5：侦察类豁免负结果收敛强制终止（合法多源探测——maxSteps 兜底）
   "negative-loop": (ctx) => ctx.roleId === "scout" || ctx.roleId === "explorer",
@@ -119,7 +120,7 @@ export function createGuardRegistry(getLimit: (key: string, fallback: number) =>
     },
     negativeLimits(): { terminate: number; guideAt: number } {
       return {
-        terminate: getLimit("PTH_GUARD_NEGATIVE_LIMIT", 5),
+        terminate: getLimit("PTH_GUARD_NEGATIVE_LIMIT", 15),
         guideAt: getLimit("PTH_GUARD_NEGATIVE_GUIDE_AT", 3),
       };
     },

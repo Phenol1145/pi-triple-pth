@@ -786,7 +786,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 |---|---|---|
 | **五步工作流**〔旧〕 | 理解 → 探索 → 执行 → 产物 → done（共享世界观） | PTH_WORKER_SYSTEM |
 | **探索纪律**〔旧〕 | 先查（memory → 能力 → 源码）后试 | 世界观 |
-| **负结果收敛**〔旧〕 | 同工具族+同目标连续负结果：N=3 引导 / N=5 终止（语义正则+路径模式化） | agent-loop |
+| **负结果收敛**〔旧〕 | 同工具族+同目标连续负结果：N=3 引导 / N=15 终止（语义正则+路径模式化；2026-08-15 D2 裁决 5→15） | agent-loop |
 | **护栏注册表（guard-registry）**〔新〕 | 统一护栏抽象——「观测→判定→处置」三段式守卫：阈值/豁免/处置语义数据化（配置中心 `PTH_GUARD_*` + 豁免矩阵）；五种计数器收敛为注册表实例（重复动作/负结果收敛/空 done/空回复/未知工具）——0.14 相变预警的微观版 | guardrails.ts（§10 N12） |
 | **参数指纹**〔旧〕 | 连续相同动作检测（与负结果收敛并存互补） | agent-loop |
 | **步数上限**〔旧〕 | maxSteps 强制终止（负结果收敛之外的兜底） | agent-loop |
@@ -1027,7 +1027,7 @@ v0.9（动作面/权限/任务池纯化）
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
-> **2026-08-14 rejected 消化**：①2×tester-T2 与 1×规划 v2 = 迭代性拒绝（llm-timeout/context 未定义），后续重试已成 ✅——取代结案；②T1/T3/T4 根因 = 任务文本是标题片段而非自包含规格（Expected ';' 语法错）——重派 T01/T03/T04 自包含规格 3/3 完成 ✅（监督层直验：T01 三要素+双能力组合、T03 计划含依赖+验收、T04 TDD 12 用例证据链）；③**B1（系统 bug）已修复（2026-08-14 `010c033`）**：acceptor 汇总长任务 directComplete 400「tool 消息必须跟随 tool_calls」根因 = deepseek v4 thinking 模式要求 reasoning_content 随 assistant(tool_calls) 回传（模型配置 `requiresReasoningContentOnAssistantMessages`——本循环只入轨迹不回传，违反契约）+ 多调用提前终止悬挂 tool_calls；修复 = assistant 消息携带 thinking 并序列化 reasoning_content + 悬挂调用补合成 tool 响应；验证 = 同任务重放 129 步零 400（旧故障点 69/252 步）+ 7 新测试 + 全量 1564 绿。遗留观察：验收任务被负结果收敛 N=5 强制终止（设计的 S6 机制——合法重复探测被截断——治理族豁免进 N12 豁免矩阵待裁决）。
+> **2026-08-14 rejected 消化**：①2×tester-T2 与 1×规划 v2 = 迭代性拒绝（llm-timeout/context 未定义），后续重试已成 ✅——取代结案；②T1/T3/T4 根因 = 任务文本是标题片段而非自包含规格（Expected ';' 语法错）——重派 T01/T03/T04 自包含规格 3/3 完成 ✅（监督层直验：T01 三要素+双能力组合、T03 计划含依赖+验收、T04 TDD 12 用例证据链）；③**B1（系统 bug）已修复（2026-08-14 `010c033`）**：acceptor 汇总长任务 directComplete 400「tool 消息必须跟随 tool_calls」根因 = deepseek v4 thinking 模式要求 reasoning_content 随 assistant(tool_calls) 回传（模型配置 `requiresReasoningContentOnAssistantMessages`——本循环只入轨迹不回传，违反契约）+ 多调用提前终止悬挂 tool_calls；修复 = assistant 消息携带 thinking 并序列化 reasoning_content + 悬挂调用补合成 tool 响应；验证 = 同任务重放 129 步零 400（旧故障点 69/252 步）+ 7 新测试 + 全量 1564 绿。遗留观察：验收任务被负结果收敛 N=5 强制终止（设计的 S6 机制——合法重复探测被截断）——2026-08-15 D2 裁决：治理族不豁免，负结果收敛阈值 5→15 全局放宽。
 
 ### 10.1 护栏统一抽象（N12 设计——2026-08-14）
 
@@ -1040,17 +1040,17 @@ v0.9（动作面/权限/任务池纯化）
 - **判定（verdict）**：守卫实例持有连续计数 + 阈值——阈值全走配置中心（perf-params，`PTH_GUARD_*` 键，运行时可调）；
 - **处置（action）**：语义统一——`guide`（回填引导消息继续）/ `soft`（软终止：ok+warning）/ `hard`（硬失败：ok:false）。
 
-**豁免矩阵（声明式）**：`{ guardId → roleId[] | 谓词 }`——T5 侦察豁免（negative-loop：scout/explorer）进矩阵；B1 遗留「治理族（acceptor 等）是否豁免负结果收敛」从代码硬编码变为配置项，待用户裁决。
+**豁免矩阵（声明式）**：`{ guardId → roleId[] | 谓词 }`——T5 侦察豁免（negative-loop：scout/explorer）进矩阵；B1 遗留「治理族（acceptor 等）是否豁免负结果收敛」已裁（2026-08-15 D2 custom）：**不做治理族豁免**，改为负结果收敛阈值 5→15 全局放宽（sensor 留观测窗口；失败任务回收机制缺失期不过早强制闭合）。
 
 **首个实例集（agent-loop 五计数器收敛）**：
 
 | 护栏 id | 信号 | 阈值（配置键/缺省） | 处置 |
 |---|---|---|---|
 | repeat-action | 参数指纹连续相同 | PTH_GUARD_REPEAT_LIMIT=5（引导起 3） | soft |
-| negative-loop | 窗口 6 内同族+同目标负结果 | PTH_GUARD_NEGATIVE_LIMIT=5（引导起 3） | soft（侦察豁免） |
+| negative-loop | 窗口内（下限 6，动态 ≥ 阈值+1）同族+同目标负结果 | PTH_GUARD_NEGATIVE_LIMIT=15（引导起 3——2026-08-15 D2：5→15） | soft（侦察豁免） |
 | empty-done | done 空 result | PTH_GUARD_EMPTY_DONE_LIMIT=3 | hard |
 | empty-reply | LLM 空回复 | PTH_GUARD_EMPTY_REPLY_LIMIT=3 | hard |
 | unknown-tool | 幻觉工具名 | PTH_GUARD_UNKNOWN_TOOL_LIMIT=3 | hard |
 
-**二期（未实装——与 JIT 咬合）**：护栏命中率/误杀率进 scorecard（sensor 观测维度）→ optimizer 把护栏本身当优化对象（JIT 调护栏参数——护栏的护栏=审批面）；治理族豁免裁决（B1 遗留）。
+**二期（未实装——与 JIT 咬合）**：护栏命中率/误杀率进 scorecard（sensor 观测维度）→ optimizer 把护栏本身当优化对象（JIT 调护栏参数——护栏的护栏=审批面）；治理族豁免裁决已关（2026-08-15 D2：阈值放宽替代豁免）。
 

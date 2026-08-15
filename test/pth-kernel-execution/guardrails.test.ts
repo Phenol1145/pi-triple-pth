@@ -76,9 +76,9 @@ describe("guard registry（注册表 + 豁免矩阵 + 负结果阈值）", () =>
     expect(reg.exempt("no-such-guard", { tool: "x", steps: 1 })).toBe(false);
   });
 
-  it("negativeLimits 走配置键（缺省 5/3）", () => {
+  it("negativeLimits 走配置键（缺省 15/3——2026-08-15 D2：N 5→15）", () => {
     const reg = createGuardRegistry(makeLimit({}));
-    expect(reg.negativeLimits()).toEqual({ terminate: 5, guideAt: 3 });
+    expect(reg.negativeLimits()).toEqual({ terminate: 15, guideAt: 3 });
     const reg2 = createGuardRegistry(makeLimit({ PTH_GUARD_NEGATIVE_LIMIT: 7, PTH_GUARD_NEGATIVE_GUIDE_AT: 4 }));
     expect(reg2.negativeLimits()).toEqual({ terminate: 7, guideAt: 4 });
   });

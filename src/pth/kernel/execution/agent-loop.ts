@@ -303,11 +303,15 @@ function actionFingerprint(tool: string, args: Record<string, unknown>): string 
 // ── 负结果收敛窗口（S6 死循环机制落地——controller 裁决 2026-08-13）──────────
 // 证据：agent-reach 279 步 maxSteps 强制终止，bash_run=174 反复探测 extensions/<name>/index.ts
 //       （参数微变绕过参数指纹——同目标不同参数的负验证循环无收敛条件）
-// 机制：recentResults 窗口（6 步）按"同工具族+同目标+连续 N 次负结果"判定，
-//       N=3 回填引导（该路径已确认不可用→换策略）、N=5 强制终止（对齐现有阈值）——与参数指纹并存。
+// 机制：recentResults 窗口（下限 6 步，随终止阈值动态扩展）按"同工具族+同目标+连续 N 次负结果"判定，
+//       N=3 回填引导（该路径已确认不可用→换策略）、N=15 强制终止
+//       （2026-08-15 D2 裁决：5→15 放宽——给 sensor 留观测窗口；失败任务尚无正常回收机制，
+//       过早强制闭合过于严苛）——与参数指纹并存。
+// 窗口下限 6（原 S6 设计）；运行时按 negativeLimits().terminate + 1 动态扩展——
+// 阈值可配置（2026-08-15 D2 缺省 15），窗口必须 ≥ 阈值，否则计数永远到不了终止线。
 const RECENT_RESULTS_WINDOW = 6;
 // 负结果收敛阈值（N12 护栏统一抽象——配置键 PTH_GUARD_NEGATIVE_LIMIT / PTH_GUARD_NEGATIVE_GUIDE_AT，
-// 缺省 5/3——经 guardReg.negativeLimits() 解析后传入 negativeLoopCheck）
+// 缺省 15/3——经 guardReg.negativeLimits() 解析后传入 negativeLoopCheck）
 const NEG_SEMANTICS = [
   /not found/i, /no such (file|directory)/i, /ENOENT/i, /cannot find/i,
   /不存在/i, /未找到/i, /无此/i, /无法找到/i,
@@ -375,7 +379,7 @@ function isNegativeResult(result: { ok?: boolean; error?: unknown; stdout?: unkn
 /** 负结果收敛检查：窗口内同 family+target 的连续负结果计数 → 引导/终止。
  *  阈值走护栏注册表（N12——PTH_GUARD_NEGATIVE_LIMIT/GUIDE_AT，运行时可调）；
  *  allowTerminate=false = 豁免矩阵命中（T5 侦察豁免——guardReg.exempt 判定）。 */
-function negativeLoopCheck(win: RecentAction[], family: string, target: string, neg: boolean, allowTerminate = true, terminateAt = 5, guideAt = 3): { action: "none" | "guide" | "terminate"; count: number } {
+function negativeLoopCheck(win: RecentAction[], family: string, target: string, neg: boolean, allowTerminate = true, terminateAt = 15, guideAt = 3): { action: "none" | "guide" | "terminate"; count: number } {
   if (!neg) return { action: "none", count: 0 };
   let count = 0;
   for (let i = win.length - 1; i >= 0; i--) {
@@ -458,7 +462,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   const start = Date.now();
   let steps = 0;
   let lastFingerprint = "";
-  let recentResults: RecentAction[] = [];  // 负结果收敛窗口（≤6 步——同工具族+同目标连续负结果 N=3 引导/N=5 终止——S6 死循环机制 2026-08-13）
+  let recentResults: RecentAction[] = [];  // 负结果收敛窗口（≤6 步——同工具族+同目标连续负结果 N=3 引导/N=15 终止——S6 死循环机制 2026-08-13；N=15 由 2026-08-15 D2 裁决）
   // 护栏注册表（2026-08-14 N12——阈值 PTH_GUARD_* 走配置中心、豁免矩阵声明式、处置语义统一 soft/hard）
   const guardReg = createGuardRegistry((k, d) => configNumber(k, d));
   const repeatGuard = guardReg.guard("repeat-action");
@@ -802,15 +806,17 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
       input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500) });
       // 负结果收敛窗口（S6 死循环机制——2026-08-13）：同工具族+同目标连续负结果
-      // N=3 回填引导（该路径已确认不可用→换策略）、N=5 强制终止（对齐现有阈值）
+      // N=3 回填引导（该路径已确认不可用→换策略）、N=15 强制终止（2026-08-15 D2：5→15）
       const neg = isNegativeResult(result);
       const fam = toolFamily(tool);
       const tgt = actionTarget(tool, args);
       recentResults.push({ family: fam, target: tgt, neg });
-      if (recentResults.length > RECENT_RESULTS_WINDOW) recentResults.shift();
+      const negLimits = guardReg.negativeLimits();
+      // 窗口下限 6，动态扩展至 ≥ 终止阈值 + 1（否则 N=15 时 6 步窗口永远计不满 15）
+      const keepWindow = Math.max(RECENT_RESULTS_WINDOW, negLimits.terminate + 1);
+      while (recentResults.length > keepWindow) recentResults.shift();
       // 2026-08-14 T5 侦察豁免进豁免矩阵（N12）——guardReg.exempt("negative-loop") 声明式判定
       const reconExempt = guardReg.exempt("negative-loop", { roleId: input.role?.id, tool, steps: steps + 1 });
-      const negLimits = guardReg.negativeLimits();
       const loopCheck = negativeLoopCheck(recentResults, fam, tgt, neg, !reconExempt, negLimits.terminate, negLimits.guideAt);
       if (loopCheck.action === "terminate") {
         return { ok: true, value: null, steps: steps + 1, warning: `连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——负验证循环，强制终止` };
