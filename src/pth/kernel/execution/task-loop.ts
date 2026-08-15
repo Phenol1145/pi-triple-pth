@@ -127,6 +127,25 @@ export class TaskLoop {
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: metricReason ?? classifyReason(reason) });
   }
 
+  /** D5（2026-08-15）：软终止/警告闭合的任务回收——非终态 reject 回 pending（保留 claims_count
+   *  兜底 MAX_CLAIMS；recoverStaleClaims 与路由不变）。转派/重试由下轮 claim 完成。 */
+  private async requeue(task: Task, reason: string, chain: { chainDepth: number; triggerId?: string }): Promise<void> {
+    const { role, taskStore } = this.deps;
+    const affected = await taskStore.reject(role.id, task.id, reason, { terminal: false });
+    if (affected === 0) {
+      this.deps.logger?.child?.("taskloop", { taskId: task.id, role: role.id })?.warn?.(
+        `requeue 0 rows（认领已被回收重领？task=${task.id}）——不覆盖他人认领`,
+      );
+    }
+    const audit = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit;
+    if (audit?.write) {
+      try { await audit.write({ eventType: "task_requeued", actor: role.id, taskId: task.id, payload: { reason: reason.slice(0, 300) } }); } catch { /* 审计容错 */ }
+    }
+    this.deps.onActivity?.({ kind: "task.requeued", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
+    this.deps.onTaskMetric?.({ type: "status", status: "requeued" });
+    this.deps.onTaskMetric?.({ type: "reject-reason", reason: "soft-terminated" });
+  }
+
   private async execute(task: Task): Promise<void> {
     const { kernel, role, taskStore, workspaceMgr } = this.deps;
     const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
@@ -209,12 +228,17 @@ export class TaskLoop {
             taskLogger?.error(r.error);
             return;
           }
-          // 完成标准强制（done 引导的系统级保障——2026-08-09）：agent 结束但无产物
-          // （value null 且无 warning）→ 不符合完成标准——reject（不 completed 空结果）
+          // 完成标准强制（done 引导的系统级保障——2026-08-09）：agent 结束但无产物。
+          // D5：软终止/警告闭合（maxSteps/重复/负结果循环）→ 回池重试（claims_count 兜底）；
+          // 无 warning 的空产物仍是终态 reject（agent-no-output）。
           if (r.value === undefined || r.value === null) {
-            const reason = r.warning
-              ? `agent-${r.warning}`   // maxSteps/重复终止——warning 说明
-              : "agent-no-output: agent 完成但未产出结果（done 未带 result）";
+            if (r.warning) {
+              const reason = `soft-terminated: ${r.warning}`;
+              await this.requeue(task, reason, chain);
+              taskLogger?.warn(reason, { steps: r.steps });
+              return;
+            }
+            const reason = "agent-no-output: agent 完成但未产出结果（done 未带 result）";
             await this.rejectTerminal(task, reason, chain);
             taskLogger?.error(reason, { steps: r.steps });
             return;

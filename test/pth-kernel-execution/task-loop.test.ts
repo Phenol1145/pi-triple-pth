@@ -137,6 +137,22 @@ describe("task loop（任务池纯化——agent 循环唯一主路径）", () =
     expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("agent-no-output"), { terminal: true });
   });
 
+  it("D5：软终止/警告闭合 → 非终态 requeue（回池重试）", async () => {
+    const task = { id: "t1", text: "do x", title: "x" };
+    mockedRunAgent.mockResolvedValue({ ok: true, value: null, steps: 2, warning: "达到 maxSteps(10) 强制终止" } as never);
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const kernel = mockKernel();
+    const activity: Array<{ kind: string }> = [];
+    const loop = new TaskLoop({ ...agentDeps(kernel, role, store), onActivity: (e) => activity.push({ kind: e.kind }) });
+    await loop.runOnce();
+    expect(store.reject).toHaveBeenCalledWith("developer", "t1", expect.stringContaining("soft-terminated"), { terminal: false });
+    expect(store.submit).not.toHaveBeenCalled();
+    expect(activity.some((a) => a.kind === "task.requeued")).toBe(true);
+  });
+
   it("submit passes output ref and archives", async () => {
     const task = { id: "t1", text: "do x", title: "x" };
     const store = mockTaskStore({

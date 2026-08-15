@@ -48,23 +48,39 @@ function arg(name: string): string | undefined {
 
 async function submit(): Promise<void> {
   const desc = rest.find((a) => !a.startsWith("-"));
-  if (!desc) throw new Error("用法: pth submit <任务描述> [--role r] [--tags a,b] [--title t] [--file p]");
-  const role = arg("--role");
+  if (!desc) throw new Error("用法: pth submit <任务描述> [--concept] [--role r] [--tags a,b] [--title t] [--file p]");
+  let role = arg("--role");
   const tagsRaw = arg("--tags");
   const title = arg("--title") ?? (desc.length > 60 ? `${desc.slice(0, 57)}…` : desc);
   const file = arg("--file");
+  const concept = rest.includes("--concept");
   let text = desc;
   if (file) {
     const extra = await readFile(file, "utf8");
-    text = `${desc}\n\n【任务详情】\n${extra}`;
+    text = concept ? extra : `${desc}\n\n【任务详情】\n${extra}`;
   }
   const tags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+  if (concept) {
+    // D3 / T9：概念设计交接——PTL 侧完整理解需求 → PTH 生成实施方案
+    const { validateConceptDesign, CONCEPT_DESIGN_TEMPLATE } = await import("../src/pth/kernel/concept-design.js");
+    const check = validateConceptDesign(text);
+    if (!check.ok) {
+      throw new Error(`概念设计不完整，缺少段落: ${check.missing.join(", ")}\n\n模板:\n${CONCEPT_DESIGN_TEMPLATE}`);
+    }
+    if (!role) role = "planner";                 // 概念设计缺省路由 planner（PTH 生成实施方案）
+    if (!tags.includes("concept-design")) tags.push("concept-design");
+  }
   if (!role && tags.length === 0) throw new Error("需 --role 或 --tags 至少其一（路由依据）");
   const payload: Record<string, unknown> = {};
   if (role) payload.flow = { stages: [{ task: { role } }] };
   const t = await http("POST", "/api/v1/kernel/tasks", { title, text, createdBy: CREATED_BY, tags, payload });
   const d = t as { id?: string; status?: string; assigned_role?: string };
   console.log(`task: ${d.id} | status: ${d.status ?? "?"} | role: ${d.assigned_role ?? role ?? tags.join(",")}`);
+}
+
+async function handoff(): Promise<void> {
+  const { CONCEPT_DESIGN_TEMPLATE } = await import("../src/pth/kernel/concept-design.js");
+  console.log(CONCEPT_DESIGN_TEMPLATE);
 }
 
 async function status(): Promise<void> {
@@ -113,12 +129,13 @@ async function tags(): Promise<void> {
 async function main(): Promise<void> {
   switch (cmd) {
     case "submit": return submit();
+    case "handoff": return handoff();
     case "status": return status();
     case "wait": return wait();
     case "roles": return roles();
     case "tags": return tags();
     default:
-      console.log(`用法: pth <submit|status|wait|roles|tags> ...\n  示例: npm run pth -- submit "任务描述" --role developer --tags implement`);
+      console.log(`用法: pth <submit|handoff|status|wait|roles|tags> ...\n  示例: npm run pth -- handoff\n        npm run pth -- submit "【目标】..." --concept\n        npm run pth -- submit "任务描述" --role developer --tags implement`);
   }
 }
 
