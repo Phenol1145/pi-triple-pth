@@ -6,7 +6,7 @@ import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
 import { wrapValidated } from "../../kernel/ptc/contract.js";
-import { isVisible } from "@away_from/pth-memory";
+import { isVisible, listSkills, getSkill } from "@away_from/pth-memory";
 import { isIP } from "node:net";
 
 /** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */
@@ -107,11 +107,10 @@ export function buildCapabilities(deps: {
         } }
       : {}),
     skills: {
-      get: async (name: string) => {
-        // v1：skill 数据对象读取（Spec C skills 表——v1 独立表占位）
-        // 简化：返回空（v1 不实现完整 skill 加载，Spec B 任务接入时扩展）
-        return undefined;
-      },
+      // B4 Phase 2（2026-08-15 已裁 C 两级检索）：
+      //   Level 0 = list() 三要素清单；Level 1 = get(id) 全文
+      list: async () => (await listSkills(deps.dataWorld.memory)).filter((s) => s.status !== "draft"),
+      get: async (name: string) => getSkill(deps.dataWorld.memory, String(name)),
     },
     // tasks 能力已摘除（权限 v2 R3）——任务代码不可直接 peek/submit 任务池
     ...(deps.bash ? { bash: deps.bash } : {}),
