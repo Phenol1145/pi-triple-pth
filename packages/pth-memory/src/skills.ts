@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { buildSkillContent } from "./skill-format.js";
 import type { MemoryEntry } from "./memory-store-pg.js";
 
 export interface SkillStoreLike {
@@ -222,6 +223,36 @@ export async function executeApprovedSkillProposal(store: SkillMaintenanceStore,
     }, { policy: "staged" });
   }
   return { ok: false, error: `动作 "${String(proposal.action)}" 暂不支持（write/archive）` };
+}
+
+/** B3 / N4：SKILL.md → memory 条目转化（0.13.2 知识型分支）。
+ *  解析并规范化为四段式，再经维护面写入（manual 直写 / staged 落提案）。 */
+export async function importSkillMarkdown(
+  store: SkillMaintenanceStore,
+  md: string,
+  opts: { force?: boolean; audit?: string; policy?: "manual" | "staged" } = {},
+): Promise<SkillMaintainResult> {
+  const parsed = parseSkillMarkdown(md);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  const content = buildSkillContent(parsed.seed);
+  if (opts.policy === "staged") {
+    const proposal = await proposeSkillMaintenance(store, {
+      action: "write",
+      name: parsed.name,
+      content,
+      force: opts.force ?? false,
+      anchors: [parsed.name],
+      audit: opts.audit,
+    });
+    return proposal;
+  }
+  return maintainSkillWrite(store, {
+    name: parsed.name,
+    content,
+    anchors: [parsed.name],
+    force: opts.force ?? false,
+    audit: opts.audit,
+  }, { policy: opts.policy ?? "manual" });
 }
 
 async function executeProposal(store: SkillMaintenanceStore, proposalId: string, name: string, action: "write" | "archive"): Promise<SkillMaintainResult> {

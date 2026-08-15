@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSkillContent, listSkills, getSkill, parseSkillSummary, parseSkillMarkdown, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, approveSkillProposal, executeApprovedSkillProposal } from "@away_from/pth-memory";
+import { buildSkillContent, listSkills, getSkill, parseSkillSummary, parseSkillMarkdown, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, approveSkillProposal, executeApprovedSkillProposal, importSkillMarkdown } from "@away_from/pth-memory";
 
 const seed = {
   id: "test-sop",
@@ -139,5 +139,43 @@ describe("SKILL.md → skill 条目映射（B4 Phase 4）", () => {
 
   it("四段式缺段 → 失败（N4 pipeline 必须完整）", () => {
     expect(parseSkillMarkdown("# skill:bad\n【场景锚点】a\n【何时用】b\n【效果】c").ok).toBe(false);
+  });
+});
+
+/** B3 / N4：SKILL.md → memory 条目转化 */
+describe("importSkillMarkdown（N4 知识型分支）", () => {
+  function makeStore() {
+    const rows = new Map<string, any>();
+    return {
+      rows,
+      listIds: async () => [...rows.keys()],
+      get: async (id: string) => rows.get(id),
+      write: async (entry: any, opts?: { force?: boolean }) => {
+        if (entry.id.startsWith("skill:") && !opts?.force) throw new Error("系统文档受保护");
+        rows.set(entry.id, entry);
+      },
+      update: async (id: string, patch: any, opts?: { force?: boolean }) => {
+        if (id.startsWith("skill:") && !opts?.force) throw new Error("skill 不可变");
+        const old = rows.get(id);
+        if (!old) throw new Error("entry not found");
+        rows.set(id, { ...old, ...patch, meta: { ...(old.meta ?? {}), ...(patch.meta ?? {}) } });
+      },
+    };
+  }
+
+  it("SKILL.md 完整 → 规范化为四段式并写入 skill:<name>", async () => {
+    const store = makeStore();
+    const r = await importSkillMarkdown(store, buildSkillContent(seed), { audit: "n4 导入" });
+    expect(r.ok).toBe(true);
+    const entry = store.rows.get("skill:test-sop");
+    expect(entry?.content).toContain("【场景锚点】执行测试任务");
+    expect(entry?.meta).toMatchObject({ maintainedBy: "memory-keeper", revision: 1, auditNote: "n4 导入" });
+  });
+
+  it("不完整 SKILL.md → 失败（不落库）", async () => {
+    const store = makeStore();
+    const r = await importSkillMarkdown(store, "# skill:bad\n【场景锚点】a\n【何时用】b\n【效果】c");
+    expect(r.ok).toBe(false);
+    expect(store.rows.size).toBe(0);
   });
 });

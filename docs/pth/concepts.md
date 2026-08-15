@@ -1013,10 +1013,10 @@ v0.9（动作面/权限/任务池纯化）
 | # | 新概念/机制 | 理论坐标 | 缺口 | 承接/关联 | 状态 |
 |---|---|---|---|---|---|
 | N1 | 百科记忆类型（词表条目化） | 0.9 · 域 B | ✅ 已实装（2026-08-13——kind=pth-wiki + scripts/seed-wiki.ts——87 条落库，幂等可重跑） | memory.query 按 anchors 检索 · 术语即锚点 | ✅ 已实装 |
-| N1b | 百科写入矛盾检测（词表校验） | 0.9 · 域 B | 写入时新旧术语一致性校验未实装（治理列预留） | 污染防线（写侧断言）· N1 治理列 | ⚠️ 未实装 |
+| N1b | 百科写入矛盾检测（词表校验） | 0.9 · 域 B | ✅ 已落（2026-08-15——`wiki.ts validateWikiWrite`：id/术语锚点/三要素/重复定义；memory.write 写 pth-wiki 前强制校验） | 污染防线（写侧断言）· N1 治理列 | ✅ 已落 |
 | N2 | skill 记忆类型（工作流 SOP 一等化） | 0.9 · 0.13 · 域 B | Phase 1 已落（2026-08-15——四段式格式模板 `skill-format.ts` + 3 条角色 SOP 种子注入）；Phase 2 检索面已落（`skills.list/get` 两级）；Phase 3 已落核心（skills.maintain 仅 memory-keeper + store 层 skill 不可变），staged 审核流/controller:adversarial 待建；Phase 4 SKILL.md→条目映射已定稿（`parseSkillMarkdown`） | 不可变知识条目（B4-1）· 0.13 外部 skill 映射（Phase 4） | 🏗️ 建设中 |
 | N3 | 数据缓存使用追踪（cacheUtilization） | 0.12 · 域 E/域 D | ✅ 已实装（2026-08-13——get 命中标记 used→utilization()→scorecard+聚合快照+cache-waste 热点+sensor 观测维度；测试 10 全绿） | scorecard 新指标 · sensor 观测（数据流效率） | ✅ 已实装 |
-| N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 无转化流程；MCP 无 | ext-registry（agent-reach 已验证） | ⚠️ 部分 |
+| N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 分支 ✅（`importSkillMarkdown`：SKILL.md→四段式→维护面写入；staged 分支落提案）；MCP 无 | ext-registry（agent-reach 已验证） | ⚠️ 部分（skill ✅ / MCP ❌） |
 | N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | L3 容器级全缺；L2 worker 健康/DB 慢查询缺 | controller:resource 角色已有 | ❌ 未实装 |
 | N6 | 复测（verify）一等化 | 0.7.2 · 域 D | ~~verifyAfterWindow 标志已有；独立复测任务未一等化~~ ✅ 已实装（2026-08-14 B2）：apply 派发独立复测任务（受控复现）→ 证据三通道结算（verify-task＞organic＞global）→ 超时零进展 verify_expired 诚实闭合 + 独立巡检定时器 | optimizer-apply baseline/deopt | ✅ 已实装 |
 | N7 | 记忆归档执行 | 0.9 · 域 B | ✅ 执行端已实装（2026-08-14 T7——memory-admin.ts + 审批路由：draft→监督批准→archived）；定期触发待 trigger 接线 | sensor:memory / controller:memory 已有 | ⚠️ 半实装 |

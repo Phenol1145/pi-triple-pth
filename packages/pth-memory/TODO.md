@@ -14,9 +14,9 @@
 - [x] B4 Phase 2：skills.get 真实接线 + Level 0 清单 / Level 1 全文两级检索
 - [x] B4 Phase 3：memory-keeper 专项维护面 + 不可变语义 + controller:adversarial 审核（`skills.maintain` 仅 memory-keeper、store 层 skill update 需 force、W5 staged 提案/审核/批准/执行 + `controller:adversarial` 治理角色 + PTC entries + gateway approve 流）
 - [x] B4 Phase 4：SKILL.md → skill 条目映射定稿（`parseSkillMarkdown`——四段式映射，0.13 转化落点）
-- [ ] N1b 百科写入矛盾检测；N4 生态转化 pipeline（记忆侧 skill 条目化）
+- [x] N1b 百科写入矛盾检测（`wiki.ts validateWikiWrite`）；N4 生态转化 pipeline（记忆侧 skill 条目化：`importSkillMarkdown`）
 - [ ] 归档定期 trigger 接线（N7 尾件）
 - [ ] memoryScope:"own" 读侧过滤（当前只给 write 盖章）
 
 ## 评估结论（2026-08-15 拆分后）
-- 本包项全部**保留**：B4 Phase 2–4 为最高优先；N1b/N4 次之；H3/H5/H6/H7 为安全纵深，随批推进；无砍项。
+- 本包项全部**保留**：B4 Phase 2–4 已全落；N1b/N4 已落（2026-08-15）；H3/H5/H6/H7 为安全纵深，随批推进；无砍项。

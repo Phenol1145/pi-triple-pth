@@ -6,7 +6,7 @@
 
 import type { TsReplExtension } from "./types.js";
 import { checkWrite, checkUpdate, normalizeWriteArgs } from "@away_from/pth-memory";
-import { checkVisibilityDeclaration, stampScope, isVisible } from "@away_from/pth-memory";
+import { checkVisibilityDeclaration, stampScope, isVisible, validateWikiWrite } from "@away_from/pth-memory";
 import { spaceRegistry } from "../execution/space-registry.js";
 
 /**
@@ -81,6 +81,11 @@ export const memoryExtension: TsReplExtension = {
           if (!vc.ok) throw new Error(vc.reason);
           const currentSpace = ctx.sessionRef?.current?.currentSpace ?? "meta";
           entry = { ...entry, meta: stampScope(meta, currentSpace) };
+          // B5 / N1b：百科写入词表校验（写侧污染防线——重复术语/锚点不符/三要素缺失拒绝）
+          if (entry.kind === "pth-wiki") {
+            const wikiCheck = await validateWikiWrite(store, entry as never);
+            if (!wikiCheck.ok) throw new Error(wikiCheck.reason);
+          }
           return store.write(entry as never);   // force 不透传——worker 无系统通道
         },
         update: async (id: string, patch: { content?: string; status?: "draft" | "official" | "archived" }) => {
