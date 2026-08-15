@@ -25,7 +25,7 @@ function notifyTaskDone(ev: { taskId: string; role: string; status: "completed" 
 }
 
 export interface TaskWorkspaceManager {
-  allocate(taskId: string): Promise<{ dir: string; tenant: string }>;
+  allocate(taskId: string, tenantId?: string): Promise<{ dir: string; tenant: string }>;
   archive(taskId: string, dir: string): Promise<{ artifactPath: string }>;
 }
 
@@ -130,7 +130,7 @@ export class TaskLoop {
   private async execute(task: Task): Promise<void> {
     const { kernel, role, taskStore, workspaceMgr } = this.deps;
     const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
-    const ws = await workspaceMgr.allocate(task.id);
+    const ws = await workspaceMgr.allocate(task.id, (task as { tenantId?: string }).tenantId ?? "default");
     const execStart = Date.now();
     this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags });
     // trigger 链信息（payload.triggeredBy——防链式爆炸的链深/自触发追踪）

@@ -29,6 +29,7 @@ export function registerJobRoutes(app: FastifyInstance, kernel: KernelRuntime | 
     const jobId = crypto.randomUUID();
     const taskIds: string[] = [];
     const createdBy = typeof body.createdBy === "string" ? body.createdBy : "ptl";
+    const tenantId = (req as unknown as { auth?: { tenantId?: string } }).auth?.tenantId ?? "default";
     for (const t of tasks) {
       const title = String(t.title ?? "").trim();
       const text = String(t.text ?? "").trim();
@@ -43,6 +44,7 @@ export function registerJobRoutes(app: FastifyInstance, kernel: KernelRuntime | 
         title, text, createdBy, tags,
         payload: { job: { id: jobId, plan: typeof body.plan === "string" ? body.plan.slice(0, 4000) : undefined } },
         jobId,
+        tenantId,
       });
       taskIds.push(task.id);
     }

@@ -39,6 +39,8 @@ RUN pip3 install --no-cache-dir numpy --break-system-packages || pip3 install --
 # P0-2：创建不可信工作负载用户；控制器（root）通过 spawn uid/gid 降权运行 workload
 RUN useradd --system --uid 2001 --gid 2001 --create-home --shell /bin/bash workload
 ENV PTH_WORKLOAD_UID=2001 PTH_WORKLOAD_GID=2001
+# P0-3：/exec 先拷贝任务工作区到该私有根（chown workload），执行完回拷——workload 看不到共享卷其他租户
+ENV PTH_EXEC_PRIVATE_ROOT=/srv/workload
 
 WORKDIR /app
 

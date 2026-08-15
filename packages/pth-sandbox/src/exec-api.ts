@@ -26,6 +26,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
+import { cp, mkdir, rm, chmod, chown } from "node:fs/promises";
 import { buildWorkloadEnv, workloadIdentity } from "./workload/environment.js";
 
 // ─── 类型 ────────────────────────────────────────────────────────────
@@ -55,6 +56,8 @@ export interface ExecResult {
 export interface ExecApiOptions {
   /** cwd 白名单根（默认 /data/workspaces——compose 共享卷路径约定，Task 12 统一） */
   workspacesRoot?: string;
+  /** workload 私有工作区根（P0-3；容器内默认 /srv/workload——执行前拷贝进、执行后回拷） */
+  privateRoot?: string;
   /** 共享密钥获取器（默认读 env SANDBOX_SHARED_SECRET——每次请求读取，测试可注入） */
   getSecret?: () => string | undefined;
   defaultTimeoutMs?: number;
@@ -241,9 +244,45 @@ function validateBody(body: unknown, defaultTimeoutMs: number, maxTimeoutMs: num
   return { cmd: cmd as string | string[], timeoutMs };
 }
 
+/**
+ * P0-3：workload 私有工作区。容器内 controller 以 root 运行时，把任务 cwd 拷贝到
+ * /srv/workload/<uuid> 并 chown 给 workload UID；执行完把结果回拷到共享工作区。
+ * workload 只能看到自己的拷贝，共享卷上其他租户目录为 0700（PTH 侧创建），无权读取。
+ * 宿主/测试环境非 root 时不启用（直接使用原 cwd）。
+ */
+async function prepareWorkspace(
+  cwd: string,
+  privateRoot: string | undefined,
+): Promise<{ execCwd: string; syncBack: () => Promise<string | null> }> {
+  const identity = workloadIdentity();
+  if (!privateRoot || (typeof process.getuid === "function" && process.getuid() !== 0)) {
+    return { execCwd: cwd, syncBack: async () => null };
+  }
+  const execCwd = path.join(privateRoot, crypto.randomUUID());
+  await mkdir(privateRoot, { recursive: true, mode: 0o711 });
+  await mkdir(execCwd, { recursive: true, mode: 0o700 });
+  if (identity.uid !== undefined && identity.gid !== undefined) {
+    await chown(execCwd, identity.uid, identity.gid).catch(() => {});
+  }
+  await cp(cwd, execCwd, { recursive: true, force: true });
+  await chmod(execCwd, 0o700);
+  const syncBack = async (): Promise<string | null> => {
+    try {
+      await cp(execCwd, cwd, { recursive: true, force: true });
+      return null;
+    } catch (err) {
+      return `workspace sync-back failed: ${(err as Error).message}`;
+    } finally {
+      await rm(execCwd, { recursive: true, force: true }).catch(() => {});
+    }
+  };
+  return { execCwd, syncBack };
+}
+
 // ─── app 构建 ────────────────────────────────────────────────────────
 export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
   const workspacesRoot = path.resolve(options.workspacesRoot ?? "/data/workspaces");
+  const privateRoot = options.privateRoot ?? process.env.PTH_EXEC_PRIVATE_ROOT ?? undefined;
   const getSecret = options.getSecret ?? (() => process.env.SANDBOX_SHARED_SECRET);
   const defaultTimeoutMs = options.defaultTimeoutMs ?? 30_000;
   const maxTimeoutMs = options.maxTimeoutMs ?? 600_000;
@@ -290,14 +329,28 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
       return;
     }
     const body = req.body as ExecRequest;
+    let execCwd: string;
+    let syncBack: () => Promise<string | null>;
+    try {
+      ({ execCwd, syncBack } = await prepareWorkspace(cwd, privateRoot));
+    } catch (err) {
+      reply.code(500).send({ error: `workspace prepare failed: ${(err as Error).message}` });
+      return;
+    }
     const job = createJob(crypto.randomUUID());
     jobs.set(job.id, job);
-    const resultPromise = runExec(job, { cmd, cwd, env: body.env, timeoutMs });
+    const resultPromise = runExec(job, { cmd, cwd: execCwd, env: body.env, timeoutMs });
     if (body.stream) {
-      resultPromise.then((r) => finishJob(job, jobs));
+      resultPromise.then(async (r) => {
+        const syncErr = await syncBack();
+        if (syncErr) r.stderr = `${r.stderr}\n${syncErr}`;
+        finishJob(job, jobs);
+      });
       return { execId: job.id, status: "running" };
     }
     const result = await resultPromise;
+    const syncErr = await syncBack();
+    if (syncErr) result.stderr = `${result.stderr}\n${syncErr}`;
     finishJob(job, jobs);
     return result;
   });

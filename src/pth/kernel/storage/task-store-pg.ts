@@ -23,6 +23,8 @@ export interface Task {
   payload: unknown;
   assigned_role?: string | null;
   job_id?: string | null;
+  /** P0-3：租户隔离边界——来自 tasks.tenant_id（当前 publish 未显式写入时为 'default'） */
+  tenantId?: string;
 }
 
 export interface PublishInput {
@@ -34,6 +36,8 @@ export interface PublishInput {
   templateId?: string;
   /** 异步 job 委托（v0.8 循环①）：job 关联 id */
   jobId?: string;
+  /** P0-3：外部路由从 auth token 派生写入；内部发布者缺省 default */
+  tenantId?: string;
 }
 
 export interface TaskStore {
@@ -73,11 +77,12 @@ export class PgTaskStore implements TaskStore {
     // （flow 显式 role / tags 精确匹配——校验期已保证有路由依据）——assigned_role 从出生即确定，零抢票。
     const id = randomUUID();
     const assignedRole = this.routing?.assign({ id, tags: input.tags, payload: input.payload }) ?? null;
+    const tenantId = typeof input.tenantId === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(input.tenantId) ? input.tenantId : "default";
     const res = await this.pool.query(
-      `INSERT INTO tasks (id, title, text, created_by, tags, payload, template_id, assigned_role, job_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, tags, payload, template_id, assigned_role, job_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [id, input.title, input.text, input.createdBy, input.tags ?? [], input.payload ?? {}, input.templateId ?? null, assignedRole, input.jobId ?? null],
+      [id, tenantId, input.title, input.text, input.createdBy, input.tags ?? [], input.payload ?? {}, input.templateId ?? null, assignedRole, input.jobId ?? null],
     );
     return mapRow(res.rows[0]);
   }
@@ -220,5 +225,6 @@ function mapRow(row: any): Task {
     created_at: row.created_at,
     payload: row.payload,
     assigned_role: row.assigned_role ?? null,
+    tenantId: typeof row.tenant_id === "string" ? row.tenant_id : "default",
   };
 }

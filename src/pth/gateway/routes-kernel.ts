@@ -107,6 +107,8 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   app.post("/api/v1/kernel/tasks", async (req, reply) => {
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
+    // P0-3：tenant 只能来自服务器端认证身份；body 不允许覆盖
+    const tenantId = (req as unknown as { auth?: { tenantId?: string } }).auth?.tenantId ?? "default";
 
     // 模板发布：{template, params} → 渲染任务 text
     if (typeof body.template === "string") {
@@ -127,6 +129,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
         createdBy: typeof body.createdBy === "string" ? body.createdBy : "ptl",
         tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : [tpl.roleTag],
         payload: { template: body.template, params },
+        tenantId,
       });
       return reply.status(201).send(task);
     }
@@ -146,7 +149,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     // payload 透传（任务链 flow 声明等路由信息——发布时 payload 即任务自带路由）
     // body.flow 顶层并入 payload（API 友好——flow 放顶层也能路由——routeTaskRole flowRole 读 payload.flow）
     const payload = { ...((body.payload ?? {}) as Record<string, unknown>), ...(body.flow ? { flow: body.flow } : {}) };
-    const task = await kernel.dataWorld.tasks.publish({ title, text, createdBy, tags, payload });
+    const task = await kernel.dataWorld.tasks.publish({ title, text, createdBy, tags, payload, tenantId });
     return reply.status(201).send(task);
   });
 

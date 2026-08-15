@@ -304,3 +304,43 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+describe("P0-3：任务发布的 tenant 只来自 auth token", () => {
+  it("publish 携带 req.auth.tenantId，body.tenant 无效", async () => {
+    const published: unknown[] = [];
+    const app = Fastify();
+    app.addHook("onRequest", async (req) => {
+      (req as unknown as { auth: unknown }).auth = { tenantId: "tenant-b", role: "tenant-agent" };
+    });
+    registerKernelRoutes(app, {
+      dataWorld: {
+        tasks: {
+          publish: async (input: Record<string, unknown>) => {
+            published.push(input);
+            return { id: "t-tenant", status: "pending", ...input };
+          },
+          candidates: async () => [],
+          countPending: async () => 0,
+        } as any,
+        memory: {} as any,
+        transcripts: {} as any,
+        audit: {} as any,
+      } as any,
+      pool: { query: async () => ({ rows: [] }) } as any,
+      batchManager: {
+        listBatches: async () => [],
+        isBatchAlive: () => false,
+      } as any,
+      watchdog: { getCrashLog: () => [] } as any,
+      shutdown: async () => {},
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/tasks",
+      payload: { title: "t", text: "x", createdBy: "user", tenant: "tenant-forged" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(published[0]).toMatchObject({ tenantId: "tenant-b" });
+    expect(published[0]).not.toMatchObject({ tenant: "tenant-forged" });
+  });
+});

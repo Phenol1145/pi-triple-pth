@@ -34,10 +34,10 @@ describe("task workspace", () => {
     await rm(base, { recursive: true, force: true });
   });
 
-  it("allocate creates task dir under base/tasks/<taskId>", async () => {
+  it("allocate creates task dir under base/<tenant>/tasks/<taskId>（P0-3 租户隔离）", async () => {
     const mgr = new DefaultTaskWorkspaceManager({ basePath: base, artifactPath: artifacts });
     const ws = await mgr.allocate("task-1");
-    expect(ws.dir).toBe(join(base, "tasks", "task-1"));
+    expect(ws.dir).toBe(join(base, "default", "tasks", "task-1"));
     expect(existsSync(ws.dir)).toBe(true);
     expect(ws.tenant).toBe("default");
   });
@@ -56,7 +56,7 @@ describe("task workspace", () => {
 
   it("archive is idempotent-safe for missing dir (throws gracefully)", async () => {
     const mgr = new DefaultTaskWorkspaceManager({ basePath: base, artifactPath: artifacts });
-    await expect(mgr.archive("task-ghost", join(base, "tasks", "task-ghost"))).rejects.toThrow();
+    await expect(mgr.archive("task-ghost", join(base, "default", "tasks", "task-ghost"))).rejects.toThrow();
   });
 });
 
@@ -68,7 +68,7 @@ describe("archive EXDEV fallback", () => {
     const path = await import("node:path");
     const wsRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "ws-xdev-"));
     const artRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "art-xdev-"));
-    const taskDir = path.join(wsRoot, "tasks", "t-xdev");
+    const taskDir = path.join(wsRoot, "default", "tasks", "t-xdev");
     await fsp.mkdir(taskDir, { recursive: true });
     await fsp.writeFile(path.join(taskDir, "payload.json"), "{}");
     const mgr = new DefaultTaskWorkspaceManager({ basePath: wsRoot, artifactPath: artRoot });
