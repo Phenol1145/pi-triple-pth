@@ -38,6 +38,8 @@ export interface KernelHostOptions {
   poolSize?: number;
   /** 共享密钥获取器（默认读 env SANDBOX_SHARED_SECRET——每次请求读取，测试可注入） */
   getSecret?: () => string | undefined;
+  /** PTH 记忆桥 Bearer token 获取器（默认读 env PTH_MEMORY_BRIDGE_TOKEN——controller-only，测试可注入） */
+  getBridgeToken?: () => string | undefined;
   onStderr?: (lang: string, line: string) => void;
 }
 
@@ -46,6 +48,7 @@ const VALID_LANGS: KernelLang[] = ["python", "bash"];
 /** 插件式注册：把 kernel 宿主路由挂到已有 Fastify app（sandbox main 与 exec API 同端口） */
 export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions = {}): void {
   const getSecret = opts.getSecret ?? (() => process.env.SANDBOX_SHARED_SECRET);
+  const getBridgeToken = opts.getBridgeToken ?? (() => process.env.PTH_MEMORY_BRIDGE_TOKEN);
   // 池容量：env PTH_KERNEL_POOL_SIZE 优先（compose 注入——需 >= 并发 worker 数），option 次之
   const envSize = Number(process.env.PTH_KERNEL_POOL_SIZE);
   const poolSize = opts.poolSize ?? (Number.isFinite(envSize) && envSize > 0 ? envSize : 4);
@@ -120,6 +123,8 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
 
   // ── ASP-5 记忆桥（2026-08-11）：sandbox 内 python 空间访问记忆——转发 PTH 桥端点
   //  （sandbox 无 PG 凭据/无出网——经 internal 网络回 PTH：pi-platform:3000）
+  //  P0-1（2026-08-15）：上游改用 PTH_MEMORY_BRIDGE_TOKEN（Redis Bearer token，含 tenant/space 声明）；
+  //  未配置 token 时 fail-closed 503——不再把 SANDBOX_SHARED_SECRET 当作业务 API 凭据转发。
   const pthBridgeUrl = (process.env.PTH_BRIDGE_URL ?? "http://pi-platform:3000").replace(/\/+$/, "");
   app.post("/kernel/memory-bridge", async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
@@ -128,10 +133,15 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       reply.code(400).send({ error: "op required: query|retrieve|get" });
       return;
     }
+    const bridgeToken = getBridgeToken();
+    if (!bridgeToken) {
+      reply.code(503).send({ error: "server misconfigured: PTH_MEMORY_BRIDGE_TOKEN not set" });
+      return;
+    }
     try {
       const res = await fetch(`${pthBridgeUrl}/api/v1/kernel/memory-bridge`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${getSecret() ?? ""}` },
+        headers: { "content-type": "application/json", authorization: `Bearer ${bridgeToken}` },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(35_000),
       });

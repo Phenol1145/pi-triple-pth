@@ -33,25 +33,27 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     reply.status(503).send(KERNEL_UNAVAILABLE);
 
   // ── ASP-5 记忆桥（2026-08-11）：sandbox python 空间访问记忆的 PTH 侧端点
-  //  认证：SANDBOX_SHARED_SECRET（与 sandbox 互信密钥——auth.ts 已豁免 redis token）
+  //  P0-1（2026-08-15）：不再使用 SANDBOX_SHARED_SECRET 互信，也不再豁免全局 Bearer 鉴权。
+  //  tenant 与 space 一律取自 Redis auth token 的声明（服务器端身份）；body 自报 space 一律拒绝。
   //  只读桥：query（queryReadOnly 白名单）/ retrieve / get；写仍留 ts 空间（含可见性盖章）
   app.post("/api/v1/kernel/memory-bridge", async (req, reply) => {
     if (!kernel) return unavailable(reply);
-    const header = req.headers.authorization ?? "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : header;
-    // H4 修复：密钥未配置时 fail-closed（拒绝）——不再使用公开默认值 sandbox-dev-secret
-    const secret = process.env.SANDBOX_SHARED_SECRET;
-    if (!secret) return reply.status(401).send({ error: "unauthorized: SANDBOX_SHARED_SECRET 未配置" });
-    if (token !== secret) return reply.status(401).send({ error: "unauthorized" });
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; space?: string } }).auth;
+    if (!auth?.tenantId || !auth.space) {
+      return reply.status(401).send({ error: "memory-bridge requires authenticated tenant + space claim" });
+    }
     const body = (req.body ?? {}) as { op?: string; sql?: string; anchors?: string[]; kinds?: string[]; id?: string; space?: string };
+    if (body.space !== undefined) {
+      return reply.status(400).send({ error: "space must be provided by the auth token, not the request body" });
+    }
     const { isVisible } = await import("@away_from/pth-memory");
-    const space = typeof body.space === "string" ? body.space : null;
-    const visible = (meta: Record<string, unknown> | undefined) => (space ? isVisible(meta, space) : true);
+    const space = auth.space;
+    const visible = (meta: Record<string, unknown> | undefined) => isVisible(meta, space);
     try {
       if (body.op === "query") {
         const rows = (await kernel.dataWorld.queryReadOnly(String(body.sql ?? ""))) as Array<Record<string, unknown> | null>;
         // 2026-08-15 筛查 H3：缺 meta 列的行无法判定可见性——fail-closed（不再默认公开）
-        if (space && rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
+        if (rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
           return reply.status(400).send({ error: "bridge query: 会话空间下查询必须包含 meta 列（可见性过滤依据）" });
         }
         return rows.filter((r) => visible(r!["meta"] as Record<string, unknown>));
@@ -321,7 +323,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     try {
       // sandbox 通信用共享密钥（SANDBOX_SHARED_SECRET——与 sandbox-kernel 同源——非业务 API token）
       const r = await fetch(`${sandboxUrl}/kernel/status`, {
-        headers: { authorization: `Bearer ${process.env.SANDBOX_SHARED_SECRET ?? "sandbox-dev-secret"}` },
+        headers: { authorization: `Bearer ${process.env.SANDBOX_SHARED_SECRET ?? ""}` },
         signal: AbortSignal.timeout(5000),
       });
       if (!r.ok) return reply.status(502).send({ error: "sandbox status failed", status: r.status });
