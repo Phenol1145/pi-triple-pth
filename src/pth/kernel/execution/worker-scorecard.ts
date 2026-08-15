@@ -29,6 +29,13 @@ export interface WorkerScorecard {
   timeReuse?: number | null;
   /** 数据缓存利用率（读入后是否使用——按字符量加权——2026-08-13 N3；与 token 缓存 cacheRead 严格区分——0.11） */
   cacheUtilization?: { loadedChars: number; usedChars: number; loadedEntries: number; usedEntries: number; ratio: number } | null;
+  /** D1：护栏观测（trace guard 事件聚合——命中/引导/软硬终止按护栏分账） */
+  guards: {
+    hits: Record<string, number>;
+    guide: Record<string, number>;
+    soft: Record<string, number>;
+    hard: Record<string, number>;
+  };
   /** 完成状态与警告（maxSteps/重复终止等） */
   finish?: { ok: boolean; warning?: string };
 }
@@ -70,6 +77,7 @@ export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {
     failedActions: 0,
     gatedActions: 0,
     aspNav: { cds: 0, indexes: 0 },
+    guards: { hits: {}, guide: {}, soft: {}, hard: {} },
   };
   for (const e of events) {
     if (e.type === "llm-call") {
@@ -88,6 +96,11 @@ export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {
         sc.failedActions++;
         if (e.resultPreview.includes("门控")) sc.gatedActions++;
       }
+    } else if (e.type === "guard") {
+      sc.guards.hits[e.guard] = (sc.guards.hits[e.guard] ?? 0) + 1;
+      if (e.kind === "guide") sc.guards.guide[e.guard] = (sc.guards.guide[e.guard] ?? 0) + 1;
+      if (e.kind === "soft") sc.guards.soft[e.guard] = (sc.guards.soft[e.guard] ?? 0) + 1;
+      if (e.kind === "hard") sc.guards.hard[e.guard] = (sc.guards.hard[e.guard] ?? 0) + 1;
     } else if (e.type === "finish") {
       sc.steps = e.steps;
       sc.finish = { ok: e.ok, ...(e.warning ? { warning: e.warning } : {}) };

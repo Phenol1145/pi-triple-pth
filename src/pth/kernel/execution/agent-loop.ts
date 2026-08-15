@@ -90,6 +90,7 @@ export type AgentTraceEvent =
   | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string; usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number } }
   | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
   | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string }
+  | { type: "guard"; step: number; guard: "repeat-action" | "empty-done" | "empty-reply" | "unknown-tool" | "negative-loop"; kind: "hit" | "guide" | "soft" | "hard"; count: number; limit: number }
   | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string };
 
 export type AgentTaskResult =
@@ -540,6 +541,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     }
     // 空回复（deepseek-v4-flash 已知问题）——重试而非完成（连续 N 次判失败——N12 护栏）
     const ev = emptyReplyGuard.step({ roleId: input.role?.id, tool: "(empty-reply)", steps: steps + 1 }, true);
+    if (ev.kind !== "none") input.onTrace?.({ type: "guard", step: steps + 1, guard: "empty-reply", kind: ev.kind, count: ev.count, limit: ev.limit });
     if (ev.kind === "hard") return { ok: false, error: "llm 连续空回复（无 tool_calls 无文本）", steps: steps + 1 };
     continue;
   }
@@ -559,6 +561,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     const fpHit = fp === lastFingerprint;
     if (!fpHit) lastFingerprint = fp;
     const rv = repeatGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, fpHit);
+    if (rv.kind !== "none") input.onTrace?.({ type: "guard", step: steps + 1, guard: "repeat-action", kind: rv.kind, count: rv.count, limit: rv.limit });
     if (rv.kind === "soft") {
       return { ok: true, value: null, steps: steps + 1, warning: `连续 ${rv.count} 次重复动作（${tool}），强制终止` };
     }
@@ -699,6 +702,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       if (isEmptyResult) {
         // 收尾引导（L2 运行时引导——不再立即 reject——回填引导让模型重新提交正确产物）
         const dv = emptyDoneGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, true);
+        input.onTrace?.({ type: "guard", step: steps + 1, guard: "empty-done", kind: dv.kind === "hard" ? "hard" : "hit", count: dv.count, limit: dv.limit });
         const guide = result === undefined || result === null
           ? "done 缺少 result（必填）——已拒绝：你的 done 调用未携带最终产出对象。请重新调用 done：result 必须为实际产物（实现代码/写入的文件/计算结果等任意 JSON），可附带 summary 说明完成情况。"
           : "done 的 result 为空（无实际产物内容）——已拒绝：空对象/空数组/空字符串不构成产物。请重新调用 done：result 必须为实际产物（实现代码/写入的文件/计算结果等任意 JSON），可附带 summary 说明完成情况。";
@@ -768,6 +772,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       // 未知工具回填引导（2026-08-13：不再直接失败——给模型纠错机会——
       // 模型幻觉工具名（write_doc）时引导正确工具名——连续 N 次才终止（N12 护栏））
       const uv = unknownToolGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, true);
+      input.onTrace?.({ type: "guard", step: steps + 1, guard: "unknown-tool", kind: uv.kind === "hard" ? "hard" : "hit", count: uv.count, limit: uv.limit });
       const knownNames = Object.keys(AGENT_TOOLS).filter((n) => n !== "done");
       const hint = knownNames.slice(0, 12).join("/");
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
@@ -826,6 +831,9 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       // 2026-08-14 T5 侦察豁免进豁免矩阵（N12）——guardReg.exempt("negative-loop") 声明式判定
       const reconExempt = guardReg.exempt("negative-loop", { roleId: input.role?.id, tool, steps: steps + 1 });
       const loopCheck = negativeLoopCheck(recentResults, fam, tgt, neg, !reconExempt, negLimits.terminate, negLimits.guideAt);
+      if (loopCheck.action !== "none") {
+        input.onTrace?.({ type: "guard", step: steps + 1, guard: "negative-loop", kind: loopCheck.action === "terminate" ? "soft" : "guide", count: loopCheck.count, limit: negLimits.terminate });
+      }
       // 2026-08-15 审计 MEDIUM-1：引导与真实结果必须合并进同一条 tool 消息——
       // 同一 toolCallId 两条 tool 消息会被 llm-fn first-wins 去重，引导从未到达模型
       const guideSuffix = loopCheck.action === "guide"
