@@ -176,6 +176,26 @@ describe("管理 SDK——obs 观测面扩展", () => {
     }
   });
 
+  it("obs.resource：资源环聚合（container+pg+storage+batches）", async () => {
+    const seen: string[] = [];
+    const ctx = fakeCtx({
+      dataWorld: {
+        memory: { write: async () => ({ ok: true }), get: async () => null, update: async () => ({ ok: true }), retrieve: async () => [] },
+        queryReadOnly: async () => [],
+        pgStat: async (v: string) => { seen.push(v); return [{ v }]; },
+      },
+    });
+    const ext = buildExtensions(ctx);
+    const obs = (ext.capabilities as Record<string, unknown>)["obs"] as Record<string, unknown>;
+    const resource = obs["resource"] as () => Promise<Record<string, unknown>>;
+    const r = await resource();
+    expect(r.pg).toHaveProperty("slow");
+    expect(seen).toEqual(["activity", "database", "slow"]);
+    expect(r.container).toHaveProperty("available");
+    expect(r.storage).toHaveProperty("compiledCacheBytes");
+    expect(r.batches).toBeDefined();
+  });
+
   it("runReadOnlyPgView：固定模板执行（fake pool）", async () => {
     const pool = {
       query: vi.fn(async () => ({ rows: [{ state: "active", n: 2 }] })),

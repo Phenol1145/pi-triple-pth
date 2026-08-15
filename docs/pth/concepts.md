@@ -1017,7 +1017,7 @@ v0.9（动作面/权限/任务池纯化）
 | N2 | skill 记忆类型（工作流 SOP 一等化） | 0.9 · 0.13 · 域 B | Phase 1 已落（2026-08-15——四段式格式模板 `skill-format.ts` + 3 条角色 SOP 种子注入）；Phase 2 检索面已落（`skills.list/get` 两级）；Phase 3 已落核心（skills.maintain 仅 memory-keeper + store 层 skill 不可变），staged 审核流/controller:adversarial 待建；Phase 4 SKILL.md→条目映射已定稿（`parseSkillMarkdown`） | 不可变知识条目（B4-1）· 0.13 外部 skill 映射（Phase 4） | 🏗️ 建设中 |
 | N3 | 数据缓存使用追踪（cacheUtilization） | 0.12 · 域 E/域 D | ✅ 已实装（2026-08-13——get 命中标记 used→utilization()→scorecard+聚合快照+cache-waste 热点+sensor 观测维度；测试 10 全绿） | scorecard 新指标 · sensor 观测（数据流效率） | ✅ 已实装 |
 | N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 分支 ✅（`importSkillMarkdown`：SKILL.md→四段式→维护面写入；staged 分支落提案）；MCP 无 | ext-registry（agent-reach 已验证） | ⚠️ 部分（skill ✅ / MCP ❌） |
-| N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | L3 容器级全缺；L2 worker 健康/DB 慢查询缺 | controller:resource 角色已有 | ❌ 未实装 |
+| N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | ✅ 已落（2026-08-15——`obs.resource()`：container cgroup + pg activity/database/slow + storage + batches；`pgStat` 新增慢查询视图） | controller:resource 角色已有 | ✅ 已落 |
 | N6 | 复测（verify）一等化 | 0.7.2 · 域 D | ~~verifyAfterWindow 标志已有；独立复测任务未一等化~~ ✅ 已实装（2026-08-14 B2）：apply 派发独立复测任务（受控复现）→ 证据三通道结算（verify-task＞organic＞global）→ 超时零进展 verify_expired 诚实闭合 + 独立巡检定时器 | optimizer-apply baseline/deopt | ✅ 已实装 |
 | N7 | 记忆归档执行 | 0.9 · 域 B | ✅ 已实装（2026-08-14 T7 执行端 + 2026-08-15 B1 定期触发：`memory-sweep-trigger.ts` 默认每天巡检，提案经监督批准） | sensor:memory / controller:memory 已有 | ✅ 已实装 |
 | N8 | 空间-角色绑定治理 | 0.10.2 · 域 C | T6 裁决定模型 + 2026-08-14 概念修订（空间 = worker 拓扑派生结构，生成即绑定）：绑定校验 = bindRoles 注册事实（生成必填）+ asp.cd 进入校验（谱系上溯）+ 空间工具族归属；空间生成走治理通道（spaceRegistry.createChild/unregister）——worker 工具面 asp.create/destroy 退役 | 治理 v2 承接 | ✅ 已实装（2026-08-14 B6——`1e6d785`/`7e0380d`） |

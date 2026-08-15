@@ -36,6 +36,66 @@ function searchSql(opts: Record<string, unknown>): string {
   return `SELECT id, created_at FROM transcripts WHERE body::text ILIKE '%${esc}%' ORDER BY created_at DESC LIMIT ${limit}`;
 }
 
+/** 容器级 cgroup v2 观测（B7 / N5 资源环数据源） */
+async function collectContainer(): Promise<unknown> {
+  const read = async (p: string): Promise<string | null> => {
+    try {
+      return (await (await import("node:fs/promises")).readFile(p, "utf8")).trim();
+    } catch {
+      return null;
+    }
+  };
+  const base = "/sys/fs/cgroup";
+  const cpuMax = await read(`${base}/cpu.max`);
+  const memCurrent = await read(`${base}/memory.current`);
+  const memMax = await read(`${base}/memory.max`);
+  const pidsCurrent = await read(`${base}/pids.current`);
+  const pidsMax = await read(`${base}/pids.max`);
+  const usageUsec = await read(`${base}/cpu.stat`);
+  if (cpuMax === null && memCurrent === null) return { available: false, note: "非容器 cgroup v2 环境（无 /sys/fs/cgroup 指标）" };
+  const [quota, period] = cpuMax?.split(/\s+/).map(Number) ?? [NaN, NaN];
+  const cpuSec = usageUsec?.split("\n")[0]?.split(/\s+/)[1];
+  const mb = (v: string): number | null => (v && v !== "max" ? Math.round(Number(v) / 1024 / 1024) : null);
+  return {
+    available: true,
+    hostname: (await import("node:os")).hostname(),
+    cpu: {
+      quotaCores: Number.isFinite(quota) && quota > 0 && period > 0 ? quota / period : null,
+      periodUs: period,
+      usageUs: cpuSec ? Number(cpuSec) : null,
+    },
+    memory: { currentMb: mb(memCurrent ?? ""), maxMb: memMax === "max" ? null : mb(memMax ?? ""), unlimited: memMax === "max" },
+    pids: { current: pidsCurrent ? Number(pidsCurrent) : null, max: pidsMax && pidsMax !== "max" ? Number(pidsMax) : null },
+  };
+}
+
+/** 存储占用（B7 / N5 资源环数据源） */
+async function collectStorage(): Promise<unknown> {
+  try {
+    const { execFile } = await import("node:child_process");
+    const df = await new Promise<string>((resolve) => {
+      execFile("df", ["-h", "/data", "/"], { timeout: 5000 }, (err, stdout) => resolve(err ? "" : stdout));
+    });
+    const cacheDir = process.env.PTH_COMPILED_CACHE_DIR ?? "/data/compiled-cache/c";
+    let cacheBytes = 0;
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (depth > 3) return;
+      const entries = await (await import("node:fs/promises")).readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const e of entries) {
+        if (e.isDirectory()) await walk(`${dir}/${e.name}`, depth + 1);
+        else if (e.isFile()) {
+          const st = await (await import("node:fs/promises")).stat(`${dir}/${e.name}`).catch(() => null);
+          if (st) cacheBytes += st.size;
+        }
+      }
+    };
+    await walk(cacheDir, 0);
+    return { df: df.split("\n").filter(Boolean).slice(0, 6), compiledCacheDir: cacheDir, compiledCacheBytes: cacheBytes };
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 export const obsExtension: TsReplExtension = {
   id: "obs",
   provide: (ctx: ExtContext) => ({
@@ -71,41 +131,16 @@ export const obsExtension: TsReplExtension = {
       /** PG 系统视图（固定模板白名单——pgStat 通道：连接状态/缓存命中/后台写） */
       pg: async (opts: Record<string, unknown> = {}) => {
         const view = str(opts["view"], "activity");
-        if (!["activity", "database", "bgwriter"].includes(view)) return { error: `obs.pg: 未知视图 "${view}"（activity/database/bgwriter）` };
+        if (!["activity", "database", "bgwriter", "slow"].includes(view)) return { error: `obs.pg: 未知视图 "${view}"（activity/database/bgwriter/slow）` };
         try {
-          return await ctx.dataWorld.pgStat(view as "activity" | "database" | "bgwriter");
+          return await ctx.dataWorld.pgStat(view as "activity" | "database" | "bgwriter" | "slow");
         } catch (e) {
           return { error: (e as Error).message };
         }
       },
 
       /** 存储占用（df 概览 + compiled-cache 目录用量——容器内文件系统视角） */
-      storage: async () => {
-        try {
-          const { execFile } = await import("node:child_process");
-          const df = await new Promise<string>((resolve) => {
-            execFile("df", ["-h", "/data", "/"], { timeout: 5000 }, (err, stdout) => resolve(err ? "" : stdout));
-          });
-          // compiled-cache 用量（有限深度遍历——防大目录递归失控）
-          const cacheDir = process.env.PTH_COMPILED_CACHE_DIR ?? "/data/compiled-cache/c";
-          let cacheBytes = 0;
-          const walk = async (dir: string, depth: number): Promise<void> => {
-            if (depth > 3) return;
-            const entries = await (await import("node:fs/promises")).readdir(dir, { withFileTypes: true }).catch(() => []);
-            for (const e of entries) {
-              if (e.isDirectory()) await walk(`${dir}/${e.name}`, depth + 1);
-              else if (e.isFile()) {
-                const st = await (await import("node:fs/promises")).stat(`${dir}/${e.name}`).catch(() => null);
-                if (st) cacheBytes += st.size;
-              }
-            }
-          };
-          await walk(cacheDir, 0);
-          return { df: df.split("\n").filter(Boolean).slice(0, 6), compiledCacheDir: cacheDir, compiledCacheBytes: cacheBytes };
-        } catch (e) {
-          return { error: (e as Error).message };
-        }
-      },
+      storage: collectStorage,
 
       /** 记忆空间质量聚合（memory_entries 只读统计——kind/status 分布/hit_count/重复度） */
       memory: async () => {
@@ -199,44 +234,21 @@ export const obsExtension: TsReplExtension = {
        *  CPU：cpu.max（quota/period——容器核数限额）、cpu.stat（usage_usec 累计）
        *  内存：memory.current/max（max="max"=无限制）· pids.current/max
        *  非容器环境（无 cgroup 文件）降级返回 { available: false }——不报错 */
-      container: async () => {
-        const read = async (p: string): Promise<string | null> => {
-          try {
-            return (await (await import("node:fs/promises")).readFile(p, "utf8")).trim();
-          } catch {
-            return null;
-          }
-        };
-        const base = "/sys/fs/cgroup";
-        const cpuMax = await read(`${base}/cpu.max`);
-        const memCurrent = await read(`${base}/memory.current`);
-        const memMax = await read(`${base}/memory.max`);
-        const pidsCurrent = await read(`${base}/pids.current`);
-        const pidsMax = await read(`${base}/pids.max`);
-        const usageUsec = await read(`${base}/cpu.stat`);
-        if (cpuMax === null && memCurrent === null) return { available: false, note: "非容器 cgroup v2 环境（无 /sys/fs/cgroup 指标）" };
-        const [quota, period] = cpuMax?.split(/\s+/).map(Number) ?? [NaN, NaN];
-        const cpuSec = usageUsec?.split("\n")[0]?.split(/\s+/)[1]; // usage_usec
-        const mb = (v: string): number | null => (v && v !== "max" ? Math.round(Number(v) / 1024 / 1024) : null);
-        return {
-          available: true,
-          hostname: (await import("node:os")).hostname(),
-          cpu: {
-            quotaCores: Number.isFinite(quota) && quota > 0 && period > 0 ? quota / period : null,
-            periodUs: period,
-            usageUs: cpuSec ? Number(cpuSec) : null,
-          },
-          memory: {
-            currentMb: mb(memCurrent ?? ""),
-            maxMb: memMax === "max" ? null : mb(memMax ?? ""),
-            unlimited: memMax === "max",
-          },
-          pids: {
-            current: pidsCurrent ? Number(pidsCurrent) : null,
-            max: pidsMax && pidsMax !== "max" ? Number(pidsMax) : null,
-          },
-        };
-      },
+      container: collectContainer,
+
+      /** B7 / N5 资源环聚合：一次采集 controller:resource 需要的全部 L2/L3 数据源
+       *  （容器 cgroup + PG 连接/缓存/慢查询 + 存储 + 批次健康）。 */
+      resource: async () => ({
+        collectedAt: Date.now(),
+        container: await collectContainer(),
+        pg: {
+          activity: await ctx.dataWorld.pgStat("activity"),
+          database: await ctx.dataWorld.pgStat("database"),
+          slow: await ctx.dataWorld.pgStat("slow"),
+        },
+        storage: await collectStorage(),
+        batches: await requestMain("batches").catch(() => ({ error: "main IPC unavailable" })),
+      }),
 
       /** 事件检索（pg transcripts——queryTemplate 受信模板通道：A2 Phase 4） */
       search: async (opts: Record<string, unknown> = {}) => {
@@ -249,5 +261,5 @@ export const obsExtension: TsReplExtension = {
     },
   }),
   doc: `- obs: 可监控数据调查——obs.tasks({status?, role?, since?, limit?}) 任务池状态分布/耗时；obs.metrics({pattern?}) 主进程指标（pth_* 系列）；obs.batches() 批次状态；obs.kernels() sandbox 内核池（inFlight/idle/容量）；obs.search({query?, limit?}) 事件检索（transcripts）；
-  obs.pg({view}) PG 系统视图（activity/database/bgwriter——连接/缓存命中）；obs.storage() 存储占用（df + compiled-cache）；obs.memory() 记忆质量聚合（kind/status/hit_count）；obs.callpoint({role?, since?}) 调用点统计（task-scorecard 按角色聚合——sensor 内环数据源）；obs.container() 容器级 cgroup 观测（cpu 核数限额/内存用量/pids——非容器环境降级 {available:false}）`,
+  obs.pg({view}) PG 系统视图（activity/database/bgwriter/slow——连接/缓存/后台写/慢查询）；obs.storage() 存储占用（df + compiled-cache）；obs.memory() 记忆质量聚合（kind/status/hit_count）；obs.callpoint({role?, since?}) 调用点统计（task-scorecard 按角色聚合——sensor 内环数据源）；obs.container() 容器级 cgroup 观测；obs.resource() 资源环聚合（container+pg+storage+batches——controller:resource 数据源）`,
 };

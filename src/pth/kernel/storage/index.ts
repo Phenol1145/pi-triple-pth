@@ -25,7 +25,7 @@ export interface DataWorldAccess {
    *  开放 tasks/transcripts 只读面——与 queryReadOnly 的 memory-only 面分开（非 LLM 输入面） */
   queryTemplate(sql: string): Promise<unknown>;
   /** PG 系统视图（obs.pg——2026-08-12 管理 SDK）：固定 SQL 模板白名单——无用户 SQL 注入面 */
-  pgStat(view: "activity" | "database" | "bgwriter"): Promise<unknown>;
+  pgStat(view: "activity" | "database" | "bgwriter" | "slow"): Promise<unknown>;
 }
 
 export function createDataWorld(pool: pg.Pool, routing?: import("./task-store-pg.js").TaskRouting): DataWorldAccess {
@@ -42,7 +42,7 @@ export function createDataWorld(pool: pg.Pool, routing?: import("./task-store-pg
 
 /** PG 系统视图白名单（obs.pg——2026-08-12 管理 SDK sensor 面）。
  * 固定 SQL 模板（非用户输入）——观测连接数/缓存命中/后台写。 */
-const PG_STAT_VIEWS: Record<"activity" | "database" | "bgwriter", string> = {
+const PG_STAT_VIEWS: Record<"activity" | "database" | "bgwriter" | "slow", string> = {
   activity: `SELECT state, wait_event_type, count(*) AS n
     FROM pg_stat_activity WHERE datname = current_database() GROUP BY state, wait_event_type ORDER BY n DESC LIMIT 20`,
   database: `SELECT datname, numbackends, xact_commit, xact_rollback, blks_read, blks_hit,
@@ -50,11 +50,17 @@ const PG_STAT_VIEWS: Record<"activity" | "database" | "bgwriter", string> = {
     FROM pg_stat_database WHERE datname = current_database()`,
   bgwriter: `SELECT checkpoints_timed, checkpoints_req, buffers_checkpoint, buffers_clean, maxwritten_clean
     FROM pg_stat_bgwriter`,
+  // N5 资源环：长运行/慢查询观测（active >5s——sensor:resource 数据源）
+  slow: `SELECT pid, state, now() - query_start AS elapsed, left(query, 200) AS query
+    FROM pg_stat_activity
+    WHERE datname = current_database() AND state = 'active' AND query_start IS NOT NULL
+      AND now() - query_start > interval '5 seconds'
+    ORDER BY query_start LIMIT 20`,
 };
 
-export async function runReadOnlyPgView(pool: pg.Pool, view: "activity" | "database" | "bgwriter"): Promise<unknown> {
+export async function runReadOnlyPgView(pool: pg.Pool, view: "activity" | "database" | "bgwriter" | "slow"): Promise<unknown> {
   const sql = PG_STAT_VIEWS[view];
-  if (!sql) throw new Error(`pgStat: 未知视图 "${String(view)}"（activity/database/bgwriter）`);
+  if (!sql) throw new Error(`pgStat: 未知视图 "${String(view)}"（activity/database/bgwriter/slow）`);
   const res = await pool.query(sql);
   return res.rows;
 }
