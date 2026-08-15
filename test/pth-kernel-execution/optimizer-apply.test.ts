@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { applyOptimizerSuggestion, extractRuleLine } from "../../src/pth/kernel/execution/optimizer-apply.js";
-import type { PgMemoryStore } from "../../src/pth/kernel/storage/memory-store-pg.js";
+import type { PgMemoryStore } from "@away_from/pth-memory";
 
 /** 内存 fake store（get/update 语义对齐 PgMemoryStore） */
 /** 每个测试独立建议对象（防共享对象状态污染——update 会改引用） */

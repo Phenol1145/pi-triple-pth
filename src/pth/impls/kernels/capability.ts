@@ -1,12 +1,12 @@
 import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
-import type { Interpreter } from "../../kernel/interpreter/types.js";
+import type { Interpreter } from "@away_from/pth-sandbox";
 import type { DataWorldAccess } from "../../kernel/storage/index.js";
-import type { PgMemoryStore } from "../../kernel/storage/memory-store-pg.js";
+import type { PgMemoryStore } from "@away_from/pth-memory";
 import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
 import { wrapValidated } from "../../kernel/ptc/contract.js";
-import { isVisible } from "../../kernel/execution/memory-visibility.js";
+import { isVisible } from "@away_from/pth-memory";
 import { isIP } from "node:net";
 
 /** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */

@@ -1,6 +1,4 @@
 import type { ModelRouter } from "@away_from/infra";
-import type { DataWorldAccess } from "../storage/index.js";
-import type { LlmFn } from "./llm-fn.js";
 
 export interface ExecuteOptions {
   timeoutMs?: number;
@@ -153,8 +151,10 @@ export interface WorkerKernel {
   /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels（ext.kernel 注册）经此执行——
    *  可选（普通版 createWorkerKernel 无 extra kernels——不提供） */
   execute?(language: string, program: string, opts?: ExecuteOptions): Promise<InterpreterResult>;
-  llm: LlmFn;
-  dataWorld: DataWorldAccess;
+  /** 装配产物（llm 函数 / 数据世界）——类型由消费方在装配点约束（核心注入 LlmFn/DataWorldAccess；
+   *  契约包不 import PTH core，避免沙箱包 → core 依赖） */
+  llm: unknown;
+  dataWorld: unknown;
   /** 聚合快照（T4 refine 输入）：ts + python + bash 三 kernel 状态 */
   snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
@@ -164,9 +164,9 @@ export interface WorkerKernel {
   abort?(): Promise<void>;
 }
 
-export interface WorkerKernelDeps {
+export interface WorkerKernelDeps<D = unknown> {
   modelRouter: ModelRouter;
-  dataWorld: DataWorldAccess;
+  dataWorld: D;
   sandbox?: { exec(req: any, signal?: AbortSignal): Promise<any> };
   pythonBin?: string;
 }

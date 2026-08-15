@@ -9,7 +9,7 @@
  * 输出纪律：每层 ≤ ~1.9KB（单层永远可读完）。
  */
 
-import { layerOfKind } from "../extensions/memory-policy.js";
+import { layerOfKind } from "./memory-policy.js";
 import { isVisible } from "./memory-visibility.js";
 
 const MAX_LAYER_CHARS = 1900;

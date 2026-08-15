@@ -5,8 +5,8 @@
  */
 
 import type { TsReplExtension } from "./types.js";
-import { checkWrite, checkUpdate, normalizeWriteArgs } from "./memory-policy.js";
-import { checkVisibilityDeclaration, stampScope, isVisible } from "../execution/memory-visibility.js";
+import { checkWrite, checkUpdate, normalizeWriteArgs } from "@away_from/pth-memory";
+import { checkVisibilityDeclaration, stampScope, isVisible } from "@away_from/pth-memory";
 import { spaceRegistry } from "../execution/space-registry.js";
 
 /**

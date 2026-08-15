@@ -9,7 +9,7 @@
  * 指南内容：源码布局/关键文件/修改流程/不变量。注入幂等（同 content 覆盖）。
  */
 
-import type { PgMemoryStore } from "./storage/memory-store-pg.js";
+import type { PgMemoryStore } from "@away_from/pth-memory";
 
 export const SELF_MODIFY_GUIDE = `# PTH 自修改指南（v1——单步修改）
 

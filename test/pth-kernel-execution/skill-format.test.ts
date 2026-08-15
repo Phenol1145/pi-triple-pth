@@ -4,7 +4,7 @@ import {
   SKILL_SOP_TEMPLATE,
   buildSkillContent,
   SEED_SKILL_SOPS,
-} from "../../src/pth/kernel/skill-format.js";
+} from "@away_from/pth-memory";
 
 describe("skill 四段式格式（B4 Phase 1 / W1）", () => {
   it("格式模板含四段：场景锚点 / Procedure / Pitfalls / Verification", () => {

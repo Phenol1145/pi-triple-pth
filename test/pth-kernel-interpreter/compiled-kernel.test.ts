@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CCompiledKernel } from "../../src/pth/impls/kernels/compiled-kernel.js";
+import { CCompiledKernel } from "@away_from/pth-sandbox";
 
 /**
  * C 编译核（CompiledKernel——编译-运行管道 + sha256 增量缓存）。

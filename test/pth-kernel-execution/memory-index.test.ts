@@ -1,6 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { buildMemoryIndex } from "../../src/pth/kernel/execution/memory-index.js";
-import { isVisible, scopeOf, checkVisibilityDeclaration, stampScope, isDescendantOrSelf } from "../../src/pth/kernel/execution/memory-visibility.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { buildMemoryIndex } from "@away_from/pth-memory";
+import { isVisible, scopeOf, checkVisibilityDeclaration, stampScope, isDescendantOrSelf } from "@away_from/pth-memory";
+import { installDefaultRoles } from "../helpers";
+
+beforeEach(() => installDefaultRoles());
 
 const ENTRIES = [
   { id: "e1", kind: "task-insight", anchors: ["auth", "login"], content: "认证模块洞察：token 刷新逻辑在…", meta: { spaceScope: { space: "meta", visibility: "public" } } },

@@ -10,16 +10,16 @@
  */
 import type { ModelRouter } from "@away_from/infra";
 import type { DataWorldAccess } from "../../kernel/storage/index.js";
-import type { InterpreterSnapshot } from "../../kernel/interpreter/types.js";
+import type { InterpreterSnapshot } from "@away_from/pth-sandbox";
 import { TsInterpreter } from "./ts-interpreter.js";
-import { BashInterpreter } from "./bash-interpreter.js";
+import { BashInterpreter } from "@away_from/pth-sandbox";
 import { PythonInterpreter } from "./python-interpreter.js";
 import { createLlmFn, type LlmFn } from "../../kernel/interpreter/llm-fn.js";
 import { buildCapabilities } from "./capability.js";
 import type { Interpreter, InterpreterResult, WorkerKernel, WorkerKernelDeps } from "../../kernel/interpreter/index.js";
 
 /** 一个 worker = 三解释器 + llm 函数 + 数据世界连接（Spec B 消费——2026-08-12 分层移入实现层） */
-export function createWorkerKernel(deps: WorkerKernelDeps): WorkerKernel {
+export function createWorkerKernel(deps: WorkerKernelDeps<DataWorldAccess>): WorkerKernel {
   const llm = createLlmFn({ modelRouter: deps.modelRouter });
   const bash = new BashInterpreter({ sandbox: deps.sandbox ?? { exec: async () => ({ ok: false, stdout: "", stderr: "sandbox not configured", exitCode: 1, durationMs: 0 }) } });
   const python = new PythonInterpreter({ pythonBin: deps.pythonBin });

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { ExecuteOptions, Interpreter, InterpreterResult } from "../../kernel/interpreter/types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult } from "@away_from/pth-sandbox";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
 

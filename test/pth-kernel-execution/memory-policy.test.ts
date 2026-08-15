@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { layerOfKind, checkWrite, checkUpdate, normalizeWriteArgs } from "../../src/pth/kernel/extensions/memory-policy.js";
+import { layerOfKind, checkWrite, checkUpdate, normalizeWriteArgs } from "@away_from/pth-memory";
 import { memoryExtension } from "../../src/pth/kernel/extensions/memory.js";
 
 describe("memory-policy 层分类（layerOfKind）", () => {

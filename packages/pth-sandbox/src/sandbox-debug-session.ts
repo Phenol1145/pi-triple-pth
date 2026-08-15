@@ -11,7 +11,7 @@
 
 import type {
   DebugSession, DebugBreakpoint, DebugStopped, DebugStackFrame, DebugVariable, DebugEvent, DebugSnapshot,
-} from "../../kernel/interpreter/types.js";
+} from "./kernel/interpreter/types.js";
 
 export interface SandboxDebugSessionOptions {
   /** sandbox 宿主 base URL（如 http://sandbox:8080） */

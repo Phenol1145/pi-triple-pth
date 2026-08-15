@@ -67,7 +67,7 @@
     },
     "sandbox": {
       "build": ".",
-      "dockerfile": "Dockerfile.sandbox",
+      "dockerfile": "packages/pth-sandbox/Dockerfile.sandbox",
       "env": {
         "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:-sandbox-dev-secret}",
         "LOG_LEVEL": "info",

@@ -13,8 +13,8 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { PTH_MEMORY_LIB_B64 } from "./pth-memory-lib.js";
-import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
+import { PTH_MEMORY_LIB_B64 } from "@away_from/pth-memory";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
 const DEFAULT_MAX_STDOUT = 2 * 1024;

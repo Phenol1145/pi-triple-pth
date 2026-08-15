@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { SandboxCompiledKernel } from "../../src/pth/impls/kernels/sandbox-compiled-kernel.js";
+import { SandboxCompiledKernel } from "@away_from/pth-sandbox";
 
 describe("SandboxCompiledKernel（编译核 sandbox 适配器）", () => {
   it("execute 转发 /kernel/compiled（Bearer 认证 + 代码体）", async () => {

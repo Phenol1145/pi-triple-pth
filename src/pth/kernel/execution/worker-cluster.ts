@@ -1,4 +1,4 @@
-import type { WorkerKernel } from "../interpreter/types.js";
+import type { WorkerKernel } from "@away_from/pth-sandbox";
 import { tagRegistry } from "./tag-registry.js";
 // 内置角色谱系（具体实现层——2026-08-12 分层：核心机制与本文件消费 impls 数据）
 // 内置角色数据由装配层注入（2026-08-13 审计 P2——核心不再 import 实现层——见 setDefaultRoles）

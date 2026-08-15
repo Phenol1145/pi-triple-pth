@@ -1,0 +1,23 @@
+{
+  "name": "@away_from/pth-sandbox",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "Dockerfile.sandbox"
+  ],
+  "dependencies": {
+    "@away_from/infra": "file:../infra",
+    "@away_from/pth-memory": "file:../pth-memory",
+    "@sinclair/typebox": "^0.34.52",
+    "fastify": "^5.0.0"
+  }
+}

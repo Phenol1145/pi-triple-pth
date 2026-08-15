@@ -8,7 +8,7 @@ import {
   SandboxForwardError,
   SANDBOX_ERROR_UNAVAILABLE,
   SANDBOX_ERROR_TIMEOUT,
-} from "../../src/pth/tools/sandbox-bash.js";
+} from "@away_from/pth-sandbox";
 import { registerSelfRoutes } from "../../src/pth/gateway/routes-self.js";
 
 /**

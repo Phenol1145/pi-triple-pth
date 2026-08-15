@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { BashKernel } from "../../src/pth/impls/kernels/bash-kernel";
+import { BashKernel } from "@away_from/pth-sandbox";
 
 describe("BashKernel（持久 shell 会话）", () => {
   let k: BashKernel;
@@ -66,7 +66,7 @@ describe("BashKernel（持久 shell 会话）", () => {
 
 describe("记忆库 seed（2026-08-11 库化）", () => {
   it("memory_query/memory_get 函数已定义（spawn 时注入）", async () => {
-    const { BashKernel } = await import("../../src/pth/impls/kernels/bash-kernel.js");
+    const { BashKernel } = await import("@away_from/pth-sandbox");
     const k = new BashKernel();
     const r = await k.execute("type memory_query | head -1; type memory_get | head -1");
     expect(r.stdout).toContain("memory_query is a function");

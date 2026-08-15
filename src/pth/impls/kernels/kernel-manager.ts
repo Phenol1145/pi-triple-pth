@@ -10,14 +10,14 @@
  *   - 超时 kill + 冷备补位（由 PyKernel/BashKernel 内部实现）
  */
 
-import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "@away_from/pth-sandbox";
 import { TsInterpreter } from "./ts-interpreter.js";
 import { PythonInterpreter } from "./python-interpreter.js";
-import { BashInterpreter } from "./bash-interpreter.js";
-import { PyKernel } from "./py-kernel.js";
-import { BashKernel } from "./bash-kernel.js";
-import { SandboxKernel } from "./sandbox-kernel.js";
-import { SandboxCompiledKernel } from "./sandbox-compiled-kernel.js";
+import { BashInterpreter } from "@away_from/pth-sandbox";
+import { PyKernel } from "@away_from/pth-sandbox";
+import { BashKernel } from "@away_from/pth-sandbox";
+import { SandboxKernel } from "@away_from/pth-sandbox";
+import { SandboxCompiledKernel } from "@away_from/pth-sandbox";
 import { getEventBus } from "../../kernel/execution/event-bus.js";
 import { buildCapabilities } from "./capability.js";
 import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
@@ -197,7 +197,7 @@ export function createWorkerKernelWithManager(deps: {
   bash: Interpreter;
   c: Interpreter;
   /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels 经此执行（dev.build/run .s 分发） */
-  execute(language: string, program: string, opts?: import("../../kernel/interpreter/types.js").ExecuteOptions): Promise<InterpreterResult>;
+  execute(language: string, program: string, opts?: import("@away_from/pth-sandbox").ExecuteOptions): Promise<InterpreterResult>;
   /** 新执行核注册（ext.kernel 接线——转发 manager.registerKernel） */
   registerKernel(language: string, interpreter: unknown): void;
   /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */
@@ -263,7 +263,7 @@ export function createWorkerKernelWithManager(deps: {
         ...orig,
         // 双签名归一（对象/位置——normalizeWriteArgs）+ role 命名空间 anchor 注入（对象签名下传）
         write: async (a: unknown, b?: unknown, c?: unknown) => {
-          const { normalizeWriteArgs } = await import("../../kernel/extensions/memory-policy.js");
+          const { normalizeWriteArgs } = await import("@away_from/pth-memory");
           const entry = normalizeWriteArgs(a, b, c);
           entry.anchors = [`role:${role}`, ...((entry.anchors as unknown[]) ?? [])];
           return (orig["write"] as (e: unknown) => Promise<unknown>)(entry);
@@ -287,7 +287,7 @@ export function createWorkerKernelWithManager(deps: {
     c: deps.manager.c,
     /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels（ext.kernel 注册）经此执行——
      *  dev.build/dev.run 的 .s 分发调 ctx.kernel.execute("asm", ...) */
-    execute: (language: string, program: string, executeOpts?: import("../../kernel/interpreter/types.js").ExecuteOptions) =>
+    execute: (language: string, program: string, executeOpts?: import("@away_from/pth-sandbox").ExecuteOptions) =>
       deps.manager.execute(language, program, executeOpts),
     registerKernel: (language: string, interpreter: unknown) => registerHook?.(language, interpreter),
     /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */

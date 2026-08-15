@@ -219,7 +219,7 @@ describe("exec 执行模式（2026-08-11 元命令拆分——single/program/aut
 
 describe("SandboxKernel 自愈（2026-08-12 复测发现）", () => {
   it("disposed 后 execute 自动重建（重新 acquire——不再永久失败）", async () => {
-    const { SandboxKernel } = await import("../../src/pth/impls/kernels/sandbox-kernel.js");
+    const { SandboxKernel } = await import("@away_from/pth-sandbox");
     const calls: string[] = [];
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {

@@ -12,7 +12,7 @@
  * （按规则行去重——防建议风暴导致的规则堆积）。
  */
 
-import type { PgMemoryStore } from "../storage/memory-store-pg.js";
+import type { PgMemoryStore } from "@away_from/pth-memory";
 import type { OptimizerSuggestion } from "./optimizer-loop.js";
 import { rollupAggregateRows } from "./optimizer-loop.js";
 

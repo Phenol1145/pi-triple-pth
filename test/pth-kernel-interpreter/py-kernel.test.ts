@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { PyKernel } from "../../src/pth/impls/kernels/py-kernel";
+import { PyKernel } from "@away_from/pth-sandbox";
 
 describe("PyKernel（持久管道 REPL）", () => {
   let k: PyKernel;

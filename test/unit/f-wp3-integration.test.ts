@@ -12,7 +12,7 @@ import {
   SandboxHealthMonitor,
   createSandboxBashDefinition,
   SANDBOX_ERROR_UNAVAILABLE,
-} from "../../src/pth/tools/sandbox-bash.js";
+} from "@away_from/pth-sandbox";
 import { registerSelfRoutes } from "../../src/pth/gateway/routes-self.js";
 import { AgentEngine } from "../../src/pth/core/agent-engine.js";
 import { SessionPool } from "../../src/pth/core/session-pool.js";

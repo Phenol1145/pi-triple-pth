@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Fastify from "fastify";
-import { buildKernelHostApp } from "../../src/sandbox/kernel-host.js";
+import { buildKernelHostApp } from "@away_from/pth-sandbox";
 import { createKernelManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 
 /**

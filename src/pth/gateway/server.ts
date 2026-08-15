@@ -20,7 +20,7 @@ import { registerLineageRoutes } from "./routes-lineage.js";
 import { registerTriggerRoutes } from "./routes-trigger.js";
 import { registerJobRoutes } from "./routes-jobs.js";
 import type { FallbackRequestStore } from "../fallback/requests.js";
-import type { SandboxHealthMonitor } from "../tools/sandbox-bash.js";
+import type { SandboxHealthMonitor } from "@away_from/pth-sandbox";
 import type { AuditWriter } from "../observability/audit.js";
 
 export async function createServer(deps: {

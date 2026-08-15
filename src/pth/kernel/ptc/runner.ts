@@ -17,7 +17,7 @@
  *   - 预检基准 = ts.state 注入面键集合（Object.keys——seeds + caps + 内建外的程序残留）。
  */
 
-import type { Interpreter, InterpreterResult } from "../interpreter/types.js";
+import type { Interpreter, InterpreterResult } from "@away_from/pth-sandbox";
 import { findOutOfBoundsRoots, buildSurfaceGuidance } from "./surface.js";
 
 export interface PtcRunOptions {
@@ -26,8 +26,11 @@ export interface PtcRunOptions {
   cwd?: string;
   /** 执行模式（缺省不传——走解释器 auto 语义，与旧降级路径一致） */
   exec?: "program" | "single";
-  /** ts 核最小面（execute + registerResult + state——state 为越界预检的注入面基准） */
-  ts: Pick<Interpreter, "execute" | "registerResult" | "state"> & { injectCapability?: (name: string, value: unknown) => void };
+  /** ts 核最小面（execute + state——state 为越界预检的注入面基准；registerResult 实现类必提供、接口层可选） */
+  ts: Pick<Interpreter, "execute" | "state"> & {
+    registerResult?: (key: string, value: unknown) => void;
+    injectCapability?: (name: string, value: unknown) => void;
+  };
   /** 结果注册钩子（payload 构造留给消费点——两处注册形状不同） */
   registerResult?: { key: string; build: (raw: InterpreterResult) => unknown };
   /** 任务级能力装配（Phase 3 条目 12）：runner 统一注入（cache 收敛）——

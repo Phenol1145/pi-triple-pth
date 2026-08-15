@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { SandboxKernel } from "../../src/pth/impls/kernels/sandbox-kernel";
+import { SandboxKernel } from "@away_from/pth-sandbox";
 
 /**
  * SandboxKernel abort 单元测试（A1 Phase 3 条目 11）——fetch stub：

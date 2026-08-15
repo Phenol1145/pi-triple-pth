@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { BashInterpreter } from "../../src/pth/impls/kernels/bash-interpreter";
-import { SandboxForwardError, SANDBOX_ERROR_UNAVAILABLE } from "../../src/pth/tools/sandbox-bash";
+import { BashInterpreter } from "@away_from/pth-sandbox";
+import { SandboxForwardError, SANDBOX_ERROR_UNAVAILABLE } from "@away_from/pth-sandbox";
 
 /** mock SandboxExecClient（对齐 src/pth/tools/sandbox-bash.ts 的 exec 签名） */
 function mockSandbox(impl?: (cmd: string, opts: any) => Promise<any>) {

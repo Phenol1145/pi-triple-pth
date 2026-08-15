@@ -36,7 +36,7 @@ describe("Prompt 框架化（角色文档/能力索引——memory 数据源）"
 
 describe("系统文档保护（静态上下文——worker 不可覆盖）", () => {
   it("isSystemDocId：角色文档/能力索引/自修改指南命中", async () => {
-    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    const { isSystemDocId } = await import("@away_from/pth-memory");
     expect(isSystemDocId("capability-index")).toBe(true);
     expect(isSystemDocId("self-modify-guide")).toBe(true);
     expect(isSystemDocId("role-doc:developer")).toBe(true);
@@ -44,7 +44,7 @@ describe("系统文档保护（静态上下文——worker 不可覆盖）", () 
   });
 
   it("worker 覆盖系统文档 → 拒绝（非 force）", async () => {
-    const { PgMemoryStore } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    const { PgMemoryStore } = await import("@away_from/pth-memory");
     const queries: Array<{ sql: string; params: unknown[] }> = [];
     const store = new PgMemoryStore({
       query: async (sql: string, params: unknown[]) => { queries.push({ sql, params }); return { rows: [] }; },
@@ -83,7 +83,7 @@ describe("角色 SOP 种子（B4 Phase 1 / B4-2 裁决 A——四段式 skill）
   });
 
   it("角色 SOP 种子受保护（worker 不可覆盖——id 前缀 skill:）", async () => {
-    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    const { isSystemDocId } = await import("@away_from/pth-memory");
     expect(isSystemDocId("skill:developer-sop")).toBe(true);
     expect(isSystemDocId("skill:scout-sop")).toBe(true);
     expect(isSystemDocId("skill:memory-keeper-sop")).toBe(true);
@@ -109,7 +109,7 @@ describe("API 调查技能（skill:api-investigation——探索方法论）", (
   });
 
   it("skill 文档受保护（worker 不可覆盖）", async () => {
-    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    const { isSystemDocId } = await import("@away_from/pth-memory");
     expect(isSystemDocId("skill:api-investigation")).toBe(true);
   });
 });
@@ -128,7 +128,7 @@ describe("PTH Worker 世界观（pth-worker-system——身份/工作流/框架�
   });
 
   it("世界观受保护（worker 不可覆盖）", async () => {
-    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    const { isSystemDocId } = await import("@away_from/pth-memory");
     expect(isSystemDocId("pth-worker-system")).toBe(true);
   });
 });
@@ -146,7 +146,7 @@ describe("项目全貌（project-map——代码库结构——worker 一次读�
   });
 
   it("project-map 受保护（worker 不可覆盖）", async () => {
-    const { isSystemDocId } = await import("../../src/pth/kernel/storage/memory-store-pg.js");
+    const { isSystemDocId } = await import("@away_from/pth-memory");
     expect(isSystemDocId("project-map")).toBe(true);
   });
 });

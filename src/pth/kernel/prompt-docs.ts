@@ -9,13 +9,13 @@
  *   - 单一查询面：模型可读信息（角色/能力/指南/知识沉淀）都在 memory
  */
 
-import type { PgMemoryStore } from "./storage/memory-store-pg.js";
+import type { PgMemoryStore } from "@away_from/pth-memory";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { allLineageRoles } from "./execution/worker-cluster.js";
 import { DEFAULT_REFINE_TASKS } from "./execution/refiner.js";
 import { buildDoc } from "./extensions/index.js";
-import { SEED_SKILL_SOPS, buildSkillContent } from "./skill-format.js";
+import { SEED_SKILL_SOPS, buildSkillContent } from "@away_from/pth-memory";
 
 /** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据——lazy 下 LLM 按需读） */
 export function buildRoleDoc(role: {
@@ -250,12 +250,13 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
 export const PROJECT_DIR_DUTY: Record<string, string> = {
   "src/pth/gateway": "HTTP 网关——任务/kernel/jobs 路由（REST API）",
   "src/pth/kernel/execution": "执行层——agent-loop（LLM 循环）/task-loop/batch/角色路由/收敛/PerfAutopilot",
-  "src/pth/kernel/interpreter": "解释器——ts 核（PTC vm）/py/bash/编译核/sandbox 连接/kernel 池/llm-fn",
-  "src/pth/kernel/extensions": "扩展能力——context/memory/fs/obs/llm/perf——注入 ts 程序全局能力",
-  "src/pth/kernel/storage": "持久化基座单包（2026-08-14 A2）——PG 数据世界（任务/memory/转录/审计）+ session/ 会话平面（Redis）",
+  "src/pth/kernel/interpreter": "解释器——ts 核（PTC vm）/llm-fn/toolstore/exec-channel",
+  "src/pth/kernel/extensions": "扩展能力——context/fs/obs/llm/perf——注入 ts 程序全局能力",
+  "src/pth/kernel/storage": "持久化基座单包（2026-08-14 A2）——PG 数据世界（任务/转录/审计）+ session/ 会话平面（Redis）",
   "src/pth/kernel": "内核根——assembly/prompt-docs（Prompt 框架）/self-modify",
   "src/pth/observability": "可观测——kernel-metrics（prom）/resource-provider",
-  "src/sandbox": "沙箱宿主——kernel-host（kernel 池服务）——执行隔离层",
+  "packages/pth-memory": "记忆域包（2026-08-15 拆分）——memory 存储/用途层策略/空间可见性/索引/治理执行/skill 格式/只读 SQL",
+  "packages/pth-sandbox": "沙箱域包（2026-08-15 拆分）——内核契约/持久内核运行时/编译核/gdb/沙箱客户端与宿主",
   "src/shared": "共享——sdk-adapter（模型 SDK 适配）",
   "packages/framework": "PTL 运维框架——CLI/bridge（ptl hub）/containers（部署抽象）",
   "packages/infra": "模型基础设施——model-router",
@@ -274,14 +275,14 @@ export const PROJECT_FILE_DUTY: Record<string, string> = {
   "src/pth/kernel/interpreter/ts-interpreter.ts": "ts 核（PTC vm——currentCwd 定位任务工作区）",
   "src/pth/kernel/interpreter/capability.ts": "能力构建（fs/memory/llm 注入）——fs.task 工作区",
   "src/pth/kernel/interpreter/llm-fn.ts": "LLM 函数（OpenAI 直连——tool_calls/reasoning_content）",
-  "src/pth/kernel/interpreter/sandbox-kernel.ts": "沙箱 kernel 客户端（HTTP acquire/execute）",
+  "packages/pth-sandbox/src/sandbox-kernel.ts": "沙箱 kernel 客户端（HTTP acquire/execute）",
   "src/pth/kernel/extensions/context.ts": "context 扩展（工作台 KV——跨步骤状态）",
   "src/pth/kernel/prompt-docs.ts": "Prompt 框架（角色文档/能力索引/世界观/全貌注入 memory）",
-  "src/pth/kernel/storage/memory-store-pg.ts": "memory 存储（PG——query/write/静态文档保护）",
+  "packages/pth-memory/src/memory-store-pg.ts": "memory 存储（PG——query/write/静态文档保护）",
   "src/pth/kernel/storage/task-store-pg.ts": "任务存储（PG——提交/claim/产物）",
   "src/pth/gateway/server.ts": "HTTP 服务入口（路由挂载）",
   "src/pth/gateway/routes-kernel.ts": "kernel 路由（tasks/jobs/transcript）",
-  "src/sandbox/kernel-host.ts": "沙箱宿主服务（kernel 池 acquire/execute/reset）",
+  "packages/pth-sandbox/src/kernel-host.ts": "沙箱宿主服务（kernel 池 acquire/execute/reset）",
 };
 
 async function walkProject(dir: string, depth: number, maxDepth: number): Promise<string[]> {

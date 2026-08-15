@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseMiLine, stoppedFromRecord, stoppedFromRecord, framesFromResult, variablesFromResult, CDebugSession } from "../../src/pth/impls/kernels/gdb-mi.js";
+import { parseMiLine, stoppedFromRecord, stoppedFromRecord, framesFromResult, variablesFromResult, CDebugSession } from "@away_from/pth-sandbox";
 
 /**
  * gdb MI 协议解析（纯函数——调试协议基本集）。

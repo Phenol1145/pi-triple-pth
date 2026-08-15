@@ -8,7 +8,7 @@
  *       execute 请求体无 env 字段（宿主 400 拒绝——敏感信息约束）。
  */
 
-import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
 export interface SandboxKernelOptions {
   /** sandbox 宿主 base URL（如 http://sandbox:8080） */

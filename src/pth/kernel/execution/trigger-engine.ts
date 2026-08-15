@@ -29,7 +29,7 @@
 import type { ActivityEvent, ActivityHub } from "./activity-hub.js";
 import { tagRegistry } from "./tag-registry.js";
 import type { TaskStore } from "../storage/task-store-pg.js";
-import type { PgMemoryStore } from "../storage/memory-store-pg.js";
+import type { PgMemoryStore } from "@away_from/pth-memory";
 
 export interface TriggerDef {
   name: string;

@@ -615,7 +615,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         return undefined;
       }
       if (tool === "memory_index") {
-        const { buildMemoryIndex } = await import("./memory-index.js");
+        const { buildMemoryIndex } = await import("@away_from/pth-memory");
         const memory = (caps as { memory?: { query(sql: string): Promise<unknown>; retrieve(o: never): Promise<never[]>; get(id: string): Promise<unknown> } }).memory;
         if (!memory) {
           messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: "memory 能力不可用（本角色无 memory 包）" });

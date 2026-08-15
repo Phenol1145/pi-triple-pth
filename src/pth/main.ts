@@ -7,7 +7,7 @@ import { RedisSessionStore } from "./kernel/storage/session/redis-session-store.
 import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@away_from/infra";
 import { ToolRegistry } from "./tools/registry.js";
 import { ToolPlatform } from "./tools/platform.js";
-import { SandboxExecClient, SandboxHealthMonitor, createSandboxBashDefinition } from "./tools/sandbox-bash.js";
+import { SandboxExecClient, SandboxHealthMonitor, createSandboxBashDefinition } from "@away_from/pth-sandbox";
 import { createSandboxDebugGatewayFactory } from "./gateway/routes-debug.js";
 import { SessionPool } from "./core/session-pool.js";
 import { AgentEngine } from "./core/agent-engine.js";

@@ -100,7 +100,7 @@ services:
   sandbox:
     build:
       context: ..
-      dockerfile: deploy/Dockerfile.sandbox
+      dockerfile: packages/pth-sandbox/Dockerfile.sandbox
     volumes:
       - workspaces:/data/workspaces
       - compiled-cache:/data/compiled-cache   # 编译核持久缓存（跨调用/跨容器重启）

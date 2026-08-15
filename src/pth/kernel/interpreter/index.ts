@@ -5,9 +5,9 @@
  * 具体核实现与装配工厂在 impls/kernels/（createWorkerKernel/createKernelManager
  * 等由 impls/kernels/index.js 提供——消费者从实现层 import）。
  */
-// WorkerKernel/WorkerKernelDeps 移入 types.ts（2026-08-13 审计 P1——核心协议面类型归位，断 worker-cluster 经 barrel 的环）
-export type { WorkerKernel, WorkerKernelDeps } from "./types.js";
-export * from "./types.js";
+// WorkerKernel/WorkerKernelDeps 移入 pth-sandbox 包（2026-08-15 拆分——内核契约包含在沙箱包内）
+export type * from "@away_from/pth-sandbox";
+export type { WorkerKernel, WorkerKernelDeps } from "@away_from/pth-sandbox";
 export * from "./llm-fn.js";
 export * from "./toolstore.js";
 export * from "./read-source.js";

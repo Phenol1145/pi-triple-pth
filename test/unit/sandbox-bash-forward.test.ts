@@ -12,7 +12,7 @@ import {
   createSandboxBashDefinition,
   SANDBOX_ERROR_UNAVAILABLE,
   SANDBOX_ERROR_TIMEOUT,
-} from "../../src/pth/tools/sandbox-bash.js";
+} from "@away_from/pth-sandbox";
 import { AgentEngine } from "../../src/pth/core/agent-engine.js";
 import { SessionPool } from "../../src/pth/core/session-pool.js";
 import { WorkspaceManager, detectPlatform } from "@away_from/infra";

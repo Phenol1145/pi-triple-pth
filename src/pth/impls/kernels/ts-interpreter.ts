@@ -1,6 +1,6 @@
 import { createContext, runInContext, type Context } from "node:vm";
 import { stripTypeScriptTypes } from "node:module";
-import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "../../kernel/interpreter/types.js";
+import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "@away_from/pth-sandbox";
 import { buildSeeds } from "../../kernel/extensions/index.js";
 import { stripNonCode } from "../../kernel/ptc/surface.js";
 

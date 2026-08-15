@@ -12,8 +12,8 @@
 import type { ExtManifest } from "../extensions/ext-manifest.js";
 import { buildStdExtChannels } from "../extensions/ext-registry.js";
 import type { Toolstore } from "./toolstore.js";
-import type { Interpreter } from "./types.js";
-import type { PgMemoryStore } from "../storage/memory-store-pg.js";
+import type { Interpreter } from "@away_from/pth-sandbox";
+import type { PgMemoryStore } from "@away_from/pth-memory";
 
 export interface ExtIndexEntry {
   id: string;

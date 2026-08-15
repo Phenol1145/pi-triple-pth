@@ -6,7 +6,7 @@
  * → 本模块执行（提案 official + 目标条目 archived——删除类动作经人工闸门，不自动）。
  */
 
-import type { PgMemoryStore } from "../storage/memory-store-pg.js";
+import type { PgMemoryStore } from "./memory-store-pg.js";
 
 export interface MemoryAdminResult {
   ok: boolean;

@@ -44,7 +44,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     if (!secret) return reply.status(401).send({ error: "unauthorized: SANDBOX_SHARED_SECRET 未配置" });
     if (token !== secret) return reply.status(401).send({ error: "unauthorized" });
     const body = (req.body ?? {}) as { op?: string; sql?: string; anchors?: string[]; kinds?: string[]; id?: string; space?: string };
-    const { isVisible } = await import("../kernel/execution/memory-visibility.js");
+    const { isVisible } = await import("@away_from/pth-memory");
     const space = typeof body.space === "string" ? body.space : null;
     const visible = (meta: Record<string, unknown> | undefined) => (space ? isVisible(meta, space) : true);
     try {
@@ -216,7 +216,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     const id = String(body.id ?? "").trim();
     if (!id) return reply.code(400).send({ error: "id required" });
     try {
-      const { applyMemoryAdminProposal } = await import("../kernel/execution/memory-admin.js");
+      const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
       const r = await applyMemoryAdminProposal(kernel.dataWorld.memory, id);
       if (!r.ok) return reply.code(400).send(r);
       return r;

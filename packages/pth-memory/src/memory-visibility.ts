@@ -12,7 +12,17 @@
  * 存储：entry.meta.spaceScope = { space, visibility }（不加列——meta jsonb 足够）。
  */
 
-import { spaceRegistry } from "./space-registry.js";
+/** 空间查询注入接口（2026-08-15 拆分：pth-memory 不 import PTH core，由装配层注入 spaceRegistry.get） */
+export interface SpaceLookup {
+  get(id: string): { parent?: string } | undefined;
+}
+
+let spaceLookup: SpaceLookup | undefined;
+
+/** 装配层注入空间查询（PTH core 启动时 setSpaceLookup(spaceRegistry.get.bind(spaceRegistry))） */
+export function setSpaceLookup(lookup: SpaceLookup): void {
+  spaceLookup = lookup;
+}
 
 export type Visibility = "public" | "private";
 
@@ -35,7 +45,7 @@ export function isDescendantOrSelf(space: string, ancestorSpace: string): boolea
   let cur: string | undefined = space;
   for (let i = 0; i < 16 && cur; i++) {   // 深度保护（防坏 parent 环）
     if (cur === ancestorSpace) return true;
-    cur = spaceRegistry.get(cur)?.parent;
+    cur = spaceLookup?.get(cur)?.parent;
   }
   return false;
 }
