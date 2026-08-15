@@ -1,4 +1,4 @@
-> PTH（Pi-Triple-Heavy）文档 — agent 联邦平台
+> PTH（Pi-Triple-Heavy）文档 — 自耦自然语言解释器（解释即执行）
 # API 参考
 
 ## 认证

@@ -370,7 +370,7 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 | ① 单核 ts × medium × flash/pro | developer——专注单一执行模式 |
 | ② 多核 × high × pro | origin/executor/controller——A/B 验证与全栈能力 |
 
-#### 0.11.4 前后端分离
+#### 0.11.4 前后端分离（PTH 内部交互核的技术边界，与 PTL/PTH 产品关系无关）
 
 **前端抽象**：模型按一个抽象交互核理解自己的交互对象——WorkerKernel 接口——类型①②③是前端授权面（决定 worker 被授权哪些交互通道）。
 
@@ -639,7 +639,9 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 ## 1. 系统定位（v2）
 
-**PTH = 服务器端任务内核。**
+**PTH = 自耦自然语言解释器（解释即执行）。**
+
+输入自然语言意图，直接产出执行结果。内部解释执行机制：
 
 ```
 任务池 → 角色路由 → worker 执行 → 产物提交 → 应用
@@ -655,8 +657,8 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 ```
 项目
-├─ PTL 前端：pi 会话 + 扩展（pth-notify 等）+ 桥（pth-cli 派发/裁决）
-└─ PTH 后端
+├─ PTL（基于 pi 的多环境共存平台）：pi 会话 + 扩展（pth-notify 等）——通过 pth-cli 派发/裁决调用 PTH
+└─ PTH（自耦自然语言解释器）
     ├─ 数据库（postgres——任务/记忆/trigger 存储 + redis 辅助）
     ├─ sandbox（核宿主池——交互核后端——0.11.4）
     └─ 主容器（pi-platform）
@@ -801,7 +803,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 | 概念 | 定义 | 落点 |
 |---|---|---|
-| **PTL↔PTH 桥（bridge）**〔旧〕 | 程序提交通道（主会话 → PTH 的派发通道） | packages/framework |
+| **PTL→PTH 调用通道（bridge）**〔旧〕 | 程序提交通道（PTL → PTH 的派发通道——HTTP 桥，兼容保留；规范接口为 PTH CLI） | packages/framework |
 | **任务派发（submit）**〔旧〕 | pth-cli submit——异步模式（派发不阻塞） | scripts/pth-cli |
 | **产物交付（artifacts）**〔旧〕 | 产物归档到卷 → 宿主机提取（docker cp）——协作交付物 | task-loop archive |
 | **hook（pth-notify）**〔旧〕 | PTH 完成/失败 → POST → PTL 扩展 → 通知+会话消息注入（subagent 式唤醒） | task-loop · 扩展 |
@@ -810,10 +812,10 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **监督层（人）**〔旧〕 | 审批面裁决者——协作主体（不在自动化环内——0.7.1 人在回路） | 审批面 A/B/C |
 | **异步模式**〔旧〕 | 派发不阻塞主会话——推送唤醒 | pth-cli · hook |
 | **渐进降输入**〔废止〕 | ~~任务文本只写核心意图~~（2026-08-14 T9 裁决：协作模型重写——见下条） | — |
-| **主会话**〔旧〕 | PTL 侧交互会话——协作主干的起点与终点（派发发起 / 产物消费） | packages/framework session |
+| **主会话**〔旧〕 | PTL 侧会话——协作主干的起点与终点（派发发起 / 产物消费） | packages/framework session |
 | **概念设计交接**〔新〕 | 协作提交物（2026-08-14 T9 裁决）：PTL 侧确保理解用户全部需求/想法 → 产出概念设计 → 交 PTH 生成实施方案（任务文本=概念设计文档，不再只写核心意图） | pth-cli submit · 提交规范 |
 | **返回简报**〔桥〕 | 空间返回/任务结束带回的压缩摘要（工作总结/洞察——非全文——0.10.2） | done result summary · task-insight |
-| **应用（消费方）**〔旧〕 | 产物消费方——PTL 前端/主会话/用户——执行主干终点 + 新任务派发起点（环闭） | PTL 前端 · trigger/bridge |
+| **应用（消费方）**〔旧〕 | 产物消费方——PTL 主会话/用户——执行主干终点 + 新任务派发起点（环闭） | PTL 会话 · trigger/bridge |
 
 ---
 

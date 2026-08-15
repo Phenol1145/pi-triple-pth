@@ -157,7 +157,7 @@ task-insight + refine-report → memory_entries（检索用）
 | `GET /templates` | 模板列表 |
 | `/metrics` | Prometheus 指标（四层） |
 
-PTL 交互层：`ptl hub kernel tasks add|ls / batch add|remove / status`；会话内 `/pthtask` 命令族（pth-tasks 扩展）。
+PTL 调用：`ptl hub kernel tasks add|ls / batch add|remove / status`（HTTP 兼容通道）；会话内 `/pthtask` 命令族（pth-tasks 扩展）。规范接口见 PTH CLI（`pth submit/status/wait`）。
 
 ## 目录索引
 

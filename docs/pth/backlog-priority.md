@@ -170,7 +170,7 @@ src/pth/kernel/storage/
 └─ session/（迁入）：interfaces.ts · types.ts · redis-session-store.ts
 ```
 
-- **审计两平面**（取代"双后端"）：会话审计 = Redis Stream（PTL 交互面事件——现状唯一活跃面）；
+- **审计两平面**（取代"双后端"）：会话审计 = Redis Stream（PTL 侧会话事件——现状唯一活跃面）；
   任务审计 = PG `audit_log`（kernel 任务事件——本批接线，见 Phase 3）。两平面职责互补不重复。
 - **设置归位**：会话平面协议保留 `SettingsStore` 接口；`RedisSettingsStore` 无消费者删除（见 Phase 2）。
 - **迁移面单一化**：此后 schema 演进（N7/N9/N13 落库）只改 `schema.ts` 一处。

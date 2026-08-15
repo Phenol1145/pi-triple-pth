@@ -2,10 +2,7 @@
 
 > 与共享层 skill `pth-deploy` 同源（2026-08-09）。覆盖：compose 拓扑、安装步骤、验证三连、性能参数全表、调优方法论、运行时调参、容器抽象设计意图（v0.7）。
 
-
-# PTH 安装与性能调优
-
-PTH（Pi-Triple-Heavy）是服务器端任务内核（Fastify 网关 + kernel 任务池 + sandbox 隔离执行）。本文档带你从零安装并用参数压到目标吞吐。
+PTH（Pi-Triple-Heavy）是**自耦自然语言解释器**：输入自然语言意图，直接产出执行结果（解释即执行）。Fastify 网关 + kernel 任务池 + sandbox 隔离执行是其内部机制。本文档带你从零安装并用参数压到目标吞吐。
 
 ## 1. 拓扑（docker compose 四服务）
 
