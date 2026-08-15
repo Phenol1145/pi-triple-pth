@@ -6,6 +6,7 @@ import type pg from "pg";
 /** 构造测试 ExtContext（内存 fake memory store） */
 function fakeCtx(overrides: Record<string, unknown> = {}) {
   const entries: Array<{ id: string; kind: string; status: string; content: unknown; anchors: unknown[]; hit_count: number; created_at: string }> = [];
+  const published: Array<Record<string, unknown>> = [];
   const memory = {
     write: async (e: { id?: string; kind: string; status?: string; anchors?: unknown[]; content: unknown; meta?: Record<string, unknown> }) => {
       entries.push({ id: e.id ?? `m${entries.length}`, kind: e.kind, status: e.status ?? "draft", content: e.content, anchors: e.anchors ?? [], hit_count: 0, created_at: new Date().toISOString() });
@@ -16,6 +17,10 @@ function fakeCtx(overrides: Record<string, unknown> = {}) {
     retrieve: async () => [],
     _entries: entries,
   };
+  const tasks = {
+    publish: async (input: Record<string, unknown>) => { published.push(input); return { id: `task-${published.length}` }; },
+    _published: published,
+  };
   const queryReadOnly = async (sql: string) => {
     // 仅测试用：按 kind 返回
     if (sql.includes("memory_entries")) {
@@ -24,7 +29,7 @@ function fakeCtx(overrides: Record<string, unknown> = {}) {
     return [];
   };
   return {
-    dataWorld: { memory, queryReadOnly, pgStat: async () => [{ state: "idle", n: 3 }] },
+    dataWorld: { memory, tasks, queryReadOnly, pgStat: async () => [{ state: "idle", n: 3 }] },
     toolstore: { readText: async () => "", list: async () => [] },
     strategiesDir: "/tmp/pth-sdk-test-strategies",
     sessionRef: { current: null },
@@ -84,6 +89,25 @@ describe("管理 SDK（2026-08-12 第二步）——manage 扩展", () => {
     expect((await scheme.list()).length).toBeGreaterThanOrEqual(1);
     const apply = await scheme.apply({ id: pub.id! });
     expect(apply.ok).toBe(true);
+  });
+
+  it("manage.fix.approve：修复批准 → 派发 debug-case-writer（P3.6 controller 触发）", async () => {
+    const ctx = fakeCtx();
+    const ext = buildExtensions(ctx);
+    const manage = (ext.capabilities as Record<string, unknown>)["manage"] as Record<string, unknown>;
+    const fix = manage["fix"] as { approve: (o: { bugReport: string; fixSummary?: string; parentTaskId?: string }) => Promise<{ ok: boolean; id?: string; role?: string; error?: string }> };
+    const r = await fix.approve({ bugReport: "计数偶发错误", fixSummary: "diff: 修初始化", parentTaskId: "t1" });
+    expect(r.ok).toBe(true);
+    expect(r.role).toBe("debug-case-writer");
+    const published = (ctx.dataWorld as { tasks: { _published: Array<Record<string, unknown>> } }).tasks._published;
+    expect(published).toHaveLength(1);
+    expect(published[0]!.tags).toEqual(["debug-case"]);
+    expect(published[0]!.payload).toMatchObject({ source: "controller-fix-approved", parentTaskId: "t1" });
+    expect(String(published[0]!.text)).toContain("最小复现");
+    // bugReport 必填
+    const bad = await fix.approve({ bugReport: "" });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toContain("bugReport 必填");
   });
 
   it("manage.memory.archive：系统资产拒；普通条目落 draft 提案", async () => {

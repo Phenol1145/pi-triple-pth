@@ -6,12 +6,12 @@ import { installDefaultRoles } from "../helpers";
 beforeEach(() => installDefaultRoles());
 
 describe("worker cluster", () => {
-  it("DEFAULT_ROLES has 13 roles with unique ids（+coder/+spider/+prospector/+solver/+predictor 2026-08-14——问题类型二分；memory-stats 退役）", () => {
-    expect(DEFAULT_ROLES.length).toBe(13);
+  it("DEFAULT_ROLES has 14 roles with unique ids（+coder/+spider/+prospector/+solver/+predictor 2026-08-14——问题类型二分；memory-stats 退役；+debug-case-writer 2026-08-15 P3.6）", () => {
+    expect(DEFAULT_ROLES.length).toBe(14);
     const ids = new Set(DEFAULT_ROLES.map((r) => r.id));
-    expect(ids.size).toBe(13);
+    expect(ids.size).toBe(14);
     // 自持态角色集（analyst 升中间层：prospector/solver 二分 + predictor 预测专精）
-    expect(ids).toEqual(new Set(["analyst", "planner", "developer", "coder", "scout", "spider", "memory-keeper", "acceptor", "tester", "writer", "prospector", "solver", "predictor"]));
+    expect(ids).toEqual(new Set(["analyst", "planner", "developer", "coder", "scout", "spider", "memory-keeper", "acceptor", "tester", "debug-case-writer", "writer", "prospector", "solver", "predictor"]));
   });
 
   it("each role has tags and prompt", () => {
@@ -28,8 +28,8 @@ describe("worker cluster", () => {
       taskStore: {} as any,
       workspaceMgr: {} as any,
     });
-    expect(cluster.size).toBe(14);   // origin + 13 默认角色（2026-08-14 +coder/+spider/+prospector/+solver/+predictor）
-    expect(calls).toBe(14);
+    expect(cluster.size).toBe(15);   // origin + 14 默认角色（2026-08-14 +coder/+spider/+prospector/+solver/+predictor；2026-08-15 +debug-case-writer）
+    expect(calls).toBe(15);
     expect(cluster.has("developer")).toBe(true);
   });
 
@@ -40,7 +40,7 @@ describe("worker cluster", () => {
       taskStore: {} as any,
       workspaceMgr: {} as any,
     });
-    expect(seen.sort()).toEqual(["acceptor", "analyst", "coder", "developer", "memory-keeper", "origin", "planner", "predictor", "prospector", "scout", "solver", "spider", "tester", "writer"]);
+    expect(seen.sort()).toEqual(["acceptor", "analyst", "coder", "debug-case-writer", "developer", "memory-keeper", "origin", "planner", "predictor", "prospector", "scout", "solver", "spider", "tester", "writer"]);
   });
 });
 

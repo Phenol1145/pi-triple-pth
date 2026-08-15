@@ -5,6 +5,7 @@ import { translateTask } from "./nl-translator.js";
 import { runPtcProgram } from "../ptc/runner.js";
 import { runAgentTask } from "./agent-loop.js";
 import { getEventBus } from "./event-bus.js";
+import { publishDebugCaseTask } from "./debug-case-dispatch.js";
 
 /**
  * 任务完成通知（2026-08-13 hook 机制）：POST 到 PTL 侧 pth-notify 扩展
@@ -144,6 +145,32 @@ export class TaskLoop {
     this.deps.onActivity?.({ kind: "task.requeued", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
     this.deps.onTaskMetric?.({ type: "status", status: "requeued" });
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: "soft-terminated" });
+  }
+
+  /** P3.6（2026-08-15）：developer 修复任务完成后自动派发 debug-case-writer——
+   *  自修正闭环验证环节（最小复现 + 回归测试 + 边界用例）。payload.debugCases="off" 可关。 */
+  private async maybeDispatchDebugCaseWriter(task: Task, result: { value?: unknown; stdout?: string }): Promise<void> {
+    const { role, taskStore } = this.deps;
+    if (role.id !== "developer") return;
+    if (!Array.isArray(task.tags) || !task.tags.includes("fix")) return;
+    const payload = (task.payload ?? {}) as { debugCases?: string };
+    if (payload.debugCases === "off") return;
+    try {
+      const fixSummary = result.value !== undefined
+        ? JSON.stringify(result.value).slice(0, 10_000)
+        : (result.stdout ?? "").slice(0, 10_000);
+      const child = await publishDebugCaseTask(taskStore, {
+        bugReport: `任务 ${task.id}（标题：${task.title}）\n${task.text}`,
+        fixSummary,
+        parentTaskId: task.id,
+        source: "developer-fix-completed",
+      });
+      this.deps.onActivity?.({ kind: "debug-case.dispatched", taskId: child.id, role: "debug-case-writer", ok: true, detail: `parent=${task.id}` });
+      this.deps.logger?.child?.("taskloop", { taskId: task.id, role: role.id })?.info?.(`debug-case-writer 已派发（parent=${task.id} → ${child.id}）`);
+    } catch (e) {
+      // 派发失败不阻断父任务已完成（自修正闭环是增强环节——失败留告警）
+      this.deps.logger?.child?.("taskloop", { taskId: task.id, role: role.id })?.warn?.(`debug-case-writer 派发失败: ${(e as Error).message}`);
+    }
   }
 
   private async execute(task: Task): Promise<void> {
@@ -293,6 +320,7 @@ export class TaskLoop {
       }
       this.bus.emit("task.submit", { taskId: task.id, role: role.id });
       await this.archive(task, ws, result);
+      await this.maybeDispatchDebugCaseWriter(task, result);
       taskLogger?.info("task completed", { durationMs: execMs });
       this.deps.onTaskMetric?.({ type: "status", status: "completed" });
       // 完成通知（2026-08-13 hook 机制：PTH→PTL 推送——pth-notify 扩展收事件注入主会话）

@@ -97,6 +97,15 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer",
     actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "nav", "cache"],   // 2026-08-12 裁剪：执行核+生产核 dev/debug（测试产物/调试验证）
     parent: "developer", generation: 4, differentiation: "测试类任务诱导——能力/行为验证需要全部执行核（含 c 编译核）写测试产物——从 developer 收窄出验证专精" },
+  // P3.6（2026-08-15）：debug-case-writer——自修正闭环验证环节（tester 特化）
+  { id: "debug-case-writer", tags: ["debug-case", "regression-case", "boundary-case"],
+    prompt: "你是调试用例编写者——tester 族内的验证专精。给定 bug 报告/复现步骤/修复 diff，产出三类用例并实际验证：① 最小复现用例（触发 bug 的条件序列——修复前 FAIL）② 回归测试（vitest——防复发——修复后 PASS）③ 边界用例（相关边界探索：空值/极值/类型边界/并发/组合输入）。工作流：读 bug 报告与修复摘要 → 写测试文件到任务工作区 → 用 bash/测试命令实际跑通（修复前用例证明失败路径存在、修复后用例 PASS）→ done 提交 {repro, regression, boundary, verification}——verification 必须带真实运行输出，不基于假设报成功。",
+    description: "调试用例生成（tester 子类型——bug 报告/复现/fix diff → 最小复现+回归+边界用例）", thinking: "high",
+    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], output: "test-cases",
+    defaultReads: ["bug-report", "fix-diff"], acceptanceRole: "writer",
+    actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "nav", "cache"],
+    parent: "tester", generation: 5,
+    differentiation: "自修正闭环验证缺口诱导——修复后需要可复现的回归/边界用例钉死缺陷——从 tester 分出调试用例编写专精" },
   // 批 2（2026-08-12）：writer 角色分化——编写类任务（小说/文档/教程）独立空间 write（生产核·文档）。
   // 窄能力面：无执行核（python/bash/c 全无——文档不运行代码）——只有读取/记忆/文档工具面。
   // 工具面由 prompt 引导 asp.cd("write")（write.* 族）；capabilities 裁剪能力文档到读写包。
@@ -182,7 +191,7 @@ export const GOVERNANCE_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "plan",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：controller=执行核+导航+空间治理面（asp.create/destroy 维护收编点——worker 无）
     parent: "controller", generation: 2, differentiation: "控制论分割——调节职责从 Origin 分出（任务路由）", acceptanceRole: "read-only" },
-  { id: "controller:worker-opt", tags: ["controller", "optimize"], prompt: "你是 worker 优化者（controller:worker-opt）——JIT 内环的调节角色。任务：读取 sensor:worker-opt 的观测建议（optimizer-suggestion draft），裁决 worker 分解/合并（任务分化优先于 worker 分化；任务类型合并优先于 worker 合并），用 manage.worker.propose 落分化提案（draft——监督层批准注册）。",
+  { id: "controller:worker-opt", tags: ["controller", "optimize"], prompt: "你是 worker 优化者（controller:worker-opt）——JIT 内环的调节角色。任务：读取 sensor:worker-opt 的观测建议（optimizer-suggestion draft），裁决 worker 分解/合并（任务分化优先于 worker 分化；任务类型合并优先于 worker 合并），用 manage.worker.propose 落分化提案（draft——监督层批准注册）。修复类任务验收通过后，用 manage.fix.approve({bugReport, fixSummary}) 派发 debug-case-writer（最小复现+回归+边界用例）。",
     description: "worker 优化（JIT 内环 controller——分解/合并裁决）", thinking: "high",
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],

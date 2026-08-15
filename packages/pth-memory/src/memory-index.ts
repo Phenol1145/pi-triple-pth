@@ -26,11 +26,13 @@ interface MemoryLike {
 
 /** 顶层视图：层 × kind 计数 + tag 词表（计数降序） */
 async function topView(memory: MemoryLike): Promise<string> {
+  // 2026-08-15 修复：ASP 会话空间下 memory.query fail-closed 要求每行带 meta 列——
+  // 聚合行用 '{}'::jsonb 作为可见性元数据（空 meta = 存量兼容 meta+public——顶层只暴露计数/词表，不含条目内容）
   const kinds = (await memory.query(
-    "SELECT kind, count(*) AS n FROM memory_entries GROUP BY kind ORDER BY n DESC LIMIT 30",
+    "SELECT kind, count(*) AS n, '{}'::jsonb AS meta FROM memory_entries GROUP BY kind ORDER BY n DESC LIMIT 30",
   )) as Array<{ kind: string; n: number }>;
   const tags = (await memory.query(
-    "SELECT a AS tag, count(*) AS n FROM memory_entries, jsonb_array_elements_text(anchors) a GROUP BY a ORDER BY n DESC LIMIT 40",
+    "SELECT a AS tag, count(*) AS n, '{}'::jsonb AS meta FROM memory_entries, jsonb_array_elements_text(anchors) a GROUP BY a ORDER BY n DESC LIMIT 40",
   )) as Array<{ tag: string; n: number }>;
   const byLayer = new Map<string, string[]>();
   for (const k of kinds) {

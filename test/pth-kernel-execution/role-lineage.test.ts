@@ -32,10 +32,11 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(gen4.map((r) => r.id).sort()).toEqual(["coder", "prospector", "solver", "tester"]);
     expect(gen4.filter((r) => r.parent === "developer").map((r) => r.id)).toEqual(["coder", "tester"]);
     expect(gen4.filter((r) => r.parent === "analyst").map((r) => r.id)).toEqual(["prospector", "solver"]);
-    // gen5：predictor 挂 prospector（开放探索下的预测专精）
+    // gen5：predictor 挂 prospector（开放探索下的预测专精）；debug-case-writer 挂 tester（P3.6 自修正闭环）
     const gen5 = DEFAULT_ROLES.filter((r) => r.generation === 5);
-    expect(gen5.map((r) => r.id)).toEqual(["predictor"]);
-    expect(gen5[0]!.parent).toBe("prospector");
+    expect(gen5.map((r) => r.id).sort()).toEqual(["debug-case-writer", "predictor"]);
+    expect(gen5.find((r) => r.id === "predictor")!.parent).toBe("prospector");
+    expect(gen5.find((r) => r.id === "debug-case-writer")!.parent).toBe("tester");
   });
 
   it("7 中间层角色：控制论三元组 sensor/controller/actuator 挂 Origin（generation=1）；四族挂 actuator（generation=2——2026-08-14 sensor/controller 升格真实类型）", () => {
@@ -94,6 +95,8 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(governor?.children.map((c) => c.role.id).sort()).toEqual(["acceptor", "planner"]);   // memory-keeper 迁出（2026-08-14）
     const developer = executor?.children.find((c) => c.role.id === "developer");
     expect(developer?.children.map((c) => c.role.id).sort()).toEqual(["coder", "tester"]);   // coder/tester 子类型（2026-08-14）
+    const tester = developer?.children.find((c) => c.role.id === "tester");
+    expect(tester?.children.map((c) => c.role.id)).toEqual(["debug-case-writer"]);   // P3.6 调试用例专精（2026-08-15）
     const analyst = researcher?.children.find((c) => c.role.id === "analyst");
     expect(analyst?.children.map((c) => c.role.id).sort()).toEqual(["prospector", "solver"]);   // 问题类型二分：开放探索/封闭限制（2026-08-14）
     const prospector = analyst?.children.find((c) => c.role.id === "prospector");

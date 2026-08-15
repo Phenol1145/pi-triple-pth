@@ -70,6 +70,37 @@ describe("task loop（任务池纯化——agent 循环唯一主路径）", () =
     expect(kernel.reset).toHaveBeenCalled();
   });
 
+  it("P3.6：developer fix 任务完成 → 自动派发 debug-case-writer（自修正闭环）", async () => {
+    const task = { id: "t1", text: "bug: 计数偶发错误", title: "fix counter", tags: ["fix"], payload: {} };
+    const publish = vi.fn(async () => ({ id: "dc1", title: "【debug-case】", text: "x", tags: ["debug-case"], payload: {} }));
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+      publish,
+    });
+    const kernel = mockKernel();
+    const loop = new TaskLoop(agentDeps(kernel, { id: "developer", tags: ["fix"], prompt: "dev" }, store));
+    await loop.runOnce();
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({
+      tags: ["debug-case"],
+      payload: expect.objectContaining({ source: "developer-fix-completed", parentTaskId: "t1" }),
+    }));
+    expect(String(publish.mock.calls[0]![0].text)).toContain("bug: 计数偶发错误");
+  });
+
+  it("P3.6：payload.debugCases=off 关闭自动派发", async () => {
+    const task = { id: "t1", text: "bug", title: "fix x", tags: ["fix"], payload: { debugCases: "off" } };
+    const publish = vi.fn(async () => ({}));
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+      publish,
+    });
+    const loop = new TaskLoop(agentDeps(mockKernel(), { id: "developer", tags: ["fix"], prompt: "dev" }, store));
+    await loop.runOnce();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it("正交化：零认领（队列空/全不可认领）直接返回，不再 reject 放回池", async () => {
     const task = { id: "t1", text: "do x", title: "x" };
     const store = mockTaskStore({

@@ -88,4 +88,20 @@ describe("memory.index（图单跳导航）", () => {
     const out = await buildMemoryIndex({ tag: "ghost" }, { memory: mockMemory() as never, currentSpace: "meta" });
     expect(out).toContain("无可见条目");
   });
+
+  it("ASP fail-closed：顶层聚合 SQL 必须带 meta 列（2026-08-15 实机修复）", async () => {
+    const sqls: string[] = [];
+    const mem = {
+      query: async (sql: string) => {
+        sqls.push(sql);
+        if (sql.includes("GROUP BY kind")) return [{ kind: "task-insight", n: 2, meta: {} }];
+        return [{ tag: "auth", n: 2, meta: {} }];
+      },
+      retrieve: async () => [],
+      get: async () => undefined,
+    };
+    await buildMemoryIndex({}, { memory: mem as never, currentSpace: "meta" });
+    expect(sqls).toHaveLength(2);
+    for (const sql of sqls) expect(sql).toContain("AS meta");
+  });
 });

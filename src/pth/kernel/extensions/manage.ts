@@ -101,6 +101,23 @@ export const manageExtension: TsReplExtension = {
             },
           },
 
+        // ── 修复批准 → debug-case-writer（P3.6——controller 裁决批准修复触发）──
+        fix: {
+          approve: async (opts: { bugReport: string; fixSummary?: string; parentTaskId?: string }) => {
+            const bugReport = String(opts?.bugReport ?? "");
+            if (!bugReport.trim()) return { ok: false, error: "manage.fix.approve: bugReport 必填（bug 报告/复现步骤/原任务文本）" };
+            if (bugReport.length > 12_000) return { ok: false, error: "manage.fix.approve: bugReport 过长（≤12000 字符——请压缩到必要事实）" };
+            const { publishDebugCaseTask } = await import("../execution/debug-case-dispatch.js");
+            const t = await publishDebugCaseTask(ctx.dataWorld.tasks, {
+              bugReport,
+              fixSummary: typeof opts?.fixSummary === "string" ? opts.fixSummary : undefined,
+              parentTaskId: typeof opts?.parentTaskId === "string" ? opts.parentTaskId : undefined,
+              source: "controller-fix-approved",
+            });
+            return { ok: true, id: t.id, role: "debug-case-writer", status: "pending", note: "调试用例任务已派发（最小复现+回归+边界用例——自修正闭环验证环节）" };
+          },
+        },
+
         // ── 记忆归档/清理 → draft 提案（治理层流转——记忆是核心资产，删除类动作不自动执行）──
         memory: {
           archive: async (opts: { id: string; rationale?: string }) => {
@@ -159,6 +176,7 @@ export const manageExtension: TsReplExtension = {
   manage.params.get() 参数全表；manage.params.set({key, value}) 热调参（PTH_* 立即生效）
   manage.resource.config({domain, key, value, rationale?}) 重启级参数 → draft（v8/pg/node/kernel/storage）
   manage.resource.scheme.list() 方案清单；.publish({name, params}) 发布方案；.apply({id}) 应用方案（参数生效）
+  manage.fix.approve({bugReport, fixSummary?, parentTaskId?}) 修复批准 → 派发 debug-case-writer（最小复现+回归+边界用例）
   manage.memory.archive({id, rationale?}) 记忆归档提案（draft——监督批准后执行）
   manage.worker.propose({suggestedRoleId, parent, specialization, rationale}) 分化提案（draft）`,
 };
