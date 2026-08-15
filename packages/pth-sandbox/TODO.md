@@ -4,9 +4,9 @@
 > 长尾逐包评估后再动手（拆分决策 D）。
 
 ## 拆分后立即要做
-- [ ] 沙箱测试迁入本包 test/（sandbox-kernel* / py-kernel / bash-kernel / compiled / gdb / sandbox-bash / exec-api / kernel-host）
-- [ ] Dockerfile.sandbox / deploy compose context 指向本包路径，沙箱镜像构建与部署文档同步
-- [ ] sandbox 服务入口（dist/main.js）纳入 build/启动脚本
+- [x] 沙箱测试迁入本包 test/（sandbox-kernel* / py-kernel / bash-kernel / compiled / gdb / sandbox-bash / exec-api / kernel-host）
+- [x] Dockerfile.sandbox / deploy compose context 指向本包路径，沙箱镜像构建与部署文档同步
+- [x] sandbox 服务入口（dist/main.js）纳入 build/启动脚本
 
 ## 沙箱域长尾（归位）
 - [ ] HIGH：Python 记忆桥 space 盖章改为请求层带外注入（程序不可伪造）

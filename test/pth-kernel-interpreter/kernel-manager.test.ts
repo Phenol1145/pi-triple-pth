@@ -83,4 +83,16 @@ describe("createWorkerKernelWithManager（与 worker 集成）", () => {
     expect(v.bashOut).toBe("done");
     wk.dispose();
   });
+
+  it("无 sandbox 配置时 c 核降级（明确错误）——原 sandbox 包测试迁回 core", async () => {
+    const cMgr = createKernelManager({
+      pythonMode: "kernel", bashMode: "kernel",
+      kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },
+      // 无 sandboxKernel → c 降级
+    } as any);
+    const r = await cMgr.execute("c", "int main(){return 0;}");
+    expect(r.ok).toBe(false);
+    expect(r.error?.message).toContain("sandbox 未配置");
+    cMgr.dispose();
+  });
 });

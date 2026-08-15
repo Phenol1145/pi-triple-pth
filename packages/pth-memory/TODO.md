@@ -3,8 +3,8 @@
 > 本包只维护记忆域。核心闭环之外的长尾在此逐包评估后再动手（拆分决策 D）。
 
 ## 拆分后立即要做
-- [ ] memory_entries 表 DDL 从 core schema.ts 抽到本包（MEMORY_TABLE_SQL），core 引用
-- [ ] 测试文件迁入本包 test/（memory-policy / memory-index / read-only-query / skill-format / memory-store）
+- [x] memory_entries 表 DDL 从 core schema.ts 抽到本包（MEMORY_SCHEMA_SQL），core 引用
+- [x] 测试文件迁入本包 test/（memory-policy / memory-index / read-only-query / skill-format / memory-store）
 
 ## 记忆域长尾（归位自主 TODO）
 - [ ] H3 后续：可见性谓词下推 SQL（当前 fail-closed 要求 SELECT meta——可演进为服务端过滤）

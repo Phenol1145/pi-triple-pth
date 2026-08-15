@@ -48,16 +48,4 @@ describe("SandboxCompiledKernel（编译核 sandbox 适配器）", () => {
     expect(r.error?.message).toContain("fetch failed");
     vi.unstubAllGlobals();
   });
-
-  it("无 sandbox 配置时 manager 侧降级（c 不可用明确错误）", async () => {
-    const { createKernelManager } = await import("../../../src/pth/impls/kernels/kernel-manager.js");
-    const mgr = createKernelManager({
-      pythonMode: "kernel", bashMode: "kernel",
-      kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" },
-      // 无 sandboxKernel → c 降级
-    } as any);
-    const r = await mgr.execute("c", "int main(){return 0;}");
-    expect(r.ok).toBe(false);
-    expect(r.error?.message).toContain("sandbox 未配置");
-  });
 });

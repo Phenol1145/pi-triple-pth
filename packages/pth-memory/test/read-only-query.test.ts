@@ -102,4 +102,9 @@ describe("buildReadOnlyQuery（受限只读 SQL 校验）", () => {
       expect(() => buildReadOnlyQuery(bad)).toThrow();
     }
   });
+
+  it("schema 前缀剥离（public.memory_entries 放行）+ JOIN 表同样受检", () => {
+    expect(buildReadOnlyQuery("SELECT id FROM public.memory_entries LIMIT 1")).toContain("memory_entries");
+    expect(() => buildReadOnlyQuery("SELECT a.id FROM memory_entries a JOIN tasks t ON a.id = t.id")).toThrow(/tasks/);
+  });
 });

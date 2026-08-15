@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool } from "../../src/pth/kernel/storage/pg";
-import { applySchema } from "../../src/pth/kernel/storage/schema";
-import { PgMemoryStore } from "@away_from/pth-memory";
+import { Pool } from "pg";
+import { MEMORY_SCHEMA_SQL, PgMemoryStore } from "@away_from/pth-memory";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1/2/3（pg.test.ts / schema.test.ts / task-store-pg.test.ts）：
@@ -24,13 +23,13 @@ const suite = dockerAvailable ? describe : describe.skip;
 
 suite("memory store pg", () => {
   let container: PostgreSqlContainer;
-  let pool: Awaited<ReturnType<typeof createPgPool>>;
+  let pool: Pool;
   let store: PgMemoryStore;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
-    pool = await createPgPool({ connectionString: container.getConnectionUri() });
-    await applySchema(pool);
+    pool = new Pool({ connectionString: container.getConnectionUri() });
+    await pool.query(MEMORY_SCHEMA_SQL);
     store = new PgMemoryStore(pool);
   }, 120_000);
 
