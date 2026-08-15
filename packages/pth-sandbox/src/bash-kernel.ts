@@ -13,7 +13,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { buildWorkloadEnv, workloadIdentity } from "./workload/environment.js";
+import { buildWorkloadEnv, workloadIdentity, WORKLOAD_HOME } from "./workload/environment.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
 /** 记忆库函数（2026-08-11 库化——bash 核 seed：curl 封装记忆桥只读三操作；SQL/JSON 由调用方传） */
@@ -173,14 +173,15 @@ export class BashKernel implements Interpreter {
 
   private spawn(): void {
     // 非交互模式：bash 读 stdin 逐行执行（不输出提示符，无 job control 噪音）
+    const identity = workloadIdentity();
     const child = spawn("bash", ["--noprofile", "--norc"], {
       stdio: ["pipe", "pipe", "pipe"],
       // P0-2：工作负载 env 走 allowlist——不继承控制器密钥；bridge token 仅 kernel-mode 显式放行
       env: buildWorkloadEnv(
-        { PTH_MEMORY_BRIDGE: this.memoryBridge, PTH_MEMORY_BRIDGE_TOKEN: this.bridgeToken || undefined, ...this.env },
+        { ...(identity.uid ? { HOME: WORKLOAD_HOME } : {}), PTH_MEMORY_BRIDGE: this.memoryBridge, PTH_MEMORY_BRIDGE_TOKEN: this.bridgeToken || undefined, ...this.env },
         { allowBridgeToken: Boolean(this.bridgeToken) },
       ),
-      ...workloadIdentity(),
+      ...identity,
     });
     this.child = child;
     this.buffer = "";

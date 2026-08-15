@@ -65,6 +65,9 @@ export interface WorkloadIdentity {
   gid?: number;
 }
 
+/** workload 用户的 HOME（容器内 /home/workload——避免继承 controller 的 /root） */
+export const WORKLOAD_HOME = "/home/workload";
+
 /** 读取容器内注入的工作负载身份（Dockerfile ENV PTH_WORKLOAD_UID/GID）；未配置时返回空（当前用户） */
 export function workloadIdentity(): WorkloadIdentity {
   const uid = Number(process.env.PTH_WORKLOAD_UID);

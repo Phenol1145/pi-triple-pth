@@ -36,13 +36,13 @@ ENV DATA_DIR=/data
 # 依赖清单先行（源码/文档变化不失效依赖层——GPT 文档 P0-②）
 COPY package.json package-lock.json ./
 # npm workspaces（所有包的 package.json——workspace symlink 必需）
-COPY packages/shared/package.json packages/shared/
-COPY packages/infra/package.json packages/infra/
-COPY packages/framework/package.json packages/framework/
-COPY packages/mailbox/package.json packages/mailbox/
-COPY packages/pth-memory/package.json packages/pth-memory/
-COPY packages/pth-sandbox/package.json packages/pth-sandbox/
-COPY packages/dev-container/package.json packages/dev-container/
+COPY --chown=node:node packages/shared/package.json packages/shared/
+COPY --chown=node:node packages/infra/package.json packages/infra/
+COPY --chown=node:node packages/framework/package.json packages/framework/
+COPY --chown=node:node packages/mailbox/package.json packages/mailbox/
+COPY --chown=node:node packages/pth-memory/package.json packages/pth-memory/
+COPY --chown=node:node packages/pth-sandbox/package.json packages/pth-sandbox/
+COPY --chown=node:node packages/dev-container/package.json packages/dev-container/
 RUN npm ci --omit=dev
 
 # 仅拷入各包构建产物（不拷源码/test/tsconfig/TODO——减小镜像体积+攻击面）

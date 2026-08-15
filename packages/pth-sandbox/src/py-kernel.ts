@@ -14,7 +14,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { PTH_MEMORY_LIB_B64 } from "@away_from/pth-memory";
-import { buildWorkloadEnv, workloadIdentity } from "./workload/environment.js";
+import { buildWorkloadEnv, workloadIdentity, WORKLOAD_HOME } from "./workload/environment.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
 export const DEFAULT_EXECUTION_TIMEOUT_MS = 300_000;
@@ -359,12 +359,13 @@ export class PyKernel implements Interpreter {
     // 占位符校验（2026-08-12 审计）：错配时 python 侧 exec 抛 base64 解码错——启动即崩且难诊断
     if (!PY_RUNTIME.includes("__PTH_MEMORY_LIB_B64__")) throw new Error("PY_RUNTIME 缺失记忆库占位符（__PTH_MEMORY_LIB_B64__）");
     const runtime = PY_RUNTIME.replace("__PTH_MEMORY_LIB_B64__", PTH_MEMORY_LIB_B64);
+    const identity = workloadIdentity();
     const child = spawn(this.pythonBin, ["-u", "-c", runtime], {
       stdio: ["pipe", "pipe", "pipe"],
       // 记忆桥 URL 注入（2026-08-11 库化——kernel 模式 localhost:3000 直通；sandbox kernel-pool 缺省 8080 转发）
       // P0-2：工作负载 env 走 allowlist——不继承控制器密钥；bridge token 仅 kernel-mode 显式放行
-      env: buildWorkloadEnv({ PTH_MEMORY_BRIDGE: this.memoryBridge, PTH_MEMORY_BRIDGE_TOKEN: this.bridgeToken || undefined }, { allowBridgeToken: Boolean(this.bridgeToken) }),
-      ...workloadIdentity(),
+      env: buildWorkloadEnv({ ...(identity.uid ? { HOME: WORKLOAD_HOME } : {}), PTH_MEMORY_BRIDGE: this.memoryBridge, PTH_MEMORY_BRIDGE_TOKEN: this.bridgeToken || undefined }, { allowBridgeToken: Boolean(this.bridgeToken) }),
+      ...identity,
     });
     this.child = child;
     this.buffer = "";

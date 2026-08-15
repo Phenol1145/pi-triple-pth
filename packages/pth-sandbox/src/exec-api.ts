@@ -26,8 +26,8 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
-import { cp, mkdir, rm, chmod, chown } from "node:fs/promises";
-import { buildWorkloadEnv, workloadIdentity } from "./workload/environment.js";
+import { cp, mkdir, rm, chmod, chown, readdir, lstat } from "node:fs/promises";
+import { buildWorkloadEnv, workloadIdentity, WORKLOAD_HOME } from "./workload/environment.js";
 
 // ─── 类型 ────────────────────────────────────────────────────────────
 export interface ExecRequest {
@@ -127,10 +127,11 @@ function runExec(
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
     const cmdArray = Array.isArray(opts.cmd) ? opts.cmd : ["bash", "-lc", opts.cmd];
+    const identity = workloadIdentity();
     const child = spawn(cmdArray[0], cmdArray.slice(1), {
       cwd: opts.cwd,
-      env: buildWorkloadEnv(opts.env),
-      ...workloadIdentity(),
+      env: buildWorkloadEnv({ ...(identity.uid ? { HOME: WORKLOAD_HOME } : {}), ...(opts.env ?? {}) }),
+      ...identity,
       // detached：子进程独立进程组 → 超时用 kill(-pid, SIGKILL) 强杀整个子树
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -244,10 +245,21 @@ function validateBody(body: unknown, defaultTimeoutMs: number, maxTimeoutMs: num
   return { cmd: cmd as string | string[], timeoutMs };
 }
 
+async function chownRecursive(target: string, uid: number, gid: number): Promise<void> {
+  const st = await lstat(target);
+  if (st.isSymbolicLink()) return;
+  await chown(target, uid, gid).catch(() => {});
+  if (st.isDirectory()) {
+    for (const name of await readdir(target)) {
+      await chownRecursive(path.join(target, name), uid, gid);
+    }
+  }
+}
+
 /**
  * P0-3：workload 私有工作区。容器内 controller 以 root 运行时，把任务 cwd 拷贝到
- * /srv/workload/<uuid> 并 chown 给 workload UID；执行完把结果回拷到共享工作区。
- * workload 只能看到自己的拷贝，共享卷上其他租户目录为 0700（PTH 侧创建），无权读取。
+ * /srv/workload/<uuid> 并 chown 给 workload UID；执行完把结果回拷到共享工作区，
+ * 并 chown 回 PTH 属主（默认 node 1000）——workload 只看到自己的拷贝。
  * 宿主/测试环境非 root 时不启用（直接使用原 cwd）。
  */
 async function prepareWorkspace(
@@ -266,9 +278,12 @@ async function prepareWorkspace(
   }
   await cp(cwd, execCwd, { recursive: true, force: true });
   await chmod(execCwd, 0o700);
+  const ownerUid = Number(process.env.PTH_WORKSPACE_OWNER_UID ?? 1000);
+  const ownerGid = Number(process.env.PTH_WORKSPACE_OWNER_GID ?? 1000);
   const syncBack = async (): Promise<string | null> => {
     try {
       await cp(execCwd, cwd, { recursive: true, force: true });
+      await chownRecursive(cwd, ownerUid, ownerGid);
       return null;
     } catch (err) {
       return `workspace sync-back failed: ${(err as Error).message}`;
