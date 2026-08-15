@@ -3,18 +3,24 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
 # npm workspaces（packages/*）——@pi-triple/infra 等 workspace 包链接必需
 COPY packages/ ./packages/
 RUN npm ci
 
 COPY src/ ./src/
-# 2026-08-15 拆分：沙箱运行时 = pth-memory + pth-sandbox 两包（内核契约/宿主在沙箱包内）
-RUN npx tsc -p packages/pth-memory && npx tsc -p packages/pth-sandbox
+# 2026-08-15 拆分：沙箱运行时 = pth-memory + pth-sandbox 两包（内核契约/宿主在沙箱包内）；
+# runtime 还要 framework dist（/usr/local/bin/ptl）——依赖顺序 shared → infra → framework
+RUN npx tsc -p packages/pth-memory \
+    && npx tsc -p packages/pth-sandbox \
+    && npx tsc -p packages/shared \
+    && npx tsc -p packages/infra \
+    && npx tsc -p packages/framework
 
 # ---- Runtime stage ----
 # sandbox：隔离命令执行容器。安全边界：
-#   - 非 root（USER node）
+#   - P0-2：控制器以容器内 root 运行（仅用于 spawn 时 setuid 到不可信用户）；所有工作负载
+#     （/exec、Python/Bash REPL）以 workload（UID/GID 2001）运行，无法读控制器 env/密钥或改写 /app
 #   - egress 锁定：compose 仅挂 internal 网络（本镜像不暴露任何出网路径；curl 仅供 healthcheck 内网探测）
 #   - 共享密钥经 compose env 注入（SANDBOX_SHARED_SECRET），不镜像硬编码
 #   - bash 安装说明（F/WP3 Task 10 适配）：exec API 字符串 cmd 以 `bash -lc` 执行
@@ -29,6 +35,10 @@ FROM node:22-slim
 RUN apt-get update && apt-get install -y curl bash tmux git python3 python3-pip gcc g++ gdb strace valgrind tcc && rm -rf /var/lib/apt/lists/*
 # kernel sandbox SPEC §3.1：PyKernel 宿主依赖（python 3.11+ 的 --break-system-packages 兼容）
 RUN pip3 install --no-cache-dir numpy --break-system-packages || pip3 install --no-cache-dir numpy
+
+# P0-2：创建不可信工作负载用户；控制器（root）通过 spawn uid/gid 降权运行 workload
+RUN useradd --system --uid 2001 --gid 2001 --create-home --shell /bin/bash workload
+ENV PTH_WORKLOAD_UID=2001 PTH_WORKLOAD_GID=2001
 
 WORKDIR /app
 
@@ -72,10 +82,15 @@ ENV PI_CODING_AGENT_DIR=/data/agent-dir
 # PTL 在 sandbox 内联 pth（sandbox-internal 网络：pth 服务名可解析；hub observe/上传自修改构件）
 ENV PLATFORM_URL=http://pi-platform:3000
 
-# 工作区共享卷（compose：workspaces → /data/workspaces，与 pth 同卷同路径——Task 12 约定）
-RUN mkdir -p /data/workspaces /data/agent-dir /data/compiled-cache && chown -R node:node /data/workspaces /data/agent-dir /data/compiled-cache /app
+# 工作区共享卷（compose：workspaces → /data/workspaces，与 pth 同卷同路径——Task 12 约定）。
+# P0-2：workload 用户需要写工作区，暂保持 0777（P0-3 将收窄为租户/任务级隔离）；
+# /app 归 root，workload 只读——不可信代码不能篡改控制器运行时。
+RUN mkdir -p /data/workspaces /data/agent-dir /data/compiled-cache \
+    && chmod 0777 /data/workspaces /data/compiled-cache \
+    && chown -R root:root /app /data/agent-dir
 
-USER node
+# 控制器以容器内 root 运行（仅用于 setuid 到 workload；容器无特权模式/无 Docker socket）
+# ——不再 USER node；/exec、Python/Bash REPL 的 spawn 由 PTH_WORKLOAD_UID/GID 降权。
 
 EXPOSE 8080
 

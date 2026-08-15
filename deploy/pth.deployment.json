@@ -52,6 +52,7 @@
         "DATA_DIR": "/data",
         "SANDBOX_URL": "http://sandbox:8080",
         "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}",
+        "PTH_MEMORY_BRIDGE_TOKEN": "${PTH_MEMORY_BRIDGE_TOKEN:-}",
         "PTH_PYTHON_MODE": "${PTH_PYTHON_MODE:-sandbox-kernel}",
         "PTH_BASH_MODE": "${PTH_BASH_MODE:-sandbox-kernel}",
         "PTH_SANDBOX_KERNEL_URL": "http://sandbox:8080",
