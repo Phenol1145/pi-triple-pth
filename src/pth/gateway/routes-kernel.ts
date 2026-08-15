@@ -215,12 +215,22 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     }
   });
   // 记忆治理提案批准（2026-08-14 T7 归档闭环执行端——manage.memory.archive 的 draft → 监督批准 → 执行）
+  // 2026-08-15 B4 W5：skill-maintain-proposal 同流（提案 → adversarial pass → 监督批准 → 执行）
   app.post("/api/v1/kernel/memory-admin/approve", async (req, reply) => {
     if (!kernel) return unavailable(reply);
     const body = (req.body ?? {}) as { id?: string };
     const id = String(body.id ?? "").trim();
     if (!id) return reply.code(400).send({ error: "id required" });
     try {
+      const proposal = await kernel.dataWorld.memory.get(id);
+      if (proposal?.kind === "skill-maintain-proposal") {
+        const { approveSkillProposal, executeApprovedSkillProposal } = await import("@away_from/pth-memory");
+        const approved = await approveSkillProposal(kernel.dataWorld.memory, id);
+        if (!approved.ok) return reply.code(400).send(approved);
+        const executed = await executeApprovedSkillProposal(kernel.dataWorld.memory, id);
+        if (!executed.ok) return reply.code(400).send(executed);
+        return executed;
+      }
       const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
       const r = await applyMemoryAdminProposal(kernel.dataWorld.memory, id);
       if (!r.ok) return reply.code(400).send(r);

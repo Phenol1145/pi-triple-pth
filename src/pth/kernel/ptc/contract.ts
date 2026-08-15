@@ -114,6 +114,31 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     },
     asAction: (a) => `return await memory.write(${JSON.stringify(a)});`,
   },
+  // —— B4 Phase 3：skill 维护面（仅 memory-keeper 注入）——
+  'skills.maintain.write': {
+    name: 'skills.maintain.write', family: 'memory',
+    params: '(input: { name: string; content: string; anchors?: string[]; force?: boolean; audit?: string; proposalId?: string })',
+    returnType: 'Promise<{ ok: boolean; id?: string; error?: string }>',
+    anchor: '固化/修订 skill 条目（写后冻结）',
+    whenToUse: 'memory-keeper 维护任务：新 SOP 固化，或显式 force 修订已有条目',
+    effect: 'skill:<name> 官方条目落库（force 修订带 audit 留痕）',
+    validate: (args) => {
+      const e = requireObject(args, 0, 'skills.maintain.write');
+      if (typeof e.name !== 'string' || e.name.trim() === '') throw new PtcContractError('skills.maintain.write', 'name 必填');
+      if (typeof e.content !== 'string' || e.content.trim() === '') throw new PtcContractError('skills.maintain.write', 'content 必填');
+    },
+    asAction: (a) => `return await skills.maintain.write(${JSON.stringify(a)});`,
+  },
+  'skills.maintain.archive': {
+    name: 'skills.maintain.archive', family: 'memory',
+    params: '(id: string, audit?: string)',
+    returnType: 'Promise<{ ok: boolean; id?: string; error?: string }>',
+    anchor: '归档 skill 条目（修订流的第一半）',
+    whenToUse: '旧 SOP 被新条目取代——先 archive 再写新条目',
+    effect: '条目 status→archived，保留审计 meta',
+    validate: (args) => { requireString(args, 0, 'skills.maintain.archive'); },
+    asAction: (a) => `return await skills.maintain.archive(${JSON.stringify(String(a.id ?? ''))}${a.audit !== undefined ? `, ${JSON.stringify(String(a.audit))}` : ''});`,
+  },
   // —— LLM ——
   'llm.complete': {
     name: 'llm.complete', family: 'llm',

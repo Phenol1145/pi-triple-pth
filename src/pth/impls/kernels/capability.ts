@@ -6,7 +6,7 @@ import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
 import { wrapValidated } from "../../kernel/ptc/contract.js";
-import { isVisible, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive } from "@away_from/pth-memory";
+import { isVisible, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
 import { isIP } from "node:net";
 
 /** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */
@@ -114,14 +114,24 @@ export function buildCapabilities(deps: {
       list: async () => (await listSkills(deps.dataWorld.memory)).filter((s) => s.status !== "draft"),
       get: async (name: string) => getSkill(deps.dataWorld.memory, String(name)),
       // B4 Phase 3：维护面只给 memory-keeper（写后冻结；修订 = force + audit / archive + 新条目）
+      //   W5 策略：PTH_SKILL_WRITE_POLICY=manual（默认人工闸门）| staged（提案→审核→批准→执行）
       ...(deps.roleId === "memory-keeper"
         ? {
             maintain: {
-              write: async (input: { name: string; content: string; anchors?: string[]; force?: boolean; audit?: string }) =>
-                maintainSkillWrite(deps.dataWorld.memory, input),
+              write: async (input: { name: string; content: string; anchors?: string[]; force?: boolean; audit?: string; proposalId?: string }) =>
+                maintainSkillWrite(deps.dataWorld.memory, input, { policy: (process.env.PTH_SKILL_WRITE_POLICY ?? "manual") as "manual" | "staged" }),
               archive: async (id: string, audit?: string) =>
-                maintainSkillArchive(deps.dataWorld.memory, id, audit),
+                maintainSkillArchive(deps.dataWorld.memory, id, audit, { policy: (process.env.PTH_SKILL_WRITE_POLICY ?? "manual") as "manual" | "staged" }),
+              propose: async (input: { action: "write" | "archive"; name: string; content?: string; force?: boolean; anchors?: string[]; audit?: string }) =>
+                proposeSkillMaintenance(deps.dataWorld.memory, input),
             },
+          }
+        : {}),
+      // B4 W7：对抗性审核只给 controller:adversarial
+      ...(deps.roleId === "controller:adversarial"
+        ? {
+            review: async (proposalId: string, verdict: "pass" | "reject", note?: string) =>
+              reviewSkillProposal(deps.dataWorld.memory, proposalId, verdict, note ?? ""),
           }
         : {}),
     },

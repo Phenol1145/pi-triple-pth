@@ -7,6 +7,7 @@
  * 数据源 = memory_entries 中 kind 以 "skill:" 为前缀的条目。
  */
 
+import { randomUUID } from "node:crypto";
 import type { MemoryEntry } from "./memory-store-pg.js";
 
 export interface SkillStoreLike {
@@ -125,16 +126,126 @@ export interface SkillMaintainWriteInput {
   /** 显式覆写（force）；缺省只允许新条目 */
   force?: boolean;
   audit?: string;
+  /** staged 策略下的已批准提案 id */
+  proposalId?: string;
+}
+
+export interface SkillMaintainWriteOptions {
+  /** manual（默认）：人工闸门已由维护任务分配承担；staged：必须有 approved 提案 */
+  policy?: "manual" | "staged";
+}
+
+/** B4 W5 staged 流：draft 提案 → controller:adversarial 审核 → 监督批准 → memory-keeper 执行 */
+export interface SkillMaintainProposal {
+  action: "write" | "archive";
+  name: string;
+  content?: string;
+  force?: boolean;
+  anchors?: string[];
+  audit?: string;
+}
+
+const PROPOSAL_KIND = "skill-maintain-proposal";
+
+async function getProposal(store: SkillMaintenanceStore, proposalId: string): Promise<MemoryEntry | undefined> {
+  const p = await store.get(proposalId);
+  if (!p || p.kind !== PROPOSAL_KIND) return undefined;
+  return p;
+}
+
+export async function proposeSkillMaintenance(store: SkillMaintenanceStore, input: SkillMaintainProposal): Promise<SkillMaintainResult> {
+  const id = `${PROPOSAL_KIND}:${randomUUID()}`;
+  await store.write({
+    id,
+    kind: PROPOSAL_KIND,
+    anchors: [input.name],
+    content: JSON.stringify(input),
+    status: "draft",
+    meta: { proposedAt: Date.now(), proposedBy: "memory-keeper", stage: "proposed" },
+  });
+  return { ok: true, id };
+}
+
+export async function reviewSkillProposal(
+  store: SkillMaintenanceStore,
+  proposalId: string,
+  verdict: "pass" | "reject",
+  note = "",
+): Promise<SkillMaintainResult> {
+  const p = await getProposal(store, proposalId);
+  if (!p) return { ok: false, error: "skill 维护提案不存在或类型不符" };
+  if (p.status !== "draft") return { ok: false, error: `提案状态 ${p.status}——仅 draft 可审核` };
+  await store.update(proposalId, {
+    meta: {
+      ...(p.meta ?? {}),
+      adversarialReview: { verdict, note, reviewer: "controller:adversarial", reviewedAt: Date.now() },
+      stage: verdict === "pass" ? "reviewed" : "rejected",
+    },
+  });
+  return { ok: verdict === "pass", id: proposalId, error: verdict === "pass" ? undefined : "adversarial review rejected" };
+}
+
+export async function approveSkillProposal(store: SkillMaintenanceStore, proposalId: string): Promise<SkillMaintainResult> {
+  const p = await getProposal(store, proposalId);
+  if (!p) return { ok: false, error: "skill 维护提案不存在或类型不符" };
+  if (p.status !== "draft") return { ok: false, error: `提案状态 ${p.status}——仅 draft 可批准` };
+  const review = (p.meta?.adversarialReview ?? {}) as { verdict?: string };
+  if (review.verdict !== "pass") return { ok: false, error: "提案未经 controller:adversarial pass 审核——不可批准" };
+  await store.update(proposalId, { status: "official", meta: { ...(p.meta ?? {}), approvedAt: Date.now(), stage: "approved" } });
+  return { ok: true, id: proposalId };
+}
+
+/** 监督批准后执行已批准的 skill 维护提案（write/archive——与 T7 归档 approve 流同构）。 */
+export async function executeApprovedSkillProposal(store: SkillMaintenanceStore, proposalId: string): Promise<SkillMaintainResult> {
+  const p = await getProposal(store, proposalId);
+  if (!p || p.status !== "official") return { ok: false, error: "提案不存在或未批准" };
+  const proposal = JSON.parse(String(p.content)) as SkillMaintainProposal;
+  if (proposal.action === "archive") {
+    const id = proposal.name.startsWith(SKILL_KIND_PREFIX) ? proposal.name : `${SKILL_KIND_PREFIX}${proposal.name}`;
+    const existing = await store.get(id);
+    if (!existing) return { ok: false, error: `skill not found: ${id}` };
+    await store.update(id, {
+      status: "archived",
+      meta: { ...(existing.meta ?? {}), archivedAt: Date.now(), archivedBy: "memory-keeper", proposalId, ...(proposal.audit ? { auditNote: proposal.audit } : {}) },
+    }, { force: true });
+    await store.update(proposalId, { meta: { ...(p.meta ?? {}), executedAt: Date.now(), stage: "executed" } });
+    return { ok: true, id };
+  }
+  if (proposal.action === "write") {
+    return maintainSkillWrite(store, {
+      name: proposal.name,
+      content: proposal.content ?? "",
+      anchors: proposal.anchors,
+      force: proposal.force ?? false,
+      audit: proposal.audit,
+      proposalId,
+    }, { policy: "staged" });
+  }
+  return { ok: false, error: `动作 "${String(proposal.action)}" 暂不支持（write/archive）` };
+}
+
+async function executeProposal(store: SkillMaintenanceStore, proposalId: string, name: string, action: "write" | "archive"): Promise<SkillMaintainResult> {
+  await store.update(proposalId, { meta: { executedAt: Date.now(), stage: "executed" } });
+  if (action === "archive") return maintainSkillArchive(store, name);
+  return { ok: true, id: `skill:${name}` };
 }
 
 /** 维护面写 skill：新条目直写；已存在必须显式 force（写后冻结的修订审计）。 */
-export async function maintainSkillWrite(store: SkillMaintenanceStore, input: SkillMaintainWriteInput): Promise<SkillMaintainResult> {
+export async function maintainSkillWrite(store: SkillMaintenanceStore, input: SkillMaintainWriteInput, opts: SkillMaintainWriteOptions = {}): Promise<SkillMaintainResult> {
   const name = String(input.name ?? "").trim();
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) {
     return { ok: false, error: `invalid skill name: ${name}` };
   }
   if (typeof input.content !== "string" || input.content.trim() === "") {
     return { ok: false, error: "skill content required" };
+  }
+  if (opts.policy === "staged") {
+    if (!input.proposalId) return { ok: false, error: "staged 策略需要已批准提案 proposalId" };
+    const p = await getProposal(store, input.proposalId);
+    if (!p || p.status !== "official") return { ok: false, error: "提案不存在或未批准" };
+    const proposal = JSON.parse(String(p.content)) as SkillMaintainProposal;
+    if (proposal.action !== "write" || proposal.name !== name) return { ok: false, error: "提案与写入目标不匹配" };
+    await executeProposal(store, input.proposalId, name, "write");
   }
   const id = `${SKILL_KIND_PREFIX}${name}`;
   const existing = await store.get(id);
@@ -154,16 +265,20 @@ export async function maintainSkillWrite(store: SkillMaintenanceStore, input: Sk
       maintainedBy: "memory-keeper",
       revision: (Number(existing?.meta?.revision ?? 0) || 0) + 1,
       ...(input.audit ? { auditNote: input.audit } : {}),
+      ...(input.proposalId ? { proposalId: input.proposalId } : {}),
     },
   }, { force: true });
   return { ok: true, id };
 }
 
 /** 维护面归档 skill（修订流：archive 旧条目 + 写新条目）。 */
-export async function maintainSkillArchive(store: SkillMaintenanceStore, idOrName: string, audit?: string): Promise<SkillMaintainResult> {
+export async function maintainSkillArchive(store: SkillMaintenanceStore, idOrName: string, audit?: string, opts: SkillMaintainWriteOptions = {}): Promise<SkillMaintainResult> {
   const id = idOrName.startsWith(SKILL_KIND_PREFIX) ? idOrName : `${SKILL_KIND_PREFIX}${idOrName}`;
   const existing = await store.get(id);
   if (!existing) return { ok: false, error: `skill not found: ${id}` };
+  if (opts.policy === "staged") {
+    return { ok: false, error: "staged archive 请经 propose/approve 后调用 executeSkillProposal" };
+  }
   await store.update(id, {
     status: "archived",
     meta: { ...(existing.meta ?? {}), archivedAt: Date.now(), archivedBy: "memory-keeper", ...(audit ? { auditNote: audit } : {}) },

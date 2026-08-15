@@ -12,7 +12,7 @@
 - [ ] H6 后续：store.update 的 meta 合并改为字段白名单（worker 面已挡，store 层纵深）
 - [ ] H7 后续：worker-role/space-reg 装配恢复加来源校验（prompt 层拒写已上，信任链仍需）
 - [x] B4 Phase 2：skills.get 真实接线 + Level 0 清单 / Level 1 全文两级检索
-- [ ] B4 Phase 3：memory-keeper 专项维护面 + 不可变语义 + controller:adversarial 审核（已落地：`skills.maintain` 仅 memory-keeper 注入、store 层 skill update 需 force；待建：`PTH_SKILL_WRITE_POLICY` staged 流、controller:adversarial 角色、PTC 注册表 entries）
+- [x] B4 Phase 3：memory-keeper 专项维护面 + 不可变语义 + controller:adversarial 审核（`skills.maintain` 仅 memory-keeper、store 层 skill update 需 force、W5 staged 提案/审核/批准/执行 + `controller:adversarial` 治理角色 + PTC entries + gateway approve 流）
 - [x] B4 Phase 4：SKILL.md → skill 条目映射定稿（`parseSkillMarkdown`——四段式映射，0.13 转化落点）
 - [ ] N1b 百科写入矛盾检测；N4 生态转化 pipeline（记忆侧 skill 条目化）
 - [ ] 归档定期 trigger 接线（N7 尾件）

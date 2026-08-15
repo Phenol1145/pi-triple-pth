@@ -202,4 +202,9 @@ export const GOVERNANCE_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
     parent: "controller", generation: 2, differentiation: "控制论分割——调节职责从 Origin 分出（记忆管理）", acceptanceRole: "read-only" },
+  { id: "controller:adversarial", tags: ["controller", "review", "adversarial"], prompt: "你是对抗性安全审核者（controller:adversarial）——skill 固化提案的对抗性审核角色。任务：对 skill 维护提案做 reward-hacking 显式检验——Pitfalls 完整性（是否覆盖已知失败模式）/Verification 可测性（是否可证伪）/作弊捷径（绕过治理、越权、目标函数漏洞）。产出结论：pass（批准固化）或 reject（列明缺口）。只读审核，不执行维护。",
+    description: "skill 固化提案的对抗性安全审核（治理族 controller 系——W7）", thinking: "high",
+    capabilities: ["memory", "fs", "readSource", "readText"], output: "review",
+    actionTools: ["execTs", "nav"],   // 只读审核：ts 程序读记忆/文档 + 导航——无执行核/维护面
+    parent: "controller", generation: 2, differentiation: "skill 固化提案需要对抗性审核（reward-hacking 显式检验——Pitfalls/Verification/作弊捷径）", acceptanceRole: "read-only" },
 ];

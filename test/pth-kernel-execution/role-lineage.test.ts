@@ -67,14 +67,14 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     const lineage = allLineageRoles();
     expect(lineage.some((r) => r.id === "origin")).toBe(true);
     expect(lineage.some((r) => r.id === "executor")).toBe(true);
-    // 2026-08-12 体系自制：+9 governance（sensor×4/controller×5——谱系可见默认不派发）；
+    // 2026-08-12 体系自制：+10 governance（sensor×4/controller×6——谱系可见默认不派发）；
     // 2026-08-14 类型树修理：中间层 3 → 7（+actuator/+researcher/+sensor/+controller）
-    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 7 + 9);
+    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 7 + 10);
     const gov = lineage.filter((r) => r.id.startsWith("sensor:") || r.id.startsWith("controller:"));
-    expect(gov.length).toBe(9);
+    expect(gov.length).toBe(10);
   });
 
-  it("buildRoleLineage 构建四层树（Origin → sensor/controller/actuator 三元组 → 4 族 + 9 治理骨架 → 10 叶子——2026-08-14 类型树修理）", () => {
+  it("buildRoleLineage 构建四层树（Origin → sensor/controller/actuator 三元组 → 4 族 + 10 治理骨架 → 10 叶子——2026-08-14 类型树修理 + 2026-08-15 B4 W7）", () => {
     const tree = buildRoleLineage();
     expect(tree.role.id).toBe("origin");
     expect(tree.children.map((c) => c.role.id).sort()).toEqual(["actuator", "controller", "sensor"]);   // 控制论三元组（真实类型）
@@ -82,7 +82,7 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     const controller = tree.children.find((c) => c.role.id === "controller");
     const sensor = tree.children.find((c) => c.role.id === "sensor");
     expect(actuator?.children.map((c) => c.role.id).sort()).toEqual(["executor", "explorer", "governor", "researcher"]);
-    expect(controller?.children.map((c) => c.role.id).sort()).toEqual(["controller:memory", "controller:pth-opt", "controller:resource", "controller:router", "controller:worker-opt"]);
+    expect(controller?.children.map((c) => c.role.id).sort()).toEqual(["controller:adversarial", "controller:memory", "controller:pth-opt", "controller:resource", "controller:router", "controller:worker-opt"]);
     expect(sensor?.children.map((c) => c.role.id).sort()).toEqual(["sensor:memory", "sensor:resource", "sensor:system-opt", "sensor:worker-opt"]);
     const executor = actuator?.children.find((c) => c.role.id === "executor");
     const explorer = actuator?.children.find((c) => c.role.id === "explorer");

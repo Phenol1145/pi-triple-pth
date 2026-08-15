@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSkillContent, listSkills, getSkill, parseSkillSummary, parseSkillMarkdown, maintainSkillWrite, maintainSkillArchive } from "@away_from/pth-memory";
+import { buildSkillContent, listSkills, getSkill, parseSkillSummary, parseSkillMarkdown, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, approveSkillProposal, executeApprovedSkillProposal } from "@away_from/pth-memory";
 
 const seed = {
   id: "test-sop",
@@ -83,6 +83,39 @@ describe("skills.maintain（B4 Phase 3）", () => {
     const r = await maintainSkillArchive(store, "old", "被 new 取代");
     expect(r.ok).toBe(true);
     expect(store.rows.get("skill:old")?.status).toBe("archived");
+  });
+
+  it("W5 staged：提案 → adversarial pass → 批准 → 执行写", async () => {
+    const store = makeStore();
+    const proposal = await proposeSkillMaintenance(store, { action: "write", name: "staged-sop", content: "v1", audit: "固化" });
+    expect(proposal.ok).toBe(true);
+
+    const before = await maintainSkillWrite(store, { name: "staged-sop", content: "v1", proposalId: proposal.id }, { policy: "staged" });
+    expect(before.ok).toBe(false);
+
+    expect((await reviewSkillProposal(store, proposal.id!, "pass", "Pitfalls/Verification 可测，无作弊捷径")).ok).toBe(true);
+    expect((await approveSkillProposal(store, proposal.id!)).ok).toBe(true);
+
+    const after = await maintainSkillWrite(store, { name: "staged-sop", content: "v1", proposalId: proposal.id }, { policy: "staged" });
+    expect(after.ok).toBe(true);
+    expect(store.rows.get("skill:staged-sop")?.meta).toMatchObject({ proposalId: proposal.id });
+  });
+
+  it("W5 staged：未经 adversarial pass 不可批准", async () => {
+    const store = makeStore();
+    const proposal = await proposeSkillMaintenance(store, { action: "write", name: "x", content: "x" });
+    expect((await approveSkillProposal(store, proposal.id!)).ok).toBe(false);
+  });
+
+  it("W5 staged：批准后 executeApprovedSkillProposal 执行 archive", async () => {
+    const store = makeStore({ "skill:old": { id: "skill:old", kind: "skill:old", content: "old", status: "official", meta: {} } });
+    const proposal = await proposeSkillMaintenance(store, { action: "archive", name: "old", audit: "废弃" });
+    expect((await reviewSkillProposal(store, proposal.id!, "pass")).ok).toBe(true);
+    expect((await approveSkillProposal(store, proposal.id!)).ok).toBe(true);
+    const r = await executeApprovedSkillProposal(store, proposal.id!);
+    expect(r.ok).toBe(true);
+    expect(store.rows.get("skill:old")?.status).toBe("archived");
+    expect(store.rows.get(proposal.id!)?.meta).toMatchObject({ stage: "executed" });
   });
 });
 
