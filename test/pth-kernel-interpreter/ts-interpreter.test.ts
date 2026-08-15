@@ -140,6 +140,77 @@ describe("ts interpreter", () => {
   });
 });
 
+describe("ts interpreter——noise-aware 尾表达式/autoExport（2026-08-15 HIGH）", () => {
+  it("字符串中的分号不算顶层分隔——尾表达式整段捕获", async () => {
+    const k = new TsInterpreter({ capabilities: {} });
+    const r = await k.execute(`const a = 1; await Promise.resolve(); "a;b"`);
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe("a;b");
+  });
+
+  it("模板字符串中的分号不算顶层分隔——尾表达式整段捕获", async () => {
+    const k = new TsInterpreter({ capabilities: {} });
+    const r = await k.execute(`const a = 1; await Promise.resolve(); \`a;b\``);
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe("a;b");
+  });
+
+  it("真实 return 之后的字符串 return 不算插入点——autoExport 不切坏代码", async () => {
+    const k = new TsInterpreter({ capabilities: {} });
+    const code = `function f() { return 1; } return { v: f() }; const note = "return";`;
+    const r = await k.execute(code, { cwd: "/tmp" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual({ v: 1 });
+    expect(k.snapshot().functions.some((f) => f.key === "f")).toBe(true);
+  });
+
+  it("真实 return 之后的模板 return 不算插入点——autoExport 不切坏代码", async () => {
+    const k = new TsInterpreter({ capabilities: {} });
+    const code = `function h() { return 2; } return { v: h() }; const tpl = \`return\`;`;
+    const r = await k.execute(code, { cwd: "/tmp" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual({ v: 2 });
+    expect(k.snapshot().functions.some((f) => f.key === "h")).toBe(true);
+  });
+
+  it("真实 return 之后的正则字面量 return 不算插入点——autoExport 不切坏代码", async () => {
+    const k = new TsInterpreter({ capabilities: {} });
+    const code = `function r() { return 4; } return { v: r() }; const re = /return/;`;
+    const r = await k.execute(code, { cwd: "/tmp" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual({ v: 4 });
+    expect(k.snapshot().functions.some((f) => f.key === "r")).toBe(true);
+  });
+
+  it("行尾注释中的 return 不算插入点——导出插到真实 return 前", async () => {
+    const k = new TsInterpreter({ capabilities: {} });
+    const code = `function g() { return 1; } return { v: g() }; // return`;
+    const r = await k.execute(code, { cwd: "/tmp" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual({ v: 1 });
+    expect(k.snapshot().functions.some((f) => f.key === "g")).toBe(true);
+  });
+
+  it("多行模板字符串中的 return 行/注释中的声明不产生假导出", async () => {
+    const k = new TsInterpreter({ capabilities: {} });
+    const code = [
+      "const tpl = `header",
+      "return",
+      "footer`;",
+      "// ; var ghost = 1;",
+      "function real() { return 3; }",
+      "return { v: real() };",
+    ].join("\n");
+    const r = await k.execute(code, { cwd: "/tmp" });
+    expect(r.ok).toBe(true);
+    expect(r.value).toEqual({ v: 3 });
+    const snap = k.snapshot();
+    expect(snap.functions.some((f) => f.key === "real")).toBe(true);
+    expect(snap.functions.some((f) => f.key === "ghost")).toBe(false);
+    expect(snap.variables.some((v) => v.key === "ghost")).toBe(false);
+  });
+});
+
 describe("single-line task snapshot export", () => {
   it("单行任务代码（return 不在行首）函数应进 snapshot——导出非死代码", async () => {
     const k = new TsInterpreter({ timeoutMs: 5000 });

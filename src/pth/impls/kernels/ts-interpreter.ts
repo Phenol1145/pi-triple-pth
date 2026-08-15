@@ -177,6 +177,90 @@ function preflight(program: string, exec: "single" | "program" | "auto"): { ok: 
 }
 
 /**
+ * 2026-08-15 筛查 HIGH：尾表达式/autoExport/return 定位必须 noise-aware——
+ * 字符串/模板/注释中的 return/; 不得影响插入位置与尾表达式判定。
+ * 本函数生成与源码等长的掩码：非代码字符替换为空格，代码字符保留。
+ */
+function maskNonCode(code: string): string {
+  let out = "";
+  let i = 0;
+  while (i < code.length) {
+    const c = code[i]!;
+    if (c === "'" || c === '"') {
+      let j = i + 1;
+      while (j < code.length) {
+        if (code[j] === "\\") { j += 2; continue; }
+        if (code[j] === c) { j++; break; }
+        j++;
+      }
+      out += " ".repeat(j - i);
+      i = j;
+      continue;
+    }
+    if (c === "`") {
+      let j = i + 1;
+      while (j < code.length) {
+        if (code[j] === "\\") { j += 2; continue; }
+        if (code[j] === "`") { j++; break; }
+        j++;
+      }
+      out += " ".repeat(j - i);
+      i = j;
+      continue;
+    }
+    if (c === "/" && code[i + 1] === "/") {
+      let j = i;
+      while (j < code.length && code[j] !== "\n") j++;
+      out += " ".repeat(j - i);
+      i = j;
+      continue;
+    }
+    if (c === "/" && code[i + 1] === "*") {
+      const end = code.indexOf("*/", i + 2);
+      const j = end >= 0 ? end + 2 : code.length;
+      out += " ".repeat(j - i);
+      i = j;
+      continue;
+    }
+    if (c === "/") {
+      // 正则字面量启发式（与 surface.stripNonCode 同源）：前邻上下文像「正则起点」
+      // → 整段掩码（正则文本里的 return/;/ 不是代码）；前邻是标识符/数字/)/]/或空白
+      // 除法上下文 → 保留（宁可漏报，不可误伤）。
+      let last = "";
+      for (let k = out.length - 1; k >= 0; k--) {
+        if (out[k] !== " ") { last = out[k]!; break; }
+      }
+      const prevWord = /([A-Za-z_$][\w$]*)\s*$/.exec(out)?.[1] ?? "";
+      const regexStartCtx = /^[=(:;,{[!&|?+\-*%<>]$/.test(last)
+        || ["return", "case", "throw", "typeof", "new", "delete", "void", "instanceof", "in", "of", "yield", "await"].includes(prevWord);
+      if (regexStartCtx) {
+        let j = i + 1;
+        let inClass = false;
+        let closed = false;
+        while (j < code.length) {
+          const ch = code[j]!;
+          if (ch === "\\") { j += 2; continue; }
+          if (ch === "[") { inClass = true; j++; continue; }
+          if (ch === "]") { inClass = false; j++; continue; }
+          if (ch === "/" && !inClass) { closed = true; j++; break; }
+          if (ch === "\n") break;
+          j++;
+        }
+        if (closed) {
+          while (j < code.length && /[a-z]/.test(code[j]!)) j++;
+          out += " ".repeat(j - i);
+          i = j;
+          continue;
+        }
+      }
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
+/**
  * top-level await 包装（异步 IIFE）。适配说明（brief 实现缺陷修复）：brief 的块包装
  * `(async () => { ${program} })()` 对表达式程序（如 `await Promise.resolve(42)`）
  * 不捕获 completion value，IIFE resolve 为 undefined（测试要求 42）。
@@ -199,10 +283,11 @@ function wrapAwait(program: string, mode: "single" | "program" | "wrap"): string
   // 多语句分隔符 → 块包装 → completion value 丢失（测试要求 42）。先剥离末尾空白/分号再判别；
   // 内部 `;`（真多语句）保留，仍走块包装。
   const trimmed = program.replace(/[;\s]+$/, "").trim();
-  // 声明/控制流关键字开头的程序是语句式（块包装保语义）
-  const startsWithStatementKeyword = /^(?:let\b|const\b|var\b|function\b|class\b|if\b|for\b|while\b|do\b|switch\b|try\b|catch\b|finally\b|return\b|throw\b|import\b|export\b|debugger\b|with\b|\{|;)/.test(trimmed);
-  // 含顶层 ; 或换行 => 多语句（块包装保语句完整）；单行模板串内换行属已知边界（不捕获值，仅值丢失不影响执行）
-  const hasTopLevelSeparator = /[\n;]/.test(trimmed);
+  const masked = maskNonCode(trimmed);
+  // 声明/控制流关键字开头的程序是语句式（块包装保语义）——noise-aware（字符串里的 return/let 不算）
+  const startsWithStatementKeyword = /^(?:let\b|const\b|var\b|function\b|class\b|if\b|for\b|while\b|do\b|switch\b|try\b|catch\b|finally\b|return\b|throw\b|import\b|export\b|debugger\b|with\b|\{|;)/.test(masked);
+  // 含顶层 ; 或换行 => 多语句（块包装保语句完整）——noise-aware
+  const hasTopLevelSeparator = /[\n;]/.test(masked);
   if (!startsWithStatementKeyword && !hasTopLevelSeparator) {
     return `(async () => { return ${program} })()`;
   }
@@ -222,24 +307,30 @@ function blockWrap(program: string): string {
   // 尾表达式捕获（2026-08-09 端到端暴露：多语句程序 completion value 丢失——report; 尾表达式
   // 块包装不返回 → submit ref 无 value。追加 `return (尾表达式)` 安全捕获；无尾表达式/无法判定 → 不加）
   const tailReturn = extractTailExpression(trimmed);
-  return `(async () => { ${withExport}${tailReturn ? `\nreturn (${tailReturn});` : ""} })()`;
+  // 尾 return 与闭包尾部都换行：程序以行注释结尾时，`// ... })()` 同行会把闭包尾巴吞进注释；
+  // tailReturn 含行注释同理（`return (expr // note)`）——换行后 `);`/`})()` 始终独立成行
+  return `(async () => { ${withExport}${tailReturn ? `\nreturn (${tailReturn}\n);` : ""}\n})()`;
 }
 
 /**
  * 尾表达式提取（块包装 completion value 捕获——安全判定）：
  * 取最后顶层分隔（\n/;）后的片段；声明/控制流/块/注释开头或含块尾 → 非表达式（不追加）。
- * 粗粒度（split 分隔）——多语句程序惯例每行一句；字符串/注释内含分隔符的边缘场景最后段不受影响。
+ * noise-aware：分隔符/关键字判定在 maskNonCode 掩码上进行（字符串/模板/注释中的
+ * return/; 不算），片段本身仍取原始源码（保证可执行文本不被空格化）。
  */
 function extractTailExpression(program: string): string | null {
-  const parts = program
-    .split(/[\n;]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const last = parts[parts.length - 1];
+  const mask = maskNonCode(program);
+  let start = 0;
+  for (let i = 0; i < mask.length; i++) {
+    if (mask[i] === "\n" || mask[i] === ";") start = i + 1;
+  }
+  const last = program.slice(start).trim();
   if (!last) return null;
-  // 排除声明/控制流/块/注释（这些不是表达式——追加 return 会语法错误）
-  if (/^(let|const|var|function|class|if|for|while|do|switch|try|catch|finally|return|throw|import|export|debugger|with|\{|\}|\/\/|\/\*)/.test(last)) return null;
-  if (/[{}]$/.test(last)) return null;
+  const lastMask = mask.slice(start).trim();
+  // 全非代码：注释 → null；字符串/模板字面量本身是合法表达式（值即自身）→ 保留
+  if (!lastMask && !/^(?:'|"|`)/.test(last)) return null;
+  if (/^(let|const|var|function|class|if|for|while|do|switch|try|catch|finally|return|throw|import|export|debugger|with|\{|\}|\/\/|\/\*)/.test(lastMask)) return null;
+  if (/[{}]$/.test(lastMask)) return null;
   return last;
 }
 
@@ -248,8 +339,11 @@ function extractTailExpression(program: string): string | null {
  *   function NAME(...)  /  var NAME = ...  → [NAME]
  * 仅匹配【行首】顶层声明——模板包装（如 dev-task-ts 的 __fn 函数体）内的声明不导出
  * （由模板自身的 autoExportBlock 处理，避免作用域错误）。
+ * noise-aware：正则跑在 maskNonCode 掩码上（等长——位置/换行/分隔符与源码对齐），
+ * 字符串/模板/注释中的 function/var 不导出；命中分组取自掩码，与源码文本一致。
  */
 function extractTopLevelDecls(program: string): string[] {
+  const mask = maskNonCode(program);
   const names = new Set<string>();
   // 行首模式（模板渲染任务多行结构）
   const fnRe = /^function\s+([A-Za-z_$][\w$]*)/gm;
@@ -258,34 +352,34 @@ function extractTopLevelDecls(program: string): string[] {
   // 命名函数表达式 `: function f` 不匹配（前缀是冒号），for 循环 `(var` 不匹配
   const fnOneLine = /(?:^|[;}])\s*function\s+([A-Za-z_$][\w$]*)/g;
   const varOneLine = /(?:^|[;}])\s*var\s+([A-Za-z_$][\w$]*)/g;
-  for (const m of program.matchAll(fnRe)) names.add(m[1]!);
-  for (const m of program.matchAll(varRe)) names.add(m[1]!);
-  for (const m of program.matchAll(fnOneLine)) names.add(m[1]!);
-  for (const m of program.matchAll(varOneLine)) names.add(m[1]!);
+  for (const m of mask.matchAll(fnRe)) names.add(m[1]!);
+  for (const m of mask.matchAll(varRe)) names.add(m[1]!);
+  for (const m of mask.matchAll(fnOneLine)) names.add(m[1]!);
+  for (const m of mask.matchAll(varOneLine)) names.add(m[1]!);
   return [...names];
 }
 
 /**
  * 把导出语句插到最后一个顶层 return 之前（return 后是死代码）。
- * 无 return → 直接追加尾部。
- */
-/**
- * 把导出语句插到最后一个顶层 return 之前（return 后是死代码）。
  * 优先行首 return（模板渲染任务多行结构）；单行任务代码（return 不在行首）
  * fallback 到任意位置最后一个 return（\b 词法边界，防误匹配 returnX/嵌套 return）
  * ——否则导出语句被追加到 return 后成死代码，snapshot 永远为空（perf 摸底发现）。
+ * noise-aware：定位跑在 maskNonCode 掩码上（等长对齐），切分/拼接仍作用于原始源码——
+ * 字符串/模板/注释里的 return 不触发插入，真实 return 前的插入位置不偏移。
  */
 function insertBeforeReturn(program: string, insertion: string): string {
-  const lines = program.split("\n");
+  const mask = maskNonCode(program);
+  const lines = mask.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     if (/^\s*return\b/.test(lines[i]!)) {
-      lines.splice(i, 0, insertion);
-      return lines.join("\n");
+      const origLines = program.split("\n");
+      origLines.splice(i, 0, insertion);
+      return origLines.join("\n");
     }
   }
   // fallback：任意位置最后一个 return（词法边界）——单行/压缩代码
   let lastIdx = -1;
-  for (const m of program.matchAll(/(?:^|[^A-Za-z0-9_$])return\b/g)) {
+  for (const m of mask.matchAll(/(?:^|[^A-Za-z0-9_$])return\b/g)) {
     lastIdx = m.index! + m[0].lastIndexOf("return");
   }
   if (lastIdx >= 0) {
