@@ -115,3 +115,15 @@ describe("incrementAggregate 键名校验（2026-08-12 审计 CRITICAL-1 修复�
     expect(called).toBe(true);
   });
 });
+
+// B4 Phase 3：skill 不可变——store 层 update 必须显式 force（SQL 之前拒绝）
+describe("skill 不可变（B4 Phase 3）", () => {
+  it("skill: 条目隐式 update 拒绝；force 抵达 pool 层", async () => {
+    const store = new PgMemoryStore({ query: async () => ({ rows: [], rowCount: 0 }) } as never);
+    await expect(store.update("skill:x", { content: "篡改" })).rejects.toThrow(/不可变/);
+    let called = false;
+    const store2 = new PgMemoryStore({ query: async () => { called = true; return { rows: [{ id: "x" }], rowCount: 1 }; } } as never);
+    await store2.update("skill:x", { content: "合法维护" }, { force: true });
+    expect(called).toBe(true);
+  });
+});

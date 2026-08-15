@@ -99,8 +99,12 @@ export class PgMemoryStore {
     return mapEntry(res.rows[0]);
   }
 
-  /** 版本递增 CAS：id 不存在 → throw（编程错误，不静默，对齐 FS update 语义）。 */
-  async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }): Promise<void> {
+  /** 版本递增 CAS：id 不存在 → throw（编程错误，不静默，对齐 FS update 语义）。
+   *  B4 Phase 3：skill:* 条目写后冻结——update 必须显式 force（仅 memory-keeper 维护面/系统通道）。 */
+  async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: { force?: boolean } = {}): Promise<void> {
+    if (id.startsWith("skill:") && !opts.force) {
+      throw new Error(`memory.update: skill 条目不可变（${id}）——修订请走 skills.maintain.archive + 新条目`);
+    }
     // meta 合并更新（2026-08-13 deopt 回滚需要——原实现 meta 只建初始 version）
     const metaExpr = patch.meta
       ? `meta || $4::jsonb || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`

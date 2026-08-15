@@ -39,6 +39,30 @@ describe("capabilities", () => {
     expect(caps.bash).toBeDefined();
     expect(caps.python).toBeDefined();
   });
+
+  it("B4 Phase 3：skills.maintain 只注入 memory-keeper 角色", () => {
+    const dataWorld = {
+      ...mockDataWorld(),
+      memory: {
+        listIds: async () => [],
+        get: async () => undefined,
+        write: async () => {},
+        update: async () => {},
+      },
+    } as any;
+    const keeper = buildCapabilities({
+      llm: { complete: async () => ({ content: "x" }) } as any,
+      dataWorld,
+      roleId: "memory-keeper",
+    });
+    const developer = buildCapabilities({
+      llm: { complete: async () => ({ content: "x" }) } as any,
+      dataWorld,
+      roleId: "developer",
+    });
+    expect((keeper.skills as Record<string, unknown>).maintain).toBeDefined();
+    expect((developer.skills as Record<string, unknown>).maintain).toBeUndefined();
+  });
 });
 
 /**

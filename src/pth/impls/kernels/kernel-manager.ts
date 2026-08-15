@@ -193,6 +193,8 @@ export function createWorkerKernelWithManager(deps: {
   memoryScope?: { role: string; scope: "own" | "all" };
   /** ASP 会话空间引用（外部注入——task-loop 每任务设置；缺省本函数自建） */
   sessionRef?: { current: { currentSpace: string } | null };
+  /** 角色 ID（B4 Phase 3：skills.maintain 仅注入 memory-keeper） */
+  roleId?: string;
 }): {
   ts: TsInterpreter;
   python: Interpreter;
@@ -230,6 +232,7 @@ export function createWorkerKernelWithManager(deps: {
     c: deps.manager.c,
     toolstore: deps.toolstore,
     sessionRef,
+    roleId: deps.roleId,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
     registerKernel: (language, interpreter) => registerHook?.(language, interpreter),
     readSource: deps.readSource,

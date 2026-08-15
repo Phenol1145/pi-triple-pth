@@ -6,7 +6,7 @@ import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
 import { wrapValidated } from "../../kernel/ptc/contract.js";
-import { isVisible, listSkills, getSkill } from "@away_from/pth-memory";
+import { isVisible, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive } from "@away_from/pth-memory";
 import { isIP } from "node:net";
 
 /** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */
@@ -56,6 +56,8 @@ export function buildCapabilities(deps: {
   taskWorkspaceResolve?: (relPath: string) => string;
   /** ASP 会话空间引用（可见性盖章/过滤——任务级；agent-loop cd 更新） */
   sessionRef?: { current: { currentSpace: string } | null };
+  /** 角色 ID（B4 Phase 3：skills.maintain 仅注入 memory-keeper） */
+  roleId?: string;
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore, sessionRef: deps.sessionRef });
@@ -111,6 +113,17 @@ export function buildCapabilities(deps: {
       //   Level 0 = list() 三要素清单；Level 1 = get(id) 全文
       list: async () => (await listSkills(deps.dataWorld.memory)).filter((s) => s.status !== "draft"),
       get: async (name: string) => getSkill(deps.dataWorld.memory, String(name)),
+      // B4 Phase 3：维护面只给 memory-keeper（写后冻结；修订 = force + audit / archive + 新条目）
+      ...(deps.roleId === "memory-keeper"
+        ? {
+            maintain: {
+              write: async (input: { name: string; content: string; anchors?: string[]; force?: boolean; audit?: string }) =>
+                maintainSkillWrite(deps.dataWorld.memory, input),
+              archive: async (id: string, audit?: string) =>
+                maintainSkillArchive(deps.dataWorld.memory, id, audit),
+            },
+          }
+        : {}),
     },
     // tasks 能力已摘除（权限 v2 R3）——任务代码不可直接 peek/submit 任务池
     ...(deps.bash ? { bash: deps.bash } : {}),

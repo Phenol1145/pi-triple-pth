@@ -256,6 +256,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       llm, dataWorld, manager, toolstore,
       roleFilter: role.capabilities,
       memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
+      roleId: role.id,
       registerKernel: (language, interpreter) => manager.registerKernel(language, interpreter as never),
       readSource: process.env.PTH_SOURCE_ROOT
         ? (relPath) => import("../interpreter/read-source.js").then((m) => m.createReadSource(process.env.PTH_SOURCE_ROOT!)(relPath))
