@@ -206,6 +206,10 @@ origin
 └─ controller（调节侧）→ controller:router / worker-opt / pth-opt / resource / memory / adversarial
 ```
 
+> **分拆收口原则（2026-08-17 概念补充）**：已分拆出子类型的 worker，工具面只保留
+> `execTs/nav/cache` 基本工具 + 面向直接子类型的任务投递工具（投递原语待 W8 定稿；
+> 定稿前为保持闭环暂不强制）。详见 concepts §0.16.4。
+
 > 默认 batch 构成 = `allWorkerRoles ×1`（origin + 14 默认派发角色——其中 analyst/developer 同时是内部类型）；
 > MID（actuator/executor/explorer/governor/researcher）
 > 与 governance 系（sensor/controller 子角色）需 `PTH_WORKER_ROLES` 显式启用才进 batch。
