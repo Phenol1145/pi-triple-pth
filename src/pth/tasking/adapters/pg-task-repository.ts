@@ -13,7 +13,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "../../kernel/storage/pg.js";
-import { MAX_CLAIMS } from "../../kernel/storage/task-store-pg.js";
+import { TASK_MAX_CLAIMS } from "../../contracts/index.js";
 import type {
   TaskLease,
   TaskOutcome,
@@ -84,7 +84,7 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
              AND claims_count < $4
            ORDER BY id
            FOR UPDATE SKIP LOCKED`,
-          [taskIds, scope.tenantId, roleId, MAX_CLAIMS],
+          [taskIds, scope.tenantId, roleId, TASK_MAX_CLAIMS],
         );
         if (sel.rows.length === 0) return [];
         const rows = sel.rows as unknown as ClaimRow[];

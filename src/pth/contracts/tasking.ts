@@ -71,7 +71,7 @@ export interface TaskRepository {
 
 /** 任务读模型端口（tasking adapter 提供；网关/查询侧只消费此窄接口） */
 export interface TaskReadModel {
-  pending(opts?: { roleId?: string; tenantId?: string; limit?: number }): Promise<readonly TaskWorkItem[]>;
+  pending(opts?: { roleId?: string; tenantId?: string; limit?: number; scope?: TenantScope }): Promise<readonly TaskWorkItem[]>;
   get(taskId: string, scope: TenantScope): Promise<TaskWorkItem | null>;
 }
 
@@ -79,6 +79,9 @@ export interface TaskReadModel {
 export interface TaskRunner {
   run(input: { lease: TaskLease; work: TaskWorkItem; signal?: AbortSignal }): Promise<TaskOutcome>;
 }
+
+/** 单任务最大认领次数（坏任务兜底——tasking 与 storage 共用同一策略常量） */
+export const TASK_MAX_CLAIMS = 10;
 
 const STATUSES: readonly TaskOutcomeStatus[] = ["completed", "rejected", "cancelled"];
 const NON_EMPTY_STRING = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";

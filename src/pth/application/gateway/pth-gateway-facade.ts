@@ -10,6 +10,9 @@ import type { KernelRuntime } from "../../kernel/assembly.js";
 import type { BatchProfile } from "../../kernel/execution/worker-cluster.js";
 import type { PublishInput, Task } from "../../kernel/storage/task-store-pg.js";
 import type { MemoryEntry } from "@away_from/pth-memory";
+import type { TenantScope } from "../../contracts/index.js";
+import { TaskControlService } from "../../tasking/task-control-service.js";
+import { PgTaskQueries } from "../../tasking/task-queries.js";
 
 export type PthGatewayFacadeInput = KernelRuntime;
 
@@ -35,9 +38,9 @@ export interface PthGatewayFacade {
   bridgeGet(id: string): Promise<MemoryEntry | null>;
   execKernel(input: { code: string; mode: "stateless" | "repl"; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>>;
   listTranscripts(taskId: string): Promise<Array<Record<string, unknown>>>;
-  publishTask(input: PublishInput): Promise<Task>;
-  listTasks(limit: number): Promise<Array<Record<string, unknown>>>;
-  getTask(id: string): Promise<Record<string, unknown> | null>;
+  publishTask(input: PublishInput, scope?: TenantScope): Promise<Task>;
+  listTasks(limit: number, scope?: TenantScope): Promise<Array<Record<string, unknown>>>;
+  getTask(id: string, scope?: TenantScope): Promise<Record<string, unknown> | null>;
   taskCounts(): Promise<TaskCounts>;
   optimizerSuggestions(): Promise<unknown[]>;
   applyOptimizer(id: string): Promise<unknown>;
@@ -58,9 +61,15 @@ export interface PthGatewayFacade {
 
 export class PthGatewayFacadeImpl implements PthGatewayFacade {
   #kernel: KernelRuntime;
+  #control: TaskControlService;
 
   constructor(kernel: PthGatewayFacadeInput) {
     this.#kernel = kernel;
+    this.#control = new TaskControlService({
+      store: kernel.dataWorld.tasks,
+      pool: kernel.pool,
+      queries: new PgTaskQueries(kernel.pool),
+    });
   }
 
   bridgeQuery(sql: string): Promise<Array<Record<string, unknown> | null>> {
@@ -85,11 +94,12 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     return list as unknown as Array<Record<string, unknown>>;
   }
 
-  publishTask(input: PublishInput): Promise<Task> {
-    return this.#kernel.dataWorld.tasks.publish(input);
+  publishTask(input: PublishInput, scope?: TenantScope): Promise<Task> {
+    return scope ? this.#control.publish(input, scope) : this.#kernel.dataWorld.tasks.publish(input);
   }
 
-  async listTasks(limit: number): Promise<Array<Record<string, unknown>>> {
+  async listTasks(limit: number, scope?: TenantScope): Promise<Array<Record<string, unknown>>> {
+    if (scope) return this.#control.list(scope, limit);
     const res = await this.#kernel.pool.query(
       "SELECT id, title, text, tags, status, claimed_by, claims_count, created_at, payload FROM tasks ORDER BY created_at DESC LIMIT $1",
       [limit],
@@ -97,7 +107,8 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     return res.rows as Array<Record<string, unknown>>;
   }
 
-  async getTask(id: string): Promise<Record<string, unknown> | null> {
+  async getTask(id: string, scope?: TenantScope): Promise<Record<string, unknown> | null> {
+    if (scope) return this.#control.get(scope, id);
     const res = await this.#kernel.pool.query("SELECT * FROM tasks WHERE id = $1", [id]);
     return (res.rows[0] as Record<string, unknown> | undefined) ?? null;
   }

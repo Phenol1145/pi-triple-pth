@@ -18,6 +18,7 @@
 
 import type { FastifyInstance } from "fastify";
 import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
+import type { TenantScope } from "../contracts/index.js";
 import { TASK_TEMPLATES, renderTaskTemplate, validateTemplateParams } from "../kernel/templates.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
@@ -107,8 +108,12 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
   app.post("/api/v1/kernel/tasks", async (req, reply) => {
     if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
-    // P0-3：tenant 只能来自服务器端认证身份；body 不允许覆盖
-    const tenantId = (req as unknown as { auth?: { tenantId?: string } }).auth?.tenantId ?? "default";
+    // P0-3/P1-3：tenant 与 createdBy 只能来自服务器端认证身份；body 不允许覆盖
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    const scope: TenantScope | undefined = auth?.tenantId
+      ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
+      : undefined;
+    const tenantId = scope?.tenantId ?? "default";
 
     // 模板发布：{template, params} → 渲染任务 text
     if (typeof body.template === "string") {
@@ -126,18 +131,18 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
       const task = await facade.publishTask({
         title: `[${body.template}] ${tpl.name}`,
         text: rendered,
-        createdBy: typeof body.createdBy === "string" ? body.createdBy : "ptl",
+        createdBy: scope?.principalId ?? (typeof body.createdBy === "string" ? body.createdBy : "ptl"),
         tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : [tpl.roleTag],
         payload: { template: body.template, params },
         tenantId,
-      });
+      }, scope);
       return reply.status(201).send(task);
     }
 
     // 直接发布：{title, text, createdBy, tags?, payload?}
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const text = typeof body.text === "string" ? body.text.trim() : "";
-    const createdBy = typeof body.createdBy === "string" ? body.createdBy.trim() : "";
+    const createdBy = scope?.principalId ?? (typeof body.createdBy === "string" ? body.createdBy.trim() : "");
     if (!title || !text || !createdBy) {
       return reply.status(400).send({ error: "title/text/createdBy required" });
     }
@@ -149,7 +154,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     // payload 透传（任务链 flow 声明等路由信息——发布时 payload 即任务自带路由）
     // body.flow 顶层并入 payload（API 友好——flow 放顶层也能路由——routeTaskRole flowRole 读 payload.flow）
     const payload = { ...((body.payload ?? {}) as Record<string, unknown>), ...(body.flow ? { flow: body.flow } : {}) };
-    const task = await facade.publishTask({ title, text, createdBy, tags, payload, tenantId });
+    const task = await facade.publishTask({ title, text, createdBy, tags, payload, tenantId }, scope);
     return reply.status(201).send(task);
   });
 
@@ -170,13 +175,21 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     const limit = typeof q.limit === "string" ? Math.min(Math.max(parseInt(q.limit, 10) || 50, 1), 200) : 50;
     // 列表返回全部状态（pending/claimed/completed/rejected...），按创建时间倒序——
     // candidates() 只返回 pending 队列（批处理认领语义），不适合观测列表（试运行发现）。
-    return facade.listTasks(limit);
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    const scope: TenantScope | undefined = auth?.tenantId
+      ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
+      : undefined;
+    return facade.listTasks(limit, scope);
   });
 
   app.get("/api/v1/kernel/tasks/:id", async (req, reply) => {
     if (!facade) return unavailable(reply);
     const { id } = req.params as { id: string };
-    const row = await facade.getTask(id);
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    const scope: TenantScope | undefined = auth?.tenantId
+      ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
+      : undefined;
+    const row = await facade.getTask(id, scope);
     if (row === null) return reply.status(404).send({ error: "task not found" });
     return row;
   });

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "./pg.js";
+import { TASK_MAX_CLAIMS } from "../../contracts/tasking.js";
 /** 路由策略注入（2026-08-13 审计 P2——存储层不再依赖执行层：
  *  校验/分配由装配层（assembly/batch-process）传入——task-store 只存不判） */
 export interface TaskRouting {
@@ -8,8 +9,8 @@ export interface TaskRouting {
   assign(input: { id: string; tags?: string[]; payload?: unknown }): string;
 }
 
-/** 单任务最大认领次数（防坏任务无限 claim→reject 空转的兜底） */
-export const MAX_CLAIMS = 10;
+/** 单任务最大认领次数（防坏任务无限 claim→reject 空转的兜底）——策略常量来自 contracts */
+export const MAX_CLAIMS = TASK_MAX_CLAIMS;
 
 export interface Task {
   id: string;
@@ -17,6 +18,7 @@ export interface Task {
   text: string;
   tags: string[];
   status: string;
+  createdBy: string;
   claimed_by: string | null;
   claims_count: number;
   created_at: Date;
@@ -224,6 +226,7 @@ function mapRow(row: any): Task {
     text: row.text,
     tags: row.tags ?? [],
     status: row.status,
+    createdBy: row.created_by,
     claimed_by: row.claimed_by,
     claims_count: row.claims_count,
     created_at: row.created_at,

@@ -123,12 +123,15 @@ export async function collectBoundaryViolations(srcRoot: string): Promise<Bounda
             violations.push({ rule: "gateway-kernel-import", file: importerRel, line: imp.line, detail: targetPath });
           }
 
-          // 跨模块 storage adapter：tasking/runner/execution/catalog 不得 import kernel/storage/* adapter
+          // 跨模块 storage adapter：tasking/runner/execution/catalog 不得 runtime-import
+          // kernel/storage/* adapter；type-only 引用与 pg.ts 事务工具放行（adapter 本身可持有）。
           const module = importerRel.split("/")[0];
           if (
             (CROSS_MODULES as readonly string[]).includes(module) &&
             targetPath !== null &&
-            targetPath.startsWith("kernel/storage/")
+            targetPath.startsWith("kernel/storage/") &&
+            targetPath !== "kernel/storage/pg.ts" &&
+            imp.kind === "runtime"
           ) {
             violations.push({ rule: "cross-module-storage-adapter", file: importerRel, line: imp.line, detail: targetPath });
           }

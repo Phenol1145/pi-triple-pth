@@ -14,6 +14,7 @@
 
 import type { FastifyInstance } from "fastify";
 import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
+import type { TenantScope } from "../contracts/index.js";
 
 export function registerJobRoutes(app: FastifyInstance, facade: PthGatewayFacade | null): void {
   const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>
@@ -29,8 +30,12 @@ export function registerJobRoutes(app: FastifyInstance, facade: PthGatewayFacade
     }
     const jobId = crypto.randomUUID();
     const taskIds: string[] = [];
-    const createdBy = typeof body.createdBy === "string" ? body.createdBy : "ptl";
-    const tenantId = (req as unknown as { auth?: { tenantId?: string } }).auth?.tenantId ?? "default";
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    const scope: TenantScope | undefined = auth?.tenantId
+      ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
+      : undefined;
+    const createdBy = scope?.principalId ?? (typeof body.createdBy === "string" ? body.createdBy : "ptl");
+    const tenantId = scope?.tenantId ?? "default";
     for (const t of tasks) {
       const title = String(t.title ?? "").trim();
       const text = String(t.text ?? "").trim();
@@ -46,7 +51,7 @@ export function registerJobRoutes(app: FastifyInstance, facade: PthGatewayFacade
         payload: { job: { id: jobId, plan: typeof body.plan === "string" ? body.plan.slice(0, 4000) : undefined } },
         jobId,
         tenantId,
-      });
+      }, scope);
       taskIds.push(task.id);
     }
     // 立即返回（脱手——交互层不阻塞；任务在 PTH 任务池异步执行）
