@@ -6,7 +6,7 @@
 
 import type { TsReplExtension } from "./types.js";
 import { checkWrite, checkUpdate, normalizeWriteArgs } from "@away_from/pth-memory";
-import { checkVisibilityDeclaration, stampScope, filterVisibleEntries, filterVisibleRows, requireMetaRows, validateWikiWrite } from "@away_from/pth-memory";
+import { checkVisibilityDeclaration, stampScope, filterVisibleEntries, ancestorChain, validateWikiWrite } from "@away_from/pth-memory";
 import { spaceRegistry } from "../execution/space-registry.js";
 
 /**
@@ -44,11 +44,10 @@ export const memoryExtension: TsReplExtension = {
         },
         // ASP 可见性过滤（读侧——仅在会话态（ASP 模式）下生效；无会话=过渡兼容不过滤）
         query: async (sql: string) => {
-          const rows = await ctx.dataWorld.queryReadOnly(sql) as Array<Record<string, unknown> | null>;
           const space = ctx.sessionRef?.current?.currentSpace;
-          if (!space) return rows;
-          // 2026-08-15 筛查 H3：缺 meta 列的行无法判定可见性——fail-closed 拒绝（不再默认公开）
-          return filterVisibleRows(requireMetaRows(rows), space);
+          if (!space) return ctx.dataWorld.queryReadOnly(sql);
+          // H3：可见性谓词下推 SQL（meta 列必查 + private 仅本空间 + public 祖先链白名单）
+          return ctx.dataWorld.queryReadOnly(sql, { currentSpace: space, ancestors: ancestorChain(space) });
         },
         retrieve: async (opts?: unknown) => {
           const space = ctx.sessionRef?.current?.currentSpace;

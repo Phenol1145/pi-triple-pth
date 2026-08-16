@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildReadOnlyQuery } from "@away_from/pth-memory";
+import { buildReadOnlyQuery, requireMetaColumn } from "@away_from/pth-memory";
 
 /**
  * 受限只读 SQL（memory.query 能力——LLM/任务代码输入不可信）——安全约束纯函数测试。
@@ -106,5 +106,28 @@ describe("buildReadOnlyQuery（受限只读 SQL 校验）", () => {
   it("schema 前缀剥离（public.memory_entries 放行）+ JOIN 表同样受检", () => {
     expect(buildReadOnlyQuery("SELECT id FROM public.memory_entries LIMIT 1")).toContain("memory_entries");
     expect(() => buildReadOnlyQuery("SELECT a.id FROM memory_entries a JOIN tasks t ON a.id = t.id")).toThrow(/tasks/);
+  });
+});
+
+describe("H3：可见性谓词下推", () => {
+  const vis = { currentSpace: "dev", ancestors: ["dev", "meta"] };
+
+  it("buildReadOnlyQuery 注入 WHERE（private=本空间 / public=祖先链 / 存量默认公开）", () => {
+    const r = buildReadOnlyQuery("SELECT id, meta FROM memory_entries", undefined, vis);
+    expect(r).toContain("_pth_q.meta->'spaceScope'->>'visibility' = 'private'");
+    expect(r).toContain("_pth_q.meta->'spaceScope'->>'space' = $1::text");
+    expect(r).toContain("= ANY($2::text[])");
+    expect(r).toContain("NOT (_pth_q.meta ? 'spaceScope')");
+  });
+
+  it("无可见性选项 → 保持原样（非会话态兼容）", () => {
+    const r = buildReadOnlyQuery("SELECT * FROM memory_entries");
+    expect(r).not.toContain("spaceScope");
+  });
+
+  it("requireMetaColumn：SELECT * 视为包含 meta；显式 meta 通过；缺 meta 拒绝", () => {
+    expect(() => requireMetaColumn("SELECT * FROM memory_entries")).not.toThrow();
+    expect(() => requireMetaColumn("SELECT id, meta FROM memory_entries")).not.toThrow();
+    expect(() => requireMetaColumn("SELECT id, kind FROM memory_entries")).toThrow(/meta 列/);
   });
 });

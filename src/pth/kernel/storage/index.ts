@@ -1,6 +1,6 @@
 import type pg from "pg";
 import { PgTaskStore, type TaskStore } from "./task-store-pg.js";
-import { PgMemoryStore, runReadOnlyQuery, TRUSTED_TEMPLATE_TABLES } from "@away_from/pth-memory";
+import { PgMemoryStore, runReadOnlyQuery, TRUSTED_TEMPLATE_TABLES, type ReadQueryVisibility } from "@away_from/pth-memory";
 import { PgTranscriptStore } from "./transcript-store.js";
 import { PgAuditStore } from "./audit-store.js";
 export {
@@ -24,7 +24,7 @@ export interface DataWorldAccess {
   transcripts: PgTranscriptStore;
   audit: PgAuditStore;
   /** 受限只读 SQL（memory.query 能力/agent 工具用）：仅 SELECT 单条语句 + 强制 LIMIT */
-  queryReadOnly(sql: string): Promise<unknown>;
+  queryReadOnly(sql: string, visibility?: ReadQueryVisibility): Promise<unknown>;
   /** 受信模板通道（2026-08-14 A2 Phase 4——obs 工具专用）：固定 SQL 模板 + 参数白名单，
    *  开放 tasks/transcripts 只读面——与 queryReadOnly 的 memory-only 面分开（非 LLM 输入面） */
   queryTemplate(sql: string): Promise<unknown>;
@@ -42,7 +42,7 @@ export function createDataWorld(pool: pg.Pool, routing?: import("./task-store-pg
     memory: new PgMemoryStore(pool),
     transcripts: new PgTranscriptStore(pool),
     audit: new PgAuditStore(pool),
-    queryReadOnly: (sql: string) => runReadOnlyQuery(pool, sql),
+    queryReadOnly: (sql: string, visibility?: ReadQueryVisibility) => runReadOnlyQuery(pool, sql, undefined, visibility),
     queryTemplate: (sql: string) => runReadOnlyQuery(pool, sql, TRUSTED_TEMPLATE_TABLES),
     pgStat: (view) => runReadOnlyPgView(pool, view),
   };

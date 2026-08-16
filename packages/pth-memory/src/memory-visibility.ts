@@ -40,6 +40,18 @@ export function scopeOf(meta: Record<string, unknown> | undefined): SpaceScope {
   return { space: "meta", visibility: "public" };   // 存量兼容（迁移前）
 }
 
+/** H3：当前空间的祖先链（含自身，meta 为根）——SQL 谓词下推时生成白名单 */
+export function ancestorChain(space: string): string[] {
+  const out: string[] = [];
+  let cur: string | undefined = space;
+  for (let i = 0; i < 16 && cur; i++) {
+    out.push(cur);
+    cur = spaceLookup?.get(cur)?.parent;
+  }
+  if (!out.includes("meta")) out.push("meta");
+  return out;
+}
+
 /** space 是否 ancestorSpace 的后代或自身（沿 parent 链上溯） */
 export function isDescendantOrSelf(space: string, ancestorSpace: string): boolean {
   let cur: string | undefined = space;

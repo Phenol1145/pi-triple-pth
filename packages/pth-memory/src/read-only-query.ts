@@ -102,7 +102,23 @@ function maskSqlNoise(sql: string): string {
   return out.join("");
 }
 
-export function buildReadOnlyQuery(sql: string, allowedTables: ReadonlySet<string> = READONLY_TABLES): string {
+export interface ReadQueryVisibility {
+  /** 当前会话空间 */
+  currentSpace: string;
+  /** 祖先链（含当前空间与 meta）——由装配层 spaceLookup 派生 */
+  ancestors: string[];
+}
+
+/** H3：会话空间下查询必须投影 meta 列（谓词下推依据；SELECT * 视为包含） */
+export function requireMetaColumn(sql: string): void {
+  const cleaned = stripSqlNoise(sql.trim());
+  const selectBody = cleaned.match(/^select\b([\s\S]*?)\bfrom\b/i)?.[1] ?? "";
+  if (!/^\s*\*/.test(selectBody) && !/\bmeta\b/i.test(selectBody)) {
+    throw new Error("memory.query: 会话空间下查询必须包含 meta 列（可见性谓词依据）——请 SELECT ..., meta FROM memory_entries ...");
+  }
+}
+
+export function buildReadOnlyQuery(sql: string, allowedTables: ReadonlySet<string> = READONLY_TABLES, visibility?: ReadQueryVisibility): string {
   const trimmed = sql.trim();
   if (!/^select\b/i.test(trimmed)) throw new Error("queryReadOnly: 仅允许 SELECT 查询（read-only）");
   if (trimmed.includes(";")) throw new Error("queryReadOnly: 仅允许单条语句（single statement only）");
@@ -127,11 +143,22 @@ export function buildReadOnlyQuery(sql: string, allowedTables: ReadonlySet<strin
   }
   const realLimit = masked.match(/\blimit\s+(\d+)\b/i);
   const n = Math.min(Number(realLimit?.[1] ?? 50) || 50, 200);
-  return `SELECT * FROM (${trimmed}) _pth_q LIMIT ${n}`;
+  // H3：可见性谓词下推——private=仅本空间；public=空间 ∈ 祖先链；存量无声明=meta+public
+  const where = visibility
+    ? ` WHERE (_pth_q.meta IS NULL OR NOT (_pth_q.meta ? 'spaceScope') OR (_pth_q.meta->'spaceScope'->>'visibility' = 'private' AND _pth_q.meta->'spaceScope'->>'space' = $1::text) OR (_pth_q.meta->'spaceScope'->>'visibility' = 'public' AND _pth_q.meta->'spaceScope'->>'space' = ANY($2::text[])))`
+    : "";
+  return `SELECT * FROM (${trimmed}) _pth_q${where} LIMIT ${n}`;
 }
 
-export async function runReadOnlyQuery(pool: pg.Pool, sql: string, allowedTables?: ReadonlySet<string>): Promise<unknown> {
-  const safe = buildReadOnlyQuery(sql, allowedTables);
-  const res = await pool.query(safe);
+export async function runReadOnlyQuery(
+  pool: pg.Pool,
+  sql: string,
+  allowedTables?: ReadonlySet<string>,
+  visibility?: ReadQueryVisibility,
+): Promise<unknown> {
+  if (visibility) requireMetaColumn(sql);
+  const safe = buildReadOnlyQuery(sql, allowedTables, visibility);
+  const params = visibility ? [visibility.currentSpace, visibility.ancestors] : [];
+  const res = await pool.query(safe, params);
   return res.rows;
 }

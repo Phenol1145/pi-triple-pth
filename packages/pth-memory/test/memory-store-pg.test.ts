@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
-import { MEMORY_SCHEMA_SQL, PgMemoryStore } from "@away_from/pth-memory";
+import { MEMORY_SCHEMA_SQL, PgMemoryStore, runReadOnlyQuery } from "@away_from/pth-memory";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1/2/3（pg.test.ts / schema.test.ts / task-store-pg.test.ts）：
@@ -132,6 +132,33 @@ suite("memory store pg", () => {
       version: 9, updatedAt: 1, hitCount: 5, notWriteBack: true, keep: 1,
     });
     expect(out).toEqual({ keep: 1 });
+  });
+
+
+  it("H3：runReadOnlyQuery 可见性谓词下推（DB 层过滤）", async () => {
+    await store.write({
+      id: "h3-public", kind: "fact", anchors: ["h3"], content: "pub",
+      meta: { spaceScope: { space: "meta", visibility: "public" } },
+    } as any);
+    await store.write({
+      id: "h3-private", kind: "fact", anchors: ["h3"], content: "priv",
+      meta: { spaceScope: { space: "dev", visibility: "private" } },
+    } as any);
+    const childRows = await runReadOnlyQuery(
+      pool,
+      "SELECT id, meta FROM memory_entries WHERE anchors ? 'h3'",
+      undefined,
+      { currentSpace: "child", ancestors: ["child", "dev", "meta"] },
+    ) as Array<{ id: string }>;
+    expect(childRows.map((r) => r.id)).toContain("h3-public");
+    expect(childRows.map((r) => r.id)).not.toContain("h3-private");
+    const devRows = await runReadOnlyQuery(
+      pool,
+      "SELECT id, meta FROM memory_entries WHERE anchors ? 'h3'",
+      undefined,
+      { currentSpace: "dev", ancestors: ["dev", "meta"] },
+    ) as Array<{ id: string }>;
+    expect(devRows.map((r) => r.id).sort()).toEqual(["h3-private", "h3-public"]);
   });
 
 });
