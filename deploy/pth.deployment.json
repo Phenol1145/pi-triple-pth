@@ -13,7 +13,7 @@
       ],
       "env": {
         "POSTGRES_USER": "pth",
-        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:-pth-dev-password}",
+        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}",
         "POSTGRES_DB": "pth"
       },
       "volumes": ["postgres-data:/var/lib/postgresql/data"],
@@ -27,10 +27,11 @@
     },
     "redis": {
       "image": "redis:7-alpine",
-      "command": ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "noeviction"],
+      "command": ["redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "noeviction", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"],
+      "env": { "REDIS_PASSWORD": "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}" },
       "volumes": ["redis-data:/data"],
       "healthcheck": {
-        "test": ["CMD", "redis-cli", "ping"],
+        "test": ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"],
         "interval": "5s",
         "timeout": "3s",
         "retries": 5
@@ -42,8 +43,8 @@
       "dockerfile": "deploy/Dockerfile",
       "ports": ["3000:3000"],
       "env": {
-        "REDIS_URL": "redis://redis:6379",
-        "DATABASE_URL": "postgresql://pth:${POSTGRES_PASSWORD:-pth-dev-password}@postgres:5432/pth",
+        "REDIS_URL": "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379",
+        "DATABASE_URL": "postgresql://pth:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/pth",
         "PI_ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         "PI_OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
         "LOG_LEVEL": "info",
@@ -53,7 +54,8 @@
         "SANDBOX_URL": "http://sandbox:8080",
         "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}",
         "PTH_EXECUTION_GRANT_SECRET": "${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}",
-        "PTH_MEMORY_BRIDGE_TOKEN": "${PTH_MEMORY_BRIDGE_TOKEN:-}",
+        "PTH_MEMORY_BRIDGE_TOKEN": "${PTH_MEMORY_BRIDGE_TOKEN:?PTH_MEMORY_BRIDGE_TOKEN must be set}",
+        "PTH_CONFIG_STRICT": "1",
         "PTH_PYTHON_MODE": "${PTH_PYTHON_MODE:-sandbox-kernel}",
         "PTH_BASH_MODE": "${PTH_BASH_MODE:-sandbox-kernel}",
         "PTH_SANDBOX_KERNEL_URL": "http://sandbox:8080",
@@ -96,7 +98,7 @@
       "env": {
         "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}",
         "PTH_EXECUTION_GRANT_SECRET": "${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}",
-        "PTH_MEMORY_BRIDGE_TOKEN": "${PTH_MEMORY_BRIDGE_TOKEN:-}",
+        "PTH_MEMORY_BRIDGE_TOKEN": "${PTH_MEMORY_BRIDGE_TOKEN:?PTH_MEMORY_BRIDGE_TOKEN must be set}",
         "LOG_LEVEL": "info",
         "PTH_KERNEL_POOL_SIZE": "${PTH_KERNEL_POOL_SIZE:-24}",
         "PTH_KERNEL_ACQUIRE_TIMEOUT_MS": "${PTH_KERNEL_ACQUIRE_TIMEOUT_MS:-10000}",

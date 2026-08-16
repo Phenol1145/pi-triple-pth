@@ -24,31 +24,32 @@ docker-compose.yaml
 - Docker + Docker Compose v2（`docker compose version` 确认）
 - 仓库 clone：`git clone https://github.com/Phenol1145/pi-platform.git`
 
-### 2.2 配置 .env（仓库根）
+### 2.2 配置统一 secrets 文件（deploy/.env.pth.secrets）
 
 ```bash
-# 安全参数（必改——compose 对 SANDBOX_SHARED_SECRET / PTH_EXECUTION_GRANT_SECRET 使用 :? 强校验，
-# 无默认值、缺省拒绝启动；两者可以相同值也可以分别生成）
-POSTGRES_PASSWORD=你的强密码
-SANDBOX_SHARED_SECRET=你的沙盒共享密钥
-PTH_EXECUTION_GRANT_SECRET=你的执行grant签名密钥
-
-# 记忆桥 token（可选，缺省时 sandbox 侧记忆桥 fail-closed）：
-# 写入 Redis：auth:token:<token> → {"tenantId":"...","role":"tenant-agent","space":"<记忆空间ID>"}
-# tenant/space 只能来自该 token 声明；请求体自报 space 会被拒绝（P0-1）
-PTH_MEMORY_BRIDGE_TOKEN=你的桥token
-
-# 性能参数（按需——见 §3 全表）
-PTH_KERNEL_POOL_SIZE=24
-PTH_BATCH_AUTOSCALE=on
+cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets
+# 编辑 deploy/.env.pth.secrets——替换全部 dev-only 值（该文件已 gitignore）
 ```
+
+全部密钥 compose `:?` 强校验（缺任一拒绝启动）：`SANDBOX_SHARED_SECRET` /
+`PTH_EXECUTION_GRANT_SECRET` / `PTH_MEMORY_BRIDGE_TOKEN` / `POSTGRES_PASSWORD` / `REDIS_PASSWORD`。
+主进程还注入 `PTH_CONFIG_STRICT=1`：弱密钥（grant secret <32、shared/bridge token <16）与
+开发默认 token 直接 fail-fast。
+
+```bash
+# 记忆桥 token（必填）：写入 Redis auth:token:<token> →
+#   {"tenantId":"...","role":"tenant-agent","space":"<记忆空间ID>"}
+# tenant/space 只能来自该 token 声明；请求体自报 space 会被拒绝（P0-1）
+```
+
+性能参数仍在 §3 全表（代码内默认值；`npm run pth -- config` 可看全量）。
 
 ### 2.3 拉起（依赖顺序：先数据层，再应用层）
 
 ```bash
-docker compose up -d postgres redis
+docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d postgres redis
 # 等 healthy（docker compose ps——postgres 需 ready 后 pi-platform 才能连）
-docker compose up -d pi-platform sandbox
+docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d pi-platform sandbox
 docker compose ps          # 四服务都应 healthy
 ```
 

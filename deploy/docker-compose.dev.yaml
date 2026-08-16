@@ -1,6 +1,6 @@
 # Dev 叠加变体（开发模式——tsx watch 秒级循环——不改生产语义）
-# 启动：docker compose -f deploy/docker-compose.yaml -f deploy/docker-compose.dev.yaml up -d pi-platform
-# 生产：docker compose -f deploy/docker-compose.yaml up（普通——rebuild 后跑）
+# 启动：docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml -f deploy/docker-compose.dev.yaml up -d pi-platform
+# 生产：docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up（普通——rebuild 后跑）
 services:
   pi-platform:
     build:
@@ -16,3 +16,4 @@ services:
       PTH_BATCH_TS: "1"                    # batch 进程也 tsx（Kernel 代码热更新——fork tsx batch-process.ts）
       PTH_AGENT_MODE: lazy
       PTH_DEBUG_SANDBOX: "1"               # dev 开 sandbox debug 日志
+      PTH_CONFIG_STRICT: "0"               # dev 不执行生产密钥严格校验（secrets 仍来自 --env-file 示例默认值）

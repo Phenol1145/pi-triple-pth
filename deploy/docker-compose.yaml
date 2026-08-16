@@ -18,9 +18,9 @@ services:
       - dev-artifacts:/data/artifacts   # 产物归档区（与 dev 共享——成品保留）
       - toolstore:/data/toolstore        # 扩展代码库 + 策略 + 命名编译单元（持久——重启保留）
     environment:
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       # PTH kernel 存储层（Spec C）：postgres 数据世界（凭据 compose 注入，与 postgres 服务一致）
-      - DATABASE_URL=postgresql://pth:${POSTGRES_PASSWORD:-pth-dev-password}@postgres:5432/pth
+      - DATABASE_URL=postgresql://pth:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/pth
       - PI_ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - PI_OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - LOG_LEVEL=info
@@ -33,7 +33,9 @@ services:
       # P2-2/Side B 接线：PTH 与 sandbox 共用 grant 签名密钥（强校验，无默认值——缺失拒绝启动）
       - PTH_EXECUTION_GRANT_SECRET=${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}
       # PTH 本容器 kernel-mode 记忆桥上游 token（与 sandbox 用同一 Redis Bearer token；不注入 sandbox workload）
-      - PTH_MEMORY_BRIDGE_TOKEN=${PTH_MEMORY_BRIDGE_TOKEN:-}
+      - PTH_MEMORY_BRIDGE_TOKEN=${PTH_MEMORY_BRIDGE_TOKEN:?PTH_MEMORY_BRIDGE_TOKEN must be set}
+      # 配置集中化 C3：生产严格模式——开发默认值/弱密钥 fail-fast
+      - PTH_CONFIG_STRICT=1
     # kernel sandbox SPEC §3.3：REPL kernel 执行层落 sandbox 侧（持久 kernel 宿主池）
     # 模式切换：PTH_PYTHON_MODE/PTH_BASH_MODE = sandbox-kernel（生产默认）| kernel（本地调试）
       - PTH_PYTHON_MODE=${PTH_PYTHON_MODE:-sandbox-kernel}
@@ -114,7 +116,7 @@ services:
       - PTH_EXECUTION_GRANT_SECRET=${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}
       - LOG_LEVEL=info
       # PTH 记忆桥上游 token（Redis Bearer token，含 tenant/space 声明；controller-only，绝不注入 workload）
-      - PTH_MEMORY_BRIDGE_TOKEN=${PTH_MEMORY_BRIDGE_TOKEN:-}
+      - PTH_MEMORY_BRIDGE_TOKEN=${PTH_MEMORY_BRIDGE_TOKEN:?PTH_MEMORY_BRIDGE_TOKEN must be set}
       # kernel 宿主池容量：需 > 并发 worker 数 × 2（python+bash——留余量吸收启动 acquire 竞争——否则池满排队 abort）
       - PTH_KERNEL_POOL_SIZE=${PTH_KERNEL_POOL_SIZE:-24}
       # acquire 排队超时（池满拒绝——短超时快速失败不卡 agent 步骤——步骤内自动重试）
@@ -143,11 +145,13 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy noeviction
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -182,7 +186,7 @@ services:
       - "jit=off"
     environment:
       - POSTGRES_USER=pth
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-pth-dev-password}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - POSTGRES_DB=pth
     volumes:
       - postgres-data:/var/lib/postgresql/data

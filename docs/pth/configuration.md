@@ -1,0 +1,77 @@
+# PTH 配置
+
+> 建立：2026-08-16（配置集中化改造）。
+> **唯一真相源**：`src/pth/config/schema.ts` —— 所有 PTH 配置项（key / 类型 / 默认值 / secret / runtime / group / scope / description）在这里登记。
+> 组件读配置统一走 `pthConfig()`（typed accessor）或 `config()`（ConfigCenter）；`src/pth` 内禁止 `process.env.PTH_*` 直读（`npm run check:pth-config` 防回潮）。
+
+## 1. 加载链
+
+```
+env（compose --env-file deploy/.env.pth.secrets 注入）
+   │
+   ▼
+src/pth/config/schema.ts        默认值（迁移前代码内联默认——行为兼容）
+   │
+   ▼
+ConfigCenter（env 优先，schema 兜底）  ← set/on：runtime 键运行时可调（perf.set）
+   │
+   ├─ pthConfig().str/num/flag/enabled/list   —— 组件读取唯一入口
+   ├─ snapshot(includeSecrets=false)          —— perf.params() 数据源（密钥默认打码）
+   └─ validatePthConfig()                     —— PTH_CONFIG_STRICT=1 生产 fail-fast
+```
+
+## 2. 查看配置
+
+```bash
+npm run pth -- config              # 分组表（默认值/runtime/scope；密钥 ***）
+npm run pth -- config export       # 输出 ptl config set pth.url/pth.token（PTL 迁移通道）
+npm run check:pth-config -- --report  # schema 统计 + compose 覆盖度报告
+```
+
+## 3. 分类速览（106 键）
+
+| group | 数量 | 说明 |
+|---|---|---|
+| agent | 5 | agent 模式/模型/步骤/超时 |
+| optimizer | 6 | JIT 窗口/apply 策略/verify 复测 |
+| autopilot | 8 | R1–R4 阈值与周期 |
+| scaler | 8 | batch 扩缩/强化 |
+| control-loop | 5 | claim/watchdog/resolver/memory-sweep trigger 周期 |
+| kernel | 9 | 语言模式/池/会话 |
+| compiled | 5 | 编译核缓存/并发/超时 |
+| memory | 2 | 记忆桥 URL/token |
+| guard | 6 | 连续失败阈值（runtime） |
+| cache | 2 | cache-store 上限（runtime） |
+| model | 4 | modelRouter/NL/stub |
+| path | 14 | 源码根/工作区/通知/沙箱路径 |
+| mode | 5 | ASP/refine/skill 策略/batch 标志 |
+| observability | 4 | metrics 周期/日志 |
+| worker | 4 | workload/workspace UID/GID |
+| secret | 8 | grant/共享密钥/桥 token/PG/Redis/LLM key |
+| infra | 8 | DATABASE/REDIS/DATA_DIR/SANDBOX_URL 等 |
+| cli | 5 | PTH_API/TOKEN/CREATED_BY/URL/PLATFORM |
+
+`runtime=true` 的键可经 `perf.set({key,value})` 运行时调整（重启失效；ALTER SYSTEM 持久化留 v2）。
+
+## 4. Secrets（统一文件 + 全 `:?` fail-closed）
+
+- **文件**：`deploy/.env.pth.secrets`（gitignored；模板 `deploy/.env.pth.secrets.example`）。
+- **启动**：
+  ```bash
+  cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets   # 替换成真实值
+  docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d
+  # dev: ... -f deploy/docker-compose.dev.yaml（叠加 PTH_CONFIG_STRICT=0）
+  ```
+- **全部密钥 `:?`**：`SANDBOX_SHARED_SECRET`、`PTH_EXECUTION_GRANT_SECRET`、`PTH_MEMORY_BRIDGE_TOKEN`、
+  `POSTGRES_PASSWORD`、`REDIS_PASSWORD` 任一缺失 → compose 拒绝启动。
+- **REDIS/DATABASE_URL 分字段拼装**（不再把密码嵌进连接串默认值）；redis 启用 AUTH。
+- **生产严格校验**：compose 注入 `PTH_CONFIG_STRICT=1`，主进程启动时拒绝弱密钥（grant secret <32、
+  shared secret/token <16）与显式开发默认 token。
+- **打码面**：`config().snapshot()` / `pth config` 对 secret 一律 `***`；worker 的 `perf.params()` 不再能读到密钥。
+- LLM 模型密钥仍由 `pi auth.json` 单源注入 env（`injectPiAiKeysFromAuth`）——文件凭据不进入本 schema。
+
+## 5. 兼容性
+
+- 全部默认值与迁移前代码内联默认一致（schema 即基线）；
+- `kernel/extensions/perf-params.ts` 是 ConfigCenter 的兼容 re-export——旧 import 面不破坏；
+- PTL 侧配置（`pi-triple.json`/模板）不纳入本 schema，只经 `pth config export` 提供信息迁移通道。
