@@ -1,60 +1,142 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { createWebCapability } from "../../src/pth/impls/kernels/capability";
+import { describe, it, expect } from "vitest";
+import { createWebCapability, type ResolvedAddress } from "../../src/pth/impls/kernels/capability";
 
-afterEach(() => vi.unstubAllGlobals());
+const PUBLIC_ADDR: ResolvedAddress[] = [{ address: "8.8.8.8", family: 4 }];
+const PRIVATE_ADDR: ResolvedAddress[] = [{ address: "127.0.0.1", family: 4 }];
 
-describe("web capability", () => {
+interface FakeResponse {
+  status: number;
+  headers: { get(name: string): string | null };
+  body: () => Promise<Uint8Array>;
+}
+
+function fakeResponse(body: string | Uint8Array, status = 200, headers: Record<string, string> = {}): FakeResponse {
+  return {
+    status,
+    headers: {
+      get: (name) => headers[name.toLowerCase()] ?? null,
+    },
+    body: async () => (typeof body === "string" ? new TextEncoder().encode(body) : body),
+  };
+}
+
+/** 记录每次请求的 URL 与受检地址，按序返回响应。 */
+function makeRequest(responses: FakeResponse[]) {
+  const calls: Array<{ url: URL; addresses: ResolvedAddress[] }> = [];
+  const request = async (url: URL, init: { signal: AbortSignal; addresses: ResolvedAddress[] }) => {
+    calls.push({ url, addresses: init.addresses });
+    const next = responses.shift();
+    if (!next) throw new Error("no fake response left");
+    return next;
+  };
+  return { calls, request };
+}
+
+describe("web capability（S0-2 DNS rebinding 防护）", () => {
   it("fetchText 获取纯文本（非 HTML）", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ "content-type": "text/plain" }),
-      arrayBuffer: async () => new TextEncoder().encode("hello go spec").buffer,
-    })));
-    const web = createWebCapability();
+    const { calls, request } = makeRequest([fakeResponse("hello go spec", 200, { "content-type": "text/plain" })]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
     expect(await web.fetchText("https://go.dev/ref/spec")).toBe("hello go spec");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.addresses).toEqual(PUBLIC_ADDR);
   });
 
   it("fetchText 剥离 HTML 标签", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      headers: new Headers({ "content-type": "text/html" }),
-      arrayBuffer: async () => new TextEncoder().encode("<html><body><h1>Title</h1><p>Go spec &amp; more</p></body></html>").buffer,
-    })));
-    const web = createWebCapability();
+    const { request } = makeRequest([fakeResponse("<html><body><h1>Title</h1><p>Go spec &amp; more</p></body></html>", 200, { "content-type": "text/html" })]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
     const out = await web.fetchText("https://go.dev/ref/spec");
     expect(out).toContain("Title");
     expect(out).toContain("Go spec & more");
     expect(out).not.toContain("<");
   });
 
-  it("拒绝非 http(s) URL", async () => {
-    const web = createWebCapability();
+  it("拒绝非 http(s) URL（不发请求）", async () => {
+    const { calls, request } = makeRequest([]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
     await expect(web.fetchText("file:///etc/passwd")).rejects.toThrow(/only http/);
+    expect(calls).toHaveLength(0);
   });
 
   it("HTTP 非 2xx 抛错", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404 })));
-    const web = createWebCapability();
+    const { request } = makeRequest([fakeResponse("nope", 404)]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
     await expect(web.fetchText("https://go.dev/missing")).rejects.toThrow(/HTTP 404/);
   });
 
   it("超限响应拒绝", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => ({
-      ok: true,
-      headers: new Headers({ "content-type": "text/plain" }),
-      arrayBuffer: async () => new Uint8Array(1000).buffer,
-    })));
-    const web = createWebCapability();
+    const { request } = makeRequest([fakeResponse(new Uint8Array(1000), 200, { "content-type": "text/plain" })]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
     await expect(web.fetchText("https://go.dev/ref/spec", { maxBytes: 100 })).rejects.toThrow(/too large/);
   });
 
   it("超时 abort", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
-      await new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
-    }));
-    const web = createWebCapability();
-    await expect(web.fetchText("https://go.dev/ref/spec", { timeoutMs: 50 })).rejects.toThrow();
+    const request = (_url: URL, init: { signal: AbortSignal }) =>
+      new Promise<FakeResponse>((_, reject) => {
+        init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request: request as never });
+    await expect(web.fetchText("https://go.dev/ref/spec", { timeoutMs: 30 })).rejects.toThrow(/aborted/);
+  });
+
+  it("IP 字面量为私网时在解析前拒绝（不发请求）", async () => {
+    const { calls, request } = makeRequest([]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
+    await expect(web.fetchText("http://127.0.0.1:8080/")).rejects.toThrow(/非公网 IP/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("域名解析到私网地址时整体拒绝（不发请求）", async () => {
+    const { calls, request } = makeRequest([]);
+    const web = createWebCapability({ lookup: async () => PRIVATE_ADDR, request });
+    await expect(web.fetchText("https://attacker.example/x")).rejects.toThrow(/DNS 解析到非公网地址/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("多地址解析中混入一个私网地址即拒绝", async () => {
+    const { calls, request } = makeRequest([]);
+    const web = createWebCapability({
+      lookup: async () => [
+        { address: "8.8.8.8", family: 4 },
+        { address: "10.0.0.1", family: 4 },
+      ],
+      request,
+    });
+    await expect(web.fetchText("https://attacker.example/x")).rejects.toThrow(/10\.0\.0\.1/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("解析失败向上传播", async () => {
+    const { request } = makeRequest([]);
+    const web = createWebCapability({
+      lookup: async () => { throw new Error("ENOTFOUND"); },
+      request,
+    });
+    await expect(web.fetchText("https://unknown.invalid/x")).rejects.toThrow(/ENOTFOUND/);
+  });
+
+  it("重定向每一跳都重新解析校验，公网跳转成功", async () => {
+    const { calls, request } = makeRequest([
+      fakeResponse("", 302, { location: "https://ok.test/final" }),
+      fakeResponse("final body", 200, { "content-type": "text/plain" }),
+    ]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
+    expect(await web.fetchText("https://start.test/begin")).toBe("final body");
+    expect(calls.map((c) => c.url.toString())).toEqual([
+      "https://start.test/begin",
+      "https://ok.test/final",
+    ]);
+    expect(calls.every((c) => c.addresses[0]?.address === "8.8.8.8")).toBe(true);
+  });
+
+  it("重定向到解析为私网的主机时拒绝", async () => {
+    const { calls, request } = makeRequest([
+      fakeResponse("", 302, { location: "https://evil.test/x" }),
+    ]);
+    const web = createWebCapability({
+      lookup: async (hostname) => (hostname === "start.test" ? PUBLIC_ADDR : PRIVATE_ADDR),
+      request,
+    });
+    await expect(web.fetchText("https://start.test/begin")).rejects.toThrow(/DNS 解析到非公网地址/);
+    expect(calls).toHaveLength(1);
   });
 });

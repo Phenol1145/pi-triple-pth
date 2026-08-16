@@ -8,6 +8,9 @@ import { createExtCapability } from "../../kernel/interpreter/ext-capability.js"
 import { wrapValidated } from "../../kernel/ptc/contract.js";
 import { isVisible, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
 import { isIP } from "node:net";
+import http from "node:http";
+import https from "node:https";
+import { promises as dnsPromises } from "node:dns";
 
 /** 任务工作区文件面（fs.task——白名单相对路径 + 防穿越） */
 function createTaskFs(resolve: (rel: string) => string): Record<string, unknown> {
@@ -162,8 +165,38 @@ export interface WebCapability {
   fetchText(url: string, opts?: { maxBytes?: number; timeoutMs?: number }): Promise<string>;
 }
 
+/** DNS 全量解析结果（H9 防护用——任一地址非公网即整体拒绝）。 */
+export interface ResolvedAddress {
+  address: string;
+  family: number;
+}
+
+/** 可注入的 DNS 解析器（测试注入 / 未来出站策略协同点）。 */
+export interface WebLookup {
+  (hostname: string): Promise<ResolvedAddress[]>;
+}
+
+/** HTTP 响应抽象（默认走 node:http/https，测试可注入）。 */
+export interface WebResponse {
+  status: number;
+  headers: { get(name: string): string | null };
+  body(): Promise<Uint8Array>;
+  cancel?(): void;
+}
+
+/** 传输层注入点：url + 已受检地址 + 超时信号。 */
+export interface WebRequest {
+  (url: URL, init: { signal: AbortSignal; addresses: ResolvedAddress[] }): Promise<WebResponse>;
+}
+
+export interface WebCapabilityOptions {
+  lookup?: WebLookup;
+  request?: WebRequest;
+}
+
 const WEB_MAX_BYTES = 1024 * 1024;   // 1MB——官方文档页常超 256KB（go.dev/ref/spec ≈ 339KB）
 const WEB_TIMEOUT_MS = 30_000;
+const WEB_MAX_REDIRECTS = 5;
 
 function stripHtml(html: string): string {
   return html
@@ -181,8 +214,8 @@ function stripHtml(html: string): string {
 }
 
 /** 2026-08-15 筛查 H9：字面量层面 SSRF 防护——拒 localhost/私网/链路本地 IP 字面量。
- *  主机名 → 私网地址的 DNS rebinding 不在此做（本机 DNS 沙箱把公网域名解析到保留段，
- *  DNS 级校验会误杀全部出站——留给出站防火墙/网络策略，记录为已知边界）。 */
+ *  2026-08-16 S0-2：补 DNS rebinding 防护——解析与连接 pin 到同一份已受检地址
+ *  （fetchText 先全量解析校验，传输层不再二次解析；重定向逐跳重复校验）。 */
 function isPrivateIpLiteral(ip: string): boolean {
   if (isIP(ip) === 4) {
     const p = ip.split(".").map(Number);
@@ -215,7 +248,82 @@ function assertPublicLiteralHost(hostname: string): void {
   }
 }
 
-export function createWebCapability(): WebCapability {
+/** 默认解析器：全量 A/AAAA 解析（verbatim 保留 IPv6 字面量）。 */
+export const defaultWebLookup: WebLookup = async (hostname) => {
+  const resolved = await dnsPromises.lookup(hostname, { all: true, verbatim: true });
+  return resolved.map((r) => ({ address: r.address, family: r.family }));
+};
+
+/** DNS rebinding 防线：任一解析结果落在非公网段即整体拒绝（fail-closed）。 */
+export function assertPublicResolvedAddresses(hostname: string, addresses: ResolvedAddress[]): void {
+  if (addresses.length === 0) {
+    throw new Error(`web.fetchText: DNS 无解析结果（拒绝）: ${hostname}`);
+  }
+  const bad = addresses.find((a) => isPrivateIpLiteral(a.address));
+  if (bad) {
+    throw new Error(`web.fetchText: DNS 解析到非公网地址被拒（SSRF 防护）: ${hostname} -> ${bad.address}`);
+  }
+}
+
+async function resolvePublicAddresses(hostname: string, lookup: WebLookup): Promise<ResolvedAddress[]> {
+  assertPublicLiteralHost(hostname);
+  const addresses = await lookup(hostname);
+  assertPublicResolvedAddresses(hostname, addresses);
+  return addresses;
+}
+
+function isRedirect(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+/** 默认传输：node http/https + pin 到 fetchText 已校验的首个地址（不再触发第二次解析）。 */
+async function defaultWebRequest(url: URL, init: { signal: AbortSignal; addresses: ResolvedAddress[] }): Promise<WebResponse> {
+  const lib = url.protocol === "https:" ? https : http;
+  const address = init.addresses[0]!;
+  return new Promise((resolve, reject) => {
+    const req = lib.request(
+      {
+        hostname: url.hostname.replace(/^\[|\]$/g, ""),
+        port: url.port || undefined,
+        path: `${url.pathname}${url.search}`,
+        method: "GET",
+        headers: { accept: "text/html,text/plain,*/*", "user-agent": "pth-web-fetch/1.0" },
+        signal: init.signal,
+        lookup: (_hostname, _options, callback) => {
+          callback(null, address.address, address.family || 4);
+        },
+      },
+      (res) => {
+        const headers = res.headers;
+        resolve({
+          status: res.statusCode ?? 0,
+          headers: {
+            get: (name) => {
+              const value = headers[name.toLowerCase()];
+              return Array.isArray(value) ? value[0] ?? null : value ?? null;
+            },
+          },
+          body: async () => {
+            const chunks: Buffer[] = [];
+            for await (const chunk of res) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
+            }
+            return new Uint8Array(Buffer.concat(chunks));
+          },
+          cancel: () => {
+            res.destroy();
+          },
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+export function createWebCapability(opts: WebCapabilityOptions = {}): WebCapability {
+  const lookup = opts.lookup ?? defaultWebLookup;
+  const request = opts.request ?? defaultWebRequest;
   return {
     async fetchText(url, opts = {}) {
       const maxBytes = opts.maxBytes ?? WEB_MAX_BYTES;
@@ -223,20 +331,34 @@ export function createWebCapability(): WebCapability {
       if (!/^https?:\/\//i.test(url)) {
         throw new Error(`web.fetchText: only http(s) URLs allowed (got: ${url.slice(0, 50)})`);
       }
-      assertPublicLiteralHost(new URL(url).hostname);
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       try {
-        const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
-        if (!res.ok) throw new Error(`web.fetchText: HTTP ${res.status} for ${url}`);
-        const buf = await res.arrayBuffer();
-        if (buf.byteLength > maxBytes) {
-          throw new Error(`web.fetchText: response too large (${buf.byteLength} > ${maxBytes} bytes)`);
+        let current = url;
+        for (let hop = 0; hop <= WEB_MAX_REDIRECTS; hop++) {
+          const target = new URL(current);
+          const addresses = await resolvePublicAddresses(target.hostname, lookup);
+          const res = await request(target, { signal: ctrl.signal, addresses });
+          const location = res.headers.get("location");
+          if (isRedirect(res.status) && location) {
+            res.cancel?.();
+            current = new URL(location, target).toString();
+            continue;
+          }
+          if (res.status < 200 || res.status >= 300) {
+            res.cancel?.();
+            throw new Error(`web.fetchText: HTTP ${res.status} for ${target}`);
+          }
+          const buf = await res.body();
+          if (buf.byteLength > maxBytes) {
+            throw new Error(`web.fetchText: response too large (${buf.byteLength} > ${maxBytes} bytes)`);
+          }
+          const text = new TextDecoder().decode(buf);
+          // 内容类型判定：HTML 剥标签，其余原样
+          const ctype = res.headers.get("content-type") ?? "";
+          return /html/i.test(ctype) ? stripHtml(text) : text;
         }
-        const text = new TextDecoder().decode(buf);
-        // 内容类型判定：HTML 剥标签，其余原样
-        const ctype = res.headers.get("content-type") ?? "";
-        return /html/i.test(ctype) ? stripHtml(text) : text;
+        throw new Error(`web.fetchText: too many redirects (max ${WEB_MAX_REDIRECTS})`);
       } finally {
         clearTimeout(timer);
       }
