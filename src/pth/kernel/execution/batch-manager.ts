@@ -85,6 +85,12 @@ export class BatchManager {
       } else if (msg?.kind === "activity" && this.deps.onActivity) {
         // 活动事件流（console --follow 数据源）：batch IPC → ActivityHub 广播
         this.deps.onActivity(msg.activity as import("./activity-hub.js").ActivityEvent);
+      } else if (msg?.kind === "kernel-event" && this.deps.onActivity) {
+        // trigger 统一化（事件桥上行）：batch EventBus 事件 → ActivityHub（已归一为 ActivityEvent）
+        const ev = (msg.event ?? {}) as import("./activity-hub.js").ActivityEvent;
+        if (typeof ev.kind === "string") {
+          this.deps.onActivity({ ...ev, batchPid: typeof ev.batchPid === "number" ? ev.batchPid : record.child.pid });
+        }
       } else if (msg?.kind === "obs-req" && this.deps.obsResolver) {
         // obs 观测请求（batch → 主进程）：解析并回传（obs-resp 契约）
         const id = String(msg.id ?? "");
@@ -221,6 +227,25 @@ export class BatchManager {
       try { rec.child.send({ type: "role-register", role }); sent++; } catch { /* 子进程已退容忍 */ }
     }
     return sent;
+  }
+
+  /** trigger 统一化：通用下行广播（主进程 trigger action → 全部 batch 子进程） */
+  broadcast(message: Record<string, unknown>): number {
+    let sent = 0;
+    for (const rec of this.batches.values()) {
+      try {
+        if (rec.child.connected && rec.child.exitCode === null) {
+          rec.child.send(message);
+          sent++;
+        }
+      } catch { /* 子进程已退容忍 */ }
+    }
+    return sent;
+  }
+
+  /** optimizer.deopt-sweep trigger 下行：每 batch 跑一次复测巡检（子进程侧去重） */
+  broadcastOptimizerSweep(): number {
+    return this.broadcast({ type: "optimizer-sweep" });
   }
 
   async addWorker(batchId: string, role: string, copies = 1): Promise<boolean> {

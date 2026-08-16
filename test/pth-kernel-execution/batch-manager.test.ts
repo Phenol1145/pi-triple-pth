@@ -87,6 +87,15 @@ describe("batch manager", () => {
     expect(batches.some((b) => b.id === handle.id)).toBe(false);
   }, 3000);
 
+  it("trigger 统一化：broadcastOptimizerSweep 下行广播到全部存活 batch", async () => {
+    const mgr = new BatchManager({ batchProcessPath: stubPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 100));   // 等 spawn 完成 + IPC 就绪
+    expect(mgr.broadcastOptimizerSweep()).toBe(1);  // 存活 batch 收到下行
+    await mgr.killBatch(handle.id);
+    expect(mgr.broadcastOptimizerSweep()).toBe(0);  // 无存活 batch
+  });
+
   it("H6: status 消息含 ts → 更新 lastHeartbeat（watchdog v2 心跳面）", async () => {
     // stub 子进程在收到 ping 时回 status+ts（模拟 batch-process 心跳）
     const hbPath = join(dir, "hb-batch.mjs");

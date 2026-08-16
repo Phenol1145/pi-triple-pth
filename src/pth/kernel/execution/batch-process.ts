@@ -13,6 +13,7 @@ import { registerBuiltinSpaces } from "../../impls/spaces/builtin-spaces.js";
 import { checkTaskRouting, routeTaskRole } from "./role-router.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
 import { getEventBus } from "./event-bus.js";
+import { isForwardableKernelEvent, toKernelActivityEvent } from "./kernel-event-bridge.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { createPgTaskRepository } from "../../tasking/adapters/pg-task-repository.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
@@ -217,10 +218,28 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       } else {
         process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "error", error: "unknown role" });
       }
+    } else if (msg?.type === "optimizer-sweep") {
+      // trigger 统一化：主进程 optimizer.deopt-sweep 下行——每 batch 只跑一次（checkDeopt 读共享 memory，无实例态）
+      const opt = loops
+        .map((l) => (l as unknown as { optimizer?: { sweep?: () => Promise<void> } }).optimizer)
+        .find((o) => Boolean(o?.sweep));
+      void opt?.sweep?.().catch((e: Error) => {
+        batchLogger?.warn?.(`[optimizer-sweep] 巡检失败: ${e.message}`);
+      });
+      process.send?.({ type: "optimizer-sweep-status", batchPid: process.pid, ran: Boolean(opt) });
     }
   });
   // 父进程退出（IPC 通道关闭）→ 自杀：不留孤儿 batch 继续轮询 DB（先释放 kernel）
   process.on("disconnect", () => { void disposeAllKernels().finally(() => process.exit(0)); });
+
+  // trigger 统一化（事件桥上行）：子进程 EventBus → 主进程 ActivityHub（kernel-event IPC）。
+  // 白名单去重：task.claim/task.done/task.failed 已走既有 activity 通道，不重复转发（防 trigger 双触发）。
+  getEventBus().on("*", (evt) => {
+    if (!isForwardableKernelEvent(evt.type)) return;
+    try {
+      process.send?.({ kind: "kernel-event", event: toKernelActivityEvent(evt, process.pid) });
+    } catch { /* IPC 不可用——静默（活动流非关键路径） */ }
+  });
 
   const archiveDeps: ArchiveDeps = {
     transcriptStore: dataWorld.transcripts,
@@ -331,7 +350,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       // 复测一等化参数（N6——PTH_VERIFY_* 配置中心可调）
       verifyTasksCount: Number(process.env.PTH_VERIFY_TASKS ?? 3),
       verifyTimeoutMs: Number(process.env.PTH_VERIFY_TIMEOUT_MS ?? 30 * 60_000),
-      verifySweepMs: Number(process.env.PTH_VERIFY_SWEEP_MS ?? 30_000),
+      // trigger 统一化（2026-08-16）：子进程不再自巡检——主进程 optimizer.deopt-sweep trigger 经 IPC 下行驱动
+      verifySweepMs: 0,
     }) : undefined;
     const loop = new BatchTaskLoop({
       kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,

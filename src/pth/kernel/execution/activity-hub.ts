@@ -7,7 +7,7 @@
 import { EventEmitter } from "node:events";
 
 export interface ActivityEvent {
-  kind: string;            // task.claim / agent.step / agent.tool / task.done / task.failed
+  kind: string;            // task.claim / agent.step / agent.tool / task.done / task.failed / kernel.* / worker.* / batch.*
   taskId?: string;
   role?: string;
   step?: number;
@@ -17,6 +17,10 @@ export interface ActivityEvent {
   detail?: string;
   batchPid?: number;
   at: number;
+  /** 事件桥归一字段（kernel-event 上行） */
+  durationMs?: number;
+  batchId?: string;
+  tags?: string[];
   /** trigger 链深（payload.triggeredBy.depth——防链式爆炸） */
   chainDepth?: number;
   /** 来源 trigger id（自触发阻断） */

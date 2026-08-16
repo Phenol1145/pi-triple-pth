@@ -131,6 +131,13 @@ export class Optimizer {
     if (this.sweepTimer) { clearInterval(this.sweepTimer); this.sweepTimer = null; }
   }
 
+  /** trigger 统一化（2026-08-16）：复测巡检公开入口——主进程 optimizer.deopt-sweep trigger
+   *  经 IPC 下行调用。每 batch 只需跑一次（checkDeopt 读共享 memory，无实例态）。 */
+  async sweep(): Promise<void> {
+    if (!this.deps.memory?.queryReadOnly || !this.deps.memory.update) return;
+    await this.checkDeopt();
+  }
+
   /** 任务完成点收集（scorecard + 聚合快照）——窗口满触发检测 */
   collect(sc: WorkerScorecard, ctx: { role: string; taskId: string; verifyOf?: string }): void {
     if (ctx.verifyOf) {

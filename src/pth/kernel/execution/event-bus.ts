@@ -34,10 +34,11 @@ export class KernelEventBus {
 
   constructor(private opts: EventBusOptions = {}) {}
 
-  /** 订阅事件（域×动作——支持前缀通配：task.* 订阅 task 域全部） */
-  on(pattern: string, handler: KernelEventHandler): void {
+  /** 订阅事件（域×动作——支持前缀通配：task.* 订阅 task 域全部）。返回退订函数。 */
+  on(pattern: string, handler: KernelEventHandler): () => void {
     if (!this.handlers.has(pattern)) this.handlers.set(pattern, new Set());
     this.handlers.get(pattern)!.add(handler);
+    return () => this.handlers.get(pattern)?.delete(handler);
   }
 
   /** 退订 */

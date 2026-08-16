@@ -376,4 +376,30 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
     expect(rollback?.patch.status).toBe("rolled_back");
     expect(rollback?.patch.meta?.["verifySource"]).toBe("global");
   });
+
+  it("sweep()：trigger 下行公开入口——不经 collect 直接巡检 deopt（每 batch 一次）", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const mem = {
+      write: async () => {},
+      queryReadOnly: async (sql: string) => {
+        if (sql.includes("optimizer-suggestion")) {
+          return [{ id: "sug-direct", content: JSON.stringify({ target: "role-doc:dev", evidence: { pattern: "d-pattern" } }),
+            meta: { baseline: { avgFails: 1, avgSteps: 4, taskCount: 10 }, appliedAt: Date.now() } }];
+        }
+        if (sql.includes("verify-aggregate:sug-direct")) return [{ content: JSON.stringify({ taskCount: 3, sumFails: 9, sumSteps: 12 }) }];
+        return [];
+      },
+      update: async (id: string, patch: Record<string, unknown>) => { updates.push({ id, patch }); },
+    };
+    const opt = new Optimizer({ memory: mem as never, windowSize: 2, deadbandWindows: 0, verifyTasksCount: 3, verifySweepMs: 0 });
+    await opt.sweep();   // 直接巡检（无需 collect 填窗）
+    expect(updates.find((u) => u.id === "sug-direct")?.patch.status).toBe("rolled_back");
+  });
+
+  it("sweep()：无 memory 查询面 → no-op（不抛）", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const opt = new Optimizer({ verifySweepMs: 0 });
+    await expect(opt.sweep()).resolves.toBeUndefined();
+  });
 });
