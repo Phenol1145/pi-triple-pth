@@ -62,6 +62,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const pool = await createPgPool({ connectionString: deps.databaseUrl, max: Number(process.env.PTH_PG_POOL_MAX ?? 8) });
   await applySchema(pool);
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化）
+  // P0-4：createDataWorld 是 legacy assembly-only 装配点——batch 子进程与 assembly 同源。
   const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
   const workspaceMgr = new DefaultTaskWorkspaceManager({ basePath: deps.basePath, artifactPath: deps.artifactPath });
   // 产物根必须先存在：archive 用 rename 而非 mkdir——父目录缺失时 rename 抛 ENOENT

@@ -13,6 +13,10 @@ export {
 /**
  * DataWorldAccess —— PTH postgres 数据世界统一出口（Spec A/B 消费）。
  * tasks/memory/transcripts/audit 四类访问器共享同一 pg 连接池。
+ *
+ * @deprecated legacy assembly-only（模块化 v2 P0-4）：只允许 bootstrap/assembly/facade
+ * 等装配兼容代码持有；新模块构造器只接收窄 ports（contracts 层或各 store 接口），
+ * 禁止在新业务代码中新增对本接口的依赖。
  */
 export interface DataWorldAccess {
   tasks: TaskStore;
@@ -28,6 +32,10 @@ export interface DataWorldAccess {
   pgStat(view: "activity" | "database" | "bgwriter" | "slow"): Promise<unknown>;
 }
 
+/**
+ * @deprecated legacy assembly-only（模块化 v2 P0-4）：保留给 bootstrap/assembly 兼容装配，
+ * 不作为新模块的构造入参。新模块使用 contracts 层 ports 或具体 store 窄接口。
+ */
 export function createDataWorld(pool: pg.Pool, routing?: import("./task-store-pg.js").TaskRouting): DataWorldAccess {
   return {
     tasks: new PgTaskStore(pool, routing),

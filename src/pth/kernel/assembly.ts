@@ -164,6 +164,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
 
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化——task-store 只存不判）
+  // P0-4：createDataWorld 是 legacy assembly-only 装配点——唯一合法生产构造入口（batch-process 同源）。
   const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
   const assemblyLogger = createKernelLogger();
   const { ActivityHub } = await import("./execution/activity-hub.js");
