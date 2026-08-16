@@ -5,3 +5,5 @@ export * from "./execution-service.js";
 export * from "./authorization/grant-key-provider.js";
 export * from "./authorization/execution-grant-service.js";
 export * from "./adapters/sandbox-execution-adapter.js";
+export * from "./knowledge-broker.js";
+export * from "./adapters/pth-knowledge-broker.js";

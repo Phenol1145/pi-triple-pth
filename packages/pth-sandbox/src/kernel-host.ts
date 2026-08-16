@@ -169,17 +169,35 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     const remote = req.socket.remoteAddress ?? "";
     const isLoopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
     if (!isLoopback && !enforceAuth(req, reply)) return;
-    const body = (req.body ?? {}) as { op?: string; space?: string };
+    const body = (req.body ?? {}) as { op?: string; space?: string; grant?: unknown; sql?: string; anchors?: string[]; kinds?: string[]; id?: string };
     if (!body.op || !["query", "retrieve", "get"].includes(body.op)) {
       reply.code(400).send({ error: "op required: query|retrieve|get" });
       return;
+    }
+    const { space: _space, grant, ...upstreamBody } = body;
+    // P2-5：带 grant → 走 grant-bound knowledge 端点（可见空间由签名 grant 决定）；
+    // 否则保持 token 化 memory-bridge 兼容通道。
+    if (grant) {
+      try {
+        const res = await fetch(`${pthBridgeUrl}/api/v1/kernel/knowledge`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ grant, ...upstreamBody }),
+          signal: AbortSignal.timeout(35_000),
+        });
+        const text = await res.text();
+        reply.code(res.status).type("application/json").send(text || "{}");
+        return;
+      } catch (err) {
+        reply.code(502).send({ error: `knowledge broker upstream failed: ${err instanceof Error ? err.message : String(err)}` });
+        return;
+      }
     }
     const bridgeToken = getBridgeToken();
     if (!bridgeToken) {
       reply.code(503).send({ error: "server misconfigured: PTH_MEMORY_BRIDGE_TOKEN not set" });
       return;
     }
-    const { space: _space, ...upstreamBody } = body;
     try {
       const res = await fetch(`${pthBridgeUrl}/api/v1/kernel/memory-bridge`, {
         method: "POST",

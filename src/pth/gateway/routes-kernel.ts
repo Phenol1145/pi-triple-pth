@@ -18,6 +18,7 @@
 
 import type { FastifyInstance } from "fastify";
 import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
+import type { KnowledgeBroker } from "../execution/index.js";
 import type { TenantScope } from "../contracts/index.js";
 import { TASK_TEMPLATES, renderTaskTemplate, validateTemplateParams } from "../kernel/templates.js";
 
@@ -29,7 +30,7 @@ export interface KernelRoutesDeps {
   autopilot?: { status: () => unknown } | null;
 }
 
-export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFacade | null, autopilot?: KernelRoutesDeps["autopilot"]): void {
+export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFacade | null, autopilot?: KernelRoutesDeps["autopilot"], knowledgeBroker?: KnowledgeBroker | null): void {
   const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>
     reply.status(503).send(KERNEL_UNAVAILABLE);
 
@@ -73,6 +74,26 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     } catch (err) {
       return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // ── P2-5：grant-bound 执行期知识访问（与 token 化 memory-bridge 并存为兼容通道）──
+  // 空间只能来自签名 grant.scope.space；body 自报 space 被 broker 忽略；未授权 401/403。
+  app.post("/api/v1/kernel/knowledge", async (req, reply) => {
+    if (!knowledgeBroker) return unavailable(reply);
+    const body = (req.body ?? {}) as { grant?: unknown; op?: string; sql?: string; anchors?: string[]; kinds?: string[]; id?: string; space?: string };
+    const result = await knowledgeBroker.query({
+      grant: body.grant as never,
+      op: (body.op ?? "") as never,
+      sql: body.sql,
+      anchors: body.anchors,
+      kinds: body.kinds,
+      id: body.id,
+      space: body.space,
+    });
+    if (!result.ok) return reply.status(result.status).send({ error: result.error });
+    if (result.rows !== undefined) return result.rows;
+    if (result.entries !== undefined) return result.entries;
+    return result.entry;
   });
 
   // ── kernel 直连执行通道（任务池纯化 D2——调试/运维代码执行，不占任务池）──────

@@ -15,6 +15,8 @@ export interface TenantScope {
   readonly roles: readonly string[];
   /** 一次业务调用链的关联 id（审计/追踪） */
   readonly traceId: string;
+  /** P2-5：服务器端签入 grant 的可见空间（body 自报 space 不可授权）；缺省 fail-closed */
+  readonly space?: string;
 }
 
 export interface WorkspaceRef {
@@ -39,6 +41,7 @@ export function isIsoDateString(v: unknown): v is string {
 export function isTenantScopeStructurallyValid(v: unknown): v is TenantScope {
   if (typeof v !== "object" || v === null) return false;
   const s = v as Record<string, unknown>;
+  if (s.space !== undefined && !NON_EMPTY_STRING(s.space)) return false;
   return (
     NON_EMPTY_STRING(s.tenantId) &&
     NON_EMPTY_STRING(s.principalId) &&
