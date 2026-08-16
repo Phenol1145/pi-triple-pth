@@ -9,7 +9,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { KernelRuntime } from "../kernel/assembly.js";
+import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 import {
   buildRoleLineage, renderRoleLineage, allLineageRoles, registerWorkerRole,
   type WorkerRole,
@@ -28,13 +28,13 @@ interface ProposalContent {
   status?: string;
 }
 
-export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntime | null): void {
+export function registerLineageRoutes(app: FastifyInstance, facade: PthGatewayFacade | null): void {
   const unavailable = (reply: { status: (n: number) => { send: (b: unknown) => unknown } }) =>
     reply.status(503).send(KERNEL_UNAVAILABLE);
 
   // ── 谱系树（结构 + 文本渲染）──
   app.get("/api/v1/kernel/lineage", async (_req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const roles = allLineageRoles();
     const tree = buildRoleLineage(roles);
     const toJson = (n: ReturnType<typeof buildRoleLineage>): unknown => ({
@@ -64,14 +64,14 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
     if (req.auth?.role !== "platform-admin") {
       return reply.status(403).send({ error: "approve 仅限 platform-admin（监督层通道）" });
     }
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const proposalId = typeof body.proposalId === "string" ? body.proposalId : "";
     if (!proposalId) return reply.status(400).send({ error: "proposalId required" });
     const overrides = (body.overrides ?? {}) as Record<string, unknown>;
 
     // 1. 读 proposal（draft 才可批准——幂等防重）
-    const entries = await kernel.dataWorld.memory.retrieve({ kinds: ["differentiation-proposal"] });
+    const entries = await facade.retrieveMemory({ kinds: ["differentiation-proposal"] });
     const proposal = entries.find((e) => e.id === proposalId);
     if (!proposal) return reply.status(404).send({ error: "proposal not found", proposalId });
     if (proposal.status !== "draft") {
@@ -122,11 +122,11 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
     }
 
     // 4. 广播 batch（role-register——batch 内注册+创建 worker——即刻接任务）
-    const batchesSent = kernel.batchManager.registerRoleToBatches(newRole as unknown as Record<string, unknown>);
+    const batchesSent = facade.registerRoleToBatches(newRole as unknown as Record<string, unknown>);
 
     // 5. role-doc 注入（谱系文档——新角色 worker 读自己文档）
     try {
-      await kernel.dataWorld.memory.write({
+      await facade.writeMemory({
         id: `role-doc:${newRole.id}`,
         kind: "role-doc",
         anchors: ["role-doc", newRole.id, "角色", "prompt"],
@@ -139,7 +139,7 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
     // 5b. 角色定义持久化（2026-08-12 审计 MEDIUM-8 修复：运行时注册角色重启丢失——
     // 落库 kind=worker-role——assembly 启动时加载恢复（registerWorkerRole + tags 重建））
     try {
-      await kernel.dataWorld.memory.write({
+      await facade.writeMemory({
         id: `worker-role:${newRole.id}`,
         kind: "worker-role",
         anchors: ["worker-role", newRole.id],
@@ -152,7 +152,7 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
     // 5c. worker-index 更新（2026-08-13：角色清单条目刷新——planner 的 worker 类型获取通道）
     try {
       const { renderWorkerIndex } = await import("../kernel/execution/worker-cluster.js");
-      await kernel.dataWorld.memory.write({
+      await facade.writeMemory({
         id: "worker-index",
         kind: "worker-index",
         anchors: ["worker-index", "角色清单"],
@@ -163,7 +163,7 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
     } catch { /* 容忍 */ }
 
     // 6. proposal 状态流转（draft → official——approved）
-    await kernel.dataWorld.memory.write({
+    await facade.writeMemory({
       id: proposal.id,
       kind: proposal.kind,
       anchors: proposal.anchors,
@@ -186,11 +186,11 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
     if (req.auth?.role !== "platform-admin") {
       return reply.status(403).send({ error: "reject 仅限 platform-admin（监督层通道）" });
     }
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const proposalId = typeof body.proposalId === "string" ? body.proposalId : "";
     if (!proposalId) return reply.status(400).send({ error: "proposalId required" });
-    const entries = await kernel.dataWorld.memory.retrieve({ kinds: ["differentiation-proposal"] });
+    const entries = await facade.retrieveMemory({ kinds: ["differentiation-proposal"] });
     const proposal = entries.find((e) => e.id === proposalId);
     if (!proposal) return reply.status(404).send({ error: "proposal not found", proposalId });
     if (proposal.status !== "draft") {
@@ -198,7 +198,7 @@ export function registerLineageRoutes(app: FastifyInstance, kernel: KernelRuntim
     }
     let content: ProposalContent = {};
     try { content = JSON.parse(proposal.content) as ProposalContent; } catch { /* 容错 */ }
-    await kernel.dataWorld.memory.write({
+    await facade.writeMemory({
       id: proposal.id,
       kind: proposal.kind,
       anchors: proposal.anchors,

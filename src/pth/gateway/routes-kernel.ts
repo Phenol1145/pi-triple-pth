@@ -1,7 +1,7 @@
 /**
  * gateway/routes-kernel.ts — PTH kernel 任务发布 + 运行状态路由（任务工具 Task 2）
  *
- * 数据源：KernelRuntime（装配层——pg tasks 表 + BatchManager + KernelWatchdog）。
+ * 数据源：PthGatewayFacade（模块化 v2 P0-3——gateway 不再直连 KernelRuntime.pool/dataWorld）。
  * 生产形态：PTL（交互层）经 PthClient HTTP 访问；监控面板后续消费 /kernel/status 全景。
  *
  *   POST /api/v1/kernel/tasks         发布任务 → 201 {id, status, ...}
@@ -13,22 +13,22 @@
  *   GET  /api/v1/kernel/batch         batch 列表（含 alive 判定）
  *   GET  /api/v1/kernel/status        运行状态全景（kernel/batches/tasks/watchdog——监控面板铺垫）
  *
- * kernel 未装配（pg 不可达/null）→ 全部 503 + reason（fail-open 约定）。
+ * facade 未装配（pg 不可达/null）→ 全部 503 + reason（fail-open 约定）。
  */
 
 import type { FastifyInstance } from "fastify";
-import type { KernelRuntime } from "../kernel/assembly.js";
+import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 import { TASK_TEMPLATES, renderTaskTemplate, validateTemplateParams } from "../kernel/templates.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 
 export interface KernelRoutesDeps {
-  kernel: KernelRuntime | null;
+  facade: PthGatewayFacade | null;
   /** 性能自持（v0.8）：autopilot 状态（/kernel/status 暴露） */
   autopilot?: { status: () => unknown } | null;
 }
 
-export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime | null, autopilot?: KernelRoutesDeps["autopilot"]): void {
+export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFacade | null, autopilot?: KernelRoutesDeps["autopilot"]): void {
   const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>
     reply.status(503).send(KERNEL_UNAVAILABLE);
 
@@ -37,7 +37,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   //  tenant 与 space 一律取自 Redis auth token 的声明（服务器端身份）；body 自报 space 一律拒绝。
   //  只读桥：query（queryReadOnly 白名单）/ retrieve / get；写仍留 ts 空间（含可见性盖章）
   app.post("/api/v1/kernel/memory-bridge", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; space?: string } }).auth;
     if (!auth?.tenantId || !auth.space) {
       return reply.status(401).send({ error: "memory-bridge requires authenticated tenant + space claim" });
@@ -51,7 +51,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     const visible = (meta: Record<string, unknown> | undefined) => isVisible(meta, space);
     try {
       if (body.op === "query") {
-        const rows = (await kernel.dataWorld.queryReadOnly(String(body.sql ?? ""))) as Array<Record<string, unknown> | null>;
+        const rows = await facade.bridgeQuery(String(body.sql ?? ""));
         // 2026-08-15 筛查 H3：缺 meta 列的行无法判定可见性——fail-closed（不再默认公开）
         if (rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
           return reply.status(400).send({ error: "bridge query: 会话空间下查询必须包含 meta 列（可见性过滤依据）" });
@@ -59,13 +59,13 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
         return rows.filter((r) => visible(r!["meta"] as Record<string, unknown>));
       }
       if (body.op === "retrieve") {
-        const entries = await kernel.dataWorld.memory.retrieve({ anchors: body.anchors ?? [], kinds: body.kinds ?? [] });
-        return entries.filter((e) => visible(e.meta as Record<string, unknown>));
+        const entries = await facade.bridgeRetrieve(body.anchors ?? [], body.kinds);
+        return entries.filter((e) => visible(e.meta));
       }
       if (body.op === "get") {
-        const e = await kernel.dataWorld.memory.get(String(body.id ?? ""));
+        const e = await facade.bridgeGet(String(body.id ?? ""));
         if (!e) return reply.status(404).send({ error: "entry not found" });
-        if (!visible(e.meta as Record<string, unknown>)) return reply.status(404).send({ error: "entry not visible from space" });
+        if (!visible(e.meta)) return reply.status(404).send({ error: "entry not visible from space" });
         return e;
       }
       return reply.status(400).send({ error: "op required: query|retrieve|get" });
@@ -76,22 +76,22 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
 
   // ── kernel 直连执行通道（任务池纯化 D2——调试/运维代码执行，不占任务池）──────
   app.post("/api/v1/kernel/exec", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const code = typeof body.code === "string" ? body.code : "";
     if (!code.trim()) return reply.status(400).send({ error: "code required（TS 程序——能力：llm/memory/python/bash/fs/state/web）" });
     const mode = body.mode === "repl" ? "repl" as const : "stateless" as const;
     const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
     const timeoutMs = typeof body.timeoutMs === "number" && body.timeoutMs > 0 ? Math.min(body.timeoutMs, 600_000) : undefined;
-    const result = await kernel.execChannel.execute({ code, mode, sessionId, timeoutMs });
+    const result = await facade.execKernel({ code, mode, sessionId, timeoutMs }) as { ok: boolean };
     return reply.status(result.ok ? 200 : 422).send(result);
   });
 
   // ── 运行过程保留（2026-08-09）：任务轨迹查询 ──────────────────
   app.get("/api/v1/kernel/tasks/:id/transcript", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const { id } = req.params as { id: string };
-    const list = await kernel.dataWorld.transcripts.listByTask(id);
+    const list = await facade.listTranscripts(id);
     const { buildScorecard } = await import("../kernel/execution/worker-scorecard.js");
     return { taskId: id, transcripts: list.map((t: any) => ({
       id: t.id,
@@ -105,7 +105,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
 
   // ── 任务发布 ─────────────────────────────────────────────
   app.post("/api/v1/kernel/tasks", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     // P0-3：tenant 只能来自服务器端认证身份；body 不允许覆盖
     const tenantId = (req as unknown as { auth?: { tenantId?: string } }).auth?.tenantId ?? "default";
@@ -123,7 +123,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
       const rendered = renderTaskTemplate(body.template, params);
       if (!rendered) return reply.status(404).send({ error: `unknown template: ${body.template}` });
       const tpl = TASK_TEMPLATES.find((t) => t.id === body.template)!;
-      const task = await kernel.dataWorld.tasks.publish({
+      const task = await facade.publishTask({
         title: `[${body.template}] ${tpl.name}`,
         text: rendered,
         createdBy: typeof body.createdBy === "string" ? body.createdBy : "ptl",
@@ -149,13 +149,13 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
     // payload 透传（任务链 flow 声明等路由信息——发布时 payload 即任务自带路由）
     // body.flow 顶层并入 payload（API 友好——flow 放顶层也能路由——routeTaskRole flowRole 读 payload.flow）
     const payload = { ...((body.payload ?? {}) as Record<string, unknown>), ...(body.flow ? { flow: body.flow } : {}) };
-    const task = await kernel.dataWorld.tasks.publish({ title, text, createdBy, tags, payload, tenantId });
+    const task = await facade.publishTask({ title, text, createdBy, tags, payload, tenantId });
     return reply.status(201).send(task);
   });
 
   // ── 模板列表 ──────────────────────────────────────────────
   app.get("/api/v1/kernel/templates", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     return TASK_TEMPLATES.map((t) => ({
       id: t.id,
       name: t.name,
@@ -165,50 +165,40 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   });
 
   app.get("/api/v1/kernel/tasks", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const q = (req.query ?? {}) as Record<string, unknown>;
     const limit = typeof q.limit === "string" ? Math.min(Math.max(parseInt(q.limit, 10) || 50, 1), 200) : 50;
     // 列表返回全部状态（pending/claimed/completed/rejected...），按创建时间倒序——
     // candidates() 只返回 pending 队列（批处理认领语义），不适合观测列表（试运行发现）。
-    const res = await kernel.pool.query(
-      "SELECT id, title, text, tags, status, claimed_by, claims_count, created_at, payload FROM tasks ORDER BY created_at DESC LIMIT $1",
-      [limit],
-    );
-    return res.rows;
+    return facade.listTasks(limit);
   });
 
   app.get("/api/v1/kernel/tasks/:id", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const { id } = req.params as { id: string };
-    const res = await kernel.pool.query("SELECT * FROM tasks WHERE id = $1", [id]);
-    if (res.rows.length === 0) return reply.status(404).send({ error: "task not found" });
-    return res.rows[0];
+    const row = await facade.getTask(id);
+    if (row === null) return reply.status(404).send({ error: "task not found" });
+    return row;
   });
 
   // ── batch 控制 ───────────────────────────────────────────
   // ── 优化闭环（2026-08-12 体系自制）：建议列表 + 批准应用（监督通道）──
   app.get("/api/v1/kernel/optimizer/suggestions", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     try {
-      const rows = await kernel.dataWorld.queryReadOnly(
-        `SELECT id, status, kind, left(content::text, 200) AS preview, created_at FROM memory_entries WHERE kind = 'optimizer-suggestion' ORDER BY created_at DESC LIMIT 20`,
-      );
-      return rows;
+      return await facade.optimizerSuggestions();
     } catch (e) {
       return reply.code(500).send({ error: (e as Error).message });
     }
   });
   app.post("/api/v1/kernel/optimizer/apply", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as { id?: string };
     const id = String(body.id ?? "").trim();
     if (!id) return reply.code(400).send({ error: "id required" });
     try {
-      const { applyOptimizerSuggestion } = await import("../kernel/execution/optimizer-apply.js");
-      // 复测任务派发（2026-08-14 N6 一等化）：人工批准路径同样派发受控复现任务
-      const r = await applyOptimizerSuggestion(kernel.dataWorld.memory, id, kernel.dataWorld.queryReadOnly, (t) =>
-        kernel.dataWorld.tasks.publish({ title: t.title, text: t.text, createdBy: "optimizer", tags: t.tags, payload: t.payload }));
-      if (!r.ok) return reply.code(400).send(r);
+      const r = await facade.applyOptimizer(id);
+      if (!(r as { ok?: boolean }).ok) return reply.code(400).send(r);
       return r;
     } catch (e) {
       return reply.code(500).send({ error: (e as Error).message });
@@ -217,30 +207,20 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   // 记忆治理提案批准（2026-08-14 T7 归档闭环执行端——manage.memory.archive 的 draft → 监督批准 → 执行）
   // 2026-08-15 B4 W5：skill-maintain-proposal 同流（提案 → adversarial pass → 监督批准 → 执行）
   app.post("/api/v1/kernel/memory-admin/approve", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as { id?: string };
     const id = String(body.id ?? "").trim();
     if (!id) return reply.code(400).send({ error: "id required" });
     try {
-      const proposal = await kernel.dataWorld.memory.get(id);
-      if (proposal?.kind === "skill-maintain-proposal") {
-        const { approveSkillProposal, executeApprovedSkillProposal } = await import("@away_from/pth-memory");
-        const approved = await approveSkillProposal(kernel.dataWorld.memory, id);
-        if (!approved.ok) return reply.code(400).send(approved);
-        const executed = await executeApprovedSkillProposal(kernel.dataWorld.memory, id);
-        if (!executed.ok) return reply.code(400).send(executed);
-        return executed;
-      }
-      const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
-      const r = await applyMemoryAdminProposal(kernel.dataWorld.memory, id);
-      if (!r.ok) return reply.code(400).send(r);
+      const r = await facade.approveMemoryAdmin(id);
+      if (!(r as { ok?: boolean }).ok) return reply.code(400).send(r);
       return r;
     } catch (e) {
       return reply.code(500).send({ error: (e as Error).message });
     }
   });
   app.post("/api/v1/kernel/batch/add", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const count = typeof body.count === "number" ? Math.min(Math.max(Math.floor(body.count), 1), 10) : 1;
     // BatchProfile（⑤）：role → reinforced 单角色堆叠；weights → balanced 自定义权重；缺省 = 默认构成
@@ -252,11 +232,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
       profile = { mode: "balanced", weights: body.weights as Record<string, number> };
     }
     try {
-      const handles = [];
-      for (let i = 0; i < count; i++) {
-        handles.push(await kernel.batchManager.spawnBatch(profile));
-      }
-      return { spawned: handles.length, mode: profile?.mode ?? "balanced", batches: handles.map((h) => ({ id: h.id, pid: h.pid, workers: h.workers })) };
+      return await facade.spawnBatches(count, profile);
     } catch (e) {
       return reply.status(400).send({ error: `batch 启动失败: ${(e as Error).message}` });
     }
@@ -265,7 +241,7 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   // ── worker 级控制（单大 batch 启停灵活性）────────────────────────
   // POST /api/v1/kernel/batch/:id/workers {action: pause|resume|remove|add, role, copies?}
   app.post("/api/v1/kernel/batch/:id/workers", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as Record<string, unknown>;
     const action = body.action as string;
@@ -274,57 +250,34 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
       return reply.status(400).send({ error: "action ∈ pause|resume|remove|add, role required" });
     }
     const copies = typeof body.copies === "number" ? Math.min(Math.max(Math.floor(body.copies), 1), 8) : 1;
-    const ok = action === "pause" ? await kernel.batchManager.pauseWorker(id, role)
-      : action === "resume" ? await kernel.batchManager.resumeWorker(id, role)
-      : action === "remove" ? await kernel.batchManager.removeWorker(id, role)
-      : await kernel.batchManager.addWorker(id, role, copies);
+    const ok = await facade.batchWorkers(id, action as "pause" | "resume" | "remove" | "add", role, copies);
     if (!ok) return reply.status(404).send({ error: `batch ${id} not found / IPC 不可用` });
     return { ok: true, batchId: id, action, role, copies: action === "add" ? copies : undefined };
   });
 
   app.post("/api/v1/kernel/batch/remove", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const count = typeof body.count === "number" ? Math.min(Math.max(Math.floor(body.count), 1), 10) : 1;
-    const batches = await kernel.batchManager.listBatches();
-    const targets = batches.slice(0, count);
-    for (const b of targets) await kernel.batchManager.killBatch(b.id);
-    return { stopped: targets.length };
+    return { stopped: await facade.removeBatches(count) };
   });
 
   app.get("/api/v1/kernel/batch", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
-    const batches = await kernel.batchManager.listBatches();
-    return batches.map((b) => ({ ...b, alive: kernel.batchManager.isBatchAlive(b.id) }));
+    if (!facade) return unavailable(reply);
+    return facade.listBatchesWithAlive();
   });
 
   // ── 运行状态全景（监控面板铺垫）───────────────────────────
   app.get("/api/v1/kernel/status", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
-    const batches = await kernel.batchManager.listBatches();
-    const statuses = await kernel.pool.query(
-      "SELECT status, count(*)::int AS n FROM tasks GROUP BY status",
-    );
-    const counts: Record<string, number> = {};
-    let total = 0;
-    for (const row of statuses.rows as Array<{ status: string; n: number }>) {
-      counts[row.status] = row.n;
-      total += row.n;
-    }
+    if (!facade) return unavailable(reply);
+    const batches = await facade.listBatchesWithAlive();
+    const tasks = await facade.taskCounts();
     return {
       kernel: { connected: true },
       autopilot: autopilot?.status() ?? null,
-      batches: batches.map((b) => ({ ...b, alive: kernel.batchManager.isBatchAlive(b.id) })),
-      tasks: {
-        pending: counts.pending ?? 0,
-        claimed: counts.claimed ?? 0,
-        submitted: counts.submitted ?? 0,
-        completed: counts.completed ?? 0,
-        rejected: counts.rejected ?? 0,
-        escalated: counts.escalated ?? 0,
-        total,
-      },
-      watchdog: { crashLog: kernel.watchdog.getCrashLog() },
+      batches,
+      tasks,
+      watchdog: { crashLog: facade.crashLog() },
       collectedAt: Date.now(),
     };
   });
@@ -350,14 +303,14 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   // ── memory 查询（API 覆盖补齐——分化建议/沉淀/能力索引可查——监督层数据面）──
   // GET /api/v1/kernel/memory?kind=differentiation-proposal&status=draft&anchor=developer&limit=20
   app.get("/api/v1/kernel/memory", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const q = req.query as { kind?: string; status?: string; anchor?: string; limit?: string };
     const kinds = q.kind ? q.kind.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     const statuses = q.status ? q.status.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     const anchors = q.anchor ? q.anchor.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
     const limit = Math.min(Math.max(Number(q.limit ?? 20) || 20, 1), 100);
     try {
-      const entries = await kernel.dataWorld.memory.retrieve({ kinds, status: statuses, anchors });
+      const entries = await facade.retrieveMemory({ kinds, status: statuses, anchors });
       return {
         entries: entries.slice(0, limit).map((e) => ({
           id: e.id, kind: e.kind, anchors: e.anchors, status: e.status,
@@ -375,17 +328,17 @@ export function registerKernelRoutes(app: FastifyInstance, kernel: KernelRuntime
   // ── 活动事件流（SSE——流式活动状态——ptl hub console --follow 数据面）──
   // 任务接取/agent step（token 用量）/工具调用/完成——实时推送（replay 缓冲补历史）
   app.get("/api/v1/kernel/events", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const { writeSSE } = await import("./sse.js");
-    await writeSSE(reply, kernel.activityHub.stream());
+    await writeSSE(reply, facade.activityStream());
   });
 
   // memory 单条详情（全量 content——console show 用）
   app.get("/api/v1/kernel/memory/:id", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const { id } = req.params as { id: string };
     try {
-      const entries = await kernel.dataWorld.memory.retrieve({});
+      const entries = await facade.retrieveMemory({});
       const entry = entries.find((e) => e.id === id);
       if (!entry) return reply.status(404).send({ error: "memory entry not found", id });
       return entry;

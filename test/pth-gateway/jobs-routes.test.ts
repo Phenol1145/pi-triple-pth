@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
 import Fastify from "fastify";
 import { registerJobRoutes } from "../../src/pth/gateway/routes-jobs.js";
+import { createPthGatewayFacade } from "../../src/pth/application/gateway/pth-gateway-facade.js";
 import type { KernelRuntime } from "../../src/pth/kernel/assembly";
 
 function buildApp(kernel: KernelRuntime | null) {
   const app = Fastify();
-  registerJobRoutes(app, kernel);
+  registerJobRoutes(app, kernel ? createPthGatewayFacade(kernel) : null);
   return app;
 }
 

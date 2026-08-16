@@ -22,6 +22,7 @@ import { registerJobRoutes } from "./routes-jobs.js";
 import type { FallbackRequestStore } from "../fallback/requests.js";
 import type { SandboxHealthMonitor } from "@away_from/pth-sandbox";
 import type { AuditWriter } from "../observability/audit.js";
+import { createPthGatewayFacade, type PthGatewayFacadeInput } from "../application/gateway/pth-gateway-facade.js";
 
 export async function createServer(deps: {
   redis: Redis;
@@ -42,8 +43,8 @@ export async function createServer(deps: {
   debugGateway?: DebugGatewayFactory;
   /** 审计（hub debug 会话审计）。可选。 */
   audit?: AuditWriter;
-  /** PTH kernel 运行时（装配层）——可选；传则注册 /kernel/* 路由。 */
-  kernelRuntime?: import("../kernel/assembly.js").KernelRuntime | null;
+  /** PTH kernel 运行时（装配层）——可选；传则由本层构造 facade 并注册 /kernel/* 路由。 */
+  kernelRuntime?: PthGatewayFacadeInput | null;
   /** 性能自持（v0.8）：PerfAutopilot 状态（/kernel/status 暴露）。可选。 */
   autopilot?: { status: () => unknown } | null;
 }) {
@@ -73,10 +74,11 @@ export async function createServer(deps: {
     registerDebugRoutes(app, { gatewayFactory: deps.debugGateway, audit: deps.audit });
   }
   if (deps.kernelRuntime) {
-    registerKernelRoutes(app, deps.kernelRuntime, deps.autopilot);
-    registerLineageRoutes(app, deps.kernelRuntime);
-    registerTriggerRoutes(app, deps.kernelRuntime);
-    registerJobRoutes(app, deps.kernelRuntime);
+    const facade = createPthGatewayFacade(deps.kernelRuntime);
+    registerKernelRoutes(app, facade, deps.autopilot);
+    registerLineageRoutes(app, facade);
+    registerTriggerRoutes(app, facade);
+    registerJobRoutes(app, facade);
   } else {
     registerKernelRoutes(app, null, deps.autopilot);
     registerLineageRoutes(app, null);

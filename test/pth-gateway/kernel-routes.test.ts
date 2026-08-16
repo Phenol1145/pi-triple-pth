@@ -2,15 +2,20 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { installDefaultRoles } from "../helpers";
 import Fastify from "fastify";
 import { registerKernelRoutes } from "../../src/pth/gateway/routes-kernel";
+import { createPthGatewayFacade, type PthGatewayFacade } from "../../src/pth/application/gateway/pth-gateway-facade.js";
 import type { KernelRuntime } from "../../src/pth/kernel/assembly";
 
 // 简化 auth：路由测试直接构造 app 并注册 kernel 路由（不含全局 auth hook——auth 已由
 // server.ts 的 createAuthHook 统一覆盖，本测试聚焦路由逻辑本身）。
 beforeEach(() => installDefaultRoles());
 
+function wrap(kernel: unknown): PthGatewayFacade {
+  return createPthGatewayFacade(kernel as KernelRuntime);
+}
+
 function buildApp(kernel: KernelRuntime | null) {
   const app = Fastify();
-  registerKernelRoutes(app, kernel);
+  registerKernelRoutes(app, kernel ? wrap(kernel) : null);
   return app;
 }
 
@@ -198,7 +203,7 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
         (req as unknown as { auth: unknown }).auth = auth;
       });
     }
-    registerKernelRoutes(app, {
+    registerKernelRoutes(app, wrap({
       dataWorld: {
         tasks: { publish: async () => ({}), candidates: async () => [], countPending: async () => 0 } as any,
         queryReadOnly: async () => [
@@ -213,7 +218,7 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
         transcripts: {} as any,
         audit: {} as any,
       } as any,
-    });
+    }));
     return app;
   }
 
@@ -260,7 +265,7 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
     app.addHook("onRequest", async (req) => {
       (req as unknown as { auth: unknown }).auth = { tenantId: "tenant-a", role: "tenant-agent", space: "meta" };
     });
-    registerKernelRoutes(app, {
+    registerKernelRoutes(app, wrap({
       dataWorld: {
         tasks: { publish: async () => ({}), candidates: async () => [], countPending: async () => 0 } as any,
         queryReadOnly: async () => [{ value: 1 }],
@@ -268,7 +273,7 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
         transcripts: {} as any,
         audit: {} as any,
       } as any,
-    });
+    }));
     const res = await app.inject({
       method: "POST", url: "/api/v1/kernel/memory-bridge",
       payload: { op: "query", sql: "SELECT 1" },
@@ -312,7 +317,7 @@ describe("P0-3：任务发布的 tenant 只来自 auth token", () => {
     app.addHook("onRequest", async (req) => {
       (req as unknown as { auth: unknown }).auth = { tenantId: "tenant-b", role: "tenant-agent" };
     });
-    registerKernelRoutes(app, {
+    registerKernelRoutes(app, wrap({
       dataWorld: {
         tasks: {
           publish: async (input: Record<string, unknown>) => {
@@ -333,7 +338,7 @@ describe("P0-3：任务发布的 tenant 只来自 auth token", () => {
       } as any,
       watchdog: { getCrashLog: () => [] } as any,
       shutdown: async () => {},
-    });
+    }));
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/tasks",

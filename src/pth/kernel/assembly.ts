@@ -8,6 +8,9 @@ import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js"
 import { createKernelLogger } from "./logger.js";
 import type pg from "pg";
 
+// 模块化 v2 P0-3：gateway 只允许经 facade 消费 KernelRuntime；facade 工厂从装配层统一出口。
+export { createPthGatewayFacade, type PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
+
 export interface KernelRuntimeOptions {
   /** obs 观测请求解析器（batch obs-req → 主进程 metrics/batches 数据） */
   obsResolver?: (req: string, params: unknown) => Promise<unknown>;

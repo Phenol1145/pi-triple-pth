@@ -9,21 +9,21 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { KernelRuntime } from "../kernel/assembly.js";
+import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 import { randomUUID } from "node:crypto";
 import { checkTaskRouting } from "../kernel/execution/role-router.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 const TRIGGER_KIND = "trigger";
 
-export function registerTriggerRoutes(app: FastifyInstance, kernel: KernelRuntime | null): void {
+export function registerTriggerRoutes(app: FastifyInstance, facade: PthGatewayFacade | null): void {
   const unavailable = (reply: { status: (n: number) => { send: (b: unknown) => unknown } }) =>
     reply.status(503).send(KERNEL_UNAVAILABLE);
 
   app.get("/api/v1/kernel/triggers", async (_req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     // 只列 active（official）——archived（删除/once 禁用）不进列表
-    const entries = await kernel.dataWorld.memory.retrieve({ kinds: [TRIGGER_KIND], status: ["official"] });
+    const entries = await facade.retrieveMemory({ kinds: [TRIGGER_KIND], status: ["official"] });
     return {
       triggers: entries.map((e) => {
         let def: Record<string, unknown> = {};
@@ -34,7 +34,7 @@ export function registerTriggerRoutes(app: FastifyInstance, kernel: KernelRuntim
   });
 
   app.post("/api/v1/kernel/triggers", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const event = typeof body.event === "string" ? body.event.trim() : "";
@@ -59,53 +59,53 @@ export function registerTriggerRoutes(app: FastifyInstance, kernel: KernelRuntim
       ...(body.once ? { once: true } : {}),
       ...(typeof body.maxFires === "number" ? { maxFires: body.maxFires } : {}),
     };
-    await kernel.dataWorld.memory.write({
+    await facade.writeMemory({
       id, kind: TRIGGER_KIND,
       anchors: ["trigger", event, name],
       content: JSON.stringify(def, null, 2),
       status: "official",
       meta: { createdVia: "api" },
     });
-    await kernel.triggerEngine.reload().catch(() => {});
+    await facade.reloadTriggers().catch(() => {});
     return reply.status(201).send({ id, ...def });
   });
 
   app.post("/api/v1/kernel/triggers/:id/toggle", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const entries = await kernel.dataWorld.memory.retrieve({ kinds: [TRIGGER_KIND] });
+    const entries = await facade.retrieveMemory({ kinds: [TRIGGER_KIND] });
     const entry = entries.find((e) => e.id === id);
     if (!entry) return reply.status(404).send({ error: "trigger not found", id });
     let def: Record<string, unknown> = {};
     try { def = JSON.parse(entry.content) as Record<string, unknown>; } catch { /* 容错 */ }
     def.enabled = body.enabled !== false;
-    await kernel.dataWorld.memory.write({
+    await facade.writeMemory({
       id: entry.id, kind: entry.kind, anchors: entry.anchors,
       content: JSON.stringify(def, null, 2), status: entry.status, meta: entry.meta ?? {},
     }, { force: true });
-    await kernel.triggerEngine.reload().catch(() => {});
+    await facade.reloadTriggers().catch(() => {});
     return { id, enabled: def.enabled };
   });
 
   app.delete("/api/v1/kernel/triggers/:id", async (req, reply) => {
-    if (!kernel) return unavailable(reply);
+    if (!facade) return unavailable(reply);
     const { id } = req.params as { id: string };
-    const entries = await kernel.dataWorld.memory.retrieve({ kinds: [TRIGGER_KIND] });
+    const entries = await facade.retrieveMemory({ kinds: [TRIGGER_KIND] });
     const entry = entries.find((e) => e.id === id);
     if (!entry) return reply.status(404).send({ error: "trigger not found", id });
     // 删除 = archived（memory 无硬删除——状态流转）
-    await kernel.dataWorld.memory.write({
+    await facade.writeMemory({
       id: entry.id, kind: entry.kind, anchors: entry.anchors,
       content: entry.content, status: "archived", meta: { ...(entry.meta ?? {}), deleted: true },
     }, { force: true });
-    await kernel.triggerEngine.reload().catch(() => {});
+    await facade.reloadTriggers().catch(() => {});
     return { id, status: "archived" };
   });
 
   app.post("/api/v1/kernel/triggers/reload", async (_req, reply) => {
-    if (!kernel) return unavailable(reply);
-    const n = await kernel.triggerEngine.reload();
+    if (!facade) return unavailable(reply);
+    const n = await facade.reloadTriggers();
     return { reloaded: n };
   });
 }
