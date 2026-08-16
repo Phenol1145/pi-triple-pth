@@ -6,7 +6,7 @@ vi.mock("../../src/pth/kernel/execution/agent-loop.js", () => ({
 }));
 
 import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
-import { TaskLoop } from "../../src/pth/kernel/execution/task-loop.js";
+import { TaskLoop } from "../../src/pth/bootstrap/task-loop.js";
 
 const mockedRunAgent = vi.mocked(runAgentTask);
 

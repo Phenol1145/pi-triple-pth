@@ -897,7 +897,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | 路由 | kernel/execution/task-resolver.ts · role-router.ts |
 | 角色/谱系/batch/worker-index | kernel/execution/worker-cluster.ts · batch-process.ts（+ impls/roles/default-roles.ts） |
 | 五步工作流/防护/注入编排 | kernel/execution/agent-loop.ts |
-| 任务循环/提交/hook | kernel/execution/task-loop.ts（notifyTaskDone） |
+| 任务循环/提交/hook | bootstrap/task-loop.ts（notifyTaskDone） |
 | 记忆/分层/可见性/聚合 | kernel/extensions/memory.ts · memory-policy.ts · kernel/execution/memory-visibility.ts · kernel/storage/memory-store-pg.ts |
 | 能力索引/注入模式 | kernel/prompt-docs.ts · agent-loop.ts（buildAgentSystemPrompt） |
 | 空间/工具面/场景化描述 | kernel/execution/space-registry.ts · space-index.ts · agent-tools.ts |

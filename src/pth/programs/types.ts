@@ -1,21 +1,9 @@
 /**
  * PTH agent program manifest (agent.json schema).
  */
-export interface ProgramManifest {
-  name: string;
-  description?: string;
-  model?: string;
-  provider?: string;
-  thinking?: string;
-  systemPrompt: string; // relative path within archive
-  skills?: string[];
-  tools?: string[];
-  excludeTools?: string[];
-  input?: {
-    schema?: Record<string, unknown>;
-  };
-  timeoutSec?: number;
-}
+import type { ProgramManifest, Result } from "../contracts/index.js";
+
+export type { ProgramManifest, Result };
 
 export interface ProgramInfo {
   name: string;
@@ -29,7 +17,3 @@ export interface ProgramVersion {
   root: string; // absolute path to program directory on disk
   manifest: ProgramManifest;
 }
-
-export type Result<T, E = string> =
-  | { ok: true; value: T }
-  | { ok: false; error: E };

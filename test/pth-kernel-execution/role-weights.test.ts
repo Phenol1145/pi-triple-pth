@@ -107,7 +107,7 @@ describe("资源分配策略抽象（BatchCompositionStrategy）", () => {
 describe("TaskLoop worker 级控制（pause/resume/stop）", () => {
   it("pause 后 runOnce 短路不认领；resume 恢复", async () => {
     const loop = { paused: false, stopped: false } as any;
-    const { TaskLoop } = await import("../../src/pth/kernel/execution/task-loop.js");
+    const { TaskLoop } = await import("../../src/pth/bootstrap/task-loop.js");
     const tl = new TaskLoop({} as any, {} as any);
     expect(tl.isPaused).toBe(false);
     tl.pause();
@@ -120,7 +120,7 @@ describe("TaskLoop worker 级控制（pause/resume/stop）", () => {
   });
 
   it("runOnce 在 paused/stopped 下立即返回 false（不查询）", async () => {
-    const { TaskLoop } = await import("../../src/pth/kernel/execution/task-loop.js");
+    const { TaskLoop } = await import("../../src/pth/bootstrap/task-loop.js");
     let queried = 0;
     const tl = new TaskLoop({
       taskStore: { candidates: async () => { queried++; return [{ id: "x" }]; } },

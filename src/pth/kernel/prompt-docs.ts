@@ -282,8 +282,8 @@ export const PROJECT_DIR_DUTY: Record<string, string> = {
 export const PROJECT_FILE_DUTY: Record<string, string> = {
   "src/pth/kernel/execution/agent-loop.ts": "LLM agent 主循环（工具调用/收敛/世界观——worker 核心行为）",
   "src/pth/kernel/execution/agent-tools.ts": "agent 工具表（ts/python_execute/bash_execute/done）",
-  "src/pth/kernel/execution/task-loop.ts": "任务执行循环（NL 检测→agent/转译→轨迹收集）",
-  "src/pth/kernel/execution/batch-process.ts": "batch worker 进程（角色簇/内核/任务工作区注入）",
+  "src/pth/bootstrap/task-loop.ts": "任务执行循环（NL 检测→agent/转译→轨迹收集）",
+  "src/pth/bootstrap/batch-process.ts": "batch worker 进程（角色簇/内核/任务工作区注入）",
   "src/pth/kernel/execution/role-router.ts": "角色路由（任务→角色）",
   "src/pth/kernel/interpreter/ts-interpreter.ts": "ts 核（PTC vm——currentCwd 定位任务工作区）",
   "src/pth/kernel/interpreter/capability.ts": "能力构建（fs/memory/llm 注入）——fs.task 工作区",

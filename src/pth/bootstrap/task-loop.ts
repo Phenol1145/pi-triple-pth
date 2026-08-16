@@ -1,25 +1,26 @@
-import type { WorkerKernel } from "../interpreter/index.js";
-import type { Task, TaskStore } from "../storage/task-store-pg.js";
-import type { WorkerRole } from "./worker-cluster.js";
-import type { TaskOutcome, TaskRepository, TenantScope } from "../../contracts/index.js";
-import { TaskDispatcher } from "../../tasking/task-dispatcher.js";
-import { TaskOutcomeCommitter } from "../../tasking/task-outcome-committer.js";
-import { BoundedBackgroundQueue } from "../../tasking/task-outcome-observers.js";
-import { AgentTaskRunner } from "../../runner/agent-task-runner.js";
-import { createAuditObserver } from "../../runner/observers/audit-observer.js";
-import { createTranscriptObserver } from "../../runner/observers/transcript-observer.js";
-import { createActivityObserver } from "../../runner/observers/activity-observer.js";
-import { createMetricsObserver } from "../../runner/observers/metrics-observer.js";
-import { createNotifierObserver } from "../../runner/observers/notifier-observer.js";
-import { createRefineObserver } from "../../runner/observers/refine-observer.js";
-import { createOptimizerObserver } from "../../runner/observers/optimizer-observer.js";
-import { buildScorecard, computeTimeReuse } from "./worker-scorecard.js";
-import { translateTask } from "./nl-translator.js";
-import { runPtcProgram } from "../ptc/runner.js";
-import { runAgentTask } from "./agent-loop.js";
-import { getEventBus } from "./event-bus.js";
-import { publishDebugCaseTask } from "./debug-case-dispatch.js";
-import { pthConfig } from "../../config/index.js";
+import type { WorkerKernel } from "../kernel/interpreter/index.js";
+import type { Task, TaskStore } from "../kernel/storage/task-store-pg.js";
+import type { WorkerRole } from "../kernel/execution/worker-cluster.js";
+import type { TaskWorkspaceManager } from "../kernel/execution/workspace.js";
+import type { TaskOutcome, TaskRepository, TenantScope } from "../contracts/index.js";
+import { TaskDispatcher } from "../tasking/index.js";
+import { TaskOutcomeCommitter } from "../tasking/index.js";
+import { BoundedBackgroundQueue } from "../tasking/index.js";
+import { AgentTaskRunner } from "../runner/index.js";
+import { createAuditObserver } from "../runner/index.js";
+import { createTranscriptObserver } from "../runner/index.js";
+import { createActivityObserver } from "../runner/index.js";
+import { createMetricsObserver } from "../runner/index.js";
+import { createNotifierObserver } from "../runner/index.js";
+import { createRefineObserver } from "../runner/index.js";
+import { createOptimizerObserver } from "../runner/index.js";
+import { buildScorecard, computeTimeReuse } from "../kernel/execution/worker-scorecard.js";
+import { translateTask } from "../kernel/execution/nl-translator.js";
+import { runPtcProgram } from "../kernel/ptc/runner.js";
+import { runAgentTask } from "../kernel/execution/agent-loop.js";
+import { getEventBus } from "../kernel/execution/event-bus.js";
+import { publishDebugCaseTask } from "../kernel/execution/debug-case-dispatch.js";
+import { pthConfig } from "../config/index.js";
 
 /**
  * 任务完成通知（2026-08-13 hook 机制）：POST 到 PTL 侧 pth-notify 扩展
@@ -39,22 +40,17 @@ function notifyTaskDone(ev: { taskId: string; role: string; status: "completed" 
     .finally(() => clearTimeout(timer));
 }
 
-export interface TaskWorkspaceManager {
-  allocate(taskId: string, tenantId?: string): Promise<{ dir: string; tenant: string }>;
-  archive(taskId: string, dir: string): Promise<{ artifactPath: string }>;
-}
-
 export interface TaskLoopDeps {
   kernel: WorkerKernel;
   role: WorkerRole;
   taskStore: TaskStore;
   workspaceMgr: TaskWorkspaceManager;
   /** Refine 钩子（T4）：任务完成后快照+提炼+持久化。默认 undefined = 不 refine。 */
-  refiner?: Pick<import("./refiner.js").Refiner, "refine">;
+  refiner?: Pick<import("../kernel/execution/refiner.js").Refiner, "refine">;
   /** 优化循环（2026-08-12 大项）：任务完成点收集 scorecard → 窗口检测 → 建议（draft）。默认 undefined = 不启用。 */
-  optimizer?: Pick<import("./optimizer-loop.js").Optimizer, "collect">;
+  optimizer?: Pick<import("../kernel/execution/optimizer-loop.js").Optimizer, "collect">;
   /** 日志（日志体系 T2）：链路 ctx（taskId/role）自动携带 */
-  logger?: import("../logger.js").KernelLogger;
+  logger?: import("../kernel/logger.js").KernelLogger;
   /** 性能计量（SPEC L2）：任务事件 → IPC 转发主进程 */
   onTaskMetric?: (m: Record<string, unknown>) => void;
   /** 活动事件流（console --follow 数据源）：任务接取/agent step（含 token 用量）/完成——实时上报 */
@@ -62,7 +58,7 @@ export interface TaskLoopDeps {
   /** 运行过程保留（2026-08-09）：transcript store（agent 轨迹持久化） */
   transcripts?: { create(input: { taskId?: string; agentId: string; body: unknown[]; summary?: string }): Promise<string> };
   /** 自然语言任务转译（NL→代码）；undefined = 不转译（NL 任务直接 reject） */
-  llm?: import("../interpreter/llm-fn.js").LlmFn;
+  llm?: import("../kernel/interpreter/llm-fn.js").LlmFn;
   /** agent 循环的 capability 白名单（web/state/fs/memory——与 vm 注入同一份） */
   agentCaps?: Record<string, unknown>;
   /** P1-6：注入即启用 tasking dispatcher 路径（claim→run→commit）；缺省走 legacy 兼容路径 */
@@ -139,7 +135,7 @@ export class TaskLoop {
       const execStart = Date.now();
       const trig = (task.payload as { triggeredBy?: { depth?: number; triggerId?: string } } | undefined)?.triggeredBy;
       const chain = { chainDepth: Number(trig?.depth ?? 0), ...(trig?.triggerId ? { triggerId: trig.triggerId } : {}) };
-      const traceEvents: import("./agent-loop.js").AgentTraceEvent[] = [];
+      const traceEvents: import("../kernel/execution/agent-loop.js").AgentTraceEvent[] = [];
       const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
       const runner = new AgentTaskRunner({
         kernel: this.deps.kernel,
@@ -336,18 +332,18 @@ export class TaskLoop {
       const agentMode = pthConfig().str("PTH_AGENT_MODE") !== "off";
       let code: string | null = null;
       let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
-      let cacheStore: import("./cache-store.js").CacheStore | undefined;   // 任务完成点取利用率（N3）
+      let cacheStore: import("../kernel/execution/cache-store.js").CacheStore | undefined;   // 任务完成点取利用率（N3）
       if (agentMode && this.deps.llm && this.deps.agentCaps) {
           // 任务工作区 = 正式工作区（workspaceMgr.allocate 的 ws.dir——archive 归档同一目录——
           // fs.task 白名单含 /tasks/ ✓——agent 产物随归档持久化——不丢）
           const taskWorkspace: string | undefined = ws?.dir;
           // 运行过程保留（2026-08-09）：轨迹事件收集 → 任务结束写 transcript（结构化审计/复现）
-          const traceEvents: import("./agent-loop.js").AgentTraceEvent[] = [
+          const traceEvents: import("../kernel/execution/agent-loop.js").AgentTraceEvent[] = [
             { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
           ];
           (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;  // refine 任务 3 输入
           // 随身缓存（ASP——任务级行李）：元空间级状态——agent-loop 元工具与 ts vm 注入同源
-          const { CacheStore } = await import("./cache-store.js");
+          const { CacheStore } = await import("../kernel/execution/cache-store.js");
           cacheStore = new CacheStore();
           const cs = cacheStore;   // 闭包内非空收窄（TS 控制流不穿透闭包）
           // 任务级能力装配（2026-08-14 A1 Phase 3 条目 12）：cache 注入收敛进 runner——
@@ -366,7 +362,7 @@ export class TaskLoop {
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
             taskWorkspace,
-            toolstore: (kernel as unknown as { toolstore?: import("../interpreter/toolstore.js").Toolstore }).toolstore,
+            toolstore: (kernel as unknown as { toolstore?: import("../kernel/interpreter/toolstore.js").Toolstore }).toolstore,
             role,
             asp: pthConfig().str("PTH_ASP_MODE") === "on",   // ASP 状态机（compose 默认 on——全件落地）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
@@ -482,8 +478,8 @@ export class TaskLoop {
         const traceForOpt = (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents;
         if (Array.isArray(traceForOpt) && traceForOpt.length > 0) {
           try {
-            const { buildScorecard, computeTimeReuse } = await import("./worker-scorecard.js");
-            const { getEventBus } = await import("./event-bus.js");
+            const { buildScorecard, computeTimeReuse } = await import("../kernel/execution/worker-scorecard.js");
+            const { getEventBus } = await import("../kernel/execution/event-bus.js");
             const sc = buildScorecard(traceForOpt as never);
             // 时间复用率（2026-08-13 监测量）：planner 产出计划扁平度——done result 解析
             const value = (result as { value?: unknown } | undefined)?.value as Record<string, unknown> | undefined;

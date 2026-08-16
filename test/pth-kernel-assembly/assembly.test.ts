@@ -115,7 +115,7 @@ describe("batch tsx 化（dev 源码模式——PTH_BATCH_TS=1——Kernel 代�
     try {
       // 重新 import 触发 resolveBatchProcessPath 读取 env
       // 直接验证逻辑（不 createRuntime——避免 pg 连接）
-      const path = process.env.PTH_BATCH_TS === "1" ? "src/pth/kernel/execution/batch-process.ts" : "dist/pth/kernel/execution/batch-process.js";
+      const path = process.env.PTH_BATCH_TS === "1" ? "src/pth/bootstrap/batch-process.ts" : "dist/pth/bootstrap/batch-process.js";
       expect(path).toContain(".ts");
       const execArgv = process.env.PTH_BATCH_TS === "1" ? ["--import", "tsx"] : undefined;
       expect(execArgv).toEqual(["--import", "tsx"]);

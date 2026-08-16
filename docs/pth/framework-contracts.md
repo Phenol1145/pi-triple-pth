@@ -9,22 +9,25 @@
 
 ```
 src/pth/
-├── contracts/       框架契约（纯类型+结构校验，无宿主依赖）
+├── contracts/       框架契约（纯类型+结构校验，无宿主依赖；含 role-routing-policy / program /
+│                    catalog-contribution-schema 端口）
 ├── tasking/         任务机制：claim→run→commit、CAS、observers
 │   └── adapters/    实现：pg-task-repository / pg-task-queries
-├── runner/          纯执行：AgentTaskRunner + TaskWorkspace/RunnerConfig
+├── runner/          纯执行：AgentTaskRunner + TaskWorkspace/RunnerConfig（index.ts 公共 API）
 │   └── observers/   实现：audit/transcript/activity/metrics/notifier/refine/optimizer
 ├── execution/       执行授权 + 知识访问
 │   ├── authorization/   实现：HMAC grant 签发/校验、replay guard
 │   └── adapters/        实现：sandbox HTTP 执行 / PTH dataWorld 知识适配
 ├── catalog/         不可变运行时目录 + 策略
 │   ├── adapters/    实现：内置角色/空间 manifest
-│   └── extensions/  扩展贡献：schema / loader / policy / context
+│   └── extensions/  扩展贡献：loader / policy / context（schema 已上移 contracts）
 ├── bootstrap/       组合根（composition root）：buildPthHost + module manifest
+│                    + task-loop / batch-process（2026-08-17 模块优化 P0：执行装配移出 kernel）
 ├── application/     gateway 唯一 kernel 适配面（PthGatewayFacade）
 ├── gateway/         HTTP 层（只经 facade / 公共模块 API 访问）
-├── kernel/          存量核心引擎（assembly/storage/execution 等——逐批收口）
-└── impls/           具体实现（核/角色/空间）
+├── kernel/          存量核心引擎（assembly/storage/execution 等——已不再反向依赖上层模块）
+│   └── execution/   worker-cluster / space-registry / builtin-roles / builtin-spaces / kernel-factories
+└── impls/           具体实现（核；角色/空间定义已下移 kernel——本目录保留兼容 re-export）
 
 packages/
 ├── pth-sandbox/     沙箱域 + 内核 interpreter 契约（Interpreter/WorkerKernel 等）
@@ -110,19 +113,21 @@ bootstrap 是唯一接线处。**
 ## 3. 依赖方向
 
 ```
-contracts ◄── tasking ◄── runner
-     ▲            ▲
-     │            │
+contracts ◄── kernel ◄── impls ◄── catalog ◄── bootstrap
+     ▲         ▲                                │
+     │         └── tasking ◄── runner ◄─────────┘
      └── execution ──── sandbox 包（经 impls/kernels 白名单 + sandbox adapter）
-     ▲
-catalog ◄── bootstrap ◄── main / batch-process
-gateway ──► application/pth-gateway-facade ──► kernel（唯一窄口）
+
+gateway ──► application/pth-gateway-facade ──► kernel / tasking（唯一窄口）
+main ──► bootstrap / gateway / kernel / …（进程入口装配）
 ```
 
 规则（机器强制，`scripts/pth-boundaries-core.ts`）：
 
 1. `gateway/**` 不 import `KernelRuntime`/`DataWorldAccess`，不访问 `kernel.pool/kernel.dataWorld`。
-2. `tasking/runner/execution/catalog/bootstrap` 之间只走他方 `index.ts` 公共 API，不 import 他方 storage adapter（runtime）。
+2. `tasking/runner/execution/catalog/bootstrap` 之间只走他方 `index.ts` 公共 API；
+   storage adapter 绑定例外：`bootstrap/**` 是组合根（task-loop/batch-process 装配点），允许 runtime-import
+   `kernel/storage/*`——其余 framework 模块仍禁止。
 3. domain 模块不 import `@away_from/pth-sandbox` 运行时；白名单仅 `impls/kernels/**`、`bootstrap/**`、`main.ts`。
 4. `contracts/` 不 import fastify/pg/redis/`@away_from/pth-sandbox`。
 5. 新增违规在 `npm run lint` 失败（基线机制：`scripts/pth-boundaries.baseline.json`）。

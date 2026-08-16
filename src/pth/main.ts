@@ -17,6 +17,7 @@ import { HotReloader, ResourceOverlay } from "./self-modify/hot-reloader.js";
 import { FallbackRequestStore } from "./fallback/requests.js";
 import { createServer } from "./gateway/server.js";
 import { createKernelRuntime } from "./kernel/assembly.js";
+import "./impls/kernels/index.js"; // 模块化优化 P0：具体核工厂注入 kernel 端口（setKernelExecFactory）
 import { createExecutionGrantService } from "./execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "./execution/authorization/grant-key-provider.js";
 import { createPthKnowledgeBroker } from "./execution/adapters/pth-knowledge-broker.js";

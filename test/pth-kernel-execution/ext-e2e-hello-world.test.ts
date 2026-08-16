@@ -3,7 +3,7 @@ import { installDefaultRoles } from "../helpers";
 import { createToolstore } from "../../src/pth/kernel/interpreter/toolstore.js";
 import { ExtRegistry } from "../../src/pth/kernel/extensions/ext-registry.js";
 import { getEventBus, resetEventBus } from "../../src/pth/kernel/execution/event-bus.js";
-import { allWorkerRoles, resetExtraRoles, getExtraRoles } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { allWorkerRoles, resetExtraRoles, getExtraRoles, registerWorkerRole } from "../../src/pth/kernel/execution/worker-cluster.js";
 import { routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
 
 beforeEach(() => installDefaultRoles());
@@ -18,7 +18,7 @@ describe("hello-world 扩展端到端（P4）", () => {
 
   it("装载 hello-world → tools/capabilities/events/roles 全生效", async () => {
     const toolstore = createToolstore("toolstore");
-    const reg = new ExtRegistry({ toolstore, extContext: { log: () => {} } });
+    const reg = new ExtRegistry({ toolstore, extContext: { log: () => {} }, roleRegistrar: registerWorkerRole });
     const loaded = await reg.loadAll();
     expect(loaded).toContain("hello-world");
 

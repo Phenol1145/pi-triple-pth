@@ -12,7 +12,7 @@
 import type { ExtManifest } from "../extensions/ext-manifest.js";
 import { buildStdExtChannels } from "../extensions/ext-registry.js";
 import type { Toolstore } from "./toolstore.js";
-import type { Interpreter } from "./index.js";
+import type { Interpreter } from "@away_from/pth-sandbox"; // 直接取契约类型：index.ts re-export 本文件，反向 import index 会成环
 import type { PgMemoryStore } from "@away_from/pth-memory";
 
 export interface ExtIndexEntry {

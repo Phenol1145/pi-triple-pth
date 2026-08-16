@@ -15,7 +15,18 @@
 import type { WorkerRole } from "./worker-cluster.js";
 import { allKnownRoles } from "./worker-cluster.js";
 import { tagRegistry } from "./tag-registry.js";
-import { getRoleRoutingPolicy } from "../../catalog/role-routing-policy.js";
+import type { RoleRoutingPolicy } from "../../contracts/index.js";
+
+// 模块化优化 P0：策略端口由 catalog setRuntimeCatalog 注入（方向 catalog→kernel）。
+let runtimePolicy: RoleRoutingPolicy | null = null;
+
+export function setKernelRoleRoutingPolicy(policy: RoleRoutingPolicy | null): void {
+  runtimePolicy = policy;
+}
+
+export function getKernelRoleRoutingPolicy(): RoleRoutingPolicy | null {
+  return runtimePolicy;
+}
 
 export interface RouteInput {
   id: string;
@@ -37,7 +48,7 @@ export type RoutingCheck = { ok: true } | { ok: false; error: string };
 
 export function checkTaskRouting(input: { tags?: string[]; payload?: unknown }): RoutingCheck {
   const tags = input.tags ?? [];
-  const policy = getRoleRoutingPolicy();
+  const policy = runtimePolicy;
   // P3-2：catalog 注入路径优先；旧全局 getter 仅作 deprecated 兼容（装配未注入时兜底）
   const v = policy?.validate(tags) ?? tagRegistry.validate(tags);
   if (!v.ok) {
@@ -68,7 +79,7 @@ export function checkTaskRouting(input: { tags?: string[]; payload?: unknown }):
  * 前置：publish 已经 checkTaskRouting——此处无路由依据属内部错误（throw）。
  */
 export function routeTaskRole(input: RouteInput, roles: WorkerRole[] = allKnownRoles()): string {
-  const policy = getRoleRoutingPolicy();
+  const policy = runtimePolicy;
   // ① flow 显式 role（校验期已保证已注册）
   const explicit = policy?.flowRole(input.payload) ?? flowRole(input.payload);
   if (explicit && roles.some((r) => r.id === explicit)) return explicit;

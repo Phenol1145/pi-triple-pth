@@ -1,6 +1,10 @@
 import { mkdir, rename, cp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
-import type { TaskWorkspaceManager } from "./task-loop.js";
+/** 任务工作区管理器端口（模块化优化 P0：bootstrap task-loop 消费本端口）。 */
+export interface TaskWorkspaceManager {
+  allocate(taskId: string, tenantId?: string): Promise<{ dir: string; tenant: string }>;
+  archive(taskId: string, dir: string): Promise<{ artifactPath: string }>;
+}
 
 /**
  * 任务级工作区（裁决 18）：认领分配 → 提交归档 → 清理。

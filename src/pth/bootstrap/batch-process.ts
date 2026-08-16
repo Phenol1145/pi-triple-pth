@@ -1,31 +1,31 @@
 import { mkdir } from "node:fs/promises";
 import { resolve as resolvePath, relative as relativePath, isAbsolute, sep } from "node:path";
-import { createPgPool } from "../storage/pg.js";
-import { applySchema } from "../storage/schema.js";
-import { createDataWorld } from "../storage/index.js";
-import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../../impls/kernels/index.js";
-import type { InterpreterResult } from "../interpreter/index.js";
-import type { Task } from "../storage/task-store-pg.js";
-import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles } from "./worker-cluster.js";
+import { createPgPool } from "../kernel/storage/pg.js";
+import { applySchema } from "../kernel/storage/schema.js";
+import { createDataWorld } from "../kernel/storage/index.js";
+import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../impls/kernels/index.js";
+import type { InterpreterResult } from "../kernel/interpreter/index.js";
+import type { Task } from "../kernel/storage/task-store-pg.js";
+import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles } from "../kernel/execution/worker-cluster.js";
 import { setSpaceLookup } from "@away_from/pth-memory";
-import { spaceRegistry } from "./space-registry.js";
-import { registerBuiltinSpaces } from "../../impls/spaces/builtin-spaces.js";
-import { checkTaskRouting, routeTaskRole } from "./role-router.js";
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
-import { getEventBus } from "./event-bus.js";
-import { isForwardableKernelEvent, toKernelActivityEvent } from "./kernel-event-bridge.js";
+import { spaceRegistry } from "../kernel/execution/space-registry.js";
+import { registerBuiltinSpaces } from "../kernel/execution/builtin-spaces.js";
+import { checkTaskRouting, routeTaskRole } from "../kernel/execution/role-router.js";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../kernel/execution/builtin-roles.js";
+import { getEventBus } from "../kernel/execution/event-bus.js";
+import { isForwardableKernelEvent, toKernelActivityEvent } from "../kernel/execution/kernel-event-bridge.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
-import { createPgTaskRepository } from "../../tasking/adapters/pg-task-repository.js";
-import { DefaultTaskWorkspaceManager } from "./workspace.js";
-import { archiveTask, type ArchiveDeps } from "./archive.js";
-import { createKernelModelRouter } from "./model-router.js";
-import { createLlmFn } from "../interpreter/llm-fn.js";
-import { Refiner } from "./refiner.js";
-import { Optimizer } from "./optimizer-loop.js";
-import { createToolstore } from "../interpreter/toolstore.js";
-import { createKernelLogger } from "../logger.js";
-import { loadKernelConfig } from "../interpreter/kernel-config.js";
-import { pthConfig } from "../../config/index.js";
+import { createPgTaskRepository } from "../tasking/index.js";
+import { DefaultTaskWorkspaceManager } from "../kernel/execution/workspace.js";
+import { archiveTask, type ArchiveDeps } from "../kernel/execution/archive.js";
+import { createKernelModelRouter } from "../kernel/execution/model-router.js";
+import { createLlmFn } from "../kernel/interpreter/llm-fn.js";
+import { Refiner } from "../kernel/execution/refiner.js";
+import { Optimizer } from "../kernel/execution/optimizer-loop.js";
+import { createToolstore } from "../kernel/interpreter/toolstore.js";
+import { createKernelLogger } from "../kernel/logger.js";
+import { loadKernelConfig } from "../kernel/interpreter/kernel-config.js";
+import { pthConfig } from "../config/index.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -68,8 +68,8 @@ class BatchTaskLoop {
 export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> {
   // P3-4：runner Host 与 API Host 共用同一 bootstrap manifest（fork worker 前 fail-closed）
   {
-    const { loadBootstrapConfig } = await import("../../bootstrap/bootstrap-config.js");
-    const { buildPthHost } = await import("../../bootstrap/pth-host.js");
+    const { loadBootstrapConfig } = await import("./bootstrap-config.js");
+    const { buildPthHost } = await import("./pth-host.js");
     await buildPthHost(loadBootstrapConfig().manifest);
   }
   // 内存优化：连接池收紧（7 角色 worker 并发 ≤7——max 8 够；默认 10 冗余）
@@ -109,9 +109,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const extPath = pthConfig().str("PTH_TOOLSTORE_PATH");
     if (extPath) {
       try {
-        const { createToolstore } = await import("../interpreter/toolstore.js");
-        const { ExtRegistry } = await import("../extensions/ext-registry.js");
-        const reg = new ExtRegistry({ toolstore: createToolstore(extPath), extContext: { log: () => {} } });
+        const { createToolstore } = await import("../kernel/interpreter/toolstore.js");
+        const { ExtRegistry } = await import("../kernel/extensions/ext-registry.js");
+        const reg = new ExtRegistry({ toolstore: createToolstore(extPath), extContext: { log: () => {} }, roleRegistrar: registerWorkerRole });
         await reg.loadAll();
       } catch (e) {
         batchLogger?.warn?.(`[ext] fork 内扩展装载失败（放行）: ${(e as Error).message}`);
@@ -153,7 +153,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     if (msg?.type === "set-param" && typeof msg.key === "string") {
       // 性能自持（v0.8）：主进程 autopilot 下发调参 → batch 进程内 config（perf 扩展同源）
       try {
-        const { config } = require("../extensions/perf-params.js") as typeof import("../extensions/perf-params.js");
+        const { config } = require("../kernel/extensions/perf-params.js") as typeof import("../kernel/extensions/perf-params.js");
         config().set(msg.key, msg.value);
         batchLogger?.info?.(`[autopilot] set-param ${msg.key}=${msg.value}`);
         process.send?.({ type: "param-status", batchPid: process.pid, key: msg.key, ok: true });
@@ -259,10 +259,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // 不设置 → 默认 7 角色 ×1（原行为）。启动时解析一次——运行时改权重需 batch remove+add。
   const workerRoles = expandRoleWeights(parseRoleWeights(pthConfig().str("PTH_WORKER_ROLES")));
   // worker 注册表（worker 级控制面：pause/resume/remove/add——IPC 指令寻址）
-  const loops: Array<BatchTaskLoop & { role: import("./worker-cluster.js").WorkerRole }> = [];
+  const loops: Array<BatchTaskLoop & { role: import("../kernel/execution/worker-cluster.js").WorkerRole }> = [];
 
   /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
-  const createWorker = (role: import("./worker-cluster.js").WorkerRole) => {
+  const createWorker = (role: import("../kernel/execution/worker-cluster.js").WorkerRole) => {
     const manager = createKernelManager({
       pythonMode: pthConfig().str("PTH_PYTHON_MODE") as any,
       bashMode: pthConfig().str("PTH_BASH_MODE") as any,
@@ -302,7 +302,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       roleId: role.id,
       registerKernel: (language, interpreter) => manager.registerKernel(language, interpreter as never),
       readSource: pthConfig().str("PTH_SOURCE_ROOT")
-        ? (relPath) => import("../interpreter/read-source.js").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
+        ? (relPath) => import("../kernel/interpreter/read-source.js").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
         : undefined,
       // 任务工作区（fs.task——白名单：仅 tasks/<taskId>/——kernel.ts.currentCwd 动态定位 + 防穿越）
       // 2026-08-15 筛查 H4：词法归一化 + 包含校验——`sub/../../etc/passwd` 不再逃逸工作区
@@ -342,7 +342,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       autoApplyReversible: autoApply,
       applySuggestion: autoApply
         ? async (id) => {
-            const { applyOptimizerSuggestion } = await import("./optimizer-apply.js");
+            const { applyOptimizerSuggestion } = await import("../kernel/execution/optimizer-apply.js");
             // 复测任务派发（2026-08-14 N6 一等化）：flow 路由到目标角色——受控复现
             return applyOptimizerSuggestion(dataWorld.memory, id, dataWorld.queryReadOnly, (t) =>
               dataWorld.tasks.publish({ title: t.title, text: t.text, createdBy: "optimizer", tags: t.tags, payload: t.payload }));
@@ -370,8 +370,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     }, archiveDeps);
     (loop as unknown as { kernel?: unknown }).kernel = kernel;   // remove 时 dispose 用
     (loop as unknown as { optimizer?: { stop?: () => void } }).optimizer = optimizer;   // remove 时停复测巡检表
-    (loop as unknown as { role?: import("./worker-cluster.js").WorkerRole }).role = role;  // remove 寻址用
-    loops.push(loop as BatchTaskLoop & { role: import("./worker-cluster.js").WorkerRole });
+    (loop as unknown as { role?: import("../kernel/execution/worker-cluster.js").WorkerRole }).role = role;  // remove 寻址用
+    loops.push(loop as BatchTaskLoop & { role: import("../kernel/execution/worker-cluster.js").WorkerRole });
     return loop;
   };
 

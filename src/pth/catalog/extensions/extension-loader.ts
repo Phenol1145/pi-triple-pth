@@ -5,7 +5,7 @@
  * legacy tools/events/kernels/debugAdapters/onStartup 声明被拒绝。
  */
 
-import { validateCatalogContributions } from "./contribution-schema.js";
+import { validateCatalogContributions } from "../../contracts/catalog-contribution-schema.js";
 import type { ExtensionContributionContext } from "./extension-context.js";
 
 export interface CatalogExtensionContributions {

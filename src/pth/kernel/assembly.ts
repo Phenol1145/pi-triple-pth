@@ -4,16 +4,13 @@ import { getEventBus } from "./execution/event-bus.js";
 import { toKernelActivityEvent } from "./execution/kernel-event-bridge.js";
 import { parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles } from "./execution/worker-cluster.js";
 import { checkTaskRouting, routeTaskRole } from "./execution/role-router.js";
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../impls/roles/default-roles.js";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "./execution/builtin-roles.js";
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { registerSystemTriggers } from "./execution/system-triggers.js";
 import { createKernelLogger } from "./logger.js";
 import { pthConfig } from "../config/index.js";
 import type pg from "pg";
-
-// 模块化 v2 P0-3：gateway 只允许经 facade 消费 KernelRuntime；facade 工厂从装配层统一出口。
-export { createPthGatewayFacade, type PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 
 export interface KernelRuntimeOptions {
   /** obs 观测请求解析器（batch obs-req → 主进程 metrics/batches 数据） */
@@ -134,8 +131,8 @@ export interface KernelRuntime {
  */
 function resolveBatchProcessPath(explicit: string | undefined): string {
   if (explicit) return explicit;
-  if (pthConfig().str("PTH_BATCH_TS") === "1") return "src/pth/kernel/execution/batch-process.ts";
-  return "dist/pth/kernel/execution/batch-process.js";
+  if (pthConfig().str("PTH_BATCH_TS") === "1") return "src/pth/bootstrap/batch-process.ts";
+  return "dist/pth/bootstrap/batch-process.js";
 }
 
 /**
@@ -158,18 +155,11 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   // 2026-08-13 审计 P2：内置角色在装配层注入（核心 worker-cluster 不再 import 实现层）
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
-  // P3-2：同一内置 manifest → catalog 快照注入（角色路由/空间查询的 catalog 路径）
-  {
-    const { buildBuiltinCatalog } = await import("../catalog/adapters/builtin-catalog-contributions.js");
-    const { setRuntimeCatalog } = await import("../catalog/role-routing-policy.js");
-    setRuntimeCatalog(buildBuiltinCatalog());
-  }
-
   // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入；
   // 内置空间注册移出 space-registry 模块（断 core 实现层环）
   const { setSpaceLookup } = await import("@away_from/pth-memory");
   const { spaceRegistry } = await import("./execution/space-registry.js");
-  const { registerBuiltinSpaces } = await import("../impls/spaces/builtin-spaces.js");
+  const { registerBuiltinSpaces } = await import("./execution/builtin-spaces.js");
   registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
 
@@ -254,6 +244,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
       const reg = new ExtRegistry({
         toolstore: createToolstore(toolstorePath),
         extContext: { log: (m: unknown) => assemblyLogger?.info?.(`[ext] ${String(m)}`) },
+        roleRegistrar: registerWorkerRole,
       });
       const loaded = await reg.loadAll();
       if (loaded.length > 0) assemblyLogger?.info?.(`[assembly] 扩展装载完成（${loaded.join(",")}）`);

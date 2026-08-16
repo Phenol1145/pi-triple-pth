@@ -20,8 +20,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseExtManifest, type ExtManifest, type ExtRole } from "./ext-manifest.js";
 import { getEventBus, type KernelEventHandler } from "../execution/event-bus.js";
-import { validateCatalogContributions } from "../../catalog/extensions/contribution-schema.js";
-import { registerWorkerRole } from "../execution/worker-cluster.js";
+import { validateCatalogContributions } from "../../contracts/catalog-contribution-schema.js";
 import type { Toolstore } from "../interpreter/toolstore.js";
 
 /** 扩展工厂返回（contracts 实现——index.ts 导出形态） */
@@ -75,6 +74,8 @@ export interface ExtRegistryOptions {
   onError?: (extId: string, err: Error) => void;
   /** P3-3：catalog 严格贡献模式（默认 false=legacy 兼容；bootstrap 走 true） */
   strictCatalogContributions?: boolean;
+  /** 模块化优化 P0：扩展角色注册回调（装配层注入 registerWorkerRole——断开 ext-registry→worker-cluster 环） */
+  roleRegistrar?: (role: ExtRole) => void;
 }
 
 export interface LoadedExt {
@@ -257,7 +258,7 @@ export class ExtRegistry {
     //    roles 保留：PTH 独有正交角色谱系扩展（装载注册——独立价值）
     for (const role of loaded.roles) {
       try {
-        registerWorkerRole(role);
+        this.opts.roleRegistrar?.(role);
       } catch (e) {
         // 幂等：重复装载同一角色（同 id）跳过（loadAll 后再 loadOne 的场景）；
         // 真冲突（labelPatterns 重叠）仍抛出

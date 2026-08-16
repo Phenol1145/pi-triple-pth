@@ -7,7 +7,7 @@
  *  - bad-plugin：plugin.json 非法 / 贡献声明不支持（报错并给诊断）。
  */
 
-import { validateCatalogContributions } from "./contribution-schema.js";
+import { validateCatalogContributions } from "../../contracts/catalog-contribution-schema.js";
 
 export type ExtensionDirClass = "pth-plugin" | "external-dir" | "bad-plugin";
 

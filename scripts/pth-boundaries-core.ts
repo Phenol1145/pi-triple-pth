@@ -125,8 +125,11 @@ export async function collectBoundaryViolations(srcRoot: string): Promise<Bounda
 
           // 跨模块 storage adapter：tasking/runner/execution/catalog 不得 runtime-import
           // kernel/storage/* adapter；type-only 引用与 pg.ts 事务工具放行（adapter 本身可持有）。
+          // 模块化优化 P0 例外：bootstrap 是组合根（task-loop/batch-process 装配点），
+          // 负责把 PG 适配器绑定进 kernel——允许 runtime-import kernel/storage/*。
           const module = importerRel.split("/")[0];
           if (
+            module !== "bootstrap" &&
             (CROSS_MODULES as readonly string[]).includes(module) &&
             targetPath !== null &&
             targetPath.startsWith("kernel/storage/") &&

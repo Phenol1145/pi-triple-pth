@@ -5,3 +5,4 @@
 export * from "./task-outcome-observers.js";
 export * from "./task-dispatcher.js";
 export * from "./task-outcome-committer.js";
+export * from "./adapters/pg-task-repository.js";

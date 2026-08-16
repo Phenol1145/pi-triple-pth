@@ -74,7 +74,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
   it("spawnBatch 直接 fork 生产 TS 入口并完成任务", async () => {
     // BatchManager 生产 fork 配置：execArgv（transform-types + loader）与 env 透传
     manager = new BatchManager({
-      batchProcessPath: "src/pth/kernel/execution/batch-process.ts",
+      batchProcessPath: "src/pth/bootstrap/batch-process.ts",
       workers: DEFAULT_ROLES.map((r) => r.id),
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {
@@ -119,7 +119,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
 
   it("worker 级控制：remove developer 后该角色不再认领；add 后恢复", async () => {
     const bm3 = new BatchManager({
-      batchProcessPath: "src/pth/kernel/execution/batch-process.ts",
+      batchProcessPath: "src/pth/bootstrap/batch-process.ts",
       workers: ["developer"],
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {
@@ -166,7 +166,7 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
 
   it("batch 构成参数化：自定义构成（developer×2+analyst×1+其余禁用）fork 子进程存活", async () => {
     const bm2 = new BatchManager({
-      batchProcessPath: "src/pth/kernel/execution/batch-process.ts",
+      batchProcessPath: "src/pth/bootstrap/batch-process.ts",
       workers: ["developer", "developer", "analyst"],
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {

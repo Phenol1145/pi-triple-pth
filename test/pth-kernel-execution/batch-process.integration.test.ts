@@ -75,7 +75,7 @@ suite("batch process integration (真实 pg 全链路)", () => {
     const task = await dw.tasks.publish({ title: "e2e", text: "1 + 1", createdBy: "test", tags: ["code"] });
     // fork batch 子进程（连同一 pg）。TS 入口不能直接跑：execPath=node + execArgv 带
     // --experimental-transform-types（参数属性等语法）+ --import resolve-hook loader（.js→.ts）。
-    const child = fork("src/pth/kernel/execution/batch-process.ts", [], {
+    const child = fork("src/pth/bootstrap/batch-process.ts", [], {
       execPath: process.execPath,
       execArgv: ["--experimental-transform-types", "--import", loaderPath],
       env: {

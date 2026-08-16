@@ -17,6 +17,7 @@ import { PythonInterpreter } from "./python-interpreter.js";
 import { createLlmFn, type LlmFn } from "../../kernel/interpreter/llm-fn.js";
 import { buildCapabilities } from "./capability.js";
 import type { Interpreter, InterpreterResult, WorkerKernel, WorkerKernelDeps } from "../../kernel/interpreter/index.js";
+import { setKernelExecFactory } from "../../kernel/execution/kernel-factories.js";
 
 // 模块化 v2 P0-5：pth-sandbox 的契约类型与网关用沙箱客户端符号统一经本 re-export 点
 // 进入 PTH 业务代码（守护拆分裁决：内核契约留在 pth-sandbox，业务代码不散落直接 import 包）。
@@ -54,4 +55,8 @@ export function createWorkerKernel(deps: WorkerKernelDeps<DataWorldAccess>): Wor
 
 // 2026-08-13 审计 P1 瘦身：barrel 消费面仅 batch-process 的 3 个符号——其余重导出删除
 // （ts-prune 实测 25 个死重导出；消费者直连子文件——ts-interpreter/kernel-manager 等）
-export { createWorkerKernelWithManager, createKernelManager } from "./kernel-manager.js";
+import { createWorkerKernelWithManager, createKernelManager } from "./kernel-manager.js";
+export { createWorkerKernelWithManager, createKernelManager };
+
+// 模块化优化 P0：具体核实现注册到 kernel 工厂端口（装配层 import 本文件即注入）。
+setKernelExecFactory({ createKernelManager, createWorkerKernelWithManager });

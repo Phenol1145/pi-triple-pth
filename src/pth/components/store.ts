@@ -23,7 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Redis } from "ioredis";
-import type { ProgramManifest, Result } from "../programs/types.js";
+import type { ProgramManifest, Result } from "../contracts/index.js";
 import type { AuditWriter } from "../observability/audit.js";
 import { SlotBindingStore, validateSlotId } from "./slot-binding.js";
 

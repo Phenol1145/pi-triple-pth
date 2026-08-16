@@ -5,13 +5,10 @@
  */
 
 import type { CatalogRole, RuntimeCatalogSnapshot } from "./runtime-catalog.js";
+import type { RoleRoutingPolicy } from "../contracts/index.js";
+import { setKernelRoleRoutingPolicy } from "../kernel/execution/role-router.js";
 
-export interface RoleRoutingPolicy {
-  validate(tags: readonly string[]): { ok: true } | { ok: false; unknown: string[] };
-  routeRole(tags: readonly string[]): { ok: true; role: string | null } | { ok: false; conflict: string[] };
-  flowRole(payload: unknown): string | null;
-  knownRoleIds(): string[];
-}
+export type { RoleRoutingPolicy };
 
 export function createRoleRoutingPolicy(snapshot: RuntimeCatalogSnapshot): RoleRoutingPolicy {
   const roles = snapshot.roles();
@@ -53,6 +50,9 @@ let runtimeCatalog: RuntimeCatalogSnapshot | null = null;
 
 export function setRuntimeCatalog(snapshot: RuntimeCatalogSnapshot): void {
   runtimeCatalog = snapshot;
+  // 模块化优化 P0：catalog 快照注入同时驱动 kernel 路由策略（方向 catalog→kernel，
+  // 替代 kernel role-router 直接 import catalog 的旧反向边）。
+  setKernelRoleRoutingPolicy(createRoleRoutingPolicy(snapshot));
 }
 
 export function getRuntimeCatalog(): RuntimeCatalogSnapshot | null {

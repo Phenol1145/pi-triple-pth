@@ -32,7 +32,7 @@ docker logs pi-platform-pi-platform-1 2>&1 | grep kernel_assembled
 
 # 确认 batch 是 tsx（Kernel 代码热更新）
 docker exec pi-platform-pi-platform-1 sh -c 'for p in $(ls /proc/ | grep -E "^[0-9]+$"); do cmd=$(tr "\0" " " < /proc/$p/cmdline 2>/dev/null); echo "$p: $cmd"; done | grep batch-process'
-# → 应显示：node --import tsx src/pth/kernel/execution/batch-process.ts
+# → 应显示：node --import tsx src/pth/bootstrap/batch-process.ts
 ```
 
 ## 切回生产模式

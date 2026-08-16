@@ -17,8 +17,8 @@
  * 路由层复用 /api/v1/kernel/* 既有 bearer 鉴权。
  */
 import { randomUUID } from "node:crypto";
-import type { InterpreterResult } from "./interpreter/index.js";
-import { createKernelManager, createWorkerKernelWithManager, type KernelManager } from '../impls/kernels/kernel-manager.js';
+import type { Interpreter, InterpreterResult } from "./interpreter/index.js";
+import { getKernelExecFactory } from './execution/kernel-factories.js';
 import { loadKernelConfig } from "./interpreter/kernel-config.js";
 import { createLlmFn, type LlmFn } from "./interpreter/llm-fn.js";
 import { createToolstore, type Toolstore } from "./interpreter/toolstore.js";
@@ -41,7 +41,8 @@ export interface ExecResult {
   sessionId?: string;
 }
 
-type ExecKernel = ReturnType<typeof createWorkerKernelWithManager>;
+type ExecKernel = { ts: Interpreter; abort(): Promise<void> };
+interface KernelManagerLike { dispose(): void }
 
 export interface ExecChannelDeps {
   dataWorld: DataWorldAccess;
@@ -54,7 +55,7 @@ export interface ExecChannelDeps {
 }
 
 export class KernelExecChannel {
-  private manager: KernelManager | null = null;
+  private manager: KernelManagerLike | null = null;
   private llm: LlmFn | null = null;
   private toolstore: Toolstore | null = null;
   private readonly sessions = new Map<string, { kernel: ExecKernel; lastUsed: number }>();
@@ -71,6 +72,7 @@ export class KernelExecChannel {
   private async ensureKernel(): Promise<ExecKernel> {
     if (this.deps.kernelFactory) return this.deps.kernelFactory();
     if (!this.manager) {
+      const createKernelManager = getKernelExecFactory().createKernelManager as (opts: unknown) => KernelManagerLike;
       this.manager = createKernelManager({
         pythonMode: pthConfig().str("PTH_PYTHON_MODE") as "kernel" | "interpreter" | "sandbox-kernel",
         bashMode: pthConfig().str("PTH_BASH_MODE") as "kernel" | "interpreter" | "sandbox-kernel",
@@ -94,6 +96,7 @@ export class KernelExecChannel {
     if (!this.toolstore) {
       this.toolstore = createToolstore(pthConfig().str("PTH_TOOLSTORE_PATH") || "toolstore");
     }
+    const createWorkerKernelWithManager = getKernelExecFactory().createWorkerKernelWithManager as (deps: unknown) => ExecKernel;
     return createWorkerKernelWithManager({
       llm: this.llm,
       dataWorld: this.deps.dataWorld,

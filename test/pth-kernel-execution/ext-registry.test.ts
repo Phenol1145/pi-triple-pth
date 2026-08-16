@@ -6,6 +6,7 @@ import { createToolstore } from "../../src/pth/kernel/interpreter/toolstore.js";
 import { ExtRegistry } from "../../src/pth/kernel/extensions/ext-registry.js";
 import { parseExtManifest } from "../../src/pth/kernel/extensions/ext-manifest.js";
 import { getEventBus, resetEventBus } from "../../src/pth/kernel/execution/event-bus.js";
+import { registerWorkerRole } from "../../src/pth/kernel/execution/worker-cluster.js";
 
 describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
   let dir: string;
@@ -71,7 +72,7 @@ describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
         ] };
       };
     `);
-    const reg = new ExtRegistry({ toolstore, extContext: {} });
+    const reg = new ExtRegistry({ toolstore, extContext: {}, roleRegistrar: registerWorkerRole });
     await expect(reg.loadOne("conflict")).rejects.toThrow(/冲突/);
   });
 
@@ -81,7 +82,7 @@ describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
       id: "bad", name: "Bad", contracts: {},
     }));
     await writeFile(join(dir, "extensions", "bad", "index.ts"), `module.exports = { notAFunction: true };`);
-    const reg = new ExtRegistry({ toolstore, extContext: {} });
+    const reg = new ExtRegistry({ toolstore, extContext: {}, roleRegistrar: registerWorkerRole });
     await expect(reg.loadOne("bad")).rejects.toThrow(/factory/);
   });
 });
