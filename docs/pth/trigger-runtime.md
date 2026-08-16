@@ -14,14 +14,22 @@
   event?: "task.rejected",              // 事件触发（ActivityHub kind）——与 schedule 至少其一
   schedule?: { everySec: 30 },          // 定时触发（最小间隔）
   match?: { role?: "developer", detailContains?: "实现" },
-  task?:   { title, text, role?, tags?, retask? },   // 任务 action：发布下游任务
+  task?:   {                            // 任务 action：发布下游任务
+    template?: "recon-doc",             //   模板引用（TASK_TEMPLATES——任务模板统一收口 A+）
+    params?: { url: "{{detail}}" },     //   模板参数（值支持 {{taskId}}/{{role}}/{{detail}} 事件变量）
+    title?: string, text?: string,      //   内联形态（兼容逃生舱——旧 memory trigger 定义）
+    role?: string, tags?: string[], retask?: boolean,
+  },
   action?: { type: "claim.reap", params? },          // 原生 action：调用注册 handler
   enabled: true,
   once?: false, maxFires?: 10,          // 防链式爆炸（once/maxFires/链深/自触发阻断）
 }
 ```
 
-- **任务 action**：治理链/工作流——trigger 发布任务（模板变量 + role/tags 路由）。
+- **任务 action**：治理链/工作流——trigger 发布任务。**模板引用优先**：`template + params` 经
+  `resolveTemplateTask`（`kernel/templates.ts`）统一渲染/必填校验/默认路由/标题/payload，
+  `params` 的值先做 `{{taskId}}/{{role}}/{{detail}}` 事件变量注入再进模板；
+  `title/text` 内联形态仅为旧定义兼容，新 trigger 一律引用模板。
 - **原生 action**：确定性控制环——毫秒级 handler，不经 LLM。
 - 二者可并存（先 action 后发任务）；`registerAction(type, handler)` 注册。
 - handler 可返回 `{ nextMs }` 覆盖 schedule 下一跳（动态退避——flow-resolver 空转降频用）。
@@ -38,19 +46,27 @@ ActivityHub 事件 / 调度心跳(2s)
    fireTrigger
         ↓
   [原生 action] 注册 handler（ctx: trigger/vars/event/source）
-  [任务 action]  tasks.publish（模板渲染 + 路由 + triggeredBy 溯源）
+  [任务 action]  resolveTemplateTask（模板引用）或内联渲染 → tasks.publish
         ↓
    once/maxFires 结算；链深 ≤5；同一 trigger 自触发阻断
 ```
 
 调度心跳只判定 schedule 到点，是引擎底座（2s）；事件路径零轮询。
 
+## 2.1 与任务模板库的关系（任务模板统一收口 A+）
+
+- `TriggerDef.task` 的模板引用与发布 API `{template, params}`、PerfStrategy.actions `{type:"task", template, params}`
+  共用 **同一个** `TASK_TEMPLATES` 注册表与 `resolveTemplateTask` 解析器——不存在 trigger 私有模板；
+- 事件变量注入发生在模板渲染前：`params.url = "{{detail}}"` 先替换再必填校验；
+- 路由优先级：显式 `role` > 显式 `tags` > 模板 `roleTag`；title 缺省 `[id] name`；
+- 系统内部提示词（`memory-sweep`）也是模板库条目（`hidden:true`——`/templates` 列表不外显）。
+
 ## 3. 系统 trigger 目录
 
 | trigger | 形态 | 周期 | 注册条件 | 动作 |
 |---|---|---|---|---|
 | `origin-escalation` | event `task.rejected` | — | 恒注册 | retask 重发布 → origin 标签（终态闸防死循环） |
-| `memory-maintenance-sweep` | schedule | `PTH_MEMORY_SWEEP_SECONDS`（86400s；0=关） | env 开启 | 发布 memory-keeper 巡检任务 → draft 提案 |
+| `memory-maintenance-sweep` | schedule | `PTH_MEMORY_SWEEP_SECONDS`（86400s；0=关） | env 开启 | 发布 memory-keeper 巡检任务（模板引用 `memory-sweep`，hidden）→ draft 提案 |
 | `claim-reaper` | schedule + action | `PTH_CLAIM_REAP_MS`（30s） | 恒注册 | `claim.reap`：回收僵尸 claim |
 | `batch-watchdog` | schedule + action | `PTH_WATCHDOG_INTERVAL_MS`（30s） | 恒注册 | `watchdog.probe`：崩溃记录/挂死 kill+重启 |
 | `flow-resolver` | schedule + action | `PTH_RESOLVER_INTERVAL_MS`（2s；空转退避 2s→5s→10s→15s） | 恒注册 | `resolver.resolve`：flow 阶段解析 |

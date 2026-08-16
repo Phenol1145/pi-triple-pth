@@ -4,6 +4,7 @@
  *
  * 用法（npm run pth -- <cmd> ...）：
  *   pth submit <任务描述> [--role <角色>] [--tags a,b] [--title <标题>] [--file <路径>]
+ *   pth submit --template <模板id> [--param key=value]... [--tags a,b]
  *   pth status <taskId>
  *   pth wait <taskId> [--timeout <秒>]        # 轮询到 completed + 打印 result
  *   pth roles                                   # 列出可派发角色（含 governance——显式 flow）
@@ -15,6 +16,7 @@
  * 示例：
  *   npm run pth -- submit "统计 memory 库 scorecard 数" --role memory-stats --tags stats
  *   npm run pth -- submit "写 README" --role writer --tags write --title "README"
+ *   npm run pth -- submit --template recon-doc --param url=https://go.dev/ref/spec --param entryId=go-spec
  *   npm run pth -- wait <id>                    # 完成即返回（含 result）
  */
 import { readFile } from "node:fs/promises";
@@ -47,8 +49,34 @@ function arg(name: string): string | undefined {
 }
 
 async function submit(): Promise<void> {
+  // 模板发布（任务模板统一收口 A+）：--template <id> [--param k=v]... —— 与直接发布共用同一 HTTP 模板通道
+  const template = arg("--template");
+  if (template) {
+    const tagsRaw = arg("--tags");
+    const tags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    const params: Record<string, unknown> = {};
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] !== "--param") continue;
+      const raw = rest[i + 1];
+      if (!raw) throw new Error("--param 用法: --param key=value");
+      const eq = raw.indexOf("=");
+      if (eq <= 0) throw new Error(`--param 需 key=value 形式（收到: ${raw}）`);
+      params[raw.slice(0, eq)] = raw.slice(eq + 1);
+      i++;
+    }
+    const t = await http("POST", "/api/v1/kernel/tasks", {
+      template,
+      params,
+      createdBy: CREATED_BY,
+      ...(tags.length > 0 ? { tags } : {}),
+    });
+    const d = t as { id?: string; status?: string; assigned_role?: string };
+    console.log(`task: ${d.id} | status: ${d.status ?? "?"} | role: ${d.assigned_role ?? (tags.length > 0 ? tags.join(",") : `[template:${template}]`)}`);
+    return;
+  }
+
   const desc = rest.find((a) => !a.startsWith("-"));
-  if (!desc) throw new Error("用法: pth submit <任务描述> [--concept] [--role r] [--tags a,b] [--title t] [--file p]");
+  if (!desc) throw new Error("用法: pth submit <任务描述> [--concept] [--role r] [--tags a,b] [--title t] [--file p] 或 pth submit --template <id> [--param k=v]...");
   let role = arg("--role");
   const tagsRaw = arg("--tags");
   const title = arg("--title") ?? (desc.length > 60 ? `${desc.slice(0, 57)}…` : desc);
@@ -135,7 +163,7 @@ async function main(): Promise<void> {
     case "roles": return roles();
     case "tags": return tags();
     default:
-      console.log(`用法: pth <submit|handoff|status|wait|roles|tags> ...\n  示例: npm run pth -- handoff\n        npm run pth -- submit "【目标】..." --concept\n        npm run pth -- submit "任务描述" --role developer --tags implement`);
+      console.log(`用法: pth <submit|handoff|status|wait|roles|tags> ...\n  示例: npm run pth -- handoff\n        npm run pth -- submit "【目标】..." --concept\n        npm run pth -- submit "任务描述" --role developer --tags implement\n        npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y`);
   }
 }
 
