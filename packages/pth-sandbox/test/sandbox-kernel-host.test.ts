@@ -240,8 +240,12 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
   it("status 端点报告池状态（不含 kernel ID）", async () => {
     const st = await app.inject({ method: "GET", url: "/kernel/status", headers: auth() });
     expect(st.statusCode).toBe(200);
-    const pools = st.json().pools as Array<Record<string, unknown>>;
+    const body = st.json() as { pools: Array<Record<string, unknown>>; degraded: boolean; reasons: string[] };
+    const pools = body.pools;
     expect(pools).toBeInstanceOf(Array);
+    // S1-5：健康时 degraded=false + reasons=[]
+    expect(body.degraded).toBe(false);
+    expect(body.reasons).toEqual([]);
     for (const p of pools) {
       expect(p).not.toHaveProperty("kernelIds");
       expect(p).not.toHaveProperty("ids");
@@ -330,5 +334,106 @@ describe("kernel-pool 兜底（acquire 排队超时 + 条目 TTL 回收）", () 
     const lease2 = await pool.acquire();
     expect(lease2.id).not.toBe(lease1.id);
     await pool.dispose();
+  });
+});
+
+describe("sandbox 侧 degraded 观测（S1-5）", () => {
+  type Handle = { dispose(): Promise<void>; status(): { pools: Array<{ size: number }>; debugSessions: number; health: { degraded: boolean; reasons: string[] } } };
+
+  it("共享密钥缺失 → degraded，恢复后清除", async () => {
+    let secret: string | undefined;
+    const app = buildKernelHostApp({
+      getSecret: () => secret,
+      getBridgeToken: () => undefined,
+      grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }),
+    });
+    await app.ready();
+    const handle = (app as unknown as { kernelHostHandle: Handle }).kernelHostHandle;
+    // P2-2 后 acquire/execute 只走 lease/grant——用仍持共享密钥认证的 /kernel/status 触发缺失条件
+    const fail = await app.inject({ method: "GET", url: "/kernel/status", headers: auth() });
+    expect(fail.statusCode).toBe(503);
+    expect(handle.status().health.degraded).toBe(true);
+    expect(handle.status().health.reasons).toContain("shared-secret-missing");
+
+    secret = SECRET;
+    const ok = await app.inject({ method: "GET", url: "/kernel/status", headers: auth() });
+    expect(ok.statusCode).toBe(200);
+    expect(handle.status().health.degraded).toBe(false);
+    await app.close();
+  });
+
+  it("bridge token 缺失 → degraded + reasons 进 /kernel/status", async () => {
+    process.env.SANDBOX_SHARED_SECRET = SECRET;
+    const app = buildKernelHostApp({
+      getSecret: () => SECRET,
+      getBridgeToken: () => undefined,
+      grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }),
+    });
+    await app.ready();
+    try {
+      const res = await app.inject({ method: "POST", url: "/kernel/memory-bridge", payload: { op: "get", id: "x" }, headers: auth() });
+      expect(res.statusCode).toBe(503);
+      const st = await app.inject({ method: "GET", url: "/kernel/status", headers: auth() });
+      expect(st.json().degraded).toBe(true);
+      expect(st.json().reasons).toContain("bridge-token-missing");
+    } finally {
+      await app.close();
+      delete process.env.SANDBOX_SHARED_SECRET;
+    }
+  });
+
+  it("池满 acquire 拒绝 → pool-exhausted reason，成功后再清除", async () => {
+    const prev = process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS;
+    process.env.SANDBOX_SHARED_SECRET = SECRET;
+    process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS = "100";
+    const app = buildKernelHostApp({
+      poolSize: 1,
+      getSecret: () => SECRET,
+      getBridgeToken: () => undefined,
+      grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }),
+    });
+    await app.ready();
+    const handle = (app as unknown as { kernelHostHandle: Handle }).kernelHostHandle;
+    try {
+      const first = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
+      expect(first.statusCode).toBe(200);
+      const second = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
+      expect(second.statusCode).toBe(503);
+      expect(handle.status().health.reasons).toContain("pool-exhausted-python");
+
+      const { lease } = first.json() as { lease: SandboxLease };
+      await app.inject({ method: "POST", url: "/kernel/release", payload: { lease }, headers: auth() });
+      const third = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
+      expect(third.statusCode).toBe(200);
+      expect(handle.status().health.degraded).toBe(false);
+    } finally {
+      await app.close();
+      delete process.env.SANDBOX_SHARED_SECRET;
+      if (prev === undefined) delete process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS;
+      else process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS = prev;
+    }
+  });
+
+  it("编译并发饱和 → compiled-concurrency-saturated reason", async () => {
+    const prev = process.env.PTH_COMPILED_CONCURRENCY;
+    process.env.SANDBOX_SHARED_SECRET = SECRET;
+    process.env.PTH_COMPILED_CONCURRENCY = "0";
+    const app = buildKernelHostApp({
+      getSecret: () => SECRET,
+      getBridgeToken: () => undefined,
+      grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }),
+    });
+    await app.ready();
+    try {
+      const res = await app.inject({ method: "POST", url: "/kernel/compiled", payload: { code: "int main(void){return 0;}" }, headers: auth() });
+      expect(res.statusCode).toBe(503);
+      const st = await app.inject({ method: "GET", url: "/kernel/status", headers: auth() });
+      expect(st.json().reasons).toContain("compiled-concurrency-saturated");
+    } finally {
+      await app.close();
+      delete process.env.SANDBOX_SHARED_SECRET;
+      if (prev === undefined) delete process.env.PTH_COMPILED_CONCURRENCY;
+      else process.env.PTH_COMPILED_CONCURRENCY = prev;
+    }
   });
 });
