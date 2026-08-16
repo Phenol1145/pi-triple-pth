@@ -22,6 +22,7 @@ import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { KernelPool, type KernelLang } from "./kernel-pool.js";
 import type { SandboxLease } from "./kernel-lease.js";
+import type { SandboxGrantVerifier } from "./authorization/grant-verifier.js";
 import { CCompiledKernel } from "./compiled-kernel.js";
 import { CDebugSession } from "./gdb-mi.js";
 
@@ -41,6 +42,8 @@ export interface KernelHostOptions {
   getSecret?: () => string | undefined;
   /** PTH 记忆桥 Bearer token 获取器（默认读 env PTH_MEMORY_BRIDGE_TOKEN——controller-only，测试可注入） */
   getBridgeToken?: () => string | undefined;
+  /** P2-2：/kernel/acquire 的执行 grant 校验器（缺省未装配 → acquire 503 fail-closed） */
+  grantVerifier?: SandboxGrantVerifier;
   onStderr?: (lang: string, line: string) => void;
 }
 
@@ -103,19 +106,27 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   }
 
   app.post("/kernel/acquire", async (req, reply) => {
-    if (!enforceAuth(req, reply)) return;
-    const { lang } = (req.body ?? {}) as { lang?: string };
-    if (!lang || !VALID_LANGS.includes(lang as KernelLang)) {
-      reply.code(400).send({ error: `invalid lang: ${lang ?? "(missing)"}` });
+    // P2-2：acquire 只接受签名 grant——SANDBOX_SHARED_SECRET 不再是 kernel 执行认证。
+    if (!opts.grantVerifier) {
+      reply.code(503).send({ error: "server misconfigured: execution grant verifier not configured" });
       return;
     }
-    const lease = await pools[lang as KernelLang].acquire();
-    leasePools.set(lease.id, pools[lang as KernelLang]);
+    const body = (req.body ?? {}) as { lang?: string; grant?: unknown };
+    if (!body.lang || !VALID_LANGS.includes(body.lang as KernelLang)) {
+      reply.code(400).send({ error: `invalid lang: ${body.lang ?? "(missing)"}` });
+      return;
+    }
+    const verified = opts.grantVerifier.verify(body.grant);
+    if (!verified.ok) {
+      reply.code(401).send({ error: verified.error });
+      return;
+    }
+    const lease = await pools[body.lang as KernelLang].acquire();
+    leasePools.set(lease.id, pools[body.lang as KernelLang]);
     return { lease };
   });
 
   app.post("/kernel/execute", async (req, reply) => {
-    if (!enforceAuth(req, reply)) return;
     const body = (req.body ?? {}) as { kernelId?: string; lease?: { id: string; generation: number }; code?: string; timeoutMs?: number; env?: unknown; exec?: "single" | "program" | "auto"; space?: string };
     const lease = parseLease(body);
     if (!lease || typeof body.code !== "string") {
@@ -184,7 +195,6 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   });
 
   app.post("/kernel/reset", async (req, reply) => {
-    if (!enforceAuth(req, reply)) return;
     const lease = parseLease(req.body);
     const pool = lease ? poolForLease(lease.id) : undefined;
     if (!lease || !pool) {
@@ -200,7 +210,6 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   });
 
   app.post("/kernel/snapshot", async (req, reply) => {
-    if (!enforceAuth(req, reply)) return;
     const lease = parseLease(req.body);
     const pool = lease ? poolForLease(lease.id) : undefined;
     if (!lease || !pool) {
@@ -215,7 +224,6 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   });
 
   app.post("/kernel/release", async (req, reply) => {
-    if (!enforceAuth(req, reply)) return;
     const lease = parseLease(req.body);
     const pool = lease ? poolForLease(lease.id) : undefined;
     if (!lease || !pool) {

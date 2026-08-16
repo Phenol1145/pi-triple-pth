@@ -5,6 +5,7 @@
  * 依赖方向：pth-sandbox → pth-memory（Python 记忆库）；PTH core → pth-sandbox。无反向依赖。
  */
 export * from "./kernel/interpreter/types.js";
+export * from "./authorization/grant-verifier.js";
 export * from "./py-kernel.js";
 export * from "./bash-kernel.js";
 export * from "./bash-interpreter.js";

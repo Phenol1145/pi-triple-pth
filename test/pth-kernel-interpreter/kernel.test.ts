@@ -243,7 +243,14 @@ describe("exec 执行模式（2026-08-11 元命令拆分——single/program/aut
 
 describe("SandboxKernel 自愈（2026-08-12 复测发现）", () => {
   it("disposed 后 execute 自动重建（重新 acquire——不再永久失败）", async () => {
-    const { SandboxKernel } = await import("@away_from/pth-sandbox");
+    const { SandboxKernel, createSandboxGrantIssuer } = await import("@away_from/pth-sandbox");
+    const grant = createSandboxGrantIssuer({ secret: "kernel-test-grant-secret-0123456789" }).issue({
+      lease: { taskId: "task-kernel-test", leaseId: "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6", generation: 1 },
+      scope: { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-kernel-test" },
+      workspace: { tenantId: "tenant-a", workspaceId: "ws-kernel-test", taskId: "task-kernel-test" },
+      language: "python",
+      capabilities: ["memory.read"],
+    });
     const calls: string[] = [];
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {
@@ -256,7 +263,7 @@ describe("SandboxKernel 自愈（2026-08-12 复测发现）", () => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }) as typeof fetch;
     try {
-      const k = new SandboxKernel({ url: "http://mock", secret: "s", language: "python", acquireOnInit: false });
+      const k = new SandboxKernel({ url: "http://mock", secret: "s", language: "python", acquireOnInit: false, grant });
       const r1 = await k.execute("1+1");
       expect(r1.ok).toBe(true);
       k.dispose();   // 模拟 dispose 事件（shutdown 竞态）

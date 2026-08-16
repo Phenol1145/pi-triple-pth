@@ -1,13 +1,24 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Fastify from "fastify";
 import { buildKernelHostApp } from "@away_from/pth-sandbox";
-import { SandboxKernel } from "@away_from/pth-sandbox";
+import { SandboxKernel, createSandboxGrantIssuer, createSandboxGrantVerifier } from "@away_from/pth-sandbox";
 
 /**
  * SandboxKernel 适配器集成测试——真实 HTTP（fastify listen :0）+ 真实 python/bash。
  */
 
 const SECRET = "test-sandbox-secret";
+const GRANT_SECRET = "sandbox-kernel-grant-secret-0123456789";
+const grantIssuer = createSandboxGrantIssuer({ secret: GRANT_SECRET });
+function makeGrant() {
+  return grantIssuer.issue({
+    lease: { taskId: "task-kernel", leaseId: "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6", generation: 1 },
+    scope: { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-kernel" },
+    workspace: { tenantId: "tenant-a", workspaceId: "ws-kernel", taskId: "task-kernel" },
+    language: "python",
+    capabilities: ["memory.read"],
+  });
+}
 
 describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
   let host: any;
@@ -15,7 +26,7 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
 
   beforeAll(async () => {
     process.env.SANDBOX_SHARED_SECRET = SECRET;
-    host = buildKernelHostApp({});
+    host = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
     await host.listen({ port: 0, host: "127.0.0.1" });
     baseUrl = `http://127.0.0.1:${host.server.address().port}`;
   });
@@ -26,7 +37,7 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
   });
 
   it("python：execute 全链路（懒 acquire → 执行 → value）", async () => {
-    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
+    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", grant: makeGrant() });
     const r = await k.execute("squares = [i*i for i in range(5)]\n_result = sum(squares)");
     expect(r.ok).toBe(true);
     expect(r.value).toBe(30);
@@ -34,7 +45,7 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
   });
 
   it("python：状态延续（同 lease 变量保留）", async () => {
-    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
+    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", grant: makeGrant() });
     await k.execute("acc = 42");
     const r = await k.execute("_result = acc + 1");
     expect(r.value).toBe(43);
@@ -42,7 +53,7 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
   });
 
   it("bash：执行命令并回传输出", async () => {
-    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "bash" });
+    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "bash", grant: makeGrant() });
     const r = await k.execute("echo sandbox-bash-ok");
     expect(r.ok).toBe(true);
     expect(r.stdout).toContain("sandbox-bash-ok");
@@ -50,7 +61,7 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
   });
 
   it("reset：清命名空间（变量不延续）", async () => {
-    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
+    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", grant: makeGrant() });
     await k.execute("secret_var = 99");
     await k.reset();
     const r = await k.execute("_result = 'secret_var' in dir()");
@@ -59,7 +70,7 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
   });
 
   it("snapshot：聚合状态（变量枚举）", async () => {
-    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
+    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", grant: makeGrant() });
     await k.execute("keep = 75025");
     const snap = await k.snapshot();
     expect(snap.variables.some((v: any) => v.key === "keep" && v.value === 75025)).toBe(true);
@@ -67,12 +78,12 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
   });
 
   it("release 后池内复用（dispose 归还 → 状态延续，但 lease id 不同）", async () => {
-    const k1 = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
+    const k1 = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", grant: makeGrant() });
     await k1.execute("persist = 'kept'");
     const lease1 = (k1 as any).lease;
     await k1.disposeAndFlush();
 
-    const k2 = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python" });
+    const k2 = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", grant: makeGrant() });
     await k2.ready;
     const lease2 = (k2 as any).lease;
     expect(lease2.id).not.toBe(lease1.id); // 外部租约不复用
@@ -82,7 +93,7 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
   });
 
   it("错误传播：宿主不可达 → 明确错误", async () => {
-    const k = new SandboxKernel({ url: "http://127.0.0.1:1", secret: SECRET, language: "python" });
+    const k = new SandboxKernel({ url: "http://127.0.0.1:1", secret: SECRET, language: "python", grant: makeGrant() });
     await expect(k.execute("1+1")).rejects.toThrow();
   });
 });
@@ -95,6 +106,7 @@ describe("sandbox-kernel 韧性（2026-08-09 端到端：abort 杀 batch 循环�
       secret: "s",
       language: "python",
       acquireOnInit: false,
+      grant: makeGrant(),
     } as never);
     // 注入 call 桩：第一次 acquire 失败，之后成功
     const self = k as unknown as { call: (p: string, b?: unknown, t?: number) => Promise<unknown> };
