@@ -6,6 +6,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { cp, mkdir, rm, chmod, chown, readdir, lstat } from "node:fs/promises";
 import { workloadIdentity } from "./workload/environment.js";
+import { loadSandboxConfig } from "./config.js";
 
 // ─── 校验 ────────────────────────────────────────────────────────────
 /**
@@ -119,8 +120,9 @@ export async function prepareWorkspace(
   }
   await cp(cwd, execCwd, { recursive: true, force: true });
   await chmod(execCwd, 0o700);
-  const ownerUid = Number(process.env.PTH_WORKSPACE_OWNER_UID ?? 1000);
-  const ownerGid = Number(process.env.PTH_WORKSPACE_OWNER_GID ?? 1000);
+  const cfg = loadSandboxConfig();
+  const ownerUid = cfg.workspaceOwnerUid;
+  const ownerGid = cfg.workspaceOwnerGid;
   const syncBack = async (): Promise<string | null> => {
     try {
       await cp(execCwd, cwd, { recursive: true, force: true });

@@ -60,6 +60,8 @@ export function buildWorkloadEnv(
   return env;
 }
 
+import { loadSandboxConfig } from "../config.js";
+
 export interface WorkloadIdentity {
   uid?: number;
   gid?: number;
@@ -70,9 +72,10 @@ export const WORKLOAD_HOME = "/home/workload";
 
 /** 读取容器内注入的工作负载身份（Dockerfile ENV PTH_WORKLOAD_UID/GID）；未配置时返回空（当前用户） */
 export function workloadIdentity(): WorkloadIdentity {
-  const uid = Number(process.env.PTH_WORKLOAD_UID);
-  const gid = Number(process.env.PTH_WORKLOAD_GID);
-  if (Number.isInteger(uid) && uid > 0 && Number.isInteger(gid) && gid > 0) {
+  const cfg = loadSandboxConfig();
+  const uid = cfg.workloadUid;
+  const gid = cfg.workloadGid;
+  if (uid !== undefined && gid !== undefined) {
     return { uid, gid };
   }
   return {};

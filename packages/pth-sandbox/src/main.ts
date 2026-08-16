@@ -11,7 +11,8 @@ import { createSandboxGrantVerifier } from "./authorization/grant-verifier.js";
 
 const port = parseInt(process.env.PORT ?? "8080", 10);
 // P2-2：/kernel/acquire 只接受签名 grant；密钥 bootstrap 注入（PTH_EXECUTION_GRANT_SECRET），无默认值。
-const grantSecret = process.env.PTH_EXECUTION_GRANT_SECRET;
+import { loadSandboxConfig } from "./config.js";
+const grantSecret = loadSandboxConfig().executionGrantSecret;
 const app = buildExecApp({
   // P2-6：readiness 聚合 kernel grant verifier 装配状态
   readinessChecks: [{ name: "execution-grant-verifier", check: () => Boolean(grantSecret) }],

@@ -14,6 +14,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { PTH_MEMORY_LIB_B64 } from "@away_from/pth-memory";
+import { loadSandboxConfig } from "./config.js";
 import { buildWorkloadEnv, workloadIdentity, WORKLOAD_HOME } from "./workload/environment.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
@@ -200,7 +201,7 @@ export class PyKernel implements Interpreter {
   bridgeToken?: string;
   } = {}) {
     this.pythonBin = deps.pythonBin ?? "python3";
-    this.memoryBridge = deps.memoryBridge ?? process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:8080/kernel/memory-bridge";
+    this.memoryBridge = deps.memoryBridge ?? loadSandboxConfig().memoryBridge;
     this.bridgeToken = deps.bridgeToken ?? "";
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_EXECUTION_TIMEOUT_MS;
     this.onStderr = deps.onStderr;

@@ -10,6 +10,7 @@
  *       kernelId 已从协议退役。
  */
 
+import { loadSandboxConfig } from "./config.js";
 import type { SandboxLease } from "./kernel-lease.js";
 import type { SandboxExecutionGrant } from "./authorization/grant-verifier.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
@@ -70,7 +71,7 @@ export class SandboxKernel implements Interpreter {
     const timer = setTimeout(() => ctrl.abort(), timeoutMs ?? this.requestTimeoutMs);
     try {
       // debug: 记录 sandbox 调用（URL/路径——诊断 abort 来源）
-      if (process.env.PTH_DEBUG_SANDBOX) console.error(`[sandbox-debug] ${this.language} call ${path} url=${this.url} timeout=${timeoutMs ?? this.requestTimeoutMs}ms lease=${this.lease?.id ?? "(未acquire)"}`);
+      if (loadSandboxConfig().debugSandbox) console.error(`[sandbox-debug] ${this.language} call ${path} url=${this.url} timeout=${timeoutMs ?? this.requestTimeoutMs}ms lease=${this.lease?.id ?? "(未acquire)"}`);
       const res = await fetch(`${this.url}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -169,7 +170,7 @@ export class SandboxKernel implements Interpreter {
     if (this.disposed) return;
     this.disposed = true;
     // 诊断（2026-08-12 复测发现）：dispose 来源追踪——PTH_DEBUG_SANDBOX 门控
-    if (process.env.PTH_DEBUG_SANDBOX) {
+    if (loadSandboxConfig().debugSandbox) {
       console.error(`[sandbox-debug] ${this.language} disposed（调用方堆栈）\n${new Error().stack?.split("\n").slice(1, 6).join("\n")}`);
     }
     const lease = this.lease;

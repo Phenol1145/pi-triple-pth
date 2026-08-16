@@ -2,7 +2,11 @@
 
 > 建立：2026-08-16（配置集中化改造）。
 > **唯一真相源**：`src/pth/config/schema.ts` —— 所有 PTH 配置项（key / 类型 / 默认值 / secret / runtime / group / scope / description）在这里登记。
-> 组件读配置统一走 `pthConfig()`（typed accessor）或 `config()`（ConfigCenter）；`src/pth` 内禁止 `process.env.PTH_*` 直读（`npm run check:pth-config` 防回潮）。
+> 组件读配置统一走 `pthConfig()`（typed accessor）或 `config()`（ConfigCenter）；`src/pth` 与
+> `packages/pth-sandbox/src` 内禁止 `process.env.PTH_*` 直读（`npm run check:pth-config` 防回潮）。
+> pth-sandbox 包有独立单点 `packages/pth-sandbox/src/config.ts`（`loadSandboxConfig()`）——
+> 同键名、对齐 schema 默认值；个别 sandbox 侧运行默认（`PTH_MEMORY_BRIDGE` 自循环 8080、
+> `PTH_EXEC_PRIVATE_ROOT` 未注入时不启用）以该文件注释为准。
 
 ## 1. 加载链
 

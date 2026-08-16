@@ -27,6 +27,7 @@ import { CCompiledKernel } from "./compiled-kernel.js";
 import { CDebugSession } from "./gdb-mi.js";
 import { SandboxHealthState } from "./health-state.js";
 import { registerKernelDebugRoutes } from "./kernel-host-debug.js";
+import { loadSandboxConfig } from "./config.js";
 
 /** 编译核统计（/kernel/status 聚合——PTH obs.kernels 可查） */
 export interface CompiledStats {
@@ -64,17 +65,13 @@ const VALID_LANGS: KernelLang[] = ["python", "bash"];
 /** 插件式注册：把 kernel 宿主路由挂到已有 Fastify app（sandbox main 与 exec API 同端口） */
 export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions = {}): KernelHostHandle {
   const getSecret = opts.getSecret ?? (() => process.env.SANDBOX_SHARED_SECRET);
-  const getBridgeToken = opts.getBridgeToken ?? (() => process.env.PTH_MEMORY_BRIDGE_TOKEN);
+  const getBridgeToken = opts.getBridgeToken ?? (() => loadSandboxConfig().memoryBridgeToken);
   // 池容量：env PTH_KERNEL_POOL_SIZE 优先（compose 注入——需 >= 并发 worker 数），option 次之
-  const envSize = Number(process.env.PTH_KERNEL_POOL_SIZE);
-  const poolSize = opts.poolSize ?? (Number.isFinite(envSize) && envSize > 0 ? envSize : 4);
-
-  // acquire 排队超时（PTH_KERNEL_ACQUIRE_TIMEOUT_MS 默认 60s——池满拒绝防无限卡）
-  const envAcquireMs = Number(process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS);
-  const acquireTimeoutMs = Number.isFinite(envAcquireMs) && envAcquireMs > 0 ? envAcquireMs : 60_000;
-  // 池条目 TTL（PTH_KERNEL_ENTRY_TTL_MS 默认 0=关闭；崩溃泄漏兜底建议 30min）
-  const envTtlMs = Number(process.env.PTH_KERNEL_ENTRY_TTL_MS);
-  const entryTtlMs = Number.isFinite(envTtlMs) && envTtlMs > 0 ? envTtlMs : 0;
+  const hostCfg = loadSandboxConfig();
+  const poolSize = opts.poolSize ?? hostCfg.kernelPoolSize;
+  // acquire 排队超时 / 池条目 TTL——默认值对齐 src/pth/config/schema.ts
+  const acquireTimeoutMs = hostCfg.kernelAcquireTimeoutMs;
+  const entryTtlMs = hostCfg.kernelEntryTtlMs;
 
   const pools: Record<KernelLang, KernelPool> = {
     python: new KernelPool({ lang: "python", max: poolSize, acquireTimeoutMs, entryTtlMsMs: entryTtlMs, onStderr: opts.onStderr }),
@@ -204,7 +201,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   //  （sandbox 无 PG 凭据/无出网——经 internal 网络回 PTH：pi-platform:3000）
   //  P0-1（2026-08-15）：上游改用 PTH_MEMORY_BRIDGE_TOKEN（Redis Bearer token，含 tenant/space 声明）；
   //  未配置 token 时 fail-closed 503——不再把 SANDBOX_SHARED_SECRET 当作业务 API 凭据转发。
-  const pthBridgeUrl = (process.env.PTH_BRIDGE_URL ?? "http://pi-platform:3000").replace(/\/+$/, "");
+  const pthBridgeUrl = hostCfg.bridgeUrl;
   app.post("/kernel/memory-bridge", async (req, reply) => {
     // P0-2：workload 不再持有 SANDBOX_SHARED_SECRET。本路由允许两种受控调用方：
     //  ① PTH 侧经 internal 网络调用——仍必须持有共享密钥；
@@ -328,11 +325,11 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   // 编译统计聚合（持久缓存 + 监视组件——/kernel/status 暴露）
   const compiledStats: CompiledStats = { cacheHits: 0, coldCompiles: 0, avgCompileMs: 0, totalMs: 0, cacheEntries: 0 };
   // 编译核参数面（2026-08-09 扩展）：缓存目录/磁盘上限/LRU/超时/并发——env 全可配
-  const compiledCacheDir = process.env.PTH_COMPILED_CACHE_DIR ?? "/data/compiled-cache/c";
-  const compiledCacheMaxMb = Number(process.env.PTH_COMPILED_CACHE_MAX_MB ?? 200);
-  const compiledMaxCache = Number(process.env.PTH_COMPILED_MAX_CACHE ?? 50);
-  const compiledTimeoutMs = Number(process.env.PTH_COMPILED_TIMEOUT_MS ?? 60_000);
-  const compiledConcurrency = Number(process.env.PTH_COMPILED_CONCURRENCY ?? 4);
+  const compiledCacheDir = hostCfg.compiledCacheDir;
+  const compiledCacheMaxMb = hostCfg.compiledCacheMaxMb;
+  const compiledMaxCache = hostCfg.compiledMaxCache;
+  const compiledTimeoutMs = hostCfg.compiledTimeoutMs;
+  const compiledConcurrency = hostCfg.compiledConcurrency;
   let compiledInFlight = 0;   // 并发信号量（防编译风暴 CPU——超限 503 提示重试）
 
   app.post("/kernel/compiled", async (req, reply) => {
@@ -393,9 +390,9 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   // ── 调试核（2026-08-09 Phase 2：路由与会话管理已抽到 kernel-host-debug.ts）──
   const debug = registerKernelDebugRoutes(app, {
     enforceAuth,
-    maxSessions: Number(process.env.PTH_DEBUG_SESSIONS ?? 4),
-    idleMs: Number(process.env.PTH_DEBUG_IDLE_MS ?? 30 * 60 * 1000),
-    workRoot: process.env.PTH_DEBUG_WORKDIR ?? "/data/workspaces",
+    maxSessions: hostCfg.debugSessions,
+    idleMs: hostCfg.debugIdleMs,
+    workRoot: hostCfg.debugWorkdir,
   });
   const debugSessions = debug.sessions;
   app.get("/kernel/status", async (req, reply) => {

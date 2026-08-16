@@ -28,6 +28,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { cp, mkdir, rm, chmod, chown, readdir, lstat } from "node:fs/promises";
 import { buildWorkloadEnv, workloadIdentity, WORKLOAD_HOME } from "./workload/environment.js";
+import { loadSandboxConfig } from "./config.js";
 import { existsForReady, validateCwd, validateBody, prepareWorkspace } from "./exec-api-validation.js";
 
 // ─── 类型 ────────────────────────────────────────────────────────────
@@ -241,7 +242,7 @@ function runExec(
 // ─── app 构建 ────────────────────────────────────────────────────────
 export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
   const workspacesRoot = path.resolve(options.workspacesRoot ?? "/data/workspaces");
-  const privateRoot = options.privateRoot ?? process.env.PTH_EXEC_PRIVATE_ROOT ?? undefined;
+  const privateRoot = options.privateRoot ?? loadSandboxConfig().execPrivateRoot;
   const getSecret = options.getSecret ?? (() => process.env.SANDBOX_SHARED_SECRET);
   const defaultTimeoutMs = options.defaultTimeoutMs ?? 30_000;
   const maxOutBytes = options.maxStdoutBytes ?? 1024 * 1024;

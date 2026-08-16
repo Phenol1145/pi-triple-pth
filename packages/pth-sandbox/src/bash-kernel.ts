@@ -14,6 +14,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { loadSandboxConfig } from "./config.js";
 import { buildWorkloadEnv, workloadIdentity, WORKLOAD_HOME } from "./workload/environment.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
@@ -78,7 +79,7 @@ export class BashKernel implements Interpreter {
     /** 记忆桥 Bearer token（仅 PTH kernel-mode 显式注入；sandbox 模式不传） */
     bridgeToken?: string;
   } = {}) {
-    this.memoryBridge = deps.memoryBridge ?? process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:8080/kernel/memory-bridge";
+    this.memoryBridge = deps.memoryBridge ?? loadSandboxConfig().memoryBridge;
     this.bridgeToken = deps.bridgeToken ?? "";
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS;
     if (deps.initialCwd) this.cwd = deps.initialCwd;
