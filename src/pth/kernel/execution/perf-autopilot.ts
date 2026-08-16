@@ -155,6 +155,9 @@ export class PerfAutopilot {
     if (w.rejectRate > (this.opts.rejectRate ?? 0.3)) {
       this.record({ rule: "R4", action: "record", detail: `任务 reject 率 ${(w.rejectRate * 100).toFixed(1)}% > 阈值——执行失败集中（记录不自动改参）` });
     }
+    // trigger 统一化接线修复（2026-08-16）：回滚复测原本只有测试手动调用、生产从未执行——
+    // 现在每轮 tick 末尾闭环（R2 调参后 reject 率恶化 → 恢复原值）。
+    this.checkRollback();
   }
 
   /** 指标窗口采样（L1/L2/LLM——缺失容错） */

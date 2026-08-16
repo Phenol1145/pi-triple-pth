@@ -1,10 +1,13 @@
 import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
+import { getEventBus } from "./execution/event-bus.js";
+import { toKernelActivityEvent } from "./execution/kernel-event-bridge.js";
 import { parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles } from "./execution/worker-cluster.js";
 import { checkTaskRouting, routeTaskRole } from "./execution/role-router.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../impls/roles/default-roles.js";
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
+import { registerSystemTriggers } from "./execution/system-triggers.js";
 import { createKernelLogger } from "./logger.js";
 import type pg from "pg";
 
@@ -175,25 +178,18 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const assemblyLogger = createKernelLogger();
   const { ActivityHub } = await import("./execution/activity-hub.js");
   const activityHub = new ActivityHub();
+  // trigger 统一化（事件桥）：主进程 EventBus 的 batch 生命周期事件 → ActivityHub（trigger 事件源统一）
+  const offMainBus = getEventBus().on("*", (evt) => {
+    if (evt.type !== "batch.spawn" && evt.type !== "batch.kill") return;
+    activityHub.publish(toKernelActivityEvent(evt, process.pid));
+  });
   const { TriggerEngine } = await import("./execution/trigger-engine.js");
-  const { buildMemorySweepTrigger } = await import("./execution/memory-sweep-trigger.js");
   const triggerEngine = new TriggerEngine({
     activityHub,
     tasks: dataWorld.tasks,
     memory: dataWorld.memory,
     logger: (m) => assemblyLogger.info(m),
   });
-  // Origin 升级链（2026-08-10 任务池纯化 D3）：terminal reject（task.rejected）→ retask 转写
-  // origin 标签重发布 → Origin 常驻 worker 接取。终态闸：Origin 失败不再升级（防死循环）。
-  triggerEngine.addSystemTrigger({
-    name: "origin-escalation",
-    event: "task.rejected",
-    task: { title: "", text: "", retask: true, tags: ["origin"] },
-    enabled: true,
-  });
-  // B1 / N7：记忆维护定期巡检（默认每天；PTH_MEMORY_SWEEP_SECONDS=0 禁用）——归档提案经监督批准
-  const memorySweep = buildMemorySweepTrigger(opts.env ?? process.env);
-  if (memorySweep) triggerEngine.addSystemTrigger(memorySweep);
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
@@ -221,7 +217,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     },
   });
   const watchdog = new KernelWatchdog(batchManager);
-  watchdog.start(opts.watchdogIntervalMs ?? 30_000);
+  // trigger 统一化：watchdog 不再自起定时器——batch-watchdog schedule trigger 驱动 probe()
 
   // 自修改（v1）：注入源码指南到公共记忆区（developer 单步修改用——幂等）
   try {
@@ -239,30 +235,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     assemblyLogger?.warn?.(`[prompt-docs] 文档注入失败（放行）: ${(e as Error).message}`);
   }
 
-  // TaskResolver（任务池即工作流 T3）：独立解析循环（unref 不阻止退出）
-  // CPU 优化：空轮询自适应退避 2s→5s→10s→15s（无 flow 任务时降频——resolver 查询是
-  // payload ? 'flow' 的 GIN 扫描，任务表大时空轮询浪费）；有任务立即恢复快周期。
+  // TaskResolver（任务池即工作流 T3）：trigger 统一化——flow-resolver schedule trigger 驱动
+  // resolveLoop（有产出 → 快周期；空转 → 2s→5s→10s→15s 动态退避——注册见 system-triggers）。
   const resolver = new TaskResolver({ taskStore: dataWorld.tasks, pool });
   // kernel 直连通道（任务池纯化 D2）：调试/运维代码执行——不占任务池
   const { KernelExecChannel } = await import("./exec-channel.js");
   const execChannel = new KernelExecChannel({ dataWorld });
-  let resolverDelayMs = opts.resolverIntervalMs ?? 2_000;
-  const scheduleResolver = () => {
-    const t = setTimeout(async () => {
-      try {
-        const report = await resolver.resolveLoop();
-        // 有处理 → 立即恢复快周期；空 → 指数退避（上限 15s）
-        resolverDelayMs = report.processed > 0
-          ? (opts.resolverIntervalMs ?? 2_000)
-          : Math.min(resolverDelayMs * 2, 15_000);
-      } catch (e) {
-        console.error(`[resolver] loop error: ${(e as Error).message}`);
-      }
-      scheduleResolver();
-    }, resolverDelayMs);
-    t.unref?.();
-  };
-  scheduleResolver();
 
   // 兼容性扩展装载（2026-08-09）：toolstore/extensions 扫描 → 角色注册到谱系——
   // 主进程路由（publish 时 routeTaskRole）与 fork 内认领共用 allWorkerRoles。扩展角色
@@ -408,32 +386,34 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     assemblyLogger?.error?.(`[assembly] 默认 batch 启动失败（可手动 batch add）: ${(e as Error).message}`);
   }
 
-  // Claim 超时回收（batch 崩溃/重启僵尸认领）：周期扫描回收 claimed_at 超时任务回 pending
-  // 参数：PTH_CLAIM_REAP_MS（扫描周期，默认 30s）/ PTH_CLAIM_TIMEOUT_MS（超时阈值——
-  // 默认联动任务超时 +10min 余量，见 resolveClaimTimeoutMs——审计 H5 防长任务误回收）
+  // trigger 统一化（2026-08-16）：全部系统控制环收编为 trigger 调度指令（原生 action）。
+  // claim-reaper / batch-watchdog / flow-resolver / optimizer-deopt-sweep / batch-scaler /
+  // origin-escalation / memory-sweep 在此集中注册；PerfAutopilot 在 main.ts 注册（依赖 metrics registry）。
+  // 周期 env 语义与旧硬定时器一致：PTH_CLAIM_REAP_MS / PTH_WATCHDOG_INTERVAL_MS /
+  // PTH_RESOLVER_INTERVAL_MS / PTH_VERIFY_SWEEP_MS / PTH_BATCH_SCALE_INTERVAL_MS。
   const claimTimeoutMs = resolveClaimTimeoutMs();
   const claimReapMs = Number(process.env.PTH_CLAIM_REAP_MS ?? 30_000);
-  const claimReaperTimer = setInterval(() => {
-    void dataWorld.tasks
-      .recoverStaleClaims(claimTimeoutMs)
-      .then((n) => {
-        if (n > 0) console.log(`[claim-reaper] recovered ${n} stale claim(s)`);
-      })
-      .catch((e) => {
-        console.error(`[claim-reaper] loop error: ${(e as Error).message}`);
-      });
-  }, claimReapMs);
-  claimReaperTimer.unref?.();
-
-  // Batch 自动扩缩容（PTH_BATCH_AUTOSCALE 默认 off——单大 batch 为主；
-  // PTH_AUTOSCALE_MODE=balanced|reinforced：balanced 整 batch 扩容 / reinforced per-role 强化（descheduler））
   const scalerCfg = loadScalerConfig(process.env);
   const autoscaleMode = (process.env.PTH_AUTOSCALE_MODE as "balanced" | "reinforced" | undefined) ?? "balanced";
-  let scalerTimer: ReturnType<typeof setInterval> | null = null;
-  if (scalerCfg.enabled) {
-    const scalerLogger = createKernelLogger();
-    scalerTimer = setInterval(() => {
-      void evaluateAndScale(
+  const scalerLogger = createKernelLogger();
+  registerSystemTriggers(triggerEngine, {
+    env: opts.env ?? process.env,
+    recoverStaleClaims: (timeoutMs) => dataWorld.tasks.recoverStaleClaims(timeoutMs),
+    claimTimeoutMs,
+    claimReapMs,
+    watchdogProbe: () => watchdog.probe(),
+    watchdogIntervalMs: opts.watchdogIntervalMs ?? 30_000,
+    resolverResolve: () => resolver.resolveLoop(),
+    resolverIntervalMs: opts.resolverIntervalMs ?? 2_000,
+    optimizerSweep: {
+      enabled: process.env.PTH_OPTIMIZER !== "off",
+      intervalMs: Number(process.env.PTH_VERIFY_SWEEP_MS ?? 30_000),
+      broadcast: () => batchManager.broadcastOptimizerSweep(),
+    },
+    scaler: {
+      enabled: scalerCfg.enabled,
+      intervalMs: scalerCfg.intervalMs,
+      evaluate: () => evaluateAndScale(
         {
           countPending: () => dataWorld.tasks.countPending(),
           batchCount: async () => (await batchManager.listBatches()).length,
@@ -455,12 +435,10 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
           logger: (msg) => scalerLogger?.info(msg),
         },
         { min: scalerCfg.min, max: scalerCfg.max, upThreshold: scalerCfg.upThreshold, mode: autoscaleMode, roleThreshold: Number(process.env.PTH_AUTOSCALE_ROLE_THRESHOLD ?? 5), reinforceCopies: Number(process.env.PTH_AUTOSCALE_REINFORCE_COPIES ?? 2) },
-      ).catch((e) => {
-        scalerLogger?.error(`autoscale loop error: ${(e as Error).message}`);
-      });
-    }, scalerCfg.intervalMs);
-    scalerTimer.unref?.();
-  }
+      ),
+    },
+    log: (m) => assemblyLogger.info(m),
+  });
 
   // trigger 引擎启动（任务池就绪后——订阅活动事件流）
   await triggerEngine.start().catch((e) => assemblyLogger.warn(`trigger engine start failed: ${(e as Error).message}`));
@@ -477,11 +455,10 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     shutdown: async () => {
       triggerEngine.stop();
       watchdog.stop();
-      // resolver 走自调度 setTimeout 链——停靠 resolver 对象（无 timer 句柄外泄；unref 不阻止退出）
+      offMainBus();
+      // resolver 由 flow-resolver trigger 驱动——stop() 终止 resolveLoop（无自调度链）
       (resolver as unknown as { stop?: () => void }).stop?.();
       await execChannel.shutdown();
-      if (claimReaperTimer) clearInterval(claimReaperTimer);
-      if (scalerTimer) clearInterval(scalerTimer);
       await pool.end();
     },
   };

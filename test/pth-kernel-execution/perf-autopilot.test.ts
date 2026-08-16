@@ -60,13 +60,11 @@ describe("PerfAutopilot（v0.8 系统自持——性能自愈闭环）", () => {
     expect(params.get("PTH_AGENT_LLM_TIMEOUT_MS")).toBe("45000");  // 60000 - 15000
   });
 
-  it("R2 回滚：调参后 reject 率上升 → 恢复原值", async () => {
+  it("R2 回滚：调参后 reject 率恶化 → tick 内自动恢复原值（trigger 统一化接线修复）", async () => {
     const reg = makeRegistry({ rejectRate: 0.5, llmAvgMs: 40_000 });
     const { ap, params } = makeAutopilot(reg, { llmSlowMs: 30_000, rejectRate: 0.3 });
     params.set("PTH_AGENT_LLM_TIMEOUT_MS", "60000");
-    await ap.tick();          // R2 调参
-    expect(params.get("PTH_AGENT_LLM_TIMEOUT_MS")).toBe("45000");
-    ap.checkRollback();       // 复测：reject 率仍高 → 回滚
+    await ap.tick();          // R2 调参 → 同窗口内 reject 率恶化 → 自动回滚
     expect(params.get("PTH_AGENT_LLM_TIMEOUT_MS")).toBe("60000");
     const last = ap.status.lastAction!;
     expect(last.action).toBe("rollback");

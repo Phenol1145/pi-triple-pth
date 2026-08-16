@@ -257,6 +257,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
         const rt = kernelRuntime;  // 非空收紧
         const { PerfAutopilot } = await import("./kernel/execution/perf-autopilot.js");
         const batchManager = kernelRuntime.batchManager;
+        const autopilotIntervalMs = Number(process.env.PTH_AUTOPILOT_INTERVAL_MS ?? 30_000);
         autopilot = new PerfAutopilot(
           {
             registry: metrics.registry,
@@ -278,7 +279,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
           },
           {
             mode: "on",
-            intervalMs: Number(process.env.PTH_AUTOPILOT_INTERVAL_MS ?? 30_000),
+            intervalMs: autopilotIntervalMs,
             windowMs: Number(process.env.PTH_AUTOPILOT_WINDOW_MS ?? 60_000),
             rejectRate: Number(process.env.PTH_AUTOPILOT_REJECT_RATE ?? 0.3),
             execFailRate: Number(process.env.PTH_AUTOPILOT_EXEC_FAIL_RATE ?? 0.2),
@@ -287,7 +288,16 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
             maxCopies: Number(process.env.PTH_AUTOPILOT_MAX_COPIES ?? 4),
           },
         );
-        autopilot.start();
+        // trigger 统一化（2026-08-16）：autopilot 不自起定时器——perf-autopilot schedule trigger 驱动 tick
+        rt.triggerEngine.registerAction("perf-autopilot.tick", async () => {
+          await autopilot?.tick();
+        });
+        rt.triggerEngine.addSystemTrigger({
+          name: "perf-autopilot",
+          schedule: { everySec: autopilotIntervalMs / 1000 },
+          action: { type: "perf-autopilot.tick" },
+          enabled: true,
+        });
       }
     } catch (err) {
       logger.warn({ err: String(err), event: "kernel_assembly_failed", note: "kernel 装配失败——/kernel/* 路由 503，PTH 其余功能照常" });
