@@ -173,10 +173,48 @@ export class SandboxKernel implements Interpreter {
       console.error(`[sandbox-debug] ${this.language} disposed（调用方堆栈）\n${new Error().stack?.split("\n").slice(1, 6).join("\n")}`);
     }
     const lease = this.lease;
-    if (lease) {
-      // fire-and-forget：归还池（失败不阻塞——宿主不可达时环境已死）
-      this.releasePromise = this.call("/kernel/release", { lease }).then(() => undefined, () => undefined);
+    if (!lease) return;
+    // P2-3：有 in-flight 时不能直接 release——必须先 cancel 等 ack（见 abort）。
+    if (this.inflightCtrl) {
+      void this.abort();
+      return;
     }
+    // fire-and-forget：归还池（失败不阻塞——宿主不可达时环境已死）
+    this.releasePromise = this.call("/kernel/release", { lease }).then(() => undefined, () => undefined);
+  }
+
+  /** transport deadline = min(lease 到期余量, 请求预算) + 清理余量（不再用固定 10s 覆盖执行预算） */
+  private transportDeadlineMs(lease: SandboxLease): number {
+    const now = Date.now();
+    const budgets = [this.requestTimeoutMs];
+    const leaseMs = Date.parse(lease.expiresAt) - now;
+    if (Number.isFinite(leaseMs) && leaseMs > 0) budgets.push(leaseMs);
+    const grant = typeof this.grant === "object" && this.grant !== null && !Array.isArray(this.grant)
+      ? this.grant as { deadlineAt?: string }
+      : undefined;
+    const grantMs = grant?.deadlineAt ? Date.parse(grant.deadlineAt) - now : Number.NaN;
+    if (Number.isFinite(grantMs) && grantMs > 0) budgets.push(grantMs);
+    return Math.max(Math.min(...budgets), 100) + 1_000;
+  }
+
+  /** P2-3：abort in-flight → cancel 等 ack → release；ack 不可达时 lease 作废，绝不乐观复用。 */
+  private async cancelAndRelease(lease: SandboxLease): Promise<void> {
+    const deadline = this.transportDeadlineMs(lease);
+    let cancelled = false;
+    try {
+      await this.call<{ ok: boolean }>("/kernel/cancel", { lease }, deadline);
+      cancelled = true;
+    } catch {
+      // ack 不可达：本地 lease 立即作废；宿主条目由 cancel/TTL 兜底，不会被本客户端乐观复用
+    }
+    if (cancelled) {
+      try {
+        await this.call("/kernel/release", { lease }, deadline);
+      } catch {
+        // cancel 已 ack，release 失败无害（条目已 disposed）
+      }
+    }
+    if (this.lease?.id === lease.id) this.lease = null;
   }
 
   /** 自愈（2026-08-12 复测发现）：disposed 后 execute 自动重建（重新 acquire 池条目）——
@@ -195,12 +233,16 @@ export class SandboxKernel implements Interpreter {
     await this.releasePromise;
   }
 
-  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11）：abort in-flight HTTP（execute/acquire 即时报错）
-   *  → dispose 归还租约（宿主侧杀进程终止程序）→ await release 落地。
-   *  本核此后 disposed——下个 execute 自愈 revive（重新 acquire——池复用立即生效）。 */
+  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11 + P2-3）：abort in-flight HTTP（execute/acquire 即时报错）
+   *  → cancel 请求等 controller ack（kernel abort 落地、条目 disposed）→ release。
+   *  ack 不可达：本地 lease 作废；绝不乐观 release 或复用。下个 execute 自愈 revive 重新 acquire。 */
   async abort(): Promise<void> {
+    const lease = this.lease;
     this.inflightCtrl?.abort();
-    this.dispose();
-    await this.releasePromise;
+    if (lease) {
+      await this.cancelAndRelease(lease);
+    }
+    this.disposed = true;
+    this.releasePromise = Promise.resolve();
   }
 }

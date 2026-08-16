@@ -223,6 +223,23 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     }
   });
 
+  // P2-3：cancel → ack → release 闭环。ack = kernel abort 已落地且条目已 disposed；
+  // cancel 后 release 必被拒（条目不存在/非 active）——绝不乐观回 idle。
+  app.post("/kernel/cancel", async (req, reply) => {
+    const lease = parseLease(req.body);
+    const pool = lease ? poolForLease(lease.id) : undefined;
+    if (!lease || !pool) {
+      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
+      return;
+    }
+    try {
+      await pool.cancel(lease);
+      return { ok: true, state: "disposed" };
+    } catch (err) {
+      reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/kernel/release", async (req, reply) => {
     const lease = parseLease(req.body);
     const pool = lease ? poolForLease(lease.id) : undefined;
