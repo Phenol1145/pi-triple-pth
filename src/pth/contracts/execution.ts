@@ -37,6 +37,8 @@ export interface ExecutionGrant {
   readonly capabilities: readonly string[];
   readonly issuedAt: string;
   readonly deadlineAt: string;
+  /** P2-1：bootstrap 注入密钥签发的 HMAC 签名；无签名 grant 仅可用于结构校验，不可执行 */
+  readonly signature?: string;
 }
 
 export interface ExecutionResult {
