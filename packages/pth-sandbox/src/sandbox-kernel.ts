@@ -19,8 +19,8 @@ export interface SandboxKernelOptions {
   url: string;
   /** P2-2 遗留字段：保留兼容，但不再作为 kernel 执行认证发送 */
   secret?: string;
-  /** 执行 grant（静态或按 acquire 时机提供）——acquire 唯一授权凭据 */
-  grant?: SandboxExecutionGrant | (() => Promise<SandboxExecutionGrant> | SandboxExecutionGrant);
+  /** 执行 grant（静态或按 acquire 时机 + language 提供）——acquire 唯一授权凭据 */
+  grant?: SandboxExecutionGrant | ((language: "python" | "bash") => Promise<SandboxExecutionGrant> | SandboxExecutionGrant);
   /** python | bash */
   language: "python" | "bash";
   /** 构造时 acquire（默认 true）；false 供测试注入已有 lease */
@@ -37,7 +37,7 @@ export class SandboxKernel implements Interpreter {
   /** 远程状态经 execute/snapshot 访问——本地同步读返回空 */
   readonly state: Record<string, unknown> = {};
   private url: string;
-  private grant: SandboxExecutionGrant | (() => Promise<SandboxExecutionGrant> | SandboxExecutionGrant) | undefined;
+  private grant: SandboxExecutionGrant | ((language: "python" | "bash") => Promise<SandboxExecutionGrant> | SandboxExecutionGrant) | undefined;
   private lease: SandboxLease | null;
   private requestTimeoutMs: number;
   private acquireTimeoutMs: number;
@@ -100,7 +100,7 @@ export class SandboxKernel implements Interpreter {
       this.acquirePromise = (async () => {
         if (this.lease) return;
         if (!this.grant) throw new Error("SandboxKernel: execution grant required（P2-2——不再使用共享密钥）");
-        const grant = typeof this.grant === "function" ? await this.grant() : this.grant;
+        const grant = typeof this.grant === "function" ? await this.grant(this.language as "python" | "bash") : this.grant;
         const r = await this.call<{ lease: SandboxLease }>("/kernel/acquire", { lang: this.language, grant }, this.acquireTimeoutMs);
         this.lease = r.lease;
       })().catch((e) => {

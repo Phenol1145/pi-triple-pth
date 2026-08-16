@@ -30,6 +30,8 @@ services:
   # F/WP3 Task 11：sandbox 转发客户端 env（共享密钥 compose 注入，非镜像硬编码）
       - SANDBOX_URL=http://sandbox:8080
       - SANDBOX_SHARED_SECRET=${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}
+      # P2-2/Side B 接线：PTH 与 sandbox 共用 grant 签名密钥（强校验，无默认值——缺失拒绝启动）
+      - PTH_EXECUTION_GRANT_SECRET=${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}
       # PTH 本容器 kernel-mode 记忆桥上游 token（与 sandbox 用同一 Redis Bearer token；不注入 sandbox workload）
       - PTH_MEMORY_BRIDGE_TOKEN=${PTH_MEMORY_BRIDGE_TOKEN:-}
     # kernel sandbox SPEC §3.3：REPL kernel 执行层落 sandbox 侧（持久 kernel 宿主池）
@@ -108,6 +110,8 @@ services:
       - compiled-cache:/data/compiled-cache   # 编译核持久缓存（跨调用/跨容器重启）
     environment:
       - SANDBOX_SHARED_SECRET=${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}
+      # P2-2/Side B 接线：sandbox 侧 grant verifier 签名密钥（与 pi-platform 同值；强校验无默认值）
+      - PTH_EXECUTION_GRANT_SECRET=${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}
       - LOG_LEVEL=info
       # PTH 记忆桥上游 token（Redis Bearer token，含 tenant/space 声明；controller-only，绝不注入 workload）
       - PTH_MEMORY_BRIDGE_TOKEN=${PTH_MEMORY_BRIDGE_TOKEN:-}
