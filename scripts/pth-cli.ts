@@ -9,6 +9,8 @@
  *   pth wait <taskId> [--timeout <秒>]        # 轮询到 completed + 打印 result
  *   pth roles                                   # 列出可派发角色（含 governance——显式 flow）
  *   pth tags                                    # 列出已注册标签
+ *   pth config                                  # 配置分组表（secret 打码）
+ *   pth config export [--include-token]         # PTL 信息迁移命令
  *
  * 环境变量：PTH_API（缺省 http://localhost:3000）/ PTH_TOKEN（缺省 test-token-123）
  *   / PTH_CREATED_BY（缺省 cli）
@@ -148,10 +150,33 @@ async function roles(): Promise<void> {
   }
 }
 
-async function tags(): Promise<void> {
-  const { tagRegistry } = await import("../src/pth/kernel/execution/tag-registry.js");
-  console.log("已注册标签:");
-  for (const t of tagRegistry.list()) console.log(`  ${t.name} (${t.kind}${t.role ? ` → ${t.role}` : ""})`);
+async function configList(): Promise<void> {
+  // 配置集中化 C4：schema 是唯一真相源——分组打印当前有效值（secret 打码）
+  const { PTH_CONFIG_SCHEMA, pthConfig } = await import("../src/pth/config/index.js");
+  const cfg = pthConfig();
+  const groups = new Map<string, typeof PTH_CONFIG_SCHEMA>();
+  for (const def of PTH_CONFIG_SCHEMA) {
+    const arr = groups.get(def.group) ?? [];
+    arr.push(def);
+    groups.set(def.group, arr);
+  }
+  console.log("PTH 配置（schema 唯一真相源 · secret 打码 · runtime=可运行时调整）:\n");
+  for (const [group, defs] of [...groups.entries()].sort()) {
+    console.log(`[${group}]`);
+    for (const def of defs) {
+      const value = def.secret ? "***" : cfg.str(def.key);
+      console.log(`  ${def.key.padEnd(36)} = ${value.padEnd(24)} default=${String(def.default).padEnd(16)} ${def.runtime ? "runtime" : ""}  ${def.description}`);
+    }
+    console.log("");
+  }
+}
+
+async function configExport(): Promise<void> {
+  // PTL 信息迁移通道：输出 ptl config set 命令（token 默认不打；--include-token 显式导出）
+  const { exportPtlMigration } = await import("../src/pth/config/index.js");
+  const lines = exportPtlMigration(process.env, rest.includes("--include-token"));
+  console.log("PTL 迁移命令（复制执行）:");
+  for (const l of lines) console.log(`  ${l}`);
 }
 
 async function main(): Promise<void> {
@@ -162,8 +187,11 @@ async function main(): Promise<void> {
     case "wait": return wait();
     case "roles": return roles();
     case "tags": return tags();
+    case "config":
+      if (rest[0] === "export") return configExport();
+      return configList();
     default:
-      console.log(`用法: pth <submit|handoff|status|wait|roles|tags> ...\n  示例: npm run pth -- handoff\n        npm run pth -- submit "【目标】..." --concept\n        npm run pth -- submit "任务描述" --role developer --tags implement\n        npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y`);
+      console.log(`用法: pth <submit|handoff|status|wait|roles|tags|config> ...\n  示例: npm run pth -- handoff\n        npm run pth -- submit "【目标】..." --concept\n        npm run pth -- submit "任务描述" --role developer --tags implement\n        npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y\n        npm run pth -- config              # 配置分组表（secret 打码）\n        npm run pth -- config export       # PTL 迁移命令`);
   }
 }
 
