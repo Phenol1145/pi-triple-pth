@@ -47,10 +47,19 @@ export interface KernelHostOptions {
   onStderr?: (lang: string, line: string) => void;
 }
 
+/** S1-4：kernel-host shutdown 句柄——释放全部池条目 + detach 全部 gdb 会话（幂等）。 */
+export interface KernelHostHandle {
+  dispose(): Promise<void>;
+  status(): {
+    pools: ReturnType<KernelPool["status"]>[];
+    debugSessions: number;
+  };
+}
+
 const VALID_LANGS: KernelLang[] = ["python", "bash"];
 
 /** 插件式注册：把 kernel 宿主路由挂到已有 Fastify app（sandbox main 与 exec API 同端口） */
-export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions = {}): void {
+export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions = {}): KernelHostHandle {
   const getSecret = opts.getSecret ?? (() => process.env.SANDBOX_SHARED_SECRET);
   const getBridgeToken = opts.getBridgeToken ?? (() => process.env.PTH_MEMORY_BRIDGE_TOKEN);
   // 池容量：env PTH_KERNEL_POOL_SIZE 优先（compose 注入——需 >= 并发 worker 数），option 次之
@@ -467,11 +476,35 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       debug: { sessions: debugSessions.size, maxSessions: debugMaxSessions },
     };
   });
+
+  // ── S1-4：shutdown dispose（幂等）——释放全部池条目 + detach 全部 gdb 会话 ──
+  let disposed = false;
+  const handle: KernelHostHandle = {
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      await Promise.all([pools.python.dispose(), pools.bash.dispose()]);
+      for (const [, rec] of debugSessions) {
+        try { await rec.session.detach(); } catch { /* 容错 */ }
+      }
+      debugSessions.clear();
+      leasePools.clear();
+    },
+    status() {
+      return {
+        pools: [pools.python.status(), pools.bash.status()],
+        debugSessions: debugSessions.size,
+      };
+    },
+  };
+  app.addHook("onClose", async () => { await handle.dispose(); });
+  return handle;
 }
 
 /** 独立 app（测试用）——与 main.ts 同构：exec 与 kernel 路由同端口 */
 export function buildKernelHostApp(opts: KernelHostOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
-  registerKernelHost(app, opts);
+  const handle = registerKernelHost(app, opts);
+  app.decorate("kernelHostHandle", handle);
   return app;
 }

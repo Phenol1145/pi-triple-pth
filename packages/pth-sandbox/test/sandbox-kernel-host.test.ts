@@ -257,6 +257,22 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
     }
   });
 
+  it("S1-4：kernelHostHandle.dispose 释放全部池条目（幂等，后续 acquire 用新条目）", async () => {
+    const local = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
+    await local.ready();
+    const handle = (local as unknown as { kernelHostHandle: { dispose(): Promise<void>; status(): { pools: Array<{ size: number }>; debugSessions: number } } }).kernelHostHandle;
+    const acq = await local.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
+    expect(acq.statusCode).toBe(200);
+    const { lease } = acq.json() as { lease: SandboxLease };
+    expect(handle.status().pools.some((p) => p.size > 0)).toBe(true);
+    await handle.dispose();
+    await handle.dispose();   // 幂等
+    expect(handle.status().pools.every((p) => p.size === 0)).toBe(true);
+    const stale = await local.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "1 + 1" }, headers: auth() });
+    expect(stale.statusCode).toBe(400);
+    await local.close();
+  });
+
   it("非法 lang → 400", async () => {
     const r = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "ruby", grant: makeGrant() }, headers: auth() });
     expect(r.statusCode).toBe(400);
