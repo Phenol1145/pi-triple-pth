@@ -119,6 +119,27 @@ describe("web capability（S0-2 DNS rebinding + S0-3 流式限量）", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("IPv6 解析为 ::1 时整体拒绝", async () => {
+    const { calls, request } = makeRequest([]);
+    const web = createWebCapability({ lookup: async () => [{ address: "::1", family: 6 }], request });
+    await expect(web.fetchText("https://attacker.example/x")).rejects.toThrow(/::1/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("IPv6 解析为链路本地 fe80:: 时整体拒绝", async () => {
+    const { calls, request } = makeRequest([]);
+    const web = createWebCapability({ lookup: async () => [{ address: "fe80::1", family: 6 }], request });
+    await expect(web.fetchText("https://attacker.example/x")).rejects.toThrow(/fe80::1/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("IPv4-mapped IPv6 私网地址同样拒绝", async () => {
+    const { calls, request } = makeRequest([]);
+    const web = createWebCapability({ lookup: async () => [{ address: "::ffff:127.0.0.1", family: 6 }], request });
+    await expect(web.fetchText("https://attacker.example/x")).rejects.toThrow(/::ffff:127\.0\.0\.1/);
+    expect(calls).toHaveLength(0);
+  });
+
   it("解析失败向上传播", async () => {
     const { request } = makeRequest([]);
     const web = createWebCapability({

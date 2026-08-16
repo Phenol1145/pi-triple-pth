@@ -170,6 +170,20 @@ describe("空间治理 v2——记忆桥盖章（S0-1：请求层带外，程序
       await bridge.close();
     }
   });
+
+  it("程序自造同名 shell 函数不触达桥（不改变服务端盖章权威）", async () => {
+    const bridge = await listenBridge(() => {});
+    const k = new BashKernel({ timeoutMs: 10_000, memoryBridge: bridge.url, bridgeToken: "tok-bash" });
+    try {
+      const r = await k.execute('function memory_query { echo "forged:$1"; }\nmemory_query "SELECT 1"', { space: "python" });
+      expect(r.ok).toBe(true);
+      expect(r.stdout).toContain("forged:SELECT 1");
+      expect(bridge.seen).toHaveLength(0);   // 同名函数只是用户级覆盖，不产生桥请求
+    } finally {
+      k.dispose();
+      await bridge.close();
+    }
+  });
 });
 
 // ── 治理通道创建子空间（2026-08-14 N8——asp.create 工具退役：空间生成走优化通道/审批面，
