@@ -16,14 +16,15 @@ import {
   type TenantScope,
 } from "../contracts/index.js";
 import type { TaskOutcomeCommitter } from "./task-outcome-committer.js";
-
-export type TaskOutcomeObserver = (event: { outcome: TaskOutcome; committed: boolean }) => void | Promise<void>;
+import { notifyObservers, type TaskOutcomeObserver } from "./task-outcome-observers.js";
 
 export interface TaskDispatcherDeps {
   repository: TaskRepository;
   committer: TaskOutcomeCommitter;
   runner: TaskRunner;
   observers?: readonly TaskOutcomeObserver[];
+  /** observer 事件的附加上下文（task/workspace/trace 等——runner 不感知，调用方装配） */
+  context?: Record<string, unknown>;
   logger?: (msg: string) => void;
 }
 
@@ -81,13 +82,7 @@ export class TaskDispatcher {
       if (committed) result.committed++;
 
       if (committed) {
-        for (const observer of this.deps.observers ?? []) {
-          try {
-            await observer({ outcome, committed });
-          } catch (e) {
-            this.deps.logger?.(`observer failed: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }
+        await notifyObservers(this.deps.observers ?? [], { outcome, committed, lease, work, context: this.deps.context }, this.deps.logger);
       }
     }
 
