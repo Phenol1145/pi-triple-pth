@@ -80,7 +80,7 @@ token 写入 Redis（redis 容器无 host 端口且已开启 AUTH，必须经 co
 PTH 主服务可直接 `node dist/pth/main.js` 试运行，或按 §2.3 用 compose 起容器）。
 
 ```bash
-VERSION=1.1.0
+VERSION=1.1.1
 curl -LO https://github.com/Phenol1145/pi-triple/releases/download/v${VERSION}/pi-triple-v${VERSION}.tgz
 shasum -a 256 pi-triple-v${VERSION}.tgz   # 与 GitHub Release 页面 / 发布说明中的 sha256 核对
 mkdir pi-triple-v${VERSION} && tar -xzf pi-triple-v${VERSION}.tgz -C pi-triple-v${VERSION}
