@@ -20,6 +20,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { parseExtManifest, type ExtManifest, type ExtRole } from "./ext-manifest.js";
 import { getEventBus, type KernelEventHandler } from "../execution/event-bus.js";
+import { validateCatalogContributions } from "../../catalog/extensions/contribution-schema.js";
 import { registerWorkerRole } from "../execution/worker-cluster.js";
 import type { Toolstore } from "../interpreter/toolstore.js";
 
@@ -72,6 +73,8 @@ export interface ExtRegistryOptions {
   extContext: ExtContext;
   pluginApiVersion?: string;
   onError?: (extId: string, err: Error) => void;
+  /** P3-3：catalog 严格贡献模式（默认 false=legacy 兼容；bootstrap 走 true） */
+  strictCatalogContributions?: boolean;
 }
 
 export interface LoadedExt {
@@ -218,6 +221,14 @@ export class ExtRegistry {
     // 1. manifest 校验
     const manifestJson = await this.opts.toolstore.readText(`extensions/${id}/plugin.json`);
     const manifest = parseExtManifest(manifestJson, this.opts.pluginApiVersion);
+
+    // P3-3：catalog 严格模式——tools/events/kernels/debugAdapters/onStartup 声明拒绝
+    if (this.opts.strictCatalogContributions) {
+      const check = validateCatalogContributions(manifest.contracts);
+      if (!check.ok) {
+        throw new Error(`扩展 ${id} 贡献声明不支持 catalog（${check.unsupported.join(", ") || "缺少实现"}）：${check.diagnostics.join("；")}`);
+      }
+    }
 
     // 2. index.js/index.ts eval（复用 toolstore 代码通道——eval 重放；2026-08-12 SDK 完善：
     //    入口约定 .js（checkJs + JSDoc 类型检查友好）——.ts 向后兼容（纯 JS 内容））
