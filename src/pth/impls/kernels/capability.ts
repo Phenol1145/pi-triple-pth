@@ -180,7 +180,8 @@ export interface WebLookup {
 export interface WebResponse {
   status: number;
   headers: { get(name: string): string | null };
-  body(): Promise<Uint8Array>;
+  /** 流式 body——消费方按 chunk 读取；超限时调用 cancel 断开上游。 */
+  body(): AsyncIterable<Uint8Array>;
   cancel?(): void;
 }
 
@@ -277,10 +278,11 @@ function isRedirect(status: number): boolean {
 }
 
 /** 默认传输：node http/https + pin 到 fetchText 已校验的首个地址（不再触发第二次解析）。 */
-async function defaultWebRequest(url: URL, init: { signal: AbortSignal; addresses: ResolvedAddress[] }): Promise<WebResponse> {
+export async function defaultWebRequest(url: URL, init: { signal: AbortSignal; addresses: ResolvedAddress[] }): Promise<WebResponse> {
   const lib = url.protocol === "https:" ? https : http;
   const address = init.addresses[0]!;
   return new Promise((resolve, reject) => {
+    let upstream: ReturnType<typeof lib.request> | null = null;
     const req = lib.request(
       {
         hostname: url.hostname.replace(/^\[|\]$/g, ""),
@@ -289,11 +291,17 @@ async function defaultWebRequest(url: URL, init: { signal: AbortSignal; addresse
         method: "GET",
         headers: { accept: "text/html,text/plain,*/*", "user-agent": "pth-web-fetch/1.0" },
         signal: init.signal,
-        lookup: (_hostname, _options, callback) => {
-          callback(null, address.address, address.family || 4);
+        lookup: (_hostname, options, callback) => {
+          // node http.request 以 all:true 调用 lookup——该分支必须回传地址数组（LookupAddress[]）
+          if ((options as { all?: boolean }).all) {
+            callback(null, [{ address: address.address, family: address.family || 4 }]);
+          } else {
+            callback(null, address.address, address.family || 4);
+          }
         },
       },
       (res) => {
+        upstream = req;
         const headers = res.headers;
         resolve({
           status: res.statusCode ?? 0,
@@ -303,15 +311,14 @@ async function defaultWebRequest(url: URL, init: { signal: AbortSignal; addresse
               return Array.isArray(value) ? value[0] ?? null : value ?? null;
             },
           },
-          body: async () => {
-            const chunks: Buffer[] = [];
+          body: async function* () {
             for await (const chunk of res) {
-              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer));
+              yield Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBuffer);
             }
-            return new Uint8Array(Buffer.concat(chunks));
           },
           cancel: () => {
             res.destroy();
+            upstream?.destroy();
           },
         });
       },
@@ -319,6 +326,28 @@ async function defaultWebRequest(url: URL, init: { signal: AbortSignal; addresse
     req.on("error", reject);
     req.end();
   });
+}
+
+/** 流式限量读取：累计超 maxBytes 即 cancel 上游并抛错；TextDecoder 流式解码防多字节跨 chunk 断裂。 */
+export async function readWebBody(res: WebResponse, maxBytes: number): Promise<string> {
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+  try {
+    for await (const chunk of res.body()) {
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        res.cancel?.();
+        throw new Error(`web.fetchText: response too large (${total} > ${maxBytes} bytes)`);
+      }
+      text += decoder.decode(chunk, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } catch (err) {
+    res.cancel?.();
+    throw err;
+  }
 }
 
 export function createWebCapability(opts: WebCapabilityOptions = {}): WebCapability {
@@ -349,11 +378,7 @@ export function createWebCapability(opts: WebCapabilityOptions = {}): WebCapabil
             res.cancel?.();
             throw new Error(`web.fetchText: HTTP ${res.status} for ${target}`);
           }
-          const buf = await res.body();
-          if (buf.byteLength > maxBytes) {
-            throw new Error(`web.fetchText: response too large (${buf.byteLength} > ${maxBytes} bytes)`);
-          }
-          const text = new TextDecoder().decode(buf);
+          const text = await readWebBody(res, maxBytes);
           // 内容类型判定：HTML 剥标签，其余原样
           const ctype = res.headers.get("content-type") ?? "";
           return /html/i.test(ctype) ? stripHtml(text) : text;

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { createWebCapability, type ResolvedAddress } from "../../src/pth/impls/kernels/capability";
+import { createServer, type AddressInfo } from "node:http";
+import {
+  createWebCapability,
+  defaultWebRequest,
+  readWebBody,
+  type ResolvedAddress,
+} from "../../src/pth/impls/kernels/capability";
 
 const PUBLIC_ADDR: ResolvedAddress[] = [{ address: "8.8.8.8", family: 4 }];
 const PRIVATE_ADDR: ResolvedAddress[] = [{ address: "127.0.0.1", family: 4 }];
@@ -7,16 +13,24 @@ const PRIVATE_ADDR: ResolvedAddress[] = [{ address: "127.0.0.1", family: 4 }];
 interface FakeResponse {
   status: number;
   headers: { get(name: string): string | null };
-  body: () => Promise<Uint8Array>;
+  body: () => AsyncIterable<Uint8Array>;
+  cancel?: () => void;
 }
 
-function fakeResponse(body: string | Uint8Array, status = 200, headers: Record<string, string> = {}): FakeResponse {
+function fakeResponse(
+  body: string | Uint8Array | Uint8Array[],
+  status = 200,
+  headers: Record<string, string> = {},
+): FakeResponse {
+  const chunks = typeof body === "string" ? [new TextEncoder().encode(body)] : body instanceof Uint8Array ? [body] : body;
   return {
     status,
     headers: {
       get: (name) => headers[name.toLowerCase()] ?? null,
     },
-    body: async () => (typeof body === "string" ? new TextEncoder().encode(body) : body),
+    body: async function* () {
+      for (const chunk of chunks) yield chunk;
+    },
   };
 }
 
@@ -32,7 +46,7 @@ function makeRequest(responses: FakeResponse[]) {
   return { calls, request };
 }
 
-describe("web capability（S0-2 DNS rebinding 防护）", () => {
+describe("web capability（S0-2 DNS rebinding + S0-3 流式限量）", () => {
   it("fetchText 获取纯文本（非 HTML）", async () => {
     const { calls, request } = makeRequest([fakeResponse("hello go spec", 200, { "content-type": "text/plain" })]);
     const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
@@ -138,5 +152,63 @@ describe("web capability（S0-2 DNS rebinding 防护）", () => {
     });
     await expect(web.fetchText("https://start.test/begin")).rejects.toThrow(/DNS 解析到非公网地址/);
     expect(calls).toHaveLength(1);
+  });
+
+  // ── S0-3：流式限量 ────────────────────────────────────────────────
+
+  it("多字节 UTF-8 字符跨 chunk 不裂", async () => {
+    const encoded = new TextEncoder().encode("你好，世界 🌍");
+    const split = Math.floor(encoded.length / 2);
+    const { request } = makeRequest([
+      fakeResponse([encoded.slice(0, split), encoded.slice(split)], 200, { "content-type": "text/plain" }),
+    ]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
+    expect(await web.fetchText("https://go.dev/ref/spec")).toBe("你好，世界 🌍");
+  });
+
+  it("超限时立即 cancel，不消费剩余 body", async () => {
+    let canceled = false;
+    let yieldedAfterOverflow = false;
+    const response = fakeResponse(new Uint8Array(0));
+    response.body = async function* () {
+      yield new Uint8Array(60);
+      yield new Uint8Array(60);   // 总量 120 > maxBytes 100
+      yieldedAfterOverflow = true;
+      yield new Uint8Array(1000);
+    };
+    response.cancel = () => { canceled = true; };
+    const { request } = makeRequest([response]);
+    const web = createWebCapability({ lookup: async () => PUBLIC_ADDR, request });
+    await expect(web.fetchText("https://go.dev/ref/spec", { maxBytes: 100 })).rejects.toThrow(/too large/);
+    expect(canceled).toBe(true);
+    expect(yieldedAfterOverflow).toBe(false);
+  });
+
+  it("默认传输流式读取超限时关闭上游连接（不等完整 body）", async () => {
+    let clientClosed = false;
+    let sentBytes = 0;
+    const server = createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      const timer = setInterval(() => {
+        if (res.destroyed || res.writableEnded) { clearInterval(timer); return; }
+        res.write(new Uint8Array(64));
+        sentBytes += 64;
+      }, 5);
+      req.on("close", () => { clientClosed = true; clearInterval(timer); });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const res = await defaultWebRequest(new URL(`http://unused-host.test:${port}/`), {
+        signal: new AbortController().signal,
+        addresses: [{ address: "127.0.0.1", family: 4 }],
+      });
+      await expect(readWebBody(res, 100)).rejects.toThrow(/too large/);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(clientClosed).toBe(true);
+      expect(sentBytes).toBeLessThan(2000);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 });
