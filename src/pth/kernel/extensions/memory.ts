@@ -6,7 +6,7 @@
 
 import type { TsReplExtension } from "./types.js";
 import { checkWrite, checkUpdate, normalizeWriteArgs } from "@away_from/pth-memory";
-import { checkVisibilityDeclaration, stampScope, isVisible, validateWikiWrite } from "@away_from/pth-memory";
+import { checkVisibilityDeclaration, stampScope, filterVisibleEntries, filterVisibleRows, requireMetaRows, validateWikiWrite } from "@away_from/pth-memory";
 import { spaceRegistry } from "../execution/space-registry.js";
 
 /**
@@ -40,7 +40,7 @@ export const memoryExtension: TsReplExtension = {
           const entry = await store.get(id);
           const space = ctx.sessionRef?.current?.currentSpace;
           if (!entry || !space) return entry;
-          return isVisible(entry.meta as Record<string, unknown>, space) ? entry : undefined;
+          return filterVisibleEntries([entry], space)[0];
         },
         // ASP 可见性过滤（读侧——仅在会话态（ASP 模式）下生效；无会话=过渡兼容不过滤）
         query: async (sql: string) => {
@@ -48,16 +48,11 @@ export const memoryExtension: TsReplExtension = {
           const space = ctx.sessionRef?.current?.currentSpace;
           if (!space) return rows;
           // 2026-08-15 筛查 H3：缺 meta 列的行无法判定可见性——fail-closed 拒绝（不再默认公开）
-          if (rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
-            throw new Error("memory.query: 会话空间下查询必须包含 meta 列（可见性过滤依据）——请 SELECT ..., meta FROM memory_entries ...");
-          }
-          return rows.filter((r) => isVisible(r!["meta"] as Record<string, unknown>, space));
+          return filterVisibleRows(requireMetaRows(rows), space);
         },
         retrieve: async (opts?: unknown) => {
-          const entries = await store.retrieve(opts as never);
           const space = ctx.sessionRef?.current?.currentSpace;
-          if (!space) return entries;
-          return entries.filter((e) => isVisible(e.meta as Record<string, unknown>, space));
+          return filterVisibleEntries(await store.retrieve(opts as never), space);
         },
         // 用途层策略包装（权限 v2 R1——worker 面内嵌规则）：
         //   prompt/config 层拒写；governance 层强制 draft；force 参数剥离（防旁路 store 层系统文档保护）

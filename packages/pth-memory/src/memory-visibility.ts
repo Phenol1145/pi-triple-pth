@@ -50,6 +50,25 @@ export function isDescendantOrSelf(space: string, ancestorSpace: string): boolea
   return false;
 }
 
+/** H5：可见性过滤单一入口（memory.query/retrieve/get 与 recall 面共用） */
+export function filterVisibleEntries<T extends { meta?: unknown }>(entries: T[], currentSpace?: string): T[] {
+  if (!currentSpace) return entries;   // 非会话态——过渡兼容
+  return entries.filter((e) => isVisible(e.meta as Record<string, unknown> | undefined, currentSpace));
+}
+
+/** H5：SQL 行过滤（rows 已由调用方保证含 meta 列） */
+export function filterVisibleRows<T extends { meta?: unknown }>(rows: T[], currentSpace?: string): T[] {
+  return filterVisibleEntries(rows, currentSpace);
+}
+
+/** H3/H5：fail-closed 元数据列断言（缺 meta 无法判定可见性——拒绝而非默认公开） */
+export function requireMetaRows(rows: Array<Record<string, unknown> | null | undefined>): Array<Record<string, unknown>> {
+  if (rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
+    throw new Error("memory.query: 会话空间下查询必须包含 meta 列（可见性过滤依据）——请 SELECT ..., meta FROM memory_entries ...");
+  }
+  return rows as Array<Record<string, unknown>>;
+}
+
 /** 条目对当前空间是否可见 */
 export function isVisible(meta: Record<string, unknown> | undefined, currentSpace: string): boolean {
   const scope = scopeOf(meta);

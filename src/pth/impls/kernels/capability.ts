@@ -6,7 +6,7 @@ import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
 import { wrapValidated } from "../../kernel/ptc/contract.js";
-import { isVisible, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
+import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
 import { isIP } from "node:net";
 import { pthConfig } from "../../config/index.js";
 import http from "node:http";
@@ -410,11 +410,8 @@ export function createRecallState(
   memory: Pick<PgMemoryStore, "retrieve">,
   sessionRef?: { current: { currentSpace: string } | null },
 ): RecallState {
-  const visible = <T extends { meta?: unknown }>(entries: T[]): T[] => {
-    const space = sessionRef?.current?.currentSpace;
-    if (!space) return entries;   // 非会话态——过渡兼容（与 memory.query 同语义）
-    return entries.filter((e) => isVisible(e.meta as Record<string, unknown>, space));
-  };
+  const visible = <T extends { meta?: unknown }>(entries: T[]): T[] =>
+    filterVisibleEntries(entries, sessionRef?.current?.currentSpace);
   return {
     async recallFunctions(anchors, opts = {}) {
       const entries = visible(await memory.retrieve({ anchors, kinds: ["tool-function"], status: ["official"] }));
