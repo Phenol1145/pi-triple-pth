@@ -168,6 +168,16 @@ ptl hub kernel batch worker <pause|resume|remove|add> <batchId> <role> [copies]
 | `PTH_KERNEL_LAZY_SPAWN` | 1 | 懒 spawn（首次 execute 才起进程——省内存） |
 | `PTH_KERNEL_IDLE_MS` | 300000 | 空闲回收（5min 无调用 kill——0=禁用） |
 | `PTH_KERNEL_RESET_MODE` | ns | reset 语义（ns=清命名空间 / restart=重启进程） |
+| `PTH_KERNEL_ACQUIRE_TIMEOUT_MS` | 10000 | sandbox acquire 排队超时（池满快速失败，agent 步骤内重试） |
+| `PTH_KERNEL_ENTRY_TTL_MS` | 1800000 | sandbox lease TTL（过期 active→cancelling→disposed，绝不乐观标 idle 复用） |
+
+### gdb 调试会话（sandbox 侧）
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `PTH_DEBUG_SESSIONS` | 4 | 调试会话数上限（gdb 进程资源约束） |
+| `PTH_DEBUG_IDLE_MS` | 1800000 | idle detach 阈值（30min 无操作） |
+| `PTH_DEBUG_WORKDIR` | /data/workspaces | 调试工作区根（自动加 `.debug/<id>`） |
 
 ### 模式与模型
 

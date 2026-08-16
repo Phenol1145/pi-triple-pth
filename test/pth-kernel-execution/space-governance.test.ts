@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { createServer, type AddressInfo } from "node:http";
 import { spaceRegistry } from "../../src/pth/kernel/execution/space-registry.js";
 import { buildSpaceIndex } from "../../src/pth/kernel/execution/space-index.js";
 import { PyKernel } from "@away_from/pth-sandbox";
@@ -10,7 +11,8 @@ import { BashKernel } from "@away_from/pth-sandbox";
  *   - meta 禁建子空间（凭据根级固化）；asp.create 在父空间内按表单校验
  *   - 深度衰减（子空间深度 ≤ 父 maxDepth）；extraTools 只能收窄不能扩权
  *   - asp.index 索引即引导（空间树 + 表单展示）
- *   - 记忆桥盖章：kernel 层注入当前空间（python _PTH_SPACE / bash PTH_MEMORY_SPACE）
+ *   - 记忆桥盖章（S0-1，2026-08-16）：space 权威来自服务端 token 声明；
+ *     kernel 不再把盖章暴露进 exec globals/env——程序不可见、不可伪造
  */
 
 describe("空间治理 v2（批 3）——SpaceDef 声明", () => {
@@ -77,42 +79,95 @@ describe("空间治理 v2——asp.index 索引即引导", () => {
   });
 });
 
-describe("空间治理 v2——记忆桥盖章（kernel 层注入当前空间）", () => {
-  it("PyKernel execute 带 space → 用户代码环境 _PTH_SPACE 生效（记忆库读取通道）", async () => {
+describe("空间治理 v2——记忆桥盖章（S0-1：请求层带外，程序不可伪造）", () => {
+  async function listenBridge(onRequest: (body: Record<string, unknown>, auth: string | undefined) => void) {
+    const seen: Array<Record<string, unknown>> = [];
+    const server = createServer((req, res) => {
+      let raw = "";
+      req.setEncoding("utf8");
+      req.on("data", (c) => { raw += c; });
+      req.on("end", () => {
+        const body = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+        onRequest(body, req.headers.authorization);
+        seen.push(body);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/kernel/memory-bridge`;
+    return {
+      seen,
+      url,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
+
+  it("PyKernel 不再把盖章暴露进 exec globals（程序不可见）", async () => {
     const k = new PyKernel({ pythonBin: "python3", timeoutMs: 10_000 });
     try {
-      const r1 = await k.execute("print('stamp=' + str(globals().get('_PTH_SPACE', '(none)')))", { space: "dev" });
+      const r1 = await k.execute("print('_PTH_SPACE_visible=' + str('_PTH_SPACE' in globals()))", { space: "dev" });
       expect(r1.ok).toBe(true);
-      expect(r1.stdout).toContain("stamp=dev");
-      // 无 space → 协议级清章（2026-08-12 审计 ROBUST-2 修复——防 REPL 跨任务残留）
-      const r2 = await k.execute("print('stamp2=' + str(globals().get('_PTH_SPACE', '(none)')))");
+      expect(r1.stdout).toContain("_PTH_SPACE_visible=False");
+      // single 模式也不暴露（协议级 space 不落 exec globals）
+      const r2 = await k.execute("globals().get('_PTH_SPACE', 'absent')", { exec: "single", space: "python" });
       expect(r2.ok).toBe(true);
-      expect(r2.stdout).toContain("stamp2=");
-      // single 模式 + space 不再炸（2026-08-12 审计 BUG-1：前缀注入在 eval 单表达式必 SyntaxError）
-      const r3 = await k.execute("1 + 1", { exec: "single", space: "dev" });
+      expect(r2.value).toBe("absent");
+      // 程序自造同名变量只是普通用户变量，不是盖章
+      const r3 = await k.execute("_PTH_SPACE = 'evil'\nprint('forged=' + str(globals().get('_PTH_SPACE', '(none)')))");
       expect(r3.ok).toBe(true);
-      expect(r3.value).toBe(2);
-      // single 模式的盖章由 PY_RUNTIME 统一设置（eval 前 exec——协议级）——单表达式直接求值验证
-      const r4 = await k.execute("globals().get('_PTH_SPACE', '(none)')", { exec: "single", space: "python" });
-      expect(r4.ok).toBe(true);
-      expect(r4.value).toBe("python");
+      expect(r3.stdout).toContain("forged=evil");
     } finally {
       k.dispose();
     }
   });
 
-  it("BashKernel execute 带 space → PTH_MEMORY_SPACE 生效", async () => {
-    const k = new BashKernel({ timeoutMs: 10_000, lazySpawn: true });
+  it("PyKernel 记忆桥请求不带 body.space——自造 _PTH_SPACE 不改变可见性", async () => {
+    const bridge = await listenBridge(() => {});
+    const k = new PyKernel({ pythonBin: "python3", memoryBridge: bridge.url, bridgeToken: "tok-dev" });
     try {
-      const r1 = await k.execute("echo stamp=$PTH_MEMORY_SPACE", { space: "python" });
-      expect(r1.ok).toBe(true);
-      expect(r1.stdout).toContain("stamp=python");
-      // 无 space → 空
-      const r2 = await k.execute("echo stamp2=$PTH_MEMORY_SPACE");
-      expect(r2.ok).toBe(true);
-      expect(r2.stdout).toContain("stamp2=");
+      const r = await k.execute("_PTH_SPACE = 'evil'\n_result = memory.query('SELECT 1')", { space: "dev" });
+      expect(r.ok).toBe(true);
+      expect(r.value).toEqual({ ok: true });
+      expect(bridge.seen).toHaveLength(1);
+      expect(bridge.seen[0]).not.toHaveProperty("space");
+      expect(bridge.seen[0]!.op).toBe("query");
+      expect(bridge.seen[0]!.sql).toBe("SELECT 1");
     } finally {
       k.dispose();
+      await bridge.close();
+    }
+  });
+
+  it("BashKernel 不再 export PTH_MEMORY_SPACE（env 不可见）", async () => {
+    const k = new BashKernel({ timeoutMs: 10_000, lazySpawn: true });
+    try {
+      const r1 = await k.execute("echo stamp=${PTH_MEMORY_SPACE-unset}", { space: "python" });
+      expect(r1.ok).toBe(true);
+      expect(r1.stdout).toContain("stamp=unset");
+      const r2 = await k.execute("echo stamp2=${PTH_MEMORY_SPACE-unset}");
+      expect(r2.ok).toBe(true);
+      expect(r2.stdout).toContain("stamp2=unset");
+    } finally {
+      k.dispose();
+    }
+  });
+
+  it("BashKernel 记忆桥请求不带 body.space", async () => {
+    let authHeader: string | undefined;
+    const bridge = await listenBridge((_body, auth) => { authHeader = auth; });
+    const k = new BashKernel({ timeoutMs: 10_000, memoryBridge: bridge.url, bridgeToken: "tok-bash" });
+    try {
+      const r = await k.execute('memory_query "SELECT 1"', { space: "python" });
+      expect(r.ok).toBe(true);
+      expect(bridge.seen).toHaveLength(1);
+      expect(bridge.seen[0]).not.toHaveProperty("space");
+      expect(bridge.seen[0]!.op).toBe("query");
+      expect(bridge.seen[0]!.sql).toBe("SELECT 1");
+      expect(authHeader).toBe("Bearer tok-bash");
+    } finally {
+      k.dispose();
+      await bridge.close();
     }
   });
 });

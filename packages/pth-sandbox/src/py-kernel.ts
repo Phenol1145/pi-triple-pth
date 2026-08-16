@@ -87,11 +87,9 @@ def main():
                 continue
             code = req.get("code", "")
             mode = req.get("exec", "auto")   # 2026-08-11 元命令拆分：single=eval 表达式求值 / program=exec 程序
-            # 记忆桥盖章（2026-08-12 批 3）：协议级 space 字段——每次 execute 显式设置（含空串清章——
-            # 防 REPL 跨任务残留）；写 _NAMESPACE（本库从 _NAMESPACE 读取）。single 模式不走代码前缀
-            # （eval 单表达式——前缀注入必 SyntaxError——2026-08-12 审计 BUG-1 修复）。
-            _space = req.get("space", "") or ""
-            exec("_PTH_SPACE = " + json.dumps(_space), _NAMESPACE)
+            # S0-1（2026-08-16）：记忆桥盖章改为请求层带外——space 权威由服务端 token 声明/grant 决定。
+            # 协议级 space 字段仍接收（向前兼容/未来 broker 适配），但绝不写入 exec globals——
+            # 任务代码不可见、不可伪造盖章。
             out = io.StringIO()
             err = io.StringIO()
             old_out, old_err = sys.stdout, sys.stderr
@@ -265,10 +263,8 @@ export class PyKernel implements Interpreter {
     if (!this.child || this.child.exitCode !== null) this.spawn();
     this.touch();
 
-    // 记忆桥盖章（2026-08-12 批 3 审计修复）：协议字段 space 透传 PY_RUNTIME（single/program 统一——
-    // 代码前缀注入在 single 模式必炸（eval 单表达式）；PY_RUNTIME 每次 execute 显式设置 _PTH_SPACE
-    // （含空串清章——防 REPL 跨任务残留）。软治理注：空间内程序可自改 _PTH_SPACE（同 namespace）——
-    // 防的是空间维度的可见性错配与任务间残留，不防同任务内自欺（LLM 无益）。
+    // S0-1（2026-08-16）：协议字段 space 仍透传 PY_RUNTIME（向前兼容 + 未来 v2 P2-5 broker 适配），
+    // 但 PY_RUNTIME 不再把它写进 exec globals——记忆桥 body 不含 space，可见空间由服务端盖章。
     let msg: PyProtocolMsg;
     try {
       msg = await this.call({ code: program, timeoutMs, ...(opts?.exec ? { exec: opts.exec } : {}), ...(opts?.space ? { space: opts.space } : {}) });    } catch (e) {

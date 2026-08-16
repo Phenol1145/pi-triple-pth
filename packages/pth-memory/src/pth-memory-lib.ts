@@ -7,11 +7,9 @@
  * 治理不变：PTH gateway 三层（认证/白名单/可见性过滤）不动——库只是语言侧封装。
  * bridge URL：env PTH_MEMORY_BRIDGE（kernel 模式=localhost:3000 直通；sandbox=localhost:8080 转发——spawn 时注入）。
  *
- * 空间盖章（2026-08-12 批 3 + 审计修复）：桥 body.space 由内核层注入——PyKernel 每次 execute 协议级
- * 显式设置 `_PTH_SPACE`（写 _NAMESPACE——本库从 _NAMESPACE 读取；无 space 清章防跨任务残留）；
- * BashKernel 每次 execute 前置 `export PTH_MEMORY_SPACE`。PTH 侧 isVisible(meta, space) 过滤可见性。
- * 软治理注（2026-08-12 审计）：空间内程序可自改盖章（同 namespace）——防的是空间维度可见性错配与
- * 任务间残留，不防同任务内自欺（LLM 自欺无益）；强隔离需请求层带外盖章（后续架构项）。
+ * 空间盖章（S0-1，2026-08-16）：请求层带外——本库不再发送 body.space；space 权威只来自服务端
+ * （PTH gateway 的 auth token 声明 / 未来 v2 P2-5 grant），sandbox 转发层继续剥 body.space。
+ * PyKernel/BashKernel 不再把盖章暴露进 exec globals/env——程序不可见、不可伪造。
  */
 
 export const PTH_MEMORY_LIB_PY = `# -*- coding: utf-8 -*-
@@ -38,15 +36,15 @@ class Memory:
         self.base = base or os.environ.get(
             "PTH_MEMORY_BRIDGE", "http://localhost:8080/kernel/memory-bridge"
         )
-        # P0-2：优先使用 PTH_MEMORY_BRIDGE_TOKEN（bridge 专用 Bearer token）；沙箱 loopback 无 token 时为空。
-        self.secret = secret or os.environ.get("PTH_MEMORY_BRIDGE_TOKEN", "") or os.environ.get("SANDBOX_SHARED_SECRET", "")
+        # P0-2/S0-1：仅使用 PTH_MEMORY_BRIDGE_TOKEN（bridge 专用 Bearer token）；
+        # 沙箱 loopback 免密钥时为空。不再回退 SANDBOX_SHARED_SECRET。
+        self.secret = secret or os.environ.get("PTH_MEMORY_BRIDGE_TOKEN", "")
 
     def _call(self, op, **kw):
-        # 空间盖章：读 _NAMESPACE（PyKernel 每次 execute 前置写入——内核层注入，程序无法伪造）
-        space = globals().get("_NAMESPACE", {}).get("_PTH_SPACE", "")
+        # S0-1 请求层带外盖章：body 不含 space——可见空间由服务端按 token 声明/grant 盖章。
         req = urllib.request.Request(
             self.base,
-            data=json.dumps({"op": op, "space": space, **kw}).encode(),
+            data=json.dumps({"op": op, **kw}).encode(),
             headers={
                 "Content-Type": "application/json",
                 "Authorization": "Bearer " + self.secret,
