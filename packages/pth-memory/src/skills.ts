@@ -26,6 +26,16 @@ export interface SkillSummary {
 
 const SKILL_KIND_PREFIX = "skill:";
 
+/** W8 P3：穿透 skill 命名空间——skill:penetrate:<child>（child 为类型树角色 id） */
+export const PENETRATION_SKILL_PREFIX = "penetrate:";
+const PENETRATION_NAME_RE = /^penetrate:[a-z0-9][a-z0-9-]{0,63}$/;
+const STANDARD_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
+
+/** 是否穿透 skill 名（penetrate:<child>——注册需 PTH 侧组织权矩阵校验） */
+export function isPenetrationSkillName(name: string): boolean {
+  return PENETRATION_NAME_RE.test(name);
+}
+
 function fieldOf(content: string, label: string): string {
   const re = new RegExp(`【${label}】([^\\n]*)`);
   return content.match(re)?.[1]?.trim() ?? "";
@@ -90,10 +100,10 @@ export type SkillMarkdownParseResult =
 
 export function parseSkillMarkdown(md: string, explicitName?: string): SkillMarkdownParseResult {
   const text = String(md ?? "");
-  const titleMatch = text.match(/^#\s*skill:([a-zA-Z0-9][a-zA-Z0-9._-]*)/m);
+  const titleMatch = text.match(/^#\s*skill:([a-zA-Z0-9][a-zA-Z0-9._:-]*)/m);
   const name = explicitName?.trim() || titleMatch?.[1];
-  if (!name || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(name)) {
-    return { ok: false, error: "skill 名称缺失或非法（标题 `# skill:<name>` 或显式 name）" };
+  if (!name || !(isPenetrationSkillName(name) || STANDARD_NAME_RE.test(name))) {
+    return { ok: false, error: "skill 名称缺失或非法（标题 `# skill:<name>` 或显式 name；穿透 skill 形如 penetrate:<child>）" };
   }
   const anchor = text.match(/【场景锚点】([^\n]*)/)?.[1]?.trim() ?? "";
   const whenToUse = text.match(/【何时用】([^\n]*)/)?.[1]?.trim() ?? "";

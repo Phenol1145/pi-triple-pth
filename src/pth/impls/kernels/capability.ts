@@ -15,6 +15,7 @@ import type {
   TenantScope,
 } from "../../contracts/index.js";
 import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
+import { validatePenetrationSkillRegistration, PENETRATION_SKILL_NAME_PREFIX } from "../../tasking/index.js";
 import { isIP } from "node:net";
 import { pthConfig } from "../../config/index.js";
 import http from "node:http";
@@ -148,12 +149,27 @@ export function buildCapabilities(deps: {
       ...(deps.roleId === "memory-keeper"
         ? {
             maintain: {
-              write: async (input: { name: string; content: string; anchors?: string[]; force?: boolean; audit?: string; proposalId?: string }) =>
-                maintainSkillWrite(deps.dataWorld.memory, input, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" }),
+              write: async (input: { name: string; content: string; anchors?: string[]; force?: boolean; audit?: string; proposalId?: string }) => {
+                // W8 P3：穿透 skill 注册校验（组织权矩阵——parent→child 必须是合法投递边）
+                if (String(input.name ?? "").startsWith(PENETRATION_SKILL_NAME_PREFIX)) {
+                  const v = validatePenetrationSkillRegistration(input.content);
+                  if (!v.ok) throw new PtcContractError("skills.maintain.write", v.error);
+                }
+                return maintainSkillWrite(deps.dataWorld.memory, input, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" });
+              },
               archive: async (id: string, audit?: string) =>
                 maintainSkillArchive(deps.dataWorld.memory, id, audit, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" }),
-              propose: async (input: { action: "write" | "archive"; name: string; content?: string; force?: boolean; anchors?: string[]; audit?: string }) =>
-                proposeSkillMaintenance(deps.dataWorld.memory, input),
+              propose: async (input: { action: "write" | "archive"; name: string; content?: string; force?: boolean; anchors?: string[]; audit?: string }) => {
+                // W8 P3：提案阶段同样先过穿透注册校验（调用即拒绝——不进 proposal 池）
+                if (input.action === "write" && String(input.name ?? "").startsWith(PENETRATION_SKILL_NAME_PREFIX)) {
+                  if (typeof input.content !== "string" || input.content.trim() === "") {
+                    throw new PtcContractError("skills.maintain.propose", "穿透 skill 提案必须携带 content");
+                  }
+                  const v = validatePenetrationSkillRegistration(input.content);
+                  if (!v.ok) throw new PtcContractError("skills.maintain.propose", v.error);
+                }
+                return proposeSkillMaintenance(deps.dataWorld.memory, input);
+              },
             },
           }
         : {}),

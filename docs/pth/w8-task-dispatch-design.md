@@ -153,4 +153,7 @@ tasks.await({ taskId, timeoutMs? }) →
   订阅 ActivityHub 子终态事件 → 父 `payload.childResult` + 清登记；`tasks.resume()` 重跑续接；
   取消传播（`TaskControlService.cancel` 递归 CTE + `POST /tasks/:id/cancel`）；
   PTL `ptl hub kernel wait <id> --follow` 打印逐层 path/childResult 摘要；
-- **P3 穿透接口**：`skill:penetrate:*` 类型与注册校验（不实现执行优化）。
+- **P3 穿透接口**：✅ 已完成——`skill:penetrate:<child>` 类型与四段式内容/机读边信息
+  （`penetration-skill.ts`）+ 注册校验（parent→child 必须命中组织权矩阵——memory-keeper
+  `skills.maintain.write/propose` 调用即拒绝）+ 内存条目构造器 `buildPenetrationSkillEntry`
+  （后续优化管线发现→审批→注册直接落库）；执行优化（父直调子 agent）留待后续阶段。

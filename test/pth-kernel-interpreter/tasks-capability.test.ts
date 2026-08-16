@@ -122,4 +122,22 @@ describe("W8 P1：tasks.delegate/await 能力注入", () => {
     expect(() => tasks.delegate({ to: "coder", title: "", text: "x" })).toThrow(/\[tasks.delegate\].*title/);
     expect(delegate).not.toHaveBeenCalled();
   });
+
+  it("W8 P3：穿透 skill 在 memory-keeper 维护面注册校验（坏形状不进 write/propose）", async () => {
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld() as never,
+      toolstore: fakeToolstore as never,
+      roleId: "memory-keeper",
+    });
+    const skills = caps["skills"] as {
+      maintain: {
+        write: (i: { name: string; content: string }) => Promise<unknown>;
+        propose: (i: { action: "write"; name: string; content?: string }) => Promise<unknown>;
+      };
+    };
+    await expect(skills.maintain.write({ name: "penetrate:coder", content: "bad" })).rejects.toThrow(/标题缺失或非法/);
+    await expect(skills.maintain.propose({ action: "write", name: "penetrate:coder", content: "bad" })).rejects.toThrow(/标题缺失或非法/);
+    await expect(skills.maintain.propose({ action: "write", name: "penetrate:coder" })).rejects.toThrow(/必须携带 content/);
+  });
 });
