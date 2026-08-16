@@ -4,6 +4,7 @@ import { getEventBus } from "./execution/event-bus.js";
 import { toKernelActivityEvent } from "./execution/kernel-event-bridge.js";
 import { parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles } from "./execution/worker-cluster.js";
 import { checkTaskRouting, routeTaskRole } from "./execution/role-router.js";
+import { parseWorkerRoleRecovery, parseSpaceRecovery } from "./execution/recovery-validation.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "./execution/builtin-roles.js";
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
@@ -305,11 +306,15 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     const persisted = await dataWorld.memory.retrieve({ kinds: ["worker-role"], status: ["official"] });
     for (const e of persisted) {
       try {
-        const role = JSON.parse(e.content) as { id?: string; parent?: string; tags?: string[] };
-        if (role?.id && role.parent && !allWorkerRoles().some((r) => r.id === role.id)) {
-          registerWorkerRole(role as never);
-          recoveredRoles.push(role as { id: string });
+        // H7：来源校验 + 结构校验——伪造 official 条目不得驱动装配注册
+        const parsed = parseWorkerRoleRecovery({ content: e.content, meta: e.meta });
+        if (!parsed.ok) {
+          assemblyLogger?.warn?.(`[assembly] worker-role 恢复拒绝 ${e.id}: ${parsed.reason}`);
+          continue;
         }
+        if (allWorkerRoles().some((r) => r.id === parsed.value.id)) continue;
+        registerWorkerRole(parsed.value as never);
+        recoveredRoles.push(parsed.value as { id: string });
       } catch (e2) {
         assemblyLogger?.warn?.(`[assembly] worker-role 恢复失败 ${e.id}: ${(e2 as Error).message}`);
       }
@@ -339,8 +344,14 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     let restored = 0;
     for (const e of spaces) {
       try {
-        const def = JSON.parse(e.content) as { id?: string; parent?: string; execTool?: string; extraTools?: string[]; memoryScope?: string; description?: string; bindRoles?: string[] };
-        if (def?.id && def.parent && def.execTool && !spaceRegistry.get(def.id)) {
+        // H7：父空间必须存在 + execTool 白名单 + 结构校验
+        const parsed = parseSpaceRecovery({ content: e.content, meta: e.meta }, (id) => !!spaceRegistry.get(id));
+        if (!parsed.ok) {
+          assemblyLogger?.warn?.(`[assembly] space-reg 恢复拒绝 ${e.id}: ${parsed.reason}`);
+          continue;
+        }
+        const def = parsed.value;
+        if (!spaceRegistry.get(def.id)) {
           spaceRegistry.register({
             id: def.id, kind: "action", parent: def.parent, execTool: def.execTool,
             extraTools: def.extraTools, memoryScope: def.memoryScope, description: def.description ?? "（恢复）",
