@@ -23,13 +23,12 @@ import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapsho
 // （$1 作 argv 单层传递——bash 引号嵌套易错：双引号内 \" 在 seed 链路被吞、
 //  '"'"'$1'"'"' 把 $1 锁进单引号不展开——argv 方案零嵌套）。
 // 反引号模板串：bash 代码无 ${ 冲突（$PTH_MEMORY_BRIDGE / $1 均非 ${ 前缀）。
-// 记忆桥盖章（2026-08-12 批 3 + 审计修复）：body 带 space=sys.argv[4]（$PTH_MEMORY_SPACE——BashKernel 每次
-// execute 前置 export（无 space 时清章——防 REPL 跨任务残留）。软治理注：空间内程序可自改该 env——
-// 防的是空间维度可见性错配与任务间残留，不防同任务内自欺（LLM 无益））
+// S0-1（2026-08-16）：body 不含 space——可见空间由服务端 token 声明/grant 盖章；
+// 不再 export PTH_MEMORY_SPACE（程序不可见、不可伪造）。
 const BASH_MEMORY_LIB = [
-  `memory_query() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"query","sql":sys.argv[1],"space":sys.argv[4]}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN" "$PTH_MEMORY_SPACE"; }`,
-  `memory_get() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"get","id":sys.argv[1],"space":sys.argv[4]}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN" "$PTH_MEMORY_SPACE"; }`,
-  `memory_retrieve() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"retrieve","anchors":json.loads(sys.argv[1]),"space":sys.argv[4]}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN" "$PTH_MEMORY_SPACE"; }`,
+  `memory_query() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"query","sql":sys.argv[1]}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN"; }`,
+  `memory_get() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"get","id":sys.argv[1]}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN"; }`,
+  `memory_retrieve() { python3 -c 'import json,sys,urllib.request as u; b=json.dumps({"op":"retrieve","anchors":json.loads(sys.argv[1])}).encode(); h={"Content-Type":"application/json"}; t=sys.argv[3]; h["Authorization"]="Bearer "+t if t else None; r=u.urlopen(u.Request(sys.argv[2],b,h)); print(r.read().decode())' "$1" "$PTH_MEMORY_BRIDGE" "$PTH_MEMORY_BRIDGE_TOKEN"; }`,
 ].join("\n");
 
 
@@ -104,13 +103,11 @@ export class BashKernel implements Interpreter {
     if (!this.child || this.child.exitCode !== null) this.spawn();
     this.lastUsedAt = Date.now();
 
-    // 记忆桥盖章（2026-08-12 批 3 + 审计修复）：每次 execute 显式设置（无 space → 清章——防跨任务残留；
-    // 单引号转义防注入）
-    const stamped = `export PTH_MEMORY_SPACE='${(opts?.space ?? "").replace(/'/g, `'\\''`)}';\n${program}`;
+    // S0-1（2026-08-16）：不再 export PTH_MEMORY_SPACE——空间权威由服务端 token 声明/grant 盖章。
     try {
       // 等会话就绪（spawn 后立即执行会丢命令）
       await this.waitReady(2_000);
-      const res = await this.run(stamped, timeoutMs);
+      const res = await this.run(program, timeoutMs);
       const out: InterpreterResult = {
         ok: res.code === 0,
         stdout: res.stdout,
