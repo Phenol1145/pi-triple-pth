@@ -47,7 +47,7 @@ export class CatalogBuilder {
     this.assertMutable();
     if (!NON_EMPTY(space.id)) throw new Error("space: id required");
     if (this.spaces.has(space.id)) throw new Error(`space: duplicate id ${space.id}`);
-    if (!NON_EMPTY(space.execTool)) throw new Error(`space ${space.id}: execTool required`);
+    if (space.kind !== "meta" && !NON_EMPTY(space.execTool)) throw new Error(`space ${space.id}: execTool required（非 meta 空间）`);
     this.spaces.set(space.id, { ...space, bindRoles: space.bindRoles ? [...space.bindRoles].sort() : undefined });
     return this;
   }

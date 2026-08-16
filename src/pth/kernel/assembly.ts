@@ -154,6 +154,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   // 2026-08-13 审计 P2：内置角色在装配层注入（核心 worker-cluster 不再 import 实现层）
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  // P3-2：同一内置 manifest → catalog 快照注入（角色路由/空间查询的 catalog 路径）
+  {
+    const { buildBuiltinCatalog } = await import("../catalog/adapters/builtin-catalog-contributions.js");
+    const { setRuntimeCatalog } = await import("../catalog/role-routing-policy.js");
+    setRuntimeCatalog(buildBuiltinCatalog());
+  }
 
   // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入；
   // 内置空间注册移出 space-registry 模块（断 core 实现层环）

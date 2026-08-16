@@ -24,7 +24,8 @@ export interface CatalogRole {
 export interface CatalogSpace {
   readonly id: string;
   readonly parent: string | null;
-  readonly execTool: string;
+  readonly kind?: "meta" | "action";
+  readonly execTool?: string;
   readonly description?: string;
   readonly memoryScope?: string;
   readonly bindRoles?: readonly string[];

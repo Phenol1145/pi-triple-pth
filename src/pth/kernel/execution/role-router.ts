@@ -15,6 +15,7 @@
 import type { WorkerRole } from "./worker-cluster.js";
 import { allKnownRoles } from "./worker-cluster.js";
 import { tagRegistry } from "./tag-registry.js";
+import { getRoleRoutingPolicy } from "../../catalog/role-routing-policy.js";
 
 export interface RouteInput {
   id: string;
@@ -36,18 +37,23 @@ export type RoutingCheck = { ok: true } | { ok: false; error: string };
 
 export function checkTaskRouting(input: { tags?: string[]; payload?: unknown }): RoutingCheck {
   const tags = input.tags ?? [];
-  const v = tagRegistry.validate(tags);
+  const policy = getRoleRoutingPolicy();
+  // P3-2：catalog 注入路径优先；旧全局 getter 仅作 deprecated 兼容（装配未注入时兜底）
+  const v = policy?.validate(tags) ?? tagRegistry.validate(tags);
   if (!v.ok) {
-    const known = tagRegistry.list().filter((d) => d.kind === "role").map((d) => d.name);
+    const known = policy
+      ? tags.map((t) => t)
+      : tagRegistry.list().filter((d) => d.kind === "role").map((d) => d.name);
     return { ok: false, error: `未知标签: ${v.unknown.join(", ")}（已注册角色标签: ${known.join(", ")}）` };
   }
-  const flow = flowRole(input.payload);
-  if (flow && !allKnownRoles().some((r) => r.id === flow)) {
-    return { ok: false, error: `flow 指定的角色 "${flow}" 未注册（可选: ${allKnownRoles().map((r) => r.id).join("/")}）` };
+  const flow = policy?.flowRole(input.payload) ?? flowRole(input.payload);
+  const knownIds = policy?.knownRoleIds() ?? allKnownRoles().map((r) => r.id);
+  if (flow && !knownIds.includes(flow)) {
+    return { ok: false, error: `flow 指定的角色 "${flow}" 未注册（可选: ${knownIds.join("/")}）` };
   }
   // flow 显式指定时跳过歧义检查（governance 同标签多角色——如 controller 标签命中 5 个 controller——
   // 2026-08-12：flow 已确定角色则无需标签歧义裁决）
-  const r = flow ? { ok: true as const, role: undefined as string | undefined } : tagRegistry.routeRole(tags);
+  const r = flow ? { ok: true as const, role: undefined as string | undefined } : (policy?.routeRole(tags) ?? tagRegistry.routeRole(tags));
   if (!r.ok) {
     return { ok: false, error: `标签歧义：命中多个角色（${r.conflict.join(" / ")}）——一个任务只能派发一个角色` };
   }
@@ -62,11 +68,12 @@ export function checkTaskRouting(input: { tags?: string[]; payload?: unknown }):
  * 前置：publish 已经 checkTaskRouting——此处无路由依据属内部错误（throw）。
  */
 export function routeTaskRole(input: RouteInput, roles: WorkerRole[] = allKnownRoles()): string {
+  const policy = getRoleRoutingPolicy();
   // ① flow 显式 role（校验期已保证已注册）
-  const explicit = flowRole(input.payload);
+  const explicit = policy?.flowRole(input.payload) ?? flowRole(input.payload);
   if (explicit && roles.some((r) => r.id === explicit)) return explicit;
   // ② tags 精确匹配
-  const r = tagRegistry.routeRole(input.tags ?? []);
+  const r = policy?.routeRole(input.tags ?? []) ?? tagRegistry.routeRole(input.tags ?? []);
   if (r.ok && r.role) return r.role;
   throw new Error(`routeTaskRole: 任务 ${input.id} 无路由依据（应已被 checkTaskRouting 拦截）`);
 }
