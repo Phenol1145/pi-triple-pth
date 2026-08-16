@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { KernelPool } from "@away_from/pth-sandbox";
+import { KernelPool, createSandboxGrantIssuer, createSandboxGrantVerifier } from "@away_from/pth-sandbox";
 import { buildKernelHostApp } from "@away_from/pth-sandbox";
 import type { FastifyInstance } from "fastify";
 import type { SandboxLease } from "@away_from/pth-sandbox";
@@ -13,6 +13,17 @@ import type { SandboxLease } from "@away_from/pth-sandbox";
  */
 
 const SECRET = "test-kernel-secret";
+const GRANT_SECRET = "kernel-host-grant-secret-0123456789";
+const grantIssuer = createSandboxGrantIssuer({ secret: GRANT_SECRET });
+function makeGrant() {
+  return grantIssuer.issue({
+    lease: { taskId: "task-host", leaseId: "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6", generation: 1 },
+    scope: { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-host" },
+    workspace: { tenantId: "tenant-a", workspaceId: "ws-host", taskId: "task-host" },
+    language: "python",
+    capabilities: ["memory.read"],
+  });
+}
 
 function auth(secret = SECRET) {
   return { authorization: `Bearer ${secret}` };
@@ -124,7 +135,7 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
 
   beforeAll(async () => {
     process.env.SANDBOX_SHARED_SECRET = SECRET;
-    app = buildKernelHostApp({});
+    app = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
     await app.ready();
   });
 
@@ -133,17 +144,19 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
     delete process.env.SANDBOX_SHARED_SECRET;
   });
 
-  it("认证：无/错 token 拒绝，对 token 通过", async () => {
-    const noAuth = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" } });
-    expect(noAuth.statusCode).toBe(401);
-    const badAuth = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" }, headers: auth("wrong") });
-    expect(badAuth.statusCode).toBe(401);
-    const ok = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" }, headers: auth() });
+  it("认证：无 grant/篡改签名拒绝，合法 grant 通过（共享密钥不再参与 acquire）", async () => {
+    const noGrant = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" } });
+    expect(noGrant.statusCode).toBe(401);
+    const tampered = { ...makeGrant(), capabilities: ["memory.write"] };
+    const badSig = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: tampered } });
+    expect(badSig.statusCode).toBe(401);
+    expect(badSig.json().error).toContain("signature");
+    const ok = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() } });
     expect(ok.statusCode).toBe(200);
   });
 
   it("acquire/execute/reset/release 全链路（python，lease）", async () => {
-    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" }, headers: auth() });
+    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
     expect(acq.statusCode).toBe(200);
     const { lease } = acq.json() as { lease: SandboxLease };
     expect(lease.id).toBeTruthy();
@@ -173,7 +186,7 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
   });
 
   it("snapshot 端点返回三字段结构", async () => {
-    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" }, headers: auth() });
+    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
     const { lease } = acq.json() as { lease: SandboxLease };
     await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "marker = 1" }, headers: auth() });
     const snap = await app.inject({ method: "POST", url: "/kernel/snapshot", payload: { lease }, headers: auth() });
@@ -197,7 +210,7 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
   });
 
   it("非法 lang → 400", async () => {
-    const r = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "ruby" }, headers: auth() });
+    const r = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "ruby", grant: makeGrant() }, headers: auth() });
     expect(r.statusCode).toBe(400);
   });
 });
@@ -209,14 +222,14 @@ describe("sandbox main 组合形态（exec + kernel 同端口共存）", () => {
     const { registerKernelHost } = await import("@away_from/pth-sandbox");
     const wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sandbox-combo-"));
     const app = buildExecApp({ workspacesRoot: wsRoot });
-    registerKernelHost(app, {});
+    registerKernelHost(app, { grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
     await app.ready();
 
     const exec = await app.inject({ method: "POST", url: "/exec", payload: { cmd: "echo combo-ok" }, headers: auth() });
     expect(exec.statusCode).toBe(200);
     expect(exec.json().stdout).toContain("combo-ok");
 
-    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" }, headers: auth() });
+    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
     expect(acq.statusCode).toBe(200);
     const { lease } = acq.json() as { lease: SandboxLease };
     const ex = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "combo = 'kernel-ok'\n_result = combo" }, headers: auth() });

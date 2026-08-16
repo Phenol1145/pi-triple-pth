@@ -1,11 +1,22 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { SandboxKernel } from "@away_from/pth-sandbox";
+import { SandboxKernel, createSandboxGrantIssuer } from "@away_from/pth-sandbox";
 
 /**
  * SandboxKernel abort 单元测试（A1 Phase 3 条目 11）——fetch stub：
  * acquire 正常返回；execute 永不 resolve（模拟宿主程序跑飞）直到 client abort；
  * release 立即 ok。确定性验证「终止 in-flight + await release 落地」契约。
  */
+
+const grantIssuer = createSandboxGrantIssuer({ secret: "abort-grant-secret-0123456789" });
+function makeGrant() {
+  return grantIssuer.issue({
+    lease: { taskId: "task-abort", leaseId: "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6", generation: 1 },
+    scope: { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-abort" },
+    workspace: { tenantId: "tenant-a", workspaceId: "ws-abort", taskId: "task-abort" },
+    language: "python",
+    capabilities: ["memory.read"],
+  });
+}
 
 function stubSandboxFetch(onRelease: () => void) {
   return vi.fn(async (url: any, init?: any) => {
@@ -36,7 +47,7 @@ describe("SandboxKernel——程序级制动（A1 Phase 3 条目 11 abort 契约
     let released = 0;
     const fn = stubSandboxFetch(() => { released++; });
     vi.stubGlobal("fetch", fn);
-    const k = new SandboxKernel({ url: "http://sandbox.test", secret: "s", language: "python", acquireOnInit: false });
+    const k = new SandboxKernel({ url: "http://sandbox.test", secret: "s", language: "python", acquireOnInit: false, grant: makeGrant() });
     const start = Date.now();
     const p = k.execute("while True: pass", { timeoutMs: 60_000 });
     await vi.waitFor(() => {

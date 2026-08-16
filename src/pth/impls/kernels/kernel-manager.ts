@@ -31,7 +31,13 @@ export interface KernelManagerOptions {
   pythonBin?: string;
   sandbox?: { exec(req: any, signal?: AbortSignal): Promise<any> };
   /** sandbox-kernel 模式：宿主连接（kernel sandbox SPEC §3.3） */
-  sandboxKernel?: { url: string; secret: string };
+  sandboxKernel?: {
+    url: string;
+    /** P2-2 遗留兼容字段：不再作为执行认证发送 */
+    secret?: string;
+    /** 执行 grant（acquire 唯一授权凭据——bootstrap 签发） */
+    grant?: import("@away_from/pth-sandbox").SandboxExecutionGrant | (() => Promise<import("@away_from/pth-sandbox").SandboxExecutionGrant> | import("@away_from/pth-sandbox").SandboxExecutionGrant);
+  };
   /** 编译核（C 等——sandbox 侧编译-运行；cc 变体 gcc|clang|tcc 缺省 auto） */
   compiledCc?: "gcc" | "clang" | "tcc";
   /** 日志（日志体系 T4）：kernel stderr 转发 warn */
@@ -74,7 +80,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
         bridgeToken: process.env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
         ...opts.kernelConfig })
     : pythonMode === "sandbox-kernel"
-      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "python" })
+      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "python", grant: opts.sandboxKernel!.grant })
       : new PythonInterpreter({ pythonBin: opts.pythonBin });
 
   const bash: Interpreter = bashMode === "kernel"
@@ -83,14 +89,14 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
         bridgeToken: process.env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
         ...opts.kernelConfig })
     : bashMode === "sandbox-kernel"
-      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "bash" })
+      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "bash", grant: opts.sandboxKernel!.grant })
       : new BashInterpreter({
         sandbox: opts.sandbox ?? { exec: async () => ({ ok: false, stdout: "", stderr: "sandbox not configured", exitCode: 1, durationMs: 0 }) },
       });
 
   // 编译核（C——只在 sandbox 编译运行：用户架构裁决 2026-08-09；无 sandbox 连接时不可用降级错误）
   const compiled: Interpreter = opts.sandboxKernel
-    ? new SandboxCompiledKernel({ url: opts.sandboxKernel.url, secret: opts.sandboxKernel.secret, cc: opts.compiledCc })
+    ? new SandboxCompiledKernel({ url: opts.sandboxKernel.url, secret: opts.sandboxKernel.secret ?? "", cc: opts.compiledCc })
     : {
         language: "c",
         state: {},

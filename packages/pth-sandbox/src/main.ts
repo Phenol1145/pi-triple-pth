@@ -7,11 +7,14 @@
 
 import { buildExecApp } from "./exec-api.js";
 import { registerKernelHost } from "./kernel-host.js";
+import { createSandboxGrantVerifier } from "./authorization/grant-verifier.js";
 
 const port = parseInt(process.env.PORT ?? "8080", 10);
 const app = buildExecApp();
 // kernel sandbox SPEC：kernel 宿主与 exec API 同端口（internal 网络内 PTH 可达）
-registerKernelHost(app, {});
+// P2-2：/kernel/acquire 只接受签名 grant；密钥 bootstrap 注入（PTH_EXECUTION_GRANT_SECRET），无默认值。
+const grantSecret = process.env.PTH_EXECUTION_GRANT_SECRET;
+registerKernelHost(app, grantSecret ? { grantVerifier: createSandboxGrantVerifier({ secret: grantSecret }) } : {});
 
 try {
   await app.listen({ port, host: "0.0.0.0" });
