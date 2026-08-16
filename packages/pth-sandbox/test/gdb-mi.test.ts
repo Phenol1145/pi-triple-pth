@@ -144,4 +144,21 @@ describe("DebugSession 事件接口（监视组件预留——2026-08-09）", ()
     (s as any).flushPending();   // 清理首个 pending 与其超时计时器
     await p1;
   });
+
+  it("S1-3：detach 清理 .debug/<id> 工作目录（无 gdb 环境也执行清理）", async () => {
+    const { mkdtempSync, rmSync, mkdirSync, existsSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const root = mkdtempSync(path.join(tmpdir(), "dbg-clean-"));
+    try {
+      const s = new CDebugSession({ workDir: root } as any);
+      const dir = path.join(root, ".debug", s.id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, "main.c"), "int main(){return 0;}");
+      await s.detach();   // 无 gdb → -gdb-exit 容错，仍清理目录
+      expect(existsSync(dir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

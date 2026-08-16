@@ -239,25 +239,32 @@ export class CDebugSession implements DebugSession {
   /** 启动调试会话：编译 -g 调试版 → spawn gdb -i=mi2 */
   async attach(source: string): Promise<void> {
     this.emitEvent({ type: "attach", sessionId: this.id, ts: Date.now() });
-    const hash = createHash("sha256").update(source).digest("hex").slice(0, 16);
     const dir = path.join(this.workDir, ".debug", this.id);
-    await fs.mkdir(dir, { recursive: true });
-    const srcPath = path.join(dir, "main.c");
-    this.binaryPath = path.join(dir, "main");
-    await fs.writeFile(srcPath, source);
-    const compile = await new Promise<number>((resolve) => {
-      execFile(this.cc, ["-g", "-O0", "-o", this.binaryPath, srcPath, "-lm"], { timeout: this.timeoutMs }, (err) => resolve(err ? 1 : 0));
-    });
-    if (compile !== 0) throw new Error(`编译失败（调试版）：${srcPath} — 请先确保源码可编译`);
-    // cwd=dir（2026-08-12 实测修复）：-break-insert main.c:line 的相对路径依赖 gdb 工作目录
-    this.child = spawn(this.gdbBin, ["-i=mi2", "-q", this.binaryPath], { stdio: ["pipe", "pipe", "pipe"], cwd: dir, detached: true });
-    this.child.stdout?.on("data", (d: Buffer) => this.onData(d));
-    this.child.stderr?.on("data", (d: Buffer) => this.onStderr(d));
-    this.child.on("exit", () => {
+    try {
+      const hash = createHash("sha256").update(source).digest("hex").slice(0, 16);
+      await fs.mkdir(dir, { recursive: true });
+      const srcPath = path.join(dir, "main.c");
+      this.binaryPath = path.join(dir, "main");
+      await fs.writeFile(srcPath, source);
+      const compile = await new Promise<number>((resolve) => {
+        execFile(this.cc, ["-g", "-O0", "-o", this.binaryPath, srcPath, "-lm"], { timeout: this.timeoutMs }, (err) => resolve(err ? 1 : 0));
+      });
+      if (compile !== 0) throw new Error(`编译失败（调试版）：${srcPath} — 请先确保源码可编译`);
+      // cwd=dir（2026-08-12 实测修复）：-break-insert main.c:line 的相对路径依赖 gdb 工作目录
+      this.child = spawn(this.gdbBin, ["-i=mi2", "-q", this.binaryPath], { stdio: ["pipe", "pipe", "pipe"], cwd: dir, detached: true });
+      this.child.stdout?.on("data", (d: Buffer) => this.onData(d));
+      this.child.stderr?.on("data", (d: Buffer) => this.onStderr(d));
+      this.child.on("exit", () => {
+        this.child = null;
+        this.flushPending();
+      });
+      await this.waitPrompt();
+    } catch (e) {
+      // S1-3：attach 失败不残留 .debug/<id> 工作目录与 gdb 进程
       this.child = null;
-      this.flushPending();
-    });
-    await this.waitPrompt();
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      throw e;
+    }
   }
 
   private onData(d: Buffer): void {
@@ -475,5 +482,7 @@ export class CDebugSession implements DebugSession {
       try { process.kill(-this.child.pid, "SIGKILL"); } catch { this.child.kill("SIGKILL"); }
     }
     this.child = null;
+    // S1-3：回收时清理 .debug/<id> 工作目录（失败容忍——残留不阻塞 detach 语义）
+    await fs.rm(path.join(this.workDir, ".debug", this.id), { recursive: true, force: true }).catch(() => {});
   }
 }
