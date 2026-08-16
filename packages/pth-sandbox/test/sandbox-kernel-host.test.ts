@@ -53,6 +53,45 @@ describe("KernelPool（sandbox 侧共享池，lease 协议）", () => {
     await pool.dispose();
   });
 
+  it("metrics（S1-1）：acquire/release 幂等/lease 拒绝计数", async () => {
+    const pool = new KernelPool({ lang: "python", max: 2 });
+    const lease = await pool.acquire();
+    pool.release(lease);
+    pool.release(lease);   // 同 lease 重复 release = 幂等
+    const fake: SandboxLease = { id: "00000000-0000-4000-8000-000000000000", generation: 1, expiresAt: "" };
+    await expect(pool.execute(fake, "1 + 1")).rejects.toThrow(/stale lease/i);
+
+    const m = pool.status().metrics;
+    expect(m.acquireSuccess).toBe(1);
+    expect(m.releaseActive).toBe(1);
+    expect(m.releaseIdempotent).toBe(1);
+    expect(m.leaseRejections).toBeGreaterThanOrEqual(1);
+    await pool.dispose();
+  });
+
+  it("metrics（S1-1）：池满排队拒绝 + TTL dispose 计数", async () => {
+    let now = 100;
+    const pool = new KernelPool({
+      lang: "python",
+      max: 1,
+      acquireTimeoutMs: 30,
+      entryTtlMsMs: 50,
+      clock: () => now,
+    });
+    const lease = await pool.acquire();
+    await expect(pool.acquire()).rejects.toThrow(/pool exhausted/);
+    now = 200;
+    pool.sweepForTest();
+
+    const m = pool.status().metrics;
+    expect(m.acquireSuccess).toBe(1);
+    expect(m.acquireQueueRejected).toBe(1);
+    expect(m.ttlDisposals).toBe(1);
+    await expect(pool.execute(lease, "1 + 1")).rejects.toThrow(/stale lease/i);
+    expect(pool.status().metrics.leaseRejections).toBeGreaterThanOrEqual(1);
+    await pool.dispose();
+  });
+
   it("容量内新建、满则排队（FIFO）", async () => {
     const pool = new KernelPool({ lang: "bash", max: 1 });
     const lease1 = await pool.acquire();
@@ -206,6 +245,15 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
     for (const p of pools) {
       expect(p).not.toHaveProperty("kernelIds");
       expect(p).not.toHaveProperty("ids");
+      // S1-1：池容量/回收/TTL 观测进 /kernel/status
+      expect(p.metrics).toMatchObject({
+        acquireSuccess: expect.any(Number),
+        acquireQueueRejected: expect.any(Number),
+        ttlDisposals: expect.any(Number),
+        leaseRejections: expect.any(Number),
+        releaseActive: expect.any(Number),
+        releaseIdempotent: expect.any(Number),
+      });
     }
   });
 

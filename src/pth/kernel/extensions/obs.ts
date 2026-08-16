@@ -96,6 +96,22 @@ async function collectStorage(): Promise<unknown> {
   }
 }
 
+/** sandbox 内核池状态（S1-1：obs.kernels 与 obs.resource 共用的受信 /kernel/status 通路）。 */
+async function kernelStatus(): Promise<unknown> {
+  const url = process.env.PTH_SANDBOX_KERNEL_URL ?? process.env.SANDBOX_URL;
+  if (!url) return { error: "sandbox kernel url 未配置" };
+  try {
+    const res = await fetch(`${url.replace(/\/+$/, "")}/kernel/status`, {
+      headers: { authorization: `Bearer ${process.env.SANDBOX_SHARED_SECRET ?? ""}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { error: `kernel status HTTP ${res.status}` };
+    return await res.json();
+  } catch (e) {
+    return { error: (e as Error).message };
+  }
+}
+
 export const obsExtension: TsReplExtension = {
   id: "obs",
   provide: (ctx: ExtContext) => ({
@@ -215,20 +231,7 @@ export const obsExtension: TsReplExtension = {
       },
 
       /** sandbox 内核池调查（直查宿主——batch 已知 URL） */
-      kernels: async () => {
-        const url = process.env.PTH_SANDBOX_KERNEL_URL ?? process.env.SANDBOX_URL;
-        if (!url) return { error: "sandbox kernel url 未配置" };
-        try {
-          const res = await fetch(`${url.replace(/\/+$/, "")}/kernel/status`, {
-            headers: { authorization: `Bearer ${process.env.SANDBOX_SHARED_SECRET ?? ""}` },
-            signal: AbortSignal.timeout(5000),
-          });
-          if (!res.ok) return { error: `kernel status HTTP ${res.status}` };
-          return await res.json();
-        } catch (e) {
-          return { error: (e as Error).message };
-        }
-      },
+      kernels: kernelStatus,
 
       /** 容器级观测（cgroup v2 只读——backlog 差距 7：资源闭环外环多数据源最后一块）
        *  CPU：cpu.max（quota/period——容器核数限额）、cpu.stat（usage_usec 累计）
@@ -237,7 +240,7 @@ export const obsExtension: TsReplExtension = {
       container: collectContainer,
 
       /** B7 / N5 资源环聚合：一次采集 controller:resource 需要的全部 L2/L3 数据源
-       *  （容器 cgroup + PG 连接/缓存/慢查询 + 存储 + 批次健康）。 */
+       *  （容器 cgroup + PG 连接/缓存/慢查询 + 存储 + 批次健康 + sandbox 内核池）。 */
       resource: async () => ({
         collectedAt: Date.now(),
         container: await collectContainer(),
@@ -248,6 +251,7 @@ export const obsExtension: TsReplExtension = {
         },
         storage: await collectStorage(),
         batches: await requestMain("batches").catch(() => ({ error: "main IPC unavailable" })),
+        kernels: await kernelStatus(),
       }),
 
       /** 事件检索（pg transcripts——queryTemplate 受信模板通道：A2 Phase 4） */
