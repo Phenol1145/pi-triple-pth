@@ -392,6 +392,10 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       cc: ccBin ?? "cc",
       onEvent: (e) => { /* 调试事件——后续接 metrics */ void e; },
     });
+    if (debugSessions.has(session.id)) {
+      // S1-3：UUID 碰撞兜底（理论不可能，但不允许静默覆盖会话）
+      return debugErr(reply, `debug session id collision: ${session.id}`, 503);
+    }
     try {
       await session.attach(code);
       debugSessions.set(session.id, { session, lastUsedAt: Date.now() });

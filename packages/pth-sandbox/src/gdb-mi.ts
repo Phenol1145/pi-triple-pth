@@ -20,21 +20,30 @@ export interface MiRecord {
   cls?: string;            // done / running / stopped / breakpoint-created ...
   results?: Record<string, MiValue>;
   text?: string;
+  /** MI 命令 token（S1-3：token 化命令的请求关联——与 pending 队列一一对应） */
+  token?: number;
 }
 
 /** 解析 gdb MI 单行输出（^done,a=1,b={c="x"} / *stopped,reason="hit" / ~"text" / (gdb)） */
 export function parseMiLine(line: string): MiRecord | null {
-  const t = line.trim();
+  let t = line.trim();
   if (t === "(gdb)") return { kind: "prompt" };
   if (!t) return null;
+  let token: number | undefined;
+  // S1-3：token 前缀（`N^done` / `N*stopped` / `N+notify`）——命令响应按 token 派发。
+  const tokenMatch = /^(\d+)([\^+*].*)$/.exec(t);
+  if (tokenMatch) {
+    token = Number(tokenMatch[1]);
+    t = tokenMatch[2]!;
+  }
   let kind: MiRecord["kind"];
   let rest = t;
   if (t.startsWith("^")) { kind = "result"; rest = t.slice(1); }
   else if (t.startsWith("*")) { kind = "exec"; rest = t.slice(1); }
   else if (t.startsWith("+")) { kind = "notify"; rest = t.slice(1); }
-  else if (t.startsWith("~")) { kind = "console"; return { kind, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
-  else if (t.startsWith("@")) { kind = "target"; return { kind, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
-  else if (t.startsWith("&")) { kind = "log"; return { kind, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
+  else if (t.startsWith("~")) { kind = "console"; return { kind, token, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
+  else if (t.startsWith("@")) { kind = "target"; return { kind, token, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
+  else if (t.startsWith("&")) { kind = "log"; return { kind, token, text: t.slice(1).replace(/^"|"$/g, "").replace(/\\n/g, "\n") }; }
   else return null;
   // cls: 直到第一个逗号
   const comma = rest.indexOf(",");
@@ -47,7 +56,7 @@ export function parseMiLine(line: string): MiRecord | null {
       results[pair.slice(0, eq).trim()] = parseMiValue(pair.slice(eq + 1).trim());
     }
   }
-  return { kind, cls, results };
+  return { kind, cls, results, token };
 }
 
 /** 顶层逗号分割（忽略 {} / [] / "" 内） */
@@ -176,7 +185,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 
 export interface CDebugAdapterOptions {
@@ -199,7 +208,9 @@ export class CDebugSession implements DebugSession {
   private child: ChildProcess | null = null;
   private buffer = "";
   private decoder = new StringDecoder("utf8");
-  private pending: Array<{ resolve: (recs: MiRecord[]) => void }> = [];
+  /** S1-3：token 化 pending——每个 MI 命令持唯一 token，响应按 token 派发（不再整体 flush 混账） */
+  private pending: Array<{ token: number | null; resolve: (recs: MiRecord[]) => void }> = [];
+  private nextToken = 1;
   private records: MiRecord[] = [];
   private binaryPath = "";
   private breakpoints = new Map<string, DebugBreakpoint>();
@@ -215,7 +226,8 @@ export class CDebugSession implements DebugSession {
   private emitEvent: (e: DebugEvent) => void;
 
   constructor(opts: CDebugAdapterOptions) {
-    this.id = `c-debug-${Date.now().toString(36)}`;
+    // S1-3：时间戳 id 并发可撞——改 UUID（kernel-host 入 Map 前仍做唯一性检查兜底）。
+    this.id = `c-debug-${randomUUID()}`;
     this.workDir = opts.workDir;
     this.cc = opts.cc ?? "cc";
     this.gdbBin = opts.gdb ?? "gdb";
@@ -273,6 +285,18 @@ export class CDebugSession implements DebugSession {
           // gdb 信息流 + inferior 封装输出——收集待回传
           if (rec.text) this.outputBuf.push(rec.text);
         }
+        else if (rec.kind === "result" && rec.token !== undefined) {
+          // S1-3：token 化命令响应——按 token 派发给对应 pending，不再整体 flush 混账
+          const i = this.pending.findIndex((p) => p.token === rec.token);
+          if (i >= 0) {
+            const pending = this.pending.splice(i, 1)[0]!;
+            const recs = [...this.records, rec];
+            this.records = [];
+            pending.resolve(recs);
+          } else {
+            this.records.push(rec);
+          }
+        }
         else this.records.push(rec);
       } else if (this.running && line.trim()) {
         // 运行期裸行 = inferior 原样输出（实测：printf/fprintf 不经 MI 封装——直接写 gdb stdout）
@@ -311,6 +335,7 @@ export class CDebugSession implements DebugSession {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("gdb 无响应（超时）")), this.timeoutMs);
       this.pending.push({
+        token: null,
         resolve: (recs) => {
           clearTimeout(timer);
           void recs;
@@ -320,24 +345,36 @@ export class CDebugSession implements DebugSession {
     });
   }
 
-  /** 发 MI 命令并等提示符返回 */
+  /** 发 MI 命令（token 化 + 单飞）——响应按 token 派发，重入直接拒绝 */
   private async command(cmd: string): Promise<MiRecord[]> {
     if (!this.child?.stdin) throw new Error("gdb 未运行");
+    if (this.pending.length > 0) {
+      throw new Error("gdb 命令重入被拒（单飞协议——并发命令会破坏记录关联）");
+    }
+    const token = this.nextToken++;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`gdb 命令超时: ${cmd}`)), this.timeoutMs);
-      this.pending.push({
-        resolve: (recs) => {
+      const entry = {
+        token,
+        resolve: (recs: MiRecord[]) => {
           clearTimeout(timer);
           resolve(recs);
         },
-      });
+      };
+      const timer = setTimeout(() => {
+        const i = this.pending.indexOf(entry);
+        if (i >= 0) this.pending.splice(i, 1);
+        reject(new Error(`gdb 命令超时: ${cmd}`));
+      }, this.timeoutMs);
+      this.pending.push(entry);
       const stdin = this.child?.stdin;
       if (!stdin) {
         clearTimeout(timer);
+        const i = this.pending.indexOf(entry);
+        if (i >= 0) this.pending.splice(i, 1);
         reject(new Error("gdb 管道不可用"));
         return;
       }
-      stdin.write(cmd + "\n");
+      stdin.write(`${token}${cmd}\n`);
     });
   }
 
