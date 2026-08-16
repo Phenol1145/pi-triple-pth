@@ -95,6 +95,16 @@ describe("gdb MI 解析", () => {
     expect(parseMiLine("")).toBeNull();
     expect(parseMiLine("garbage")).toBeNull();
   });
+
+  it("S1-3：token 前缀解析（N^done）——命令响应按 token 关联", () => {
+    const r = parseMiLine('7^done,value="x"');
+    expect(r?.token).toBe(7);
+    expect(r?.kind).toBe("result");
+    expect(r?.cls).toBe("done");
+    expect(r?.results?.["value"]).toBe("x");
+    // 无 token 的记录 token 为 undefined
+    expect(parseMiLine("^done")?.token).toBeUndefined();
+  });
 });
 
 describe("DebugSession 事件接口（监视组件预留——2026-08-09）", () => {
@@ -112,5 +122,43 @@ describe("DebugSession 事件接口（监视组件预留——2026-08-09）", ()
     expect(typeof session.setBreakpoint).toBe("function");
     expect(typeof session.continueExec).toBe("function");
     expect(typeof session.step).toBe("function");
+  });
+
+  it("S1-3：会话 id 用 UUID——并发构造不碰撞", () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      const s = new CDebugSession({ workDir: "/tmp/dbg-id" } as any);
+      expect(s.id).toMatch(/^c-debug-[0-9a-f-]{36}$/);
+      ids.add(s.id);
+    }
+    expect(ids.size).toBe(20);
+  });
+
+  it("S1-3：token 化命令单飞——并发命令被拒绝", async () => {
+    const s = new CDebugSession({ workDir: "/tmp/dbg-reentry", timeoutMs: 2_000 } as any);
+    const writes: string[] = [];
+    (s as any).child = { stdin: { write: (v: string) => { writes.push(v); } } };
+    const p1 = (s as any).command("-stack-list-frames");
+    expect(writes[0]).toMatch(/^1-stack-list-frames/);
+    await expect((s as any).command("-stack-list-variables")).rejects.toThrow(/重入/);
+    (s as any).flushPending();   // 清理首个 pending 与其超时计时器
+    await p1;
+  });
+
+  it("S1-3：detach 清理 .debug/<id> 工作目录（无 gdb 环境也执行清理）", async () => {
+    const { mkdtempSync, rmSync, mkdirSync, existsSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const root = mkdtempSync(path.join(tmpdir(), "dbg-clean-"));
+    try {
+      const s = new CDebugSession({ workDir: root } as any);
+      const dir = path.join(root, ".debug", s.id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, "main.c"), "int main(){return 0;}");
+      await s.detach();   // 无 gdb → -gdb-exit 容错，仍清理目录
+      expect(existsSync(dir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

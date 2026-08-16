@@ -20,11 +20,23 @@ import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapsho
 
 export type KernelLang = "python" | "bash";
 
+/** S1-1：池容量/回收/TTL 观测计数（N5 资源环 L3——经 /kernel/status 暴露，不含可预测 ID）。 */
+export interface KernelPoolMetrics {
+  acquireSuccess: number;
+  acquireQueueRejected: number;
+  ttlDisposals: number;
+  leaseRejections: number;
+  releaseActive: number;
+  releaseIdempotent: number;
+}
+
 interface PoolEntry {
   /** 池内部 ID（绝不外发） */
   internalId: string;
   kernel: Interpreter;
   lease: SandboxLease | null;
+  /** 最近一次成功 release 的 lease id——同 lease 重复 release 幂等，旧 lease 不再授权 */
+  lastLeaseId: string | null;
   state: LeaseState;
   lastUsedAt: number;
 }
@@ -63,6 +75,14 @@ export class KernelPool {
   private acquireTimeoutMs: number;
   private clock: () => number;
   private sweepTimer: NodeJS.Timeout | null = null;
+  private metrics: KernelPoolMetrics = {
+    acquireSuccess: 0,
+    acquireQueueRejected: 0,
+    ttlDisposals: 0,
+    leaseRejections: 0,
+    releaseActive: 0,
+    releaseIdempotent: 0,
+  };
 
   constructor(opts: KernelPoolOptions) {
     this.lang = opts.lang;
@@ -102,6 +122,7 @@ export class KernelPool {
     e.lease = null;
     const i = this.entries.indexOf(e);
     if (i >= 0) this.entries.splice(i, 1);
+    this.metrics.ttlDisposals++;
   }
 
   private findByLease(leaseId: string): PoolEntry | undefined {
@@ -125,8 +146,10 @@ export class KernelPool {
     if (idle) {
       const lease = this.makeLease();
       idle.lease = lease;
+      idle.lastLeaseId = null;   // 旧 lease 立即失效——只保留当前持有 lease 的幂等窗口
       idle.state = "active";
       idle.lastUsedAt = this.clock();
+      this.metrics.acquireSuccess++;
       return lease;
     }
     if (this.entries.length < this.max) {
@@ -134,10 +157,12 @@ export class KernelPool {
         internalId: randomUUID(),
         kernel: this.createKernel(),
         lease: this.makeLease(),
+        lastLeaseId: null,
         state: "active",
         lastUsedAt: this.clock(),
       };
       this.entries.push(entry);
+      this.metrics.acquireSuccess++;
       return entry.lease;
     }
     return null;
@@ -161,6 +186,7 @@ export class KernelPool {
       const timer = setTimeout(() => {
         const i = this.waiters.indexOf(waiter);
         if (i >= 0) this.waiters.splice(i, 1);
+        this.metrics.acquireQueueRejected++;
         reject(new Error(`kernel pool exhausted (${this.lang} ${this.max}/${this.max}) — acquire timeout`));
       }, this.acquireTimeoutMs);
       const waiter: Waiter = { resolve, reject, timer };
@@ -170,8 +196,12 @@ export class KernelPool {
 
   private requireActive(lease: SandboxLease): PoolEntry {
     const entry = this.findByLease(lease.id);
-    if (!entry) throw new Error("stale lease: unknown lease id");
+    if (!entry) {
+      this.metrics.leaseRejections++;
+      throw new Error("stale lease: unknown lease id");
+    }
     if (entry.state !== "active" || entry.lease?.generation !== lease.generation) {
+      this.metrics.leaseRejections++;
       throw new Error("stale lease: generation mismatch or lease no longer active");
     }
     return entry;
@@ -180,17 +210,28 @@ export class KernelPool {
   /** 归还 kernel（唤醒 FIFO 排队者）。同一 lease 幂等；不同/旧 lease 拒绝。
    *  P2-3：只接受 active 归还；cancelling/disposed 一律拒绝——绝不把可能仍在执行的条目乐观标 idle。 */
   release(lease: SandboxLease): void {
-    const entry = this.findByLease(lease.id);
-    if (!entry || entry.lease?.generation !== lease.generation) {
+    const entry = this.entries.find((e) => e.lease?.id === lease.id || e.lastLeaseId === lease.id);
+    if (!entry) {
+      this.metrics.leaseRejections++;
       throw new Error("stale lease: unknown lease id");
     }
-    if (entry.state === "idle") return; // 幂等：同 lease 重复 release 无副作用
+    if (entry.state === "idle" && entry.lastLeaseId === lease.id) {
+      this.metrics.releaseIdempotent++;
+      return; // 幂等：同 lease 重复 release 无副作用
+    }
+    if (entry.lease?.generation !== lease.generation) {
+      this.metrics.leaseRejections++;
+      throw new Error("stale lease: unknown lease id");
+    }
     if (entry.state !== "active") {
+      this.metrics.leaseRejections++;
       throw new Error("stale lease: lease no longer active（cancelling/disposed 不可乐观释放）");
     }
+    entry.lastLeaseId = entry.lease?.id ?? null;
     entry.lease = null;
     entry.state = "idle";
     entry.lastUsedAt = this.clock();
+    this.metrics.releaseActive++;
     this.wakeWaiterIfPossible();
   }
 
@@ -199,10 +240,12 @@ export class KernelPool {
   async cancel(lease: SandboxLease): Promise<void> {
     const entry = this.findByLease(lease.id);
     if (!entry || entry.lease?.generation !== lease.generation) {
+      this.metrics.leaseRejections++;
       throw new Error("stale lease: unknown lease id");
     }
     if (entry.state === "cancelling") return; // 幂等：已在取消中
     if (entry.state !== "active") {
+      this.metrics.leaseRejections++;
       throw new Error("stale lease: lease no longer active");
     }
     entry.state = "cancelling";
@@ -235,13 +278,14 @@ export class KernelPool {
     return entry.kernel.snapshot();
   }
 
-  status(): { lang: KernelLang; inFlight: number; idle: number; size: number; capacity: number } {
+  status(): { lang: KernelLang; inFlight: number; idle: number; size: number; capacity: number; metrics: KernelPoolMetrics } {
     return {
       lang: this.lang,
       inFlight: this.entries.filter((e) => e.state === "active").length,
       idle: this.entries.filter((e) => e.state === "idle").length,
       size: this.entries.length,
       capacity: this.max,
+      metrics: { ...this.metrics },
     };
   }
 

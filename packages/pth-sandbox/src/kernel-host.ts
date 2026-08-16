@@ -25,6 +25,7 @@ import type { SandboxLease } from "./kernel-lease.js";
 import type { SandboxGrantVerifier } from "./authorization/grant-verifier.js";
 import { CCompiledKernel } from "./compiled-kernel.js";
 import { CDebugSession } from "./gdb-mi.js";
+import { SandboxHealthState } from "./health-state.js";
 
 /** 编译核统计（/kernel/status 聚合——PTH obs.kernels 可查） */
 export interface CompiledStats {
@@ -47,10 +48,20 @@ export interface KernelHostOptions {
   onStderr?: (lang: string, line: string) => void;
 }
 
+/** S1-4：kernel-host shutdown 句柄——释放全部池条目 + detach 全部 gdb 会话（幂等）。 */
+export interface KernelHostHandle {
+  dispose(): Promise<void>;
+  status(): {
+    pools: ReturnType<KernelPool["status"]>[];
+    debugSessions: number;
+    health: ReturnType<SandboxHealthState["status"]>;
+  };
+}
+
 const VALID_LANGS: KernelLang[] = ["python", "bash"];
 
 /** 插件式注册：把 kernel 宿主路由挂到已有 Fastify app（sandbox main 与 exec API 同端口） */
-export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions = {}): void {
+export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions = {}): KernelHostHandle {
   const getSecret = opts.getSecret ?? (() => process.env.SANDBOX_SHARED_SECRET);
   const getBridgeToken = opts.getBridgeToken ?? (() => process.env.PTH_MEMORY_BRIDGE_TOKEN);
   // 池容量：env PTH_KERNEL_POOL_SIZE 优先（compose 注入——需 >= 并发 worker 数），option 次之
@@ -71,6 +82,13 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   /** leaseId → pool 索引（P0-4：外部只持有 lease，不再暴露/接受 kernelId） */
   const leasePools = new Map<string, KernelPool>();
 
+  // S1-5：degraded 观测——依赖条件缺失/饱和时置位，/kernel/status 暴露，状态跃迁打日志。
+  const health = new SandboxHealthState({
+    onTransition: (status) => {
+      app.log.warn({ event: "sandbox_health_state_changed", degraded: status.degraded, reasons: status.reasons }, "sandbox health state changed");
+    },
+  });
+
   function parseLease(body: unknown): SandboxLease | null {
     if (!body || typeof body !== "object") return null;
     const lease = (body as { lease?: unknown }).lease;
@@ -88,7 +106,11 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   type AuthResult = "ok" | "unauthorized" | "misconfigured";
   function checkAuth(req: FastifyRequest): AuthResult {
     const secret = getSecret();
-    if (!secret) return "misconfigured";
+    if (!secret) {
+      health.set("shared-secret-missing", true);
+      return "misconfigured";
+    }
+    health.set("shared-secret-missing", false);
     const header = req.headers.authorization ?? "";
     const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : header;
     return token === secret ? "ok" : "unauthorized";
@@ -134,9 +156,17 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       reply.code(401).send({ error: verified.error });
       return;
     }
-    const lease = await pools[body.lang as KernelLang].acquire();
-    leasePools.set(lease.id, pools[body.lang as KernelLang]);
-    return { lease };
+    try {
+      const lease = await pools[body.lang as KernelLang].acquire();
+      health.set(`pool-exhausted-${body.lang}`, false);
+      leasePools.set(lease.id, pools[body.lang as KernelLang]);
+      return { lease };
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("pool exhausted")) {
+        health.set(`pool-exhausted-${body.lang}`, true);
+      }
+      reply.code(503).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.post("/kernel/execute", async (req, reply) => {
@@ -182,6 +212,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     const remote = req.socket.remoteAddress ?? "";
     const isLoopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
     if (!isLoopback && !enforceAuth(req, reply)) return;
+    health.set("bridge-token-missing", false);
     const body = (req.body ?? {}) as { op?: string; space?: string; grant?: unknown; sql?: string; anchors?: string[]; kinds?: string[]; id?: string };
     if (!body.op || !["query", "retrieve", "get"].includes(body.op)) {
       reply.code(400).send({ error: "op required: query|retrieve|get" });
@@ -208,9 +239,11 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     }
     const bridgeToken = getBridgeToken();
     if (!bridgeToken) {
+      health.set("bridge-token-missing", true);
       reply.code(503).send({ error: "server misconfigured: PTH_MEMORY_BRIDGE_TOKEN not set" });
       return;
     }
+    health.set("bridge-token-missing", false);
     try {
       const res = await fetch(`${pthBridgeUrl}/api/v1/kernel/memory-bridge`, {
         method: "POST",
@@ -305,9 +338,11 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     if (!enforceAuth(req, reply)) return;
     // 并发信号量：编译是 CPU 密集（gcc 进程）——超限 503（调用方重试/排队语义在 PTH 侧）
     if (compiledInFlight >= compiledConcurrency) {
+      health.set("compiled-concurrency-saturated", true);
       reply.code(503).send({ error: `compiled concurrency limit (${compiledConcurrency}) reached — retry` });
       return;
     }
+    health.set("compiled-concurrency-saturated", false);
     compiledInFlight++;
     let workDir = "";
     try {
@@ -348,6 +383,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       return { ok: false, error: { message: `compiled kernel error: ${(e as Error).message}` }, durationMs: 0 };
     } finally {
       compiledInFlight--;
+      if (compiledInFlight < compiledConcurrency) health.set("compiled-concurrency-saturated", false);
       // 编译运行工作区清理（持久缓存独立目录——保留）
       if (workDir) import("node:fs/promises").then(({ rm }) => rm(workDir, { recursive: true, force: true })).catch(() => {});
     }
@@ -392,6 +428,10 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       cc: ccBin ?? "cc",
       onEvent: (e) => { /* 调试事件——后续接 metrics */ void e; },
     });
+    if (debugSessions.has(session.id)) {
+      // S1-3：UUID 碰撞兜底（理论不可能，但不允许静默覆盖会话）
+      return debugErr(reply, `debug session id collision: ${session.id}`, 503);
+    }
     try {
       await session.attach(code);
       debugSessions.set(session.id, { session, lastUsedAt: Date.now() });
@@ -457,17 +497,46 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
 
   app.get("/kernel/status", async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
+    const healthStatus = health.status();
     return {
       pools: [pools.python.status(), pools.bash.status()],
       compiled: compiledStats,
       debug: { sessions: debugSessions.size, maxSessions: debugMaxSessions },
+      // S1-5：degraded 观测（依赖条件缺失/饱和——不改变 /health 与 /ready 语义）
+      degraded: healthStatus.degraded,
+      reasons: healthStatus.reasons,
     };
   });
+
+  // ── S1-4：shutdown dispose（幂等）——释放全部池条目 + detach 全部 gdb 会话 ──
+  let disposed = false;
+  const handle: KernelHostHandle = {
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      await Promise.all([pools.python.dispose(), pools.bash.dispose()]);
+      for (const [, rec] of debugSessions) {
+        try { await rec.session.detach(); } catch { /* 容错 */ }
+      }
+      debugSessions.clear();
+      leasePools.clear();
+    },
+    status() {
+      return {
+        pools: [pools.python.status(), pools.bash.status()],
+        debugSessions: debugSessions.size,
+        health: health.status(),
+      };
+    },
+  };
+  app.addHook("onClose", async () => { await handle.dispose(); });
+  return handle;
 }
 
 /** 独立 app（测试用）——与 main.ts 同构：exec 与 kernel 路由同端口 */
 export function buildKernelHostApp(opts: KernelHostOptions = {}): FastifyInstance {
   const app = Fastify({ logger: false });
-  registerKernelHost(app, opts);
+  const handle = registerKernelHost(app, opts);
+  app.decorate("kernelHostHandle", handle);
   return app;
 }

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { buildExecApp } from "@away_from/pth-sandbox";
 import type { FastifyInstance } from "fastify";
 
@@ -184,6 +186,39 @@ describe("sandbox 执行 API（F/WP3 Task 10）", () => {
     expect(stream.body).toContain("streamed");
     expect(stream.body).toContain("event: done");
     expect(stream.body).toContain('"exitCode":0');
+  });
+
+  it("S1-4：多 SSE 订阅各自收到 done（doneCallbacks 集合，不再单槽覆盖）", async () => {
+    const live = buildExecApp({ workspacesRoot: wsRoot });
+    await live.listen({ port: 0, host: "127.0.0.1" });
+    const port = (live.server.address() as AddressInfo).port;
+    try {
+      const res = await live.inject({
+        method: "POST", url: "/exec", headers: authHeaders(),
+        payload: { cmd: "sleep 1; echo multi-sub", cwd: wsDir, stream: true },
+      });
+      const { execId } = res.json() as { execId: string };
+      const subscribe = () => new Promise<string>((resolve, reject) => {
+        const req = http.get({
+          host: "127.0.0.1", port,
+          path: `/exec/${execId}/stream`,
+          headers: { authorization: `Bearer ${SECRET}` },
+        }, (r) => {
+          let body = "";
+          r.setEncoding("utf8");
+          r.on("data", (d) => { body += d; });
+          r.on("end", () => resolve(body));
+        });
+        req.on("error", reject);
+      });
+      const [a, b] = await Promise.all([subscribe(), subscribe()]);
+      expect(a).toContain("multi-sub");
+      expect(b).toContain("multi-sub");
+      expect(a).toContain("event: done");
+      expect(b).toContain("event: done");
+    } finally {
+      await live.close();
+    }
   });
 
   it("流式任务 404：未知 execId → 404", async () => {

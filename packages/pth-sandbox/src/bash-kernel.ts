@@ -13,6 +13,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { buildWorkloadEnv, workloadIdentity, WORKLOAD_HOME } from "./workload/environment.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
@@ -37,6 +38,15 @@ const DEFAULT_MAX_STDOUT = 2 * 1024;
 const DEFAULT_MAX_STDERR = 2 * 1024;
 const DEFAULT_CWD = process.env.HOME ?? "/";
 
+/** S1-4：一次性随机结束标记前缀——用户输出伪造固定旧标记不再能提前结束。 */
+function makeDoneMarker(nonce: string): string {
+  return `__BASH_DONE_${nonce}`;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export class BashKernel implements Interpreter {
   readonly language = "bash";
   private child: ChildProcess | null = null;
@@ -45,7 +55,7 @@ export class BashKernel implements Interpreter {
   private ready = false;
   private readyWaiters: Array<() => void> = [];
   private onStderr?: (line: string) => void;
-  private pending: Array<{ resolve: (r?: { stdout: string; stderr: string; code: number | null }) => void; probe?: boolean }> = [];
+  private pending: Array<{ marker: string; resolve: (r?: { stdout: string; stderr: string; code: number | null }) => void; probe?: boolean }> = [];
   private cwd = DEFAULT_CWD;
   private env: Record<string, string> = {};
   private readonly memoryBridge: string;
@@ -206,11 +216,13 @@ export class BashKernel implements Interpreter {
     this.probeReady();
   }
 
-  /** 就绪探测：写无输出命令 : 并等 marker——会话可用后才接受业务请求 */
+  /** 就绪探测：写无输出命令 : 并等随机 marker——会话可用后才接受业务请求 */
   private probeReady(): void {
     const child = this.child;
     if (!child?.stdin || !child.stdin.writable) return;
+    const marker = makeDoneMarker(randomUUID());
     const entry = {
+      marker,
       resolve: () => {
         this.ready = true;
         const w = this.readyWaiters.splice(0);
@@ -219,7 +231,7 @@ export class BashKernel implements Interpreter {
       probe: true,   // Phase 3 abort：probe 条目不 resolve（其 waiter 由 2s 就绪超时兜底）
     };
     this.pending.push(entry);
-    child.stdin.write(":\necho __BASH_DONE_$?__\n");
+    child.stdin.write(`:\necho ${marker}_$?__\n`);
   }
 
   private waitReady(timeoutMs: number): Promise<void> {
@@ -257,8 +269,10 @@ export class BashKernel implements Interpreter {
     } else {
       this.buffer += chunk;
     }
-    // 结束标记：在两个流里都找
-    const markerRe = /__BASH_DONE_(\d+|-?\d+)__/;
+    // S1-4：只认当前 pending 的一次性随机标记——用户输出伪造固定旧标记不会提前结束/错配
+    const p = this.pending[0];
+    if (!p) return;
+    const markerRe = new RegExp(`${escapeRegExp(p.marker)}_(\\d+|-?\\d+)__`);
     const src = this.buffer + this.stderrBuf;
     const m = src.match(markerRe);
     if (!m) return;
@@ -274,8 +288,11 @@ export class BashKernel implements Interpreter {
       stderrPart = this.stderrBuf.slice(0, this.stderrBuf.indexOf(m[0]));
       this.stderrBuf = this.stderrBuf.slice(this.stderrBuf.indexOf(m[0]) + m[0].length);
     }
-    const p = this.pending.shift();
-    if (!p) return;
+    this.pending.shift();
+    if (p.probe) {
+      p.resolve(undefined);
+      return;
+    }
     p.resolve({ stdout: stdoutPart.replace(/\n*$/, ""), stderr: stderrPart.replace(/\n*$/, ""), code });
   }
 
@@ -284,8 +301,10 @@ export class BashKernel implements Interpreter {
     if (!child?.stdin || !child.stdin.writable) {
       return Promise.reject(new Error("bash session not writable"));
     }
+    const marker = makeDoneMarker(randomUUID());
     return new Promise((resolve, reject) => {
-      const entry: { resolve: (r?: { stdout: string; stderr: string; code: number | null }) => void } = {
+      const entry: { marker: string; resolve: (r?: { stdout: string; stderr: string; code: number | null }) => void } = {
+        marker,
         resolve: (r) => {
           clearTimeout(timer);
           resolve(r!);
@@ -297,8 +316,8 @@ export class BashKernel implements Interpreter {
         reject(new Error(`bash execution timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       this.pending.push(entry);
-      // 命令 + 结束标记（独立行——分号同行会语法错误；多行脚本后换行执行标记）
-      child.stdin!.write(`${program}\necho __BASH_DONE_$?__\n`);
+      // 命令 + 一次性随机结束标记（独立行——分号同行会语法错误；多行脚本后换行执行标记）
+      child.stdin!.write(`${program}\necho ${marker}_$?__\n`);
     });
   }
 }

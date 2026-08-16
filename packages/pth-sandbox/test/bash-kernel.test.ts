@@ -39,6 +39,13 @@ describe("BashKernel（持久 shell 会话）", () => {
     expect(r.stdout).toContain("item-3");
   });
 
+  it("S1-4：用户输出伪造固定旧标记不会提前结束（随机标记协议）", async () => {
+    const r = await k.execute('echo "__BASH_DONE_0__"; echo real-after-forged-marker');
+    expect(r.ok).toBe(true);
+    expect(r.stdout).toContain("__BASH_DONE_0__");
+    expect(r.stdout).toContain("real-after-forged-marker");
+  });
+
   it("reset 清状态：cwd 回默认", async () => {
     await k.execute("cd /tmp");
     k.reset();

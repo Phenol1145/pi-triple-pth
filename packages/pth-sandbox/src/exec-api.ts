@@ -86,7 +86,8 @@ interface StreamJob {
   /** P2-4：输出超限杀组标记（close 收尾时组装 truncated） */
   killedForLimit: "stdout" | "stderr" | null;
   listeners: Set<(stream: "stdout" | "stderr", data: string) => void>;
-  onDone: (() => void) | null;
+  /** S1-4：完成通知订阅者集合——每个 SSE 订阅独立收到 done，不再单槽覆盖 */
+  doneCallbacks: Set<() => void>;
   proc: ChildProcess | null;
   exitCode: number | null;
   signal: string | null;
@@ -104,7 +105,7 @@ function createJob(id: string): StreamJob {
     stderrBytes: 0,
     killedForLimit: null,
     listeners: new Set(),
-    onDone: null,
+    doneCallbacks: new Set(),
     proc: null,
     exitCode: null,
     signal: null,
@@ -118,11 +119,11 @@ function emitChunk(job: StreamJob, stream: "stdout" | "stderr", data: string): v
   for (const l of [...job.listeners]) l(stream, data);
 }
 
-/** 任务完成：通知流式消费者 + 延迟清注册表（防内存泄漏；unref 不阻塞进程退出） */
+/** 任务完成：通知全部流式消费者 + 延迟清注册表（防内存泄漏；unref 不阻塞进程退出） */
 function finishJob(job: StreamJob, jobs: Map<string, StreamJob>): void {
   job.finished = true;
-  job.onDone?.();
-  job.onDone = null;
+  for (const cb of [...job.doneCallbacks]) cb();
+  job.doneCallbacks.clear();
   job.listeners.clear();
   if (job.cleanupTimer) clearTimeout(job.cleanupTimer);
   job.cleanupTimer = setTimeout(() => jobs.delete(job.id), 60_000);
@@ -377,6 +378,20 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
   const jobs = new Map<string, StreamJob>();
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
+  // S1-4：shutdown dispose——app.close() 时终止全部在飞 stream 子进程并清注册表
+  app.addHook("onClose", async () => {
+    for (const job of jobs.values()) {
+      if (job.cleanupTimer) clearTimeout(job.cleanupTimer);
+      if (job.proc && job.proc.exitCode === null) {
+        try { job.proc.kill("SIGKILL"); } catch { /* 忽略 */ }
+      }
+      job.finished = true;
+      job.doneCallbacks.clear();
+      job.listeners.clear();
+    }
+    jobs.clear();
+  });
+
   type AuthResult = "ok" | "unauthorized" | "misconfigured";
   function checkAuth(req: FastifyRequest): AuthResult {
     const secret = getSecret();
@@ -515,18 +530,20 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
     }
     const push = (stream: "stdout" | "stderr", data: string) => onOutput(stream, data);
     job.listeners.add(push);
-    job.onDone = () => {
+    const doneCb = () => {
       job.listeners.delete(push);
       onDone();
     };
+    job.doneCallbacks.add(doneCb);
     // 订阅期间完成（竞态）→ 直接终结
     if (job.finished) {
+      job.doneCallbacks.delete(doneCb);
       job.listeners.delete(push);
-      job.onDone = null;
       onDone();
     }
     raw.on("close", () => {
       job.listeners.delete(push);
+      job.doneCallbacks.delete(doneCb);
     });
   });
 

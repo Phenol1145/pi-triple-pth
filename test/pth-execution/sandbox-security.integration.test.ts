@@ -107,22 +107,11 @@ describe.skipIf(!RUN)("sandbox hostile integration matrix（当前协议骨架�
     expect(res.body).toContain("kernelId retired");
   });
 
-  it("矩阵 4b：acquire 返回不可预测 UUID lease；stale lease 被拒", () => {
-    const a = sandboxHttp("POST", "/kernel/acquire", { lang: "python" });
-    const b = sandboxHttp("POST", "/kernel/acquire", { lang: "python" });
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
-    const leaseA = JSON.parse(a.body).lease as { id: string };
-    const leaseB = JSON.parse(b.body).lease as { id: string };
-    expect(leaseA.id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(leaseB.id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(leaseA.id).not.toBe(leaseB.id);
-
-    const rel = sandboxHttp("POST", "/kernel/release", { lease: { id: leaseA.id, generation: 1 } });
-    expect(rel.status).toBe(200);
-    const stale = sandboxHttp("POST", "/kernel/execute", { lease: { id: leaseA.id, generation: 1 }, code: "1 + 1" });
-    expect(stale.status).toBe(400);
-    expect(stale.body).toContain("stale lease");
+  it("矩阵 4b：grant verifier 未配置时 /kernel/acquire fail-closed 503（P2-2）", () => {
+    // 当前 compose 尚未注入 PTH_EXECUTION_GRANT_SECRET（P2 阶段进行中）——按 P2-2 语义必须 503。
+    const res = sandboxHttp("POST", "/kernel/acquire", { lang: "python" });
+    expect(res.status).toBe(503);
+    expect(res.body).toContain("grant verifier not configured");
   });
 
   it("矩阵 4c：记忆桥 token 缺失 → fail-closed 503（body 自报 space 无效）", () => {
@@ -133,6 +122,7 @@ describe.skipIf(!RUN)("sandbox hostile integration matrix（当前协议骨架�
 
   // ── P2_TODO：以下矩阵列待 v2 P2 落地后启用（S2-5 收账时补）────────────
   it.skip("P2_TODO 矩阵 2：malformed/expired/replay grant 全部拒绝", () => {});
+  it.skip("P2_TODO 矩阵 4d：签名 grant → 不可预测 UUID lease；release 后 stale lease 被拒", () => {});
   it.skip("P2_TODO 矩阵 5：cancel/abort/timeout 后活跃 REPL 不被重发", () => {});
   it.skip("P2_TODO 矩阵 6：递归后代收割 + 输出 flood 截断 + 资源回落", () => {});
   it.skip("P2_TODO 矩阵 7：租户 A 对租户 B workspace/memory/transcript 零读取", () => {});
