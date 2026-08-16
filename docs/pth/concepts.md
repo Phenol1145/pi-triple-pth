@@ -374,7 +374,7 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 
 **前端抽象**：模型按一个抽象交互核理解自己的交互对象——WorkerKernel 接口——类型①②③是前端授权面（决定 worker 被授权哪些交互通道）。
 
-**后端实体**：分布式共享后端——sandbox 容器 kernel-host（"持久 kernel 宿主池"）——python/ts/bash 核同时处理所有 worker 的请求。
+**后端实体**：两层——PTH 容器内 ts 核（WorkerKernel 进程内 vm，不经 sandbox）+ sandbox 容器 kernel-host（python/bash 持久 kernel 宿主池，PTH 经 `sandbox-kernel.ts` 客户端持 opaque lease 调用）。`PTH_PYTHON_MODE/PTH_BASH_MODE=kernel` 仅本地调试，切回 PTH 容器内 `PyKernel`/`BashKernel`。
 
 **状态隔离（多租户）**：exec-channel 双模式——stateless（每调用独立 kernel——vm context 新建）/ repl（sessionId 持久 context——变量/函数/声明保留 + idle TTL 回收）——每个 worker 的函数/变量互不泄漏。
 
@@ -385,7 +385,7 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 | 理论元素 | 落点 |
 |---|---|
 | 交互核声明 | exploreKernels 字段（语义升级：探索核→交互核——含生产+探索） |
-| 后端宿主 | sandbox/kernel-host.ts（SANDBOX_URL 通道 + 共享密钥） |
+| 后端宿主 | `packages/pth-sandbox/src/kernel-host.ts`（`PTH_SANDBOX_KERNEL_URL` + opaque lease；共享密钥仅控制器间认证） |
 | 前后端通信 | kernel/exec-channel.ts（stateless/repl——"代码级执行唯一入口"） |
 | 前端抽象 | interpreter/index.ts WorkerKernel · sandbox-kernel.ts（转发代理） |
 | 模式切换 | PTH_PYTHON_MODE/PTH_BASH_MODE = sandbox-kernel（生产默认）\| kernel（本地调试） |
@@ -741,7 +741,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 |---|---|---|
 | **能力函数（PTC）**〔桥〕 | ts 程序内可调用的函数——能力空间（0.10 前端授权面） | memory.query / fs.readSource / bash |
 | **LLM 工具调用**〔旧〕 | 模型函数调用协议里的 tool（带 JSON schema） | bash_run / asp.index / dev.write |
-| **核（kernel）**〔旧〕 | 执行后端——bash / python / ts / fs（工具族 toolFamily 的根基——0.10 后端实体） | interpreter/ · sandbox/kernel-host.ts |
+| **核（kernel）**〔旧〕 | 执行后端——bash / python / ts / fs（工具族 toolFamily 的根基——0.10 后端实体） | interpreter/ · `packages/pth-sandbox/src/kernel-host.ts` |
 
 | 概念 | 定义 | 落点 |
 |---|---|---|
