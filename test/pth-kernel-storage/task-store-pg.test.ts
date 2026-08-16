@@ -49,6 +49,30 @@ suite("task store pg", () => {
     expect(t.id).toBeTruthy();
   });
 
+  it("P1-1：存量行可读写，lease 列默认安全并可回读", async () => {
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, status)
+       VALUES ('legacy-task','tenant-a','legacy','legacy text','me','pending')`,
+    );
+    const legacy = await store.getById("legacy-task");
+    expect(legacy?.leaseGeneration).toBe(0);
+    expect(legacy?.leaseId).toBeNull();
+
+    const leaseId = "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6";
+    await pool.query(
+      `UPDATE tasks SET lease_id = $1, lease_generation = $2, lease_expires_at = now() WHERE id = 'legacy-task'`,
+      [leaseId, 1],
+    );
+    const leased = await store.getById("legacy-task");
+    expect(leased?.leaseId).toBe(leaseId);
+    expect(leased?.leaseGeneration).toBe(1);
+    expect(leased?.leaseExpiresAt).toBeInstanceOf(Date);
+
+    // 旧诊断字段保留：claim/reject/submit 语义不回退
+    await store.claimTopN("dev-worker", ["legacy-task"]);
+    expect((await store.getById("legacy-task"))?.claimed_by).toBe("dev-worker");
+  });
+
   it("candidates returns matching tasks by tags", async () => {
     const t = await store.publish({ title: "t2", text: "do y", createdBy: "me", tags: ["analysis"] });
     const cands = await store.candidates("analyst");

@@ -61,4 +61,33 @@ suite("schema", () => {
       pool.query(`INSERT INTO memory_entries (id, kind, anchors, content) VALUES ('m1','fact','[]','x')`),
     ).rejects.toThrow();
   });
+
+  it("tasks 具备真实 lease 列（P1-1）", async () => {
+    const cols = await pool.query(
+      `SELECT column_name, data_type, column_default
+       FROM information_schema.columns
+       WHERE table_name = 'tasks' AND column_name IN ('lease_id','lease_generation','lease_expires_at')
+       ORDER BY column_name`,
+    );
+    expect(cols.rows.map((r) => r.column_name)).toEqual(["lease_expires_at", "lease_generation", "lease_id"]);
+    const gen = cols.rows.find((r) => r.column_name === "lease_generation");
+    expect(gen.data_type).toBe("bigint");
+    expect(String(gen.column_default)).toContain("0");
+  });
+
+  it("lease 索引 idx_tasks_active_lease 存在（partial: status=claimed）", async () => {
+    const res = await pool.query(
+      `SELECT indexdef FROM pg_indexes WHERE tablename = 'tasks' AND indexname = 'idx_tasks_active_lease'`,
+    );
+    expect(res.rows).toHaveLength(1);
+    expect(String(res.rows[0].indexdef)).toContain("WHERE (status = 'claimed'::text)");
+  });
+
+  it("存量行 lease 字段默认安全（null lease_id / generation 0）", async () => {
+    await pool.query(`INSERT INTO tasks (id, title, text, created_by, status) VALUES ('legacy-lease','x','y','me','pending')`);
+    const res = await pool.query(`SELECT lease_id, lease_generation, lease_expires_at FROM tasks WHERE id = 'legacy-lease'`);
+    expect(res.rows[0].lease_id).toBeNull();
+    expect(Number(res.rows[0].lease_generation)).toBe(0);
+    expect(res.rows[0].lease_expires_at).toBeNull();
+  });
 });

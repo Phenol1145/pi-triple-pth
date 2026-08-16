@@ -64,6 +64,13 @@ CREATE INDEX IF NOT EXISTS idx_tasks_created ON tasks(created_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_payload_flow ON tasks USING GIN(payload);  -- resolver 查询（payload ? 'flow'）
 CREATE INDEX IF NOT EXISTS idx_tasks_claimed_by ON tasks(claimed_by, status);
 CREATE INDEX IF NOT EXISTS idx_tasks_claimed_at ON tasks(claimed_at) WHERE status='claimed';
+-- 模块化 v2 P1-1：真实 task lease 列（tasking CAS 地基——lease_id/generation/expires_at）。
+-- 幂等增量迁移：旧行 lease_id NULL + lease_generation 0（尚未被新 tasking 协议认领）；
+-- claimed_by/claims_count 保留为诊断字段，新 lease 协议不依赖它们授权。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_id UUID;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_generation BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_tasks_active_lease ON tasks(tenant_id, lease_id, lease_generation) WHERE status='claimed';
 
 ${MEMORY_SCHEMA_SQL}
 

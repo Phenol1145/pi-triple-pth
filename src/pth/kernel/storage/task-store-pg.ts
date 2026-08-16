@@ -25,6 +25,10 @@ export interface Task {
   job_id?: string | null;
   /** P0-3：租户隔离边界——来自 tasks.tenant_id（当前 publish 未显式写入时为 'default'） */
   tenantId?: string;
+  /** P1-1：真实 task lease（tasking CAS）——旧行 leaseId NULL + leaseGeneration 0 */
+  leaseId?: string | null;
+  leaseGeneration?: number;
+  leaseExpiresAt?: Date | null;
 }
 
 export interface PublishInput {
@@ -226,5 +230,8 @@ function mapRow(row: any): Task {
     payload: row.payload,
     assigned_role: row.assigned_role ?? null,
     tenantId: typeof row.tenant_id === "string" ? row.tenant_id : "default",
+    leaseId: row.lease_id ?? null,
+    leaseGeneration: Number(row.lease_generation ?? 0),
+    leaseExpiresAt: row.lease_expires_at != null ? new Date(row.lease_expires_at) : null,
   };
 }
