@@ -6,3 +6,6 @@ export * from "./task-outcome-observers.js";
 export * from "./task-dispatcher.js";
 export * from "./task-outcome-committer.js";
 export * from "./adapters/pg-task-repository.js";
+export * from "./delegation-policy.js";
+export * from "./task-control-service.js";
+export * from "./task-queries.js";

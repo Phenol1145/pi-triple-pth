@@ -2,7 +2,7 @@ import type { WorkerKernel } from "../kernel/interpreter/index.js";
 import type { Task, TaskStore } from "../kernel/storage/task-store-pg.js";
 import type { WorkerRole } from "../kernel/execution/worker-cluster.js";
 import type { TaskWorkspaceManager } from "../kernel/execution/workspace.js";
-import type { TaskOutcome, TaskRepository, TenantScope } from "../contracts/index.js";
+import type { TaskOutcome, TaskRepository, TenantScope, TaskDispatchContext } from "../contracts/index.js";
 import { TaskDispatcher } from "../tasking/index.js";
 import { TaskOutcomeCommitter } from "../tasking/index.js";
 import { BoundedBackgroundQueue } from "../tasking/index.js";
@@ -42,6 +42,19 @@ export class TaskLoop {
   get isPaused(): boolean { return this.paused; }
   get isStopped(): boolean { return this.stopped; }
 
+  /** W8 P1：任务身份盖章——tasks.delegate/await 的调用者上下文（每任务执行前由本循环设置） */
+  private stampTaskDispatchContext(task: Task): void {
+    const kernel = this.deps.kernel as unknown as {
+      setTaskDispatchContext?: (ctx: TaskDispatchContext | null) => void;
+    };
+    kernel.setTaskDispatchContext?.({
+      taskId: task.id,
+      roleId: this.deps.role.id,
+      tenantId: task.tenantId ?? "default",
+      delivery: (task.payload as { delivery?: TaskDispatchContext["delivery"] } | undefined)?.delivery ?? null,
+    });
+  }
+
   async runOnce(): Promise<boolean> {
     if (this.paused || this.stopped) return false;
     const { taskStore, role } = this.deps;
@@ -79,6 +92,7 @@ export class TaskLoop {
     for (const task of candidates) {
       if (this.paused || this.stopped) break;
       const ws = await workspaceMgr.allocate(task.id, task.tenantId ?? "default");
+      this.stampTaskDispatchContext(task);
       const execStart = Date.now();
       const trig = (task.payload as { triggeredBy?: { depth?: number; triggerId?: string } } | undefined)?.triggeredBy;
       const chain = { chainDepth: Number(trig?.depth ?? 0), ...(trig?.triggerId ? { triggerId: trig.triggerId } : {}) };
@@ -272,6 +286,7 @@ export class TaskLoop {
     const chain = { chainDepth: Number(trig?.depth ?? 0), ...(trig?.triggerId ? { triggerId: trig.triggerId } : {}) };
     this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...chain });
     kernel.reset();                          // 任务级状态隔离
+    this.stampTaskDispatchContext(task);
     try {
       // 任务池纯化（2026-08-10 D1）：任务池只面向自然语言——agent 循环为唯一执行路径。
       // （混合池是调试期临时形态；直连 kernel 的 TS 操作走 /kernel/exec 通道，不占任务池）

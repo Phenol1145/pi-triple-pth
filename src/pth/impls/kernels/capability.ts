@@ -5,7 +5,15 @@ import type { PgMemoryStore } from "@away_from/pth-memory";
 import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
-import { wrapValidated } from "../../kernel/ptc/contract.js";
+import { wrapValidated, PtcContractError } from "../../kernel/ptc/contract.js";
+import type {
+  TaskAwaitInput,
+  TaskAwaitResult,
+  TaskDelegateInput,
+  TaskDelegateResult,
+  TaskDispatchContext,
+  TenantScope,
+} from "../../contracts/index.js";
 import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
 import { isIP } from "node:net";
 import { pthConfig } from "../../config/index.js";
@@ -38,6 +46,14 @@ function createTaskFs(resolve: (rel: string) => string): Record<string, unknown>
 }
 
 /**
+ * W8 P1：tasks.delegate/await 的窄端口（TaskControlService 实现；仅组织权持有角色注入）。
+ */
+export interface TaskDispatchPort {
+  delegate(input: TaskDelegateInput, caller: TaskDispatchContext, scope: TenantScope): Promise<TaskDelegateResult>;
+  awaitTask(input: TaskAwaitInput, caller: TaskDispatchContext, scope: TenantScope): Promise<TaskAwaitResult>;
+}
+
+/**
  * 能力注入：context 默认空，只注入白名单。
  * 不注入 fs/child_process/net——语言层面无能力。
  * 任务动词面收窄：tasks 只暴露 peek/submit（claim/reject 由 TaskLoop 机械控制）。
@@ -62,6 +78,10 @@ export function buildCapabilities(deps: {
   sessionRef?: { current: { currentSpace: string } | null };
   /** 角色 ID（B4 Phase 3：skills.maintain 仅注入 memory-keeper） */
   roleId?: string;
+  /** W8 P1：任务投递端口（仅组织权持有角色传入；缺省不注入 tasks 键） */
+  taskControl?: TaskDispatchPort;
+  /** W8 P1：当前任务身份（task-loop 每任务盖章——delegate/await 的调用者上下文） */
+  taskContext?: { current: TaskDispatchContext | null };
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore, sessionRef: deps.sessionRef });
@@ -145,7 +165,41 @@ export function buildCapabilities(deps: {
           }
         : {}),
     },
-    // tasks 能力已摘除（权限 v2 R3）——任务代码不可直接 peek/submit 任务池
+    // W8 P1：任务投递原语——仅组织权持有角色注入（batch-process 按 delegation-policy 传 taskControl）。
+    // 调用者身份来自 task-loop 每任务盖章的 taskContext（worker 不可自报）。
+    ...(deps.taskControl
+      ? {
+          tasks: {
+            delegate: wrapValidated("tasks.delegate", async (input: TaskDelegateInput) => {
+              const ctx = deps.taskContext?.current;
+              if (!ctx || !ctx.taskId || !ctx.roleId) {
+                throw new PtcContractError("tasks.delegate", "任务上下文未就绪——tasks.delegate 仅可在任务程序内调用");
+              }
+              const scope: TenantScope = {
+                tenantId: ctx.tenantId,
+                principalId: `worker:${ctx.roleId}`,
+                roles: [ctx.roleId],
+                traceId: `task:${ctx.taskId}`,
+              };
+              return deps.taskControl!.delegate(input, ctx, scope);
+            }),
+            await: wrapValidated("tasks.await", async (input: TaskAwaitInput) => {
+              const ctx = deps.taskContext?.current;
+              if (!ctx || !ctx.taskId || !ctx.roleId) {
+                throw new PtcContractError("tasks.await", "任务上下文未就绪——tasks.await 仅可在任务程序内调用");
+              }
+              const scope: TenantScope = {
+                tenantId: ctx.tenantId,
+                principalId: `worker:${ctx.roleId}`,
+                roles: [ctx.roleId],
+                traceId: `task:${ctx.taskId}`,
+              };
+              return deps.taskControl!.awaitTask(input, ctx, scope);
+            }),
+          },
+        }
+      : {}),
+    // tasks peek/submit 面仍摘除（权限 v2 R3）——任务代码只可走 delegate/await 原语，不可直连任务池
     ...(deps.bash ? { bash: deps.bash } : {}),
     ...(deps.python ? { python: deps.python } : {}),
     // 2026-08-11 生产核裁决：ts 程序内 c.* 能力全部撤销（"不应在 ts 空间内调用 C"）——

@@ -31,6 +31,8 @@ suite("task control service（P1-3）", () => {
   let pool: Awaited<ReturnType<typeof createPgPool>>;
   let service: TaskControlService;
   let store: PgTaskStore;
+  let routedStore: PgTaskStore;
+  let routedService: TaskControlService;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
@@ -39,6 +41,8 @@ suite("task control service（P1-3）", () => {
     installDefaultRoles();
     store = new PgTaskStore(pool);
     service = new TaskControlService({ store, pool, queries: new PgTaskQueries(pool) });
+    routedStore = new PgTaskStore(pool, { validate: checkTaskRouting, assign: routeTaskRole });
+    routedService = new TaskControlService({ store: routedStore, pool, queries: new PgTaskQueries(pool) });
   }, 120_000);
 
   afterAll(async () => {
@@ -58,8 +62,6 @@ suite("task control service（P1-3）", () => {
   });
 
   it("W8 P0：外部入口恒盖 entry delivery，body 伪造 delivery 被服务端覆盖", async () => {
-    const routedStore = new PgTaskStore(pool, { validate: checkTaskRouting, assign: routeTaskRole });
-    const routedService = new TaskControlService({ store: routedStore, pool, queries: new PgTaskQueries(pool) });
     const task = await routedService.publish(
       {
         title: "entry", text: "x", tags: ["code"],
@@ -72,6 +74,88 @@ suite("task control service（P1-3）", () => {
       path: ["developer"],
       lineageId: task.id,
     });
+  });
+
+  it("W8 P1：developer→coder delegate 服务端盖章 + await 一次性查询契约", async () => {
+    const caller = {
+      taskId: "parent-1",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "root-1" },
+    };
+    const delegated = await routedService.delegate(
+      {
+        to: "coder", title: "实现 helper", text: "写一个 helper 并自测",
+        tags: ["coding"], expect: "result", context: { spec: "helper.ts" },
+        // body 自报投递字段（应被服务端完全忽略）
+        ...({ delivery: { path: ["forged"], lineageId: "forged" } } as object),
+      },
+      caller,
+      scopeA,
+    );
+    expect(delegated).toEqual({ taskId: delegated.taskId, roleId: "coder", path: ["developer", "coder"] });
+
+    const row = await pool.query(
+      "SELECT assigned_role, created_by, tags, payload FROM tasks WHERE id = $1",
+      [delegated.taskId],
+    );
+    expect(row.rows[0].assigned_role).toBe("coder");
+    expect(row.rows[0].created_by).toBe("worker:developer");
+    expect(row.rows[0].tags).toEqual(["coding"]);
+    expect(row.rows[0].payload.delivery).toEqual({
+      parent: { taskId: "parent-1", roleId: "developer", typePath: ["developer"] },
+      path: ["developer", "coder"],
+      lineageId: "root-1",
+      replyTo: "parent",
+    });
+    expect(row.rows[0].payload.context).toEqual({ spec: "helper.ts" });
+    expect(row.rows[0].payload.expect).toBe("result");
+
+    // P1 await 形态：pending 一次性查询（waiting=true，不挂起不轮询）
+    const pending = await routedService.awaitTask({ taskId: delegated.taskId }, caller, scopeA);
+    expect(pending).toEqual({ status: "pending", waiting: true, result: null, artifactRef: null });
+
+    // 终态后返回 result（模拟 done 回写——完整 commit 路径已由 pg-task-repository 测试覆盖）
+    await pool.query(
+      `UPDATE tasks SET status = 'completed',
+         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', '{"value":42}'::jsonb, true)
+       WHERE id = $1`,
+      [delegated.taskId],
+    );
+    const done = await routedService.awaitTask({ taskId: delegated.taskId }, caller, scopeA);
+    expect(done).toEqual({ status: "completed", result: { value: 42 }, artifactRef: null, summary: undefined });
+  });
+
+  it("W8 P1：组织权 fail-fast——违规不进任务池；MID 目标由服务端直接填 assigned_role", async () => {
+    const developer = { taskId: "parent-2", roleId: "developer", tenantId: "tenant-a", delivery: { path: ["developer"], lineageId: "root-2" } };
+    const before = Number((await pool.query(`SELECT count(*)::int AS n FROM tasks`)).rows[0].n);
+    await expect(
+      routedService.delegate({ to: "scout", title: "越权", text: "x" }, developer, scopeA),
+    ).rejects.toThrow(/组织权拒绝.*developer.*scout/);
+    await expect(
+      routedService.delegate({ to: "tester", title: "叶子投递", text: "x" }, { ...developer, roleId: "coder" }, scopeA),
+    ).rejects.toThrow(/组织权拒绝.*coder.*tester/);
+    const after = Number((await pool.query(`SELECT count(*)::int AS n FROM tasks`)).rows[0].n);
+    expect(after).toBe(before); // 未进任务池
+
+    // 用户裁决：assigned_role 服务端直接指定——MID（researcher）无已注册标签也可投递
+    const actuator = { taskId: "act-1", roleId: "actuator", tenantId: "tenant-a", delivery: { path: ["actuator"], lineageId: "act-root" } };
+    const mid = await routedService.delegate({ to: "researcher", title: "研究", text: "深度调研" }, actuator, scopeA);
+    expect(mid).toEqual({ taskId: mid.taskId, roleId: "researcher", path: ["actuator", "researcher"] });
+    const midRow = await pool.query("SELECT assigned_role, payload FROM tasks WHERE id = $1", [mid.taskId]);
+    expect(midRow.rows[0].assigned_role).toBe("researcher");
+    expect(midRow.rows[0].payload.delivery.parent.roleId).toBe("actuator");
+  });
+
+  it("W8 P1：await 只允许直接子任务；跨任务/跨租户即拒绝", async () => {
+    const caller = { taskId: "parent-3", roleId: "developer", tenantId: "tenant-a", delivery: { path: ["developer"], lineageId: "root-3" } };
+    const child = await routedService.delegate({ to: "coder", title: "c", text: "x" }, caller, scopeA);
+    await expect(
+      routedService.awaitTask({ taskId: child.taskId }, { ...caller, taskId: "other-task" }, scopeA),
+    ).rejects.toThrow(/不是当前任务的直接子任务/);
+    await expect(
+      routedService.awaitTask({ taskId: child.taskId }, caller, { ...scopeA, tenantId: "tenant-b" }),
+    ).rejects.toThrow(/不存在或不属于当前租户/);
   });
 
   it("list/get 只返回本租户数据，跨租户 get 返回 null", async () => {

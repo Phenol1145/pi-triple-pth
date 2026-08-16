@@ -22,9 +22,10 @@ import { SandboxCompiledKernel } from "@away_from/pth-sandbox";
 import { getEventBus } from "../../kernel/execution/event-bus.js";
 import { roleAnchorOf, hasRoleAnchor, filterOwnEntries, filterOwnRows, requireAnchorRows } from "../../kernel/execution/memory-scope.js";
 import { pthConfig } from "../../config/index.js";
-import { buildCapabilities } from "./capability.js";
+import { buildCapabilities, type TaskDispatchPort } from "./capability.js";
 import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
 import type { DataWorldAccess } from "../../kernel/storage/index.js";
+import type { TaskDispatchContext } from "../../contracts/index.js";
 
 export interface KernelManagerOptions {
   /** python 执行模式：kernel（持久管道，默认）| interpreter（每次 spawn）| sandbox-kernel（宿主池） */
@@ -250,6 +251,10 @@ export function createWorkerKernelWithManager(deps: {
   sessionRef?: { current: { currentSpace: string } | null };
   /** 角色 ID（B4 Phase 3：skills.maintain 仅注入 memory-keeper） */
   roleId?: string;
+  /** W8 P1：任务投递端口（仅组织权持有角色传入；缺省不注入 tasks 键） */
+  taskControl?: TaskDispatchPort;
+  /** W8 P1：当前任务身份引用（task-loop 每任务经 setTaskDispatchContext 盖章） */
+  taskContext?: { current: TaskDispatchContext | null };
 }): {
   ts: TsInterpreter;
   python: Interpreter;
@@ -269,6 +274,8 @@ export function createWorkerKernelWithManager(deps: {
   capabilities: Record<string, unknown>;
   /** ASP 会话空间引用（task-loop 每任务赋值） */
   sessionRef: { current: { currentSpace: string } | null };
+  /** W8 P1：任务身份盖章（task-loop 每任务调用——tasks.delegate/await 的调用者上下文） */
+  setTaskDispatchContext(ctx: TaskDispatchContext | null): void;
   snapshot(): InterpreterSnapshot | Promise<InterpreterSnapshot>;
   reset(): void;
   dispose(): void;
@@ -281,6 +288,9 @@ export function createWorkerKernelWithManager(deps: {
   // ASP 会话空间引用（任务级——task-loop 设置；agent-loop cd 更新；memory 包装读取）
   const sessionRef = deps.sessionRef ?? { current: null };
 
+  // W8 P1：当前任务身份（task-loop 每任务盖章；delegate/await 调用者上下文）
+  const taskContext = deps.taskContext ?? { current: null };
+
   const capabilitiesFull = buildCapabilities({
     llm: deps.llm,
     dataWorld: deps.dataWorld,
@@ -290,6 +300,8 @@ export function createWorkerKernelWithManager(deps: {
     toolstore: deps.toolstore,
     sessionRef,
     roleId: deps.roleId,
+    taskControl: deps.taskControl,
+    taskContext,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
     registerKernel: (language, interpreter) => registerHook?.(language, interpreter),
     readSource: deps.readSource,
@@ -371,6 +383,8 @@ export function createWorkerKernelWithManager(deps: {
     dataWorld: deps.dataWorld,
     /** ASP 会话空间引用（task-loop 每任务赋值） */
     sessionRef,
+    /** W8 P1：任务身份盖章（task-loop 每任务调用） */
+    setTaskDispatchContext: (ctx) => { taskContext.current = ctx; },
     snapshot: async () => {
       const tsSnap = await ts.snapshot();
       const pySnap = await deps.manager.python.snapshot();

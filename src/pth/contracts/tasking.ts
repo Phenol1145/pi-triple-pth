@@ -77,6 +77,56 @@ export interface TaskDelivery {
   readonly artifactRef?: DeliveryArtifactRef;
 }
 
+// ─── W8 P1：tasks.delegate / tasks.await 工具契约（服务端只认本形状） ───────
+
+export interface TaskDelegateInput {
+  /** 必填；白名单 = 直接子类型（组织权矩阵 + planner/governor 补充权） */
+  to: string;
+  title: string;
+  /** 自包含任务描述（T01/T03/T04 教训） */
+  text: string;
+  template?: string;
+  params?: Record<string, unknown>;
+  tags?: string[];
+  /** 父方整理好的上下文快照（压缩后随任务传递） */
+  context?: Record<string, unknown>;
+  /** 回流预期：决定 await 返回内容（P2 按此裁剪） */
+  expect?: "result" | "artifact" | "report";
+}
+
+export interface TaskDelegateResult {
+  taskId: string;
+  roleId: string;
+  /** 子任务的派发路径（含自身类型） */
+  path: readonly string[];
+}
+
+/** 当前执行中任务的服务器侧身份（task-loop 每任务盖章，worker 不可自报） */
+export interface TaskDispatchContext {
+  taskId: string;
+  roleId: string;
+  tenantId: string;
+  /** 当前任务 payload.delivery（无章的 legacy/内部任务为 null → 服务端按 root 兜底） */
+  delivery: TaskDelivery | null;
+}
+
+export interface TaskAwaitInput {
+  taskId: string;
+  timeoutMs?: number;
+  /** P2 支持放弃等待（父先失败或改异步）；P1 只落契约不做挂起 */
+  detach?: boolean;
+}
+
+export interface TaskAwaitResult {
+  status: string;
+  /** 未终态（P1 一次性查询形态）：true——P2 会换成挂起 + requeue 语义 */
+  waiting?: boolean;
+  result?: unknown;
+  artifactRef?: DeliveryArtifactRef | null;
+  summary?: string;
+  error?: { code: string; message: string };
+}
+
 export type TaskOutcomeStatus = "completed" | "rejected" | "cancelled";
 
 export interface TaskOutcome {

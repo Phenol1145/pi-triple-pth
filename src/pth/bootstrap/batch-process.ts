@@ -15,7 +15,7 @@ import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../kern
 import { getEventBus } from "../kernel/execution/event-bus.js";
 import { isForwardableKernelEvent, toKernelActivityEvent } from "../kernel/execution/kernel-event-bridge.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
-import { createPgTaskRepository } from "../tasking/index.js";
+import { createPgTaskRepository, TaskControlService, PgTaskQueries, allowedDelegationTargets } from "../tasking/index.js";
 import { DefaultTaskWorkspaceManager } from "../kernel/execution/workspace.js";
 import { archiveTask, type ArchiveDeps } from "../kernel/execution/archive.js";
 import { createKernelModelRouter } from "../kernel/execution/model-router.js";
@@ -81,6 +81,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
   // P1-6：batch 子进程启用 tasking dispatcher 路径（真实 lease claim/CAS commit）
   const taskRepository = createPgTaskRepository(pool);
+  // W8 P1：任务投递服务（worker 工具面 tasks.delegate/await 的服务器端实现）
+  const taskControl = new TaskControlService({ store: dataWorld.tasks, pool, queries: new PgTaskQueries(pool) });
   const workspaceMgr = new DefaultTaskWorkspaceManager({ basePath: deps.basePath, artifactPath: deps.artifactPath });
   // 产物根必须先存在：archive 用 rename 而非 mkdir——父目录缺失时 rename 抛 ENOENT
   await mkdir(deps.artifactPath, { recursive: true });
@@ -263,6 +265,13 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
 
   /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
   const createWorker = (role: import("../kernel/execution/worker-cluster.js").WorkerRole) => {
+    // W8 P1：组织权矩阵派生能力授予——有投递权的角色追加 tasks capability（缺省全量角色不受影响）
+    const canDelegate = allowedDelegationTargets(role.id).length > 0;
+    const effectiveRole = role.capabilities
+      ? { ...role, capabilities: [...new Set([...role.capabilities, ...(canDelegate ? ["tasks"] : [])])] }
+      : role;
+    // W8 P1：任务身份引用（task-loop 每任务盖章；delegate/await 调用者上下文）
+    const taskContext: { current: import("../contracts/index.js").TaskDispatchContext | null } = { current: null };
     const manager = createKernelManager({
       pythonMode: pthConfig().str("PTH_PYTHON_MODE") as any,
       bashMode: pthConfig().str("PTH_BASH_MODE") as any,
@@ -297,9 +306,11 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     // 权限分层（P3——注入面收窄）：角色声明的 capabilities/memoryScope 传给能力构建
     const kernel = createWorkerKernelWithManager({
       llm, dataWorld, manager, toolstore,
-      roleFilter: role.capabilities,
+      roleFilter: effectiveRole.capabilities,
       memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
       roleId: role.id,
+      taskControl: canDelegate ? taskControl : undefined,
+      taskContext,
       registerKernel: (language, interpreter) => manager.registerKernel(language, interpreter as never),
       readSource: pthConfig().str("PTH_SOURCE_ROOT")
         ? (relPath) => import("../kernel/interpreter/read-source.js").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
@@ -355,7 +366,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       verifySweepMs: 0,
     }) : undefined;
     const loop = new BatchTaskLoop({
-      kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
+      kernel, role: effectiveRole, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
       repository: taskRepository,
       // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
       llm,

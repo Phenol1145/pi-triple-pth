@@ -132,12 +132,18 @@ tasks.await({ taskId, timeoutMs? }) →
 | Q1 | **payload.delivery 单键包裹**（P0 实施裁决）：不与既有 payload.parent(string)/flow 撞名 |
 | Q2 | **仅外部入口盖章**（P0 实施裁决）：TaskControlService 路径盖 entry 章；内部静态链发布不盖章 |
 | Q3 | **全量 + 64KiB 截断 + 失败摘要**（P0 实施裁决）：sandbox 产物只走 artifactRef 引用，不进 jsonb |
+| Q4 | **P1 await = 一次性状态查询**（P1 实施裁决）：终态返回 result/artifactRef/error；未终态返回 {status,waiting:true}——不轮询不挂起，P2 换成事件驱动 requeue |
+| Q5 | **MID 目标由服务端直接填 assigned_role**（P1 实施裁决）：delegateTarget 仅服务端可写，不注册 MID 标签、不改变外部路由面 |
 
 ## 8. 分阶段实施（设计批准后）
 
 - **P0 契约与盖章**：✅ 已完成——TaskDelivery 类型/校验 + 入口盖章（entry）+ 终态 result
   回写（completed/rejected 双路径）+ 测试（`contracts/tasking.ts`、`task-store-pg`、
   `pg-task-repository`、`task-control-service`）；
-- **P1 delegate/await**：delegation-policy + 两个能力注入 + TaskControlService 服务端校验 + 端到端测试（developer→coder）；
+- **P1 delegate/await**：✅ 已完成——`delegation-policy`（直接子类型白名单 + planner/governor
+  执行族补充权 + origin 全树 + sensor/controller 排除）+ `TaskControlService.delegate/awaitTask`
+  （组织权 fail-fast、服务端盖章 parent/path/lineage、delegateTarget 强制 assigned_role、模板解析、
+  直接子任务关系校验）+ `tasks.delegate/await` 能力条件注入（batch-process 按政策装配、
+  task-loop 每任务盖章调用者上下文）+ PTC 契约注册 + developer→coder 测试；
 - **P2 事件驱动回流**：task-dispatch-notifier（子终态 → 父 requeue + childResult）+ 取消传播 + PTL wait --follow；
 - **P3 穿透接口**：`skill:penetrate:*` 类型与注册校验（不实现执行优化）。

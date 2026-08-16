@@ -19,6 +19,7 @@ const FAMILY_SECTIONS: Array<{ families: PtcFamily[]; title: string }> = [
   { families: ["fs"], title: "fs" },
   { families: ["kernel"], title: "执行核" },
   { families: ["llm", "web", "env", "state", "cache", "ts-local"], title: "web/llm/state/ext/env" },
+  { families: ["tasks"], title: "tasks" },
 ];
 
 /** 单条目三要素行（签名 → 返回 + 何时用 + 效果——T8 锚点格式） */

@@ -105,6 +105,7 @@ export function filterCapabilityDoc(doc: string, capabilities: string[]): string
     const matched = (title.includes("memory") && caps.has("memory"))
       || (title.includes("fs") && (caps.has("fs") || caps.has("readSource") || caps.has("readText")))
       || (title.includes("执行核") && (caps.has("python") || caps.has("bash") || caps.has("c")))
+      || (title.includes("tasks") && caps.has("tasks"))
       || (caps.has("web") || caps.has("llm") || caps.has("state") || caps.has("ext") || caps.has("env") || caps.has("skills") || caps.has("obs")) && title.includes("web/llm");
     if (matched) { keep.push(sec); matchedAny = true; }
   }

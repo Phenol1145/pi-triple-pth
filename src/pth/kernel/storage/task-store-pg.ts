@@ -49,11 +49,15 @@ export interface PublishInput {
   /** P0-3：外部路由从 auth token 派生写入；内部发布者缺省 default */
   tenantId?: string;
   /**
-   * W8 P0 服务器端投递盖章开关（仅 TaskControlService 外部入口置 "entry"）：
-   * path=[assignedRole]、lineageId=自身 taskId、parent 不设置。内部静态链发布
-   * （resolver/trigger/debug-case/optimizer）不传——不改变既有 flow/trigger 语义。
+   * W8 P0/P1 服务器端投递盖章开关（仅 TaskControlService 可置）：
+   *  - "entry"：外部入口——path=[assignedRole]、lineageId=自身 taskId、parent 不设置；
+   *  - "delegate"：worker 父→子投递——assigned_role 由 delegateTarget 强制（服务端已过
+   *    组织权矩阵），payload.delivery 已由 TaskControlService 按调用者身份盖章。
+   *  内部静态链发布（resolver/trigger/debug-case/optimizer）不传——不改变既有 flow/trigger 语义。
    */
-  deliveryMode?: "entry";
+  deliveryMode?: "entry" | "delegate";
+  /** 仅 deliveryMode="delegate" 有效：服务端强制路由目标（body 不可自报） */
+  delegateTarget?: string;
 }
 
 export interface TaskStore {
@@ -81,7 +85,15 @@ export class PgTaskStore implements TaskStore {
     // 任务池纯化（2026-08-10 D5）：publish 唯一入口严格校验——未知标签/歧义/无路由依据
     // 一律拒绝（statusCode 400——fastify 映射；内部发布者同样受约束）。
     // 2026-08-13 审计 P2：校验/分配策略由装配层注入（DIP）——本层只存不判。
-    if (this.routing) {
+    // W8 P1：delegate 通道由 TaskControlService 已过组织权矩阵 + 标签注册表校验，
+    // 这里直接采用服务端 delegateTarget（MID 目标无已注册标签也能投递——用户裁决）。
+    const isDelegate = input.deliveryMode === "delegate";
+    if (isDelegate && typeof input.delegateTarget !== "string") {
+      const err = new Error("deliveryMode=delegate 必须携带服务端 delegateTarget") as Error & { statusCode?: number };
+      err.statusCode = 400;
+      throw err;
+    }
+    if (this.routing && !isDelegate) {
       const check = this.routing.validate({ tags: input.tags, payload: input.payload });
       if (!check.ok) {
         const err = new Error(check.error) as Error & { statusCode?: number };
@@ -92,7 +104,9 @@ export class PgTaskStore implements TaskStore {
     // 任务分配正交化：应用层生成 id（crypto.randomUUID）→ 路由策略确定性路由
     // （flow 显式 role / tags 精确匹配——校验期已保证有路由依据）——assigned_role 从出生即确定，零抢票。
     const id = randomUUID();
-    const assignedRole = this.routing?.assign({ id, tags: input.tags, payload: input.payload }) ?? null;
+    const assignedRole = isDelegate
+      ? (input.delegateTarget as string)
+      : (this.routing?.assign({ id, tags: input.tags, payload: input.payload }) ?? null);
     // W8 P0 入口盖章（用户裁决 Q2：仅外部入口）——无路由策略注入（测试/直连装配）时无法
     // 确定 assignedRole，不盖章降级（不阻断兼容性；生产 gateway 恒注入 routing）。
     const payload = input.deliveryMode === "entry" && assignedRole

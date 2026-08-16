@@ -3,7 +3,7 @@ import { PTC_CAPABILITIES, PtcContractError, wrapValidated, buildCapabilityAsAct
 import { AGENT_CAPABILITY_AS_ACTION, AGENT_CAPABILITY_IDS } from "../../src/pth/kernel/execution/parse-agent-action";
 
 describe("PTC 契约注册表（A1 Phase 1）", () => {
-  it("注册表覆盖全部 9 个降级能力且三要素齐全", () => {
+  it("注册表覆盖全部降级能力且三要素齐全", () => {
     for (const id of AGENT_CAPABILITY_IDS) {
       const def = PTC_CAPABILITIES[id];
       expect(def, id + " 缺注册表条目").toBeTruthy();
@@ -32,7 +32,7 @@ describe("PTC 契约注册表（A1 Phase 1）", () => {
 
   it("AGENT_CAPABILITY_AS_ACTION 即派生映射（单一真相源）", () => {
     expect(AGENT_CAPABILITY_AS_ACTION["memory.query"]!({ sql: "SELECT 1" })).toBe('return await memory.query("SELECT 1");');
-    expect(Object.keys(AGENT_CAPABILITY_AS_ACTION).length).toBe(11);   // B4 Phase 3：+skills.maintain.write/archive
+    expect(Object.keys(AGENT_CAPABILITY_AS_ACTION).length).toBe(13);   // B4 Phase 3：+skills.maintain.write/archive；W8 P1：+tasks.delegate/await
   });
 
   it("参数校验：非法调用抛 PtcContractError（结构化——capability 可读）", () => {

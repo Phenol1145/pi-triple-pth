@@ -13,11 +13,12 @@
  *     输出与旧手写模板逐字节一致）。
  *
  * 归属核（family）：ts-local（vm 内对象）/ memory / llm / web / fs / env / state /
- * cache（task-loop 注入）/ kernel（bash·python 解释器）/ seed（results·context 预置对象）。
+ * cache（task-loop 注入）/ kernel（bash·python 解释器）/ seed（results·context 预置对象）/
+ * tasks（W8 父→子任务投递原语）。
  */
 
 export type PtcFamily =
-  | 'ts-local' | 'memory' | 'llm' | 'web' | 'fs' | 'env' | 'state' | 'cache' | 'kernel' | 'seed';
+  | 'ts-local' | 'memory' | 'llm' | 'web' | 'fs' | 'env' | 'state' | 'cache' | 'kernel' | 'seed' | 'tasks';
 
 export interface PtcCapabilityDef {
   name: string;
@@ -330,6 +331,41 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     anchor: '任务工作区枚举',
     whenToUse: '清点产物',
     effect: '文件清单',
+  },
+  'tasks.delegate': {
+    name: 'tasks.delegate', family: 'tasks',
+    params: '(input: { to: string; title: string; text: string; template?: string; params?: object; tags?: string[]; context?: object; expect?: "result"|"artifact"|"report" })',
+    returnType: 'Promise<{ taskId: string; roleId: string; path: string[] }>',
+    anchor: '父 worker 向直接子类型投递任务（0.16.4 投递原语）',
+    whenToUse: '把自包含子任务派发给直接子类型并立即拿回 taskId',
+    effect: '异步投递——服务端按调用者身份盖章 parent/path/lineageId，组织权违规调用即拒绝',
+    validate: (args) => {
+      const e = requireObject(args, 0, 'tasks.delegate');
+      if (typeof e.to !== 'string' || e.to.trim() === '') throw new PtcContractError('tasks.delegate', 'to 必须是非空字符串');
+      if (typeof e.title !== 'string' || e.title.trim() === '') throw new PtcContractError('tasks.delegate', 'title 必须是非空字符串');
+      if (typeof e.text !== 'string' || e.text.trim() === '') throw new PtcContractError('tasks.delegate', 'text 必须是非空字符串');
+      if (e.template !== undefined && typeof e.template !== 'string') throw new PtcContractError('tasks.delegate', 'template 可选——若提供必须是字符串');
+      if (e.expect !== undefined && !['result', 'artifact', 'report'].includes(String(e.expect))) {
+        throw new PtcContractError('tasks.delegate', 'expect 仅支持 result/artifact/report');
+      }
+    },
+    asAction: (a) => `return await tasks.delegate(${JSON.stringify(a)});`,
+  },
+  'tasks.await': {
+    name: 'tasks.await', family: 'tasks',
+    params: '(input: { taskId: string; timeoutMs?: number; detach?: boolean })',
+    returnType: 'Promise<{ status: string; waiting?: boolean; result?: unknown; artifactRef?: {kind:string;id:string}|null; summary?: string; error?: {code:string;message:string} }>',
+    anchor: '父 worker 回收直接子任务结果（P1=一次性状态查询；P2=事件驱动挂起 + requeue）',
+    whenToUse: 'delegate 之后取子任务终态/结果/产物引用',
+    effect: '只读本任务直接子任务（delivery.parent 校验）——不轮询不挂起（P1 契约形态）',
+    validate: (args) => {
+      const e = requireObject(args, 0, 'tasks.await');
+      if (typeof e.taskId !== 'string' || e.taskId.trim() === '') throw new PtcContractError('tasks.await', 'taskId 必须是非空字符串');
+      if (e.timeoutMs !== undefined && (typeof e.timeoutMs !== 'number' || !Number.isFinite(e.timeoutMs) || e.timeoutMs < 0)) {
+        throw new PtcContractError('tasks.await', 'timeoutMs 必须是非负有限数字');
+      }
+    },
+    asAction: (a) => `return await tasks.await(${JSON.stringify(a)});`,
   },
   'ext': {
     name: 'ext', family: 'ts-local',
