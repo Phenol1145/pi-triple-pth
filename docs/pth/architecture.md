@@ -1,62 +1,58 @@
-# PTH 分层架构（2026-08-12 用户裁决：核心机制 / 具体实现分离）
+# PTH 分层架构
 
-> PTH = 自耦自然语言解释器（解释即执行）。本页只描述 PTH 的内部分层与依赖方向；与 PTL 的关系见 `docs/ptl/architecture.md`。
+> PTH = 自耦自然语言解释器（解释即执行）。本页是 PTH 内部分层的**薄索引**；
+> 模块边界、公共端口、依赖矩阵与生命周期不变量见 **[framework-contracts.md](framework-contracts.md)**。
+> 与 PTL 的关系见 `docs/ptl/architecture.md`。
 
 ## 分层原则
 
 > "尽可能把 PTH 分解开——所有核和 worker 谱系都作为一个具体实现提供。"
 
-核心（框架/协议/机制）不绑定具体核与具体角色；具体实现（内置核、worker 谱系、内置空间）
-作为独立实现层提供——可替换、可扩展、可裁剪。
+- **框架层**：`contracts / tasking / runner / execution / catalog / bootstrap` ——机制、端口、策略。
+- **实现层**：各 `adapters/`、`impls/`、`application/gateway`、`gateway/`、`packages/pth-sandbox`、`packages/pth-memory` ——具体技术宿主（PG/Fastify/sandbox HTTP/内核进程）。
+- **组合根**：`bootstrap/pth-host.ts` ——唯一把框架端口接到具体实现的装配点；
+  `main.ts`（API Host）与 `batch-process.ts`（runner Host）共用同一 manifest/catalog。
 
 ```
-src/pth/
-├── core/          # 协议核心（agent-engine 等）
-├── gateway/       # API 层（路由/鉴权/SSE）
-├── kernel/        # 核心执行引擎
-│   ├── execution/     # 引擎机制：agent-loop/task-loop/batch/路由/空间注册表/优化器/
-│   │                 #   trigger/scorecard/workspace（不含角色定义——角色在 impls）
-│   ├── interpreter/   # 核抽象：WorkerKernel 接口/types/llm-fn/toolstore/read-source/
-│   │                 #   kernel-config/exec-channel/ext-capability（不含具体核）
-│   ├── extensions/    # 扩展机制 + 系统扩展（ext-registry/manage/perf/obs/memory…）
-│   └── storage/       # 持久化（memory/task/transcript/audit）
-└── impls/          # ★ 具体实现层（2026-08-12 起）
-    ├── roles/         # worker 谱系：ORIGIN/DEFAULT/MID/GOVERNANCE 角色定义
-    │                 #   （核心 worker-cluster 消费——注册/展开/路由机制在核心）
-    ├── spaces/        # 内置空间：registerBuiltinSpaces(registry)
-    │                 #   （meta/ts/python/bash/dev/write——核心注册表装配）
-    └── kernels/       # 内置核实现 + 装配
-        ├── index.ts           # createWorkerKernel 装配工厂（三解释器+llm+能力包）
-        ├── kernel-manager.ts  # 装配型管理器（new 具体核 + 路由/队列/超时）
-        ├── ts-interpreter / python-interpreter / bash-interpreter   # 语言核
-        ├── py-kernel / bash-kernel                                  # 持久 REPL
-        ├── compiled-kernel / gdb-mi                                 # C 生产核 + 调试
-        ├── capability / pth-memory-lib                              # ts 能力包
-        └── sandbox-kernel / sandbox-compiled-kernel / sandbox-debug-session  # 沙箱核
+contracts ──► tasking/runner/execution ──► bootstrap ──► main / batch-process
+                    ▲
+catalog ────────────┘
+gateway ──► application/pth-gateway-facade ──► kernel（唯一窄口）
 ```
 
-## 依赖方向
+## 模块速查
 
-```
-核心（kernel/execution·interpreter·extensions）──消费──▶ 实现（impls/）
-实现（impls/）──import type──▶ 核心（类型/接口——运行时无循环）
-```
+| 目录 | 角色 |
+|---|---|
+| `src/pth/contracts/` | 纯类型 + 结构校验（零宿主依赖） |
+| `src/pth/tasking/` + `adapters/` | 任务 claim/run/commit、CAS、observers（PG 实现） |
+| `src/pth/runner/` + `observers/` | 纯执行 + post-commit 副作用 |
+| `src/pth/execution/` + `authorization/adapters/` | grant 签发/校验、ExecutionPort、KnowledgeBroker |
+| `src/pth/catalog/` + `adapters/extensions/` | 不可变运行时目录、路由/空间策略、扩展贡献 |
+| `src/pth/bootstrap/` | 统一装配（fail-closed） |
+| `src/pth/gateway/` / `src/pth/application/gateway/` | HTTP 层 + 唯一 kernel facade |
+| `src/pth/kernel/` | 存量核心引擎（逐批收口中） |
+| `src/pth/impls/` | 具体实现：核 / 角色 / 空间 |
+| `packages/pth-sandbox` | 沙箱域 + 内核 interpreter 契约 |
+| `packages/pth-memory` | 记忆域 |
 
-- 核心不 import 具体核/具体角色/内置空间定义
-- 装配点：`space-registry` 调用 `registerBuiltinSpaces`；`batch-process/exec-channel`
-  从 `impls/kernels` import 工厂；`worker-cluster` 消费 `impls/roles` 数据
+## 机器强制边界
 
-## 替换/扩展点
+`npm run check:pth-boundaries`（已并入 `npm run lint`）强制：
+gateway 不碰 kernel 内部；跨模块只走公共 `index.ts`；sandbox 运行时 adapter 仅白名单目录；
+contracts 纯度；新增违规 CI 失败。
+
+## 替换 / 扩展点
 
 | 目标 | 替换方式 |
 |---|---|
 | 换内置角色谱系 | 替换 `impls/roles/default-roles.ts`（或注册扩展角色） |
-| 无内置空间发行版 | 移除 `space-registry.ts` 的 `registerBuiltinSpaces` 装配调用 |
-| 换核实现 | 替换 `impls/kernels/` 对应文件（Interpreter 接口不变） |
-| 新核 | 扩展机制（toolstore ext.kernel）或新增 impls/kernels 文件 + 装配 |
+| 无内置空间发行版 | 移除装配调用 + 改 catalog manifest |
+| 换核实现 | 替换 `impls/kernels/` 对应文件（`Interpreter` 契约不变） |
+| 换 tasking/execution 宿主 | 实现 `contracts` 端口并在 `bootstrap/pth-host.ts` 接线 |
 
-## 迁移历史
+## 历史
 
-1. `2b70c45` 分层①——worker 谱系 → impls/roles（worker-cluster 248 行）
-2. `d980c83` 分层②——内置空间 → impls/spaces（函数式注册——ESM 循环 TDZ 踩坑）
-3. `718115e` 分层③——核实现 + 装配 → impls/kernels（git mv 12 文件 + 消费者路径更新）
+本页曾是「core（kernel/execution·interpreter·extensions）+ impls/」两分层的详细目录图；
+2026-08-16 模块化 v2 完成后，细化为上述八模块 + 两个 package，详细契约迁往
+`framework-contracts.md`。
