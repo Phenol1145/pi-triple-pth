@@ -238,7 +238,7 @@ export class CDebugSession implements DebugSession {
     });
     if (compile !== 0) throw new Error(`编译失败（调试版）：${srcPath} — 请先确保源码可编译`);
     // cwd=dir（2026-08-12 实测修复）：-break-insert main.c:line 的相对路径依赖 gdb 工作目录
-    this.child = spawn(this.gdbBin, ["-i=mi2", "-q", this.binaryPath], { stdio: ["pipe", "pipe", "pipe"], cwd: dir });
+    this.child = spawn(this.gdbBin, ["-i=mi2", "-q", this.binaryPath], { stdio: ["pipe", "pipe", "pipe"], cwd: dir, detached: true });
     this.child.stdout?.on("data", (d: Buffer) => this.onData(d));
     this.child.stderr?.on("data", (d: Buffer) => this.onStderr(d));
     this.child.on("exit", () => {
@@ -434,7 +434,9 @@ export class CDebugSession implements DebugSession {
     try {
       await this.command("-gdb-exit");
     } catch { /* 已退出容忍 */ }
-    this.child?.kill();
+    if (this.child?.pid) {
+      try { process.kill(-this.child.pid, "SIGKILL"); } catch { this.child.kill("SIGKILL"); }
+    }
     this.child = null;
   }
 }

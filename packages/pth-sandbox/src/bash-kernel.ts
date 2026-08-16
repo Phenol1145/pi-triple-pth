@@ -118,15 +118,19 @@ export class BashKernel implements Interpreter {
       if (res.code !== null && res.code !== 0) {
         out.error = { message: `exit code ${res.code}`, code: `exit-${res.code}` };
       }
-      // 截断（Observation §2.4.4）
+      // 截断（Observation §2.4.4 + P2-4：超限即杀进程组）
+      let overLimit = false;
       if (out.stdout && out.stdout.length > maxStdout) {
         out.truncated = { field: "stdout", originalLen: out.stdout.length, keptLen: maxStdout };
         out.stdout = out.stdout.slice(0, maxStdout);
+        overLimit = true;
       }
       if (out.stderr && out.stderr.length > maxStderr) {
         if (!out.truncated) out.truncated = { field: "stderr", originalLen: out.stderr.length, keptLen: maxStderr };
         out.stderr = out.stderr.slice(0, maxStderr);
+        overLimit = true;
       }
+      if (overLimit) this.kill();
       return out;
     } catch (e) {
       // 超时/管道错误——kill 重启
@@ -173,6 +177,8 @@ export class BashKernel implements Interpreter {
     const identity = workloadIdentity();
     const child = spawn("bash", ["--noprofile", "--norc"], {
       stdio: ["pipe", "pipe", "pipe"],
+      // P2-4：独立进程组——超时/超限/abort 用 kill(-pid) 收割整棵进程树
+      detached: true,
       // P0-2：工作负载 env 走 allowlist——不继承控制器密钥；bridge token 仅 kernel-mode 显式放行
       env: buildWorkloadEnv(
         { ...(identity.uid ? { HOME: WORKLOAD_HOME } : {}), PTH_MEMORY_BRIDGE: this.memoryBridge, PTH_MEMORY_BRIDGE_TOKEN: this.bridgeToken || undefined, ...this.env },
@@ -230,7 +236,7 @@ export class BashKernel implements Interpreter {
       // 移除旧会话的 exit handler（防误 reject 新会话的 pending）
       old.removeAllListeners("exit");
       old.removeAllListeners("error");
-      try { old.kill("SIGKILL"); } catch { /* ignore */ }
+      try { process.kill(-old.pid!, "SIGKILL"); } catch { try { old.kill("SIGKILL"); } catch { /* ignore */ } }
       // stdio 销毁（2026-08-12 审计——同 py-kernel：失败场景句柄残留）
       try { old.stdout?.destroy(); old.stderr?.destroy(); old.stdin?.destroy(); } catch { /* ignore */ }
       this.child = null;

@@ -10,7 +10,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
@@ -61,11 +62,60 @@ function sha256(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 24);
 }
 
-function exec(cmd: string, args: string[], timeoutMs: number, cwd: string): Promise<{ code: number | null; stdout: string; stderr: string }> {
+function exec(
+  cmd: string,
+  args: string[],
+  timeoutMs: number,
+  cwd: string,
+  maxStdout: number,
+  maxStderr: number,
+): Promise<{ code: number | null; stdout: string; stderr: string; truncated?: { field: "stdout" | "stderr"; originalLen: number; keptLen: number } }> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: timeoutMs, cwd, maxBuffer: 4 * 1024 * 1024 }, (err, stdout, stderr) => {
-      const code = err ? ((err as any).code ?? (err as any).killed ? -1 : -1) : 0;
-      resolve({ code, stdout: String(stdout), stderr: String(stderr) });
+    // P2-4：独立进程组——timeout/输出超限 kill(-pid) 收割整棵进程树
+    const child = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"], detached: true });
+    const outDec = new StringDecoder("utf-8");
+    const errDec = new StringDecoder("utf-8");
+    let stdout = "";
+    let stderr = "";
+    let killedForLimit: "stdout" | "stderr" | null = null;
+    const killGroup = () => { try { process.kill(-child.pid!, "SIGKILL"); } catch { try { child.kill("SIGKILL"); } catch { /* ignore */ } } };
+
+    const timer = setTimeout(killGroup, timeoutMs);
+    timer.unref();
+
+    child.stdout.on("data", (buf: Buffer) => {
+      const s = outDec.write(buf);
+      if (!s) return;
+      const remaining = maxStdout - stdout.length;
+      if (remaining <= 0) { killedForLimit = "stdout"; killGroup(); return; }
+      stdout += s.slice(0, remaining);
+      if (s.length > remaining) { killedForLimit = "stdout"; killGroup(); }
+    });
+    child.stderr.on("data", (buf: Buffer) => {
+      const s = errDec.write(buf);
+      if (!s) return;
+      const remaining = maxStderr - stderr.length;
+      if (remaining <= 0) { killedForLimit = "stderr"; killGroup(); return; }
+      stderr += s.slice(0, remaining);
+      if (s.length > remaining) { killedForLimit = "stderr"; killGroup(); }
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ code: 127, stdout, stderr: `${stderr}\nspawn error: ${err.message}`, truncated: killedForLimit ? { field: killedForLimit, originalLen: killedForLimit === "stdout" ? stdout.length : stderr.length, keptLen: killedForLimit === "stdout" ? stdout.length : stderr.length } : undefined });
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      const outTail = outDec.end();
+      const errTail = errDec.end();
+      if (outTail) stdout += outTail;
+      if (errTail) stderr += errTail;
+      const exitCode = code !== null ? code : signal ? -1 : code;
+      resolve({
+        code: exitCode,
+        stdout,
+        stderr,
+        ...(killedForLimit ? { truncated: { field: killedForLimit, originalLen: killedForLimit === "stdout" ? stdout.length : stderr.length, keptLen: killedForLimit === "stdout" ? stdout.length : stderr.length } } : {}),
+      });
     });
   });
 }
@@ -169,7 +219,7 @@ export class CCompiledKernel implements Interpreter {
     const sourcePath = path.join(dir, "main.c");
     const binaryPath = path.join(dir, "main");
     await fs.writeFile(sourcePath, source);
-    const r = await exec(this.cc, ["-O2", "-o", binaryPath, sourcePath, "-lm"], this.compileTimeoutMs, dir);
+    const r = await exec(this.cc, ["-O2", "-o", binaryPath, sourcePath, "-lm"], this.compileTimeoutMs, dir, 1024 * 1024, 1024 * 1024);
     if (r.code !== 0) {
       // 失败不留空产物
       await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -183,14 +233,16 @@ export class CCompiledKernel implements Interpreter {
   }
 
   /** 运行二进制（binaryRef = build 返回的 hash） */
-  async run(binaryRef: string, opts?: { args?: string[]; stdin?: string; timeoutMs?: number }): Promise<InterpreterResult> {
+  async run(binaryRef: string, opts?: { args?: string[]; stdin?: string; timeoutMs?: number; maxStdout?: number; maxStderr?: number }): Promise<InterpreterResult> {
     const entry = this.entries.get(binaryRef);
     if (!entry) throw new Error(`unknown binaryRef: ${binaryRef}`);
     entry.lastUsedAt = Date.now();
     const start = Date.now();
     const timeoutMs = opts?.timeoutMs ?? this.runTimeoutMs;
+    const maxStdout = opts?.maxStdout ?? 64 * 1024;
+    const maxStderr = opts?.maxStderr ?? 64 * 1024;
     try {
-      const r = await exec(entry.binaryPath, opts?.args ?? [], timeoutMs, path.dirname(entry.binaryPath));
+      const r = await exec(entry.binaryPath, opts?.args ?? [], timeoutMs, path.dirname(entry.binaryPath), maxStdout, maxStderr);
       const ok = r.code === 0;
       return {
         ok,
@@ -199,6 +251,7 @@ export class CCompiledKernel implements Interpreter {
         error: ok ? undefined : { message: r.stderr.slice(0, 2000) || `exit code ${r.code}` },
         durationMs: Date.now() - start,
         language: "c",
+        ...(r.truncated ? { truncated: r.truncated } : {}),
       };
     } catch (e) {
       return { ok: false, error: { message: (e as Error).message }, durationMs: Date.now() - start, language: "c" };
@@ -216,7 +269,7 @@ export class CCompiledKernel implements Interpreter {
         language: "c",
       };
     }
-    const r = await this.run(b.binaryRef!, { timeoutMs: opts?.timeoutMs });
+    const r = await this.run(b.binaryRef!, { timeoutMs: opts?.timeoutMs, maxStdout: opts?.maxStdout, maxStderr: opts?.maxStderr });
     return { ...r, language: "c" };
   }
 
