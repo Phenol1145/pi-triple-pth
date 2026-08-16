@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { allLineageRoles } from "./execution/worker-cluster.js";
 import { DEFAULT_REFINE_TASKS } from "./execution/refiner.js";
 import { buildDoc } from "./extensions/index.js";
+import { buildCapabilityIndexDoc } from "./ptc/docs.js";
 import { SEED_SKILL_SOPS, buildSkillContent } from "@away_from/pth-memory";
 
 /** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据 + T8 场景锚点三要素——lazy 下 LLM 按需读） */
@@ -75,54 +76,30 @@ ${capSection}${ioSection}${lineageSection}## 工作方式
  * 角色声明 capabilities 时 eager 只注入相关节——收窄角色 prompt 减负。 */
 export function buildCapabilityIndex(): string {
   const extDoc = buildDoc();
+  // A1 遗留收口：能力条目由 PTC 注册表生成（ptc/docs.ts——契约与文档同一真相源），
+  // 本函数只保留注册表外的两个静态段（探索核动作工具面 / 扩展注册与接入指引）。
   return `# PTH 能力索引（ts 程序内可调用——await 调用；组合/联动在程序内完成）
 
 【能力分节】本索引按能力包分节（## 包名）——角色声明 capabilities 时只注入相关节（Agent-JIT 路径 B：capabilities 收窄 → prompt 减负）。
 【条目格式】每条 = 签名 → 返回 + 何时用 + 效果（0.8.2 三要素锚点——「何时用」决定该不该调用，「效果」预告拿到什么）。
 
-## 基础（全角色注入——results/context/model/perf/obs）
-- results —— 步骤结果注册表。何时用：跨步骤传值/读上一步工具输出。效果：每步工具结果自动注册（results["result_N"] = {tool, value, stdout}），程序内可读写。
-- context —— 任务工作台 KV。何时用：跨程序保留状态。效果：context.my_key = ... 写入，后续程序直接读。
-- model —— 会话模型状态。何时用：查/切会话模型、查 token 消耗。效果：model.current / model.set({model}) / model.usage()。
-- perf —— 性能参数与策略。何时用：调参/诊断/发布优化策略。效果：perf.params() / perf.set({key, value})（PTH_* 立即生效）/ perf.analyze() / perf.publish() / perf.apply()。
-- obs —— 系统观测。何时用：查任务池/批次/指标/事件。效果：obs.tasks({status?, role?}) / obs.metrics() / obs.batches() / obs.kernels() / obs.search()。
+${buildCapabilityIndexDoc()}
 
-## memory
-- memory.query({sql}) → rows —— 只读 SQL 查记忆库（仅 SELECT memory_entries；自动 LIMIT）。何时用：查条目/统计/锚点→原文展开。效果：行数组（id/kind/anchors/content/status/version/hit_count/created_at/updated_at/meta——ASP 会话空间下 SQL 必须带 meta 列，否则可见性过滤拒绝）。
-- memory.write({id?, kind, anchors, content}) —— 写入记忆（沉淀）。何时用：沉淀知识（task-insight/tool-function 等知识层自由写）。效果：条目落库（治理层强制 draft、prompt/config 层只读——用途层规则）。
-- memory.update({id, content?}) —— 内容修正。何时用：改知识层条目内容。效果：内容更新（系统层不可改；治理层不可改状态）。
-
-## fs
-- fs.readText(path) → string —— 读 toolstore 文件（如 extensions/hello-world/index.ts）。何时用：读扩展/技能源码。效果：全文。
-- fs.list(dir?) → string[] —— 列 toolstore 目录。何时用：发现可用扩展。效果：文件名数组。
-- fs.readSource(relPath) → string —— 读【/app/src】源码（src/pth/... 前缀）。何时用：调查实现（API 调查技能配套）。效果：源码全文。
-- fs.task.write(relPath, content) → {ok, path, bytes} —— 写任务工作区（防穿越——只写自己目录）。何时用：任务产物落盘。效果：文件写入。
-- fs.task.read(relPath) → string —— 读任务工作区。何时用：回读自己的产物。效果：全文。
-- fs.task.list() → Array<{name, isDir}> —— 列任务工作区。何时用：清点产物。效果：文件清单。
-
-## 探索核（python/bash——元命令拆分 2026-08-11；C 已迁生产核）
+## 探索核（动作工具面——单步 tool_call 投影；程序内调用走上面的 python/bash 核契约）
 - python.run(code) → {ok, stdout, stderr, value, durationMs} —— python 程序（code = 源码字符串）。何时用：python 生态/数据计算的多语句。效果：_result 值回传。
 - python.eval(code) → 同上 —— 单表达式。何时用：一行计算。效果：表达式值即结果。
 - bash.run(command) → {ok, stdout, stderr, durationMs} —— 命令序列。何时用：环境操作/探测（产物写入不走 bash）。效果：stdout。
 - bash.eval(command) → 同上 —— 单条命令。何时用：ls/cat/grep 快速探测。效果：stdout。
-- 【生产核】C 产物开发：asp.cd("dev") → dev.write/build/run/save/list + debug.*（动作工具——ts 程序内不可调；2026-08-11 探索核/生产核分立）
-- 【生产核·文档】编写类任务：asp.cd("write") → write.create/edit/read/list/save + write.section（大纲→草稿→修订→定稿；无 build/debug；2026-08-12 批 2）
+- 【生产核】C 产物开发：asp.cd("dev") → dev.write/build/run/save/list + debug.*（动作工具——ts 程序内不可调；探索核/生产核分立）
+- 【生产核·文档】编写类任务：asp.cd("write") → write.create/edit/read/list/save + write.section（大纲→草稿→修订→定稿；无 build/debug）
 - ts 程序：能力函数 await 调用；return 值 + stdout 回填
-
-## web/llm/state/ext/env（扩展能力包）
-- llm.complete —— 嵌套 LLM 调用。何时用：子分析/评估/翻译等二次推理。效果：LLM 回复。
-- web —— HTTP 获取。何时用：外部网页/API 数据。效果：响应内容。
-- state —— 记忆召回。何时用：按需回忆（recallFunctions/recallInsights）。效果：相关记忆条目。
-- ext —— 扩展编排。何时用：index/use/kernel/syncIndex 操作代码库式扩展。效果：扩展能力注入。
-- env.inspect —— 环境状态。何时用：确认环境/版本/可用性。效果：状态摘要。
 
 ## 扩展注册（ext——已装载扩展）
 ${extDoc}
 
 ## 新能力接入
-能力函数加入后按【签名 → 返回 + 何时用 + 效果】三要素在本索引追加记录——worker 下次读取即发现（prompt 模板零改动；0.8.2 锚点标准）`;
+能力函数加入后先在 PTC 注册表登记三要素（签名/何时用/效果），本索引自动生成——worker 下次读取即发现（prompt 模板零改动）`;
 }
-
 /** API 调查技能文档（lazy 探索方法论——按需读取——不盲试） */
 export const API_INVESTIGATION_SKILL = `# API 调查技能（执行核预定义函数/对象的构成与语法调查）
 

@@ -196,6 +196,6 @@ describe("buildCapabilityIndex 分节（Agent-JIT 路径 B——filterCapability
     expect(out).toContain("memory.query");
     expect(out).not.toContain("fs.readText");
     expect(out).not.toContain("python.run");
-    expect(out).toContain("results —— 步骤结果注册表");
+    expect(out).toContain("results（预置对象——步骤结果注册表）");
   });
 });

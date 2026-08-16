@@ -10,17 +10,15 @@
 
 import { PTC_CAPABILITIES, type PtcCapabilityDef, type PtcFamily } from "./contract.js";
 
-const FAMILY_SECTIONS: Array<{ family: PtcFamily | "*"; title: string }> = [
-  { family: "seed", title: "基础（预置对象）" },
-  { family: "memory", title: "memory" },
-  { family: "fs", title: "fs" },
-  { family: "kernel", title: "执行核" },
-  { family: "llm", title: "llm" },
-  { family: "web", title: "web" },
-  { family: "env", title: "env" },
-  { family: "state", title: "state" },
-  { family: "cache", title: "cache" },
-  { family: "ts-local", title: "扩展面" },
+// 分节契约与 filterCapabilityDoc 对齐：基础/memory/fs/执行核 单独成节；
+// llm/web/env/state/cache/ts-local 合并为「web/llm/state/ext/env」一节
+// （filterCapabilityDoc 按该合并节标题裁剪——保持 Agent-JIT 路径 B 契约不变）。
+const FAMILY_SECTIONS: Array<{ families: PtcFamily[]; title: string }> = [
+  { families: ["seed"], title: "基础（全角色）" },
+  { families: ["memory"], title: "memory" },
+  { families: ["fs"], title: "fs" },
+  { families: ["kernel"], title: "执行核" },
+  { families: ["llm", "web", "env", "state", "cache", "ts-local"], title: "web/llm/state/ext/env" },
 ];
 
 /** 单条目三要素行（签名 → 返回 + 何时用 + 效果——T8 锚点格式） */
@@ -41,7 +39,7 @@ export function buildCapabilityIndexDoc(): string {
   }
   const lines: string[] = [];
   for (const sec of FAMILY_SECTIONS) {
-    const defs = sec.family === "*" ? [] : byFamily.get(sec.family) ?? [];
+    const defs = sec.families.flatMap((f) => byFamily.get(f) ?? []);
     if (defs.length === 0) continue;
     lines.push("## " + sec.title);
     for (const d of defs) lines.push(renderCapabilityLine(d));

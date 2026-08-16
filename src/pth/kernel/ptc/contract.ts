@@ -282,6 +282,63 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     whenToUse: '程序间共享中间状态',
     effect: '跨 execute 持久对象',
   },
+  // —— A1 遗留补齐：注册表外能力面（prompt-docs 手写散文切换前提）——
+  'model': {
+    name: 'model', family: 'seed',
+    params: '（会话模型状态对象——current/set/usage）',
+    returnType: 'object',
+    anchor: '会话模型状态',
+    whenToUse: '查/切会话模型、查 token 消耗',
+    effect: 'model.current / model.set({model}) / model.usage()',
+  },
+  'perf': {
+    name: 'perf', family: 'seed',
+    params: '（性能参数与策略对象——params/set/analyze/publish/apply）',
+    returnType: 'object',
+    anchor: '性能参数与策略',
+    whenToUse: '调参/诊断/发布优化策略',
+    effect: 'perf.params() / perf.set({key, value}) / perf.analyze() / perf.publish() / perf.apply()',
+  },
+  'obs': {
+    name: 'obs', family: 'seed',
+    params: '（系统观测对象——tasks/metrics/batches/kernels/search）',
+    returnType: 'object',
+    anchor: '系统观测',
+    whenToUse: '查任务池/批次/指标/事件',
+    effect: 'obs.tasks() / obs.metrics() / obs.batches() / obs.kernels() / obs.search()',
+  },
+  'fs.task.write': {
+    name: 'fs.task.write', family: 'fs',
+    params: '(relPath: string, content: string)',
+    returnType: 'Promise<{ ok: boolean; path: string; bytes: number }>',
+    anchor: '任务工作区写入（防穿越——只写自己目录）',
+    whenToUse: '任务产物落盘',
+    effect: '文件写入',
+  },
+  'fs.task.read': {
+    name: 'fs.task.read', family: 'fs',
+    params: '(relPath: string)',
+    returnType: 'Promise<string>',
+    anchor: '任务工作区读取',
+    whenToUse: '回读自己的产物',
+    effect: '全文',
+  },
+  'fs.task.list': {
+    name: 'fs.task.list', family: 'fs',
+    params: '()',
+    returnType: 'Promise<Array<{ name: string; isDir: boolean }>>',
+    anchor: '任务工作区枚举',
+    whenToUse: '清点产物',
+    effect: '文件清单',
+  },
+  'ext': {
+    name: 'ext', family: 'ts-local',
+    params: '（扩展编排对象——index/use/kernel/syncIndex）',
+    returnType: 'object',
+    anchor: '代码库式扩展编排',
+    whenToUse: 'index/use/kernel/syncIndex 操作已装载扩展',
+    effect: '扩展能力注入',
+  },
 };
 
 /** 校验包装：注册表有 validate 的能力函数 → 调用前参数校验（结构化错误）。

@@ -6,7 +6,7 @@
 
 import type { TsReplExtension } from "./types.js";
 import { checkWrite, checkUpdate, normalizeWriteArgs } from "@away_from/pth-memory";
-import { checkVisibilityDeclaration, stampScope, filterVisibleEntries, ancestorChain, validateWikiWrite } from "@away_from/pth-memory";
+import { checkVisibilityDeclaration, stampScope, filterVisibleEntries, ancestorChain, requireMetaColumn, validateWikiWrite } from "@away_from/pth-memory";
 import { spaceRegistry } from "../execution/space-registry.js";
 
 /**
@@ -47,6 +47,7 @@ export const memoryExtension: TsReplExtension = {
           const space = ctx.sessionRef?.current?.currentSpace;
           if (!space) return ctx.dataWorld.queryReadOnly(sql);
           // H3：可见性谓词下推 SQL（meta 列必查 + private 仅本空间 + public 祖先链白名单）
+          requireMetaColumn(sql);
           return ctx.dataWorld.queryReadOnly(sql, { currentSpace: space, ancestors: ancestorChain(space) });
         },
         retrieve: async (opts?: unknown) => {

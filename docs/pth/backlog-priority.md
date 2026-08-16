@@ -132,9 +132,8 @@
 - Phase 3 验收：ptc-surface（越界预检 7 组）/ptc-tools（35 条 golden）/ptc-runner（装配+越界 6 例）/
   ts·py·bash·sandbox 四核 abort 契约测试——全量套件回归绿。
 
-> **A1 遗留（Phase 2 条目 8 尾件）**：能力索引文档生成器（ptc/docs.ts buildCapabilityIndexDoc）已建+已测，
-> 但 prompt-docs.ts 的 buildCapabilityIndex 仍为手写散文（覆盖 fs.task/perf/model/obs/ext 等注册表外条目）——
-> 切换需先补齐注册表条目并对齐 golden 断言，另行提交。
+> **A1 遗留（Phase 2 条目 8 尾件）** ✅ 已收口（2026-08-17）：注册表补齐 model/perf/obs/ext/fs.task 条目，
+> prompt-docs.ts buildCapabilityIndex 切换为 buildCapabilityIndexDoc 生成（手写散文退役），golden 断言已对齐。
 
 
 
