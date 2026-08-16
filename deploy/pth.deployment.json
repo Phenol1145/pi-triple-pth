@@ -52,6 +52,7 @@
         "DATA_DIR": "/data",
         "SANDBOX_URL": "http://sandbox:8080",
         "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}",
+        "PTH_EXECUTION_GRANT_SECRET": "${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}",
         "PTH_MEMORY_BRIDGE_TOKEN": "${PTH_MEMORY_BRIDGE_TOKEN:-}",
         "PTH_PYTHON_MODE": "${PTH_PYTHON_MODE:-sandbox-kernel}",
         "PTH_BASH_MODE": "${PTH_BASH_MODE:-sandbox-kernel}",
@@ -94,6 +95,7 @@
       "dockerfile": "packages/pth-sandbox/Dockerfile.sandbox",
       "env": {
         "SANDBOX_SHARED_SECRET": "${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}",
+        "PTH_EXECUTION_GRANT_SECRET": "${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}",
         "PTH_MEMORY_BRIDGE_TOKEN": "${PTH_MEMORY_BRIDGE_TOKEN:-}",
         "LOG_LEVEL": "info",
         "PTH_KERNEL_POOL_SIZE": "${PTH_KERNEL_POOL_SIZE:-24}",

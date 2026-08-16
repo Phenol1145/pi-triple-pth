@@ -41,6 +41,8 @@ RUN groupadd --gid 2001 workload && useradd --system --uid 2001 --gid workload -
 ENV PTH_WORKLOAD_UID=2001 PTH_WORKLOAD_GID=2001
 # P0-3：/exec 先拷贝任务工作区到该私有根（chown workload），执行完回拷并 chown 回 PTH node（1000）
 ENV PTH_EXEC_PRIVATE_ROOT=/srv/workload PTH_WORKSPACE_OWNER_UID=1000 PTH_WORKSPACE_OWNER_GID=1000
+# P2-6 readiness 需要私有根存在（运行时每次任务子目录仍按需 mkdir/chown）
+RUN mkdir -p /srv/workload && chmod 0711 /srv/workload
 
 WORKDIR /app
 

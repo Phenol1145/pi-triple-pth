@@ -27,9 +27,11 @@ docker-compose.yaml
 ### 2.2 配置 .env（仓库根）
 
 ```bash
-# 安全参数（必改——compose 对 SANDBOX_SHARED_SECRET 使用 :? 强校验，无默认值、缺省拒绝启动）
+# 安全参数（必改——compose 对 SANDBOX_SHARED_SECRET / PTH_EXECUTION_GRANT_SECRET 使用 :? 强校验，
+# 无默认值、缺省拒绝启动；两者可以相同值也可以分别生成）
 POSTGRES_PASSWORD=你的强密码
 SANDBOX_SHARED_SECRET=你的沙盒共享密钥
+PTH_EXECUTION_GRANT_SECRET=你的执行grant签名密钥
 
 # 记忆桥 token（可选，缺省时 sandbox 侧记忆桥 fail-closed）：
 # 写入 Redis：auth:token:<token> → {"tenantId":"...","role":"tenant-agent","space":"<记忆空间ID>"}
@@ -194,6 +196,7 @@ ptl hub kernel batch worker <pause|resume|remove|add> <batchId> <role> [copies]
 |------|------|------|
 | `PTH_WORKSPACES_PATH` / `PTH_ARTIFACTS_PATH` | /data/... | 工作区/产物根（compose 卷） |
 | `PTH_SANDBOX_KERNEL_URL` | http://sandbox:8080 | sandbox kernel-host 地址 |
+| `PTH_EXECUTION_GRANT_SECRET` | **compose `:?` 必填** | 执行 grant 签名密钥（pi-platform 与 sandbox 同值） |
 | `PTH_LOG_LEVEL` / `PTH_LOG_FORMAT` | info / json | 日志 |
 | `PTH_METRICS_INTERVAL_MS` | - | 指标采样周期 |
 

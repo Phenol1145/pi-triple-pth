@@ -250,6 +250,13 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       sandboxKernel: {
         url: process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080",
         secret: process.env.SANDBOX_SHARED_SECRET ?? "",
+        // P2-2 接线（Side B 补）：由 kernel-manager 按 language 签发 worker 级 grant。
+        grantSecret: process.env.PTH_EXECUTION_GRANT_SECRET,
+        grantIdentity: {
+          principalId: `worker:${role.id}`,
+          roleId: role.id,
+          capabilities: role.capabilities ?? [],
+        },
       },
       // kernel 参数化（PTH_KERNEL_* env）：懒 spawn / 空闲回收 / reset 模式
       kernelConfig: loadKernelConfig(process.env),

@@ -40,13 +40,14 @@ PTH 的**沙箱域 + 内核契约/运行时** workspace 包（单仓拆分决策
 | `POST /kernel/compiled` | C 编译+运行（`buildOnly` 可选），持久 cache + 并发信号量 |
 | `POST /kernel/debug/*` | gdb MI 会话（attach/breakpoint/step/continue/stack/variables/evaluate/snapshot/detach） |
 | `GET /kernel/debug/sessions` | 当前调试会话列表 |
-| `GET /kernel/status` | 池容量/编译统计/调试会话数（监控面板与 `obs.kernels` 数据源） |
+| `GET /kernel/status` | 池容量/指标/编译统计/调试会话 + `degraded`/`reasons`（监控面板与 `obs.kernels` 数据源） |
 
 ## 环境变量
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `SANDBOX_SHARED_SECRET` | **compose `:?` 必填** | 控制器间认证（绝不注入 workload） |
+| `PTH_EXECUTION_GRANT_SECRET` | **compose `:?` 必填** | 执行 grant 签名密钥（与 pi-platform 同值；缺失 → acquire fail-closed） |
 | `PTH_MEMORY_BRIDGE_TOKEN` | 空 → memory-bridge fail-closed 503 | 上游 PTH 桥 Bearer token（controller-only） |
 | `PTH_BRIDGE_URL` | `http://pi-platform:3000` | 记忆桥上游 |
 | `PTH_KERNEL_POOL_SIZE` | 24 | 池容量（≥ 并发 worker ×2 建议） |

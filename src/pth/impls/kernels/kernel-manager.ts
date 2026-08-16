@@ -10,13 +10,14 @@
  *   - 超时 kill + 冷备补位（由 PyKernel/BashKernel 内部实现）
  */
 
+import { randomUUID } from "node:crypto";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "@away_from/pth-sandbox";
 import { TsInterpreter } from "./ts-interpreter.js";
 import { PythonInterpreter } from "./python-interpreter.js";
 import { BashInterpreter } from "@away_from/pth-sandbox";
 import { PyKernel } from "@away_from/pth-sandbox";
 import { BashKernel } from "@away_from/pth-sandbox";
-import { SandboxKernel } from "@away_from/pth-sandbox";
+import { SandboxKernel, createSandboxGrantIssuer } from "@away_from/pth-sandbox";
 import { SandboxCompiledKernel } from "@away_from/pth-sandbox";
 import { getEventBus } from "../../kernel/execution/event-bus.js";
 import { buildCapabilities } from "./capability.js";
@@ -35,8 +36,17 @@ export interface KernelManagerOptions {
     url: string;
     /** P2-2 遗留兼容字段：不再作为执行认证发送 */
     secret?: string;
-    /** 执行 grant（acquire 唯一授权凭据——bootstrap 签发） */
-    grant?: import("@away_from/pth-sandbox").SandboxExecutionGrant | (() => Promise<import("@away_from/pth-sandbox").SandboxExecutionGrant> | import("@away_from/pth-sandbox").SandboxExecutionGrant);
+    /** 执行 grant（acquire 唯一授权凭据——bootstrap 按语言签发） */
+    grant?: import("@away_from/pth-sandbox").SandboxExecutionGrant | ((language: "python" | "bash") => Promise<import("@away_from/pth-sandbox").SandboxExecutionGrant> | import("@away_from/pth-sandbox").SandboxExecutionGrant);
+    /** Side B 补的最小接线：grant 签名密钥 + worker 身份（未提供 grant 时按语言自动签发） */
+    grantSecret?: string;
+    grantIdentity?: {
+      principalId: string;
+      roleId: string;
+      capabilities?: string[];
+      tenantId?: string;
+      ttlMs?: number;
+    };
   };
   /** 编译核（C 等——sandbox 侧编译-运行；cc 变体 gcc|clang|tcc 缺省 auto） */
   compiledCc?: "gcc" | "clang" | "tcc";
@@ -73,6 +83,26 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
   const pythonMode = opts.pythonMode ?? "kernel";
   const bashMode = opts.bashMode ?? "kernel";
 
+  // P2-2 最小接线（Side B）：未显式给 grant 时，按 grantSecret + worker 身份自动签发。
+  // 边界：worker 级 scope（tenant=system），非任务/租户级动态绑定——见 sandbox-security-operations.md §8。
+  const sandboxGrant = opts.sandboxKernel?.grant
+    ?? (opts.sandboxKernel?.grantSecret && opts.sandboxKernel?.grantIdentity
+      ? (() => {
+          const issuer = createSandboxGrantIssuer({ secret: opts.sandboxKernel!.grantSecret! });
+          const identity = opts.sandboxKernel!.grantIdentity!;
+          const tenantId = identity.tenantId ?? "system";
+          const ttlMs = identity.ttlMs ?? 10 * 60_000;
+          return (language: "python" | "bash") => issuer.issue({
+            lease: { taskId: `${identity.roleId}:${process.pid}`, leaseId: randomUUID(), generation: 1 },
+            scope: { tenantId, principalId: identity.principalId, roles: [identity.roleId], traceId: `batch:${process.pid}` },
+            workspace: { tenantId, workspaceId: `worker-${identity.roleId}`, taskId: `${identity.roleId}:${process.pid}` },
+            language,
+            capabilities: identity.capabilities ?? [],
+            ttlMs,
+          });
+        })()
+      : undefined);
+
   const python: Interpreter = pythonMode === "kernel"
     ? new PyKernel({ pythonBin: opts.pythonBin, onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("python", l) : undefined,
         // 记忆桥（2026-08-11 库化）：kernel 模式 python 子进程在 pi-platform 容器——localhost:3000 直通（原硬编码 8080 不通——修复）
@@ -80,7 +110,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
         bridgeToken: process.env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
         ...opts.kernelConfig })
     : pythonMode === "sandbox-kernel"
-      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "python", grant: opts.sandboxKernel!.grant })
+      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "python", grant: sandboxGrant })
       : new PythonInterpreter({ pythonBin: opts.pythonBin });
 
   const bash: Interpreter = bashMode === "kernel"
@@ -89,7 +119,7 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
         bridgeToken: process.env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
         ...opts.kernelConfig })
     : bashMode === "sandbox-kernel"
-      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "bash", grant: opts.sandboxKernel!.grant })
+      ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "bash", grant: sandboxGrant })
       : new BashInterpreter({
         sandbox: opts.sandbox ?? { exec: async () => ({ ok: false, stdout: "", stderr: "sandbox not configured", exitCode: 1, durationMs: 0 }) },
       });
