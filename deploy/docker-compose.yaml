@@ -125,7 +125,7 @@ services:
       - sandbox-internal
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/ready"]   # P2-6：readiness（/health 仅 liveness）
       interval: 5s
       timeout: 3s
       retries: 5

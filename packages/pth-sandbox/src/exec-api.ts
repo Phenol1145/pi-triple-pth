@@ -72,6 +72,8 @@ export interface ExecApiOptions {
   maxStdoutBytes?: number;
   /** stderr 字节上限（默认 1MB） */
   maxStderrBytes?: number;
+  /** P2-6：/ready 的额外就绪检查（如 kernel grant verifier 是否装配） */
+  readinessChecks?: Array<{ name: string; check: () => boolean | Promise<boolean> }>;
 }
 
 // ─── 流式任务注册表 ────────────────────────────────────────────────
@@ -241,6 +243,14 @@ function runExec(
  * 卷内 symlink 指向卷外 → realpath 后前缀不匹配 → 拒绝（400）。
  * 根与 cwd 双侧 realpath（根自身也可能经 symlink 挂载/解析）。
  */
+function existsForReady(p: string): boolean {
+  try {
+    return fs.existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
 function validateCwd(cwdRaw: string | undefined, workspacesRoot: string): string {
   const root = path.resolve(workspacesRoot);
   const cwd = cwdRaw ? path.resolve(cwdRaw) : root;
@@ -387,6 +397,26 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
   }
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  // P2-6：liveness/readiness 拆分。/health 只做 liveness（进程活着）；
+  // /ready 检查执行前置条件：共享密钥、工作区根、私有根（若启用）与调用方额外检查。
+  app.get("/ready", async (req, reply) => {
+    const checks = [
+      { name: "shared-secret", ok: Boolean(getSecret()) },
+      { name: "workspaces-root", ok: existsForReady(workspacesRoot) },
+      ...(privateRoot ? [{ name: "private-root", ok: existsForReady(privateRoot) }] : []),
+    ];
+    for (const extra of options.readinessChecks ?? []) {
+      try {
+        checks.push({ name: extra.name, ok: await extra.check() });
+      } catch {
+        checks.push({ name: extra.name, ok: false });
+      }
+    }
+    const ready = checks.every((c) => c.ok);
+    reply.code(ready ? 200 : 503);
+    return { status: ready ? "ready" : "degraded", checks };
+  });
 
   app.post("/exec", async (req, reply) => {
     if (!enforceAuth(req, reply)) return;

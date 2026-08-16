@@ -104,6 +104,19 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   if (!app.hasRoute({ method: "GET", url: "/health" })) {
     app.get("/health", async () => ({ status: "ok" }));
   }
+  // P2-6：独立 kernel-host app 的自备 readiness（组合模式下由 exec-api 的 /ready 注册并聚合额外检查）
+  if (!app.hasRoute({ method: "GET", url: "/ready" })) {
+    app.get("/ready", async (_req, reply) => {
+      const checks = [
+        { name: "shared-secret", ok: Boolean(getSecret()) },
+        { name: "execution-grant-verifier", ok: Boolean(opts.grantVerifier) },
+        { name: "kernel-pools", ok: pools.python.status().capacity > 0 && pools.bash.status().capacity > 0 },
+      ];
+      const ready = checks.every((c) => c.ok);
+      reply.code(ready ? 200 : 503);
+      return { status: ready ? "ready" : "degraded", checks };
+    });
+  }
 
   app.post("/kernel/acquire", async (req, reply) => {
     // P2-2：acquire 只接受签名 grant——SANDBOX_SHARED_SECRET 不再是 kernel 执行认证。
