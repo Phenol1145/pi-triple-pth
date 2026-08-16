@@ -104,6 +104,19 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   if (!app.hasRoute({ method: "GET", url: "/health" })) {
     app.get("/health", async () => ({ status: "ok" }));
   }
+  // P2-6：独立 kernel-host app 的自备 readiness（组合模式下由 exec-api 的 /ready 注册并聚合额外检查）
+  if (!app.hasRoute({ method: "GET", url: "/ready" })) {
+    app.get("/ready", async (_req, reply) => {
+      const checks = [
+        { name: "shared-secret", ok: Boolean(getSecret()) },
+        { name: "execution-grant-verifier", ok: Boolean(opts.grantVerifier) },
+        { name: "kernel-pools", ok: pools.python.status().capacity > 0 && pools.bash.status().capacity > 0 },
+      ];
+      const ready = checks.every((c) => c.ok);
+      reply.code(ready ? 200 : 503);
+      return { status: ready ? "ready" : "degraded", checks };
+    });
+  }
 
   app.post("/kernel/acquire", async (req, reply) => {
     // P2-2：acquire 只接受签名 grant——SANDBOX_SHARED_SECRET 不再是 kernel 执行认证。
@@ -169,17 +182,35 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     const remote = req.socket.remoteAddress ?? "";
     const isLoopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
     if (!isLoopback && !enforceAuth(req, reply)) return;
-    const body = (req.body ?? {}) as { op?: string; space?: string };
+    const body = (req.body ?? {}) as { op?: string; space?: string; grant?: unknown; sql?: string; anchors?: string[]; kinds?: string[]; id?: string };
     if (!body.op || !["query", "retrieve", "get"].includes(body.op)) {
       reply.code(400).send({ error: "op required: query|retrieve|get" });
       return;
+    }
+    const { space: _space, grant, ...upstreamBody } = body;
+    // P2-5：带 grant → 走 grant-bound knowledge 端点（可见空间由签名 grant 决定）；
+    // 否则保持 token 化 memory-bridge 兼容通道。
+    if (grant) {
+      try {
+        const res = await fetch(`${pthBridgeUrl}/api/v1/kernel/knowledge`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ grant, ...upstreamBody }),
+          signal: AbortSignal.timeout(35_000),
+        });
+        const text = await res.text();
+        reply.code(res.status).type("application/json").send(text || "{}");
+        return;
+      } catch (err) {
+        reply.code(502).send({ error: `knowledge broker upstream failed: ${err instanceof Error ? err.message : String(err)}` });
+        return;
+      }
     }
     const bridgeToken = getBridgeToken();
     if (!bridgeToken) {
       reply.code(503).send({ error: "server misconfigured: PTH_MEMORY_BRIDGE_TOKEN not set" });
       return;
     }
-    const { space: _space, ...upstreamBody } = body;
     try {
       const res = await fetch(`${pthBridgeUrl}/api/v1/kernel/memory-bridge`, {
         method: "POST",
@@ -218,6 +249,23 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     }
     try {
       return await pool.snapshot(lease);
+    } catch (err) {
+      reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // P2-3：cancel → ack → release 闭环。ack = kernel abort 已落地且条目已 disposed；
+  // cancel 后 release 必被拒（条目不存在/非 active）——绝不乐观回 idle。
+  app.post("/kernel/cancel", async (req, reply) => {
+    const lease = parseLease(req.body);
+    const pool = lease ? poolForLease(lease.id) : undefined;
+    if (!lease || !pool) {
+      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
+      return;
+    }
+    try {
+      await pool.cancel(lease);
+      return { ok: true, state: "disposed" };
     } catch (err) {
       reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
     }

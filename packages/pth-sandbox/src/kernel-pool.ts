@@ -177,7 +177,8 @@ export class KernelPool {
     return entry;
   }
 
-  /** 归还 kernel（唤醒 FIFO 排队者）。同一 lease 幂等；不同/旧 lease 拒绝。 */
+  /** 归还 kernel（唤醒 FIFO 排队者）。同一 lease 幂等；不同/旧 lease 拒绝。
+   *  P2-3：只接受 active 归还；cancelling/disposed 一律拒绝——绝不把可能仍在执行的条目乐观标 idle。 */
   release(lease: SandboxLease): void {
     const entry = this.findByLease(lease.id);
     if (!entry || entry.lease?.generation !== lease.generation) {
@@ -185,12 +186,35 @@ export class KernelPool {
     }
     if (entry.state === "idle") return; // 幂等：同 lease 重复 release 无副作用
     if (entry.state !== "active") {
-      throw new Error("stale lease: lease no longer active");
+      throw new Error("stale lease: lease no longer active（cancelling/disposed 不可乐观释放）");
     }
     entry.lease = null;
     entry.state = "idle";
     entry.lastUsedAt = this.clock();
     this.wakeWaiterIfPossible();
+  }
+
+  /** P2-3：取消在飞执行 → 等 kernel abort 落地（ack）→ 销毁条目移出池。
+   *  取消请求不可达/abort 失败也保持 cancelling→disposed，绝不复用该条目。 */
+  async cancel(lease: SandboxLease): Promise<void> {
+    const entry = this.findByLease(lease.id);
+    if (!entry || entry.lease?.generation !== lease.generation) {
+      throw new Error("stale lease: unknown lease id");
+    }
+    if (entry.state === "cancelling") return; // 幂等：已在取消中
+    if (entry.state !== "active") {
+      throw new Error("stale lease: lease no longer active");
+    }
+    entry.state = "cancelling";
+    try {
+      if (entry.kernel.abort) await entry.kernel.abort();
+    } finally {
+      entry.state = "disposed";
+      entry.lease = null;
+      const i = this.entries.indexOf(entry);
+      if (i >= 0) this.entries.splice(i, 1);
+      this.wakeWaiterIfPossible();
+    }
   }
 
   async execute(lease: SandboxLease, code: string, opts?: ExecuteOptions): Promise<InterpreterResult> {

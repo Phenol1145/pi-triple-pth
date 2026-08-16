@@ -58,7 +58,7 @@ export interface ExecutionPort {
 
 const NON_EMPTY_STRING = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
 const LANGUAGE_RE = /^[a-z0-9_-]{1,32}$/;
-const CAPABILITY_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const CAPABILITY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 function isNonNegativeFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= 0;

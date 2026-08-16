@@ -17,6 +17,11 @@ import { HotReloader, ResourceOverlay } from "./self-modify/hot-reloader.js";
 import { FallbackRequestStore } from "./fallback/requests.js";
 import { createServer } from "./gateway/server.js";
 import { createKernelRuntime } from "./kernel/assembly.js";
+import { createExecutionGrantService } from "./execution/authorization/execution-grant-service.js";
+import { createHmacGrantKeyProvider } from "./execution/authorization/grant-key-provider.js";
+import { createPthKnowledgeBroker } from "./execution/adapters/pth-knowledge-broker.js";
+import { loadBootstrapConfig } from "./bootstrap/bootstrap-config.js";
+import { buildPthHost } from "./bootstrap/pth-host.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -174,6 +179,14 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   // DATABASE_URL 注入（compose 已配 postgres）→ createKernelRuntime（pg + dataWorld + BatchManager + watchdog）。
   // fail-open：pg 不可达时 kernelRuntime = null，/kernel/* 路由 503，PTH 其余功能照常。
   const databaseUrl = process.env.DATABASE_URL;
+
+  // P3-4：单 Host bootstrap——manifest 校验与 catalog 构建在监听端口前 fail-closed
+  try {
+    await buildPthHost(loadBootstrapConfig().manifest);
+  } catch (err) {
+    logger.error({ err: String(err), event: "bootstrap_failed", note: "manifest 非法/依赖缺失——拒绝启动" });
+    process.exit(1);
+  }
   let kernelRuntime: Awaited<ReturnType<typeof createKernelRuntime>> | null = null;
   // 性能自持（v0.8）：PerfAutopilot 自愈闭环——创建于 kernel 装配后（registry + batchManager 就绪）
   let autopilot: import("./kernel/execution/perf-autopilot.js").PerfAutopilot | null = null;
@@ -283,7 +296,17 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
     logger.warn({ event: "kernel_disabled", note: "未设置 DATABASE_URL——kernel 未装配" });
   }
 
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime });
+  // P2-5：grant-bound 知识 broker（PTH_EXECUTION_GRANT_SECRET 与 sandbox 共用同一签名密钥；
+  // 未配置 → /kernel/knowledge 503 fail-closed，token 化 memory-bridge 兼容通道不受影响）
+  const executionGrantSecret = process.env.PTH_EXECUTION_GRANT_SECRET;
+  const knowledgeBroker = kernelRuntime && executionGrantSecret
+    ? createPthKnowledgeBroker({
+        grantService: createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: executionGrantSecret }) }),
+        dataWorld: kernelRuntime.dataWorld,
+      })
+    : null;
+
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime, knowledgeBroker });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 

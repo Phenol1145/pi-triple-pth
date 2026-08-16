@@ -39,6 +39,10 @@ export interface ExecRequest {
   env?: Record<string, string>;
   /** 超时 ms（默认 defaultTimeoutMs，上限 maxTimeoutMs）——到点 SIGKILL 进程组 */
   timeout?: number;
+  /** stdout 字节上限（超限 SIGKILL 进程组 + truncated 标记；默认 1MB，上限 4MB） */
+  maxStdoutBytes?: number;
+  /** stderr 字节上限（同上） */
+  maxStderrBytes?: number;
   /** true → 后台执行立即返回 {execId}，经 GET /exec/:id/stream 消费 */
   stream?: boolean;
 }
@@ -51,6 +55,8 @@ export interface ExecResult {
   signal?: string | null;
   /** 超时强杀标记 */
   timedOut: boolean;
+  /** P2-4：字节上限截断标记（超限即杀进程组） */
+  truncated?: { field: "stdout" | "stderr"; originalLen: number; keptLen: number };
 }
 
 export interface ExecApiOptions {
@@ -62,6 +68,12 @@ export interface ExecApiOptions {
   getSecret?: () => string | undefined;
   defaultTimeoutMs?: number;
   maxTimeoutMs?: number;
+  /** stdout 字节上限（默认 1MB） */
+  maxStdoutBytes?: number;
+  /** stderr 字节上限（默认 1MB） */
+  maxStderrBytes?: number;
+  /** P2-6：/ready 的额外就绪检查（如 kernel grant verifier 是否装配） */
+  readinessChecks?: Array<{ name: string; check: () => boolean | Promise<boolean> }>;
 }
 
 // ─── 流式任务注册表 ────────────────────────────────────────────────
@@ -69,6 +81,10 @@ interface StreamJob {
   id: string;
   stdout: string[];
   stderr: string[];
+  stdoutBytes: number;
+  stderrBytes: number;
+  /** P2-4：输出超限杀组标记（close 收尾时组装 truncated） */
+  killedForLimit: "stdout" | "stderr" | null;
   listeners: Set<(stream: "stdout" | "stderr", data: string) => void>;
   onDone: (() => void) | null;
   proc: ChildProcess | null;
@@ -84,6 +100,9 @@ function createJob(id: string): StreamJob {
     id,
     stdout: [],
     stderr: [],
+    stdoutBytes: 0,
+    stderrBytes: 0,
+    killedForLimit: null,
     listeners: new Set(),
     onDone: null,
     proc: null,
@@ -123,7 +142,7 @@ function exitCodeFromClose(code: number | null, signal: string | null): number |
 // ─── 执行 ────────────────────────────────────────────────────────────
 function runExec(
   job: StreamJob,
-  opts: { cmd: string | string[]; cwd: string; env?: Record<string, string>; timeoutMs: number },
+  opts: { cmd: string | string[]; cwd: string; env?: Record<string, string>; timeoutMs: number; maxStdoutBytes: number; maxStderrBytes: number },
 ): Promise<ExecResult> {
   return new Promise((resolve) => {
     const cmdArray = Array.isArray(opts.cmd) ? opts.cmd : ["bash", "-lc", opts.cmd];
@@ -140,13 +159,33 @@ function runExec(
 
     const decOut = new StringDecoder("utf-8");
     const decErr = new StringDecoder("utf-8");
+    const killForLimit = (field: "stdout" | "stderr") => {
+      if (job.killedForLimit) return true;
+      job.killedForLimit = field;
+      try { process.kill(-child.pid!, "SIGKILL"); } catch { /* 子进程已退出 */ }
+      return true;
+    };
     child.stdout.on("data", (buf: Buffer) => {
       const s = decOut.write(buf);
-      if (s) { job.stdout.push(s); emitChunk(job, "stdout", s); }
+      if (!s) return;
+      const remaining = opts.maxStdoutBytes - job.stdoutBytes;
+      if (remaining <= 0) { killForLimit("stdout"); return; }
+      const keep = s.slice(0, Math.max(0, remaining));
+      job.stdoutBytes += keep.length;
+      job.stdout.push(keep);
+      emitChunk(job, "stdout", keep);
+      if (keep.length < s.length) killForLimit("stdout");
     });
     child.stderr.on("data", (buf: Buffer) => {
       const s = decErr.write(buf);
-      if (s) { job.stderr.push(s); emitChunk(job, "stderr", s); }
+      if (!s) return;
+      const remaining = opts.maxStderrBytes - job.stderrBytes;
+      if (remaining <= 0) { killForLimit("stderr"); return; }
+      const keep = s.slice(0, Math.max(0, remaining));
+      job.stderrBytes += keep.length;
+      job.stderr.push(keep);
+      emitChunk(job, "stderr", keep);
+      if (keep.length < s.length) killForLimit("stderr");
     });
 
     let timedOut = false;
@@ -189,6 +228,9 @@ function runExec(
         exitCode: job.exitCode,
         signal,
         timedOut,
+        ...(job.killedForLimit
+          ? { truncated: { field: job.killedForLimit, originalLen: job.killedForLimit === "stdout" ? job.stdoutBytes : job.stderrBytes, keptLen: job.killedForLimit === "stdout" ? job.stdout.join("").length : job.stderr.join("").length } }
+          : {}),
       });
     });
   });
@@ -201,6 +243,14 @@ function runExec(
  * 卷内 symlink 指向卷外 → realpath 后前缀不匹配 → 拒绝（400）。
  * 根与 cwd 双侧 realpath（根自身也可能经 symlink 挂载/解析）。
  */
+function existsForReady(p: string): boolean {
+  try {
+    return fs.existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
 function validateCwd(cwdRaw: string | undefined, workspacesRoot: string): string {
   const root = path.resolve(workspacesRoot);
   const cwd = cwdRaw ? path.resolve(cwdRaw) : root;
@@ -227,7 +277,13 @@ function validateCwd(cwdRaw: string | undefined, workspacesRoot: string): string
   return realCwd;
 }
 
-function validateBody(body: unknown, defaultTimeoutMs: number, maxTimeoutMs: number): { cmd: string | string[]; timeoutMs: number } {
+function validateBody(
+  body: unknown,
+  defaultTimeoutMs: number,
+  maxTimeoutMs: number,
+  maxStdoutBytes: number,
+  maxStderrBytes: number,
+): { cmd: string | string[]; timeoutMs: number; maxStdoutBytes: number; maxStderrBytes: number } {
   if (!body || typeof body !== "object") throw new Error("request body required");
   const b = body as Record<string, unknown>;
   const cmd = b.cmd;
@@ -242,7 +298,21 @@ function validateBody(body: unknown, defaultTimeoutMs: number, maxTimeoutMs: num
     }
     timeoutMs = Math.min(b.timeout, maxTimeoutMs);
   }
-  return { cmd: cmd as string | string[], timeoutMs };
+  let outMax = maxStdoutBytes;
+  if (b.maxStdoutBytes !== undefined) {
+    if (typeof b.maxStdoutBytes !== "number" || !Number.isFinite(b.maxStdoutBytes) || b.maxStdoutBytes <= 0 || b.maxStdoutBytes > 4 * 1024 * 1024) {
+      throw new Error("maxStdoutBytes must be 1..4MB");
+    }
+    outMax = Math.floor(b.maxStdoutBytes);
+  }
+  let errMax = maxStderrBytes;
+  if (b.maxStderrBytes !== undefined) {
+    if (typeof b.maxStderrBytes !== "number" || !Number.isFinite(b.maxStderrBytes) || b.maxStderrBytes <= 0 || b.maxStderrBytes > 4 * 1024 * 1024) {
+      throw new Error("maxStderrBytes must be 1..4MB");
+    }
+    errMax = Math.floor(b.maxStderrBytes);
+  }
+  return { cmd: cmd as string | string[], timeoutMs, maxStdoutBytes: outMax, maxStderrBytes: errMax };
 }
 
 async function chownRecursive(target: string, uid: number, gid: number): Promise<void> {
@@ -300,6 +370,8 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
   const privateRoot = options.privateRoot ?? process.env.PTH_EXEC_PRIVATE_ROOT ?? undefined;
   const getSecret = options.getSecret ?? (() => process.env.SANDBOX_SHARED_SECRET);
   const defaultTimeoutMs = options.defaultTimeoutMs ?? 30_000;
+  const maxOutBytes = options.maxStdoutBytes ?? 1024 * 1024;
+  const maxErrBytes = options.maxStderrBytes ?? 1024 * 1024;
   const maxTimeoutMs = options.maxTimeoutMs ?? 600_000;
 
   const jobs = new Map<string, StreamJob>();
@@ -326,12 +398,34 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
 
   app.get("/health", async () => ({ status: "ok" }));
 
+  // P2-6：liveness/readiness 拆分。/health 只做 liveness（进程活着）；
+  // /ready 检查执行前置条件：共享密钥、工作区根、私有根（若启用）与调用方额外检查。
+  app.get("/ready", async (req, reply) => {
+    const checks = [
+      { name: "shared-secret", ok: Boolean(getSecret()) },
+      { name: "workspaces-root", ok: existsForReady(workspacesRoot) },
+      ...(privateRoot ? [{ name: "private-root", ok: existsForReady(privateRoot) }] : []),
+    ];
+    for (const extra of options.readinessChecks ?? []) {
+      try {
+        checks.push({ name: extra.name, ok: await extra.check() });
+      } catch {
+        checks.push({ name: extra.name, ok: false });
+      }
+    }
+    const ready = checks.every((c) => c.ok);
+    reply.code(ready ? 200 : 503);
+    return { status: ready ? "ready" : "degraded", checks };
+  });
+
   app.post("/exec", async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
     let cmd: string | string[];
     let timeoutMs: number;
+    let maxStdoutBytes: number;
+    let maxStderrBytes: number;
     try {
-      ({ cmd, timeoutMs } = validateBody(req.body, defaultTimeoutMs, maxTimeoutMs));
+      ({ cmd, timeoutMs, maxStdoutBytes, maxStderrBytes } = validateBody(req.body, defaultTimeoutMs, maxTimeoutMs, maxOutBytes, maxErrBytes));
     } catch (err) {
       reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
       return;
@@ -354,7 +448,7 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
     }
     const job = createJob(crypto.randomUUID());
     jobs.set(job.id, job);
-    const resultPromise = runExec(job, { cmd, cwd: execCwd, env: body.env, timeoutMs });
+    const resultPromise = runExec(job, { cmd, cwd: execCwd, env: body.env, timeoutMs, maxStdoutBytes, maxStderrBytes });
     if (body.stream) {
       resultPromise.then(async (r) => {
         const syncErr = await syncBack();

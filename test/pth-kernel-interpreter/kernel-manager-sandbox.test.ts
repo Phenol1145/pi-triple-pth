@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Fastify from "fastify";
-import { buildKernelHostApp } from "@away_from/pth-sandbox";
+import { buildKernelHostApp, createSandboxGrantIssuer, createSandboxGrantVerifier } from "@away_from/pth-sandbox";
 import { createKernelManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 
 /**
@@ -8,6 +8,17 @@ import { createKernelManager } from "../../src/pth/impls/kernels/kernel-manager.
  */
 
 const SECRET = "test-sandbox-secret";
+const GRANT_SECRET = "manager-sandbox-grant-secret-0123456789";
+const issuer = createSandboxGrantIssuer({ secret: GRANT_SECRET });
+function makeGrant() {
+  return issuer.issue({
+    lease: { taskId: "task-manager", leaseId: "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6", generation: 1 },
+    scope: { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-manager" },
+    workspace: { tenantId: "tenant-a", workspaceId: "ws-manager", taskId: "task-manager" },
+    language: "python",
+    capabilities: ["memory.read"],
+  });
+}
 
 describe("KernelManager sandbox-kernel 模式（P5 接线）", () => {
   let host: any;
@@ -15,7 +26,7 @@ describe("KernelManager sandbox-kernel 模式（P5 接线）", () => {
 
   beforeAll(async () => {
     process.env.SANDBOX_SHARED_SECRET = SECRET;
-    host = buildKernelHostApp({});
+    host = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
     await host.listen({ port: 0, host: "127.0.0.1" });
     baseUrl = `http://127.0.0.1:${host.server.address().port}`;
   });
@@ -29,7 +40,7 @@ describe("KernelManager sandbox-kernel 模式（P5 接线）", () => {
     const mgr = createKernelManager({
       pythonMode: "sandbox-kernel",
       bashMode: "sandbox-kernel",
-      sandboxKernel: { url: baseUrl, secret: SECRET },
+      sandboxKernel: { url: baseUrl, secret: SECRET, grant: makeGrant() },
     });
     const py = await mgr.execute("python", "arr = [1,2,3]\n_result = sum(arr)");
     expect(py.ok).toBe(true);
@@ -49,7 +60,7 @@ describe("KernelManager sandbox-kernel 模式（P5 接线）", () => {
   it("reset 经 manager 清宿主命名空间", async () => {
     const mgr = createKernelManager({
       pythonMode: "sandbox-kernel",
-      sandboxKernel: { url: baseUrl, secret: SECRET },
+      sandboxKernel: { url: baseUrl, secret: SECRET, grant: makeGrant() },
     });
     await mgr.execute("python", "x = 123");
     // 2026-08-12：await reset（此前不 await 是竞态——依赖微任务时序侥幸通过；

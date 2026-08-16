@@ -38,7 +38,7 @@ export interface ScannedImport {
   targetPath: string | null;
 }
 
-const CROSS_MODULES = ["tasking", "runner", "execution", "catalog"] as const;
+const CROSS_MODULES = ["tasking", "runner", "execution", "catalog", "bootstrap"] as const;
 const CONTRACTS_FORBIDDEN = new Set(["fastify", "pg", "ioredis", "redis", "@away_from/pth-sandbox"]);
 const SANDBOX_PACKAGE = "@away_from/pth-sandbox";
 const SANDBOX_ALLOWED_PREFIXES = ["impls/kernels/", "bootstrap/"];

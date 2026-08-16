@@ -296,15 +296,19 @@ export class PyKernel implements Interpreter {
       }
     }
 
-    // 截断策略（§2.4.4）
+    // 截断策略（§2.4.4 + P2-4：超限即杀进程组——防持续输出耗尽容器）
+    let overLimit = false;
     if (out.stdout && out.stdout.length > maxStdout) {
       out.truncated = { field: "stdout", originalLen: out.stdout.length, keptLen: maxStdout };
       out.stdout = out.stdout.slice(0, maxStdout);
+      overLimit = true;
     }
     if (out.stderr && out.stderr.length > maxStderr) {
       if (!out.truncated) out.truncated = { field: "stderr", originalLen: out.stderr.length, keptLen: maxStderr };
       out.stderr = out.stderr.slice(0, maxStderr);
+      overLimit = true;
     }
+    if (overLimit) this.kill();
     if (out.value !== undefined) {
       const s = safeSerialize(out.value);
       if (s.ok) {
@@ -358,6 +362,8 @@ export class PyKernel implements Interpreter {
     const identity = workloadIdentity();
     const child = spawn(this.pythonBin, ["-u", "-c", runtime], {
       stdio: ["pipe", "pipe", "pipe"],
+      // P2-4：独立进程组——超时/超限/abort 用 kill(-pid) 收割整棵进程树
+      detached: true,
       // 记忆桥 URL 注入（2026-08-11 库化——kernel 模式 localhost:3000 直通；sandbox kernel-pool 缺省 8080 转发）
       // P0-2：工作负载 env 走 allowlist——不继承控制器密钥；bridge token 仅 kernel-mode 显式放行
       env: buildWorkloadEnv({ ...(identity.uid ? { HOME: WORKLOAD_HOME } : {}), PTH_MEMORY_BRIDGE: this.memoryBridge, PTH_MEMORY_BRIDGE_TOKEN: this.bridgeToken || undefined }, { allowBridgeToken: Boolean(this.bridgeToken) }),
@@ -391,7 +397,7 @@ export class PyKernel implements Interpreter {
       // 移除旧会话 handler（防误 reject 新会话 pending）
       old.removeAllListeners("exit");
       old.removeAllListeners("error");
-      try { old.kill("SIGKILL"); } catch (e) { }
+      try { process.kill(-old.pid!, "SIGKILL"); } catch (e) { try { old.kill("SIGKILL"); } catch { /* ignore */ } }
       // stdio 销毁（2026-08-12 审计）：ENOENT 等失败场景进程已死但 pipe 句柄残留——
       // 事件循环不退出（vitest 挂住/批处理泄漏）——显式 destroy
       try { old.stdout?.destroy(); old.stderr?.destroy(); old.stdin?.destroy(); } catch (e) { }

@@ -23,6 +23,7 @@ import type { FallbackRequestStore } from "../fallback/requests.js";
 import type { SandboxHealthMonitor } from "../impls/kernels/index.js";
 import type { AuditWriter } from "../observability/audit.js";
 import { createPthGatewayFacade, type PthGatewayFacadeInput } from "../application/gateway/pth-gateway-facade.js";
+import type { KnowledgeBroker } from "../execution/index.js";
 
 export async function createServer(deps: {
   redis: Redis;
@@ -47,6 +48,8 @@ export async function createServer(deps: {
   kernelRuntime?: PthGatewayFacadeInput | null;
   /** 性能自持（v0.8）：PerfAutopilot 状态（/kernel/status 暴露）。可选。 */
   autopilot?: { status: () => unknown } | null;
+  /** P2-5：grant-bound 知识 broker（可选——未装配则 /kernel/knowledge 503） */
+  knowledgeBroker?: KnowledgeBroker | null;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
@@ -75,12 +78,12 @@ export async function createServer(deps: {
   }
   if (deps.kernelRuntime) {
     const facade = createPthGatewayFacade(deps.kernelRuntime);
-    registerKernelRoutes(app, facade, deps.autopilot);
+    registerKernelRoutes(app, facade, deps.autopilot, deps.knowledgeBroker);
     registerLineageRoutes(app, facade);
     registerTriggerRoutes(app, facade);
     registerJobRoutes(app, facade);
   } else {
-    registerKernelRoutes(app, null, deps.autopilot);
+    registerKernelRoutes(app, null, deps.autopilot, deps.knowledgeBroker);
     registerLineageRoutes(app, null);
     registerTriggerRoutes(app, null);
   }

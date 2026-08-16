@@ -24,6 +24,9 @@ function stubSandboxFetch(onRelease: () => void) {
     if (u.endsWith("/kernel/acquire")) {
       return new Response(JSON.stringify({ lease: { id: "4f5e3f44-ec85-4e83-9c99-2d17d343d0e1", generation: 1, expiresAt: "2099-01-01T00:00:00.000Z" } }), { status: 200, headers: { "content-type": "application/json" } });
     }
+    if (u.endsWith("/kernel/cancel")) {
+      return new Response(JSON.stringify({ ok: true, state: "disposed" }), { status: 200 });
+    }
     if (u.endsWith("/kernel/release")) {
       onRelease();
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
@@ -55,6 +58,7 @@ describe("SandboxKernel——程序级制动（A1 Phase 3 条目 11 abort 契约
     });
     await k.abort();
     const r = await p;
+    expect(fn.mock.calls.some((c) => String(c[0]).endsWith("/kernel/cancel"))).toBe(true);
     const elapsed = Date.now() - start;
     expect(r.ok).toBe(false);
     expect(r.error?.code).toBe("aborted");

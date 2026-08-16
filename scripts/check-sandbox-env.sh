@@ -7,7 +7,11 @@
 set -u
 
 echo "── ① Dockerfile.sandbox 凭据字面量扫描 ──"
-DOCKERFILE="$(dirname "$0")/../Dockerfile.sandbox"
+DOCKERFILE="$(dirname "$0")/../packages/pth-sandbox/Dockerfile.sandbox"
+if [ ! -f "$DOCKERFILE" ]; then
+  echo "❌ 目标 Dockerfile 缺失（拆分后位于 packages/pth-sandbox/）：$DOCKERFILE"
+  exit 1
+fi
 # 凭据字面量模式：形如 KEY=xxx / PASSWORD=xxx 的硬编码值（排除 ${VAR} 引用与注释）
 HITS=$(grep -nE '(KEY|TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|DATABASE_URL)\s*=\s*[^$"'\'' ]+' "$DOCKERFILE" | grep -vE '\$\{' || true)
 if [ -n "$HITS" ]; then

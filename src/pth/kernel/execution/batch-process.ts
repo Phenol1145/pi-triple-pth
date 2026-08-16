@@ -64,6 +64,12 @@ class BatchTaskLoop {
  * 不 resolve：子进程长驻（pg 连接池维持存活），主进程通过 IPC 终止。
  */
 export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> {
+  // P3-4：runner Host 与 API Host 共用同一 bootstrap manifest（fork worker 前 fail-closed）
+  {
+    const { loadBootstrapConfig } = await import("../../bootstrap/bootstrap-config.js");
+    const { buildPthHost } = await import("../../bootstrap/pth-host.js");
+    await buildPthHost(loadBootstrapConfig().manifest);
+  }
   // 内存优化：连接池收紧（7 角色 worker 并发 ≤7——max 8 够；默认 10 冗余）
   // PTH_PG_POOL_MAX 可覆盖（batch 数多时 PG 连接总量 = pool_max × batches 需核算）
   const pool = await createPgPool({ connectionString: deps.databaseUrl, max: Number(process.env.PTH_PG_POOL_MAX ?? 8) });
