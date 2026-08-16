@@ -23,6 +23,87 @@ export interface TaskTemplate {
   render(params: Record<string, unknown>): string;
   /** 模板需要的参数说明（命令补全/帮助用） */
   params: Array<{ key: string; required: boolean; description: string }>;
+  /** 标题（缺省 `[id] name`；函数形态可依赖已渲染参数——如 entryId） */
+  title?: string | ((params: Record<string, unknown>) => string);
+  /** 系统内部模板：不出现在 /api/v1/kernel/templates 公开列表（仍可引用渲染） */
+  hidden?: boolean;
+  /** 渲染产物形态：ts-code（PTC 直接执行，缺省）/ natural-language（NL 任务——worker 转译） */
+  renderKind?: "ts-code" | "natural-language";
+}
+
+// ── 任务模板统一收口（A+，2026-08-16）────────────────────────────
+// 发布 API / TriggerEngine / PerfStrategy 三消费方共用的“模板 → task”解析器。
+// 必填校验发生在事件变量注入之后（url:"{{detail}}" 且 detail 为空 = missing）；
+// 路由优先级：显式 role > 显式 tags > 模板 roleTag。
+
+export interface TemplateTaskSpec {
+  template: string;
+  params?: Record<string, unknown>;
+  /** 标题覆盖（支持 {{eventVar}} 注入；缺省用模板 title） */
+  title?: string;
+  /** 路由覆盖（非空才覆盖模板 roleTag） */
+  tags?: string[];
+  /** 显式 flow 角色（优先级高于 tags） */
+  role?: string;
+  /** 额外 payload（合并进 {template, params} 之后） */
+  payload?: Record<string, unknown>;
+}
+
+export type TemplateTaskResolution =
+  | { ok: true; title: string; text: string; tags: string[]; role?: string; payload: Record<string, unknown> }
+  | { ok: false; code: "unknown-template" | "missing-params"; error: string; missing?: string[] };
+
+/** 事件变量注入：字符串 `{{key}}` 递归替换（缺失 → 空字符串——与 trigger 旧语义一致） */
+export function interpolateEventVars(value: unknown, vars: Record<string, string>): unknown {
+  if (typeof value === "string") {
+    return value.replace(/\{\{(\w+)\}\}/g, (_, k: string) => vars[k] ?? "");
+  }
+  if (Array.isArray(value)) return value.map((v) => interpolateEventVars(v, vars));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = interpolateEventVars(v, vars);
+    return out;
+  }
+  return value;
+}
+
+/** 模板 → task 统一解析（发布 API / trigger / perf 策略共用） */
+export function resolveTemplateTask(
+  spec: TemplateTaskSpec,
+  opts: { eventVars?: Record<string, string> } = {},
+): TemplateTaskResolution {
+  const tpl = getTemplate(spec.template);
+  if (!tpl) return { ok: false, code: "unknown-template", error: `unknown template: ${spec.template}` };
+
+  // 事件变量注入 → 必填校验（注入后仍为空 = missing）
+  const vars = opts.eventVars ?? {};
+  const params = interpolateEventVars(spec.params ?? {}, vars) as Record<string, unknown>;
+  const missing = tpl.params
+    .filter((p) => p.required && (params[p.key] === undefined || params[p.key] === null || params[p.key] === ""))
+    .map((p) => p.key);
+  if (missing.length > 0) {
+    return { ok: false, code: "missing-params", error: `missing required params: ${missing.join(", ")}`, missing };
+  }
+
+  const text = tpl.render(params);
+  // 路由优先级：显式 role > 显式 tags > 模板 roleTag
+  const tags = Array.isArray(spec.tags) && spec.tags.length > 0 ? spec.tags.map(String) : [tpl.roleTag];
+  const role = typeof spec.role === "string" && spec.role.trim() !== "" ? spec.role.trim() : undefined;
+  const defaultTitle = typeof tpl.title === "function" ? tpl.title(params) : (tpl.title ?? `[${tpl.id}] ${tpl.name}`);
+  const title = spec.title !== undefined ? String(interpolateEventVars(spec.title, vars)) : defaultTitle;
+  return {
+    ok: true,
+    title,
+    text,
+    tags,
+    ...(role ? { role } : {}),
+    payload: { template: tpl.id, params, ...(spec.payload ?? {}) },
+  };
+}
+
+/** 公开模板列表（hidden 系统内部模板不外显） */
+export function listPublicTemplates(): TaskTemplate[] {
+  return TASK_TEMPLATES.filter((t) => !t.hidden);
 }
 
 // ── 工具：JSON 嵌入辅助 ──────────────────────────────────────
@@ -244,6 +325,18 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
       { key: "anchors", required: false, description: "产物记忆锚点（默认 [dev, artifact]）" },
     ],
     render: DEV_TASK_TS,
+  },
+  // 系统内部模板（hidden：不出现在 /templates 公开列表——trigger 统一收口 A+ 迁入）
+  {
+    id: "memory-sweep",
+    name: "记忆维护巡检（归档候选提案）",
+    roleTag: "memory",
+    hidden: true,
+    description: "系统内部：扫描过期 draft/低命中/重复条目 → 归档候选提案（监督批准后执行）。",
+    params: [],
+    title: "记忆维护巡检（归档候选提案）",
+    renderKind: "natural-language",
+    render: () => `你是记忆维护巡检任务。用 memory.query 检查：① status='draft' 且长期未更新的条目；② 低 hit_count 的 official 条目；③ 重复条目。对确认应归档的目标，用 memory.write 落一条 kind='memory-admin-proposal' 的 draft 提案，content 为 JSON：{"action":"archive","target":"<条目id>","rationale":"<归档理由>"}。不要直接归档/删除——监督层批准后由 memory-admin approve 执行。本次未发现候选则 done 空清单说明即可。`,
   },
 ];
 

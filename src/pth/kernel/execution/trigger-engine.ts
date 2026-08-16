@@ -32,6 +32,7 @@
 
 import type { ActivityEvent, ActivityHub } from "./activity-hub.js";
 import { tagRegistry } from "./tag-registry.js";
+import { resolveTemplateTask } from "../templates.js";
 import type { TaskStore } from "../storage/task-store-pg.js";
 import type { PgMemoryStore } from "@away_from/pth-memory";
 
@@ -50,8 +51,22 @@ export interface TriggerDef {
    *  everySec 为最小触发间隔（相对上次触发）；0/缺省 = 禁用定时。event 与 schedule 至少其一。 */
   schedule?: { everySec: number };
   match?: { role?: string; detailContains?: string };
-  /** 任务 action（发布下游任务）——与 action 至少其一 */
-  task?: { title: string; text: string; role?: string; tags?: string[]; retask?: boolean };
+  /** 任务 action（发布下游任务）——与 action 至少其一。
+   *  模板统一收口（A+）：优先 `template + params` 引用 TASK_TEMPLATES（事件变量注入）；
+   *  `title + text` 内联形态保留为兼容逃生舱。 */
+  task?: {
+    /** 模板引用（TASK_TEMPLATES id——与内联 title/text 二选一） */
+    template?: string;
+    /** 模板参数（值支持 {{taskId}}/{{role}}/{{detail}} 事件变量） */
+    params?: Record<string, unknown>;
+    /** 内联标题（模板引用时 = 标题覆盖） */
+    title?: string;
+    /** 内联正文（仅内联形态；模板引用时忽略） */
+    text?: string;
+    role?: string;
+    tags?: string[];
+    retask?: boolean;
+  };
   /** 原生 action（调用注册 handler）——与 task 至少其一 */
   action?: TriggerAction;
   enabled?: boolean;
@@ -135,9 +150,11 @@ export class TriggerEngine {
         const def = JSON.parse(e.content) as TriggerDef;
         if (def.enabled === false) continue;
         // task 与 action 至少其一（trigger 统一化：控制环原生动作 + 治理任务发布并存）
-        const hasTask = Boolean(def.task?.title && def.task?.text);
         const hasAction = typeof def.action?.type === "string" && def.action.type.trim() !== "";
-        if (!hasTask && !hasAction) continue;
+        const hasInlineTask = Boolean(def.task?.title && def.task?.text);
+        const hasTemplateTask = typeof def.task?.template === "string" && def.task.template.trim() !== "";
+        const hasRetask = def.task?.retask === true;
+        if (!hasAction && !hasInlineTask && !hasTemplateTask && !hasRetask) continue;
         // 事件/定时至少其一（backlog 差距 12——schedule 定时源）
         if (!def.event && !def.schedule?.everySec) continue;
         const prev = this.triggers.find((t) => t.id === e.id);
@@ -299,7 +316,7 @@ export class TriggerEngine {
         }
       }
     }
-    if (t.def.task?.title && t.def.task.text) {
+    if (t.def.task && !t.def.task.retask) {
       await this.publishFromTrigger(
         t,
         vars,
@@ -309,7 +326,7 @@ export class TriggerEngine {
     }
   }
 
-  /** 公共发布（事件/定时共用）：模板渲染 + 路由依据（role 或 tags）+ 触发溯源 */
+  /** 公共发布（事件/定时共用）：模板引用优先（resolveTemplateTask 统一收口）→ 内联兼容。 */
   private async publishFromTrigger(
     t: TriggerEntry,
     vars: Record<string, string>,
@@ -318,15 +335,52 @@ export class TriggerEngine {
   ): Promise<void> {
     const taskDef = t.def.task!;
     const render = (s: string) => s.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] ?? "");
+
+    let title: string;
+    let text: string;
+    let tags: string[];
+    let role: string | undefined;
+    let payload: Record<string, unknown> = {};
+
+    if (taskDef.template) {
+      // 模板引用：事件变量注入 params → 必填校验 → render → 路由/title/payload 统一解析
+      const r = resolveTemplateTask(
+        {
+          template: taskDef.template,
+          params: taskDef.params,
+          title: taskDef.title,
+          tags: taskDef.tags,
+          role: taskDef.role,
+        },
+        { eventVars: vars },
+      );
+      if (!r.ok) {
+        this.deps.logger?.(`[trigger] ${t.def.name} 模板解析失败: ${r.error}`);
+        return;
+      }
+      title = r.title;
+      text = r.text;
+      tags = r.tags;
+      role = r.role;
+      payload = r.payload;
+    } else {
+      // 内联兼容逃生舱（旧 memory kind='trigger' 定义继续可用）
+      title = render(taskDef.title ?? "");
+      text = render(taskDef.text ?? "");
+      tags = taskDef.tags ?? [];
+      role = taskDef.role;
+    }
+
     const task = await this.deps.tasks.publish({
-      title: render(taskDef.title),
-      text: render(taskDef.text),
+      title,
+      text,
       createdBy: `trigger:${t.def.name}`,
       // 任务池纯化（D5）：无默认标签——trigger 任务必须自带路由依据（role 或合法角色标签），
       // 注册期已校验；publish 校验失败（如角色后续被移除）会进 catch 记日志，不炸引擎
-      tags: taskDef.tags ?? [],
+      tags,
       payload: {
-        ...(taskDef.role ? { flow: { stages: [{ task: { role: taskDef.role } }] } } : {}),
+        ...(role ? { flow: { stages: [{ task: { role } }] } } : {}),
+        ...payload,
         triggeredBy: { triggerId: t.id, fromTask: source?.taskId ?? null, depth: depth + 1, source: source?.kind ?? "schedule" },
       },
     });

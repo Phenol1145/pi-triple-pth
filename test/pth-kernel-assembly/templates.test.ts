@@ -41,6 +41,8 @@ describe("task templates", () => {
 
   it("生成代码语法合法（interpreter 包装后 stripTypeScriptTypes 可解析）", () => {
     for (const t of TASK_TEMPLATES) {
+      // 模板统一收口（A+）：natural-language 模板（系统治理提示词）不经 PTC 语法包装
+      if (t.renderKind === "natural-language") continue;
       const code = t.render({ url: "https://x.dev/a", section: "S", anchors: ["a", "b"], entryId: "t-1", kind: "k", task: "整理", description: "print(1)" });
       // interpreter 把任务代码包进 async 函数（顶层 await/return 合法）
       const wrapped = `(async () => { ${code} })()`;

@@ -356,3 +356,85 @@ describe("TriggerEngine（原生 action——trigger 统一化：控制环收编
     engine.stop();
   });
 });
+
+describe("TriggerEngine（模板引用——任务模板统一收口 A+：TASK_TEMPLATES 为唯一模板源）", () => {
+  it("task.template + params 引用 TASK_TEMPLATES：事件变量注入 → 渲染 → 默认 title/tags/route", async () => {
+    const hub = new ActivityHub();
+    const memory = mockMemory([{
+      id: "trig-tpl",
+      def: {
+        name: "recon链",
+        event: "task.done",
+        task: { template: "recon-doc", params: { url: "{{detail}}", section: "{{role}}" } },
+      },
+    }]);
+    const tasks = mockTasks();
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: memory as never });
+    await engine.start();
+    hub.publish({ kind: "task.done", taskId: "t9", role: "scout", detail: "https://example.com/doc", at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(1);
+    const p = tasks.published[0]!;
+    expect(p.title).toBe("[recon-doc] 信息搜集（文档转写）");
+    expect(p.text).toContain('"https://example.com/doc"');
+    expect(p.text).toContain('"scout"');
+    expect((p as unknown as { tags?: string[] }).tags).toEqual(["recon"]);   // 模板 roleTag 缺省路由
+    const payload = p.payload as { template?: string; params?: { url: string; section: string }; triggeredBy?: { source: string; depth: number } };
+    expect(payload.template).toBe("recon-doc");
+    expect(payload.params).toEqual({ url: "https://example.com/doc", section: "scout" });
+    expect(payload.triggeredBy?.source).toBe("task.done");
+    engine.stop();
+  });
+
+  it("模板引用 + 显式 role/tags 覆盖默认路由", async () => {
+    const hub = new ActivityHub();
+    const memory = mockMemory([{
+      id: "trig-tpl2",
+      def: {
+        name: "定制路由",
+        event: "task.done",
+        task: { template: "recon-doc", params: { url: "{{detail}}" }, role: "scout", tags: ["custom"] },
+      },
+    }]);
+    const tasks = mockTasks();
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: memory as never });
+    await engine.start();
+    hub.publish({ kind: "task.done", taskId: "t10", detail: "https://x.dev", at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(1);
+    const payload = tasks.published[0]!.payload as { flow?: { stages?: Array<{ task?: { role?: string } }> } };
+    expect(payload.flow?.stages?.[0]?.task?.role).toBe("scout");
+    expect((tasks.published[0] as unknown as { tags?: string[] }).tags).toEqual(["custom"]);
+    engine.stop();
+  });
+
+  it("未知模板/缺必填 → 不发布不炸（日志跳过）", async () => {
+    const hub = new ActivityHub();
+    const memory = mockMemory([
+      { id: "bad-tpl", def: { name: "未知模板", event: "task.done", task: { template: "nope" } } },
+      { id: "missing-tpl", def: { name: "缺参", event: "task.done", task: { template: "recon-doc", params: { url: "{{detail}}" } } } },
+    ]);
+    const tasks = mockTasks();
+    const logs: string[] = [];
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: memory as never, logger: (m) => logs.push(m) });
+    await engine.start();
+    hub.publish({ kind: "task.done", taskId: "t11", detail: "", at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(0);
+    expect(logs.some((l) => l.includes("模板解析失败"))).toBe(true);
+    engine.stop();
+  });
+
+  it("内联 title/text 兼容形态继续可用（旧 memory trigger 定义不破坏）", async () => {
+    const hub = new ActivityHub();
+    const memory = mockMemory([{ id: "old", def: { name: "旧定义", event: "task.done", task: { title: "验收 {{taskId}}", text: "验收 {{role}} 的产物", role: "acceptor" } } }]);
+    const tasks = mockTasks();
+    const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: memory as never });
+    await engine.start();
+    hub.publish({ kind: "task.done", taskId: "t12", role: "developer", at: Date.now() });
+    await TICK();
+    expect(tasks.published).toHaveLength(1);
+    expect(tasks.published[0]!.title).toBe("验收 t12");
+    engine.stop();
+  });
+});
