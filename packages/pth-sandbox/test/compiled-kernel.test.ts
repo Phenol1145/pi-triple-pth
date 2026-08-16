@@ -86,6 +86,32 @@ int main(int argc, char** argv) { printf("arg:%s\\n", argc > 1 ? argv[1] : "none
 });
 
 describe("编译核持久缓存 + 指标（2026-08-09）", () => {
+  it("S1-2：cache key 含 compiler 身份——同源码不同 cc 不互撞", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const root = mkdtempSync(tmpdir() + "/cck-ccid-");
+    const cacheDir = root + "/shared-cache";
+    const src = "#include <stdio.h>\nint main(void){ printf(\"cc-id\\n\"); return 0; }";
+    const events: Array<{ type: string; cc: string }> = [];
+    const onMetric = (m: { type: string; cc: string }) => events.push({ type: m.type, cc: m.cc });
+    try {
+      const kcc = new CCompiledKernel({ workDir: root + "/w-cc", cacheDir, cc: "cc", onMetric });
+      const kclang = new CCompiledKernel({ workDir: root + "/w-clang", cacheDir, cc: "clang", onMetric });
+      const b1 = await kcc.build(src);
+      const b2 = await kclang.build(src);
+      expect(b1.ok).toBe(true);
+      expect(b2.ok).toBe(true);
+      expect(b1.binaryRef).not.toBe(b2.binaryRef);   // 不同 compiler 身份 → 不同产物
+      await kcc.build(src);   // 各自命中各自缓存
+      await kclang.build(src);
+      expect(events.filter((e) => e.type === "compile").length).toBe(2);   // 只冷编译两次
+      kcc.dispose();
+      kclang.dispose();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("cacheDir 独立于 workDir：跨实例复用（新实例扫描磁盘恢复——二次调用缓存命中）", async () => {
     const { mkdtempSync, rmSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");

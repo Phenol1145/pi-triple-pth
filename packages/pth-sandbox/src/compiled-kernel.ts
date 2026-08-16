@@ -201,7 +201,8 @@ export class CCompiledKernel implements Interpreter {
   /** 编译（增量：源码 sha256 命中跳过）→ binaryRef */
   async build(source: string): Promise<BuildResult> {
     await this.restorePromise;   // 恢复完成后再查缓存（防竞态冷编译）
-    const hash = sha256(source);
+    // S1-2：cache key 纳入 compiler 身份——gcc/clang/tcc 同源码不再互撞同一产物。
+    const hash = sha256(`${this.cc}\n${source}`);
     const existing = this.entries.get(hash);
     if (existing) {
       existing.lastUsedAt = Date.now();
