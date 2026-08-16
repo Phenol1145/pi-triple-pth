@@ -367,6 +367,15 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     },
     asAction: (a) => `return await tasks.await(${JSON.stringify(a)});`,
   },
+  'tasks.resume': {
+    name: 'tasks.resume', family: 'tasks',
+    params: '()',
+    returnType: 'Promise<{ waiting: Record<string,{at:string}>; results: Record<string, TaskAwaitResult> }>',
+    anchor: '父任务挂起重跑后的续接点（W8 P2 事件驱动回流）',
+    whenToUse: '任务程序开头读取已回流的 childResult 与等待登记，避免重复 delegate',
+    effect: '只读本任务 payload.dispatchWait/childResult 快照（task-loop 盖章——不可伪造）',
+    asAction: () => 'return await tasks.resume();',
+  },
   'ext': {
     name: 'ext', family: 'ts-local',
     params: '（扩展编排对象——index/use/kernel/syncIndex）',

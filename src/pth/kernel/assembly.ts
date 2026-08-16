@@ -113,6 +113,8 @@ export interface KernelRuntime {
   activityHub: import("./execution/activity-hub.js").ActivityHub;
   /** trigger 引擎（事件触发任务——订阅 activityHub——trigger 定义存 memory kind='trigger'） */
   triggerEngine: import("./execution/trigger-engine.js").TriggerEngine;
+  /** W8 P2 任务派发回流 notifier（子终态 → 父 childResult） */
+  taskDispatchNotifier: import("../tasking/index.js").TaskDispatchNotifier;
   watchdog: KernelWatchdog;
   /** TaskResolver（任务池即工作流 T3）：独立解析循环 */
   resolver: import("./execution/task-resolver.js").TaskResolver;
@@ -182,6 +184,14 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     memory: dataWorld.memory,
     logger: (m) => assemblyLogger.info(m),
   });
+  // W8 P2：任务派发回流 notifier（子任务终态事件 → 父任务 payload.childResult）
+  const { TaskDispatchNotifier } = await import("../tasking/index.js");
+  const taskDispatchNotifier = new TaskDispatchNotifier({
+    pool,
+    activityHub,
+    logger: (m) => assemblyLogger.info(m),
+  });
+  taskDispatchNotifier.start();
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
@@ -452,11 +462,13 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     batchManager,
     activityHub,
     triggerEngine,
+    taskDispatchNotifier,
     watchdog,
     resolver,
     execChannel,
     shutdown: async () => {
       triggerEngine.stop();
+      taskDispatchNotifier.stop();
       watchdog.stop();
       offMainBus();
       // resolver 由 flow-resolver trigger 驱动——stop() 终止 resolveLoop（无自调度链）

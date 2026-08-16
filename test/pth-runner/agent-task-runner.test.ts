@@ -110,6 +110,25 @@ describe("AgentTaskRunner（P1-4）", () => {
     expect(outcome.error?.code).toBe("execution-failed");
   });
 
+  it("W8 P2：task-await-suspended 错误码 → retryable rejected（释放认领回 pending）", async () => {
+    const { kernel } = fakeKernel();
+    (kernel.ts as unknown as { execute: () => Promise<unknown> }).execute = async () => ({
+      ok: false, stdout: "", stderr: "", durationMs: 1, language: "ts",
+      error: { message: "等待子任务 child-1 终态（当前 pending）", code: "task-await-suspended" },
+    });
+    const runner = new AgentTaskRunner({
+      kernel,
+      role: { id: "developer", tags: ["code"], prompt: "dev" },
+      workspace: { taskId: "task-1", tenant: "tenant-a", dir: "/tmp/task-1" },
+      llm: fakeLlm,
+      config: { agentMode: false, aspMode: false },
+    });
+    const outcome = await runner.run({ lease, work });
+    expect(outcome.status).toBe("rejected");
+    expect(outcome.retryable).toBe(true);
+    expect(outcome.error).toEqual({ code: "task-await-suspended", message: "等待子任务 child-1 终态（当前 pending）" });
+  });
+
   it("取消信号（执行前 aborted）→ cancelled 且不执行", async () => {
     const { kernel, executed } = fakeKernel();
     const runner = new AgentTaskRunner({

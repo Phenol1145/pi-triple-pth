@@ -10,7 +10,7 @@ import type { KernelRuntime } from "../../kernel/assembly.js";
 import type { BatchProfile } from "../../kernel/execution/worker-cluster.js";
 import type { PublishInput, Task } from "../../kernel/storage/task-store-pg.js";
 import type { MemoryEntry } from "@away_from/pth-memory";
-import type { TenantScope } from "../../contracts/index.js";
+import type { TaskCancelResult, TenantScope } from "../../contracts/index.js";
 import { TaskControlService } from "../../tasking/task-control-service.js";
 import { PgTaskQueries } from "../../tasking/task-queries.js";
 
@@ -41,6 +41,8 @@ export interface PthGatewayFacade {
   publishTask(input: PublishInput, scope?: TenantScope): Promise<Task>;
   listTasks(limit: number, scope?: TenantScope): Promise<Array<Record<string, unknown>>>;
   getTask(id: string, scope?: TenantScope): Promise<Record<string, unknown> | null>;
+  /** W8 P2：取消任务（recursive=true 沿 delivery.parent 链传播到全部未终态子任务） */
+  cancelTask(id: string, opts: { recursive?: boolean }, scope?: TenantScope): Promise<TaskCancelResult>;
   taskCounts(): Promise<TaskCounts>;
   optimizerSuggestions(): Promise<unknown[]>;
   applyOptimizer(id: string): Promise<unknown>;
@@ -111,6 +113,11 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     if (scope) return this.#control.get(scope, id);
     const res = await this.#kernel.pool.query("SELECT * FROM tasks WHERE id = $1", [id]);
     return (res.rows[0] as Record<string, unknown> | undefined) ?? null;
+  }
+
+  cancelTask(id: string, opts: { recursive?: boolean }, scope?: TenantScope): Promise<TaskCancelResult> {
+    const effectiveScope = scope ?? { tenantId: "default", principalId: "ptl", roles: ["ptl"], traceId: `cancel:${id}` };
+    return this.#control.cancel(id, effectiveScope, opts);
   }
 
   async taskCounts(): Promise<TaskCounts> {

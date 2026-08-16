@@ -108,6 +108,18 @@ export interface TaskDispatchContext {
   tenantId: string;
   /** 当前任务 payload.delivery（无章的 legacy/内部任务为 null → 服务端按 root 兜底） */
   delivery: TaskDelivery | null;
+  /** 当前任务登记中的等待子任务（await 挂起时服务端写入；task-loop 盖章进上下文） */
+  dispatchWait?: Readonly<Record<string, { at: string }>>;
+  /** 子任务终态回流结果（notifier 写入；task-loop 盖章进上下文——tasks.resume 读） */
+  childResult?: Readonly<Record<string, TaskAwaitResult>>;
+}
+
+/** tasks.await 挂起信号错误码（interpreter error.code 透传；runner 据此落 retryable requeue） */
+export const TASK_AWAIT_SUSPENDED_CODE = "task-await-suspended";
+
+export interface TaskCancelResult {
+  cancelled: number;
+  taskIds: string[];
 }
 
 export interface TaskAwaitInput {

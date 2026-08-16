@@ -12,8 +12,10 @@ import type { PublishInput } from "../kernel/storage/task-store-pg.js";
 import {
   buildEntryDelivery,
   isTaskDeliveryStructurallyValid,
+  TASK_AWAIT_SUSPENDED_CODE,
   type TaskAwaitInput,
   type TaskAwaitResult,
+  type TaskCancelResult,
   type TaskDelegateInput,
   type TaskDelegateResult,
   type TaskDelivery,
@@ -43,6 +45,20 @@ function resultSummary(result: unknown): string | undefined {
   const r = result as { summary?: unknown; value?: { summary?: unknown } };
   const s = r.summary ?? r.value?.summary;
   return typeof s === "string" && s !== "" ? s : undefined;
+}
+
+/**
+ * W8 P2：tasks.await 挂起信号（事件驱动 requeue 的触发端）。
+ * interpreter 会把 error.code 透传（InterpreterResult.error.code）——runner/agent-loop
+ * 据此把父任务落成 retryable rejected（释放认领回 pending），等子任务终态事件唤醒。
+ */
+export class TaskAwaitSuspendedError extends PtcContractError {
+  readonly code = TASK_AWAIT_SUSPENDED_CODE;
+  readonly childTaskId: string;
+  constructor(childTaskId: string, reason: string) {
+    super("tasks.await", reason);
+    this.childTaskId = childTaskId;
+  }
 }
 
 export class TaskControlService {
@@ -207,7 +223,59 @@ export class TaskControlService {
         error: errObj ?? { code: "rejected", message: "任务被拒绝" },
       };
     }
-    return { status: row.status, waiting: true, result: null, artifactRef: delivery?.artifactRef ?? null };
+    // W8 P2：未终态 → 登记等待集合（payload.dispatchWait[childTaskId]）并抛挂起信号。
+    // runner 收到 code=task-await-suspended 后把父任务落 retryable rejected（释放认领回 pending）；
+    // 子任务终态事件 → 主进程 task-dispatch-notifier 写 payload.childResult 并清理登记。
+    const at = new Date().toISOString();
+    const registered = await this.deps.pool.query(
+      `UPDATE tasks SET
+         payload = jsonb_set(
+           jsonb_set(COALESCE(payload, '{}'::jsonb), '{dispatchWait}', COALESCE(payload->'dispatchWait', '{}'::jsonb), true),
+           ARRAY['dispatchWait',$3]::text[], $4::jsonb, true),
+         updated_at = now()
+       WHERE id = $1 AND tenant_id = $2 AND status IN ('pending','claimed','submitted')`,
+      [caller.taskId, scope.tenantId, taskId, JSON.stringify({ at })],
+    );
+    if ((registered.rowCount ?? 0) === 0) {
+      throw new PtcContractError("tasks.await", `父任务 ${caller.taskId} 不可登记等待（不存在/跨租户/已终态）`);
+    }
+    throw new TaskAwaitSuspendedError(taskId, `等待子任务 ${taskId} 终态（当前 ${row.status}）——父任务已挂起回队列，子任务完成后自动重跑`);
+  }
+
+  /**
+   * W8 P2：取消传播——父任务取消时沿 payload.delivery.parent 链递归取消全部未终态子任务。
+   * 递归 CTE 收集整棵派生子树（同租户内），一次 UPDATE 终态化 + 清认领/lease。
+   */
+  async cancel(taskIdInput: string, scope: TenantScope, opts: { recursive?: boolean } = {}): Promise<TaskCancelResult> {
+    const taskId = String(taskIdInput ?? "").trim();
+    if (!taskId) throw new PtcContractError("tasks.cancel", "taskId 必填");
+    const recursive = opts.recursive === true;
+    const root = await this.deps.pool.query("SELECT id FROM tasks WHERE id = $1 AND tenant_id = $2", [taskId, scope.tenantId]);
+    if (root.rows.length === 0) {
+      throw new PtcContractError("tasks.cancel", `任务 ${taskId} 不存在或不属于当前租户`);
+    }
+    const errorSummary = JSON.stringify({ error: { code: "cancelled", message: "任务已取消" } });
+    const res = await this.deps.pool.query(
+      `WITH RECURSIVE lineage(id) AS (
+         SELECT id FROM tasks WHERE id = $1 AND tenant_id = $2
+         ${recursive ? `UNION
+         SELECT t.id FROM tasks t
+         JOIN lineage l ON t.tenant_id = $2 AND t.payload->'delivery'->'parent'->>'taskId' = l.id` : ""}
+       )
+       UPDATE tasks SET
+         status = 'rejected',
+         escalated_at = now(),
+         claimed_by = NULL,
+         claimed_at = NULL,
+         lease_id = NULL,
+         lease_expires_at = NULL,
+         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $3::jsonb, true),
+         updated_at = now()
+       WHERE id IN (SELECT id FROM lineage) AND tenant_id = $2 AND status IN ('pending','claimed','submitted')
+       RETURNING id`,
+      [taskId, scope.tenantId, errorSummary],
+    );
+    return { cancelled: res.rowCount ?? 0, taskIds: (res.rows as Array<{ id: string }>).map((r) => r.id) };
   }
 
   /** 观测列表（全部状态、created_at 倒序）——保持 gateway 既有 JSON 形状，仅加租户过滤 */

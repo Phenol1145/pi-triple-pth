@@ -81,9 +81,12 @@ tasks.await({ taskId, timeoutMs? }) →
 ```
 
 - `tasks.delegate` 是**异步投递**：立即返回 taskId，不阻塞父 worker；
-- `tasks.await` 是**事件驱动等待**（D2 裁决）：调用后父 worker 登记等待集合并挂起当前任务，
-  任务重新回到 `submitted`（不占 claim）；子任务终态事件在 main 进程触发**父任务 requeue**，
-  父 worker 被唤醒后从 `payload.childResult` 读取结果继续执行；
+- `tasks.await` 是**事件驱动等待**（D2 裁决，P2 已实施）：调用后父 worker 登记等待集合
+  （`payload.dispatchWait[childId]`）并抛 `task-await-suspended` 信号——runner 把父任务落
+  retryable rejected（释放认领回 pending，不占 claim）；子任务终态事件在 main 进程触发
+  `task-dispatch-notifier` 写 `payload.childResult[childId]` 并清登记，父任务自动重跑；
+- **重跑续接**（P2 实施原语）：`tasks.resume()` 返回本任务 `{waiting, results}` 快照——
+  任务程序开头先读 results，命中子结果就跳过重复 delegate 直接续接；
 - 父 worker 可以在一次任务里 delegate 多个子任务后统一 await（并行子任务——同层并行原则）。
 
 **工具注入规则（与 0.16.4 一致）**
@@ -145,5 +148,9 @@ tasks.await({ taskId, timeoutMs? }) →
   （组织权 fail-fast、服务端盖章 parent/path/lineage、delegateTarget 强制 assigned_role、模板解析、
   直接子任务关系校验）+ `tasks.delegate/await` 能力条件注入（batch-process 按政策装配、
   task-loop 每任务盖章调用者上下文）+ PTC 契约注册 + developer→coder 测试；
-- **P2 事件驱动回流**：task-dispatch-notifier（子终态 → 父 requeue + childResult）+ 取消传播 + PTL wait --follow；
+- **P2 事件驱动回流**：✅ 已完成——`tasks.await` 未终态写 `payload.dispatchWait` 并抛
+  `task-await-suspended`（agent-loop/runner 识别 → retryable requeue）；`task-dispatch-notifier`
+  订阅 ActivityHub 子终态事件 → 父 `payload.childResult` + 清登记；`tasks.resume()` 重跑续接；
+  取消传播（`TaskControlService.cancel` 递归 CTE + `POST /tasks/:id/cancel`）；
+  PTL `ptl hub kernel wait <id> --follow` 打印逐层 path/childResult 摘要；
 - **P3 穿透接口**：`skill:penetrate:*` 类型与注册校验（不实现执行优化）。

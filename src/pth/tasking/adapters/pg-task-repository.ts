@@ -156,7 +156,9 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
           if ((upd.rowCount ?? 0) > 0 && artifactRef) {
             await client.query(
               `UPDATE tasks SET
-                 payload = jsonb_set(payload, '{delivery,artifactRef}', $4::jsonb, true),
+                 payload = jsonb_set(
+                   jsonb_set(payload, '{delivery}', COALESCE(payload->'delivery', '{}'::jsonb), true),
+                   '{delivery,artifactRef}', $4::jsonb, true),
                  updated_at = now()
                WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'completed'`,
               [taskId, leaseId, generation, JSON.stringify(artifactRef)],

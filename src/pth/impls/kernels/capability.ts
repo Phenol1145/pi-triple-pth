@@ -196,6 +196,14 @@ export function buildCapabilities(deps: {
               };
               return deps.taskControl!.awaitTask(input, ctx, scope);
             }),
+            /** W8 P2：挂起重跑续接原语——读取本任务已回流的 childResult/等待登记（task-loop 盖章） */
+            resume: wrapValidated("tasks.resume", async () => {
+              const ctx = deps.taskContext?.current;
+              if (!ctx || !ctx.taskId) {
+                throw new PtcContractError("tasks.resume", "任务上下文未就绪——tasks.resume 仅可在任务程序内调用");
+              }
+              return { waiting: ctx.dispatchWait ?? {}, results: ctx.childResult ?? {} };
+            }),
           },
         }
       : {}),

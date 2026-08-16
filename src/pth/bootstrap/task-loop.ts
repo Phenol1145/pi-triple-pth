@@ -42,16 +42,21 @@ export class TaskLoop {
   get isPaused(): boolean { return this.paused; }
   get isStopped(): boolean { return this.stopped; }
 
-  /** W8 P1：任务身份盖章——tasks.delegate/await 的调用者上下文（每任务执行前由本循环设置） */
+  /** W8 P1/P2：任务身份盖章——tasks.delegate/await/resume 的调用者上下文（每任务执行前由本循环设置） */
   private stampTaskDispatchContext(task: Task): void {
     const kernel = this.deps.kernel as unknown as {
       setTaskDispatchContext?: (ctx: TaskDispatchContext | null) => void;
     };
+    const payload = task.payload as
+      | { delivery?: TaskDispatchContext["delivery"]; dispatchWait?: TaskDispatchContext["dispatchWait"]; childResult?: TaskDispatchContext["childResult"] }
+      | undefined;
     kernel.setTaskDispatchContext?.({
       taskId: task.id,
       roleId: this.deps.role.id,
       tenantId: task.tenantId ?? "default",
-      delivery: (task.payload as { delivery?: TaskDispatchContext["delivery"] } | undefined)?.delivery ?? null,
+      delivery: payload?.delivery ?? null,
+      dispatchWait: payload?.dispatchWait,
+      childResult: payload?.childResult,
     });
   }
 

@@ -54,6 +54,8 @@ describe("W8 P1：tasks.delegate/await 能力注入", () => {
       roleId: "developer",
       tenantId: "tenant-a",
       delivery: { path: ["developer"], lineageId: "root-1" },
+      dispatchWait: { "child-9": { at: "2026-08-17T00:00:00.000Z" } },
+      childResult: { "child-8": { status: "completed", result: { value: 7 }, artifactRef: null } },
     };
     const delegate = vi.fn(async () => ({ taskId: "child-1", roleId: "coder", path: ["developer", "coder"] }));
     const awaitTask = vi.fn(async () => ({ status: "completed", result: { value: 7 }, artifactRef: null }));
@@ -68,6 +70,7 @@ describe("W8 P1：tasks.delegate/await 能力注入", () => {
     const tasks = caps["tasks"] as {
       delegate: (i: { to: string; title: string; text: string }) => Promise<unknown>;
       await: (i: { taskId: string }) => Promise<unknown>;
+      resume: () => Promise<unknown>;
     };
 
     const delegated = await tasks.delegate({ to: "coder", title: "t", text: "x" });
@@ -81,6 +84,28 @@ describe("W8 P1：tasks.delegate/await 能力注入", () => {
     const awaited = await tasks.await({ taskId: "child-1" });
     expect(awaited).toEqual({ status: "completed", result: { value: 7 }, artifactRef: null });
     expect(awaitTask).toHaveBeenCalledTimes(1);
+
+    // W8 P2：resume 只读上下文快照（waiting/results）
+    expect(await tasks.resume()).toEqual({
+      waiting: { "child-9": { at: "2026-08-17T00:00:00.000Z" } },
+      results: { "child-8": { status: "completed", result: { value: 7 }, artifactRef: null } },
+    });
+  });
+
+  it("W8 P2：await 挂起错误码透传（runner 据此落 retryable requeue）", async () => {
+    const suspend = Object.assign(new Error("等待子任务终态"), { code: "task-await-suspended", childTaskId: "c" });
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld() as never,
+      toolstore: fakeToolstore as never,
+      taskControl: { delegate: async () => ({ taskId: "x", roleId: "coder", path: ["x"] }), awaitTask: async () => { throw suspend; } },
+      taskContext: { current: { taskId: "p", roleId: "developer", tenantId: "t", delivery: null } },
+    });
+    const tasks = caps["tasks"] as { await: (i: { taskId: string }) => Promise<unknown> };
+    await expect(tasks.await({ taskId: "c" })).rejects.toMatchObject({
+      code: "task-await-suspended",
+      childTaskId: "c",
+    });
   });
 
   it("PTC 契约校验：缺 to/title/text 直接结构化报错（不进端口）", async () => {

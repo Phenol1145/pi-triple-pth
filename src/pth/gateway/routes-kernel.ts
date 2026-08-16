@@ -214,6 +214,23 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     return row;
   });
 
+  // W8 P2：任务取消（recursive=true 沿 delivery.parent 链传播到全部未终态子任务）
+  app.post("/api/v1/kernel/tasks/:id/cancel", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { recursive?: boolean };
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    const scope: TenantScope | undefined = auth?.tenantId
+      ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
+      : undefined;
+    try {
+      return await facade.cancelTask(id, { recursive: body.recursive === true }, scope);
+    } catch (e) {
+      const msg = (e as Error).message;
+      return reply.code(msg.includes("不存在") ? 404 : 400).send({ error: msg });
+    }
+  });
+
   // ── batch 控制 ───────────────────────────────────────────
   // ── 优化闭环（2026-08-12 体系自制）：建议列表 + 批准应用（监督通道）──
   app.get("/api/v1/kernel/optimizer/suggestions", async (req, reply) => {

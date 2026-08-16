@@ -23,6 +23,7 @@ import { createGuardRegistry } from "./guardrails.js";
 import { runPtcProgram } from "../ptc/runner.js";
 import { modelState } from "../extensions/model.js";
 import { spaceRegistry, isRoleBoundToSpace } from "./space-registry.js";
+import { TASK_AWAIT_SUSPENDED_CODE } from "../../contracts/index.js";
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -378,6 +379,11 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
           code, cwd: "/tmp", ts: kernel.ts, caps: input.capabilityInject,
           registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
         });
+        // W8 P2：tasks.await 挂起信号 → 软终止（value=null + warning）→ runner 落 retryable requeue
+        if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+          input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
+          return { ok: true, value: null, steps: steps + 1, warning: raw.error.message };
+        }
         const result: AgentToolResult = raw.ok
           ? { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text }
           : { ok: false, error: raw.error?.message ?? "ts execute failed" };
@@ -417,6 +423,11 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         { kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore, space: aspMode ? aspSession.currentSpace : undefined, ptcCaps: input.capabilityInject },
         args,
       );
+      // W8 P2：ts.run/eval 内 tasks.await 挂起 → 软终止释放认领（retryable requeue）
+      if (!result.ok && result.code === TASK_AWAIT_SUSPENDED_CODE) {
+        input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: result.error });
+        return { ok: true, value: null, steps: steps + 1, warning: result.error ?? TASK_AWAIT_SUSPENDED_CODE };
+      }
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
       // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用
       const resultKey = `result_${steps + 1}`;

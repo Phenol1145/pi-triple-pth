@@ -176,6 +176,25 @@ describe("kernel routes", () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()[0].id).toBe("b-1");
     });
+
+    it("POST /api/v1/kernel/tasks/:id/cancel → 取消并支持递归传播（W8 P2）", async () => {
+      const cancelApp = buildApp(fakeKernel({
+        pool: {
+          query: async (sql: string) => ({
+            rows: sql.startsWith("UPDATE") ? [{ id: "t-1" }] : [{ id: "t-1" }],
+            rowCount: sql.startsWith("UPDATE") ? 1 : 1,
+          }),
+        } as any,
+      }));
+      const res = await cancelApp.inject({
+        method: "POST",
+        url: "/api/v1/kernel/tasks/t-1/cancel",
+        payload: { recursive: true },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ cancelled: 1, taskIds: ["t-1"] });
+      await cancelApp.close();
+    });
   });
 });
 

@@ -13,6 +13,7 @@
  */
 
 import type { TaskLease, TaskOutcome, TaskRunner, TaskWorkItem } from "../contracts/index.js";
+import { TASK_AWAIT_SUSPENDED_CODE } from "../contracts/index.js";
 import type { WorkerKernel } from "../kernel/interpreter/index.js";
 import type { LlmFn } from "../kernel/interpreter/llm-fn.js";
 import type { WorkerRole } from "../kernel/execution/worker-cluster.js";
@@ -153,6 +154,18 @@ export class AgentTaskRunner implements TaskRunner {
         return { lease: ref, status: "cancelled", retryable: true, error: { code: "cancelled", message: "cancelled during ptc execution" }, artifacts: [], traceId };
       }
       if (!raw.ok) {
+        // W8 P2：tasks.await 挂起信号 → retryable requeue（释放认领；子终态事件触发重跑）
+        if (raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+          return {
+            lease: ref,
+            status: "rejected",
+            retryable: true,
+            error: { code: TASK_AWAIT_SUSPENDED_CODE, message: raw.error.message },
+            result: raw,
+            artifacts: [],
+            traceId,
+          };
+        }
         return {
           lease: ref,
           status: "rejected",

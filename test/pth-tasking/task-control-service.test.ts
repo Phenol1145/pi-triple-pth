@@ -4,7 +4,7 @@ import { getContainerRuntimeClient } from "testcontainers";
 import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
 import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg.js";
-import { TaskControlService } from "../../src/pth/tasking/task-control-service.js";
+import { TaskControlService, TaskAwaitSuspendedError } from "../../src/pth/tasking/task-control-service.js";
 import { PgTaskQueries } from "../../src/pth/tasking/task-queries.js";
 import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
 import { installDefaultRoles } from "../helpers.js";
@@ -76,7 +76,12 @@ suite("task control service（P1-3）", () => {
     });
   });
 
-  it("W8 P1：developer→coder delegate 服务端盖章 + await 一次性查询契约", async () => {
+  it("W8 P1/P2：developer→coder delegate 盖章 + await 挂起登记 + 终态回流契约", async () => {
+    // 父任务行必须存在（await 挂起登记写回其 payload.dispatchWait）
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status)
+       VALUES ('parent-1','tenant-a','parent','x','worker:developer','developer','claimed')`,
+    );
     const caller = {
       taskId: "parent-1",
       roleId: "developer",
@@ -111,9 +116,18 @@ suite("task control service（P1-3）", () => {
     expect(row.rows[0].payload.context).toEqual({ spec: "helper.ts" });
     expect(row.rows[0].payload.expect).toBe("result");
 
-    // P1 await 形态：pending 一次性查询（waiting=true，不挂起不轮询）
-    const pending = await routedService.awaitTask({ taskId: delegated.taskId }, caller, scopeA);
-    expect(pending).toEqual({ status: "pending", waiting: true, result: null, artifactRef: null });
+    // P2 await 形态：未终态 → 写 dispatchWait[childId] + 抛挂起信号（runner 落 retryable requeue）
+    await expect(
+      routedService.awaitTask({ taskId: delegated.taskId }, caller, scopeA),
+    ).rejects.toBeInstanceOf(TaskAwaitSuspendedError);
+    await expect(
+      routedService.awaitTask({ taskId: delegated.taskId }, caller, scopeA),
+    ).rejects.toMatchObject({ code: "task-await-suspended", childTaskId: delegated.taskId });
+    const waitRow = await pool.query(
+      `SELECT payload->'dispatchWait'->$2 AS wait FROM tasks WHERE id = $1`,
+      [caller.taskId, delegated.taskId],
+    );
+    expect(waitRow.rows[0].wait).toMatchObject({ at: expect.any(String) });
 
     // 终态后返回 result（模拟 done 回写——完整 commit 路径已由 pg-task-repository 测试覆盖）
     await pool.query(
@@ -156,6 +170,43 @@ suite("task control service（P1-3）", () => {
     await expect(
       routedService.awaitTask({ taskId: child.taskId }, caller, { ...scopeA, tenantId: "tenant-b" }),
     ).rejects.toThrow(/不存在或不属于当前租户/);
+  });
+
+  it("W8 P2：取消传播——recursive 沿 delivery.parent 链取消全部未终态子任务", async () => {
+    // 父→子→孙 三层派发树（父任务用真实行——delegate 需服务端身份）
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status)
+       VALUES ('cancel-root','tenant-a','root','x','worker:developer','developer','claimed')`,
+    );
+    const rootCaller = { taskId: "cancel-root", roleId: "developer", tenantId: "tenant-a", delivery: { path: ["developer"], lineageId: "cancel-root" } };
+    const child = await routedService.delegate({ to: "coder", title: "c", text: "x" }, rootCaller, scopeA);
+    // 孙任务直接插入（模拟已有派发树——避免经服务端再走一次合法 delegate）
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, payload)
+       VALUES ('grand-of-cancel','tenant-a','grand','x','worker:tester','tester','pending',
+         jsonb_build_object('delivery', jsonb_build_object(
+           'parent', jsonb_build_object('taskId', $1::text, 'roleId', 'coder', 'typePath', '["developer","coder"]'::jsonb),
+           'path', '["developer","coder","tester"]'::jsonb,
+           'lineageId', 'cancel-root')))`,
+      [child.taskId],
+    );
+
+    // 非递归：只取消根，子/孙不动
+    const single = await routedService.cancel("cancel-root", scopeA, { recursive: false });
+    expect(single.cancelled).toBe(1);
+    expect(single.taskIds).toEqual(["cancel-root"]);
+    let childRow = await pool.query("SELECT status FROM tasks WHERE id = $1", [child.taskId]);
+    expect(childRow.rows[0].status).toBe("pending");
+
+    // 根已终态 → 递归取消剩余未终态子孙
+    const all = await routedService.cancel("cancel-root", scopeA, { recursive: true });
+    expect(all.cancelled).toBe(2);
+    expect(all.taskIds.sort()).toEqual([child.taskId, "grand-of-cancel"].sort());
+    for (const id of [child.taskId, "grand-of-cancel"]) {
+      const r = await pool.query("SELECT status, payload->'result'->'error'->>'code' AS code FROM tasks WHERE id = $1", [id]);
+      expect(r.rows[0].status).toBe("rejected");
+      expect(r.rows[0].code).toBe("cancelled");
+    }
   });
 
   it("list/get 只返回本租户数据，跨租户 get 返回 null", async () => {
