@@ -285,4 +285,5 @@ ptl hub exec <svc> -- <cmd>  # 容器内执行
 - 任务提交（PTL 侧）：skill `pth-tasks` + `docs/ptl/pth-task-submission.md`
 - PTH 内核体系：`docs/pth/kernel.md` · `docs/pth/architecture.md`
 - 安全边界（sandbox 零敏感）：`docs/superpowers/specs/2026-08-08-pth-kernel-sandbox-design.md`
+- 安全运维（密钥轮换 / lease-drain / 回滚）：`docs/pth/sandbox-security-operations.md`
 - 环境检查：`scripts/check-sandbox-env.sh`（发布门禁 `scripts/check-release-clean.sh`）
