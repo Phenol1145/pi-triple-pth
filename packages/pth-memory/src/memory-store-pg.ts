@@ -101,12 +101,28 @@ export class PgMemoryStore {
 
   /** 版本递增 CAS：id 不存在 → throw（编程错误，不静默，对齐 FS update 语义）。
    *  B4 Phase 3：skill:* 条目写后冻结——update 必须显式 force（仅 memory-keeper 维护面/系统通道）。 */
+  /**
+   * H6：update meta 合并的 store 层纵深——受保护字段不可经 patch 覆盖。
+   * spaceScope/visibility（空间可见性）与 version/updatedAt/hitCount/notWriteBack（系统账本）
+   * 只能由 write 盖章或系统路径演化；调用方想携带现有 meta 整包重传时，这些键会被剥掉，
+   * 从而始终保留数据库中的权威值。
+   */
+  static sanitizeMetaPatch(meta: Record<string, unknown>): Record<string, unknown> {
+    const out = { ...meta };
+    for (const key of ["spaceScope", "visibility", "version", "updatedAt", "hitCount", "notWriteBack"]) {
+      delete out[key];
+    }
+    return out;
+  }
+
   async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: { force?: boolean } = {}): Promise<void> {
     if (id.startsWith("skill:") && !opts.force) {
       throw new Error(`memory.update: skill 条目不可变（${id}）——修订请走 skills.maintain.archive + 新条目`);
     }
-    // meta 合并更新（2026-08-13 deopt 回滚需要——原实现 meta 只建初始 version）
-    const metaExpr = patch.meta
+    // meta 合并更新（2026-08-13 deopt 回滚需要——原实现 meta 只建初始 version）；
+    // H6：受保护字段先剥除（spaceScope/visibility/系统账本键不可经 update 覆盖）
+    const metaPatch = patch.meta ? PgMemoryStore.sanitizeMetaPatch(patch.meta) : undefined;
+    const metaExpr = metaPatch
       ? `meta || $4::jsonb || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`
       : `meta || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`;
     const res = await this.pool.query(
@@ -118,7 +134,7 @@ export class PgMemoryStore {
          meta = ${metaExpr}
        WHERE id = $1
        RETURNING id`,
-      [id, patch.content ?? null, patch.status ?? null, ...(patch.meta ? [JSON.stringify(patch.meta)] : [])],
+      [id, patch.content ?? null, patch.status ?? null, ...(metaPatch ? [JSON.stringify(metaPatch)] : [])],
     );
     if (res.rows.length === 0) throw new Error(`entry not found: ${id}`);
   }

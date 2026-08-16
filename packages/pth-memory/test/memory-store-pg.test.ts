@@ -99,6 +99,41 @@ suite("memory store pg", () => {
       store.write({ id: "e8", kind: "fact", anchors: [], content: "x", meta: {} } as any),
     ).rejects.toThrow(); // schema CHECK jsonb_array_length(anchors) > 0
   });
+
+  it("H6：spaceScope/visibility/系统账本键不可经 update 覆盖", async () => {
+    await store.write({
+      id: "h6-1", kind: "fact", anchors: ["h6"],
+      content: "v1", meta: { spaceScope: { space: "meta", visibility: "public" as const }, visibility: "public", custom: "old" },
+    } as any);
+    await store.update("h6-1", {
+      content: "v2",
+      meta: {
+        spaceScope: { space: "dev", visibility: "private" },
+        visibility: "private",
+        version: 999,
+        updatedAt: 1,
+        hitCount: 999,
+        notWriteBack: true,
+        custom: "new",
+      },
+    });
+    const got = await store.get("h6-1");
+    expect(got?.content).toBe("v2");
+    expect(got?.meta?.spaceScope).toEqual({ space: "meta", visibility: "public" });
+    expect(got?.meta?.custom).toBe("new");
+    expect(got?.meta?.version).toBe(2);          // 系统账本仍由 store 维护
+    expect(got?.meta?.hitCount ?? 0).toBe(0);
+    expect(got?.meta?.notWriteBack).toBe(false);
+  });
+
+  it("H6：sanitizeMetaPatch 纯函数语义", () => {
+    const out = PgMemoryStore.sanitizeMetaPatch({
+      spaceScope: { space: "x", visibility: "private" }, visibility: "private",
+      version: 9, updatedAt: 1, hitCount: 5, notWriteBack: true, keep: 1,
+    });
+    expect(out).toEqual({ keep: 1 });
+  });
+
 });
 
 // 键名校验在 SQL 之前（不需要 docker/连接）——suite 外独立 describe
