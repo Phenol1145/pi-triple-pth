@@ -24,162 +24,20 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Redis } from "ioredis";
 import type { ProgramManifest, Result } from "../contracts/index.js";
+import type { ComponentManifest, ComponentInfo, ComponentVersion } from "./types.js";
 import type { AuditWriter } from "../observability/audit.js";
 import { SlotBindingStore, validateSlotId } from "./slot-binding.js";
+import { parseTarEntries } from "./tar-utils.js";
 
 // ── component types ──────────────────────────────────────────────
 
 // 组件类型抽出至 types.ts（2026-08-13 审计 P1——store↔slot-binding 类型对偶断环）
 import { COMPONENT_TYPES, type ComponentType } from "./types.js";
 export { COMPONENT_TYPES, type ComponentType };
+export type { ComponentManifest, ComponentInfo, ComponentVersion } from "./types.js";
 
-/**
- * 构件 manifest：type 分派；agent-program 时携带原 ProgramManifest 全部字段
- * （与 PTH ProgramManifest 同构，全部可选——非 agent 类型不携带这些字段）。
- */
-export interface ComponentManifest {
-  type: ComponentType;
-  name: string;
-  version?: string; // version-pin
-  description?: string;
-  payload?: Record<string, unknown>;
-  targetSlot?: string; // 空位绑定（§5.2）
-  legalAuth?: string; // 治理授权引用（§5.3）
-  // agent-program 分支字段（等价映射）
-  model?: string;
-  provider?: string;
-  thinking?: string;
-  systemPrompt?: string;
-  skills?: string[];
-  tools?: string[];
-  excludeTools?: string[];
-  input?: { schema?: Record<string, unknown> };
-  timeoutSec?: number;
-}
-
-export interface ComponentInfo {
-  type: ComponentType;
-  name: string;
-  latestVersion: number;
-  updatedAt: number;
-}
-
-export interface ComponentVersion {
-  type: ComponentType;
-  name: string;
-  version: number;
-  root: string; // absolute path to component directory on disk
-  manifest: ComponentManifest;
-}
-
-// ── tar extraction limits ──────────────────────────────────────
-
-const MAX_FILES = 100;
-const MAX_SINGLE_FILE_BYTES = 1_048_576;        // 1 MB
-const MAX_TOTAL_BYTES = 20_971_520;              // 20 MB
-const MAX_PATH_DEPTH = 8;
+// ── tar extraction limits（解析器已抽到 tar-utils.ts；MAX_VERSIONS 保留在本文件）
 const MAX_VERSIONS = 10;
-
-// ── ustar constants ────────────────────────────────────────────
-
-const BLOCK_SIZE = 512;
-const USTAR_MAGIC = "ustar\0";
-
-function readOctal(buf: Buffer, offset: number, len: number): number {
-  let s = "";
-  for (let i = 0; i < len; i++) {
-    const ch = buf[offset + i]!;
-    if (ch === 0 || ch === 0x20) break; // null or space terminates
-    s += String.fromCharCode(ch);
-  }
-  if (s.length === 0) return 0;
-  return parseInt(s, 8);
-}
-
-function isZeroBlock(buf: Buffer): boolean {
-  for (let i = 0; i < BLOCK_SIZE; i++) {
-    if (buf[i] !== 0) return false;
-  }
-  return true;
-}
-
-interface TarEntry {
-  name: string;
-  size: number;
-  typeflag: string;
-  offset: number; // content offset in the buffer
-}
-
-function parseTarEntries(buf: Buffer): Result<TarEntry[]> {
-  const entries: TarEntry[] = [];
-  let offset = 0;
-  let totalBytes = 0;
-
-  while (offset + BLOCK_SIZE <= buf.length) {
-    const header = buf.subarray(offset, offset + BLOCK_SIZE);
-    offset += BLOCK_SIZE;
-
-    // Two consecutive zero blocks → end of archive
-    if (isZeroBlock(header)) {
-      const next = buf.subarray(offset, offset + BLOCK_SIZE);
-      if (offset + BLOCK_SIZE <= buf.length && isZeroBlock(next)) {
-        break;
-      }
-      // single zero block, could be padding — continue
-      continue;
-    }
-
-    const magic = header.toString("utf-8", 257, 263);
-    if (magic !== USTAR_MAGIC) {
-      return { ok: false, error: `invalid tar magic at byte ${offset - BLOCK_SIZE}` };
-    }
-
-    const name = header.toString("utf-8", 0, 100).replace(/\0/g, "");
-    const typeflag = header.toString("utf-8", 156, 157).replace(/\0/g, "");
-    const size = readOctal(header, 124, 12);
-
-    // ── safety checks ─────────────────────────────────────
-    if (name.length === 0) {
-      return { ok: false, error: "empty entry name in tar" };
-    }
-    if (path.isAbsolute(name) || name.startsWith("/")) {
-      return { ok: false, error: `absolute path rejected: ${name}` };
-    }
-    if (name.includes("..")) {
-      return { ok: false, error: `path traversal rejected: ${name}` };
-    }
-    if (typeflag === "2") {
-      return { ok: false, error: `symlink rejected: ${name}` };
-    }
-    const depth = name.split("/").length - 1;
-    if (depth > MAX_PATH_DEPTH) {
-      return { ok: false, error: `path depth ${depth} exceeds max ${MAX_PATH_DEPTH}: ${name}` };
-    }
-
-    if (size > MAX_SINGLE_FILE_BYTES) {
-      return { ok: false, error: `file too large (${size} > ${MAX_SINGLE_FILE_BYTES}): ${name}` };
-    }
-
-    if (entries.length >= MAX_FILES) {
-      return { ok: false, error: `too many files (max ${MAX_FILES})` };
-    }
-
-    totalBytes += size;
-    if (totalBytes > MAX_TOTAL_BYTES) {
-      return { ok: false, error: `total decompressed bytes exceeds ${MAX_TOTAL_BYTES}` };
-    }
-
-    entries.push({ name, size, typeflag, offset });
-
-    // Skip content (padded to 512-byte boundary)
-    const contentBlocks = Math.ceil(size / BLOCK_SIZE);
-    offset += contentBlocks * BLOCK_SIZE;
-  }
-
-  return { ok: true, value: entries };
-}
-
-// ── store ──────────────────────────────────────────────────────
 
 export class ComponentStore {
   /** 空位绑定登记（§5.2——F/WP4 Task 18）；懒初始化：字段初始化器先于构造参数属性赋值执行 */
