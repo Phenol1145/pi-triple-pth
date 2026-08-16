@@ -20,6 +20,7 @@ import { BashKernel } from "@away_from/pth-sandbox";
 import { SandboxKernel, createSandboxGrantIssuer } from "@away_from/pth-sandbox";
 import { SandboxCompiledKernel } from "@away_from/pth-sandbox";
 import { getEventBus } from "../../kernel/execution/event-bus.js";
+import { roleAnchorOf, hasRoleAnchor, filterOwnEntries, filterOwnRows, requireAnchorRows } from "../../kernel/execution/memory-scope.js";
 import { pthConfig } from "../../config/index.js";
 import { buildCapabilities } from "./capability.js";
 import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
@@ -296,19 +297,31 @@ export function createWorkerKernelWithManager(deps: {
       if (allowed && !allowed.has(key) && !["results", "context"].includes(key)) continue;
       filtered[key] = val;
     }
-    // memoryScope=own：memory.write 自动标记 role:<role> 命名空间（query 侧过滤需 SQL 层——
-    // v1 简化：write 标记 anchor 前缀；query 过滤在 memory.query 包装层实现）
+    // memoryScope=own：写侧注入 role:<role> anchor；读侧 get/retrieve/query 同域过滤
     if (deps.memoryScope?.scope === "own" && filtered["memory"]) {
       const orig = filtered["memory"] as Record<string, unknown>;
       const role = deps.memoryScope.role;
+      const anchor = roleAnchorOf(role);
       filtered["memory"] = {
         ...orig,
         // 双签名归一（对象/位置——normalizeWriteArgs）+ role 命名空间 anchor 注入（对象签名下传）
         write: async (a: unknown, b?: unknown, c?: unknown) => {
           const { normalizeWriteArgs } = await import("@away_from/pth-memory");
           const entry = normalizeWriteArgs(a, b, c);
-          entry.anchors = [`role:${role}`, ...((entry.anchors as unknown[]) ?? [])];
+          entry.anchors = [anchor, ...((entry.anchors as unknown[]) ?? [])];
           return (orig["write"] as (e: unknown) => Promise<unknown>)(entry);
+        },
+        get: async (id: string) => {
+          const entry = await (orig["get"] as (i: string) => Promise<{ anchors?: unknown } | undefined>)(id);
+          return entry && hasRoleAnchor(role, entry) ? entry : undefined;
+        },
+        retrieve: async (opts?: unknown) => {
+          const entries = await (orig["retrieve"] as (o?: unknown) => Promise<Array<{ anchors?: unknown }>>)(opts);
+          return filterOwnEntries(role, entries);
+        },
+        query: async (sql: string) => {
+          const rows = await (orig["query"] as (q: string) => Promise<Array<Record<string, unknown> | null | undefined>>)(sql);
+          return filterOwnRows(role, requireAnchorRows(rows));
         },
       };
     }
