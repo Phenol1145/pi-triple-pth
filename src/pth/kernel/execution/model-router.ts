@@ -11,22 +11,20 @@
 
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { resolveSdkConfigPaths } from "@away_from/infra";
+import { pthConfig } from "../../config/index.js";
 
 export interface KernelRouterLike {
   resolve(provider?: string, model?: string): NonNullable<ReturnType<ModelRuntime["getModel"]>>;
   getRuntime(): ModelRuntime;
 }
 
-const DEFAULT_PROVIDER = "deepseek";
-const DEFAULT_MODEL = "deepseek-v4-flash";
-
 export async function createKernelModelRouter(opts: {
   provider?: string;
   model?: string;
 } = {}): Promise<KernelRouterLike> {
   const runtime = await ModelRuntime.create({ allowModelNetwork: false, ...resolveSdkConfigPaths() });
-  const provider = opts.provider ?? process.env.PTH_MODEL_PROVIDER ?? DEFAULT_PROVIDER;
-  const model = opts.model ?? process.env.PTH_MODEL ?? DEFAULT_MODEL;
+  const provider = opts.provider ?? pthConfig().str("PTH_MODEL_PROVIDER");
+  const model = opts.model ?? pthConfig().str("PTH_MODEL");
 
   return {
     getRuntime: () => runtime,

@@ -34,12 +34,17 @@ describe("配置中心（ConfigCenter）", () => {
     expect(config().get("FOO")).toBe("1");
   });
 
-  it("snapshot：全表排序快照（perf.params 数据源）", () => {
+  it("snapshot：schema 全表 + 运行时 set 值（字典序——perf.params 数据源）", () => {
     config().set("PTH_B", "2");
     config().set("PTH_A", "1");
+    config().set("PTH_TEST_PARAM", "env-value");   // 非 schema 键 set 后也进快照
     const snap = config().snapshot();
-    expect(Object.keys(snap)).toEqual(["PTH_A", "PTH_AGENT_MODEL", "PTH_B", "PTH_TEST_PARAM"]); // 字典序
+    const keys = Object.keys(snap);
+    expect(keys).toEqual([...keys].sort((a, b) => a.localeCompare(b)));            // localeCompare 字典序
+    expect(keys.length).toBeGreaterThan(50);           // schema 全表（配置集中化）
     expect(snap["PTH_A"]).toBe("1");
+    expect(snap["PTH_AGENT_MODEL"]).toBe("env-model");
+    expect(snap["PTH_TEST_PARAM"]).toBe("env-value");
   });
 
   it("on：变更订阅 + 取消", () => {

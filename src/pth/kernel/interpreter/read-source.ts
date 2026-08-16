@@ -9,6 +9,7 @@
 
 import { readFile, realpath, lstat } from "node:fs/promises";
 import { basename, dirname, join, normalize, relative } from "node:path";
+import { pthConfig } from "../../config/index.js";
 
 export function createReadSource(sourceRoot: string) {
   return async (relPath: string): Promise<string> => {
@@ -51,5 +52,5 @@ export function createReadSource(sourceRoot: string) {
 
 /** 源码根探测（容器 /app/src——测试可注入） */
 export function sourceRoot(): string {
-  return process.env.PTH_SOURCE_ROOT ?? "/app/src";
+  return pthConfig().str("PTH_SOURCE_ROOT");
 }

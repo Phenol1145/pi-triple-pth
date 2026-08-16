@@ -22,12 +22,24 @@ import { createHmacGrantKeyProvider } from "./execution/authorization/grant-key-
 import { createPthKnowledgeBroker } from "./execution/adapters/pth-knowledge-broker.js";
 import { loadBootstrapConfig } from "./bootstrap/bootstrap-config.js";
 import { buildPthHost } from "./bootstrap/pth-host.js";
+import { pthConfig, validatePthConfig } from "./config/index.js";
 import fs from "node:fs";
 import path from "node:path";
 
 async function main() {
   const platform = detectPlatform();
-  const logger = createLogger(process.env.LOG_LEVEL ?? "info");
+  const logger = createLogger(pthConfig().str("LOG_LEVEL"));
+
+  // 配置集中化 C3：启动校验（PTH_CONFIG_STRICT=1 / NODE_ENV=production 时弱密钥与开发默认值 fail-fast）
+  const configIssues = validatePthConfig();
+  for (const issue of configIssues) {
+    if (issue.level === "error") logger.error({ key: issue.key, message: issue.message, event: "config_validation_failed" });
+    else logger.warn({ key: issue.key, message: issue.message, event: "config_validation_warn" });
+  }
+  if (configIssues.some((i) => i.level === "error")) {
+    logger.error({ event: "config_validation_abort", note: "PTH_CONFIG_STRICT 模式拒绝启动（配置不安全）" });
+    process.exit(1);
+  }
 
   logger.info({ os: platform.os, arch: platform.arch, event: "platform_starting" });
 
@@ -49,7 +61,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   } catch { /* auth 不可读——env 兜底 */ }
 }
 
-  const redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379";
+  const redisUrl = pthConfig().str("REDIS_URL");
   const redis = new Redis(redisUrl);
 
   const metrics = createMetrics();
@@ -63,7 +75,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   const credentials = new EnvCredentialProvider();
   const audit = new AuditWriter(redis);
 
-  const dataDir = process.env.DATA_DIR ?? "./.pi-platform-data";
+  const dataDir = pthConfig().str("DATA_DIR");
   const workspaceMgr = new WorkspaceManager(
     platform,
     `${dataDir}/workspaces`,
@@ -253,11 +265,11 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
       logger.info({ event: "kernel_assembled", note: "PTH kernel 装配成功（pg + dataWorld + BatchManager + watchdog）" });
 
       // 性能自持（v0.8）：PerfAutopilot 自愈闭环——PTH_AUTOPILOT_MODE=on 启用
-      if (process.env.PTH_AUTOPILOT_MODE === "on" && kernelRuntime) {
+      if (pthConfig().str("PTH_AUTOPILOT_MODE") === "on" && kernelRuntime) {
         const rt = kernelRuntime;  // 非空收紧
         const { PerfAutopilot } = await import("./kernel/execution/perf-autopilot.js");
         const batchManager = kernelRuntime.batchManager;
-        const autopilotIntervalMs = Number(process.env.PTH_AUTOPILOT_INTERVAL_MS ?? 30_000);
+        const autopilotIntervalMs = pthConfig().num("PTH_AUTOPILOT_INTERVAL_MS");
         autopilot = new PerfAutopilot(
           {
             registry: metrics.registry,
@@ -280,12 +292,12 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
           {
             mode: "on",
             intervalMs: autopilotIntervalMs,
-            windowMs: Number(process.env.PTH_AUTOPILOT_WINDOW_MS ?? 60_000),
-            rejectRate: Number(process.env.PTH_AUTOPILOT_REJECT_RATE ?? 0.3),
-            execFailRate: Number(process.env.PTH_AUTOPILOT_EXEC_FAIL_RATE ?? 0.2),
-            llmSlowMs: Number(process.env.PTH_AUTOPILOT_LLM_SLOW_MS ?? 30_000),
-            pendingGrowth: Number(process.env.PTH_AUTOPILOT_PENDING_GROWTH ?? 1.3),
-            maxCopies: Number(process.env.PTH_AUTOPILOT_MAX_COPIES ?? 4),
+            windowMs: pthConfig().num("PTH_AUTOPILOT_WINDOW_MS"),
+            rejectRate: pthConfig().num("PTH_AUTOPILOT_REJECT_RATE"),
+            execFailRate: pthConfig().num("PTH_AUTOPILOT_EXEC_FAIL_RATE"),
+            llmSlowMs: pthConfig().num("PTH_AUTOPILOT_LLM_SLOW_MS"),
+            pendingGrowth: pthConfig().num("PTH_AUTOPILOT_PENDING_GROWTH"),
+            maxCopies: pthConfig().num("PTH_AUTOPILOT_MAX_COPIES"),
           },
         );
         // trigger 统一化（2026-08-16）：autopilot 不自起定时器——perf-autopilot schedule trigger 驱动 tick
@@ -308,7 +320,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
 
   // P2-5：grant-bound 知识 broker（PTH_EXECUTION_GRANT_SECRET 与 sandbox 共用同一签名密钥；
   // 未配置 → /kernel/knowledge 503 fail-closed，token 化 memory-bridge 兼容通道不受影响）
-  const executionGrantSecret = process.env.PTH_EXECUTION_GRANT_SECRET;
+  const executionGrantSecret = pthConfig().str("PTH_EXECUTION_GRANT_SECRET");
   const knowledgeBroker = kernelRuntime && executionGrantSecret
     ? createPthKnowledgeBroker({
         grantService: createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: executionGrantSecret }) }),

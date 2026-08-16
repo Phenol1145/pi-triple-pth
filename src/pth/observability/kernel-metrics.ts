@@ -10,6 +10,7 @@
 
 import { Registry, Gauge, Histogram, Counter } from "prom-client";
 import { createResourceProvider } from "./resource-provider.js";
+import { pthConfig } from "../config/index.js";
 
 // buckets 分层（已裁决：可配置，不硬编码）
 const KERNEL_BUCKETS = [0.001, 0.01, 0.1, 1, 5, 30];
@@ -48,7 +49,7 @@ export interface KernelMetrics {
 export function createKernelMetrics(deps: { registry: Registry; intervalMs?: number }): KernelMetrics {
   const registry = deps.registry;
   const provider = createResourceProvider();
-  const intervalMs = deps.intervalMs ?? (parseInt(process.env.PTH_METRICS_INTERVAL_MS ?? "5000", 10) || 5000);
+  const intervalMs = deps.intervalMs ?? (parseInt(pthConfig().str("PTH_METRICS_INTERVAL_MS"), 10) || 5000);
 
   // ── L0 基础设施 ────────────────────────────────────────
   const runtimeUptime = new Gauge({ name: "pth_runtime_uptime_seconds", help: "PTH process uptime", registers: [registry] });

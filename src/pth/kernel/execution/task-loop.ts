@@ -19,6 +19,7 @@ import { runPtcProgram } from "../ptc/runner.js";
 import { runAgentTask } from "./agent-loop.js";
 import { getEventBus } from "./event-bus.js";
 import { publishDebugCaseTask } from "./debug-case-dispatch.js";
+import { pthConfig } from "../../config/index.js";
 
 /**
  * 任务完成通知（2026-08-13 hook 机制）：POST 到 PTL 侧 pth-notify 扩展
@@ -26,7 +27,7 @@ import { publishDebugCaseTask } from "./debug-case-dispatch.js";
  * fire-and-forget（超时 2s——不阻塞任务循环；通知失败仅告警）。
  */
 function notifyTaskDone(ev: { taskId: string; role: string; status: "completed" | "rejected"; summary?: string; error?: string }): void {
-  const url = process.env.PTH_NOTIFY_URL ?? "http://host.docker.internal:19473/pth-events";
+  const url = pthConfig().str("PTH_NOTIFY_URL");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 2000);
   fetch(url, {
@@ -332,7 +333,7 @@ export class TaskLoop {
       // 任务池纯化（2026-08-10 D1）：任务池只面向自然语言——agent 循环为唯一执行路径。
       // （混合池是调试期临时形态；直连 kernel 的 TS 操作走 /kernel/exec 通道，不占任务池）
       // 降级链：PTH_AGENT_MODE=off 或无 agentCaps → 一次性转译（translateTask）；无 llm → terminal reject。
-      const agentMode = process.env.PTH_AGENT_MODE !== "off";
+      const agentMode = pthConfig().str("PTH_AGENT_MODE") !== "off";
       let code: string | null = null;
       let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
       let cacheStore: import("./cache-store.js").CacheStore | undefined;   // 任务完成点取利用率（N3）
@@ -367,7 +368,7 @@ export class TaskLoop {
             taskWorkspace,
             toolstore: (kernel as unknown as { toolstore?: import("../interpreter/toolstore.js").Toolstore }).toolstore,
             role,
-            asp: process.env.PTH_ASP_MODE === "on",   // ASP 状态机（compose 默认 on——全件落地）
+            asp: pthConfig().str("PTH_ASP_MODE") === "on",   // ASP 状态机（compose 默认 on——全件落地）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
             cache: cs,
             capabilityInject,

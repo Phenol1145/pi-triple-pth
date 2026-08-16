@@ -12,6 +12,7 @@
  */
 
 import os from "node:os";
+import { pthConfig } from "../config/index.js";
 
 export interface CpuSnapshot {
   usagePercent: number;
@@ -60,7 +61,7 @@ export interface ResourceProviderOptions {
 }
 
 function detectPlatform(): string {
-  return process.env.PTH_PLATFORM ?? os.platform();
+  return pthConfig().str("PTH_PLATFORM") || os.platform();
 }
 
 function collectMemory(): MemorySnapshot {

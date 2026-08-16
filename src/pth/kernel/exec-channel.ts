@@ -23,6 +23,7 @@ import { loadKernelConfig } from "./interpreter/kernel-config.js";
 import { createLlmFn, type LlmFn } from "./interpreter/llm-fn.js";
 import { createToolstore, type Toolstore } from "./interpreter/toolstore.js";
 import type { DataWorldAccess } from "./storage/index.js";
+import { pthConfig } from "../config/index.js";
 
 export interface ExecRequest {
   code: string;
@@ -61,7 +62,7 @@ export class KernelExecChannel {
   private readonly ttlMs: number;
 
   constructor(private deps: ExecChannelDeps) {
-    this.ttlMs = deps.sessionTtlMs ?? Number(process.env.PTH_EXEC_SESSION_TTL_MS ?? 30 * 60_000);
+    this.ttlMs = deps.sessionTtlMs ?? pthConfig().num("PTH_EXEC_SESSION_TTL_MS");
     this.sweepTimer = setInterval(() => this.sweep(), deps.sweepMs ?? 60_000);
     this.sweepTimer.unref?.();
   }
@@ -71,11 +72,11 @@ export class KernelExecChannel {
     if (this.deps.kernelFactory) return this.deps.kernelFactory();
     if (!this.manager) {
       this.manager = createKernelManager({
-        pythonMode: (process.env.PTH_PYTHON_MODE as "kernel" | "interpreter" | "sandbox-kernel" | undefined) ?? "kernel",
-        bashMode: (process.env.PTH_BASH_MODE as "kernel" | "interpreter" | "sandbox-kernel" | undefined) ?? "kernel",
+        pythonMode: pthConfig().str("PTH_PYTHON_MODE") as "kernel" | "interpreter" | "sandbox-kernel",
+        bashMode: pthConfig().str("PTH_BASH_MODE") as "kernel" | "interpreter" | "sandbox-kernel",
         sandboxKernel: {
-          url: process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080",
-          secret: process.env.SANDBOX_SHARED_SECRET ?? "",
+          url: pthConfig().str("PTH_SANDBOX_KERNEL_URL"),
+          secret: pthConfig().str("SANDBOX_SHARED_SECRET"),
         },
         kernelConfig: loadKernelConfig(process.env),
       });
@@ -91,7 +92,7 @@ export class KernelExecChannel {
       }
     }
     if (!this.toolstore) {
-      this.toolstore = createToolstore(process.env.PTH_TOOLSTORE_PATH ?? "toolstore");
+      this.toolstore = createToolstore(pthConfig().str("PTH_TOOLSTORE_PATH") || "toolstore");
     }
     return createWorkerKernelWithManager({
       llm: this.llm,

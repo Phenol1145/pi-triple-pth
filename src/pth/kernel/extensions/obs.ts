@@ -9,6 +9,7 @@
 
 import type { TsReplExtension, ExtContext } from "./types.js";
 import { requestMain } from "./obs-ipc.js";
+import { pthConfig } from "../../config/index.js";
 
 function str(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v : fallback;
@@ -76,7 +77,7 @@ async function collectStorage(): Promise<unknown> {
     const df = await new Promise<string>((resolve) => {
       execFile("df", ["-h", "/data", "/"], { timeout: 5000 }, (err, stdout) => resolve(err ? "" : stdout));
     });
-    const cacheDir = process.env.PTH_COMPILED_CACHE_DIR ?? "/data/compiled-cache/c";
+    const cacheDir = pthConfig().str("PTH_COMPILED_CACHE_DIR");
     let cacheBytes = 0;
     const walk = async (dir: string, depth: number): Promise<void> => {
       if (depth > 3) return;
@@ -98,7 +99,8 @@ async function collectStorage(): Promise<unknown> {
 
 /** sandbox 内核池状态（S1-1：obs.kernels 与 obs.resource 共用的受信 /kernel/status 通路）。 */
 async function kernelStatus(): Promise<unknown> {
-  const url = process.env.PTH_SANDBOX_KERNEL_URL ?? process.env.SANDBOX_URL;
+  // 未配置语义（fail-closed）：只认显式 env——schema 默认值不参与“缺省即错误”判定
+  const url = pthConfig().env("PTH_SANDBOX_KERNEL_URL") ?? pthConfig().env("SANDBOX_URL");
   if (!url) return { error: "sandbox kernel url 未配置" };
   try {
     const res = await fetch(`${url.replace(/\/+$/, "")}/kernel/status`, {

@@ -9,6 +9,7 @@
  * 失败：转译失败 → 调用方 terminal reject（nl-translate-failed）——坏任务不回池。
  */
 import type { LlmFn } from "../interpreter/llm-fn.js";
+import { pthConfig } from "../../config/index.js";
 
 export interface TranslateInput {
   title: string;
@@ -55,7 +56,7 @@ export async function translateTask(
           content: `任务标题：${input.title}\n任务描述：${input.text}`,
         },
       ],
-      { model: process.env.PTH_NL_MODEL ?? "deepseek-v4-flash", provider: "deepseek" },
+      { model: pthConfig().str("PTH_NL_MODEL"), provider: "deepseek" },
     );
     const code = stripCodeFence(res.content);
     if (!code || code.length < 3) {

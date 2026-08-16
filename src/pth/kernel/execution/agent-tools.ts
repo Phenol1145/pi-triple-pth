@@ -15,6 +15,7 @@ import type { AgentToolId } from "./parse-agent-action.js";
 import { buildDoc } from "../extensions/index.js";
 import { runPtcProgram } from "../ptc/runner.js";
 import { buildToolSchemas } from "../ptc/tools.js";
+import { pthConfig } from "../../config/index.js";
 
 export interface AgentToolResult {
   ok: boolean;
@@ -138,8 +139,8 @@ async function readArtifact(taskWorkspace: string | undefined, relPath: string):
 
 /** debug 会话调用（PTH → sandbox /kernel/debug/*——句柄化：状态在 sandbox 会话 Map，上限 4/idle 30min） */
 async function debugCall(ctx: AgentToolCtx, op: string, body: Record<string, unknown>): Promise<unknown> {
-  const url = ctx.debugApi?.url ?? process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080";
-  const secret = ctx.debugApi?.secret ?? process.env.SANDBOX_SHARED_SECRET ?? "";
+  const url = ctx.debugApi?.url ?? pthConfig().str("PTH_SANDBOX_KERNEL_URL");
+  const secret = ctx.debugApi?.secret ?? pthConfig().str("SANDBOX_SHARED_SECRET");
   // 超时（2026-08-12 审计：与 SandboxKernel.call 对齐——防 sandbox 无响应悬挂工具调用）
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 35_000);

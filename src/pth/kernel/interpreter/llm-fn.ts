@@ -1,5 +1,6 @@
 import type { Context, Tool } from "@earendil-works/pi-ai";
 import type { ModelRouter } from "@away_from/infra";
+import { pthConfig } from "../../config/index.js";
 
 export interface LlmMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -57,7 +58,7 @@ export function createLlmFn(deps: {
   depsMetric = deps.onMetric ?? null;
   // 测试钩子（PTH_LLM_STUB=1）：集成测试无 LLM 凭据——agent 循环立即 done 完成 /
   // 转译路径返回合法 TS。任务池纯化后 e2e 链路（fork batch）必须经 LLM——stub 是唯一隔离缝。
-  if (process.env.PTH_LLM_STUB === "1") {
+  if (pthConfig().str("PTH_LLM_STUB") === "1") {
     return {
       async complete(_messages, opts) {
         if (opts?.tools && opts.tools.length > 0) {

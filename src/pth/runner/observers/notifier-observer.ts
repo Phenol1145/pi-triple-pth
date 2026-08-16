@@ -5,9 +5,10 @@
  */
 
 import type { TaskOutcomeObserver } from "../../tasking/index.js";
+import { pthConfig } from "../../config/index.js";
 
 export function notifyTaskDone(ev: { taskId: string; role: string; status: "completed" | "rejected"; summary?: string; error?: string }): void {
-  const url = process.env.PTH_NOTIFY_URL ?? "http://host.docker.internal:19473/pth-events";
+  const url = pthConfig().str("PTH_NOTIFY_URL");
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 2000);
   fetch(url, {

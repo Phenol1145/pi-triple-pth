@@ -8,6 +8,7 @@ import { createExtCapability } from "../../kernel/interpreter/ext-capability.js"
 import { wrapValidated } from "../../kernel/ptc/contract.js";
 import { isVisible, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
 import { isIP } from "node:net";
+import { pthConfig } from "../../config/index.js";
 import http from "node:http";
 import https from "node:https";
 import { promises as dnsPromises } from "node:dns";
@@ -128,9 +129,9 @@ export function buildCapabilities(deps: {
         ? {
             maintain: {
               write: async (input: { name: string; content: string; anchors?: string[]; force?: boolean; audit?: string; proposalId?: string }) =>
-                maintainSkillWrite(deps.dataWorld.memory, input, { policy: (process.env.PTH_SKILL_WRITE_POLICY ?? "manual") as "manual" | "staged" }),
+                maintainSkillWrite(deps.dataWorld.memory, input, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" }),
               archive: async (id: string, audit?: string) =>
-                maintainSkillArchive(deps.dataWorld.memory, id, audit, { policy: (process.env.PTH_SKILL_WRITE_POLICY ?? "manual") as "manual" | "staged" }),
+                maintainSkillArchive(deps.dataWorld.memory, id, audit, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" }),
               propose: async (input: { action: "write" | "archive"; name: string; content?: string; force?: boolean; anchors?: string[]; audit?: string }) =>
                 proposeSkillMaintenance(deps.dataWorld.memory, input),
             },

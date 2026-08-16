@@ -15,6 +15,7 @@ import type { WorkerRole } from "./worker-cluster.js";
 import { AGENT_TOOLS, AGENT_CAPABILITY_DOC, toolsToSchema, toolsDescription, toolsForExecTool, toolSchemaFor, expandToolGroups, type AgentToolResult } from "./agent-tools.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "../extensions/perf-params.js";
+import { pthConfig } from "../../config/index.js";
 import { createGuardRegistry } from "./guardrails.js";
 import { runPtcProgram } from "../ptc/runner.js";
 import { modelState } from "../extensions/model.js";
@@ -185,7 +186,7 @@ export async function buildAgentSystemPrompt(
   // 模式（2026-08-14 T2 裁决）：env 显式覆盖 > 角色类缺省——规划系 eager（高频稳定、缓存价值高），
   // 执行族/信息族 lazy（锚点先行——代码缺省不再 eager）；auto 按模型智力映射留待后续
   const planningRole = isPlanningRole(role?.id);
-  const mode = opts.mode ?? (process.env.PTH_AGENT_MODE === "eager" ? "eager" : process.env.PTH_AGENT_MODE === "lazy" ? "lazy" : (planningRole ? "eager" : "lazy"));
+  const mode = opts.mode ?? (pthConfig().str("PTH_AGENT_MODE") === "eager" ? "eager" : pthConfig().str("PTH_AGENT_MODE") === "lazy" ? "lazy" : (planningRole ? "eager" : "lazy"));
 
   // 角色块：eager = 角色文档全文（memory query）；lazy = 指针
   let roleBlock = "";
@@ -456,7 +457,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   const cache: import("./cache-store.js").CacheStore = input.cache ?? new (await import("./cache-store.js")).CacheStore();
   let system = await buildAgentSystemPrompt(input.role, input.task.title, {
     // 2026-08-14 T2：仅显式 env 覆盖才传入——缺省交由角色类策略（规划系 eager/其余 lazy）
-    mode: (process.env.PTH_AGENT_MODE === "lazy" || process.env.PTH_AGENT_MODE === "eager" ? process.env.PTH_AGENT_MODE : undefined) as "eager" | "lazy" | undefined,
+    mode: (() => {
+      const m = pthConfig().str("PTH_AGENT_MODE");
+      return (m === "lazy" || m === "eager" ? m : undefined) as "eager" | "lazy" | undefined;
+    })(),
     // 2026-08-15 审计 MEDIUM：非 ASP 模式 prompt 工具面与 schema 同源（剔除 ASP-only）
     asp: aspMode,
     memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,

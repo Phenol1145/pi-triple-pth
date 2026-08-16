@@ -9,6 +9,7 @@ import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { registerSystemTriggers } from "./execution/system-triggers.js";
 import { createKernelLogger } from "./logger.js";
+import { pthConfig } from "../config/index.js";
 import type pg from "pg";
 
 // 模块化 v2 P0-3：gateway 只允许经 facade 消费 KernelRuntime；facade 工厂从装配层统一出口。
@@ -133,7 +134,7 @@ export interface KernelRuntime {
  */
 function resolveBatchProcessPath(explicit: string | undefined): string {
   if (explicit) return explicit;
-  if (process.env.PTH_BATCH_TS === "1") return "src/pth/kernel/execution/batch-process.ts";
+  if (pthConfig().str("PTH_BATCH_TS") === "1") return "src/pth/kernel/execution/batch-process.ts";
   return "dist/pth/kernel/execution/batch-process.js";
 }
 
@@ -193,9 +194,9 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
-    workers: expandRoleWeights(parseRoleWeights(opts.env?.PTH_WORKER_ROLES ?? process.env.PTH_WORKER_ROLES)).map((r) => r.id),
+    workers: expandRoleWeights(parseRoleWeights(opts.env?.PTH_WORKER_ROLES ?? pthConfig().str("PTH_WORKER_ROLES"))).map((r) => r.id),
     // dev 源码模式（PTH_BATCH_TS=1——batch-process.ts）→ fork 用 tsx loader（execArgv 未显式时默认注入）
-    execArgv: opts.execArgv ?? (process.env.PTH_BATCH_TS === "1" ? ["--import", "tsx"] : undefined),
+    execArgv: opts.execArgv ?? (pthConfig().str("PTH_BATCH_TS") === "1" ? ["--import", "tsx"] : undefined),
     logger: createKernelLogger(),
     onMetric: opts.onMetric,
     obsResolver: opts.obsResolver,
@@ -210,9 +211,9 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
       PTH_WORKSPACES_PATH: opts.basePath,
       PTH_ARTIFACTS_PATH: opts.artifactPath,
       // toolstore 文件通道：继承主进程 env（默认 <dataDir>/toolstore）
-      PTH_TOOLSTORE_PATH: opts.toolstorePath ?? process.env.PTH_TOOLSTORE_PATH ?? "",
+      PTH_TOOLSTORE_PATH: opts.toolstorePath ?? pthConfig().str("PTH_TOOLSTORE_PATH"),
       // 自修改（v1）：源码根（worker readSource 只读面——容器 /app/src）
-      PTH_SOURCE_ROOT: process.env.PTH_SOURCE_ROOT ?? "/app/src",
+      PTH_SOURCE_ROOT: pthConfig().str("PTH_SOURCE_ROOT"),
       ...opts.env,
     },
   });
@@ -245,7 +246,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // 兼容性扩展装载（2026-08-09）：toolstore/extensions 扫描 → 角色注册到谱系——
   // 主进程路由（publish 时 routeTaskRole）与 fork 内认领共用 allWorkerRoles。扩展角色
   // 的 worker spawn 由 PTH_WORKER_ROLES/worker-add 配置（默认构成不含扩展角色）。
-  const toolstorePath = opts.toolstorePath ?? process.env.PTH_TOOLSTORE_PATH ?? "";
+  const toolstorePath = opts.toolstorePath ?? pthConfig().str("PTH_TOOLSTORE_PATH");
   if (toolstorePath) {
     try {
       const { createToolstore } = await import("./interpreter/toolstore.js");
@@ -392,9 +393,9 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // 周期 env 语义与旧硬定时器一致：PTH_CLAIM_REAP_MS / PTH_WATCHDOG_INTERVAL_MS /
   // PTH_RESOLVER_INTERVAL_MS / PTH_VERIFY_SWEEP_MS / PTH_BATCH_SCALE_INTERVAL_MS。
   const claimTimeoutMs = resolveClaimTimeoutMs();
-  const claimReapMs = Number(process.env.PTH_CLAIM_REAP_MS ?? 30_000);
+  const claimReapMs = pthConfig().num("PTH_CLAIM_REAP_MS");
   const scalerCfg = loadScalerConfig(process.env);
-  const autoscaleMode = (process.env.PTH_AUTOSCALE_MODE as "balanced" | "reinforced" | undefined) ?? "balanced";
+  const autoscaleMode = pthConfig().str("PTH_AUTOSCALE_MODE") as "balanced" | "reinforced";
   const scalerLogger = createKernelLogger();
   registerSystemTriggers(triggerEngine, {
     env: opts.env ?? process.env,
@@ -406,8 +407,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     resolverResolve: () => resolver.resolveLoop(),
     resolverIntervalMs: opts.resolverIntervalMs ?? 2_000,
     optimizerSweep: {
-      enabled: process.env.PTH_OPTIMIZER !== "off",
-      intervalMs: Number(process.env.PTH_VERIFY_SWEEP_MS ?? 30_000),
+      enabled: pthConfig().str("PTH_OPTIMIZER") !== "off",
+      intervalMs: pthConfig().num("PTH_VERIFY_SWEEP_MS"),
       broadcast: () => batchManager.broadcastOptimizerSweep(),
     },
     scaler: {
@@ -434,7 +435,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
           },
           logger: (msg) => scalerLogger?.info(msg),
         },
-        { min: scalerCfg.min, max: scalerCfg.max, upThreshold: scalerCfg.upThreshold, mode: autoscaleMode, roleThreshold: Number(process.env.PTH_AUTOSCALE_ROLE_THRESHOLD ?? 5), reinforceCopies: Number(process.env.PTH_AUTOSCALE_REINFORCE_COPIES ?? 2) },
+        { min: scalerCfg.min, max: scalerCfg.max, upThreshold: scalerCfg.upThreshold, mode: autoscaleMode, roleThreshold: pthConfig().num("PTH_AUTOSCALE_ROLE_THRESHOLD"), reinforceCopies: pthConfig().num("PTH_AUTOSCALE_REINFORCE_COPIES") },
       ),
     },
     log: (m) => assemblyLogger.info(m),

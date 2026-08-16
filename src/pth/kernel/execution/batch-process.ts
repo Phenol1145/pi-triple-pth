@@ -25,6 +25,7 @@ import { Optimizer } from "./optimizer-loop.js";
 import { createToolstore } from "../interpreter/toolstore.js";
 import { createKernelLogger } from "../logger.js";
 import { loadKernelConfig } from "../interpreter/kernel-config.js";
+import { pthConfig } from "../../config/index.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -73,7 +74,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   }
   // 内存优化：连接池收紧（7 角色 worker 并发 ≤7——max 8 够；默认 10 冗余）
   // PTH_PG_POOL_MAX 可覆盖（batch 数多时 PG 连接总量 = pool_max × batches 需核算）
-  const pool = await createPgPool({ connectionString: deps.databaseUrl, max: Number(process.env.PTH_PG_POOL_MAX ?? 8) });
+  const pool = await createPgPool({ connectionString: deps.databaseUrl, max: pthConfig().num("PTH_PG_POOL_MAX") });
   await applySchema(pool);
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化）
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——batch 子进程与 assembly 同源。
@@ -95,8 +96,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   let modelRouter: any;
   try {
     modelRouter = await createKernelModelRouter({
-      provider: process.env.PTH_MODEL_PROVIDER ?? "deepseek",
-      model: process.env.PTH_MODEL ?? "deepseek-v4-flash",
+      provider: pthConfig().str("PTH_MODEL_PROVIDER"),
+      model: pthConfig().str("PTH_MODEL"),
     });
   } catch (err) {
     batchLogger.warn("model router init failed (falling back to stub)", { err: String(err) });
@@ -105,7 +106,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
 
   // 兼容性扩展装载（fork 内注册角色——扩展角色任务可认领/worker-add）——toolstore 路径 env 注入
   {
-    const extPath = process.env.PTH_TOOLSTORE_PATH ?? "";
+    const extPath = pthConfig().str("PTH_TOOLSTORE_PATH");
     if (extPath) {
       try {
         const { createToolstore } = await import("../interpreter/toolstore.js");
@@ -247,30 +248,30 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     emitCleanup: (info) => process.send?.({ type: "cleanup", taskId: info.taskId, artifactPath: info.artifactPath }),
   };
 
-  const intervalMs = deps.intervalMs ?? Number(process.env.PTH_BATCH_TICK_MS ?? 1000);
+  const intervalMs = deps.intervalMs ?? pthConfig().num("PTH_BATCH_TICK_MS");
   // 多语言持久 REPL（T1-T3）：KernelManager 路由——python/bash 用持久 kernel
   // （实测 230x vs spawn）；sandbox 生产模式可用 env 切换（PTH_PYTHON_MODE/PTH_BASH_MODE）
   // toolstore 文件通道（§0.5）：PTH_TOOLSTORE_PATH 或默认 toolstore/（相对工作目录）
-  const toolstoreDir = process.env.PTH_TOOLSTORE_PATH ?? "toolstore";
+  const toolstoreDir = pthConfig().str("PTH_TOOLSTORE_PATH") || "toolstore";
   await mkdir(toolstoreDir, { recursive: true }).catch(() => {});
   const toolstore = createToolstore(toolstoreDir);
   // batch 构成参数化（PTH_WORKER_ROLES）：任意角色子集 + 副本数（0 禁用）；
   // 不设置 → 默认 7 角色 ×1（原行为）。启动时解析一次——运行时改权重需 batch remove+add。
-  const workerRoles = expandRoleWeights(parseRoleWeights(process.env.PTH_WORKER_ROLES));
+  const workerRoles = expandRoleWeights(parseRoleWeights(pthConfig().str("PTH_WORKER_ROLES")));
   // worker 注册表（worker 级控制面：pause/resume/remove/add——IPC 指令寻址）
   const loops: Array<BatchTaskLoop & { role: import("./worker-cluster.js").WorkerRole }> = [];
 
   /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
   const createWorker = (role: import("./worker-cluster.js").WorkerRole) => {
     const manager = createKernelManager({
-      pythonMode: (process.env.PTH_PYTHON_MODE as any) ?? "kernel",
-      bashMode: (process.env.PTH_BASH_MODE as any) ?? "kernel",
+      pythonMode: pthConfig().str("PTH_PYTHON_MODE") as any,
+      bashMode: pthConfig().str("PTH_BASH_MODE") as any,
       // kernel sandbox 接线：sandbox-kernel 模式连宿主（url/secret 与 bash 转发同源）
       sandboxKernel: {
-        url: process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080",
-        secret: process.env.SANDBOX_SHARED_SECRET ?? "",
+        url: pthConfig().str("PTH_SANDBOX_KERNEL_URL"),
+        secret: pthConfig().str("SANDBOX_SHARED_SECRET"),
         // P2-2 接线（Side B 补）：由 kernel-manager 按 language 签发 worker 级 grant。
-        grantSecret: process.env.PTH_EXECUTION_GRANT_SECRET,
+        grantSecret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET"),
         grantIdentity: {
           principalId: `worker:${role.id}`,
           roleId: role.id,
@@ -300,8 +301,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
       roleId: role.id,
       registerKernel: (language, interpreter) => manager.registerKernel(language, interpreter as never),
-      readSource: process.env.PTH_SOURCE_ROOT
-        ? (relPath) => import("../interpreter/read-source.js").then((m) => m.createReadSource(process.env.PTH_SOURCE_ROOT!)(relPath))
+      readSource: pthConfig().str("PTH_SOURCE_ROOT")
+        ? (relPath) => import("../interpreter/read-source.js").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
         : undefined,
       // 任务工作区（fs.task——白名单：仅 tasks/<taskId>/——kernel.ts.currentCwd 动态定位 + 防穿越）
       // 2026-08-15 筛查 H4：词法归一化 + 包含校验——`sub/../../etc/passwd` 不再逃逸工作区
@@ -321,7 +322,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       },
     });
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
-    const refineEnabled = process.env.PTH_REFINE !== "off";
+    const refineEnabled = pthConfig().str("PTH_REFINE") !== "off";
     const refiner = refineEnabled ? new Refiner({
       llm: createLlmFn({
         modelRouter,
@@ -331,13 +332,13 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       onMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "refine" } }); } catch { /* IPC 不可用 */ } },
     }) : undefined;
     // 优化循环（2026-08-12 大项 §10.3）：窗口聚合检测 → 建议 draft（PTH_OPTIMIZER=off 关闭）
-    const optimizerEnabled = process.env.PTH_OPTIMIZER !== "off";
+    const optimizerEnabled = pthConfig().str("PTH_OPTIMIZER") !== "off";
     // 2026-08-14 T4 分层闸门：PTH_APPLY_POLICY=auto-reversible 时可逆微调建议自动 apply（deopt 兜底）；
     // 缺省 manual——全部走人工 API 通道（routes-kernel /optimizer/apply）。
-    const autoApply = process.env.PTH_APPLY_POLICY === "auto-reversible";
+    const autoApply = pthConfig().str("PTH_APPLY_POLICY") === "auto-reversible";
     const optimizer = optimizerEnabled ? new Optimizer({
       memory: dataWorld.memory,
-      windowSize: Number(process.env.PTH_OPTIMIZER_WINDOW ?? 10),
+      windowSize: pthConfig().num("PTH_OPTIMIZER_WINDOW"),
       autoApplyReversible: autoApply,
       applySuggestion: autoApply
         ? async (id) => {
@@ -348,8 +349,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
           }
         : undefined,
       // 复测一等化参数（N6——PTH_VERIFY_* 配置中心可调）
-      verifyTasksCount: Number(process.env.PTH_VERIFY_TASKS ?? 3),
-      verifyTimeoutMs: Number(process.env.PTH_VERIFY_TIMEOUT_MS ?? 30 * 60_000),
+      verifyTasksCount: pthConfig().num("PTH_VERIFY_TASKS"),
+      verifyTimeoutMs: pthConfig().num("PTH_VERIFY_TIMEOUT_MS"),
       // trigger 统一化（2026-08-16）：子进程不再自巡检——主进程 optimizer.deopt-sweep trigger 经 IPC 下行驱动
       verifySweepMs: 0,
     }) : undefined;
@@ -405,19 +406,19 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
 
 // 入口判断：env 标志为主（strip-types/transform-types 下 argv[1] 是绝对路径，endsWith 不可靠），
 // argv 兜底兼容直接 node 运行。
-if (process.env.PTH_BATCH_PROCESS === "1" || process.argv[1]?.endsWith("batch-process.ts")) {
+if (pthConfig().str("PTH_BATCH_PROCESS") === "1" || process.argv[1]?.endsWith("batch-process.ts")) {
   // 2026-08-13 审计 P2：fork 子进程独立入口——自注入内置角色（父进程注入不跨进程）
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
   // 2026-08-15 拆分：fork 子进程同样注册内置空间 + 注入空间查询（记忆包不 import core）
   registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
-  const databaseUrl = process.env.PTH_TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+  const databaseUrl = pthConfig().str("PTH_TEST_DATABASE_URL") || pthConfig().str("DATABASE_URL");
   if (!databaseUrl) {
     console.error("batch process fatal: missing database url (PTH_TEST_DATABASE_URL or DATABASE_URL)");
     process.exit(1);
   }
-  const basePath = process.env.PTH_WORKSPACES_PATH ?? "/tmp/pth-workspaces";
-  const artifactPath = process.env.PTH_ARTIFACTS_PATH ?? "/tmp/pth-artifacts";
+  const basePath = pthConfig().str("PTH_WORKSPACES_PATH");
+  const artifactPath = pthConfig().str("PTH_ARTIFACTS_PATH");
   runBatchProcess({ databaseUrl, basePath, artifactPath }).catch((e) => {
     console.error("batch process fatal:", e);
     process.exit(1);

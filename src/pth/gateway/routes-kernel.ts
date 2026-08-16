@@ -21,6 +21,7 @@ import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade
 import type { KnowledgeBroker } from "../execution/index.js";
 import type { TenantScope } from "../contracts/index.js";
 import { listPublicTemplates, resolveTemplateTask } from "../kernel/templates.js";
+import { pthConfig } from "../config/index.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 
@@ -317,11 +318,11 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
   // ── sandbox 活动状态代理（API 覆盖补齐——sandbox:8080 内网隔离——经网关暴露）──
   // ptl hub console --sandbox 数据面：kernel 池（inFlight/idle/capacity）+ 编译统计 + debug 会话
   app.get("/api/v1/kernel/sandbox", async (req, reply) => {
-    const sandboxUrl = process.env.PTH_SANDBOX_KERNEL_URL ?? "http://sandbox:8080";
+    const sandboxUrl = pthConfig().str("PTH_SANDBOX_KERNEL_URL");
     try {
       // sandbox 通信用共享密钥（SANDBOX_SHARED_SECRET——与 sandbox-kernel 同源——非业务 API token）
       const r = await fetch(`${sandboxUrl}/kernel/status`, {
-        headers: { authorization: `Bearer ${process.env.SANDBOX_SHARED_SECRET ?? ""}` },
+        headers: { authorization: `Bearer ${pthConfig().str("SANDBOX_SHARED_SECRET")}` },
         signal: AbortSignal.timeout(5000),
       });
       if (!r.ok) return reply.status(502).send({ error: "sandbox status failed", status: r.status });

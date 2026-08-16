@@ -4,6 +4,8 @@
  * 复用现有 IPC（process.send/on("message")——与日志/metric 转发共存）。
  */
 
+import { pthConfig } from "../../config/index.js";
+
 export interface ObsRequest {
   kind: "obs-req";
   id: string;
@@ -38,7 +40,7 @@ if (typeof process !== "undefined" && process.send) {
 /** 向主进程请求观测数据（batch 内；非 batch 环境/主进程不可达时 reject） */
 export function requestMain<T>(req: string, params?: unknown): Promise<T> {
   // batch 子进程标志（batch-process 启动设置）——防 vitest 池/主进程误用 IPC 通道
-  if (process.env.PTH_BATCH_PROCESS !== "1" || typeof process === "undefined" || !process.send) {
+  if (pthConfig().str("PTH_BATCH_PROCESS") !== "1" || typeof process === "undefined" || !process.send) {
     return Promise.reject(new Error("obs: 非 batch 进程（IPC 不可用）"));
   }
   const id = `obs-${Date.now().toString(36)}-${++seq}`;

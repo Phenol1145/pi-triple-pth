@@ -20,6 +20,7 @@ import { BashKernel } from "@away_from/pth-sandbox";
 import { SandboxKernel, createSandboxGrantIssuer } from "@away_from/pth-sandbox";
 import { SandboxCompiledKernel } from "@away_from/pth-sandbox";
 import { getEventBus } from "../../kernel/execution/event-bus.js";
+import { pthConfig } from "../../config/index.js";
 import { buildCapabilities } from "./capability.js";
 import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
 import type { DataWorldAccess } from "../../kernel/storage/index.js";
@@ -106,8 +107,8 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
   const python: Interpreter = pythonMode === "kernel"
     ? new PyKernel({ pythonBin: opts.pythonBin, onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("python", l) : undefined,
         // 记忆桥（2026-08-11 库化）：kernel 模式 python 子进程在 pi-platform 容器——localhost:3000 直通（原硬编码 8080 不通——修复）
-        memoryBridge: process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:3000/api/v1/kernel/memory-bridge",
-        bridgeToken: process.env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
+        memoryBridge: pthConfig().str("PTH_MEMORY_BRIDGE"),
+        bridgeToken: pthConfig().str("PTH_MEMORY_BRIDGE_TOKEN"),
         ...opts.kernelConfig })
     : pythonMode === "sandbox-kernel"
       ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "python", grant: sandboxGrant })
@@ -115,8 +116,8 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
 
   const bash: Interpreter = bashMode === "kernel"
     ? new BashKernel({ onStderr: opts.onKernelStderr ? (l) => opts.onKernelStderr!("bash", l) : undefined,
-        memoryBridge: process.env.PTH_MEMORY_BRIDGE ?? "http://localhost:3000/api/v1/kernel/memory-bridge",
-        bridgeToken: process.env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
+        memoryBridge: pthConfig().str("PTH_MEMORY_BRIDGE"),
+        bridgeToken: pthConfig().str("PTH_MEMORY_BRIDGE_TOKEN"),
         ...opts.kernelConfig })
     : bashMode === "sandbox-kernel"
       ? new SandboxKernel({ url: opts.sandboxKernel!.url, secret: opts.sandboxKernel!.secret, language: "bash", grant: sandboxGrant })
