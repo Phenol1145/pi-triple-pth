@@ -264,3 +264,95 @@ describe("TriggerEngine（定时源——backlog 差距 12：controller/sensor �
     engine.stop();
   });
 });
+
+describe("TriggerEngine（原生 action——trigger 统一化：控制环收编为调度指令）", () => {
+  it("event action trigger：事件匹配 → 调用注册 handler（ctx 含 vars/event/source）", async () => {
+    const hub = new ActivityHub();
+    const engine = new TriggerEngine({ activityHub: hub, tasks: mockTasks() as never, memory: mockMemory([
+      { id: "act-1", def: { name: "事件动作", event: "task.execute.end", action: { type: "probe" }, task: undefined } },
+    ]) as never });
+    const calls: Array<{ vars: Record<string, string>; event?: { kind: string }; source: string }> = [];
+    engine.registerAction("probe", async (ctx) => {
+      calls.push({ vars: ctx.vars, event: ctx.event, source: ctx.source });
+    });
+    await engine.start();
+    hub.publish({ kind: "task.execute.end", taskId: "t1", role: "developer", ok: true, at: Date.now() });
+    await TICK();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.vars).toEqual({ taskId: "t1", role: "developer", detail: "" });
+    expect(calls[0]!.event?.kind).toBe("task.execute.end");
+    expect(calls[0]!.source).toBe("event");
+    expect((engine as never as { tasks: unknown }).tasks).toBeUndefined();   // 未发布任务
+    engine.stop();
+  });
+
+  it("schedule action trigger：到点调用 handler（可配 tick 加速测试）", async () => {
+    const engine = new TriggerEngine({ activityHub: new ActivityHub(), tasks: mockTasks() as never, memory: mockMemory([]) as never, scheduleTickMs: 20 });
+    let fires = 0;
+    engine.registerAction("sweep", async () => { fires++; });
+    engine.addSystemTrigger({ name: "sweep", schedule: { everySec: 1 }, action: { type: "sweep" }, enabled: true });
+    await engine.start();
+    await new Promise((r) => setTimeout(r, 1300));
+    engine.stop();
+    expect(fires).toBeGreaterThanOrEqual(1);
+  });
+
+  it("动态 nextMs：handler 返回的下一跳间隔覆盖 schedule（退避语义）", async () => {
+    const engine = new TriggerEngine({ activityHub: new ActivityHub(), tasks: mockTasks() as never, memory: mockMemory([]) as never, scheduleTickMs: 20 });
+    const ats: number[] = [];
+    engine.registerAction("adaptive", async () => { ats.push(Date.now()); return { nextMs: 500 }; });
+    engine.addSystemTrigger({ name: "adaptive", schedule: { everySec: 1 }, action: { type: "adaptive" }, enabled: true });
+    await engine.start();
+    await new Promise((r) => setTimeout(r, 1700));
+    engine.stop();
+    expect(ats.length).toBeGreaterThanOrEqual(2);                       // 至少 500ms 间隔内再触发
+    expect(ats.length).toBeLessThan(10);                                 // 不是 20ms tick 狂触发（已按 nextMs 压制）
+  });
+
+  it("校验：task 与 action 均缺 → 跳过加载；action.type 非字符串 → 跳过", async () => {
+    const hub = new ActivityHub();
+    const memory = mockMemory([
+      { id: "bad-1", def: { name: "无动作", event: "task.done" } },
+      { id: "bad-2", def: { name: "坏 action", event: "task.done", action: { type: 42 } } },
+      { id: "ok", def: { name: "好 action", event: "task.done", action: { type: "probe" } } },
+    ]);
+    const engine = new TriggerEngine({ activityHub: hub, tasks: mockTasks() as never, memory: memory as never });
+    let fires = 0;
+    engine.registerAction("probe", async () => { fires++; });
+    await engine.start();
+    hub.publish({ kind: "task.done", taskId: "t", at: Date.now() });
+    await TICK();
+    expect(fires).toBe(1);   // 仅合法定义触发
+    engine.stop();
+  });
+
+  it("listTriggers：system 与 memory 两条来源的快照可观测", async () => {
+    const hub = new ActivityHub();
+    const engine = new TriggerEngine({ activityHub: hub, tasks: mockTasks() as never, memory: mockMemory([
+      { id: "mem-1", def: { name: "mem", event: "task.done", action: { type: "probe" } } },
+    ]) as never });
+    engine.registerAction("probe", async () => {});
+    engine.addSystemTrigger({ name: "sys-1", schedule: { everySec: 60 }, action: { type: "probe" }, enabled: true });
+    await engine.start();
+    const list = engine.listTriggers();
+    expect(list.map((t) => t.name).sort()).toEqual(["mem", "sys-1"]);
+    expect(list.find((t) => t.name === "sys-1")?.source).toBe("system");
+    expect(list.find((t) => t.name === "mem")?.actionType).toBe("probe");
+    engine.stop();
+  });
+
+  it("once/maxFires 对 action trigger 语义一致（maxFires=1 只动作一次）", async () => {
+    const hub = new ActivityHub();
+    const engine = new TriggerEngine({ activityHub: hub, tasks: mockTasks() as never, memory: mockMemory([
+      { id: "act-max", def: { name: "限次动作", event: "task.done", action: { type: "probe" }, maxFires: 1 } },
+    ]) as never });
+    let fires = 0;
+    engine.registerAction("probe", async () => { fires++; });
+    await engine.start();
+    hub.publish({ kind: "task.done", taskId: "a", at: Date.now() });
+    hub.publish({ kind: "task.done", taskId: "b", at: Date.now() });
+    await TICK();
+    expect(fires).toBe(1);
+    engine.stop();
+  });
+});
