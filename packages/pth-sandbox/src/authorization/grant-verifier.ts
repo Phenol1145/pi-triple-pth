@@ -8,6 +8,13 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+/** 任务级 grant 上下文（PTH 侧动态绑定——taskId/tenantId 由 task-loop 每任务提供） */
+export interface SandboxGrantContext {
+  taskId: string;
+  tenantId: string;
+  principalId?: string;
+}
+
 export interface SandboxExecutionGrant {
   readonly grantId: string;
   readonly nonce: string;

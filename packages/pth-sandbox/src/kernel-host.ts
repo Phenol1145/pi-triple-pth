@@ -79,6 +79,8 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   };
   /** leaseId → pool 索引（P0-4：外部只持有 lease，不再暴露/接受 kernelId） */
   const leasePools = new Map<string, KernelPool>();
+  /** leaseId → 任务绑定（sandbox grant 动态绑定——acquire 时盖章，execute 按任务校验） */
+  const leaseBindings = new Map<string, { taskId: string; tenantId: string }>();
 
   // S1-5：degraded 观测——依赖条件缺失/饱和时置位，/kernel/status 暴露，状态跃迁打日志。
   const health = new SandboxHealthState({
@@ -158,6 +160,10 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       const lease = await pools[body.lang as KernelLang].acquire();
       health.set(`pool-exhausted-${body.lang}`, false);
       leasePools.set(lease.id, pools[body.lang as KernelLang]);
+      leaseBindings.set(lease.id, {
+        taskId: verified.grant.lease.taskId,
+        tenantId: verified.grant.scope.tenantId,
+      });
       return { lease };
     } catch (err) {
       if (err instanceof Error && err.message.includes("pool exhausted")) {
@@ -168,7 +174,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   });
 
   app.post("/kernel/execute", async (req, reply) => {
-    const body = (req.body ?? {}) as { kernelId?: string; lease?: { id: string; generation: number }; code?: string; timeoutMs?: number; env?: unknown; exec?: "single" | "program" | "auto"; space?: string };
+    const body = (req.body ?? {}) as { kernelId?: string; lease?: { id: string; generation: number }; code?: string; timeoutMs?: number; env?: unknown; exec?: "single" | "program" | "auto"; space?: string; taskId?: string; tenantId?: string };
     const lease = parseLease(body);
     if (!lease || typeof body.code !== "string") {
       reply.code(400).send({ error: body.kernelId ? "kernelId retired: lease required" : "lease and code required" });
@@ -188,6 +194,18 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       // 空间盖章合法性（2026-08-12 批 3）：只允许空间 id 形状——防注入
       reply.code(400).send({ error: `invalid space: ${body.space}` });
       return;
+    }
+    // sandbox grant 动态绑定：租约只可用于 acquire 时盖章的任务；新客户端必传 taskId/tenantId
+    const binding = leaseBindings.get(lease.id);
+    if (binding) {
+      if (body.taskId !== undefined && body.taskId !== binding.taskId) {
+        reply.code(403).send({ error: `lease task binding mismatch (expected ${binding.taskId})` });
+        return;
+      }
+      if (body.tenantId !== undefined && body.tenantId !== binding.tenantId) {
+        reply.code(403).send({ error: `lease tenant binding mismatch (expected ${binding.tenantId})` });
+        return;
+      }
     }
     try {
       const result = await pool.execute(lease, body.code, { ...(body.timeoutMs ? { timeoutMs: body.timeoutMs } : {}), ...(body.exec ? { exec: body.exec } : {}), ...(body.space ? { space: body.space } : {}) });
@@ -296,6 +314,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     }
     try {
       await pool.cancel(lease);
+      leaseBindings.delete(lease.id);
       return { ok: true, state: "disposed" };
     } catch (err) {
       reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
@@ -311,6 +330,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     }
     try {
       pool.release(lease);
+      leaseBindings.delete(lease.id);
       return { ok: true };
     } catch (err) {
       reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
@@ -417,6 +437,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       await Promise.all([pools.python.dispose(), pools.bash.dispose()]);
       await debug.dispose();
       leasePools.clear();
+      leaseBindings.clear();
     },
     status() {
       return {

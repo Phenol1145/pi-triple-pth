@@ -194,6 +194,24 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
     expect(ok.statusCode).toBe(200);
   });
 
+
+  it("grant 动态绑定：execute 任务不匹配拒绝（403）", async () => {
+    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
+    const { lease } = acq.json() as { lease: SandboxLease };
+    const bad = await app.inject({
+      method: "POST", url: "/kernel/execute",
+      payload: { lease, code: "1+1", taskId: "other-task", tenantId: "tenant-a" }, headers: auth(),
+    });
+    expect(bad.statusCode).toBe(403);
+    expect(bad.json().error).toContain("task binding mismatch");
+    const ok = await app.inject({
+      method: "POST", url: "/kernel/execute",
+      payload: { lease, code: "_result = 6 * 7", taskId: "task-host", tenantId: "tenant-a" }, headers: auth(),
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().value).toBe(42);
+  });
+
   it("acquire/execute/reset/release 全链路（python，lease）", async () => {
     const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
     expect(acq.statusCode).toBe(200);

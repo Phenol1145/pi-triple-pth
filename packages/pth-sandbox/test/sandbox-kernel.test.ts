@@ -96,6 +96,30 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
     const k = new SandboxKernel({ url: "http://127.0.0.1:1", secret: SECRET, language: "python", grant: makeGrant() });
     await expect(k.execute("1+1")).rejects.toThrow();
   });
+
+
+  it("任务切换 → reset+release 旧租约 → 按新 taskId 重新 acquire（状态不跨任务）", async () => {
+    const calls: Array<string | undefined> = [];
+    const grant = (_lang: "python" | "bash", ctx?: { taskId: string; tenantId: string }) => {
+      calls.push(ctx?.taskId);
+      return grantIssuer.issue({
+        lease: { taskId: ctx?.taskId ?? "fallback", leaseId: "dynamic-lease", generation: 1 },
+        scope: { tenantId: ctx?.tenantId ?? "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: `trace-${ctx?.taskId ?? "fallback"}` },
+        workspace: { tenantId: ctx?.tenantId ?? "tenant-a", workspaceId: "ws-dynamic", taskId: ctx?.taskId },
+        language: "python",
+        capabilities: ["memory.read"],
+      });
+    };
+    const k = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", acquireOnInit: false, grant });
+    k.setGrantContext({ taskId: "task-a", tenantId: "tenant-a" });
+    await k.execute("secret_var = 42");
+    k.setGrantContext({ taskId: "task-b", tenantId: "tenant-a" });
+    const r = await k.execute("_result = 'secret_var' in dir()");
+    expect(r.ok).toBe(true);
+    expect(r.value).toBe(false);           // 任务隔离：上一任务 REPL 状态不可见
+    expect(calls).toEqual(["task-a", "task-b"]);
+    await k.disposeAndFlush();
+  });
 });
 
 describe("sandbox-kernel 韧性（2026-08-09 端到端：abort 杀 batch 循环）", () => {

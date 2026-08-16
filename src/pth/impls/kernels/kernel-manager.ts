@@ -61,6 +61,8 @@ export interface KernelManagerOptions {
 }
 
 export interface KernelManager {
+  /** 任务级 grant 上下文（sandbox-kernel 动态绑定——task-loop 每任务更新） */
+  setGrantContext(ctx: { taskId: string; tenantId: string; principalId?: string }): void;
   /** 统一执行入口：按 language 路由（ts | python | bash | c | 扩展注册） */
   execute(language: string, program: string, opts?: ExecuteOptions): Promise<InterpreterResult>;
   /** 各语言 kernel 句柄（任务代码可直取：python.execute/bash.execute/c.execute 兼容） */
@@ -87,17 +89,23 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
 
   // P2-2 最小接线（Side B）：未显式给 grant 时，按 grantSecret + worker 身份自动签发。
   // 边界：worker 级 scope（tenant=system），非任务/租户级动态绑定——见 sandbox-security-operations.md §8。
+  const identity = opts.sandboxKernel?.grantIdentity;
+  // 任务级动态绑定：初始为 worker 级兜底；task-loop 每任务调用 setGrantContext 更新。
+  const grantContext = {
+    taskId: `${identity?.roleId ?? "worker"}:${process.pid}`,
+    tenantId: identity?.tenantId ?? "system",
+    principalId: identity?.principalId ?? `worker:${identity?.roleId ?? "unknown"}`,
+    roleId: identity?.roleId ?? "unknown",
+  };
   const sandboxGrant = opts.sandboxKernel?.grant
-    ?? (opts.sandboxKernel?.grantSecret && opts.sandboxKernel?.grantIdentity
+    ?? (opts.sandboxKernel?.grantSecret && identity
       ? (() => {
           const issuer = createSandboxGrantIssuer({ secret: opts.sandboxKernel!.grantSecret! });
-          const identity = opts.sandboxKernel!.grantIdentity!;
-          const tenantId = identity.tenantId ?? "system";
           const ttlMs = identity.ttlMs ?? 10 * 60_000;
           return (language: "python" | "bash") => issuer.issue({
-            lease: { taskId: `${identity.roleId}:${process.pid}`, leaseId: randomUUID(), generation: 1 },
-            scope: { tenantId, principalId: identity.principalId, roles: [identity.roleId], traceId: `batch:${process.pid}` },
-            workspace: { tenantId, workspaceId: `worker-${identity.roleId}`, taskId: `${identity.roleId}:${process.pid}` },
+            lease: { taskId: grantContext.taskId, leaseId: randomUUID(), generation: 1 },
+            scope: { tenantId: grantContext.tenantId, principalId: grantContext.principalId, roles: [grantContext.roleId], traceId: `batch:${process.pid}:${grantContext.taskId}` },
+            workspace: { tenantId: grantContext.tenantId, workspaceId: `worker-${grantContext.roleId}`, taskId: grantContext.taskId },
             language,
             capabilities: identity.capabilities ?? [],
             ttlMs,
@@ -188,6 +196,15 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
       }
       return result;
     },
+    setGrantContext(ctx) {
+      if (!ctx.taskId || !ctx.tenantId) throw new Error("setGrantContext: taskId/tenantId 必填");
+      grantContext.taskId = ctx.taskId;
+      grantContext.tenantId = ctx.tenantId;
+      if (ctx.principalId) grantContext.principalId = ctx.principalId;
+      // python/bash 为 SandboxKernel 时同步下发——下个任务 execute 触发换租约
+      if (python instanceof SandboxKernel) python.setGrantContext(ctx);
+      if (bash instanceof SandboxKernel) bash.setGrantContext(ctx);
+    },
     python: metered(python, "python"),
     bash: metered(bash, "bash"),
     c: metered(compiled, "c"),
@@ -240,6 +257,8 @@ export function createWorkerKernelWithManager(deps: {
   c: Interpreter;
   /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels 经此执行（dev.build/run .s 分发） */
   execute(language: string, program: string, opts?: import("@away_from/pth-sandbox").ExecuteOptions): Promise<InterpreterResult>;
+  /** 任务级 grant 上下文（sandbox-kernel 动态绑定——task-loop 每任务更新） */
+  setExecutionGrantContext(ctx: { taskId: string; tenantId: string; principalId?: string }): void;
   /** 新执行核注册（ext.kernel 接线——转发 manager.registerKernel） */
   registerKernel(language: string, interpreter: unknown): void;
   /** 产物单元存储（生产核 dev.save/dev.list——task-loop 透传给 agent-loop 工具 ctx） */
@@ -342,6 +361,7 @@ export function createWorkerKernelWithManager(deps: {
     c: deps.manager.c,
     /** 顶层语言路由（2026-08-12 asm-kernel 接线）：extra kernels（ext.kernel 注册）经此执行——
      *  dev.build/dev.run 的 .s 分发调 ctx.kernel.execute("asm", ...) */
+    setExecutionGrantContext: (ctx) => deps.manager.setGrantContext(ctx),
     execute: (language: string, program: string, executeOpts?: import("@away_from/pth-sandbox").ExecuteOptions) =>
       deps.manager.execute(language, program, executeOpts),
     registerKernel: (language: string, interpreter: unknown) => registerHook?.(language, interpreter),

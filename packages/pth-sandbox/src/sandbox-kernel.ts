@@ -12,7 +12,7 @@
 
 import { loadSandboxConfig } from "./config.js";
 import type { SandboxLease } from "./kernel-lease.js";
-import type { SandboxExecutionGrant } from "./authorization/grant-verifier.js";
+import type { SandboxExecutionGrant, SandboxGrantContext } from "./authorization/grant-verifier.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
 
 export interface SandboxKernelOptions {
@@ -21,7 +21,7 @@ export interface SandboxKernelOptions {
   /** P2-2 遗留字段：保留兼容，但不再作为 kernel 执行认证发送 */
   secret?: string;
   /** 执行 grant（静态或按 acquire 时机 + language 提供）——acquire 唯一授权凭据 */
-  grant?: SandboxExecutionGrant | ((language: "python" | "bash") => Promise<SandboxExecutionGrant> | SandboxExecutionGrant);
+  grant?: SandboxExecutionGrant | ((language: "python" | "bash", context?: SandboxGrantContext) => Promise<SandboxExecutionGrant> | SandboxExecutionGrant);
   /** python | bash */
   language: "python" | "bash";
   /** 构造时 acquire（默认 true）；false 供测试注入已有 lease */
@@ -38,7 +38,10 @@ export class SandboxKernel implements Interpreter {
   /** 远程状态经 execute/snapshot 访问——本地同步读返回空 */
   readonly state: Record<string, unknown> = {};
   private url: string;
-  private grant: SandboxExecutionGrant | ((language: "python" | "bash") => Promise<SandboxExecutionGrant> | SandboxExecutionGrant) | undefined;
+  private grant: SandboxExecutionGrant | ((language: "python" | "bash", context?: SandboxGrantContext) => Promise<SandboxExecutionGrant> | SandboxExecutionGrant) | undefined;
+  /** 任务级 grant 上下文（setGrantContext 更新——换任务时释放旧租约重新 acquire） */
+  private grantContext: SandboxGrantContext | null = null;
+  private leaseGrantTaskId: string | null = null;
   private lease: SandboxLease | null;
   private requestTimeoutMs: number;
   private acquireTimeoutMs: number;
@@ -47,6 +50,11 @@ export class SandboxKernel implements Interpreter {
   private acquirePromise: Promise<void> | null = null;
   /** in-flight HTTP 请求控制器（Phase 3 条目 11——abort 终止执行中的 /kernel/execute 或 acquire） */
   private inflightCtrl: AbortController | null = null;
+  /** 任务级动态绑定：更新 grant 上下文（下个 execute 前换租约） */
+  setGrantContext(ctx: SandboxGrantContext): void {
+    this.grantContext = ctx;
+  }
+
   /** 池条目分配完成的 promise（测试/依赖方等待用——懒 acquire 异步） */
   get ready(): Promise<void> {
     return this.acquire();
@@ -101,9 +109,10 @@ export class SandboxKernel implements Interpreter {
       this.acquirePromise = (async () => {
         if (this.lease) return;
         if (!this.grant) throw new Error("SandboxKernel: execution grant required（P2-2——不再使用共享密钥）");
-        const grant = typeof this.grant === "function" ? await this.grant(this.language as "python" | "bash") : this.grant;
+        const grant = typeof this.grant === "function" ? await this.grant(this.language as "python" | "bash", this.grantContext ?? undefined) : this.grant;
         const r = await this.call<{ lease: SandboxLease }>("/kernel/acquire", { lang: this.language, grant }, this.acquireTimeoutMs);
         this.lease = r.lease;
+        this.leaseGrantTaskId = this.grantContext?.taskId ?? null;
       })().catch((e) => {
         // 失败不缓存 rejected promise（batch 反复崩时 acquire 排队超时 reject——
         // 后续 withLease await 同一 rejected promise 再抛 → 未 catch 处杀 batch）。
@@ -121,9 +130,22 @@ export class SandboxKernel implements Interpreter {
     return this.lease!;
   }
 
+  /** 任务上下文切换：reset + release 旧租约（池条目状态清零——防跨任务 REPL 状态泄漏） */
+  private async rebindForTask(): Promise<void> {
+    if (!this.grantContext || !this.leaseGrantTaskId || this.grantContext.taskId === this.leaseGrantTaskId) return;
+    const lease = this.lease;
+    this.lease = null;
+    this.acquirePromise = null;
+    this.leaseGrantTaskId = null;
+    if (!lease) return;
+    try { await this.call("/kernel/reset", { lease }); } catch { /* 宿主不可达——释放兜底 */ }
+    try { await this.call("/kernel/release", { lease }); } catch { /* 幂等兜底 */ }
+  }
+
   async execute(program: string, opts?: ExecuteOptions): Promise<InterpreterResult> {
     let lease: SandboxLease;
     try {
+      await this.rebindForTask();
       lease = await this.withLease();
     } catch (e) {
       if ((e as Error).message === "SandboxKernel disposed") {
@@ -135,6 +157,8 @@ export class SandboxKernel implements Interpreter {
       return await this.call<InterpreterResult>("/kernel/execute", {
         lease,
         code: program,
+        ...(this.grantContext?.taskId ? { taskId: this.grantContext.taskId } : {}),
+        ...(this.grantContext?.tenantId ? { tenantId: this.grantContext.tenantId } : {}),
         ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
         ...(opts?.exec ? { exec: opts.exec } : {}),   // 元命令拆分（2026-08-11）：single/program 透传 sandbox
         ...(opts?.space ? { space: opts.space } : {}),   // 记忆桥盖章（2026-08-12 批 3）透传

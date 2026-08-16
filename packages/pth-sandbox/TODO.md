@@ -28,5 +28,7 @@
 ## 评估结论（2026-08-15 拆分后；2026-08-16 补账；2026-08-16 S2-5 收账）
 - 8 项长尾已全部落：S0（H8/H9/流式/symlink）+ S1（N5 L3/编译核/gdb/Bash/StreamJob/degraded）
   + S2-1（命名文档）各提交见上。
-- 收账后保留在计划账本的边界：hostile matrix 5/6/7 以 v2 单元测试 + P0-3 smoke 承接；
-  worker 级 grant 最小接线（任务/租户级动态绑定）为下一轮架构收口项。
+- 收账后保留在计划账本的边界：hostile matrix 5/6/7 以 v2 单元测试 + P0-3 smoke 承接。
+- ✅ 任务/租户级 grant 动态绑定（2026-08-17）：kernel-manager/task-loop 每任务下发
+  taskId/tenantId；SandboxKernel 换任务 reset+release 后重新 acquire；宿主 leaseBindings
+  校验 execute 任务/租户匹配（403）；REPL 状态不跨任务。

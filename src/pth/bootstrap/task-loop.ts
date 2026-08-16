@@ -305,6 +305,9 @@ export class TaskLoop {
               utilization: () => cs.utilization(),
             },
           };
+          // sandbox grant 动态绑定：本任务 taskId/tenantId 下发给 kernel 工厂（worker 级兜底 → 任务级）
+          (kernel as { setExecutionGrantContext?(ctx: { taskId: string; tenantId: string; principalId?: string }): void })
+            .setExecutionGrantContext?.({ taskId: task.id, tenantId: task.tenantId ?? "system", principalId: role.id });
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },

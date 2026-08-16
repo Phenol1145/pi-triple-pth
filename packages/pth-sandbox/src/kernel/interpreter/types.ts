@@ -162,6 +162,9 @@ export interface WorkerKernel {
   /** 程序级制动（2026-08-14 A1 Phase 3 条目 11）：abort 三核 in-flight 并 await——
    *  可选（装配面统一提供；未装配的测试 mock 缺省 undefined） */
   abort?(): Promise<void>;
+  /** 任务级执行 grant 上下文（sandbox-kernel 动态绑定——task-loop 每任务调用；
+   *  非 sandbox 装配可不提供） */
+  setExecutionGrantContext?(ctx: { taskId: string; tenantId: string; principalId?: string }): void;
 }
 
 export interface WorkerKernelDeps<D = unknown> {
