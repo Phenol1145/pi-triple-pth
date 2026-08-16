@@ -109,8 +109,11 @@ suite("task store pg", () => {
     const t = await store.publish({ title: "t6", text: "sub", createdBy: "me", tags: ["code"] });
     await store.claimTopN("w1", [t.id]);
     await store.submit("w1", t.id, { ref: "transcript-1" });
-    const row = await pool.query("SELECT status FROM tasks WHERE id = $1", [t.id]);
+    const row = await pool.query("SELECT status, payload FROM tasks WHERE id = $1", [t.id]);
     expect(row.rows[0].status).toBe("completed");
+    // W8 P0：payload.result = JSON-safe 编码结果；outputRef 兼容面保留
+    expect(row.rows[0].payload.result).toEqual({ ref: "transcript-1" });
+    expect(row.rows[0].payload.outputRef).toEqual({ ref: { ref: "transcript-1" } });
   });
 
   it("H5: submit 返回 rowCount——非本人认领（已被回收重领）→ 0 行（双执行信号）", async () => {
@@ -191,5 +194,20 @@ suite("task store pg", () => {
     // candidates(analyst) 看不到 flow 任务
     const anaCands2 = await store.candidates("analyst");
     expect(anaCands2.some((c) => c.id === flow.id)).toBe(false);
+  });
+
+  it("W8 P0：entry delivery 盖章——外部入口 path/lineageId；内部发布不盖章", async () => {
+    const entry = await store.publish({
+      title: "entry", text: "x", createdBy: "me", tags: ["code"],
+      payload: { delivery: { path: ["forged"], lineageId: "forged" } },
+      deliveryMode: "entry",
+    });
+    expect((entry.payload as { delivery?: unknown }).delivery).toEqual({
+      path: ["developer"],
+      lineageId: entry.id,
+    });
+
+    const internal = await store.publish({ title: "internal", text: "x", createdBy: "me", tags: ["code"] });
+    expect((internal.payload as { delivery?: unknown }).delivery).toBeUndefined();
   });
 });

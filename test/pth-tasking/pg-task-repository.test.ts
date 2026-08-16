@@ -24,11 +24,17 @@ const suite = dockerAvailable ? describe : describe.skip;
 
 const scope: TenantScope = { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-1" };
 
-async function insertTask(pool: Awaited<ReturnType<typeof createPgPool>>, id: string, tenantId = "tenant-a", assignedRole = "developer"): Promise<void> {
+async function insertTask(
+  pool: Awaited<ReturnType<typeof createPgPool>>,
+  id: string,
+  tenantId = "tenant-a",
+  assignedRole = "developer",
+  payload?: unknown,
+): Promise<void> {
   await pool.query(
-    `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status)
-     VALUES ($1, $2, $3, $4, 'repo-test', $5, 'pending')`,
-    [id, tenantId, `title ${id}`, `text ${id}`, assignedRole],
+    `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, payload)
+     VALUES ($1, $2, $3, $4, 'repo-test', $5, 'pending', $6::jsonb)`,
+    [id, tenantId, `title ${id}`, `text ${id}`, assignedRole, JSON.stringify(payload ?? {})],
   );
 }
 
@@ -132,5 +138,64 @@ suite("pg task repository（P1-2）", () => {
     const row = await pool.query("SELECT status, lease_id FROM tasks WHERE id = 'task-retry'");
     expect(row.rows[0].status).toBe("pending");
     expect(row.rows[0].lease_id).toBeNull();
+  });
+
+  it("W8 P0：completed 回写 payload.result 与 delivery.artifactRef，保留既有 path/lineage 章", async () => {
+    await insertTask(pool, "task-result-writeback", "tenant-a", "coder", {
+      delivery: { path: ["origin", "developer", "coder"], lineageId: "root-1" },
+    });
+    const [claimed] = await repo.claim(scope, "coder", ["task-result-writeback"]);
+    const committed = await repo.commit({
+      lease: claimed.lease,
+      status: "completed",
+      result: { value: { answer: 42 } },
+      artifacts: [{ kind: "file", uri: "archive://task-result-writeback/out.ts" }],
+      traceId: scope.traceId,
+    });
+    expect(committed.committed).toBe(true);
+
+    const row = await pool.query("SELECT status, payload FROM tasks WHERE id = 'task-result-writeback'");
+    expect(row.rows[0].status).toBe("completed");
+    expect(row.rows[0].payload.result).toEqual({ value: { answer: 42 } });
+    expect(row.rows[0].payload.outputRef).toEqual({ ref: { value: { answer: 42 } } });
+    expect(row.rows[0].payload.delivery).toEqual({
+      path: ["origin", "developer", "coder"],
+      lineageId: "root-1",
+      artifactRef: { kind: "file", id: "archive://task-result-writeback/out.ts" },
+    });
+  });
+
+  it("W8 P0：completed 无产物不写 artifactRef；rejected 回写错误摘要", async () => {
+    await insertTask(pool, "task-no-artifact", "tenant-a", "coder", {
+      delivery: { path: ["origin", "developer", "coder"], lineageId: "root-2" },
+    });
+    const [claimedA] = await repo.claim(scope, "coder", ["task-no-artifact"]);
+    await repo.commit({
+      lease: claimedA.lease,
+      status: "completed",
+      result: { value: "plain" },
+      artifacts: [],
+      traceId: scope.traceId,
+    });
+    let row = await pool.query("SELECT payload FROM tasks WHERE id = 'task-no-artifact'");
+    expect(row.rows[0].payload.result).toEqual({ value: "plain" });
+    expect(row.rows[0].payload.delivery).toEqual({
+      path: ["origin", "developer", "coder"],
+      lineageId: "root-2",
+    });
+
+    await insertTask(pool, "task-rejected-writeback", "tenant-a", "coder");
+    const [claimedB] = await repo.claim(scope, "coder", ["task-rejected-writeback"]);
+    await repo.commit({
+      lease: claimedB.lease,
+      status: "rejected",
+      retryable: false,
+      error: { code: "exec-failed", message: "syntax boom" },
+      artifacts: [],
+      traceId: scope.traceId,
+    });
+    row = await pool.query("SELECT status, payload FROM tasks WHERE id = 'task-rejected-writeback'");
+    expect(row.rows[0].status).toBe("rejected");
+    expect(row.rows[0].payload.result).toEqual({ error: { code: "exec-failed", message: "syntax boom" } });
   });
 });

@@ -622,6 +622,8 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 - **设计已完成（2026-08-17 W8）**：入口**强制显式路由**（无缺省入口）；父→子投递用
   `tasks.delegate/await`；回流为**事件驱动 requeue**（子终态 → 父任务 requeue + `payload.childResult`）；
   组织权违规调用即拒绝；完整契约与分阶段见 [w8-task-dispatch-design.md](./w8-task-dispatch-design.md)。
+  **P0 契约已实施**：`payload.delivery` 单键存 TaskDelivery；外部入口盖
+  `{path:[assignedRole], lineageId:taskId}` 章；终态写 `payload.result`（64KiB 截断/失败摘要）。
 - **与 Prime 的对照**：Prime 在运行时 spawn 持久子 agent 长成树；PTH 是**静态类型树 + 任务投递**——
   「展开成图，而不是长成树」（图的节点 = 类型，边 = 投递/回流）。
 
@@ -990,7 +992,7 @@ v0.9（动作面/权限/任务池纯化）
 | W5 | **审核策略可配置**（用户修订：同 T4 分层闸门）：PTH_SKILL_WRITE_POLICY 用户可设——manual（缺省，人工闸门）/ staged（draft 提案 → 监督批准 → memory-keeper 执行） | Hermes write_approval（修订） | ✅ 已裁决——按修订生效 |
 | W6 | **冻结快照友好**：skill 不进 system prompt（lazy 按需查）——不破坏 prefix cache（与不可变性组合成论证） | Hermes frozen snapshot | ✅ 已裁决——原案生效 |
 | W7 | **对抗性安全审核角色**（用户设计）：治理族新增专门角色——skill 固化提案的对抗性审核（reward hacking 显式检验：Pitfalls 完整性 / Verification 可测性 / 作弊捷径——绕过治理/越权/目标函数漏洞）；接入 W5 staged 流：提案 → 对抗性审核 → 监督批准 → memory-keeper 执行 | Prime 风险警示（设计） | ✅ 已裁决——角色化落地 |
-| W8 | **PTL 任务派发与交互逻辑（0.16.2 前置设计）**：✅ 已设计（2026-08-17，见 w8-task-dispatch-design.md）——强制显式入口路由；delegate/await 投递原语；事件驱动 requeue 回流；组织权 fail-fast；先契约后收口。实施 P0–P3 另开计划 | 0.16.2 前置 | ✅ 已设计（待实施） |
+| W8 | **PTL 任务派发与交互逻辑（0.16.2 前置设计）**：✅ 已设计（2026-08-17，见 w8-task-dispatch-design.md）——强制显式入口路由；delegate/await 投递原语；事件驱动 requeue 回流；组织权 fail-fast；先契约后收口。**P0 契约/盖章/终态回写已实施；P1 delegate/await 实施中规划，P2 事件回流、P3 穿透待实施** | 0.16.2 前置 | ⚙️ P0 已实施（P1–P3 待实施） |
 
 ---
 

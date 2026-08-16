@@ -25,8 +25,14 @@ export class TaskControlService {
     scope: TenantScope,
   ): Promise<Task> {
     // P1-3：服务器端盖章——body 里的 createdBy/tenantId 一律丢弃。
+    // W8 P0：外部入口恒盖 entry delivery（path=[assignedRole]、lineageId=taskId）。
     const { createdBy: _createdBy, tenantId: _tenantId, ...rest } = input;
-    return this.deps.store.publish({ ...rest, createdBy: scope.principalId, tenantId: scope.tenantId });
+    return this.deps.store.publish({
+      ...rest,
+      createdBy: scope.principalId,
+      tenantId: scope.tenantId,
+      deliveryMode: "entry",
+    });
   }
 
   /** 观测列表（全部状态、created_at 倒序）——保持 gateway 既有 JSON 形状，仅加租户过滤 */

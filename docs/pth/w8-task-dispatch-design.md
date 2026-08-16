@@ -45,6 +45,15 @@ interface TaskDelivery {
 }
 ```
 
+**落库布局（P0 裁决 2026-08-17）**
+- `payload.delivery` 单键包裹 TaskDelivery（Q1）——不与既有 `payload.parent`(string)/`flow` 撞名；
+- 终态结果写 `payload.result`：completed 写 JSON-safe 全量结果（超 64KiB 递归截断 +
+  `__pthTruncated` 标记）；rejected/cancelled 写 `{error:{code,message}}`（Q3）；
+- sandbox 产物不进 jsonb：文件/大对象只写 `delivery.artifactRef` 引用；不可序列化值
+  （循环引用/函数/BigInt 根）降级为 `{__pthUnserializable,...}` 摘要，不污染终态；
+- 盖章范围（Q2）：仅外部入口（`TaskControlService` 路径）盖章；resolver/trigger/
+  debug-case/optimizer 等内部发布不盖章——静态链语义零变化。
+
 **服务器端盖章规则（不可信输入）**
 - 外部提交：`parent` 不设置（入口）；`path=[assignedRole]`；`lineageId=自身 taskId`。
 - worker delegate：`parent`、`path`、`lineageId` 由服务端根据**调用 worker 身份**生成；
@@ -120,10 +129,15 @@ tasks.await({ taskId, timeoutMs? }) →
 | D2 | **事件驱动 requeue**：子任务终态 → 主进程 notifier → 父任务 requeue（`payload.childResult`）；`tasks.await` 不轮询 |
 | D3 | **调用即拒绝**：组织权校验失败 → 工具调用结构化报错，不进任务池、无 draft 旁路 |
 | D4 | **先契约后收口**：本设计先落 TaskDelivery 盖章 + delegate/await 契约；0.16.4 工具面收口下一批灰度 |
+| Q1 | **payload.delivery 单键包裹**（P0 实施裁决）：不与既有 payload.parent(string)/flow 撞名 |
+| Q2 | **仅外部入口盖章**（P0 实施裁决）：TaskControlService 路径盖 entry 章；内部静态链发布不盖章 |
+| Q3 | **全量 + 64KiB 截断 + 失败摘要**（P0 实施裁决）：sandbox 产物只走 artifactRef 引用，不进 jsonb |
 
 ## 8. 分阶段实施（设计批准后）
 
-- **P0 契约与盖章**：TaskDelivery 类型 + 服务器端 path/lineage 盖章 + 终态 result 回写 + 测试；
+- **P0 契约与盖章**：✅ 已完成——TaskDelivery 类型/校验 + 入口盖章（entry）+ 终态 result
+  回写（completed/rejected 双路径）+ 测试（`contracts/tasking.ts`、`task-store-pg`、
+  `pg-task-repository`、`task-control-service`）；
 - **P1 delegate/await**：delegation-policy + 两个能力注入 + TaskControlService 服务端校验 + 端到端测试（developer→coder）；
 - **P2 事件驱动回流**：task-dispatch-notifier（子终态 → 父 requeue + childResult）+ 取消传播 + PTL wait --follow；
 - **P3 穿透接口**：`skill:penetrate:*` 类型与注册校验（不实现执行优化）。

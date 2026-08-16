@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "./pg.js";
-import { TASK_MAX_CLAIMS } from "../../contracts/tasking.js";
+import {
+  attachEntryDelivery,
+  encodeResultForPayload,
+  TASK_MAX_CLAIMS,
+} from "../../contracts/tasking.js";
 /** 路由策略注入（2026-08-13 审计 P2——存储层不再依赖执行层：
  *  校验/分配由装配层（assembly/batch-process）传入——task-store 只存不判） */
 export interface TaskRouting {
@@ -44,6 +48,12 @@ export interface PublishInput {
   jobId?: string;
   /** P0-3：外部路由从 auth token 派生写入；内部发布者缺省 default */
   tenantId?: string;
+  /**
+   * W8 P0 服务器端投递盖章开关（仅 TaskControlService 外部入口置 "entry"）：
+   * path=[assignedRole]、lineageId=自身 taskId、parent 不设置。内部静态链发布
+   * （resolver/trigger/debug-case/optimizer）不传——不改变既有 flow/trigger 语义。
+   */
+  deliveryMode?: "entry";
 }
 
 export interface TaskStore {
@@ -83,12 +93,17 @@ export class PgTaskStore implements TaskStore {
     // （flow 显式 role / tags 精确匹配——校验期已保证有路由依据）——assigned_role 从出生即确定，零抢票。
     const id = randomUUID();
     const assignedRole = this.routing?.assign({ id, tags: input.tags, payload: input.payload }) ?? null;
+    // W8 P0 入口盖章（用户裁决 Q2：仅外部入口）——无路由策略注入（测试/直连装配）时无法
+    // 确定 assignedRole，不盖章降级（不阻断兼容性；生产 gateway 恒注入 routing）。
+    const payload = input.deliveryMode === "entry" && assignedRole
+      ? attachEntryDelivery(input.payload, id, assignedRole)
+      : input.payload ?? {};
     const tenantId = typeof input.tenantId === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(input.tenantId) ? input.tenantId : "default";
     const res = await this.pool.query(
       `INSERT INTO tasks (id, tenant_id, title, text, created_by, tags, payload, template_id, assigned_role, job_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING *`,
-      [id, tenantId, input.title, input.text, input.createdBy, input.tags ?? [], input.payload ?? {}, input.templateId ?? null, assignedRole, input.jobId ?? null],
+      [id, tenantId, input.title, input.text, input.createdBy, input.tags ?? [], payload, input.templateId ?? null, assignedRole, input.jobId ?? null],
     );
     return mapRow(res.rows[0]);
   }
@@ -205,15 +220,20 @@ export class PgTaskStore implements TaskStore {
   }
 
   async submit(agentId: string, taskId: string, outputRef: unknown): Promise<number> {
+    // W8 P0 终态回写（legacy 兼容路径）：payload.result = JSON-safe 编码结果；
+    // outputRef 保留（task-resolver loop 条件的既有读取面）。
+    const encoded = encodeResultForPayload(outputRef).value;
     const res = await this.pool.query(
       `UPDATE tasks SET
          status = 'completed',
          submitted_at = now(),
          completed_at = now(),
          updated_at = now(),
-         payload = payload || jsonb_build_object('outputRef', $3::jsonb)
+         payload = jsonb_set(
+           jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $3::jsonb, true),
+           '{outputRef}', $4::jsonb, true)
        WHERE id = $1 AND claimed_by = $2`,
-      [taskId, agentId, JSON.stringify(outputRef)],
+      [taskId, agentId, JSON.stringify(encoded), JSON.stringify({ ref: encoded })],
     );
     return res.rowCount ?? 0;
   }

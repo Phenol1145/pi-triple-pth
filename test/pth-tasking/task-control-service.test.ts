@@ -6,6 +6,8 @@ import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg.js";
 import { TaskControlService } from "../../src/pth/tasking/task-control-service.js";
 import { PgTaskQueries } from "../../src/pth/tasking/task-queries.js";
+import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
+import { installDefaultRoles } from "../helpers.js";
 import type { TenantScope } from "../../src/pth/contracts/index.js";
 
 async function hasDocker(): Promise<boolean> {
@@ -34,6 +36,7 @@ suite("task control service（P1-3）", () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     pool = await createPgPool({ connectionString: container.getConnectionUri() });
     await applySchema(pool);
+    installDefaultRoles();
     store = new PgTaskStore(pool);
     service = new TaskControlService({ store, pool, queries: new PgTaskQueries(pool) });
   }, 120_000);
@@ -52,6 +55,23 @@ suite("task control service（P1-3）", () => {
     const row = await pool.query("SELECT created_by, tenant_id FROM tasks WHERE id = $1", [task.id]);
     expect(row.rows[0].created_by).toBe("tenant:tenant-a:tenant-agent");
     expect(row.rows[0].tenant_id).toBe("tenant-a");
+  });
+
+  it("W8 P0：外部入口恒盖 entry delivery，body 伪造 delivery 被服务端覆盖", async () => {
+    const routedStore = new PgTaskStore(pool, { validate: checkTaskRouting, assign: routeTaskRole });
+    const routedService = new TaskControlService({ store: routedStore, pool, queries: new PgTaskQueries(pool) });
+    const task = await routedService.publish(
+      {
+        title: "entry", text: "x", tags: ["code"],
+        payload: { delivery: { path: ["forged"], lineageId: "forged" } },
+      },
+      scopeA,
+    );
+    expect(task.assigned_role).toBe("developer");
+    expect((task.payload as { delivery?: unknown }).delivery).toEqual({
+      path: ["developer"],
+      lineageId: task.id,
+    });
   });
 
   it("list/get 只返回本租户数据，跨租户 get 返回 null", async () => {
@@ -75,8 +95,9 @@ suite("task control service（P1-3）", () => {
     );
     const q = new PgTaskQueries(pool);
     const devA = await q.pending({ scope: scopeA, roleId: "developer", limit: 10 });
-    expect(devA.map((w) => w.taskId)).toEqual(["pending-a"]);
-    expect(devA[0].scope.tenantId).toBe("tenant-a");
+    const inserted = devA.filter((w) => w.taskId.startsWith("pending-"));
+    expect(inserted.map((w) => w.taskId)).toEqual(["pending-a"]);
+    expect(inserted[0].scope.tenantId).toBe("tenant-a");
 
     const getCross = await q.get("pending-a", scopeB);
     expect(getCross).toBeNull();

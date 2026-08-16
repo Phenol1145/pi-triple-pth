@@ -5,6 +5,7 @@
  * 本层只校验结构形状；UUID 签发、持久化 lease 状态与 CAS 语义由 tasking adapter 实现。
  */
 
+import { Buffer } from "node:buffer";
 import {
   isTenantScopeStructurallyValid,
   isUuidLike,
@@ -40,6 +41,40 @@ export interface ArtifactRef {
   readonly kind: string;
   readonly uri: string;
   readonly mediaType?: string;
+}
+
+// ─── W8 P0：任务投递契约（docs/pth/w8-task-dispatch-design.md §3） ───────────
+// TaskDelivery 存在任务 payload 的 `delivery` 单键下（用户裁决 Q1）；
+// parent/path/lineageId 只能由服务器端盖章，worker/外部 body 不可自报。
+
+export const DELIVERY_ARTIFACT_KINDS = ["memory", "file", "component"] as const;
+export type DeliveryArtifactKind = (typeof DELIVERY_ARTIFACT_KINDS)[number];
+export type DeliveryReplyTo = "parent" | "caller";
+
+export interface DeliveryArtifactRef {
+  readonly kind: DeliveryArtifactKind;
+  /** memory=entry id；file/component=uri 或引用 id */
+  readonly id: string;
+}
+
+export interface TaskDeliveryParent {
+  readonly taskId: string;
+  readonly roleId: string;
+  /** 父任务在类型树上的派发路径 */
+  readonly typePath: readonly string[];
+}
+
+export interface TaskDelivery {
+  /** 外部入口任务不设置；worker delegate 时由服务端按调用者身份盖章 */
+  readonly parent?: TaskDeliveryParent;
+  /** 类型树派发路径（含自身类型），如 ["origin","developer","coder"] */
+  readonly path: readonly string[];
+  /** 同一入口任务派生树的根 id（入口任务 = 自身 taskId） */
+  readonly lineageId: string;
+  /** 回流目标：父任务（默认）或穿透调用点 */
+  readonly replyTo?: DeliveryReplyTo;
+  /** 最终产物引用（done 声明产物时由服务端回写） */
+  readonly artifactRef?: DeliveryArtifactRef;
 }
 
 export type TaskOutcomeStatus = "completed" | "rejected" | "cancelled";
@@ -146,4 +181,250 @@ export function isTaskOutcomeStructurallyValid(v: unknown): v is TaskOutcome {
   if (o.usage !== undefined && (typeof o.usage !== "object" || o.usage === null || Object.values(o.usage).some((n) => typeof n !== "number" || !Number.isFinite(n)))) return false;
   if (!NON_EMPTY_STRING(o.traceId)) return false;
   return true;
+}
+
+// ─── W8 P0：TaskDelivery 结构校验与服务器端盖章/回写（纯函数） ───────────
+
+function isNonEmptyStringArray(v: unknown): v is readonly string[] {
+  return Array.isArray(v) && v.length > 0 && v.every(NON_EMPTY_STRING);
+}
+
+export function isDeliveryArtifactRefStructurallyValid(v: unknown): v is DeliveryArtifactRef {
+  if (typeof v !== "object" || v === null) return false;
+  const a = v as Record<string, unknown>;
+  return (
+    DELIVERY_ARTIFACT_KINDS.includes(a.kind as DeliveryArtifactKind) &&
+    NON_EMPTY_STRING(a.id)
+  );
+}
+
+export function isTaskDeliveryStructurallyValid(v: unknown): v is TaskDelivery {
+  if (typeof v !== "object" || v === null) return false;
+  const d = v as Record<string, unknown>;
+  if (!isNonEmptyStringArray(d.path) || !NON_EMPTY_STRING(d.lineageId)) return false;
+  if (d.parent !== undefined) {
+    const p = d.parent as Record<string, unknown>;
+    if (
+      typeof p !== "object" || p === null ||
+      !NON_EMPTY_STRING(p.taskId) || !NON_EMPTY_STRING(p.roleId) ||
+      !isNonEmptyStringArray(p.typePath)
+    ) return false;
+  }
+  if (d.replyTo !== undefined && d.replyTo !== "parent" && d.replyTo !== "caller") return false;
+  if (d.artifactRef !== undefined && !isDeliveryArtifactRefStructurallyValid(d.artifactRef)) return false;
+  return true;
+}
+
+/** payload 中 TaskDelivery 的存储键（用户裁决 Q1：单键包裹） */
+export const TASK_DELIVERY_PAYLOAD_KEY = "delivery";
+/** payload.result 的 64KiB 上限（用户裁决 Q3 方案 1） */
+export const TASK_RESULT_MAX_BYTES = 64 * 1024;
+
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v) as unknown;
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * 服务器端入口盖章：path=[assignedRole]、lineageId=自身 taskId、不设 parent。
+ * 仅当 taskId 与 assignedRole 均有效时返回；否则返回 null（调用方决定拒绝或降级）。
+ */
+export function buildEntryDelivery(taskId: string, roleId: string): TaskDelivery | null {
+  if (!NON_EMPTY_STRING(taskId) || !NON_EMPTY_STRING(roleId)) return null;
+  return { path: [roleId], lineageId: taskId };
+}
+
+/** 把入口 delivery 合入 payload 的 `delivery` 键；payload 非普通对象时先归一化为对象。 */
+export function attachEntryDelivery(payload: unknown, taskId: string, roleId: string): Record<string, unknown> {
+  const base = isPlainRecord(payload) ? { ...payload } : {};
+  const delivery = buildEntryDelivery(taskId, roleId);
+  if (delivery) base[TASK_DELIVERY_PAYLOAD_KEY] = delivery;
+  return base;
+}
+
+export interface EncodedTaskResult {
+  /** JSON-safe 值（可直接 jsonb 写入） */
+  value: unknown;
+  truncated: boolean;
+  unserializable: boolean;
+}
+
+function utf8Bytes(s: string): number {
+  return Buffer.byteLength(s, "utf8");
+}
+
+function jsonBytes(v: unknown): number | undefined {
+  try {
+    return utf8Bytes(JSON.stringify(v));
+  } catch {
+    return undefined;
+  }
+}
+
+function buildUnserializableFallback(v: unknown): Record<string, unknown> {
+  return {
+    __pthUnserializable: true,
+    type: typeof v,
+    preview: String(v).slice(0, 2000),
+  };
+}
+
+const CLIP_MARKER = "…（已截断）";
+
+function clipStringValue(s: string, budget: number): string {
+  const whole = utf8Bytes(JSON.stringify(s));
+  if (whole <= budget) return s;
+  // 二分找最大前缀：prefix + 截断标记 序列化后仍 ≤ budget
+  let lo = 0;
+  let hi = s.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (utf8Bytes(JSON.stringify(s.slice(0, mid) + CLIP_MARKER)) <= budget) lo = mid;
+    else hi = mid - 1;
+  }
+  return s.slice(0, lo) + CLIP_MARKER;
+}
+
+interface ClippedValue {
+  value: unknown;
+  unserializable: boolean;
+  /** 本值或其任意后代被截断（不一定有空间追加 __pthTruncated 标记） */
+  truncated: boolean;
+}
+
+function clipJsonValue(v: unknown, budget: number): ClippedValue {
+  if (typeof v === "string") {
+    const whole = utf8Bytes(JSON.stringify(v));
+    return whole <= budget
+      ? { value: v, unserializable: false, truncated: false }
+      : { value: clipStringValue(v, budget), unserializable: false, truncated: true };
+  }
+  if (v === null || typeof v === "boolean" || typeof v === "number") {
+    return (jsonBytes(v) ?? Infinity) <= budget
+      ? { value: v, unserializable: false, truncated: false }
+      : { value: null, unserializable: false, truncated: false };
+  }
+  if (typeof v === "undefined" || typeof v === "function" || typeof v === "symbol" || typeof v === "bigint") {
+    return { value: `[unserializable:${typeof v}]`, unserializable: true, truncated: false };
+  }
+  if (Array.isArray(v)) return clipArrayValue(v, budget);
+  if (isPlainRecord(v)) return clipRecordValue(v, budget);
+  // Date/Map/Set/类实例等非普通对象：JSON.stringify 会静默丢字段——降级为摘要字符串
+  return { value: String(v).slice(0, 2000), unserializable: false, truncated: false };
+}
+
+/** 截断标记对象（末位追加；预算不足时不追加，但 truncated 语义仍由调用方判断） */
+function clipArrayValue(arr: readonly unknown[], budget: number): ClippedValue {
+  const out: unknown[] = [];
+  let used = 2; // []
+  let unserializable = false;
+  let truncated = false;
+  let omitted = 0;
+  for (const item of arr) {
+    const remaining = budget - used;
+    if (remaining <= 0) { omitted++; continue; }
+    const clipped = clipJsonValue(item, remaining);
+    const candidate = [...out, clipped.value];
+    const candidateBytes = jsonBytes(candidate);
+    if (candidateBytes === undefined || candidateBytes > budget) { omitted++; continue; }
+    out.push(clipped.value);
+    used = candidateBytes;
+    unserializable ||= clipped.unserializable;
+    truncated ||= clipped.truncated;
+  }
+  if (omitted > 0 || truncated) {
+    const marker = { __pthTruncated: true, ...(omitted > 0 ? { omittedItems: omitted } : {}) };
+    const withMarker = [...out, marker];
+    if ((jsonBytes(withMarker) ?? Infinity) <= budget) out.push(marker);
+  }
+  return { value: out, unserializable, truncated: truncated || omitted > 0 };
+}
+
+function clipRecordValue(rec: Record<string, unknown>, budget: number): ClippedValue {
+  const out: Record<string, unknown> = {};
+  let used = 2; // {}
+  let unserializable = false;
+  let truncated = false;
+  let omitted = 0;
+  for (const [key, item] of Object.entries(rec)) {
+    const keyBytes = jsonBytes(key) ?? 16;
+    const remaining = budget - used - keyBytes;
+    if (remaining <= 0) { omitted++; continue; }
+    const clipped = clipJsonValue(item, remaining);
+    const candidate = { ...out, [key]: clipped.value };
+    const candidateBytes = jsonBytes(candidate);
+    if (candidateBytes === undefined || candidateBytes > budget) { omitted++; continue; }
+    out[key] = clipped.value;
+    used = candidateBytes;
+    unserializable ||= clipped.unserializable;
+    truncated ||= clipped.truncated;
+  }
+  if (omitted > 0 || truncated) {
+    const truncatedMarker = { ...out, __pthTruncated: true };
+    if ((jsonBytes(truncatedMarker) ?? Infinity) <= budget) out.__pthTruncated = true;
+    if (omitted > 0) {
+      const countedMarker = { ...out, __pthOmittedKeys: omitted };
+      if ((jsonBytes(countedMarker) ?? Infinity) <= budget) out.__pthOmittedKeys = omitted;
+    }
+  }
+  return { value: out, unserializable, truncated: truncated || omitted > 0 };
+}
+
+/**
+ * done.result → payload.result 编码（用户裁决 Q3 方案 1）：
+ *  - 可 JSON 序列化且 ≤64KiB：原值 round-trip（结构保留）；
+ *  - 超限：递归截断容器/字符串并带 __pthTruncated 标记；
+ *  - 不可序列化（循环引用/函数/BigInt 根值等）：降级为错误摘要对象，不抛错。
+ */
+export function encodeResultForPayload(input: unknown, maxBytes: number = TASK_RESULT_MAX_BYTES): EncodedTaskResult {
+  let json: string | undefined;
+  try {
+    json = JSON.stringify(input);
+  } catch {
+    json = undefined;
+  }
+  if (json !== undefined) {
+    const bytes = utf8Bytes(json);
+    if (bytes <= maxBytes) {
+      return { value: JSON.parse(json) as unknown, truncated: false, unserializable: false };
+    }
+    const clipped = clipJsonValue(input, maxBytes);
+    return { value: clipped.value, truncated: true, unserializable: clipped.unserializable };
+  }
+  // JSON.stringify 返回 undefined 且不抛错：root 为 undefined/function/symbol
+  return { value: buildUnserializableFallback(input), truncated: false, unserializable: true };
+}
+
+/** 把 runner ArtifactRef 映射为 TaskDelivery.artifactRef（kind 必须在 memory/file/component 白名单内） */
+export function toDeliveryArtifactRef(ref: ArtifactRef | undefined): DeliveryArtifactRef | null {
+  if (!ref || !isArtifactRefStructurallyValid(ref)) return null;
+  if (!DELIVERY_ARTIFACT_KINDS.includes(ref.kind as DeliveryArtifactKind)) return null;
+  return { kind: ref.kind as DeliveryArtifactKind, id: ref.uri };
+}
+
+export interface TaskResultWriteback {
+  /** payload.result 要写入的值（completed=结果；rejected/cancelled=错误摘要） */
+  result: unknown;
+  /** 仅 completed 且 done 声明合法产物时非 null */
+  artifactRef: DeliveryArtifactRef | null;
+}
+
+export function buildCompletedResultWriteback(
+  result: unknown,
+  artifacts: readonly ArtifactRef[],
+  maxBytes: number = TASK_RESULT_MAX_BYTES,
+): TaskResultWriteback {
+  const encoded = encodeResultForPayload(result, maxBytes);
+  return { result: encoded.value, artifactRef: toDeliveryArtifactRef(artifacts[0]) };
+}
+
+export function buildErrorResultWriteback(
+  error: { code: string; message: string } | undefined,
+  defaultMessage = "任务被拒绝",
+): TaskResultWriteback {
+  return {
+    result: { error: error ?? { code: "rejected", message: defaultMessage } },
+    artifactRef: null,
+  };
 }

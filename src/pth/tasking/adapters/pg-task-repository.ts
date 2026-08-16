@@ -13,7 +13,11 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "../../kernel/storage/pg.js";
-import { TASK_MAX_CLAIMS } from "../../contracts/index.js";
+import {
+  buildCompletedResultWriteback,
+  buildErrorResultWriteback,
+  TASK_MAX_CLAIMS,
+} from "../../contracts/index.js";
 import type {
   TaskLease,
   TaskOutcome,
@@ -133,16 +137,33 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
       const { taskId, leaseId, generation } = outcome.lease;
       let res: pg.QueryResult;
       if (outcome.status === "completed") {
-        res = await pool.query(
-          `UPDATE tasks SET
-             status = 'completed',
-             submitted_at = now(),
-             completed_at = now(),
-             updated_at = now(),
-             payload = payload || jsonb_build_object('outputRef', $4::jsonb)
-           WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-          [taskId, leaseId, generation, JSON.stringify(outcome.result ?? null)],
-        );
+        // W8 P0 终态回写：payload.result = JSON-safe 编码结果（≤64KiB/截断标记）；
+        // done 声明产物时同步写 payload.delivery.artifactRef（不覆盖 path/lineageId 已有章）。
+        const { result, artifactRef } = buildCompletedResultWriteback(outcome.result, outcome.artifacts);
+        res = await withTx(pool, async (client) => {
+          const upd = await client.query(
+            `UPDATE tasks SET
+               status = 'completed',
+               submitted_at = now(),
+               completed_at = now(),
+               updated_at = now(),
+               payload = jsonb_set(
+                 jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $4::jsonb, true),
+                 '{outputRef}', $5::jsonb, true)
+             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
+            [taskId, leaseId, generation, JSON.stringify(result), JSON.stringify({ ref: result })],
+          );
+          if ((upd.rowCount ?? 0) > 0 && artifactRef) {
+            await client.query(
+              `UPDATE tasks SET
+                 payload = jsonb_set(payload, '{delivery,artifactRef}', $4::jsonb, true),
+                 updated_at = now()
+               WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'completed'`,
+              [taskId, leaseId, generation, JSON.stringify(artifactRef)],
+            );
+          }
+          return upd;
+        });
       } else if (outcome.retryable === true) {
         res = await pool.query(
           `UPDATE tasks SET
@@ -156,13 +177,19 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
           [taskId, leaseId, generation],
         );
       } else {
+        // W8 P0：终态失败回写——payload.result = { error: {code,message} }（父 await 的错误摘要）
+        const { result } = buildErrorResultWriteback(
+          outcome.error,
+          outcome.status === "cancelled" ? "任务已取消" : "任务被拒绝",
+        );
         res = await pool.query(
           `UPDATE tasks SET
              status = 'rejected',
              escalated_at = CASE WHEN $4::text = 'cancelled' THEN now() ELSE escalated_at END,
+             payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $5::jsonb, true),
              updated_at = now()
            WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-          [taskId, leaseId, generation, outcome.status],
+          [taskId, leaseId, generation, outcome.status, JSON.stringify(result)],
         );
       }
       return { committed: (res.rowCount ?? 0) > 0 };
