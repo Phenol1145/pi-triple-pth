@@ -14,6 +14,7 @@ import { checkTaskRouting, routeTaskRole } from "./role-router.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
 import { getEventBus } from "./event-bus.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
+import { createPgTaskRepository } from "../../tasking/adapters/pg-task-repository.js";
 import { DefaultTaskWorkspaceManager } from "./workspace.js";
 import { archiveTask, type ArchiveDeps } from "./archive.js";
 import { createKernelModelRouter } from "./model-router.js";
@@ -32,22 +33,28 @@ export interface RunBatchProcessDeps {
 }
 
 /**
- * 转录归档接线（Task 4 接入）：TaskLoop 的 protected archive 钩子默认只归档工作区产物；
- * 本类覆写为完整转录归档（archiveTask = 转录入 pg + 产物 rename + 清理提示）。
- * 侵入最小（不改 TaskLoop）：archiveDeps 携带与 TaskLoop 同一 workspaceMgr 实例
- * （产物 rename 基于同一工作区路径）。
+ * 转录归档接线（Task 4 接入）——P1-6 改为组合：不再继承 TaskLoop，
+ * 通过 archiveFn 注入完整转录归档（archiveTask = 转录入 pg + 产物 rename + 清理提示）。
+ * 外部接口（runOnce/pause/resume/stop/isPaused/isStopped）与旧继承版一致。
  */
-class BatchTaskLoop extends TaskLoop {
-  private archiveDeps: ArchiveDeps;
+class BatchTaskLoop {
+  private inner: TaskLoop;
 
   constructor(deps: TaskLoopDeps, archiveDeps: ArchiveDeps) {
-    super(deps);
-    this.archiveDeps = archiveDeps;
+    this.inner = new TaskLoop({
+      ...deps,
+      archiveFn: async (task: Task, ws: { dir: string; tenant: string }, result: unknown) => {
+        await archiveTask(task, ws, result as InterpreterResult, archiveDeps);
+      },
+    });
   }
 
-  protected async archive(task: Task, ws: { dir: string }, result: unknown): Promise<void> {
-    await archiveTask(task, ws, result as InterpreterResult, this.archiveDeps);
-  }
+  runOnce(): Promise<boolean> { return this.inner.runOnce(); }
+  pause(): void { this.inner.pause(); }
+  resume(): void { this.inner.resume(); }
+  stop(): void { this.inner.stop(); }
+  get isPaused(): boolean { return this.inner.isPaused; }
+  get isStopped(): boolean { return this.inner.isStopped; }
 }
 
 /**
@@ -64,6 +71,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化）
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——batch 子进程与 assembly 同源。
   const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
+  // P1-6：batch 子进程启用 tasking dispatcher 路径（真实 lease claim/CAS commit）
+  const taskRepository = createPgTaskRepository(pool);
   const workspaceMgr = new DefaultTaskWorkspaceManager({ basePath: deps.basePath, artifactPath: deps.artifactPath });
   // 产物根必须先存在：archive 用 rename 而非 mkdir——父目录缺失时 rename 抛 ENOENT
   await mkdir(deps.artifactPath, { recursive: true });
@@ -313,6 +322,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     }) : undefined;
     const loop = new BatchTaskLoop({
       kernel, role, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
+      repository: taskRepository,
       // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
       llm,
       // agent 循环的 capability 白名单（与 vm 注入同一份）
