@@ -1,6 +1,10 @@
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { Task, TaskStore } from "../storage/task-store-pg.js";
 import type { WorkerRole } from "./worker-cluster.js";
+import type { TaskOutcome, TaskRepository, TenantScope } from "../../contracts/index.js";
+import { TaskDispatcher } from "../../tasking/task-dispatcher.js";
+import { TaskOutcomeCommitter } from "../../tasking/task-outcome-committer.js";
+import { AgentTaskRunner } from "../../runner/agent-task-runner.js";
 import { translateTask } from "./nl-translator.js";
 import { runPtcProgram } from "../ptc/runner.js";
 import { runAgentTask } from "./agent-loop.js";
@@ -51,6 +55,10 @@ export interface TaskLoopDeps {
   llm?: import("../interpreter/llm-fn.js").LlmFn;
   /** agent 循环的 capability 白名单（web/state/fs/memory——与 vm 注入同一份） */
   agentCaps?: Record<string, unknown>;
+  /** P1-6：注入即启用 tasking dispatcher 路径（claim→run→commit）；缺省走 legacy 兼容路径 */
+  repository?: TaskRepository;
+  /** P1-6：归档钩子注入（BatchTaskLoop 组合用；缺省用 protected archive 默认实现） */
+  archiveFn?: (task: Task, ws: { dir: string; tenant: string }, result: unknown) => Promise<void>;
 }
 
 /**
@@ -88,6 +96,9 @@ export class TaskLoop {
     const candidates = await taskStore.candidates(role.id);
     if (candidates.length === 0) return false;
 
+    // P1-6：注入 repository → tasking dispatcher 路径（claim→run→commit）；缺省 legacy 兼容路径。
+    if (this.deps.repository) return this.runOnceDispatched(candidates);
+
     // 2. claim（claim 即承诺）：机械认领全部候选；单条认领为空（竞态/不可认领）不中断
     const claimed: Task[] = [];
     for (const task of candidates) {
@@ -105,6 +116,140 @@ export class TaskLoop {
       await this.execute(task);
     }
     return true;
+  }
+
+
+  /** P1-6：tasking dispatcher 路径（repository 注入）——peek 后逐候选 claim→run→commit */
+  private async runOnceDispatched(candidates: Task[]): Promise<boolean> {
+    const { role, repository, workspaceMgr, taskStore } = this.deps;
+    let did = false;
+    for (const task of candidates) {
+      if (this.paused || this.stopped) break;
+      const ws = await workspaceMgr.allocate(task.id, task.tenantId ?? "default");
+      const execStart = Date.now();
+      const trig = (task.payload as { triggeredBy?: { depth?: number; triggerId?: string } } | undefined)?.triggeredBy;
+      const chain = { chainDepth: Number(trig?.depth ?? 0), ...(trig?.triggerId ? { triggerId: trig.triggerId } : {}) };
+      const traceEvents: import("./agent-loop.js").AgentTraceEvent[] = [];
+      const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
+      const runner = new AgentTaskRunner({
+        kernel: this.deps.kernel,
+        role,
+        workspace: { taskId: task.id, tenant: ws.tenant, dir: ws.dir },
+        llm: this.deps.llm,
+        caps: this.deps.agentCaps,
+        onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
+        logger: (m) => taskLogger?.info(m),
+        onTrace: (e) => {
+          traceEvents.push(e);
+          if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）` });
+          else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80) });
+          else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...chain });
+        },
+      });
+      this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags });
+      const dispatcher = new TaskDispatcher({
+        repository: repository!,
+        committer: new TaskOutcomeCommitter(repository!),
+        runner,
+        observers: [(evt) => this.afterCommittedNew(task, ws, evt.outcome, chain, execStart, traceEvents)],
+        logger: (m) => taskLogger?.warn?.(m),
+      });
+      const scope: TenantScope = {
+        tenantId: task.tenantId ?? "default",
+        principalId: role.id,
+        roles: [role.id],
+        traceId: `task:${task.id}`,
+      };
+      const res = await dispatcher.dispatchOnce(scope, role.id, [task.id]);
+      if (res.claimed > 0) {
+        this.bus.emit("task.claim", { taskId: task.id, role: role.id, tags: task.tags });
+        this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...chain });
+      }
+      did = did || res.ran > 0;
+    }
+    return did;
+  }
+
+  /** P1-6：committed 后的副作用集中点（不写任务终态——终态已由 repository.commit CAS 落库） */
+  private async afterCommittedNew(
+    task: Task,
+    ws: { dir: string; tenant: string },
+    outcome: TaskOutcome,
+    chain: { chainDepth: number; triggerId?: string },
+    execStart: number,
+    traceEvents: unknown[],
+  ): Promise<void> {
+    const { role, taskStore } = this.deps;
+    const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
+    const reason = outcome.error?.message ?? "unknown";
+    const execMs = Date.now() - execStart;
+    const audit = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit;
+
+    if (outcome.status === "completed") {
+      if (audit?.write) {
+        try { await audit.write({ eventType: "task_completed", actor: role.id, taskId: task.id, payload: { submitAffected: 1 } }); } catch { /* 审计容错 */ }
+      }
+      this.bus.emit("task.execute.end", { taskId: task.id, role: role.id, ok: true, durationMs: execMs });
+      this.bus.emit("task.submit", { taskId: task.id, role: role.id });
+      const resultLike = {
+        value: (outcome.result as { value?: unknown } | undefined)?.value ?? outcome.result,
+        stdout: (outcome.result as { stdout?: string } | undefined)?.stdout ?? "",
+        summary: (outcome.result as { summary?: string } | undefined)?.summary ?? "",
+      };
+      await this.invokeArchive(task, ws, resultLike);
+      await this.maybeDispatchDebugCaseWriter(task, resultLike);
+      taskLogger?.info("task completed", { durationMs: execMs });
+      this.deps.onTaskMetric?.({ type: "status", status: "completed" });
+      notifyTaskDone({ taskId: task.id, role: role.id, status: "completed", summary: resultLike.summary });
+      this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
+
+      if (this.deps.optimizer && traceEvents.length > 0) {
+        try {
+          const { buildScorecard, computeTimeReuse } = await import("./worker-scorecard.js");
+          const sc = buildScorecard(traceEvents as never);
+          const value = (outcome.result as { value?: unknown } | undefined)?.value as Record<string, unknown> | undefined;
+          const subtasks = value?.["subtasks"];
+          if (Array.isArray(subtasks) && subtasks.length > 0) sc.timeReuse = computeTimeReuse(subtasks as Array<{ id?: string; dependsOn?: string[] }>);
+          this.deps.optimizer.collect(sc, { role: role.id, taskId: task.id, verifyOf: (task.payload as { verifyOf?: string } | undefined)?.verifyOf });
+        } catch (e) {
+          taskLogger?.error(`optimizer collect failed: ${(e as Error).message}`);
+        }
+      }
+      if (this.deps.refiner && ((task.payload ?? {}) as { refine?: string }).refine !== "off") {
+        try {
+          const snap = await this.deps.kernel.snapshot();
+          void this.deps.refiner.refine({ task, snapshot: snap, trace: traceEvents as never, role: role.id })
+            .catch((e) => taskLogger?.error(`refine failed: ${(e as Error).message}`));
+        } catch (e) {
+          taskLogger?.error(`refine snapshot failed: ${(e as Error).message}`);
+        }
+      }
+      return;
+    }
+
+    if (outcome.retryable === true) {
+      if (audit?.write) {
+        try { await audit.write({ eventType: "task_requeued", actor: role.id, taskId: task.id, payload: { reason: reason.slice(0, 300) } }); } catch { /* 审计容错 */ }
+      }
+      this.deps.onActivity?.({ kind: "task.requeued", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
+      this.deps.onTaskMetric?.({ type: "status", status: "requeued" });
+    } else {
+      if (audit?.write) {
+        try { await audit.write({ eventType: "task_rejected", actor: role.id, taskId: task.id, payload: { reason: reason.slice(0, 300) } }); } catch { /* 审计容错 */ }
+      }
+      this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
+      this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
+      this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(reason) });
+      notifyTaskDone({ taskId: task.id, role: role.id, status: "rejected", error: reason });
+      this.bus.emit("task.reject", { taskId: task.id, role: role.id, reason, durationMs: execMs });
+      this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
+    }
+  }
+
+  /** 归档钩子注入（BatchTaskLoop 组合）或 protected 默认实现 */
+  private async invokeArchive(task: Task, ws: { dir: string; tenant: string }, result: unknown): Promise<void> {
+    if (this.deps.archiveFn) return this.deps.archiveFn(task, ws, result);
+    await this.archive(task, ws, result);
   }
 
   /** terminal reject 统一出口（Origin 升级链事件源——task.rejected 活动事件供 trigger 消费） */
@@ -298,7 +443,7 @@ export class TaskLoop {
         // 执行失败（语法/运行时错误——interpreter 返回 ok:false 不抛）：按 reject 处理，
         // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。
         await this.rejectTerminal(task, `execution-failed: ${result.error?.message ?? "unknown"}`, chain);
-        await this.archive(task, ws, result);
+        await this.invokeArchive(task, ws, result);
         taskLogger?.error(`task rejected: ${result.error?.message ?? "unknown"}`, { durationMs: execMs });
         notifyTaskDone({ taskId: task.id, role: role.id, status: "rejected", error: result.error?.message ?? "unknown" });
         this.bus.emit("task.reject", { taskId: task.id, role: role.id, reason: result.error?.message ?? "unknown", durationMs: execMs });
@@ -319,7 +464,7 @@ export class TaskLoop {
         try { await auditDone.write({ eventType: "task_completed", actor: role.id, taskId: task.id, payload: { submitAffected: affected } }); } catch { /* 审计容错 */ }
       }
       this.bus.emit("task.submit", { taskId: task.id, role: role.id });
-      await this.archive(task, ws, result);
+      await this.invokeArchive(task, ws, result);
       await this.maybeDispatchDebugCaseWriter(task, result);
       taskLogger?.info("task completed", { durationMs: execMs });
       this.deps.onTaskMetric?.({ type: "status", status: "completed" });
