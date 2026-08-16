@@ -17,7 +17,17 @@ RUN npm ci
 
 COPY packages/ ./packages/
 COPY src/ ./src/
-RUN npx tsc
+# 依赖拓扑序构建：shared → infra → pth-memory → pth-sandbox → framework → mailbox → dev-container → root
+# （pth-sandbox 依赖 infra/pth-memory 的 dist 声明；root 依赖各 workspace dist——
+#   顺序错误在干净构建上下文必失败，此前会被本机预构建 dist 掩盖）
+RUN npx tsc -p packages/shared \
+    && npx tsc -p packages/infra \
+    && npx tsc -p packages/pth-memory \
+    && npx tsc -p packages/pth-sandbox \
+    && npx tsc -p packages/framework \
+    && npx tsc -p packages/mailbox \
+    && npx tsc -p packages/dev-container \
+    && npx tsc
 
 # ---- Runtime stage ----
 FROM node:22-slim

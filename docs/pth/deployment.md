@@ -22,7 +22,7 @@ docker-compose.yaml
 
 ### 2.1 前置
 - Docker + Docker Compose v2（`docker compose version` 确认）
-- 仓库 clone：`git clone https://github.com/Phenol1145/pi-platform.git`
+- 仓库 clone：`git clone https://github.com/Phenol1145/pi-triple.git && cd pi-triple`
 
 ### 2.2 配置统一 secrets 文件（deploy/.env.pth.secrets）
 
@@ -50,7 +50,7 @@ cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets
 docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d postgres redis
 # 等 healthy（docker compose ps——postgres 需 ready 后 pi-platform 才能连）
 docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d pi-platform sandbox
-docker compose ps          # 四服务都应 healthy
+docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml ps   # 四服务都应 healthy
 ```
 
 ### 2.4 验证三连
@@ -67,10 +67,34 @@ curl -s -X POST http://localhost:3000/api/v1/kernel/tasks \
 #   → 返回 id + pending；~15s 后查 status 应为 completed，结果 sum5050=5050
 
 # ③ 安全确认（sandbox 零敏感）
-bash scripts/check-sandbox-env.sh     # 镜像扫描 + 容器 env 白名单断言
+bash scripts/check-sandbox-env.sh pi-platform-sandbox-1   # 容器名以 docker compose ps 输出为准
 ```
 
-token 写入 Redis：`redis-cli -h localhost set auth:token:<token> '{"tenantId":"ops"}'`（或按你的 auth 约定）。
+token 写入 Redis（redis 容器无 host 端口且已开启 AUTH，必须经 compose exec 在容器内写入；外层双引号 +
+内层 `'{"..."}'` 保证值以合法 JSON 存储）：
+`docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml exec redis sh -c "redis-cli -a \"\$REDIS_PASSWORD\" SET auth:token:<token> '{\"tenantId\":\"ops\"}'"`（或按你的 auth 约定）。
+
+### 2.5 Release 附件（tgz）安装（源码包方式，无需本地编译）
+
+发布附件 `pi-triple-v<version>.tgz` 是整仓库源码包，且**已含构建产物 dist**（`ptl` 解包即用；
+PTH 主服务可直接 `node dist/pth/main.js` 试运行，或按 §2.3 用 compose 起容器）。
+
+```bash
+VERSION=1.1.0
+curl -LO https://github.com/Phenol1145/pi-triple/releases/download/v${VERSION}/pi-triple-v${VERSION}.tgz
+shasum -a 256 pi-triple-v${VERSION}.tgz   # 与 GitHub Release 页面 / 发布说明中的 sha256 核对
+mkdir pi-triple-v${VERSION} && tar -xzf pi-triple-v${VERSION}.tgz -C pi-triple-v${VERSION}
+cd pi-triple-v${VERSION}
+npm ci
+npm link              # ptl → packages/framework/dist/pit.js（包内已构建，无需 npm run build）
+ptl --version         # 应输出 v${VERSION}
+```
+
+只想全局装 CLI（纯 PTL 使用）可以一条命令：
+
+```bash
+npm install -g pi-triple-v${VERSION}.tgz && ptl --version
+```
 
 ## 3. 性能参数全表（PTH_*）
 

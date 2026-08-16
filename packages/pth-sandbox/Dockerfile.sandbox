@@ -10,11 +10,13 @@ RUN npm ci
 
 COPY src/ ./src/
 # 2026-08-15 拆分：沙箱运行时 = pth-memory + pth-sandbox 两包（内核契约/宿主在沙箱包内）；
-# runtime 还要 framework dist（/usr/local/bin/ptl）——依赖顺序 shared → infra → framework
-RUN npx tsc -p packages/pth-memory \
-    && npx tsc -p packages/pth-sandbox \
-    && npx tsc -p packages/shared \
+# runtime 还要 framework dist（/usr/local/bin/ptl）。
+# 依赖拓扑序：shared → infra → pth-memory → pth-sandbox → framework
+# （pth-sandbox 依赖 infra/pth-memory 的 dist 声明——顺序错误在干净构建上下文必失败）
+RUN npx tsc -p packages/shared \
     && npx tsc -p packages/infra \
+    && npx tsc -p packages/pth-memory \
+    && npx tsc -p packages/pth-sandbox \
     && npx tsc -p packages/framework
 
 # ---- Runtime stage ----

@@ -45,6 +45,8 @@
       "env": {
         "REDIS_URL": "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379",
         "DATABASE_URL": "postgresql://pth:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/pth",
+        "REDIS_PASSWORD": "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}",
+        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}",
         "PI_ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         "PI_OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
         "LOG_LEVEL": "info",

@@ -21,6 +21,10 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379
       # PTH kernel 存储层（Spec C）：postgres 数据世界（凭据 compose 注入，与 postgres 服务一致）
       - DATABASE_URL=postgresql://pth:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/pth
+      # 配置集中化 C3 strict 校验按原始键判断（REDIS_PASSWORD/POSTGRES_PASSWORD 非空 + 非弱）——
+      # URL 派生自这些键不等于校验通过，必须同时注入原始键（与 URL 同源、无额外暴露面）
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - PI_ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - PI_OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - LOG_LEVEL=info
