@@ -17,6 +17,9 @@
 - [x] N1b 百科写入矛盾检测（`wiki.ts validateWikiWrite`）；N4 生态转化 pipeline（记忆侧 skill 条目化：`importSkillMarkdown`）
 - [x] 归档定期 trigger 接线（N7 尾件——memory-sweep-trigger.ts，默认每天）
 - [ ] memoryScope:"own" 读侧过滤（当前只给 write 盖章）
+- [ ] readSource/toolstore symlink 防线（根 TODO 归位项，2026-08-16 补账入列）→
+  执行入口 `docs/superpowers/plans/2026-08-16-pth-sandbox-hardening.md` S0-4
 
-## 评估结论（2026-08-15 拆分后）
+## 评估结论（2026-08-15 拆分后；2026-08-16 补账）
 - 本包项全部**保留**：B4 Phase 2–4 已全落；N1b/N4 已落（2026-08-15）；H3/H5/H6/H7 为安全纵深，随批推进；无砍项。
+- 补账结论：根 TODO 曾把 readSource/toolstore symlink 归到本包，但此前未入列——现补入并指向沙箱加固计划。
