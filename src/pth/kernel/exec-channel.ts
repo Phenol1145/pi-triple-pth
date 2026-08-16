@@ -17,7 +17,7 @@
  * 路由层复用 /api/v1/kernel/* 既有 bearer 鉴权。
  */
 import { randomUUID } from "node:crypto";
-import type { InterpreterResult } from "@away_from/pth-sandbox";
+import type { InterpreterResult } from "./interpreter/index.js";
 import { createKernelManager, createWorkerKernelWithManager, type KernelManager } from '../impls/kernels/kernel-manager.js';
 import { loadKernelConfig } from "./interpreter/kernel-config.js";
 import { createLlmFn, type LlmFn } from "./interpreter/llm-fn.js";

@@ -18,6 +18,11 @@ import { createLlmFn, type LlmFn } from "../../kernel/interpreter/llm-fn.js";
 import { buildCapabilities } from "./capability.js";
 import type { Interpreter, InterpreterResult, WorkerKernel, WorkerKernelDeps } from "../../kernel/interpreter/index.js";
 
+// 模块化 v2 P0-5：pth-sandbox 的契约类型与网关用沙箱客户端符号统一经本 re-export 点
+// 进入 PTH 业务代码（守护拆分裁决：内核契约留在 pth-sandbox，业务代码不散落直接 import 包）。
+export type { SandboxBashDefinition, SandboxHealthMonitor } from "@away_from/pth-sandbox";
+export { SandboxExecClient, SandboxForwardError } from "@away_from/pth-sandbox";
+
 /** 一个 worker = 三解释器 + llm 函数 + 数据世界连接（Spec B 消费——2026-08-12 分层移入实现层） */
 export function createWorkerKernel(deps: WorkerKernelDeps<DataWorldAccess>): WorkerKernel {
   const llm = createLlmFn({ modelRouter: deps.modelRouter });

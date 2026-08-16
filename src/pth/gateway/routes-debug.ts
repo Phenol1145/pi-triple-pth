@@ -23,7 +23,7 @@
 
 import type { FastifyInstance } from "fastify";
 import type { AuditWriter } from "../observability/audit.js";
-import { SandboxExecClient, SandboxForwardError } from "@away_from/pth-sandbox";
+import { SandboxExecClient, SandboxForwardError } from "../impls/kernels/index.js";
 import type { AuthContext } from "./auth.js";
 
 // ─── 网关抽象 ──────────────────────────────────────────────────────

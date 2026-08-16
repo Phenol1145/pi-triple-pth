@@ -17,7 +17,7 @@
  *   - 预检基准 = ts.state 注入面键集合（Object.keys——seeds + caps + 内建外的程序残留）。
  */
 
-import type { Interpreter, InterpreterResult } from "@away_from/pth-sandbox";
+import type { Interpreter, InterpreterResult } from "../interpreter/index.js";
 import { findOutOfBoundsRoots, buildSurfaceGuidance } from "./surface.js";
 
 export interface PtcRunOptions {

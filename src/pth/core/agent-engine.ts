@@ -17,7 +17,7 @@ import type { AuditWriter } from "../observability/audit.js";
 import type { Logger } from "@away_from/infra";
 import type { Metrics } from "../observability/metrics.js";
 import type { AgentEvent, CreateSessionOpts, ManagedSessionInfo, Result, VersionSnapshot } from "./types.js";
-import type { SandboxBashDefinition } from "@away_from/pth-sandbox";
+import type { SandboxBashDefinition } from "../impls/kernels/index.js";
 import { createBridge } from "./async-iterable-bridge.js";
 import crypto from "node:crypto";
 import fs from "node:fs";

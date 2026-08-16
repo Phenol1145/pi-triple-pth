@@ -11,7 +11,7 @@
  */
 
 import type { LlmFn } from "../interpreter/llm-fn.js";
-import type { InterpreterSnapshot } from "@away_from/pth-sandbox";
+import type { InterpreterSnapshot } from "../interpreter/index.js";
 import type { PgMemoryStore } from "@away_from/pth-memory";
 import type { Task } from "../storage/task-store-pg.js";
 

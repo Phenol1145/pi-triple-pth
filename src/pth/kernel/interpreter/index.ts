@@ -6,6 +6,8 @@
  * 等由 impls/kernels/index.js 提供——消费者从实现层 import）。
  */
 // WorkerKernel/WorkerKernelDeps 移入 pth-sandbox 包（2026-08-15 拆分——内核契约包含在沙箱包内）
+// 模块化 v2 P0-5：本文件是核心侧内核契约类型的唯一 re-export 点；
+// 其他 PTH 业务代码（execution/ptc 等）不再直接 import @away_from/pth-sandbox。
 export type * from "@away_from/pth-sandbox";
 export type { WorkerKernel, WorkerKernelDeps } from "@away_from/pth-sandbox";
 export * from "./llm-fn.js";

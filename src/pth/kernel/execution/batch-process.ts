@@ -4,7 +4,7 @@ import { createPgPool } from "../storage/pg.js";
 import { applySchema } from "../storage/schema.js";
 import { createDataWorld } from "../storage/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../../impls/kernels/index.js";
-import type { InterpreterResult } from "@away_from/pth-sandbox";
+import type { InterpreterResult } from "../interpreter/index.js";
 import type { Task } from "../storage/task-store-pg.js";
 import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles } from "./worker-cluster.js";
 import { setSpaceLookup } from "@away_from/pth-memory";

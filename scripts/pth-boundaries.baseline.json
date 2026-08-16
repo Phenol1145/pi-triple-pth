@@ -1,8 +1,1 @@
-[
-  {
-    "rule": "sandbox-runtime-adapter",
-    "file": "gateway/routes-debug.ts",
-    "line": 26,
-    "detail": "@away_from/pth-sandbox"
-  }
-]
+[]

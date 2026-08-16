@@ -1,6 +1,6 @@
 import type { PgTranscriptStore } from "../storage/transcript-store.js";
 import type { Task } from "../storage/task-store-pg.js";
-import type { InterpreterResult } from "@away_from/pth-sandbox";
+import type { InterpreterResult } from "../interpreter/index.js";
 
 export interface ArchiveDeps {
   transcriptStore: Pick<PgTranscriptStore, "create">;

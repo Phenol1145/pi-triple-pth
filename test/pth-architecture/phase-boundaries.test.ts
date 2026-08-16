@@ -80,15 +80,12 @@ export async function handler(kernel: KernelRuntime) {
 });
 
 describe("pth boundary checker: production baseline", () => {
-  it("records current violations explicitly as 待修 and fails only on NEW violations", async () => {
+  it("records current violations explicitly in baseline and fails only on NEW violations", async () => {
     const src = path.join(REPO_ROOT, "src", "pth");
     const baseline = await loadBoundaryBaseline(path.join(REPO_ROOT, "scripts", "pth-boundaries.baseline.json"));
     const current = await collectBoundaryViolations(src);
 
-    // 基线非空 = 当前违规被显式记录（待修）；后续阶段逐项清零并同步更新基线。
-    expect(baseline.length).toBeGreaterThan(0);
-    expect(current.length).toBeGreaterThan(0);
-
+    // 基线 = 已入账违规台账；阶段推进时逐项清零并同步收紧基线（当前 P0-5 后可为空）。
     const baselineKeys = new Set(baseline.map(baselineKey));
     for (const v of current) {
       expect(baselineKeys.has(baselineKey(v)), `新增未入账的边界违规: ${v.rule} ${v.file}:${v.line} ${v.detail}`).toBe(true);

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { ToolPlatform } from "../tools/platform.js";
-import type { SandboxHealthMonitor } from "@away_from/pth-sandbox";
+import type { SandboxHealthMonitor } from "../impls/kernels/index.js";
 
 export function registerSelfRoutes(
   app: FastifyInstance,
