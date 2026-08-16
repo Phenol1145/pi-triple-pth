@@ -6,9 +6,9 @@
  */
 
 import { validateModuleManifest, type PthModuleManifest } from "./module-manifest.js";
-import { buildBuiltinCatalog } from "../catalog/adapters/builtin-catalog-contributions.js";
-import { setRuntimeCatalog } from "../catalog/role-routing-policy.js";
-import type { RuntimeCatalogSnapshot } from "../catalog/runtime-catalog.js";
+import { buildBuiltinCatalog } from "../catalog/adapters/index.js";
+import { setRuntimeCatalog } from "../catalog/index.js";
+import type { RuntimeCatalogSnapshot } from "../catalog/index.js";
 
 export interface BuiltPthHost {
   manifest: PthModuleManifest;
