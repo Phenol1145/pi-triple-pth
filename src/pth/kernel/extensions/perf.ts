@@ -8,6 +8,7 @@
 
 import type { TsReplExtension, ExtContext } from "./types.js";
 import { config } from "./perf-params.js";
+import { resolveTemplateTask } from "../templates.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -109,7 +110,7 @@ export const perfExtension: TsReplExtension = {
         return { ok: true, strategy };
       },
 
-      /** 应用策略（参数 set——actions 任务投递 v2） */
+      /** 应用策略（参数 set + actions 任务投递——模板统一收口 A+：resolveTemplateTask + tasks.publish） */
       apply: async (opts: { id: string }) => {
         const list = await readStrategies(ctx);
         const s = list.find((x) => x.id === opts.id);
@@ -119,12 +120,51 @@ export const perfExtension: TsReplExtension = {
           config().set(k, v);
           applied++;
         }
-        return { ok: true, id: s.id, name: s.name, appliedParams: applied, actions: s.actions?.length ?? 0 };
+        // actions 投递：每条 {type:"task", template, params} 经统一模板解析器发布；
+        // 单条失败进 dispatchErrors（隔离——不炸整轮参数应用）。
+        const dispatched: string[] = [];
+        const dispatchErrors: string[] = [];
+        for (const action of s.actions ?? []) {
+          if (!action || action.type !== "task" || typeof action.template !== "string") {
+            dispatchErrors.push(`unsupported action: ${String(action?.type ?? "?")}`);
+            continue;
+          }
+          const r = resolveTemplateTask({ template: action.template, params: action.params ?? {} });
+          if (!r.ok) {
+            dispatchErrors.push(`${action.template}: ${r.error}`);
+            continue;
+          }
+          try {
+            const task = await ctx.dataWorld.tasks.publish({
+              title: r.title,
+              text: r.text,
+              createdBy: `perf-strategy:${s.id}`,
+              tags: r.tags,
+              payload: {
+                ...(r.role ? { flow: { stages: [{ task: { role: r.role } }] } } : {}),
+                ...r.payload,
+                perfStrategy: s.id,
+              },
+            });
+            dispatched.push(task.id);
+          } catch (e) {
+            dispatchErrors.push(`${action.template}: ${(e as Error).message}`);
+          }
+        }
+        return {
+          ok: true,
+          id: s.id,
+          name: s.name,
+          appliedParams: applied,
+          actions: s.actions?.length ?? 0,
+          dispatched,
+          dispatchErrors,
+        };
       },
 
       /** 已发布策略清单 */
       list: () => readStrategies(ctx),
     },
   }),
-  doc: `- perf: 性能调优——perf.params() 当前参数全表；perf.set({key, value}) 运行时调参（PTH_* 立即生效）；perf.status() 性能快照；perf.analyze() 瓶颈诊断（v1 规则）；perf.publish({id?, name, params, actions?}) 发布策略；perf.apply({id}) 应用策略（参数生效）；perf.list() 策略清单`,
+  doc: `- perf: 性能调优——perf.params() 当前参数全表；perf.set({key, value}) 运行时调参（PTH_* 立即生效）；perf.status() 性能快照；perf.analyze() 瓶颈诊断（v1 规则）；perf.publish({id?, name, params, actions?}) 发布策略；perf.apply({id}) 应用策略（参数生效 + actions 任务投递）；perf.list() 策略清单`,
 };

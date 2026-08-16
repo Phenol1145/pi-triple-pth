@@ -150,6 +150,45 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
     expect(analyze.notes.length).toBeGreaterThan(0);
     fs.rmSync(stratDir, { recursive: true, force: true });
   });
+
+  it("perf.apply：actions 经统一模板解析器投递（成功发布 + 单条失败隔离）", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const stratDir = fs.mkdtempSync(path.join(os.tmpdir(), "perf-strat-actions-"));
+    const { perfExtension } = await import("../../src/pth/kernel/extensions/perf.js");
+    const published: Array<{ title: string; text: string; createdBy: string; tags?: string[]; payload?: Record<string, unknown> }> = [];
+    const dataWorld = {
+      tasks: {
+        publish: async (input: { title: string; text: string; createdBy: string; tags?: string[]; payload?: Record<string, unknown> }) => {
+          published.push(input);
+          return { id: `task-${published.length}` };
+        },
+      },
+    };
+    const perf = (perfExtension.provide({ dataWorld, strategiesDir: stratDir } as never) as { perf: Record<string, Function> }).perf;
+    await perf["publish"]({
+      id: "s-actions",
+      params: { PTH_AGENT_MODEL: "m2" },
+      actions: [
+        { type: "task", template: "recon-doc", params: { url: "https://x.dev/a" } },
+        { type: "task", template: "nope" },
+      ],
+    });
+    const app = await perf["apply"]({ id: "s-actions" }) as any;
+    expect(app.ok).toBe(true);
+    expect(app.appliedParams).toBe(1);
+    expect(app.actions).toBe(2);
+    expect(app.dispatched).toHaveLength(1);
+    expect(app.dispatchErrors).toHaveLength(1);
+    expect(app.dispatchErrors[0]).toContain("unknown template");
+    expect(published).toHaveLength(1);
+    expect(published[0]!.title).toContain("recon-doc");
+    expect(published[0]!.tags).toEqual(["recon"]);
+    expect(published[0]!.createdBy).toBe("perf-strategy:s-actions");
+    expect(published[0]!.payload).toMatchObject({ template: "recon-doc", perfStrategy: "s-actions" });
+    fs.rmSync(stratDir, { recursive: true, force: true });
+  });
 });
 
 describe("obs 可监控数据调查（Phase 4）", () => {

@@ -140,6 +140,7 @@ describe("kernel routes", () => {
       expect(ids).toContain("recon-doc");
       expect(ids).toContain("memory-maintain");
       expect(ids).toContain("dev-task");
+      expect(ids).not.toContain("memory-sweep");   // hidden 系统内部模板不外显（模板统一收口 A+）
     });
 
     it("GET /api/v1/kernel/tasks → 任务列表", async () => {

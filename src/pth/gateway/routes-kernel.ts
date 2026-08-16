@@ -20,7 +20,7 @@ import type { FastifyInstance } from "fastify";
 import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 import type { KnowledgeBroker } from "../execution/index.js";
 import type { TenantScope } from "../contracts/index.js";
-import { TASK_TEMPLATES, renderTaskTemplate, validateTemplateParams } from "../kernel/templates.js";
+import { listPublicTemplates, resolveTemplateTask } from "../kernel/templates.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 
@@ -136,25 +136,23 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
       : undefined;
     const tenantId = scope?.tenantId ?? "default";
 
-    // 模板发布：{template, params} → 渲染任务 text
+    // 模板发布：{template, params} → 统一解析器渲染任务（任务模板统一收口 A+）
     if (typeof body.template === "string") {
-      const params = (body.params ?? {}) as Record<string, unknown>;
-      const missing = validateTemplateParams(body.template, params);
-      if (missing.includes("unknown-template")) {
-        return reply.status(404).send({ error: `unknown template: ${body.template}` });
+      const r = resolveTemplateTask({
+        template: body.template,
+        params: (body.params ?? {}) as Record<string, unknown>,
+        tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : undefined,
+      });
+      if (!r.ok) {
+        if (r.code === "unknown-template") return reply.status(404).send({ error: r.error });
+        return reply.status(400).send({ error: r.error, missing: r.missing });
       }
-      if (missing.length > 0) {
-        return reply.status(400).send({ error: `missing required params: ${missing.join(", ")}` });
-      }
-      const rendered = renderTaskTemplate(body.template, params);
-      if (!rendered) return reply.status(404).send({ error: `unknown template: ${body.template}` });
-      const tpl = TASK_TEMPLATES.find((t) => t.id === body.template)!;
       const task = await facade.publishTask({
-        title: `[${body.template}] ${tpl.name}`,
-        text: rendered,
+        title: r.title,
+        text: r.text,
         createdBy: scope?.principalId ?? (typeof body.createdBy === "string" ? body.createdBy : "ptl"),
-        tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : [tpl.roleTag],
-        payload: { template: body.template, params },
+        tags: r.tags,
+        payload: r.payload,
         tenantId,
       }, scope);
       return reply.status(201).send(task);
@@ -179,10 +177,10 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     return reply.status(201).send(task);
   });
 
-  // ── 模板列表 ──────────────────────────────────────────────
+  // ── 模板列表（hidden 系统内部模板不外显——模板统一收口 A+） ─────────
   app.get("/api/v1/kernel/templates", async (req, reply) => {
     if (!facade) return unavailable(reply);
-    return TASK_TEMPLATES.map((t) => ({
+    return listPublicTemplates().map((t) => ({
       id: t.id,
       name: t.name,
       description: t.description,
