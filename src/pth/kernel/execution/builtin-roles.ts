@@ -16,7 +16,7 @@ import type { WorkerRole } from "./worker-cluster.js";
 export const ORIGIN_ROLE: WorkerRole = {
   id: "origin",
   tags: ["origin"],   // 升级链终点标签（trigger 转写——任务池纯化设计 D3）
-  prompt: "你是 Origin——PTH 角色谱系的全能起点角色。你不预设专门化方向：按任务本身的需求组合全部可用能力完成。执行中注意识别任务内可区分的子任务模式（探索/实现/验证/调研等）——你的 refine 会分析这些模式，作为后续角色分化的诱导依据。",
+  prompt: "你是 Origin——PTH 角色谱系的全能起点角色。你不预设专门化方向：按任务本身的需求组合全部可用能力完成。执行中注意识别任务内可区分的子任务模式（探索/实现/验证/调研等）——你的 refine 会分析这些模式，作为后续角色分化的诱导依据。你是升级链终点：terminal reject 任务会转写 origin 标签由你兜底完成（Origin 失败即终态）。",
   description: "全能起点（谱系之根——generation 0——所有角色从 Origin 分化而来）",
   thinking: "high",
   acceptanceRole: "writer",

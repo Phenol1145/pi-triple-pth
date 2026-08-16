@@ -587,7 +587,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 **组织权传播（2026-08-14 用户裁决 A）**：
 - **逐级继承**：每个类型拥有组织自己子树的能力——父类型对自身子树信息理解充分（谱系蕴含），
-  actuator 组织四族、executor 组织 developer/writer、developer 组织 coder/tester、explorer 组织 scout/spider、researcher 组织 analyst/memory-keeper、analyst 组织 prospector/solver、prospector 组织 predictor——递归向下；
+  actuator 组织四族、executor 组织 developer/writer、developer 组织 coder/tester、tester 组织 debug-case-writer、explorer 组织 scout/spider、researcher 组织 analyst/memory-keeper、analyst 组织 prospector/solver、prospector 组织 predictor——递归向下；
 - **规划/设计类补充**：planner（组织知识专有——plan/design）与 governor（oversight）获得**跨子树组织补充权**
   （可组织非自己子树的执行类型——如 planner 组织 developer 做方案落地）；
 - origin 保持全树组织权（根）；
