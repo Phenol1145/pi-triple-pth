@@ -4,7 +4,16 @@ import type { WorkerRole } from "./worker-cluster.js";
 import type { TaskOutcome, TaskRepository, TenantScope } from "../../contracts/index.js";
 import { TaskDispatcher } from "../../tasking/task-dispatcher.js";
 import { TaskOutcomeCommitter } from "../../tasking/task-outcome-committer.js";
+import { BoundedBackgroundQueue } from "../../tasking/task-outcome-observers.js";
 import { AgentTaskRunner } from "../../runner/agent-task-runner.js";
+import { createAuditObserver } from "../../runner/observers/audit-observer.js";
+import { createTranscriptObserver } from "../../runner/observers/transcript-observer.js";
+import { createActivityObserver } from "../../runner/observers/activity-observer.js";
+import { createMetricsObserver } from "../../runner/observers/metrics-observer.js";
+import { createNotifierObserver } from "../../runner/observers/notifier-observer.js";
+import { createRefineObserver } from "../../runner/observers/refine-observer.js";
+import { createOptimizerObserver } from "../../runner/observers/optimizer-observer.js";
+import { buildScorecard, computeTimeReuse } from "./worker-scorecard.js";
 import { translateTask } from "./nl-translator.js";
 import { runPtcProgram } from "../ptc/runner.js";
 import { runAgentTask } from "./agent-loop.js";
@@ -147,11 +156,43 @@ export class TaskLoop {
         },
       });
       this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags });
+      const slowQueue = new BoundedBackgroundQueue({ maxConcurrency: 2, logger: (m) => taskLogger?.warn?.(m) });
+      const auditWrite = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; tenantId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit?.write;
+      const observers = [
+        ...(auditWrite ? [createAuditObserver({ write: (ev) => auditWrite(ev) })] : []),
+        ...(this.deps.transcripts
+          ? [createTranscriptObserver({ create: (input) => this.deps.transcripts!.create(input as never) })]
+          : []),
+        createActivityObserver({ emit: (e) => this.deps.onActivity?.({ ...e, role: role.id, taskId: task.id }) }),
+        createMetricsObserver({ metric: (m) => this.deps.onTaskMetric?.(m), classifyReason }),
+        createNotifierObserver(),
+        ...(this.deps.refiner
+          ? [createRefineObserver({
+              queue: slowQueue,
+              kernel: this.deps.kernel,
+              refiner: this.deps.refiner,
+              roleId: role.id,
+              logger: (m) => taskLogger?.error(m),
+            })]
+          : []),
+        ...(this.deps.optimizer
+          ? [createOptimizerObserver({
+              queue: slowQueue,
+              optimizer: this.deps.optimizer,
+              buildScorecard: (trace) => buildScorecard(trace as never),
+              computeTimeReuse: (subtasks) => computeTimeReuse(subtasks),
+              roleId: role.id,
+              logger: (m) => taskLogger?.error(m),
+            })]
+          : []),
+        (evt: { outcome: TaskOutcome }) => this.afterCommittedNew(task, ws, evt.outcome, chain, execStart),
+      ];
       const dispatcher = new TaskDispatcher({
         repository: repository!,
         committer: new TaskOutcomeCommitter(repository!),
         runner,
-        observers: [(evt) => this.afterCommittedNew(task, ws, evt.outcome, chain, execStart, traceEvents)],
+        observers,
+        context: { task, ws, chain, execStart, traceEvents },
         logger: (m) => taskLogger?.warn?.(m),
       });
       const scope: TenantScope = {
@@ -170,25 +211,19 @@ export class TaskLoop {
     return did;
   }
 
-  /** P1-6：committed 后的副作用集中点（不写任务终态——终态已由 repository.commit CAS 落库） */
+  /** P1-6/P1-7：committed 后剩余副作用（终态已由 CAS 落库；audit/activity/metrics/notify/refine/optimizer 由 observers fan-out） */
   private async afterCommittedNew(
     task: Task,
     ws: { dir: string; tenant: string },
     outcome: TaskOutcome,
-    chain: { chainDepth: number; triggerId?: string },
+    _chain: { chainDepth: number; triggerId?: string },
     execStart: number,
-    traceEvents: unknown[],
   ): Promise<void> {
-    const { role, taskStore } = this.deps;
+    const { role } = this.deps;
     const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
-    const reason = outcome.error?.message ?? "unknown";
     const execMs = Date.now() - execStart;
-    const audit = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit;
 
     if (outcome.status === "completed") {
-      if (audit?.write) {
-        try { await audit.write({ eventType: "task_completed", actor: role.id, taskId: task.id, payload: { submitAffected: 1 } }); } catch { /* 审计容错 */ }
-      }
       this.bus.emit("task.execute.end", { taskId: task.id, role: role.id, ok: true, durationMs: execMs });
       this.bus.emit("task.submit", { taskId: task.id, role: role.id });
       const resultLike = {
@@ -199,51 +234,15 @@ export class TaskLoop {
       await this.invokeArchive(task, ws, resultLike);
       await this.maybeDispatchDebugCaseWriter(task, resultLike);
       taskLogger?.info("task completed", { durationMs: execMs });
-      this.deps.onTaskMetric?.({ type: "status", status: "completed" });
-      notifyTaskDone({ taskId: task.id, role: role.id, status: "completed", summary: resultLike.summary });
-      this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
-
-      if (this.deps.optimizer && traceEvents.length > 0) {
-        try {
-          const { buildScorecard, computeTimeReuse } = await import("./worker-scorecard.js");
-          const sc = buildScorecard(traceEvents as never);
-          const value = (outcome.result as { value?: unknown } | undefined)?.value as Record<string, unknown> | undefined;
-          const subtasks = value?.["subtasks"];
-          if (Array.isArray(subtasks) && subtasks.length > 0) sc.timeReuse = computeTimeReuse(subtasks as Array<{ id?: string; dependsOn?: string[] }>);
-          this.deps.optimizer.collect(sc, { role: role.id, taskId: task.id, verifyOf: (task.payload as { verifyOf?: string } | undefined)?.verifyOf });
-        } catch (e) {
-          taskLogger?.error(`optimizer collect failed: ${(e as Error).message}`);
-        }
-      }
-      if (this.deps.refiner && ((task.payload ?? {}) as { refine?: string }).refine !== "off") {
-        try {
-          const snap = await this.deps.kernel.snapshot();
-          void this.deps.refiner.refine({ task, snapshot: snap, trace: traceEvents as never, role: role.id })
-            .catch((e) => taskLogger?.error(`refine failed: ${(e as Error).message}`));
-        } catch (e) {
-          taskLogger?.error(`refine snapshot failed: ${(e as Error).message}`);
-        }
-      }
       return;
     }
 
-    if (outcome.retryable === true) {
-      if (audit?.write) {
-        try { await audit.write({ eventType: "task_requeued", actor: role.id, taskId: task.id, payload: { reason: reason.slice(0, 300) } }); } catch { /* 审计容错 */ }
-      }
-      this.deps.onActivity?.({ kind: "task.requeued", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
-      this.deps.onTaskMetric?.({ type: "status", status: "requeued" });
-    } else {
-      if (audit?.write) {
-        try { await audit.write({ eventType: "task_rejected", actor: role.id, taskId: task.id, payload: { reason: reason.slice(0, 300) } }); } catch { /* 审计容错 */ }
-      }
-      this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
-      this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
-      this.deps.onTaskMetric?.({ type: "reject-reason", reason: classifyReason(reason) });
-      notifyTaskDone({ taskId: task.id, role: role.id, status: "rejected", error: reason });
-      this.bus.emit("task.reject", { taskId: task.id, role: role.id, reason, durationMs: execMs });
-      this.deps.onTaskMetric?.({ type: "stage", stage: "execute", durationMs: execMs });
-    }
+    this.bus.emit("task.reject", {
+      taskId: task.id,
+      role: role.id,
+      reason: outcome.error?.message ?? "unknown",
+      durationMs: execMs,
+    });
   }
 
   /** 归档钩子注入（BatchTaskLoop 组合）或 protected 默认实现 */

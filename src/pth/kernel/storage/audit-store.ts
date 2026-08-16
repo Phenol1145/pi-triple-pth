@@ -4,6 +4,7 @@ export interface AuditEvent {
   // Finding #1 修复（协调者裁决）：audit_log.id 为 BIGSERIAL(int8)，node-postgres 默认以 string 返回
   // （未设全局 setTypeParser——避免大整型精度风险），故接口声明为 string 而非 number。
   id: string;
+  tenantId?: string;
   eventType: string;
   actor?: string;
   taskId?: string;
@@ -16,11 +17,11 @@ export interface AuditEvent {
 export class PgAuditStore {
   constructor(private pool: pg.Pool) {}
 
-  async write(ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; sessionId?: string; payload?: unknown }): Promise<void> {
+  async write(ev: { eventType: string; tenantId?: string; actor?: string; taskId?: string; workerId?: string; sessionId?: string; payload?: unknown }): Promise<void> {
     await this.pool.query(
-      `INSERT INTO audit_log (event_type, actor, task_id, worker_id, session_id, payload)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-      [ev.eventType, ev.actor ?? null, ev.taskId ?? null, ev.workerId ?? null, ev.sessionId ?? null, JSON.stringify(ev.payload ?? {})],
+      `INSERT INTO audit_log (tenant_id, event_type, actor, task_id, worker_id, session_id, payload)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
+      [ev.tenantId ?? "default", ev.eventType, ev.actor ?? null, ev.taskId ?? null, ev.workerId ?? null, ev.sessionId ?? null, JSON.stringify(ev.payload ?? {})],
     );
   }
 

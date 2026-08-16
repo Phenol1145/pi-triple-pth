@@ -4,12 +4,12 @@ import type pg from "pg";
 export class PgTranscriptStore {
   constructor(private pool: pg.Pool) {}
 
-  async create(input: { taskId?: string; sessionId?: string; agentId: string; body: unknown[]; summary?: string; artifactPath?: string }): Promise<string> {
+  async create(input: { taskId?: string; sessionId?: string; agentId: string; body: unknown[]; summary?: string; artifactPath?: string; tenantId?: string }): Promise<string> {
     const id = crypto.randomUUID();
     await this.pool.query(
-      `INSERT INTO transcripts (id, task_id, session_id, agent_id, body, summary, artifact_path)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
-      [id, input.taskId ?? null, input.sessionId ?? null, input.agentId, JSON.stringify(input.body), input.summary ?? null, input.artifactPath ?? null],
+      `INSERT INTO transcripts (id, tenant_id, task_id, session_id, agent_id, body, summary, artifact_path)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)`,
+      [id, input.tenantId ?? "default", input.taskId ?? null, input.sessionId ?? null, input.agentId, JSON.stringify(input.body), input.summary ?? null, input.artifactPath ?? null],
     );
     return id;
   }
