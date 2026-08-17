@@ -730,6 +730,33 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   最薄的一层**——TOOL_SCHEMAS 代码内置，JIT 无一等工具注册通道（并联代偿〔待议〕的
   具体缺口）。
 
+#### 0.17.6 N14 设计落地（2026-08-18——四维细分 + 工具注册通道）
+
+> 完整设计：[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)。
+> 用户裁决：**Q1 增补式**（环向点位保留，四维缺口新增）/ **Q2 执行体三态**
+> （program ts 固化 + builtin 代码内置 + agent LLM 子 agent）/ **Q3 skill 同构治理**
+> （staged 流复用：提案 → 对抗性审核 → 批准 → 注册生效）。
+
+- **sensor/controller 增补 +6**：sensor:tool-face（工具组合链/注册候选观测）·
+  sensor:tool-single（工具级失败/误用/描述质量观测）· sensor:rule（护栏命中/误杀/
+  权限拒绝观测——N12 二期观测面落点）；controller:tool-face（注册提案裁决/包组织/
+  可见性投放）· controller:tool-single（描述修订/交互优化提案）· controller:rule
+  （护栏阈值 JIT 调参/规则 stamp——N12 二期调节面落点）。记忆维已有（sensor/controller
+  :memory）不增。
+- **一等工具注册通道（tool-reg）**：kind=tool-reg（prompt 层资产）+ `__tool_spec__`
+  机读行（穿透同款）；执行体三态；**可见性定向窄投放 + 工具面预算守卫 + 快照版本化**
+  （T3 pick_tools 教训防线——任务内工具面冻结）；tool-function 沉淀物 = 候选池，
+  晋升管线（提案→审核→批准→注册→复测）不自动进列表。
+- **存量归并（Q4 裁决——一次性全登记）**：35 件硬编码工具全登记为 builtin 条目
+  （执行不动、条目承担治理面）；TOOL_SCHEMAS 降级为「builtin 执行器索引」，
+  治理真相源归一 tool-reg；双写一致性对账钉测试（设计文档 §3.6——现状执行体
+  四套位置/四种管理的归并关系全表）。
+- **分层 SOP ×4**：skill:opt-tool-face / opt-tool-single / opt-memory / opt-rule
+  （四段式草案见设计文档 §4——W4 创建时机之本设计即「找到正路」）。
+- **分期**：P0 契约 → P1 观测（N12 二期同落）→ P2 通道执行缝 → P3 调节与 SOP 固化。
+- **0.3.6 状态**：三态工具仍是串联代偿深化（LLM 触发/回填）；通道是并联〔待议〕的
+  机制前提——〔待议〕状态不变。
+
 ---
 
 ## 1. 系统定位（v2）
@@ -850,6 +877,8 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **上下文-空间绑定**〔桥〕 | 切入空间 → 上下文只装该空间内容（工具面随之切换——0.10.2） | ASP 模式 |
 | **工具面（actionTools）**〔旧〕 | 角色可用 LLM 工具白名单 | agent-tools |
 | **工具（tool）**〔新·裁定〕 | 使用 OpenAI tool call 协议描述的工具（name/description/parameters——0.17.1：优化语境的「工具」= LLM 工具调用层） | TOOL_SCHEMAS |
+| **一等工具注册通道（tool-reg）**〔新〕 | 运行时把新工具注册进 LLM 工具面的机制（N14——kind=tool-reg 条目 + `__tool_spec__` 机读行；执行体三态 program/builtin/agent；skill 同构治理；可见性窄投放 + 预算守卫 + 快照版本化） | 设计完成（0.17.6）——实施待批 |
+| **工具晋升管线**〔新〕 | tool-function 沉淀物（候选池）→ schema 化提案 → 对抗性审核 → 批准 → tool-reg 注册 → 定向投放 → 复测（N14——沉淀物不自动进工具列表） | 设计完成（0.17.6） |
 | **工具包（tool pack）**〔新〕 | 相同操作对象/相似功能工具的组织单元（0.17.2）——工具面声明/裁剪的粒度 | TOOL_GROUPS |
 | **空间 = 可见性管理**〔新·裁定〕 | 动作空间与记忆空间管理**同一状态**下工具与记忆的可见性（0.17.3）——空间即可见性边界 | asp · memory-visibility |
 | **三重交集**〔旧〕 | 声明（capabilities）∩ 空间面 ∩ 能力函数 = 实际可用面 | agent-tools |
@@ -1132,7 +1161,7 @@ v0.9（动作面/权限/任务池纯化）
 | N11 | 可预测性地图（predictability map） | 0.14 · 全域 | 无对应机制——伪世界模型猜想的落地接口：分尺度可预测性注册 + 相变预警 | 外部数据源接入（sensor 外环） · JIT 环（错误预测→修规则） | 💭 猜想·未启动 |
 | N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | ✅ 已实装（2026-08-14——guardrails.ts 注册表：ConsecutiveGuard 三段式 + 豁免矩阵 + `PTH_GUARD_*` 阈值配置化；agent-loop 五计数器收敛，行为逐字保留；9 新测试） | agent-loop 五计数器 → guardrails.ts 注册表 | ✅ 已实装（二期未启：scorecard 观测/JIT 调参/治理族豁免裁决） |
 | N13 | 思考路径图重建器（trace reconstruction） | 0.15 · 域 D | ✅ 已落（2026-08-15——`thinking-path.ts`：发现链/决策链/意图链 + 重复探测/盲试 + 记忆/工具缺口） | transcript 轨迹 · CoT 压缩产物 · refiner | ✅ 已落 |
-| N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | 概念已录（2026-08-18——工具/工具包/可见性三定义 + 四层次）；待设计：①现有 sensor 4 观测点/controller 5 调节点按对象维（工具面/单工具/记忆/规则）重组或增补——明确每个观测/调节点负责哪个层次；②每层次配维护 SOP（skill 四段式——W4 创建时机）；③工具面优化层最薄（无一等工具注册通道——0.3.6 并联代偿〔待议〕的具体缺口），细分设计需回答是否开工具注册通道 | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | 💭 待设计 |
+| N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计完成（2026-08-18——[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4 草案；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ 设计完成（实施待批——见设计文档 §6 分期） |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
