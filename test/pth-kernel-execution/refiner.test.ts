@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { contentHashOf } from "@away_from/pth-memory";
 import { Refiner, buildRefinePrompt, parseRefineResult, type RefineInput } from "../../src/pth/kernel/execution/refiner";
 
 describe("buildRefinePrompt", () => {
@@ -60,9 +61,19 @@ describe("Refiner.refine", () => {
       functions: [{ key: "add", source: "function add(a,b){return a+b}" }],
       oversized: [],
     },
+    scope: { tenantId: "tenant-a", space: "meta" },
   };
 
-  it("提炼并持久化：函数 → tool-function（content=源码 + meta.spec），洞察 → task-insight", async () => {
+  it("fail-closed：缺 scope 直接抛 refine scope required，不调用 llm", async () => {
+    const { refiner, memory, llm } = setup(JSON.stringify({ functions: [], insights: [] }));
+    await expect(refiner.refine({ ...input, scope: undefined } as unknown as RefineInput)).rejects.toThrow("refine scope required");
+    await expect(refiner.refine({ ...input, scope: { tenantId: "", space: "meta" } } as RefineInput)).rejects.toThrow("refine scope required");
+    await expect(refiner.refine({ ...input, scope: { tenantId: "t", space: "" } } as RefineInput)).rejects.toThrow("refine scope required");
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(memory.write).not.toHaveBeenCalled();
+  });
+
+  it("提炼并持久化：函数 → tool-function（draft + scope + provenance），洞察 → task-insight", async () => {
     const { refiner, memory } = setup(JSON.stringify({
       functions: [{ key: "add", source: "function add(a,b){return a+b}", spec: { signature: "add(a,b): number", purpose: "相加", logic: "返回 a+b", examples: [["1,2", "3"]] } }],
       insights: ["任务完成，x=1"],
@@ -70,17 +81,33 @@ describe("Refiner.refine", () => {
     const report = await refiner.refine(input);
     expect(report.functionsSaved).toBe(1);
     expect(report.insightsSaved).toBe(1);
-    // tool-function 写入：content=源码 + meta.spec
+    // tool-function 写入：content=源码 + meta.spec + scoped draft + provenance
     const fnCall = memory.write.mock.calls.find((c) => c[0].kind === "tool-function");
     expect(fnCall).toBeDefined();
     expect(fnCall![0].content).toContain("function add");
     expect(fnCall![0].anchors).toContain("add");
     expect(fnCall![0].meta.spec.signature).toBe("add(a,b): number");
     expect(fnCall![0].meta.language).toBe("typescript");
-    // insight 写入
+    expect(fnCall![0].status).toBe("draft");
+    expect(fnCall![0].tenantId).toBe("tenant-a");
+    expect(fnCall![0].meta.tenantId).toBe("tenant-a");
+    expect(fnCall![0].meta.spaceScope).toEqual({ space: "meta", visibility: "private" });
+    expect(fnCall![0].meta.provenance).toMatchObject({
+      sourceTaskId: "t1",
+      producerRole: "developer",
+      producerModel: "deepseek-v4-flash",
+      sourceRefs: ["task:t1"],
+    });
+    expect(fnCall![0].meta.provenance.contentHash).toBe(contentHashOf(fnCall![0].content));
+    // insight 写入：scoped draft + provenance
     const insightCall = memory.write.mock.calls.find((c) => c[0].kind === "task-insight");
     expect(insightCall).toBeDefined();
     expect(insightCall![0].content).toContain("x=1");
+    expect(insightCall![0].status).toBe("draft");
+    expect(insightCall![0].tenantId).toBe("tenant-a");
+    expect(insightCall![0].meta.spaceScope).toEqual({ space: "meta", visibility: "private" });
+    expect(insightCall![0].meta.provenance.contentHash).toBe(contentHashOf(insightCall![0].content));
+    expect(insightCall![0].meta.provenance.sourceRefs).toEqual(["task:t1"]);
   });
 
   it("LLM 解析失败 → 降级：函数源码原样保存（无 spec），不 crash", async () => {
@@ -207,21 +234,24 @@ describe("refine 解硬编码（任务清单数据化——memory 真相源—�
       outputSchema: `"riskScan": ["<风险>"]`, persistKind: "risk-report", persistAs: "raw", enabled: true,
     };
     const tasks = [...DEFAULT_REFINE_TASKS.map((t) => ({ ...t, enabled: false })), custom];
-    const written: Array<{ kind: string; content: string; status: string }> = [];
+    const written: Array<{ kind: string; content: string; status: string; tenantId?: string; meta?: Record<string, unknown> }> = [];
     const refiner = new Refiner({
       llm: { complete: async () => ({ content: JSON.stringify({ riskScan: ["沙盒池满风险"] }), model: "m" }) } as never,
       memory: {
-        write: async (e: { kind: string; content: string; status: string }) => { written.push(e); return {}; },
+        write: async (e: { kind: string; content: string; status: string; tenantId?: string; meta?: Record<string, unknown> }) => { written.push(e); return {}; },
         retrieve: async (opts: { kinds?: string[] }) => opts.kinds?.includes("refine-task")
           ? tasks.map((t) => ({ id: `refine-task:${t.id}`, kind: "refine-task", anchors: [], content: JSON.stringify(t), status: "official", meta: {} }))
           : [],
       } as never,
     });
-    await refiner.refine({ task: { id: "t1", title: "x", tags: [] }, snapshot: { functions: [], variables: [] } });
+    await refiner.refine({ task: { id: "t1", title: "x", tags: [] }, snapshot: { functions: [], variables: [] }, scope: { tenantId: "tenant-a", space: "meta" } });
     const riskEntry = written.find((w) => w.kind === "risk-report");
     expect(riskEntry).toBeTruthy();
     expect(riskEntry!.content).toContain("沙盒池满风险");
     expect(riskEntry!.status).toBe("draft");
+    expect(riskEntry!.tenantId).toBe("tenant-a");
+    expect(riskEntry!.meta?.spaceScope).toEqual({ space: "meta", visibility: "private" });
+    expect((riskEntry!.meta?.provenance as Record<string, unknown>).contentHash).toBe(contentHashOf(riskEntry!.content));
     // 禁用的三内建不产出（tool-function/task-insight/differentiation-proposal 均无）
     expect(written.filter((w) => w.kind === "tool-function")).toHaveLength(0);
     expect(written.some((w) => w.kind === "refine-report")).toBe(true);   // 溯源报告仍写

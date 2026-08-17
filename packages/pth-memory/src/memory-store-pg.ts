@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
+import { PROVENANCE_REQUIRED_KINDS, validateKnowledgeProvenance } from "./knowledge-provenance.js";
 
 /** 缺省租户 id（tenant_id 列 DDL 已 default 'default'；本批不迁移存量行）。 */
 export const DEFAULT_TENANT_ID = "default";
@@ -22,6 +23,27 @@ export interface MemoryEntry {
   ttlExpiresAt?: number;
   promotedFrom?: string;
   meta: Record<string, unknown>;
+}
+
+/** append-only revision 行（memory_revisions 映射——N19 Phase 1b 设计 2.2）。 */
+export interface MemoryRevision {
+  entryId: string;
+  tenantId: string;
+  revision: number;
+  content: string;
+  status: MemoryEntry["status"];
+  anchors: string[];
+  meta: Record<string, unknown>;
+  createdAt: string;
+  createdBy?: string;
+  reason?: string;
+}
+
+/** write opts：force=系统通道；createdBy/reason=revision 历史记录（N19 Phase 1b 设计 2.3）。 */
+export interface PgMemoryStoreWriteOptions {
+  force?: boolean;
+  createdBy?: string;
+  reason?: string;
 }
 
 /**
@@ -51,8 +73,14 @@ export class PgMemoryStore {
     this.defaultTenantId = opts?.defaultTenantId ?? DEFAULT_TENANT_ID;
   }
 
-  /** upsert：id 冲突则版本递增（CAS 语义，对齐 FS 实现）。anchors 必须显式传非空数组（schema CHECK 约束）。 */
-  async write(entry: MemoryEntry, opts?: { force?: boolean }): Promise<void> {
+  /**
+   * upsert：id 冲突则版本递增（CAS 语义，对齐 FS 实现）。anchors 必须显式传非空数组（schema CHECK 约束）。
+   * N19 Phase 1b：
+   * - official + PROVENANCE_REQUIRED_KINDS 先 validateKnowledgeProvenance，失败 throw 不落库；
+   * - 事务化 append-only：单 client BEGIN → SELECT … FOR UPDATE（by id）→ 旧行写 memory_revisions
+   *   → INSERT…ON CONFLICT DO UPDATE → COMMIT；异常 ROLLBACK 重抛；finally release。
+   */
+  async write(entry: MemoryEntry, opts?: PgMemoryStoreWriteOptions): Promise<void> {
     // 缺省 id 生成（memory 封装签名 id?——调用方可不传——防 pg not-null 违反）
     if (!entry.id) entry.id = randomUUID();
     // 系统文档保护（Prompt 框架化 2026-08-09）：静态上下文（角色文档/能力索引/自修改指南）
@@ -60,45 +88,105 @@ export class PgMemoryStore {
     if (!opts?.force && isSystemDocId(entry.id)) {
       throw new Error(`memory.write: 系统文档 ${entry.id} 受保护（静态上下文——worker 不可覆盖）`);
     }
-    // ON CONFLICT 分支（对齐 FS write 路径②③）：
-    // - 幂等判定：content 与调用方声明版本均相同 → 重落库不递增版本（FS 路径②：entry.meta.version ===
-    //   existing.meta.version && entry.content === existing.content → persist 不递增）；
-    // - meta 合并：memory_entries.meta || EXCLUDED.meta（调用方 meta 整条写回，FS 路径②③ persist(entry) 语义），
-    //   最后强制 version/updatedAt 与列联动（FS：meta={...existing.meta, ...entry.meta, version: next, updatedAt: now}）；
-    // - version 列与 meta.version 引用同一 CASE 表达式（SET 中均引用旧行值）→ 二者保持一致。
-    await this.pool.query(
-      `INSERT INTO memory_entries (id, tenant_id, kind, anchors, content, rule_ref, idempotency_key, status, promoted_from, meta)
-       VALUES ($1, $10, $2, $3::jsonb, $4, $5, $6, $7, $8, $9::jsonb)
-       ON CONFLICT (id) DO UPDATE SET
-         content = EXCLUDED.content,
-         anchors = EXCLUDED.anchors,
-         status = EXCLUDED.status,
-         version = CASE
-           WHEN memory_entries.content = EXCLUDED.content AND memory_entries.meta->>'version' = EXCLUDED.meta->>'version' THEN memory_entries.version
-           ELSE memory_entries.version + 1
-         END,
-         updated_at = now(),
-         meta = memory_entries.meta || EXCLUDED.meta || jsonb_build_object(
-           'version', CASE
+    // provenance 门禁（N19 Phase 1b 设计 1.2）：official 领域知识必须带有效 provenance；draft/archived 不强制。
+    const status = entry.status ?? "official";
+    if (status === "official" && PROVENANCE_REQUIRED_KINDS.has(entry.kind)) {
+      const checked = validateKnowledgeProvenance(entry.meta, entry.content);
+      if (!checked.ok) {
+        throw new Error(`memory.write: provenance invalid for official ${entry.kind}: ${checked.error}`);
+      }
+    }
+
+    const tenantId = entry.tenantId ?? this.defaultTenantId;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // 行锁（PK=id；现有语义不因 tenant 改变）——旧行用于记录 append-only 历史。
+      const oldRows = await client.query(
+        `SELECT id, tenant_id, content, status, anchors, meta, version FROM memory_entries WHERE id = $1 FOR UPDATE`,
+        [entry.id],
+      );
+      const old = oldRows.rows[0] as
+        | { id: string; tenant_id: string; content: string; status: string; anchors: string[]; meta: Record<string, unknown>; version: number }
+        | undefined;
+      if (old) {
+        // 幂等判定与 SQL 的 version 不递增分支保持一致：content 相同且调用方声明版本（meta->>'version'）相同。
+        const oldDeclaredVersion = old.meta?.version !== undefined ? String(old.meta.version) : undefined;
+        const newDeclaredVersion = entry.meta?.version !== undefined ? String(entry.meta.version) : undefined;
+        const isIdempotent = old.content === entry.content
+          && oldDeclaredVersion !== undefined
+          && newDeclaredVersion !== undefined
+          && oldDeclaredVersion === newDeclaredVersion;
+        if (!isIdempotent) {
+          await client.query(
+            `INSERT INTO memory_revisions
+               (entry_id, tenant_id, revision, content, status, anchors, meta, created_by, reason)
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)`,
+            [
+              old.id,
+              old.tenant_id,
+              old.version,
+              old.content,
+              old.status,
+              JSON.stringify(old.anchors ?? []),
+              JSON.stringify(old.meta ?? {}),
+              opts?.createdBy ?? null,
+              opts?.reason ?? null,
+            ],
+          );
+        }
+      }
+
+      // ON CONFLICT 分支（对齐 FS write 路径②③）：
+      // - 幂等判定：content 与调用方声明版本均相同 → 重落库不递增版本（FS 路径②：entry.meta.version ===
+      //   existing.meta.version && entry.content === existing.content → persist 不递增）；
+      // - meta 合并：memory_entries.meta || EXCLUDED.meta（调用方 meta 整条写回，FS 路径②③ persist(entry) 语义），
+      //   最后强制 version/updatedAt 与列联动（FS：meta={...existing.meta, ...entry.meta, version: next, updatedAt: now}）；
+      // - version 列与 meta.version 引用同一 CASE 表达式（SET 中均引用旧行值）→ 二者保持一致。
+      await client.query(
+        `INSERT INTO memory_entries (id, tenant_id, kind, anchors, content, rule_ref, idempotency_key, status, promoted_from, meta)
+         VALUES ($1, $10, $2, $3::jsonb, $4, $5, $6, $7, $8, $9::jsonb)
+         ON CONFLICT (id) DO UPDATE SET
+           content = EXCLUDED.content,
+           anchors = EXCLUDED.anchors,
+           status = EXCLUDED.status,
+           version = CASE
              WHEN memory_entries.content = EXCLUDED.content AND memory_entries.meta->>'version' = EXCLUDED.meta->>'version' THEN memory_entries.version
              ELSE memory_entries.version + 1
            END,
-           'updatedAt', extract(epoch from now()) * 1000
-         )
-       RETURNING id`,
-      [
-        entry.id,
-        entry.kind,
-        JSON.stringify(entry.anchors),
-        entry.content,
-        entry.ruleRef ?? null,
-        entry.idempotencyKey ?? null,
-        entry.status ?? "official",
-        entry.promotedFrom ?? null,
-        JSON.stringify(entry.meta ?? {}),
-        entry.tenantId ?? this.defaultTenantId,
-      ],
-    );
+           updated_at = now(),
+           meta = memory_entries.meta || EXCLUDED.meta || jsonb_build_object(
+             'version', CASE
+               WHEN memory_entries.content = EXCLUDED.content AND memory_entries.meta->>'version' = EXCLUDED.meta->>'version' THEN memory_entries.version
+               ELSE memory_entries.version + 1
+             END,
+             'updatedAt', extract(epoch from now()) * 1000
+           )
+         RETURNING id`,
+        [
+          entry.id,
+          entry.kind,
+          JSON.stringify(entry.anchors),
+          entry.content,
+          entry.ruleRef ?? null,
+          entry.idempotencyKey ?? null,
+          entry.status ?? "official",
+          entry.promotedFrom ?? null,
+          JSON.stringify(entry.meta ?? {}),
+          tenantId,
+        ],
+      );
+      await client.query("COMMIT");
+    } catch (e) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // 保留原始异常——rollback 失败不掩盖主错误
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 
   async get(id: string, opts?: { tenantId?: string }): Promise<MemoryEntry | undefined> {
@@ -232,11 +320,75 @@ export class PgMemoryStore {
     );
   }
 
+  /** append-only 历史（旧→新按 revision 升序）。tenant 缺省 default。 */
+  async revisionHistory(entryId: string, opts?: { tenantId?: string }): Promise<MemoryRevision[]> {
+    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const res = await this.pool.query(
+      `SELECT entry_id, tenant_id, revision, content, status, anchors, meta, created_at, created_by, reason
+       FROM memory_revisions
+       WHERE entry_id = $1 AND tenant_id = $2
+       ORDER BY revision ASC`,
+      [entryId, tenantId],
+    );
+    return res.rows.map(mapRevision);
+  }
+
+  /** 恢复历史 revision：用目标历史内容构造 MemoryEntry → write(force)（恢复前自动记当前版本历史）。 */
+  async restoreRevision(entryId: string, revision: number, opts?: { tenantId?: string; createdBy?: string }): Promise<void> {
+    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const history = await this.revisionHistory(entryId, { tenantId });
+    const target = history.find((r) => r.revision === revision);
+    if (!target) {
+      throw new Error(`revision ${revision} not found for entry ${entryId} in tenant ${tenantId}`);
+    }
+    const current = await this.get(entryId, { tenantId });
+    if (!current) {
+      throw new Error(`entry not found in tenant ${tenantId}`);
+    }
+    await this.write({
+      id: entryId,
+      tenantId,
+      kind: current.kind,
+      anchors: target.anchors,
+      content: target.content,
+      ruleRef: current.ruleRef,
+      idempotencyKey: current.idempotencyKey,
+      status: target.status,
+      ttlExpiresAt: current.ttlExpiresAt,
+      promotedFrom: current.promotedFrom,
+      meta: {
+        ...(target.meta ?? {}),
+        restoredFromRevision: revision,
+        restoredAt: Date.now(),
+      },
+    }, {
+      force: true,
+      createdBy: opts?.createdBy,
+      reason: "restore",
+    });
+  }
+
   async listIds(opts?: { tenantId?: string }): Promise<string[]> {
     const tenantId = opts?.tenantId ?? this.defaultTenantId;
     const res = await this.pool.query(`SELECT id FROM memory_entries WHERE tenant_id = $1`, [tenantId]);
     return (res.rows as Array<{ id: string }>).map((r) => r.id);
   }
+}
+
+/** 列 → MemoryRevision。 */
+function mapRevision(row: any): MemoryRevision {
+  return {
+    entryId: row.entry_id,
+    tenantId: row.tenant_id ?? DEFAULT_TENANT_ID,
+    revision: row.revision,
+    content: row.content,
+    status: row.status,
+    anchors: row.anchors ?? [],
+    meta: row.meta ?? {},
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
+    createdBy: row.created_by ?? undefined,
+    reason: row.reason ?? undefined,
+  };
 }
 
 /** 列 → MemoryEntry：hit_count/version/not_write_back 从独立列并入 meta（保持接口兼容）。 */

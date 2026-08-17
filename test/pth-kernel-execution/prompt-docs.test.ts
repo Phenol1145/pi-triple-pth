@@ -52,6 +52,11 @@ describe("系统文档保护（静态上下文——worker 不可覆盖）", () 
     const { PgMemoryStore } = await import("@away_from/pth-memory");
     const queries: Array<{ sql: string; params: unknown[] }> = [];
     const store = new PgMemoryStore({
+      // K1b：write 事务化后走 client；fake pool 提供同形 connect/query（记录 SQL）
+      connect: async () => ({
+        query: async (sql: string, params: unknown[]) => { queries.push({ sql, params }); return { rows: [] }; },
+        release: async () => {},
+      }),
       query: async (sql: string, params: unknown[]) => { queries.push({ sql, params }); return { rows: [] }; },
     } as never);
     await expect(store.write({ id: "capability-index", kind: "x", anchors: ["a"], content: "污染" } as never))

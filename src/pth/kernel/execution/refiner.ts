@@ -10,20 +10,27 @@
  * 降级（草案 P6）：LLM 输出解析失败 → 函数源码原样保存（无 spec），不 crash、不阻塞任务完成。
  */
 
+import { createHash } from "node:crypto";
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { InterpreterSnapshot } from "../interpreter/index.js";
-import type { PgMemoryStore } from "@away_from/pth-memory";
+import type { KnowledgeProvenance, PgMemoryStore } from "@away_from/pth-memory";
 import type { Task } from "../storage/task-store-pg.js";
 
 export interface RefineInput {
   task: Pick<Task, "id" | "title" | "tags" | "claimed_by">;
   snapshot: InterpreterSnapshot;
+  /** N19 Phase 1b：必填 scoped draft 租户/空间（fail-closed——缺省直接拒绝，不进 LLM）。 */
+  scope: { tenantId: string; space: string };
   /** 任务语言（默认 typescript——vm 任务代码） */
   language?: string;
   /** 执行轨迹（任务 3 分化分析输入——agent 步骤/工具调用/解决的问题） */
   trace?: Array<{ type: string; step?: number; tool?: string; args?: Record<string, unknown>; contentPreview?: string; resultPreview?: string }>;
   /** 执行角色（分化建议的 parent——当前角色） */
   role?: string;
+  /** N19 Phase 1b：任务 outcome（供 provenance/诊断——可选）。 */
+  outcome?: { status: string; result?: unknown };
+  /** N19 Phase 1b：产物引用（provenance.sourceRefs；缺省 ["task:<id>"]）。 */
+  artifactRefs?: string[];
 }
 
 /** 分化建议（任务 3 输出——有监督自动化：建议持久化待确认——不自动执行分化） */
@@ -222,6 +229,43 @@ export function parseRefineResult(text: string, tasks?: RefineTaskDef[]): { ok: 
 export class Refiner {
   constructor(private deps: RefinerDeps) {}
 
+  /** fail-closed：scope 缺失/字段非法 → 不调 LLM。 */
+  private assertScope(input: RefineInput): void {
+    const scope = input?.scope;
+    if (!scope || typeof scope.tenantId !== "string" || scope.tenantId.length === 0
+      || typeof scope.space !== "string" || scope.space.length === 0) {
+      throw new Error("refine scope required");
+    }
+  }
+
+  /** provenance.sourceRefs：artifactRefs 优先（过滤空串）；缺省/全空 → ["task:<id>"]。 */
+  private sourceRefsOf(input: RefineInput): string[] {
+    const refs = (input.artifactRefs ?? []).filter((r): r is string => typeof r === "string" && r.length > 0);
+    return refs.length > 0 ? refs : [`task:${input.task.id}`];
+  }
+
+  /** meta.provenance 六字段（contentHash 真实 sha256——本地计算，避免 fork 子进程依赖 pth-memory dist 新导出）。 */
+  private provenanceOf(input: RefineInput, content: string): KnowledgeProvenance {
+    return {
+      sourceTaskId: input.task.id,
+      producerRole: input.role ?? input.task.claimed_by ?? "origin",
+      producerModel: this.deps.model ?? "deepseek-v4-flash",
+      sourceRefs: this.sourceRefsOf(input),
+      contentHash: createHash("sha256").update(content).digest("hex"),
+      createdAt: Date.now(),
+    };
+  }
+
+  /** scoped draft 公共 meta：tenantId + spaceScope:{space,visibility:"private"} + provenance。 */
+  private scopedMeta(input: RefineInput, content: string, extra: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...extra,
+      tenantId: input.scope.tenantId,
+      spaceScope: { space: input.scope.space, visibility: "private" as const },
+      provenance: this.provenanceOf(input, content),
+    };
+  }
+
   /**
    * 加载 refine 任务清单（解硬编码——memory kind='refine-task' 是真相源——
    * 每次 refine 现读（演化即时生效——refine 频率低无性能问题）——缺失/异常 fallback 代码默认。
@@ -242,7 +286,10 @@ export class Refiner {
     const report: RefineReport = { functionsSaved: 0, insightsSaved: 0, differentiationProposed: false, skipped: [] };
     const refineStart = Date.now();
 
-    // 0. 任务清单（memory 真相源——解硬编码）
+    // 0. fail-closed：scope 非法直接拒绝（不调 LLM、不落库）——N19 Phase 1b 设计 3.1/3.2。
+    this.assertScope(input);
+
+    // 0.1 任务清单（memory 真相源——解硬编码）
     const tasks = await this.loadTasks();
     const enabled = tasks.filter((t) => t.enabled);
     const taskOf = (persistAs: RefineTaskDef["persistAs"]) => enabled.find((t) => t.persistAs === persistAs);
@@ -283,14 +330,15 @@ export class Refiner {
         kind: functionsTask!.persistKind,
         anchors: [...new Set([fn.key, ...(input.task.tags ?? []), language])],
         content: fn.source,   // 当前语言实现（pickle：保留当前实现）
-        status: "official",
-        meta: {
+        status: "draft",      // N19 Phase 1b：refiner 只写 scoped draft
+        tenantId: input.scope.tenantId,
+        meta: this.scopedMeta(input, fn.source, {
           spec: fn.spec ?? null,             // 构造文档（迁移重建依据）
           language,
           taskId: input.task.id,
           role: input.task.claimed_by,
           model: this.deps.model ?? "deepseek-v4-flash",
-        },
+        }),
       });
       report.functionsSaved++;
     }
@@ -304,8 +352,9 @@ export class Refiner {
         kind: insightsTask!.persistKind,
         anchors: baseAnchors,
         content: insight,
-        status: "official",
-        meta: { taskId: input.task.id, role: input.task.claimed_by },
+        status: "draft",      // N19 Phase 1b：refiner 只写 scoped draft
+        tenantId: input.scope.tenantId,
+        meta: this.scopedMeta(input, insight, { taskId: input.task.id, role: input.task.claimed_by }),
       });
       report.insightsSaved++;
     }
@@ -316,21 +365,23 @@ export class Refiner {
     if (diff?.differentiable && diff.subtasks.length > 0) {
       const parent = diff.suggestedRole?.parent || input.role || input.task.claimed_by || "origin";
       const id = `diff-${hash(input.task.id + parent + diff.subtasks.map((s) => s.type).join(",")).slice(0, 12)}`;
+      const diffContent = JSON.stringify({
+        taskId: input.task.id,
+        parent,
+        subtasks: diff.subtasks,
+        suggestedRole: diff.suggestedRole ?? null,
+        confidence: diff.confidence ?? null,
+        rationale: diff.rationale ?? null,
+        status: "pending-review",   // 有监督——待确认（approved → 执行分化注册新角色）
+      }, null, 2);
       await this.deps.memory.write({
         id,
         kind: diffTask!.persistKind,
         anchors: [...new Set([parent, ...(input.task.tags ?? []), ...diff.subtasks.map((s) => s.type)])],
-        content: JSON.stringify({
-          taskId: input.task.id,
-          parent,
-          subtasks: diff.subtasks,
-          suggestedRole: diff.suggestedRole ?? null,
-          confidence: diff.confidence ?? null,
-          rationale: diff.rationale ?? null,
-          status: "pending-review",   // 有监督——待确认（approved → 执行分化注册新角色）
-        }, null, 2),
+        content: diffContent,
         status: "draft",            // draft=待审核（official=已确认——监督层流转）
-        meta: { taskId: input.task.id, parent, confidence: diff.confidence ?? null },
+        tenantId: input.scope.tenantId,
+        meta: this.scopedMeta(input, diffContent, { taskId: input.task.id, parent, confidence: diff.confidence ?? null }),
       });
       report.differentiationProposed = true;
       this.deps.onMetric?.({ type: "differentiation-proposed", parent, subtaskCount: diff.subtasks.length });
@@ -342,24 +393,32 @@ export class Refiner {
       if (v === undefined || v === null) continue;
       if (Array.isArray(v) && v.length === 0) continue;
       const id = `${t.id}-${hash(input.task.id + JSON.stringify(v)).slice(0, 12)}`;
+      const rawContent = typeof v === "string" ? v : JSON.stringify(v, null, 2);
       await this.deps.memory.write({
         id,
         kind: t.persistKind,
         anchors: [...new Set([t.id, input.task.id, ...(input.task.tags ?? [])])],
-        content: typeof v === "string" ? v : JSON.stringify(v, null, 2),
+        content: rawContent,
         status: "draft",            // 自定义任务产物默认 draft（监督层审——与分化建议同治理）
-        meta: { taskId: input.task.id, role: input.task.claimed_by, refineTask: t.id },
+        tenantId: input.scope.tenantId,
+        meta: this.scopedMeta(input, rawContent, { taskId: input.task.id, role: input.task.claimed_by, refineTask: t.id }),
       });
     }
 
-    // 4. refine-report（溯源）
+    // 4. refine-report（溯源）——N19 Phase 1b：保持 official + tenantId + 显式 spaceScope private（诊断自用）
     await this.deps.memory.write({
       id: `refine-${input.task.id}`,
       kind: "refine-report",
       anchors: [input.task.id],
       content: `提炼 ${report.functionsSaved} 个工具函数 + ${report.insightsSaved} 条经验${report.differentiationProposed ? " + 1 条分化建议（待审核）" : ""}`,
       status: "official",
-      meta: { taskId: input.task.id, language },
+      tenantId: input.scope.tenantId,
+      meta: {
+        taskId: input.task.id,
+        language,
+        tenantId: input.scope.tenantId,
+        spaceScope: { space: input.scope.space, visibility: "private" as const },
+      },
     });
 
     // 性能计量（SPEC L3）：耗时 + 提炼量

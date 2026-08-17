@@ -277,10 +277,14 @@ describe("task loop refiner 钩子", () => {
     expect(refiner.refine).not.toHaveBeenCalled();
   });
 
-  it("无 refine 字段 → 调用 refiner（默认 auto）", async () => {
+  it("无 refine 字段 → 调用 refiner（默认 auto）并传 scope", async () => {
     const refiner = { refine: vi.fn(async () => ({})) };
     await runOnceWith({ id: "t1", text: "x", title: "t", payload: {} }, refiner);
     expect(refiner.refine).toHaveBeenCalled();
+    expect(refiner.refine).toHaveBeenCalledWith(expect.objectContaining({
+      task: expect.objectContaining({ id: "t1" }),
+      scope: { tenantId: "default", space: "meta" },
+    }));
   });
 
   it("refine 抛错 → 任务仍 completed（旁路降级）", async () => {

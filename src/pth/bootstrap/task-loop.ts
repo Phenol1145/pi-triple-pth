@@ -486,6 +486,7 @@ export class TaskLoop {
             const traceForRefine = (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents;
             void this.deps.refiner.refine({
               task, snapshot: snap,
+              scope: { tenantId: task.tenantId ?? "default", space: "meta" },
               trace: Array.isArray(traceForRefine) ? traceForRefine as never : undefined,
               role: role.id,
             }).catch((e) => {

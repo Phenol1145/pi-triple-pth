@@ -51,4 +51,21 @@ CREATE TABLE IF NOT EXISTS memory_index (
   entry_id TEXT NOT NULL,
   PRIMARY KEY (anchor, entry_id)
 );
+
+CREATE TABLE IF NOT EXISTS memory_revisions (
+  id BIGSERIAL PRIMARY KEY,
+  entry_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
+  revision INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL,
+  anchors JSONB NOT NULL,
+  meta JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  created_by TEXT,
+  reason TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_revisions_entry_rev
+  ON memory_revisions(entry_id, tenant_id, revision);
+CREATE INDEX IF NOT EXISTS idx_memory_revisions_entry ON memory_revisions(entry_id);
 `;

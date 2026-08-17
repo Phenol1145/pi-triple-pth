@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
-import { DEFAULT_TENANT_ID, MEMORY_SCHEMA_SQL, PgMemoryStore, runReadOnlyQuery } from "@away_from/pth-memory";
+import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, MEMORY_SCHEMA_SQL, PgMemoryStore, runReadOnlyQuery } from "@away_from/pth-memory";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1/2/3（pg.test.ts / schema.test.ts / task-store-pg.test.ts）：
@@ -234,6 +234,83 @@ suite("memory store pg", () => {
     expect(await customStore.get("k1a-t4-custom")).toBeDefined();
     expect(await store.get("k1a-t4-custom")).toBeUndefined();
     expect(await store.listIds({ tenantId: "tenant-custom" })).toContain("k1a-t4-custom");
+  });
+
+  it("K1b：write 事务化 append-only——首次写无历史，更新记旧版本", async () => {
+    await store.write({ id: "k1b-rev-1", kind: "fact", anchors: ["k1b-rev"], content: "v1", meta: { version: 1 } } as any);
+    expect(await store.revisionHistory("k1b-rev-1")).toEqual([]);
+
+    await store.write({
+      id: "k1b-rev-1", kind: "fact", anchors: ["k1b-rev"], content: "v2",
+      meta: { version: 2 }, status: "official",
+    } as any, { createdBy: "developer", reason: "update" });
+    const history = await store.revisionHistory("k1b-rev-1");
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      entryId: "k1b-rev-1",
+      tenantId: "default",
+      revision: 1,
+      content: "v1",
+      createdBy: "developer",
+      reason: "update",
+    });
+    expect(history[0].anchors).toEqual(["k1b-rev"]);
+  });
+
+  it("K1b：幂等重写不产生 revision 行", async () => {
+    await store.write({ id: "k1b-rev-2", kind: "fact", anchors: ["k1b-rev"], content: "idem", meta: { version: 1 } } as any);
+    await store.write({ id: "k1b-rev-2", kind: "fact", anchors: ["k1b-rev"], content: "idem", meta: { version: 1, sourceTraces: ["t1"] } } as any);
+    expect(await store.revisionHistory("k1b-rev-2")).toEqual([]);
+    const got = await store.get("k1b-rev-2");
+    expect(got?.meta?.version).toBe(1);
+  });
+
+  it("K1b：restoreRevision 恢复目标历史版本 + 自动记恢复前版本", async () => {
+    await store.write({ id: "k1b-rev-3", kind: "fact", anchors: ["k1b-rev"], content: "v1", meta: { version: 1 } } as any);
+    await store.write({ id: "k1b-rev-3", kind: "fact", anchors: ["k1b-rev"], content: "v2", meta: { version: 2 } } as any);
+    await store.write({ id: "k1b-rev-3", kind: "fact", anchors: ["k1b-rev"], content: "v3", meta: { version: 3 } } as any);
+
+    await store.restoreRevision("k1b-rev-3", 1, { createdBy: "admin" });
+
+    const got = await store.get("k1b-rev-3");
+    expect(got?.content).toBe("v1");
+    expect(got?.meta?.restoredFromRevision).toBe(1);
+    expect(got?.meta?.restoredAt).toEqual(expect.any(Number));
+
+    const history = await store.revisionHistory("k1b-rev-3");
+    // 历史：rev1=v1, rev2=v2, rev3=v3(恢复前当前版本自动记录)
+    expect(history.map((h) => h.revision)).toEqual([1, 2, 3]);
+    expect(history[2]).toMatchObject({ content: "v3", reason: "restore", createdBy: "admin" });
+  });
+
+  it("K1b：revisionHistory 跨 tenant 隔离（default 查不到另一 tenant 历史）", async () => {
+    await store.write({ id: "k1b-rev-t", kind: "fact", anchors: ["k1b-rev-tenant"], content: "v1", tenantId: "tenant-a", meta: { version: 1 } } as any);
+    await store.write({ id: "k1b-rev-t", kind: "fact", anchors: ["k1b-rev-tenant"], content: "v2", tenantId: "tenant-a", meta: { version: 2 } } as any);
+
+    expect(await store.revisionHistory("k1b-rev-t")).toEqual([]);
+    const history = await store.revisionHistory("k1b-rev-t", { tenantId: "tenant-a" });
+    expect(history).toHaveLength(1);
+    expect(history[0].tenantId).toBe("tenant-a");
+    expect(history[0].content).toBe("v1");
+  });
+
+  it("K1b：official + PROVENANCE_REQUIRED_KINDS 写入门禁——无效 provenance 拒绝不落库", async () => {
+    await expect(
+      store.write({ id: "k1b-prov-bad", kind: "domain-fact", anchors: ["k1b-prov"], content: "x", status: "official", meta: {} } as any),
+    ).rejects.toThrow(/provenance/);
+    expect(await store.get("k1b-prov-bad")).toBeUndefined();
+
+    const meta = buildKnowledgeProvenance({
+      content: "x", sourceTaskId: "t1", producerRole: "developer",
+      producerModel: "deepseek-v4-flash", sourceRefs: ["task:t1"],
+    });
+    await store.write({ id: "k1b-prov-ok", kind: "domain-fact", anchors: ["k1b-prov"], content: "x", status: "official", meta } as any);
+    expect((await store.get("k1b-prov-ok"))?.content).toBe("x");
+  });
+
+  it("K1b：draft 不强制 provenance", async () => {
+    await store.write({ id: "k1b-prov-draft", kind: "domain-fact", anchors: ["k1b-prov"], content: "draft-x", status: "draft", meta: {} } as any);
+    expect((await store.get("k1b-prov-draft"))?.status).toBe("draft");
   });
 
 });
