@@ -131,6 +131,20 @@ CREATE TABLE IF NOT EXISTS skills (
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- F5（2026-08-18）：durable side-effect outbox——post-commit 副作用（refine 等）先落库再异步消费，
+-- 进程重启不丢；幂等 key 防重复入队；attempts≥3 置 failed 留审计。
+CREATE TABLE IF NOT EXISTS side_effect_outbox (
+  id BIGSERIAL PRIMARY KEY,
+  key TEXT NOT NULL UNIQUE,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
+  kind TEXT NOT NULL,
+  payload JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','done','failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  done_at TIMESTAMPTZ
+);
 `;
 
 export async function applySchema(pool: pg.Pool): Promise<void> {

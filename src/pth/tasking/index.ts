@@ -3,6 +3,7 @@
  * 跨模块消费方只允许 import 本文件（或 contracts）。
  */
 export * from "./task-outcome-observers.js";
+export * from "./side-effect-outbox.js";
 export * from "./task-dispatcher.js";
 export * from "./task-outcome-committer.js";
 export * from "./adapters/pg-task-repository.js";

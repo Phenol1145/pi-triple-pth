@@ -26,6 +26,8 @@ import {
   createPenetrationRunner,
   penetrationBudgetError,
   recordPenetrationUse,
+  PgSideEffectOutbox,
+  createSideEffectDrainer,
   type PenetrationBudgetConfig,
   type PenetrationLedger,
 } from "../tasking/index.js";
@@ -33,7 +35,7 @@ import { DefaultTaskWorkspaceManager } from "../kernel/execution/workspace.js";
 import { archiveTask, type ArchiveDeps } from "../kernel/execution/archive.js";
 import { createKernelModelRouter } from "../kernel/execution/model-router.js";
 import { createLlmFn } from "../kernel/interpreter/llm-fn.js";
-import { Refiner } from "../kernel/execution/refiner.js";
+import { Refiner, type RefineInput } from "../kernel/execution/refiner.js";
 import { Optimizer } from "../kernel/execution/optimizer-loop.js";
 import { createToolstore } from "../kernel/interpreter/toolstore.js";
 import { createKernelLogger } from "../kernel/logger.js";
@@ -83,6 +85,39 @@ function buildDisciplineCatalogSnapshot(): DisciplineCatalogSnapshot {
 /** K2 Phase 2：从同一份生成数据构建 catalog 快照 + resolver（与 assembly 同源同版本）。 */
 function buildDisciplineResolver(): ReturnType<typeof createDisciplineResolver> {
   return createDisciplineResolver(buildDisciplineCatalogSnapshot());
+}
+
+/** F5：outbox payload → RefineInput 重建（payload 不存大 trace——traceEvents 已截断 60 条；
+ *  snapshot 可省略——缺失回退空快照，refiner.refine 输入保持现有形状）。 */
+function refineInputFromPayload(payload: unknown): RefineInput {
+  const p = (payload ?? {}) as Record<string, unknown>;
+  const taskFromPayload = p.task as RefineInput["task"] | undefined;
+  const roleId = typeof p.roleId === "string" ? p.roleId : undefined;
+  const taskId = taskFromPayload?.id ?? (typeof p.taskId === "string" ? p.taskId : "unknown");
+  const domains = Array.isArray(p.domains) ? (p.domains as string[]) : undefined;
+  const domainBinding = (p.domainBinding && typeof p.domainBinding === "object")
+    ? (p.domainBinding as RefineInput["domainBinding"])
+    : undefined;
+  const outcome = (p.outcome && typeof p.outcome === "object")
+    ? (p.outcome as RefineInput["outcome"])
+    : undefined;
+  const artifactRefs = Array.isArray(p.artifactRefs) ? (p.artifactRefs as string[]) : undefined;
+  return {
+    task: taskFromPayload ?? {
+      id: taskId,
+      title: typeof p.taskTitle === "string" ? p.taskTitle : "",
+      tags: Array.isArray(p.tags) ? (p.tags as string[]) : [],
+      claimed_by: roleId ?? null,
+    },
+    snapshot: (p.snapshot ?? { variables: [], functions: [], oversized: [] }) as RefineInput["snapshot"],
+    scope: { tenantId: typeof p.tenantId === "string" ? p.tenantId : "default", space: "meta" },
+    trace: Array.isArray(p.traceEvents) ? (p.traceEvents as unknown[]).slice(0, 60) as RefineInput["trace"] : undefined,
+    role: roleId,
+    ...(domains ? { domains } : {}),
+    ...(domainBinding ? { domainBinding } : {}),
+    ...(outcome ? { outcome } : {}),
+    ...(artifactRefs ? { artifactRefs } : {}),
+  };
 }
 
 /**
@@ -287,6 +322,32 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     transcriptStore: dataWorld.transcripts,
     workspaceMgr,
     emitCleanup: (info) => process.send?.({ type: "cleanup", taskId: info.taskId, artifactPath: info.artifactPath }),
+  };
+
+  // F5（6.1）：durable side-effect outbox + drainer。refine observer 只 enqueue 到 outbox；
+  // drainer 轮询消费（unref timer + task-loop claim 前 kick）。refineRefiners 在 createWorker
+  // 里按 roleId 注册各 worker 的 refiner，handler 按 payload.roleId 选取。
+  const sideEffectOutbox = new PgSideEffectOutbox(pool);
+  const refineRefiners = new Map<string, Pick<Refiner, "refine">>();
+  const sideEffectDrainer = createSideEffectDrainer({
+    outbox: sideEffectOutbox,
+    handlers: {
+      async refine(payload) {
+        const p = (payload ?? {}) as Record<string, unknown>;
+        const roleId = typeof p.roleId === "string" ? p.roleId : "";
+        const refiner = refineRefiners.get(roleId) ?? refineRefiners.values().next().value;
+        if (!refiner) throw new Error("refiner not available for outbox refine");
+        await refiner.refine(refineInputFromPayload(p));
+      },
+    },
+    logger: (m) => batchLogger.warn(m),
+    tickMs: pthConfig().num("PTH_OUTBOX_TICK_MS") || 2000,
+  });
+  sideEffectDrainer.start();
+  const kickSideEffectDrainer = (): void => {
+    void sideEffectDrainer.drainOnce().catch((e) => {
+      batchLogger.warn(`side-effect drain kick failed: ${e instanceof Error ? e.message : String(e)}`);
+    });
   };
 
   const intervalMs = deps.intervalMs ?? pthConfig().num("PTH_BATCH_TICK_MS");
@@ -544,6 +605,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       memory: dataWorld.memory,
       onMetric: (m) => { try { process.send?.({ kind: "metric", metric: { ...m, domain: "refine" } }); } catch { /* IPC 不可用 */ } },
     }) : undefined;
+    // F5：drainer handler 按 payload.roleId 选 refiner（同角色多副本时最后一个注册生效）。
+    if (refiner) refineRefiners.set(role.id, refiner);
     // 优化循环（2026-08-12 大项 §10.3）：窗口聚合检测 → 建议 draft（PTH_OPTIMIZER=off 关闭）
     const optimizerEnabled = pthConfig().str("PTH_OPTIMIZER") !== "off";
     // 2026-08-14 T4 分层闸门：PTH_APPLY_POLICY=auto-reversible 时可逆微调建议自动 apply（deopt 兜底）；
@@ -570,6 +633,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const loop = new BatchTaskLoop({
       kernel, role: effectiveRole, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
       repository: taskRepository,
+      // F5：post-commit refine 走 durable outbox；每轮 claim 前 kick 一次 drain。
+      sideEffectOutbox,
+      drainSideEffects: kickSideEffectDrainer,
       // K3：任务知识上下文 provider（memory + catalog + isVisible 同源装配）。
       knowledgeContextProvider,
       // N14 P2：tool-reg 注册面——任务开始冻结快照 + agent 态执行缝（穿透 runChild 同一闭包）

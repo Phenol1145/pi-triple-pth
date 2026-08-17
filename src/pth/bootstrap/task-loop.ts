@@ -69,6 +69,14 @@ export class TaskLoop {
 
   async runOnce(): Promise<boolean> {
     if (this.paused || this.stopped) return false;
+    // F5 实现点：每轮 claim 前 kick 一次 durable side-effect drain。
+    // 不 await——drainer 的慢 handler（refine LLM）不能在 claim 路径上阻塞；
+    // 可靠兜底由 drainer 的 unref timer 承担，drainOnce 内部并发串行防重复领取。
+    try {
+      this.deps.drainSideEffects?.();
+    } catch {
+      // drain 触发失败不阻断 claim（drainer timer 兜底）
+    }
     const { taskStore, role } = this.deps;
     // 1. peek：只读获取候选（不锁定）
     const candidates = await taskStore.candidates(role.id);
@@ -130,20 +138,29 @@ export class TaskLoop {
       });
       this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags });
       const slowQueue = new BoundedBackgroundQueue({ maxConcurrency: 2, logger: (m) => taskLogger?.warn?.(m) });
-      const auditWrite = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; tenantId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit?.write;
+      // F5 audit binding（6.7）：先捕获 audit store 对象，再 `(ev) => audit.write(ev)`——
+      // 不先解引用方法，否则 PgAuditStore.write 内的 this.pool 丢失绑定。
+      const audit = (this.deps.kernel.dataWorld as unknown as { audit?: { write?(ev: { eventType: string; actor?: string; taskId?: string; tenantId?: string; payload?: unknown }): Promise<void> } } | undefined)?.audit;
+      // 同样以对象方法调用 transcripts（obj.method 形态，this 绑定安全）。
+      const transcripts = this.deps.transcripts;
+      const sideEffectOutbox = this.deps.sideEffectOutbox;
       const observers = [
-        ...(auditWrite ? [createAuditObserver({ write: (ev) => auditWrite(ev) })] : []),
-        ...(this.deps.transcripts
-          ? [createTranscriptObserver({ create: (input) => this.deps.transcripts!.create(input as never) })]
+        ...(audit?.write ? [createAuditObserver({ write: (ev) => audit.write!(ev) })] : []),
+        ...(transcripts
+          ? [createTranscriptObserver({ create: (input) => transcripts.create(input as never) })]
           : []),
         createActivityObserver({ emit: (e) => this.deps.onActivity?.({ ...e, role: role.id, taskId: task.id }) }),
         createMetricsObserver({ metric: (m) => this.deps.onTaskMetric?.(m), classifyReason }),
         createNotifierObserver(),
-        ...(this.deps.refiner
+        ...(this.deps.refiner && sideEffectOutbox
           ? [createRefineObserver({
-              queue: slowQueue,
+              enqueue: (key, kind, payload) => sideEffectOutbox.enqueue({
+                key,
+                tenantId: (payload as { tenantId?: string } | undefined)?.tenantId ?? "default",
+                kind,
+                payload,
+              }),
               kernel: this.deps.kernel,
-              refiner: this.deps.refiner,
               roleId: role.id,
               logger: (m) => taskLogger?.error(m),
             })]
@@ -492,11 +509,17 @@ export class TaskLoop {
             const snap = await this.deps.kernel.snapshot();
             // 任务 3（分化分析）输入：执行轨迹 + 角色（traceEvents 在 agent 分支收集——fast-path 为空）
             const traceForRefine = (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents;
+            // F5 lineage：legacy 路径从 task payload 解析 domains/domainBinding（与 claim 同口径）。
+            const domains = readWorkItemDomains(task.payload);
+            const domainBinding = readWorkItemDomainBinding(task.payload, domains);
             void this.deps.refiner.refine({
               task, snapshot: snap,
               scope: { tenantId: task.tenantId ?? "default", space: "meta" },
               trace: Array.isArray(traceForRefine) ? traceForRefine as never : undefined,
               role: role.id,
+              domains,
+              ...(domainBinding ? { domainBinding } : {}),
+              outcome: { status: "completed", result },
             }).catch((e) => {
               // 降级：refine 失败仅记日志，任务已 completed 不受影响（草案 P6）
               taskLogger?.error(`refine failed: ${(e as Error).message}`);

@@ -42,8 +42,8 @@ suite("schema", () => {
     expect(res.rows[0].version).toBe(SCHEMA_VERSION);
   });
 
-  it("creates all 12 tables", async () => {
-    const tables = ["task_templates","tasks","memory_entries","memory_buffer","memory_idem","memory_retry","memory_index","lab_events","credit_tx","transcripts","audit_log","skills"];
+  it("creates all 13 tables", async () => {
+    const tables = ["task_templates","tasks","memory_entries","memory_buffer","memory_idem","memory_retry","memory_index","lab_events","credit_tx","transcripts","audit_log","skills","side_effect_outbox"];
     for (const t of tables) {
       const res = await pool.query("SELECT to_regclass($1) as r", [t]);
       expect(res.rows[0].r, `table ${t} should exist`).toBeTruthy();

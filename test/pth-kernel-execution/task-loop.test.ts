@@ -375,6 +375,73 @@ describe("任务终态审计（A2 Phase 3——审计两平面接线：PG audit_
 });
 
 
+describe("task loop dispatcher 路径（P1-6）", () => {
+  const role = { id: "developer", tags: ["code"], prompt: "dev" };
+
+  function dispatchedDeps(kernel: any, store: any, repository: any) {
+    return { ...agentDeps(kernel, role, store), repository };
+  }
+
+  function mockRepository(task: any) {
+    const lease = {
+      taskId: task.id,
+      leaseId: "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6",
+      generation: 1,
+      scope: { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-1" },
+      workspace: { tenantId: "tenant-a", workspaceId: `task:${task.id}`, taskId: task.id },
+      roleId: "developer",
+      deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    const work = {
+      taskId: task.id,
+      scope: lease.scope,
+      title: task.title,
+      text: task.text,
+      tags: [],
+      payload: task.payload ?? {},
+      assignedRole: "developer",
+      domains: [],
+    };
+    return {
+      claim: vi.fn(async () => [{ lease, work }]),
+      commit: vi.fn(async () => ({ committed: true })),
+    };
+  }
+
+  it("F5 audit binding：捕获 audit store 对象后 (ev)=>audit.write(ev)，this 绑定生效且事件落库", async () => {
+    const task = { id: "t1", text: "do x", title: "x" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+    });
+    const kernel = mockKernel();
+    const auditStore = {
+      events: [] as unknown[],
+      async write(ev: unknown) { this.events.push(ev); },
+    };
+    kernel.dataWorld = { audit: auditStore };
+    const repository = mockRepository(task);
+    const loop = new TaskLoop(dispatchedDeps(kernel, store, repository));
+    await loop.runOnce();
+    expect(repository.claim).toHaveBeenCalled();
+    expect(repository.commit).toHaveBeenCalled();
+    expect(auditStore.events).toHaveLength(1);
+    expect(auditStore.events[0]).toMatchObject({ eventType: "task_completed", taskId: "t1", tenantId: "tenant-a" });
+  });
+
+  it("F5 drainSideEffects：每轮 claim 前 kick 一次（sync 回调）", async () => {
+    const task = { id: "t1", text: "do x", title: "x" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const drain = vi.fn();
+    const kernel = mockKernel();
+    const loop = new TaskLoop({ ...agentDeps(kernel, role, store), drainSideEffects: drain });
+    await loop.runOnce();
+    expect(drain).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("复测任务透传（2026-08-14 N6 一等化）", () => {
   const role = { id: "developer", tags: ["code"], prompt: "dev" };
 
