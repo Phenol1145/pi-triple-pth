@@ -21,6 +21,7 @@ import {
   type PenetrationEdgeSpec,
 } from "./penetration-skill.js";
 import { pthConfig } from "../config/index.js";
+import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 
 export const PENETRATION_PROPOSAL_KIND = "penetration-proposal";
 export const PENETRATION_EDGE_KIND = "penetration-edge";
@@ -64,6 +65,7 @@ export type PenetrationEdgeEvaluation =
 /** 治理面 store 窄口（PgMemoryStore 结构型兼容——与 ToolRegGovernanceStore 同形） */
 export interface PenetrationDiscoveryMemoryEntry {
   id: string;
+  tenantId?: string;
   kind: string;
   anchors: string[];
   content: string;
@@ -72,9 +74,9 @@ export interface PenetrationDiscoveryMemoryEntry {
 }
 
 export interface PenetrationDiscoveryStore {
-  get(id: string): Promise<PenetrationDiscoveryMemoryEntry | undefined>;
+  get(id: string, opts?: { tenantId?: string }): Promise<PenetrationDiscoveryMemoryEntry | undefined>;
   write(entry: PenetrationDiscoveryMemoryEntry, opts?: { force?: boolean }): Promise<void>;
-  update(id: string, patch: Partial<PenetrationDiscoveryMemoryEntry>, opts?: { force?: boolean }): Promise<void>;
+  update(id: string, patch: Partial<PenetrationDiscoveryMemoryEntry>, opts?: { force?: boolean; tenantId?: string }): Promise<void>;
 }
 
 /** discover 只写提案——写口窄化（PgMemoryStore.write 形状） */
@@ -330,6 +332,7 @@ export async function discoverPenetrationProposals(deps: PenetrationDiscoveryDep
     };
     await deps.memory.write({
       id,
+      tenantId: DEFAULT_TENANT_ID,
       kind: PENETRATION_PROPOSAL_KIND,
       anchors: ["penetration", agg.parent, agg.child],
       content: JSON.stringify(proposalContent),
@@ -346,7 +349,7 @@ export async function discoverPenetrationProposals(deps: PenetrationDiscoveryDep
 // ── 治理函数（tool-proposal 状态机同构：draft → official → executed）─
 
 async function getProposal(store: PenetrationDiscoveryStore, proposalId: string) {
-  const p = await store.get(proposalId);
+  const p = await store.get(proposalId, { tenantId: DEFAULT_TENANT_ID });
   if (!p || p.kind !== PENETRATION_PROPOSAL_KIND) return undefined;
   return p;
 }
@@ -362,7 +365,7 @@ export async function approvePenetrationProposal(
   await store.update(proposalId, {
     status: "official",
     meta: { ...(p.meta ?? {}), approvedAt: Date.now(), stage: "approved" },
-  });
+  }, { tenantId: DEFAULT_TENANT_ID });
   return { ok: true, id: proposalId };
 }
 
@@ -385,18 +388,19 @@ export async function executeApprovedPenetrationProposal(
   const validated = validatePenetrationSkillRegistration(content);
   if (!validated.ok) return { ok: false, error: `穿透 skill 注册校验失败：${validated.error}` };
   const skillId = `${PENETRATION_SKILL_ID_PREFIX}${validated.child}`;
-  const existing = await store.get(skillId);
+  const existing = await store.get(skillId, { tenantId: DEFAULT_TENANT_ID });
   if (existing && existing.status === "official") {
     return { ok: false, error: `已存在 official ${skillId}——注册幂等防覆盖（修订不在本批）` };
   }
   const entry = buildPenetrationSkillEntry(content, { status: "official" });
   await store.write({
     ...entry,
+    tenantId: DEFAULT_TENANT_ID,
     meta: { ...entry.meta, registeredAt: Date.now(), proposalId },
   }, { force: true });
   await store.update(proposalId, {
     meta: { ...(p.meta ?? {}), executedAt: Date.now(), stage: "executed" },
-  });
+  }, { tenantId: DEFAULT_TENANT_ID });
   return { ok: true, id: entry.id };
 }
 

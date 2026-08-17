@@ -47,8 +47,8 @@ export type ToolRegRunChild = (req: ToolRegRunChildRequest) => Promise<ToolRegRu
 
 /** 注册表读取窄口（PgMemoryStore 结构型兼容） */
 export interface ToolRegStoreLike {
-  listIds(): Promise<string[]>;
-  get(id: string): Promise<{ id: string; kind: string; status?: string; content: unknown } | undefined>;
+  listIds(opts?: { tenantId?: string }): Promise<string[]>;
+  get(id: string, opts?: { tenantId?: string }): Promise<{ id: string; kind: string; status?: string; content: unknown } | undefined>;
 }
 
 export interface ToolRegSnapshot {
@@ -73,11 +73,11 @@ function fnv1a(s: string): string {
  * 装载注册表快照：official + 校验通过才进面（draft 不可见——治理门槛同款）。
  * 装载失败单条跳过（一条坏条目不阻塞全局面——登记漂移由对账测试/--check 兜底）。
  */
-export async function loadToolRegSnapshot(store: ToolRegStoreLike): Promise<ToolRegSnapshot> {
-  const ids = (await store.listIds()).filter((id) => id.startsWith("tool:")).sort();
+export async function loadToolRegSnapshot(store: ToolRegStoreLike, opts?: { tenantId?: string }): Promise<ToolRegSnapshot> {
+  const ids = (await store.listIds(opts)).filter((id) => id.startsWith("tool:")).sort();
   const entries = new Map<string, ToolRegSpec>();
   for (const id of ids) {
-    const row = await store.get(id);
+    const row = await store.get(id, opts);
     if (!row || row.kind !== "tool-reg" || row.status !== "official") continue;
     const parsed = parseToolRegContent(typeof row.content === "string" ? row.content : String(row.content ?? ""));
     if (!parsed.ok) continue;
@@ -134,10 +134,11 @@ export async function toolFaceBudgetCheck(
   store: ToolRegStoreLike,
   candidate: ToolRegSpec,
   budget: number,
+  opts?: { tenantId?: string },
 ): Promise<{ ok: boolean; over: Array<{ role: string; face: number; projected: number }> }> {
   const { knownRoleById } = await import("./worker-cluster.js");
   const { toolsToSchema } = await import("./agent-tools.js");
-  const snap = await loadToolRegSnapshot(store);
+  const snap = await loadToolRegSnapshot(store, opts);
   const over: Array<{ role: string; face: number; projected: number }> = [];
   const candidateSchemaName = candidate.name.replace(/\./g, "_");
   for (const roleId of candidate.visibility.roles) {

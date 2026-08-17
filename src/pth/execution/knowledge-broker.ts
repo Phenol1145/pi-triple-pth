@@ -132,6 +132,10 @@ export function createKnowledgeBroker(deps: KnowledgeBrokerDeps): KnowledgeBroke
     if (!grant.capabilities.includes("memory.read")) {
       return { ok: false, status: 403, error: "grant missing capability: memory.read" };
     }
+    // F2（AB-01）raw query 门禁：query 是诊断通道——除 memory.read 外还要求显式 memory.query 能力。
+    if (request.op === "query" && !grant.capabilities.includes("memory.query")) {
+      return { ok: false, status: 403, error: "grant missing capability: memory.query" };
+    }
     const space = grant.scope.space;
     if (!space) return { ok: false, status: 403, error: "grant scope.space missing（knowledge access fail-closed）" };
     const tenantId = grant.scope.tenantId;

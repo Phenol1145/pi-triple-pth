@@ -51,6 +51,23 @@ describe("KnowledgeBroker（P2-5）", () => {
     if (!r.ok) expect(r.status).toBe(403);
   });
 
+  it("F2：query 缺 memory.query capability → 403（即使有 memory.read）", async () => {
+    const broker = makeBroker();
+    const r = await broker.query({ grant: makeGrant({ capabilities: ["memory.read"] }), op: "query", sql: "SELECT kind, meta FROM memory_entries LIMIT 1" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(403);
+      expect(r.error).toContain("memory.query");
+    }
+  });
+
+  it("F2：query 有 memory.query capability → 放行到 meta 校验", async () => {
+    const broker = makeBroker();
+    const r = await broker.query({ grant: makeGrant({ capabilities: ["memory.read", "memory.query"] }), op: "query", sql: "SELECT kind, meta FROM memory_entries LIMIT 1" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.rows).toHaveLength(1);
+  });
+
   it("grant 无 scope.space → 403 fail-closed", async () => {
     const broker = makeBroker();
     const r = await broker.query({ grant: makeGrant({ space: null }), op: "retrieve", anchors: ["a"] });
@@ -74,7 +91,7 @@ describe("KnowledgeBroker（P2-5）", () => {
       },
       isVisible: () => true,
     });
-    const r = await broker.query({ grant: makeGrant(), op: "query", sql: "SELECT 1" });
+    const r = await broker.query({ grant: makeGrant({ capabilities: ["memory.read", "memory.query"] }), op: "query", sql: "SELECT 1" });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.status).toBe(400);
   });

@@ -415,6 +415,63 @@ suite("memory store pg", () => {
     expect(history[2].reason).toBe("knowledge-promotion");
   });
 
+  it("F2：复合 PK 后同 id 跨 tenant 可并存（write/get/retrieve 互不可见）", async () => {
+    await store.write({ id: "f2-dup", kind: "fact", anchors: ["f2-dup"], content: "default-tenant", tenantId: DEFAULT_TENANT_ID, meta: {} } as any);
+    await store.write({ id: "f2-dup", kind: "fact", anchors: ["f2-dup"], content: "tenant-a", tenantId: "tenant-a", meta: {} } as any);
+
+    expect((await store.get("f2-dup", { tenantId: DEFAULT_TENANT_ID }))?.content).toBe("default-tenant");
+    expect((await store.get("f2-dup", { tenantId: "tenant-a" }))?.content).toBe("tenant-a");
+
+    const defaults = await store.retrieve({ anchors: ["f2-dup"], tenantId: DEFAULT_TENANT_ID });
+    expect(defaults.map((e) => e.content)).toEqual(["default-tenant"]);
+    const others = await store.retrieve({ anchors: ["f2-dup"], tenantId: "tenant-a" });
+    expect(others.map((e) => e.content)).toEqual(["tenant-a"]);
+  });
+
+  it("F2：复合 PK 后并发写同 id 不同 tenant 不冲突", async () => {
+    await Promise.all([
+      store.write({ id: "f2-conc", kind: "fact", anchors: ["f2-conc"], content: "t1", tenantId: "tenant-1", meta: {} } as any),
+      store.write({ id: "f2-conc", kind: "fact", anchors: ["f2-conc"], content: "t2", tenantId: "tenant-2", meta: {} } as any),
+      store.write({ id: "f2-conc", kind: "fact", anchors: ["f2-conc"], content: "t3", tenantId: "tenant-3", meta: {} } as any),
+    ]);
+    expect((await store.get("f2-conc", { tenantId: "tenant-1" }))?.content).toBe("t1");
+    expect((await store.get("f2-conc", { tenantId: "tenant-2" }))?.content).toBe("t2");
+    expect((await store.get("f2-conc", { tenantId: "tenant-3" }))?.content).toBe("t3");
+  });
+
+  it("F2：incrementAggregate 同 id 不同 tenant 各自聚合（复合冲突目标）", async () => {
+    await store.incrementAggregate("f2-agg", "agg", ["f2-agg"], { n: 1 }, {}, { tenantId: "tenant-a" });
+    await store.incrementAggregate("f2-agg", "agg", ["f2-agg"], { n: 10 }, {}, { tenantId: "tenant-b" });
+    await store.incrementAggregate("f2-agg", "agg", ["f2-agg"], { n: 2 }, {}, { tenantId: "tenant-a" });
+
+    expect(JSON.parse((await store.get("f2-agg", { tenantId: "tenant-a" }))?.content ?? "{}").n).toBe(3);
+    expect(JSON.parse((await store.get("f2-agg", { tenantId: "tenant-b" }))?.content ?? "{}").n).toBe(10);
+  });
+
+  it("F2：复合 PK 迁移后旧行仍可读（迁移前写入的 default 行）", async () => {
+    // beforeAll 建表后已有 e1 等旧行（id pkey 时代写入）——复合 PK 迁移后必须仍可读。
+    const old = await store.get("e1");
+    expect(old?.content).toBe("x");
+  });
+
+  it("F2：requireTenant=true 缺失 tenant 抛指定文案（write/get/update/retrieve/listIds/bumpHitCount/incrementAggregate/revisionHistory/restoreRevision）", async () => {
+    const strict = new PgMemoryStore(pool, { requireTenant: true });
+    const fail = "memory: tenantId required（TenantScope fail-closed）";
+
+    await expect(strict.write({ id: "f2-strict", kind: "fact", anchors: ["f2-strict"], content: "x", meta: {} } as any)).rejects.toThrow(fail);
+    await expect(strict.get("f2-strict")).rejects.toThrow(fail);
+    await expect(strict.update("f2-strict", { content: "y" })).rejects.toThrow(fail);
+    await expect(strict.retrieve({ anchors: ["f2-strict"] })).rejects.toThrow(fail);
+    await expect(strict.listIds()).rejects.toThrow(fail);
+    await expect(strict.bumpHitCount("f2-strict")).rejects.toThrow(fail);
+    await expect(strict.incrementAggregate("f2-strict", "agg", ["f2-strict"], { n: 1 }, {})).rejects.toThrow(fail);
+    await expect(strict.revisionHistory("f2-strict")).rejects.toThrow(fail);
+    await expect(strict.restoreRevision("f2-strict", 1)).rejects.toThrow(fail);
+
+    // 显式 tenant 后可正常写读。
+    await strict.write({ id: "f2-strict", tenantId: "tenant-a", kind: "fact", anchors: ["f2-strict"], content: "x", meta: {} } as any);
+    expect((await strict.get("f2-strict", { tenantId: "tenant-a" }))?.content).toBe("x");
+  });
 });
 
 // provenanceFromMeta 是纯函数——suite 外独立 describe（不需要 docker/连接）

@@ -10,7 +10,7 @@ import type { BoundedBackgroundQueue } from "../../tasking/index.js";
 export interface OptimizerObserverDeps {
   queue: BoundedBackgroundQueue;
   optimizer: {
-    collect(scorecard: unknown, ctx: { role: string; taskId: string; verifyOf?: string }): Promise<unknown> | void;
+    collect(scorecard: unknown, ctx: { role: string; taskId: string; tenantId?: string; verifyOf?: string }): Promise<unknown> | void;
   };
   buildScorecard(trace: unknown[]): unknown;
   computeTimeReuse?(subtasks: Array<{ id?: string; dependsOn?: string[] }>): number | null;
@@ -23,7 +23,7 @@ export function createOptimizerObserver(deps: OptimizerObserverDeps): TaskOutcom
     if (event.outcome.status !== "completed") return;
     const trace = event.context?.["traceEvents"];
     if (!Array.isArray(trace) || trace.length === 0) return;
-    const task = event.context?.["task"] as { id?: string; payload?: { verifyOf?: string } } | undefined;
+    const task = event.context?.["task"] as { id?: string; tenantId?: string; payload?: { verifyOf?: string } } | undefined;
     const result = event.outcome.result as { value?: unknown } | undefined;
     deps.queue.enqueue(async () => {
       const sc = deps.buildScorecard(trace) as { timeReuse?: number | null };
@@ -32,7 +32,7 @@ export function createOptimizerObserver(deps: OptimizerObserverDeps): TaskOutcom
       if (Array.isArray(subtasks) && subtasks.length > 0 && deps.computeTimeReuse) {
         sc.timeReuse = deps.computeTimeReuse(subtasks as Array<{ id?: string; dependsOn?: string[] }>);
       }
-      await deps.optimizer.collect(sc, { role: deps.roleId, taskId: task?.id ?? event.work.taskId, verifyOf: task?.payload?.verifyOf });
+      await deps.optimizer.collect(sc, { role: deps.roleId, taskId: task?.id ?? event.work.taskId, tenantId: task?.tenantId ?? "default", verifyOf: task?.payload?.verifyOf });
     });
   };
 }

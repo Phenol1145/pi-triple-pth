@@ -66,6 +66,10 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     const visible = (meta: Record<string, unknown> | undefined) => isVisible(meta, space);
     try {
       if (body.op === "query") {
+        // F2（AB-01）raw query 门禁：memory-bridge 的 query 仅 platform-admin 可用。
+        if (auth.role !== "platform-admin") {
+          return reply.status(403).send({ error: "memory-bridge query requires platform-admin" });
+        }
         const rows = await facade.bridgeQuery(String(body.sql ?? ""));
         // 2026-08-15 筛查 H3：缺 meta 列的行无法判定可见性——fail-closed（不再默认公开）
         if (rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
@@ -74,11 +78,11 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
         return rows.filter((r) => visible(r!["meta"] as Record<string, unknown>));
       }
       if (body.op === "retrieve") {
-        const entries = await facade.bridgeRetrieve(body.anchors ?? [], body.kinds);
+        const entries = await facade.bridgeRetrieve(body.anchors ?? [], body.kinds, auth.tenantId);
         return entries.filter((e) => visible(e.meta));
       }
       if (body.op === "get") {
-        const e = await facade.bridgeGet(String(body.id ?? ""));
+        const e = await facade.bridgeGet(String(body.id ?? ""), auth.tenantId);
         if (!e) return reply.status(404).send({ error: "entry not found" });
         if (!visible(e.meta)) return reply.status(404).send({ error: "entry not visible from space" });
         return e;

@@ -13,6 +13,7 @@
  */
 
 import type { TsReplExtension, ExtContext } from "./types.js";
+import { DEFAULT_TENANT_ID, withMemoryTenant } from "@away_from/pth-memory";
 import { config, configNumber } from "./perf-params.js";
 import { readStrategies } from "./perf.js";
 import type { PerfStrategy } from "./perf.js";
@@ -23,7 +24,8 @@ import { parseMcpBundle, importMcpTools } from "../../tasking/mcp-decompose.js";
 export const manageExtension: TsReplExtension = {
   id: "manage",
   provide: (ctx: ExtContext) => {
-    const store = ctx.dataWorld.memory;
+    // F2（AB-01）：任务路径按 taskContext.tenantId；无任务上下文走系统 default tenant。
+    const store = () => withMemoryTenant(ctx.dataWorld.memory, ctx.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID);
     return {
       manage: {
         // ── 热调参（perf.set 同源——PTH_* 白名单；运行时立即生效）──
@@ -51,7 +53,7 @@ export const manageExtension: TsReplExtension = {
             if (value.length > 500) return { ok: false, error: "manage.resource.config: value 过长（≤500）" };
             // 治理：重启级参数落 draft——监督层批准后才应用（区别于热调参直接生效）
             const id = `rc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-            await store.write({
+            await store().write({
               id,
               kind: "resource-config",
               anchors: [domain, key],
@@ -124,14 +126,14 @@ export const manageExtension: TsReplExtension = {
           archive: async (opts: { id: string; rationale?: string }) => {
             const id = String(opts?.id ?? "");
             if (!id) return { ok: false, error: "manage.memory.archive: id 必填" };
-            const existing = await store.get(id).catch(() => null);
+            const existing = await store().get(id).catch(() => null);
             if (!existing) return { ok: false, error: `manage.memory.archive: 条目 ${id} 不存在` };
             if (existing.kind === "role-doc" || existing.kind.startsWith("role-doc:") || existing.kind === "capability-index") {
               return { ok: false, error: "manage.memory.archive: 系统资产（prompt 层）不可归档——走监督通道" };
             }
             // 提案落库（不直接改状态——监督批准后执行）
             const pid = `ma-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-            await store.write({
+            await store().write({
               id: pid,
               kind: "memory-admin-proposal",
               anchors: ["archive", id],
@@ -155,7 +157,7 @@ export const manageExtension: TsReplExtension = {
             }
             if (!specialization || !rationale) return { ok: false, error: "manage.worker.propose: specialization/rationale 必填" };
             const pid = `wp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-            await store.write({
+            await store().write({
               id: pid,
               kind: "differentiation-proposal",
               anchors: [parent, id],
@@ -178,7 +180,7 @@ export const manageExtension: TsReplExtension = {
           /** 注册面清单（快照版本 + 条目三要素/执行体/可见性） */
           list: async () => {
             const { loadToolRegSnapshot } = await import("../execution/tool-registry.js");
-            const snap = await loadToolRegSnapshot(store as never);
+            const snap = await loadToolRegSnapshot(store() as never);
             return {
               version: snap.version,
               budget: configNumber("PTH_TOOL_FACE_BUDGET", 24),
@@ -195,25 +197,25 @@ export const manageExtension: TsReplExtension = {
             const { validateToolRegSpec, validateToolRegAction, buildToolRegEntry, proposeToolRegistration } = await import("@away_from/pth-memory");
             const checked = validateToolRegSpec(opts?.spec);
             if (!checked.ok) return { ok: false, error: `manage.tool.register: ${checked.error}` };
-            const action = await validateToolRegAction(store as never, "register", checked.spec);
+            const action = await validateToolRegAction(store() as never, "register", checked.spec);
             if (!action.ok) return { ok: false, error: `manage.tool.register: ${action.error}` };
             const spec = action.spec;
             // 预算守卫（§3.3 执行位——每个投放角色的投影面不得超 PTH_TOOL_FACE_BUDGET）
             const budget = configNumber("PTH_TOOL_FACE_BUDGET", 24);
             const { toolFaceBudgetCheck } = await import("../execution/tool-registry.js");
-            const check = await toolFaceBudgetCheck(store as never, spec, budget);
+            const check = await toolFaceBudgetCheck(store() as never, spec, budget);
             if (!check.ok) {
               return { ok: false, error: `manage.tool.register: 工具面预算守卫（≤${budget}）拒绝——${check.over.map((o) => `${o.role} ${o.face}→${o.projected}`).join("，")}；先走合并/退役提案（命题 3 防线）` };
             }
             const policy = config().get("PTH_TOOL_WRITE_POLICY") ?? "manual";
             if (policy === "staged") {
-              const r = await proposeToolRegistration(store as never, { action: "register", name: spec.name, spec, rationale: opts?.rationale });
+              const r = await proposeToolRegistration(store() as never, { action: "register", name: spec.name, spec, rationale: opts?.rationale });
               // 事件驱动编排（skill-proposal-review 同构）：提案落库即发 → trigger 自动派审核任务
               if (r.ok && r.id) ctx.onActivity?.({ kind: "tool.proposal.created", detail: r.id, at: Date.now() });
               return { ...r, status: "draft", note: "staged 策略——提案已落 draft（对抗性审核 → 监督批准 → 注册生效）" };
             }
             const entry = buildToolRegEntry(spec, { status: "official" });
-            await store.write({
+            await store().write({
               ...entry,
               meta: { ...entry.meta, registeredAt: Date.now(), registeredBy: "manage.tool.register", ...(opts?.rationale ? { rationale: String(opts.rationale) } : {}) },
             } as never, { force: true });
@@ -224,23 +226,23 @@ export const manageExtension: TsReplExtension = {
             const { validateToolRegSpec, validateToolRegAction, buildToolRegEntry, proposeToolRegistration } = await import("@away_from/pth-memory");
             const checked = validateToolRegSpec(opts?.spec);
             if (!checked.ok) return { ok: false, error: `manage.tool.revise: ${checked.error}` };
-            const action = await validateToolRegAction(store as never, "revise", checked.spec);
+            const action = await validateToolRegAction(store() as never, "revise", checked.spec);
             if (!action.ok) return { ok: false, error: `manage.tool.revise: ${action.error}` };
             const spec = action.spec;
             const budget = configNumber("PTH_TOOL_FACE_BUDGET", 24);
             const { toolFaceBudgetCheck } = await import("../execution/tool-registry.js");
-            const check = await toolFaceBudgetCheck(store as never, spec, budget);
+            const check = await toolFaceBudgetCheck(store() as never, spec, budget);
             if (!check.ok) {
               return { ok: false, error: `manage.tool.revise: 工具面预算守卫（≤${budget}）拒绝——${check.over.map((o) => `${o.role} ${o.face}→${o.projected}`).join("，")}` };
             }
             const policy = config().get("PTH_TOOL_WRITE_POLICY") ?? "manual";
             if (policy === "staged") {
-              const r = await proposeToolRegistration(store as never, { action: "revise", name: spec.name, spec, rationale: opts?.rationale });
+              const r = await proposeToolRegistration(store() as never, { action: "revise", name: spec.name, spec, rationale: opts?.rationale });
               if (r.ok && r.id) ctx.onActivity?.({ kind: "tool.proposal.created", detail: r.id, at: Date.now() });
               return { ...r, status: "draft", note: "staged 策略——修订提案已落 draft（对抗性审核 → 监督批准 → 生效）" };
             }
             const entry = buildToolRegEntry(spec, { status: "official" });
-            await store.write({
+            await store().write({
               ...entry,
               meta: { ...entry.meta, registeredAt: Date.now(), registeredBy: "manage.tool.revise", ...(opts?.rationale ? { rationale: String(opts.rationale) } : {}) },
             } as never, { force: true });
@@ -250,7 +252,7 @@ export const manageExtension: TsReplExtension = {
           importMcp: async (opts: { bundle?: unknown }) => {
             const parsed = parseMcpBundle(opts?.bundle);
             if (!parsed.ok) return { ok: false, errors: parsed.errors };
-            const r = await importMcpTools(store as never, parsed.bundle);
+            const r = await importMcpTools(store() as never, parsed.bundle);
             for (const ok of r.imported) {
               ctx.onActivity?.({ kind: "tool.proposal.created", detail: ok.proposalId, at: Date.now() });
             }

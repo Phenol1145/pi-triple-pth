@@ -61,6 +61,11 @@ export interface KernelManagerOptions {
   kernelConfig?: import("../../kernel/interpreter/kernel-config.js").KernelConfig;
 }
 
+/** F2（AB-01）raw query 门禁：角色能力 memory → ["memory.read"]，不授 memory.query。 */
+export function sandboxGrantCapabilities(capabilities: string[]): string[] {
+  return capabilities.map((c) => (c === "memory" ? "memory.read" : c));
+}
+
 export interface KernelManager {
   /** 任务级 grant 上下文（sandbox-kernel 动态绑定——task-loop 每任务更新） */
   setGrantContext(ctx: { taskId: string; tenantId: string; principalId?: string }): void;
@@ -108,7 +113,8 @@ export function createKernelManager(opts: KernelManagerOptions): KernelManager {
             scope: { tenantId: grantContext.tenantId, principalId: grantContext.principalId, roles: [grantContext.roleId], traceId: `batch:${process.pid}:${grantContext.taskId}` },
             workspace: { tenantId: grantContext.tenantId, workspaceId: `worker-${grantContext.roleId}`, taskId: grantContext.taskId },
             language,
-            capabilities: identity.capabilities ?? [],
+            // F2（AB-01）raw query 门禁：角色能力 memory → ["memory.read"]，不授 memory.query。
+            capabilities: sandboxGrantCapabilities(identity.capabilities ?? []),
             ttlMs,
           });
         })()

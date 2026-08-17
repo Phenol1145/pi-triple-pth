@@ -1,7 +1,7 @@
 import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
 import type { Interpreter } from "@away_from/pth-sandbox";
 import type { DataWorldAccess } from "../../kernel/storage/index.js";
-import type { PgMemoryStore } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, withMemoryTenant, type PgMemoryStore } from "@away_from/pth-memory";
 import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
 import { buildExtensions } from "../../kernel/extensions/index.js";
 import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
@@ -101,7 +101,13 @@ export function buildCapabilities(deps: {
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   // N14 P3：onActivity 透传 ExtContext（manage.tool.register 的 tool.proposal.created 事件源）
-  const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore, sessionRef: deps.sessionRef, onActivity: deps.onActivity });
+  const ext = buildExtensions({
+    dataWorld: deps.dataWorld,
+    toolstore: deps.toolstore,
+    sessionRef: deps.sessionRef,
+    onActivity: deps.onActivity,
+    taskContext: deps.taskContext,
+  });
   // 管理面裁剪（权限 v2 R3——2026-08-10）：worker 执行面只给只读子集——
   //   perf.set/publish/apply（运行时调参/策略）与 model.set（切模型）是管理面写操作，不进注入面；
   //   tasks（peek/submit）整体摘除（task-loop 内部走 store——vm 暴露是历史遗留面）。
@@ -117,6 +123,8 @@ export function buildCapabilities(deps: {
   if (perfFull) extCaps["perf"] = { params: perfFull["params"], status: perfFull["status"], analyze: perfFull["analyze"], list: perfFull["list"] };
   const modelFull = extCaps["model"] as Record<string, unknown> | undefined;
   if (modelFull) extCaps["model"] = { get: modelFull["get"], usage: modelFull["usage"] };
+  // F2（AB-01）：pth-memory 治理函数只接收 store 形参——按当前任务 tenant 包装 requireTenant store。
+  const memoryStore = () => withMemoryTenant(deps.dataWorld.memory, deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID);
   return {
     ...extCaps,
     // 扩展编排面（2026-08-09 用户裁决：代码库式扩展 + 公共记忆区索引——无注册装载）
@@ -127,7 +135,7 @@ export function buildCapabilities(deps: {
       // syncIndex 走 PgMemoryStore force 系统通道（固定 id/kind，内容来自 toolstore 扫描）——
       // 否则 ext.syncIndex 永远被用途层策略拒绝。
       writeSystemIndex: async (entry) => {
-        await (deps.dataWorld.memory as PgMemoryStore).write(entry as never, { force: true });
+        await (deps.dataWorld.memory as PgMemoryStore).write({ ...entry, tenantId: DEFAULT_TENANT_ID } as never, { force: true });
       },
       registerKernel: deps.registerKernel,
       // 2026-08-15 筛查 M3：ext.db.query 契约是 (table, sql)，且开放 tasks/transcripts 模板面——
@@ -139,7 +147,7 @@ export function buildCapabilities(deps: {
     ...(deps.inspect ? { env: { inspect: wrapValidated("env.inspect", deps.inspect) } } : {}),
     // 召回能力（T6）：后续任务从记忆区召回工具函数/洞察——扁平化闭环（agent 状态 = 记忆文档）
     // 2026-08-15 筛查 H5：召回面同样按会话空间过滤（raw retrieve 会绕过可见性）
-    state: createRecallState(deps.dataWorld.memory, deps.sessionRef),
+    state: createRecallState(deps.dataWorld.memory, deps.sessionRef, deps.taskContext),
     // 文件通道（§0.5）：fs.readText 只读 toolstore + fs.list 枚举可用工具
     ...(deps.toolstore
       ? { fs: {
@@ -159,8 +167,8 @@ export function buildCapabilities(deps: {
       // B4 Phase 2（2026-08-15 已裁 C 两级检索）：
       //   Level 0 = list() 三要素清单；Level 1 = get(id) 全文
       // K1a 知识正确性收口：draft 与 archived 都不进 worker 面（治理查询走 store/其它通道）
-      list: async () => (await listSkills(deps.dataWorld.memory)).filter((s) => s.status === "official"),
-      get: async (name: string) => getSkill(deps.dataWorld.memory, String(name)),
+      list: async () => (await listSkills(memoryStore())).filter((s) => s.status === "official"),
+      get: async (name: string) => getSkill(memoryStore(), String(name)),
       // B4 Phase 3：维护面只给 memory-keeper（写后冻结；修订 = force + audit / archive + 新条目）
       //   W5 策略：PTH_SKILL_WRITE_POLICY=manual（默认人工闸门）| staged（提案→审核→批准→执行）
       ...(deps.roleId === "memory-keeper"
@@ -172,10 +180,10 @@ export function buildCapabilities(deps: {
                   const v = validatePenetrationSkillRegistration(input.content);
                   if (!v.ok) throw new PtcContractError("skills.maintain.write", v.error);
                 }
-                return maintainSkillWrite(deps.dataWorld.memory, input, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" });
+                return maintainSkillWrite(memoryStore(), input, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" });
               },
               archive: async (id: string, audit?: string) =>
-                maintainSkillArchive(deps.dataWorld.memory, id, audit, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" }),
+                maintainSkillArchive(memoryStore(), id, audit, { policy: pthConfig().str("PTH_SKILL_WRITE_POLICY") as "manual" | "staged" }),
               propose: async (input: { action: "write" | "archive"; name: string; content?: string; force?: boolean; anchors?: string[]; audit?: string }) => {
                 // W8 P3：提案阶段同样先过穿透注册校验（调用即拒绝——不进 proposal 池）
                 if (input.action === "write" && String(input.name ?? "").startsWith(PENETRATION_SKILL_NAME_PREFIX)) {
@@ -185,7 +193,7 @@ export function buildCapabilities(deps: {
                   const v = validatePenetrationSkillRegistration(input.content);
                   if (!v.ok) throw new PtcContractError("skills.maintain.propose", v.error);
                 }
-                const r = await proposeSkillMaintenance(deps.dataWorld.memory, input);
+                const r = await proposeSkillMaintenance(memoryStore(), input);
                 // L2（2026-08-18 用户裁决 Q2）：提案落库即发事件——trigger-engine 监听
                 // skill.proposal.created → 自动派发 controller:adversarial 审核任务（事件驱动编排）
                 if (r.ok && r.id) {
@@ -205,7 +213,7 @@ export function buildCapabilities(deps: {
       ...(deps.roleId === "controller:adversarial"
         ? {
             review: async (proposalId: string, verdict: "pass" | "reject", note?: string) =>
-              reviewSkillProposal(deps.dataWorld.memory, proposalId, verdict, note ?? ""),
+              reviewSkillProposal(memoryStore(), proposalId, verdict, note ?? ""),
           }
         : {}),
     },
@@ -215,7 +223,7 @@ export function buildCapabilities(deps: {
       ? {
           tools: {
             review: async (proposalId: string, verdict: "pass" | "reject", note?: string) =>
-              reviewToolProposal(deps.dataWorld.memory, proposalId, verdict, note ?? ""),
+              reviewToolProposal(memoryStore(), proposalId, verdict, note ?? ""),
           },
         }
       : {}),
@@ -227,13 +235,13 @@ export function buildCapabilities(deps: {
       ? {
           knowledge: {
             review: async ({ entryId, verdict, note }: { entryId: string; verdict: "pass" | "reject"; note: string }) =>
-              recordKnowledgeVerdict(deps.dataWorld.memory, entryId, {
+              recordKnowledgeVerdict(memoryStore(), entryId, {
                 kind: "adversarial",
                 verdict,
                 reviewerRole: "controller:adversarial",
                 note,
                 at: Date.now(),
-              }),
+              }, { tenantId: deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID }),
           },
         }
       : {}),
@@ -241,7 +249,7 @@ export function buildCapabilities(deps: {
       ? {
           knowledge: {
             promote: async (entryId: string) =>
-              promoteKnowledgeEntry(deps.dataWorld.memory, entryId, { promoterRole: "memory-keeper" }),
+              promoteKnowledgeEntry(memoryStore(), entryId, { promoterRole: "memory-keeper", tenantId: deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID }),
           },
         }
       : {}),
@@ -569,12 +577,14 @@ export interface RecallState {
 export function createRecallState(
   memory: Pick<PgMemoryStore, "retrieve">,
   sessionRef?: { current: { currentSpace: string } | null },
+  taskContext?: { current: { tenantId?: string } | null },
 ): RecallState {
   const visible = <T extends { meta?: unknown }>(entries: T[]): T[] =>
     filterVisibleEntries(entries, sessionRef?.current?.currentSpace);
+  const tenantId = () => taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID;
   return {
     async recallFunctions(anchors, opts = {}) {
-      const entries = visible(await memory.retrieve({ anchors, kinds: ["tool-function"], status: ["official"] }));
+      const entries = visible(await memory.retrieve({ anchors, kinds: ["tool-function"], status: ["official"], tenantId: tenantId() }));
       return entries.slice(0, opts.limit ?? 5).map((e) => ({
         key: (e.anchors[0] ?? e.id).replace(/^fn-/, ""),
         source: e.content,
@@ -582,7 +592,7 @@ export function createRecallState(
       }));
     },
     async recallInsights(anchors, opts = {}) {
-      const entries = visible(await memory.retrieve({ anchors, kinds: ["task-insight"], status: ["official"] }));
+      const entries = visible(await memory.retrieve({ anchors, kinds: ["task-insight"], status: ["official"], tenantId: tenantId() }));
       return entries.slice(0, opts.limit ?? 10).map((e) => e.content);
     },
   };

@@ -68,4 +68,10 @@ CREATE TABLE IF NOT EXISTS memory_revisions (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_revisions_entry_rev
   ON memory_revisions(entry_id, tenant_id, revision);
 CREATE INDEX IF NOT EXISTS idx_memory_revisions_entry ON memory_revisions(entry_id);
+
+-- F2（AB-01）复合租户身份：memory_entries 主键从 id 升级为 (tenant_id, id)。
+-- 幂等顺序：先建唯一索引 → 删旧 pkey → 加复合 pkey（每次启动重复执行安全）。
+CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_entries_tenant_id_id ON memory_entries(tenant_id, id);
+ALTER TABLE memory_entries DROP CONSTRAINT IF EXISTS memory_entries_pkey;
+ALTER TABLE memory_entries ADD PRIMARY KEY (tenant_id, id);
 `;

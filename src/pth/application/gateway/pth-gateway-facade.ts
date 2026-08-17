@@ -9,7 +9,7 @@
 import type { KernelRuntime } from "../../kernel/assembly.js";
 import type { BatchProfile } from "../../kernel/execution/worker-cluster.js";
 import type { PublishInput, Task } from "../../kernel/storage/task-store-pg.js";
-import type { MemoryEntry } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, withMemoryTenant, type MemoryEntry } from "@away_from/pth-memory";
 import type { TaskCancelResult, TenantScope } from "../../contracts/index.js";
 import { TaskControlService } from "../../tasking/task-control-service.js";
 import { PgTaskQueries } from "../../tasking/task-queries.js";
@@ -35,9 +35,9 @@ export interface SpawnBatchesResult {
 }
 
 export interface PthGatewayFacade {
-  bridgeQuery(sql: string): Promise<Array<Record<string, unknown> | null>>;
-  bridgeRetrieve(anchors: string[], kinds?: string[]): Promise<MemoryEntry[]>;
-  bridgeGet(id: string): Promise<MemoryEntry | null>;
+  bridgeQuery(sql: string, tenantId?: string): Promise<Array<Record<string, unknown> | null>>;
+  bridgeRetrieve(anchors: string[], kinds: string[] | undefined, tenantId: string): Promise<MemoryEntry[]>;
+  bridgeGet(id: string, tenantId: string): Promise<MemoryEntry | null>;
   execKernel(input: { code: string; mode: "stateless" | "repl"; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>>;
   listTranscripts(taskId: string): Promise<Array<Record<string, unknown>>>;
   publishTask(input: PublishInput, scope?: TenantScope): Promise<Task>;
@@ -80,16 +80,16 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     });
   }
 
-  bridgeQuery(sql: string): Promise<Array<Record<string, unknown> | null>> {
+  bridgeQuery(sql: string, _tenantId?: string): Promise<Array<Record<string, unknown> | null>> {
     return this.#kernel.dataWorld.queryReadOnly(sql) as Promise<Array<Record<string, unknown> | null>>;
   }
 
-  bridgeRetrieve(anchors: string[], kinds?: string[]): Promise<MemoryEntry[]> {
-    return this.#kernel.dataWorld.memory.retrieve({ anchors, ...(kinds ? { kinds } : {}) });
+  bridgeRetrieve(anchors: string[], kinds: string[] | undefined, tenantId: string): Promise<MemoryEntry[]> {
+    return this.#kernel.dataWorld.memory.retrieve({ anchors, ...(kinds ? { kinds } : {}), status: ["official"], tenantId });
   }
 
-  bridgeGet(id: string): Promise<MemoryEntry | null> {
-    return this.#kernel.dataWorld.memory.get(id).then((e) => e ?? null);
+  bridgeGet(id: string, tenantId: string): Promise<MemoryEntry | null> {
+    return this.#kernel.dataWorld.memory.get(id, { tenantId }).then((e) => (e && e.status === "official" ? e : null));
   }
 
   async execKernel(input: { code: string; mode: "stateless" | "repl"; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>> {
@@ -163,43 +163,44 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   }
 
   async approveMemoryAdmin(id: string): Promise<unknown> {
-    const proposal = await this.#kernel.dataWorld.memory.get(id);
+    const memory = withMemoryTenant(this.#kernel.dataWorld.memory, DEFAULT_TENANT_ID);
+    const proposal = await memory.get(id);
     if (proposal?.kind === "skill-maintain-proposal") {
       const { approveSkillProposal, executeApprovedSkillProposal } = await import("@away_from/pth-memory");
-      const approved = await approveSkillProposal(this.#kernel.dataWorld.memory, id);
+      const approved = await approveSkillProposal(memory, id);
       if (!approved.ok) return approved;
-      const executed = await executeApprovedSkillProposal(this.#kernel.dataWorld.memory, id);
+      const executed = await executeApprovedSkillProposal(memory, id);
       if (!executed.ok) return executed;
       return executed;
     }
     // N14 P3：工具注册提案同流（提案 → adversarial pass → 监督批准 → 注册生效）
     if (proposal?.kind === "tool-proposal") {
       const { approveToolProposal, executeApprovedToolProposal } = await import("@away_from/pth-memory");
-      const approved = await approveToolProposal(this.#kernel.dataWorld.memory, id);
+      const approved = await approveToolProposal(memory, id);
       if (!approved.ok) return approved;
-      const executed = await executeApprovedToolProposal(this.#kernel.dataWorld.memory, id);
+      const executed = await executeApprovedToolProposal(memory, id);
       if (!executed.ok) return executed;
       return executed;
     }
     // N15 B1：穿透稳定边提案同流（draft → 监督批准 → 执行注册 skill:penetrate:<child>）
     if (proposal?.kind === "penetration-proposal") {
       const { approvePenetrationProposal, executeApprovedPenetrationProposal } = await import("../../tasking/penetration-discovery.js");
-      const approved = await approvePenetrationProposal(this.#kernel.dataWorld.memory, id);
+      const approved = await approvePenetrationProposal(memory, id);
       if (!approved.ok) return approved;
-      const executed = await executeApprovedPenetrationProposal(this.#kernel.dataWorld.memory, id);
+      const executed = await executeApprovedPenetrationProposal(memory, id);
       if (!executed.ok) return executed;
       return executed;
     }
     const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
-    return applyMemoryAdminProposal(this.#kernel.dataWorld.memory, id);
+    return applyMemoryAdminProposal(memory, id);
   }
 
   verifyKnowledge(entryId: string, verdict: KnowledgeVerdict): Promise<unknown> {
-    return recordKnowledgeVerdict(this.#kernel.dataWorld.memory, entryId, verdict);
+    return recordKnowledgeVerdict(this.#kernel.dataWorld.memory, entryId, verdict, { tenantId: DEFAULT_TENANT_ID });
   }
 
   promoteKnowledge(entryId: string): Promise<unknown> {
-    return promoteKnowledgeEntry(this.#kernel.dataWorld.memory, entryId);
+    return promoteKnowledgeEntry(this.#kernel.dataWorld.memory, entryId, { tenantId: DEFAULT_TENANT_ID });
   }
 
   async spawnBatches(count: number, profile?: BatchProfile): Promise<SpawnBatchesResult> {
@@ -286,11 +287,11 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   }
 
   retrieveMemory(opts: { anchors?: string[]; kinds?: string[]; status?: string[] }): Promise<MemoryEntry[]> {
-    return this.#kernel.dataWorld.memory.retrieve(opts);
+    return this.#kernel.dataWorld.memory.retrieve({ ...opts, tenantId: DEFAULT_TENANT_ID });
   }
 
   writeMemory(entry: MemoryEntry, opts?: { force?: boolean }): Promise<void> {
-    return this.#kernel.dataWorld.memory.write(entry, opts);
+    return this.#kernel.dataWorld.memory.write({ ...entry, tenantId: entry.tenantId ?? DEFAULT_TENANT_ID }, opts);
   }
 
   registerRoleToBatches(role: Record<string, unknown>): number {

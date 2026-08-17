@@ -17,6 +17,8 @@ export interface ExtContext {
   sessionRef?: { current: { currentSpace: string } | null };
   /** N14 P3：治理事件上报（tool.proposal.created——trigger 引擎事件源；capability 装配透传） */
   onActivity?: (e: { kind: string; role?: string; detail?: string; at: number }) => void;
+  /** F2（AB-01）：当前任务身份（task-loop 每任务盖章）——memory 能力按任务 tenant 访问。 */
+  taskContext?: { current: { tenantId?: string } | null };
 }
 
 export interface TsReplExtension {

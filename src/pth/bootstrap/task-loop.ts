@@ -333,7 +333,7 @@ export class TaskLoop {
             .setExecutionGrantContext?.({ taskId: task.id, tenantId: task.tenantId ?? "system", principalId: role.id });
           // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
           const toolRegistry = this.deps.toolRegStore
-            ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore)
+            ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: task.tenantId ?? "default" })
             : undefined;
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
@@ -471,7 +471,7 @@ export class TaskLoop {
             // 数据缓存利用率（2026-08-13 N3——0.11.4.2：scorecard 新指标——fast-path 无缓存为空）
             if (cacheStore) sc.cacheUtilization = cacheStore.utilization();
             // 复测任务透传（2026-08-14 N6 一等化）：verifyOf → 复测聚合（受控证据——不进热点窗口/角色聚合）
-            this.deps.optimizer.collect(sc, { role: role.id, taskId: task.id, verifyOf: (task.payload as { verifyOf?: string } | undefined)?.verifyOf });
+            this.deps.optimizer.collect(sc, { role: role.id, taskId: task.id, tenantId: task.tenantId ?? "default", verifyOf: (task.payload as { verifyOf?: string } | undefined)?.verifyOf });
           } catch (e) {
             taskLogger?.error(`optimizer collect failed: ${(e as Error).message}`);
           }

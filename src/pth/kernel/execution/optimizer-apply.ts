@@ -12,7 +12,7 @@
  * （按规则行去重——防建议风暴导致的规则堆积）。
  */
 
-import type { PgMemoryStore } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, type PgMemoryStore } from "@away_from/pth-memory";
 import type { OptimizerSuggestion } from "./optimizer-loop.js";
 import { rollupAggregateRows } from "./optimizer-loop.js";
 import { GUARD_TUNABLE_DEFS } from "./guardrails.js";
@@ -61,7 +61,7 @@ export async function applyOptimizerSuggestion(
   /** 运行时配置（A4 护栏 JIT 热调——缺省 perf-params config()；测试注入 fake） */
   runtimeConfig?: RuntimeConfigLike,
 ): Promise<ApplyResult> {
-  const sug = await store.get(suggestionId);
+  const sug = await store.get(suggestionId, { tenantId: DEFAULT_TENANT_ID });
   if (!sug || sug.kind !== "optimizer-suggestion") {
     return { ok: false, error: `建议不存在（id=${suggestionId}）` };
   }
@@ -127,17 +127,17 @@ export async function applyOptimizerSuggestion(
         guardBaseline: { limitKey: tunable.limitKey, from: String(cur), to: String(next), values: { [tunable.limitKey]: String(cur) } },
         baseline,
       },
-    } as never);
+    } as never, { tenantId: DEFAULT_TENANT_ID });
     return { ok: true, applied: { target, pattern } };
   }
 
-  const existing = await store.get(target).catch(() => undefined);
+  const existing = await store.get(target, { tenantId: DEFAULT_TENANT_ID }).catch(() => undefined);
   const base = existing ? String(existing.content ?? "") : "";
   const rule = extractRuleLine(content.content);
   if (!rule) return { ok: false, error: "建议无规则行——无法应用" };
   // 同规则去重（防建议风暴堆积——按规则行包含判定）
   if (base.includes(rule.slice(0, 40))) {
-    await store.update(suggestionId, { status: "official", meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, note: "规则已存在——标记应用（去重）" } } as never);
+    await store.update(suggestionId, { status: "official", meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, note: "规则已存在——标记应用（去重）" } } as never, { tenantId: DEFAULT_TENANT_ID });
     return { ok: true, applied: { target, pattern } };
   }
   // 振荡防护上限（待决点 4）：同 target+pattern 已应用 ≥ MAX_APPLY_PER_PATTERN 次 → 拒绝
@@ -147,7 +147,7 @@ export async function applyOptimizerSuggestion(
     return { ok: false, error: `已达应用上限（${MAX_APPLY_PER_PATTERN} 次）——规则未生效需人工介入（pattern=${pattern} target=${target}）` };
   }
   const stamp = `\n\n【优化规则 · ${pattern}（${new Date().toISOString().slice(0, 10)} 批准）】\n- ${rule}`;
-  await store.update(target, { content: base + stamp } as never);
+  await store.update(target, { content: base + stamp } as never, { tenantId: DEFAULT_TENANT_ID });
   // deopt 基线快照（2026-08-13 稳定循环刹车）：应用时记目标指标——
   // 复测窗口积累后对比——劣化则回滚（optimizer-loop.checkDeopt）。
   // 2026-08-14 N6：基线分两类——role-doc 目标取角色聚合；capability-index 取全局 rollup
@@ -194,6 +194,6 @@ export async function applyOptimizerSuggestion(
   await store.update(suggestionId, {
     status: "official",
     meta: { ...(sug.meta ?? {}), appliedAt: Date.now(), target, appliedCount: appliedCount + 1, verifyAfterWindow: true, verifyTaskPublished, ...(baseline ? { baseline, baselineKind: roleId ? "role" : "global", baselineRole: roleId } : {}) },
-  } as never);
+  } as never, { tenantId: DEFAULT_TENANT_ID });
   return { ok: true, applied: { target, pattern } };
 }
