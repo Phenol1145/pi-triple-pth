@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
-import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, MEMORY_SCHEMA_SQL, PgMemoryStore, runReadOnlyQuery } from "@away_from/pth-memory";
+import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, MEMORY_SCHEMA_SQL, PgMemoryStore, provenanceFromMeta, runReadOnlyQuery } from "@away_from/pth-memory";
+import { promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../../src/pth/execution/knowledge-promotion.js";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1/2/3（pg.test.ts / schema.test.ts / task-store-pg.test.ts）：
@@ -56,6 +57,39 @@ suite("memory store pg", () => {
     const got = await store.get("e3");
     expect(got?.content).toBe("v2");
     expect(got?.meta?.version).toBe(2);
+  });
+
+  it("update 事务化记 revision：默认 reason=update，opts.createdBy/reason 可覆盖", async () => {
+    await store.write({ id: "upd-rev-1", kind: "fact", anchors: ["upd-rev"], content: "v1", meta: {} } as any);
+    await store.update("upd-rev-1", { content: "v2" });
+    await store.update("upd-rev-1", { content: "v3" }, { createdBy: "developer", reason: "revise" });
+
+    const history = await store.revisionHistory("upd-rev-1");
+    expect(history).toHaveLength(2);
+    expect(history[0]).toMatchObject({
+      entryId: "upd-rev-1",
+      tenantId: "default",
+      revision: 1,
+      content: "v1",
+      reason: "update",
+    });
+    expect(history[1]).toMatchObject({
+      entryId: "upd-rev-1",
+      tenantId: "default",
+      revision: 2,
+      content: "v2",
+      createdBy: "developer",
+      reason: "revise",
+    });
+  });
+
+  it("update 幂等 no-op（patch 与旧值全同）不写历史且不递增 version", async () => {
+    await store.write({ id: "upd-noop", kind: "fact", anchors: ["upd-noop"], content: "same", meta: { custom: "x" } } as any);
+    await store.update("upd-noop", { content: "same", meta: { custom: "x" } });
+    const got = await store.get("upd-noop");
+    expect(got?.content).toBe("same");
+    expect(got?.meta?.version).toBe(1);
+    expect(await store.revisionHistory("upd-noop")).toEqual([]);
   });
 
   it("bumpHitCount does not change version", async () => {
@@ -303,18 +337,36 @@ suite("memory store pg", () => {
     expect(history[0].content).toBe("v1");
   });
 
-  it("K1b：official + PROVENANCE_REQUIRED_KINDS 写入门禁——无效 provenance 拒绝不落库", async () => {
+  it("K1b：official + PROVENANCE_REQUIRED_KINDS 写入门禁——meta.provenance 缺失/无效拒绝不落库", async () => {
     await expect(
       store.write({ id: "k1b-prov-bad", kind: "domain-fact", anchors: ["k1b-prov"], content: "x", status: "official", meta: {} } as any),
     ).rejects.toThrow(/provenance/);
     expect(await store.get("k1b-prov-bad")).toBeUndefined();
 
-    const meta = buildKnowledgeProvenance({
+    const provenance = buildKnowledgeProvenance({
       content: "x", sourceTaskId: "t1", producerRole: "developer",
       producerModel: "deepseek-v4-flash", sourceRefs: ["task:t1"],
     });
-    await store.write({ id: "k1b-prov-ok", kind: "domain-fact", anchors: ["k1b-prov"], content: "x", status: "official", meta } as any);
+    await store.write({
+      id: "k1b-prov-ok", kind: "domain-fact", anchors: ["k1b-prov"], content: "x",
+      status: "official", meta: { provenance },
+    } as any);
     expect((await store.get("k1b-prov-ok"))?.content).toBe("x");
+    expect((await store.get("k1b-prov-ok"))?.meta.provenance).toEqual(provenance);
+  });
+
+  it("K1b：顶层平铺 provenance 不再被接受（只认 meta.provenance）", async () => {
+    const flat = buildKnowledgeProvenance({
+      content: "flat", sourceTaskId: "t1", producerRole: "developer",
+      producerModel: "deepseek-v4-flash", sourceRefs: ["task:t1"],
+    });
+    await expect(
+      store.write({
+        id: "k1b-prov-flat", kind: "domain-fact", anchors: ["k1b-prov"],
+        content: "flat", status: "official", meta: { ...flat },
+      } as any),
+    ).rejects.toThrow(/provenance/);
+    expect(await store.get("k1b-prov-flat")).toBeUndefined();
   });
 
   it("K1b：draft 不强制 provenance", async () => {
@@ -322,6 +374,66 @@ suite("memory store pg", () => {
     expect((await store.get("k1b-prov-draft"))?.status).toBe("draft");
   });
 
+  it("K1b：真实 PG 链路 draft domain-fact（meta.provenance）→ verdicts → promote → official", async () => {
+    const content = "The Earth orbits the Sun.";
+    const provenance = buildKnowledgeProvenance({
+      content,
+      sourceTaskId: "task-1",
+      producerRole: "developer",
+      producerModel: "deepseek-v4-flash",
+      sourceRefs: ["task:task-1"],
+    });
+    await store.write({
+      id: "k1b-chain", kind: "domain-fact", anchors: ["science"],
+      content, status: "draft", meta: { provenance, verdicts: [] },
+    } as any);
+
+    expect((await recordKnowledgeVerdict(store, "k1b-chain", {
+      kind: "domain", verdict: "pass", reviewerRole: "domain:expert",
+      note: "domain evidence verified", at: 1,
+    })).ok).toBe(true);
+    expect((await recordKnowledgeVerdict(store, "k1b-chain", {
+      kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial",
+      note: "no shortcut / pitfall covered", at: 2,
+    })).ok).toBe(true);
+
+    const promoted = await promoteKnowledgeEntry(store, "k1b-chain");
+    expect(promoted).toEqual({ ok: true, id: "k1b-chain" });
+
+    const got = await store.get("k1b-chain");
+    expect(got?.status).toBe("official");
+    expect(got?.meta.provenance).toEqual(provenance);
+    expect(got?.meta.promotion).toMatchObject({ promotedBy: "memory-keeper" });
+
+    // verdict/reject 的 update 产生 revision（F1 6.3）；promote 的 write 也记晋升前旧版本。
+    const history = await store.revisionHistory("k1b-chain");
+    expect(history.map((h) => h.revision)).toEqual([1, 2, 3]);
+    expect(history[0].meta?.verdicts).toHaveLength(0);
+    expect(history[1].meta?.verdicts).toHaveLength(1);
+    expect(history[2].meta?.verdicts).toHaveLength(2);
+    expect(history[2].status).toBe("draft");
+    expect(history[2].reason).toBe("knowledge-promotion");
+  });
+
+});
+
+// provenanceFromMeta 是纯函数——suite 外独立 describe（不需要 docker/连接）
+describe("provenanceFromMeta（AB-02 canonical 读取）", () => {
+  it("读取 meta.provenance 六字段", () => {
+    const provenance = buildKnowledgeProvenance({
+      content: "x", sourceTaskId: "t1", producerRole: "developer",
+      producerModel: "deepseek-v4-flash", sourceRefs: ["task:t1"],
+    });
+    expect(provenanceFromMeta({ provenance })).toEqual(provenance);
+  });
+
+  it("meta 缺失/非对象/provenance 缺失/字段不全 → undefined", () => {
+    expect(provenanceFromMeta(undefined)).toBeUndefined();
+    expect(provenanceFromMeta(null)).toBeUndefined();
+    expect(provenanceFromMeta("x")).toBeUndefined();
+    expect(provenanceFromMeta({})).toBeUndefined();
+    expect(provenanceFromMeta({ provenance: { sourceTaskId: "t1" } })).toBeUndefined();
+  });
 });
 
 // 键名校验在 SQL 之前（不需要 docker/连接）——suite 外独立 describe
@@ -345,7 +457,26 @@ describe("skill 不可变（B4 Phase 3）", () => {
     const store = new PgMemoryStore({ query: async () => ({ rows: [], rowCount: 0 }) } as never);
     await expect(store.update("skill:x", { content: "篡改" })).rejects.toThrow(/不可变/);
     let called = false;
-    const store2 = new PgMemoryStore({ query: async () => { called = true; return { rows: [{ id: "x" }], rowCount: 1 }; } } as never);
+    const oldRow = {
+      id: "skill:x",
+      tenant_id: "default",
+      content: "old",
+      status: "official",
+      anchors: ["skill"],
+      meta: {},
+      version: 1,
+    };
+    const store2 = new PgMemoryStore({
+      connect: async () => ({
+        query: async (sql: string) => {
+          called = true;
+          if (sql.includes("FOR UPDATE")) return { rows: [oldRow], rowCount: 1 };
+          if (sql.startsWith("UPDATE")) return { rows: [{ id: "skill:x" }], rowCount: 1 };
+          return { rows: [], rowCount: 0 };
+        },
+        release: () => {},
+      }),
+    } as never);
     await store2.update("skill:x", { content: "合法维护" }, { force: true });
     expect(called).toBe(true);
   });

@@ -39,6 +39,26 @@ export function buildKnowledgeProvenance(args: {
   };
 }
 
+/** 从 meta 读取嵌套 provenance（canonical 位置 = meta.provenance）；缺失/非对象返回 undefined。 */
+export function provenanceFromMeta(meta: unknown): KnowledgeProvenance | undefined {
+  if (typeof meta !== "object" || meta === null) return undefined;
+  const nested = (meta as Record<string, unknown>)["provenance"];
+  if (typeof nested !== "object" || nested === null) return undefined;
+  const required: Array<keyof KnowledgeProvenance> = [
+    "sourceTaskId",
+    "producerRole",
+    "producerModel",
+    "sourceRefs",
+    "contentHash",
+    "createdAt",
+  ];
+  const p = nested as Record<string, unknown>;
+  for (const key of required) {
+    if (p[key] === undefined) return undefined;
+  }
+  return nested as KnowledgeProvenance;
+}
+
 /** 校验 meta 是否为合法 KnowledgeProvenance 且哈希与 content 一致。 */
 export function validateKnowledgeProvenance(
   meta: unknown,

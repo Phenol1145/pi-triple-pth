@@ -227,6 +227,49 @@ describe("AgentTaskRunner（P1-4）", () => {
     });
   });
 
+  it("AB-03：adversarial/memory-keeper 的 knowledge.review/promote 与 context 合并，不覆盖", async () => {
+    vi.mocked(runAgentTask).mockReset();
+    vi.mocked(runAgentTask).mockResolvedValue({ ok: true, value: { done: true }, summary: "done", steps: 1 });
+
+    const knowledgeContext = {
+      id: "kc-abc12345",
+      catalogVersion: "cat-1",
+      queryFingerprint: "abc12345",
+      domains: ["math"],
+      entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: null }],
+      omitted: { count: 0, reason: "budget" },
+    };
+    const build = vi.fn(async () => knowledgeContext);
+
+    const cases: Array<{ roleId: string; knowledge: Record<string, unknown> }> = [
+      { roleId: "controller:adversarial", knowledge: { review: { canReview: true }, promote: { canPromote: false } } },
+      { roleId: "memory-keeper", knowledge: { review: { canReview: false }, promote: { canPromote: true } } },
+    ];
+
+    for (const c of cases) {
+      const { kernel } = fakeKernel();
+      const runner = new AgentTaskRunner({
+        kernel,
+        role: { id: c.roleId, tags: [], prompt: c.roleId },
+        workspace: { taskId: "task-1", tenant: "tenant-a", dir: "/tmp/task-1" },
+        llm: fakeLlm,
+        caps: { knowledge: c.knowledge, memory: {} },
+        config: { agentMode: true, aspMode: false },
+        knowledgeContextProvider: { build },
+      });
+
+      const outcome = await runner.run({ lease, work });
+      expect(outcome.status).toBe("completed");
+
+      const opts = vi.mocked(runAgentTask).mock.calls.at(-1)![0] as {
+        capabilityInject: Record<string, unknown>;
+      };
+      const injected = opts.capabilityInject["knowledge"] as Record<string, unknown>;
+      expect(injected).toMatchObject(c.knowledge);
+      expect(injected["context"]).toEqual(knowledgeContext);
+    }
+  });
+
   it("K3：provider 抛错 → logger warn + 原文执行（不追加上下文，不注入 knowledge）", async () => {
     vi.mocked(runAgentTask).mockReset();
     vi.mocked(runAgentTask).mockResolvedValue({ ok: true, value: { done: true }, summary: "done", steps: 1 });
