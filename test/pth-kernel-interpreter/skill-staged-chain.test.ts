@@ -188,6 +188,7 @@ describe("K4 Phase 4：knowledge 写能力按角色注入（N22 3）", () => {
       status: "draft",
       anchors: ["science"],
       meta: {
+        version: 1,
         provenance: buildKnowledgeProvenance({
           content,
           sourceTaskId: "task-1",
@@ -225,8 +226,8 @@ describe("K4 Phase 4：knowledge 写能力按角色注入（N22 3）", () => {
     const entryId = seedCandidate(store);
     // 直接铺好两条合规 verdict（不同 reviewer 且非 producer）——capability 测试聚焦注入面
     (store.rows.get(entryId)!.meta as { verdicts?: unknown[] }).verdicts = [
-      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1 },
-      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut", at: 2 },
+      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1, principalId: "tenant:tenant-a:platform-admin", domainId: "mathematics", candidateRevision: 1 },
+      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut", at: 2, principalId: "worker:controller:adversarial", candidateRevision: 1 },
     ];
     const caps = buildCapabilities({
       llm: async () => ({ text: "" }) as never,

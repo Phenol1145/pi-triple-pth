@@ -6,6 +6,7 @@ import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg.js";
 import { TaskControlService, TaskAwaitSuspendedError } from "../../src/pth/tasking/task-control-service.js";
 import { PgTaskQueries } from "../../src/pth/tasking/task-queries.js";
+import { readWorkItemDomainBinding, readWorkItemDomains } from "../../src/pth/tasking/task-work-item-reader.js";
 import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
 import { installDefaultRoles } from "../helpers.js";
 import type { TenantScope } from "../../src/pth/contracts/index.js";
@@ -159,6 +160,89 @@ suite("task control service（P1-3）", () => {
     const midRow = await pool.query("SELECT assigned_role, payload FROM tasks WHERE id = $1", [mid.taskId]);
     expect(midRow.rows[0].assigned_role).toBe("researcher");
     expect(midRow.rows[0].payload.delivery.parent.roleId).toBe("actuator");
+  });
+
+  it("F3：root publish（domains A,B）→ claim reader 盖章 → delegate 完整继承 domains+binding", async () => {
+    // 模拟 root publish 已把 domains/domainBinding 写入 payload；claim 侧由
+    // task-loop stampTaskDispatchContext 复用 reader 盖章——这里按同一路径构造 caller。
+    const bindingAB = {
+      matches: [
+        { domainId: "mathematics", confidence: 0.9, evidence: ["title math"] },
+        { domainId: "statistics", confidence: 0.8, evidence: ["tag stats"] },
+      ],
+      primaryDomain: "mathematics",
+      catalogVersion: "v1",
+      resolverVersion: "v1",
+    };
+    const rootPayload = { domains: ["mathematics", "statistics"], domainBinding: bindingAB };
+    const domains = readWorkItemDomains(rootPayload);
+    const domainBinding = readWorkItemDomainBinding(rootPayload, domains);
+    expect(domains).toEqual(["mathematics", "statistics"]);
+    expect(domainBinding).toEqual(bindingAB);
+
+    const caller = {
+      taskId: "parent-domains",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-domains" },
+      domains,
+      ...(domainBinding ? { domainBinding } : {}),
+    };
+    const child = await routedService.delegate({ to: "coder", title: "实现", text: "x" }, caller, scopeA);
+    const row = await pool.query("SELECT payload FROM tasks WHERE id = $1", [child.taskId]);
+    expect(row.rows[0].payload.domains).toEqual(["mathematics", "statistics"]);
+    expect(row.rows[0].payload.domainBinding).toEqual(bindingAB);
+  });
+
+  it("F3：delegate 显式子集 [A] 成功；越权子集 [C] 拒绝；legacy 父任务 → 子 domains=[]", async () => {
+    const caller = {
+      taskId: "parent-subset",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-subset" },
+      domains: ["mathematics", "statistics"],
+    };
+
+    const subset = await routedService.delegate(
+      { to: "coder", title: "子集收窄", text: "x", domains: ["mathematics"] },
+      caller,
+      scopeA,
+    );
+    const subsetRow = await pool.query("SELECT payload FROM tasks WHERE id = $1", [subset.taskId]);
+    expect(subsetRow.rows[0].payload.domains).toEqual(["mathematics"]);
+
+    const before = Number((await pool.query(`SELECT count(*)::int AS n FROM tasks`)).rows[0].n);
+    await expect(
+      routedService.delegate(
+        { to: "coder", title: "越权子集", text: "x", domains: ["physics"] },
+        caller,
+        scopeA,
+      ),
+    ).rejects.toThrow(/domains.*子集/);
+    const after = Number((await pool.query(`SELECT count(*)::int AS n FROM tasks`)).rows[0].n);
+    expect(after).toBe(before); // 未进任务池
+
+    const legacy = { taskId: "parent-legacy", roleId: "developer", tenantId: "tenant-a", delivery: { path: ["developer"], lineageId: "parent-legacy" } };
+    const child = await routedService.delegate({ to: "coder", title: "legacy 父任务", text: "x" }, legacy, scopeA);
+    const legacyRow = await pool.query("SELECT payload FROM tasks WHERE id = $1", [child.taskId]);
+    expect(legacyRow.rows[0].payload.domains).toEqual([]);
+    expect(legacyRow.rows[0].payload.domainBinding).toBeUndefined();
+  });
+
+  it("F3：delegate domains 非法形状 → PtcContractError", async () => {
+    const caller = {
+      taskId: "parent-bad-domains",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-bad-domains" },
+      domains: ["mathematics"],
+    };
+    await expect(
+      routedService.delegate({ to: "coder", title: "bad", text: "x", domains: ["mathematics", ""] }, caller, scopeA),
+    ).rejects.toThrow(/domains.*字符串数组/);
+    await expect(
+      routedService.delegate({ to: "coder", title: "bad", text: "x", domains: "mathematics" as unknown as string[] }, caller, scopeA),
+    ).rejects.toThrow(/domains.*字符串数组/);
   });
 
   it("W8 P1：await 只允许直接子任务；跨任务/跨租户即拒绝", async () => {

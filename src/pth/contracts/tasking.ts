@@ -97,6 +97,8 @@ export interface TaskDelegateInput {
   template?: string;
   params?: Record<string, unknown>;
   tags?: string[];
+  /** F3：显式 domain 子集收窄（必须 ⊆ caller.domains，否则 fail-fast） */
+  domains?: string[];
   /** 父方整理好的上下文快照（压缩后随任务传递） */
   context?: Record<string, unknown>;
   /** 回流预期：决定 await 返回内容（P2 按此裁剪） */
@@ -117,6 +119,10 @@ export interface TaskDispatchContext {
   tenantId: string;
   /** 当前任务 payload.delivery（无章的 legacy/内部任务为 null → 服务端按 root 兜底） */
   delivery: TaskDelivery | null;
+  /** F3：当前任务 payload.domains（task-work-item-reader 解析；legacy 无章 → []） */
+  domains?: readonly DomainId[];
+  /** F3：当前任务 payload.domainBinding（结构合法才存在；task-work-item-reader 解析） */
+  domainBinding?: DomainBinding;
   /** 当前任务登记中的等待子任务（await 挂起时服务端写入；task-loop 盖章进上下文） */
   dispatchWait?: Readonly<Record<string, { at: string }>>;
   /** 子任务终态回流结果（notifier 写入；task-loop 盖章进上下文——tasks.resume 读） */

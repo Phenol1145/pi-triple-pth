@@ -391,10 +391,12 @@ suite("memory store pg", () => {
     expect((await recordKnowledgeVerdict(store, "k1b-chain", {
       kind: "domain", verdict: "pass", reviewerRole: "domain:expert",
       note: "domain evidence verified", at: 1,
+      principalId: "tenant:tenant-a:platform-admin", domainId: "mathematics",
     })).ok).toBe(true);
     expect((await recordKnowledgeVerdict(store, "k1b-chain", {
       kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial",
       note: "no shortcut / pitfall covered", at: 2,
+      principalId: "worker:controller:adversarial",
     })).ok).toBe(true);
 
     const promoted = await promoteKnowledgeEntry(store, "k1b-chain");

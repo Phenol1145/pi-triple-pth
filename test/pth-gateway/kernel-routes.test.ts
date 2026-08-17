@@ -440,9 +440,14 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
 describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => {
   function makeMemoryStore() {
     const rows = new Map<string, any>();
+    const getCalls: Array<{ id: string; opts?: { tenantId?: string } }> = [];
     return {
       rows,
-      get: async (id: string) => (rows.has(id) ? structuredClone(rows.get(id)) : undefined),
+      getCalls,
+      get: async (id: string, opts?: { tenantId?: string }) => {
+        getCalls.push({ id, opts });
+        return rows.has(id) ? structuredClone(rows.get(id)) : undefined;
+      },
       update: async (id: string, patch: { status?: string; meta?: Record<string, unknown> }) => {
         const e = rows.get(id);
         if (!e) throw new Error("entry not found");
@@ -465,6 +470,7 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
       status: "draft",
       tenantId: "default",
       meta: {
+        version: 1,
         provenance: buildKnowledgeProvenance({
           content,
           sourceTaskId: "task-1",
@@ -478,8 +484,15 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     return id;
   }
 
-  function knowledgeApp(store = makeMemoryStore()) {
+  const ADMIN_AUTH = { tenantId: "tenant-a", role: "platform-admin", principalId: "tenant:tenant-a:platform-admin" };
+
+  function knowledgeApp(store = makeMemoryStore(), auth?: { tenantId?: string; role?: string; principalId?: string }) {
     const app = Fastify();
+    if (auth) {
+      app.addHook("onRequest", async (req) => {
+        (req as unknown as { auth: unknown }).auth = auth;
+      });
+    }
     registerKernelRoutes(app, wrap(fakeKernel({
       dataWorld: {
         tasks: {
@@ -495,23 +508,56 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     return { app, store };
   }
 
-  it("verify：合法 domain pass → 200 且落 verdict", async () => {
-    const { app, store } = knowledgeApp();
+  it("F3：verify 仅 platform-admin——tenant-agent 403", async () => {
+    const { app, store } = knowledgeApp(makeMemoryStore(), { tenantId: "tenant-a", role: "tenant-agent", principalId: "tenant:tenant-a:tenant-agent" });
     seedDraft(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/verify",
-      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "evidence verified" },
+      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "evidence verified", domainId: "mathematics" },
+    });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("F3：promote 仅 platform-admin——tenant-agent 403", async () => {
+    const { app, store } = knowledgeApp(makeMemoryStore(), { tenantId: "tenant-a", role: "tenant-agent", principalId: "tenant:tenant-a:tenant-agent" });
+    seedDraft(store);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/promote",
+      payload: { entryId: "cand-1" },
+    });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("verify：合法 domain pass（platform-admin）→ 200 且落 verdict（principalId/domainId/tenantId 透传）", async () => {
+    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
+    seedDraft(store);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/verify",
+      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "evidence verified", domainId: "mathematics" },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
-    expect((store.rows.get("cand-1").meta as { verdicts?: unknown[] }).verdicts).toHaveLength(1);
+    const verdicts = (store.rows.get("cand-1").meta as { verdicts?: unknown[] }).verdicts!;
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0]).toMatchObject({
+      kind: "domain",
+      verdict: "pass",
+      principalId: "tenant:tenant-a:platform-admin",
+      domainId: "mathematics",
+      candidateRevision: 1,
+    });
+    expect(store.getCalls[0].opts).toEqual({ tenantId: "tenant-a" });
     await app.close();
   });
 
   it("verify：body 形状非法 → 400（kind/verdict/note/entryId）", async () => {
-    const { app } = knowledgeApp();
-    const base = { entryId: "cand-1", kind: "domain", verdict: "pass", note: "ok" };
+    const { app } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
+    const base = { entryId: "cand-1", kind: "domain", verdict: "pass", note: "ok", domainId: "mathematics" };
     for (const payload of [
       { ...base, kind: "bad" },
       { ...base, verdict: "maybe" },
@@ -524,26 +570,60 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     await app.close();
   });
 
+  it("F3：domain verify 必须带 domainId；adversarial 不接收 body.domainId", async () => {
+    const { app } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
+    const noDomain = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/verify",
+      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "ok" },
+    });
+    expect(noDomain.statusCode).toBe(400);
+    expect(noDomain.json().error).toContain("domainId");
+
+    const advWithDomain = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/verify",
+      payload: { entryId: "cand-1", kind: "adversarial", verdict: "pass", note: "ok", domainId: "mathematics" },
+    });
+    expect(advWithDomain.statusCode).toBe(400);
+    expect(advWithDomain.json().error).toContain("domainId");
+    await app.close();
+  });
+
+  it("F3：verify executionId 可选 body 透传", async () => {
+    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
+    seedDraft(store);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/verify",
+      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "ok", domainId: "mathematics", executionId: "task-42" },
+    });
+    expect(res.statusCode).toBe(200);
+    const verdicts = (store.rows.get("cand-1").meta as { verdicts?: unknown[] }).verdicts!;
+    expect(verdicts[0]).toMatchObject({ executionId: "task-42" });
+    await app.close();
+  });
+
   it("verify：recordKnowledgeVerdict 拒绝（非 draft）→ 400", async () => {
-    const { app, store } = knowledgeApp();
+    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
     const id = seedDraft(store);
     store.rows.get(id).status = "official";
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/verify",
-      payload: { entryId: id, kind: "domain", verdict: "pass", note: "too late" },
+      payload: { entryId: id, kind: "domain", verdict: "pass", note: "too late", domainId: "mathematics" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().ok).toBe(false);
     await app.close();
   });
 
-  it("promote：合规候选 → 200 且写 official", async () => {
-    const { app, store } = knowledgeApp();
+  it("promote：合规候选（platform-admin）→ 200 且写 official + promotion.principalId", async () => {
+    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
     const id = seedDraft(store);
     (store.rows.get(id).meta as { verdicts?: unknown[] }).verdicts = [
-      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1 },
-      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut", at: 2 },
+      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1, principalId: "tenant:tenant-a:platform-admin", domainId: "mathematics", candidateRevision: 1 },
+      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut", at: 2, principalId: "worker:controller:adversarial", candidateRevision: 1 },
     ];
     const res = await app.inject({
       method: "POST",
@@ -554,23 +634,24 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     expect(res.json()).toEqual({ ok: true, id });
     expect(store.rows.get(id).status).toBe("official");
     expect(store.rows.get(id).meta).toMatchObject({
-      promotion: { promotedBy: "memory-keeper" },
+      promotion: { promotedBy: "memory-keeper", principalId: "tenant:tenant-a:platform-admin" },
     });
+    expect(store.getCalls[0].opts).toEqual({ tenantId: "tenant-a" });
     await app.close();
   });
 
-  it("promote：entryId 缺失 → 400", async () => {
-    const { app } = knowledgeApp();
+  it("promote：entryId 缺失 → 400（platform-admin）", async () => {
+    const { app } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
     const res = await app.inject({ method: "POST", url: "/api/v1/kernel/knowledge/promote", payload: {} });
     expect(res.statusCode).toBe(400);
     await app.close();
   });
 
   it("promote：canPromote 拒绝（缺 adversarial pass）→ 400", async () => {
-    const { app, store } = knowledgeApp();
+    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
     const id = seedDraft(store);
     (store.rows.get(id).meta as { verdicts?: unknown[] }).verdicts = [
-      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1 },
+      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1, principalId: "tenant:tenant-a:platform-admin", domainId: "mathematics", candidateRevision: 1 },
     ];
     const res = await app.inject({
       method: "POST",

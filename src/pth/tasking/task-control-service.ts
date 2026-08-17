@@ -97,6 +97,25 @@ export class TaskControlService {
       throw new PtcContractError("tasks.delegate", "tags 可选——若提供必须是字符串数组");
     }
 
+    // F3：domains 显式子集收窄。body 的 domains 仅用于子集校验（不可自报最终 payload）；
+    // 缺省完整继承 caller.domains/domainBinding，子 payload 由调用者封套派生。
+    const callerDomains = caller.domains ?? [];
+    let childDomains: readonly string[];
+    if (input.domains !== undefined) {
+      if (!Array.isArray(input.domains) || input.domains.some((d) => typeof d !== "string" || d.trim() === "")) {
+        throw new PtcContractError("tasks.delegate", "domains 可选——若提供必须是字符串数组且元素非空");
+      }
+      const requested = [...new Set(input.domains.map((d) => d.trim()))];
+      const callerSet = new Set(callerDomains);
+      const overreach = requested.filter((d) => !callerSet.has(d));
+      if (overreach.length > 0) {
+        throw new PtcContractError("tasks.delegate", `domains 子集校验失败：${overreach.join(", ")} 不在调用者 domains 内`);
+      }
+      childDomains = requested;
+    } else {
+      childDomains = callerDomains;
+    }
+
     // D3：组织权 fail-fast——违规不进入任务池、无 draft 旁路
     const allowed = allowedDelegationTargets(caller.roleId);
     if (!allowed.includes(to)) {
@@ -153,6 +172,9 @@ export class TaskControlService {
     const payload = {
       ...templatePayload,
       delivery,
+      // 服务端盖章：domains/domainBinding 由调用者封套派生（body 不可自报）
+      domains: [...childDomains],
+      ...(caller.domainBinding ? { domainBinding: caller.domainBinding } : {}),
       ...(input.context !== undefined ? { context: input.context } : {}),
       ...(input.expect !== undefined ? { expect: input.expect } : {}),
     };
