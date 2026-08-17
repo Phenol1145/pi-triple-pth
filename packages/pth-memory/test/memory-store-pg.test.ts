@@ -257,12 +257,21 @@ suite("memory store pg", () => {
     expect(history[0].anchors).toEqual(["k1b-rev"]);
   });
 
-  it("K1b：幂等重写不产生 revision 行", async () => {
+  it("K1b：幂等重写不产生 revision 行（content/status/meta 全同）", async () => {
     await store.write({ id: "k1b-rev-2", kind: "fact", anchors: ["k1b-rev"], content: "idem", meta: { version: 1 } } as any);
-    await store.write({ id: "k1b-rev-2", kind: "fact", anchors: ["k1b-rev"], content: "idem", meta: { version: 1, sourceTraces: ["t1"] } } as any);
+    await store.write({ id: "k1b-rev-2", kind: "fact", anchors: ["k1b-rev"], content: "idem", meta: { version: 1 } } as any);
     expect(await store.revisionHistory("k1b-rev-2")).toEqual([]);
     const got = await store.get("k1b-rev-2");
     expect(got?.meta?.version).toBe(1);
+  });
+
+  it("K1b：status/meta-only 变化（如 K4 晋升）也必须记 revision", async () => {
+    await store.write({ id: "k1b-rev-2b", kind: "fact", anchors: ["k1b-rev"], content: "idem", status: "draft", meta: { version: 1, provenance: { sourceTaskId: "t1", producerRole: "solver", producerModel: "m", sourceRefs: ["task:t1"], contentHash: "h", createdAt: 1 } } } as any);
+    await store.write({ id: "k1b-rev-2b", kind: "fact", anchors: ["k1b-rev"], content: "idem", status: "official", meta: { version: 1, provenance: { sourceTaskId: "t1", producerRole: "solver", producerModel: "m", sourceRefs: ["task:t1"], contentHash: "h", createdAt: 1 }, promotion: { promotedBy: "memory-keeper", promotedAt: 1 } } } as any, { force: true, reason: "knowledge-promotion" });
+    const history = await store.revisionHistory("k1b-rev-2b");
+    expect(history).toHaveLength(1);
+    expect(history[0].status).toBe("draft");
+    expect(history[0].reason).toBe("knowledge-promotion");
   });
 
   it("K1b：restoreRevision 恢复目标历史版本 + 自动记恢复前版本", async () => {

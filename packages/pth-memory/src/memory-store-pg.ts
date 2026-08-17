@@ -110,10 +110,20 @@ export class PgMemoryStore {
         | { id: string; tenant_id: string; content: string; status: string; anchors: string[]; meta: Record<string, unknown>; version: number }
         | undefined;
       if (old) {
-        // 幂等判定与 SQL 的 version 不递增分支保持一致：content 相同且调用方声明版本（meta->>'version'）相同。
+        // 幂等判定与 SQL 的 version 不递增分支保持一致，但补 status/meta 对比：
+        // content+声明版本相同而 status/meta 变化（如 K4 晋升）也必须记 revision——否则
+        // 晋升/回滚只有当前态、无历史。真实试点（K5）发现此处缺口后修正。
+        // SQL 会在 meta 里补 updatedAt——比较时剥离该生成字段（否则永远不幂等）。
         const oldDeclaredVersion = old.meta?.version !== undefined ? String(old.meta.version) : undefined;
         const newDeclaredVersion = entry.meta?.version !== undefined ? String(entry.meta.version) : undefined;
+        const stripUpdatedAt = (m: Record<string, unknown> | undefined): string => {
+          const copy: Record<string, unknown> = { ...(m ?? {}) };
+          delete copy["updatedAt"];
+          return JSON.stringify(copy);
+        };
         const isIdempotent = old.content === entry.content
+          && old.status === (entry.status ?? "official")
+          && stripUpdatedAt(old.meta) === stripUpdatedAt(entry.meta)
           && oldDeclaredVersion !== undefined
           && newDeclaredVersion !== undefined
           && oldDeclaredVersion === newDeclaredVersion;
