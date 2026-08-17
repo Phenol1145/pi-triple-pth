@@ -15,6 +15,7 @@ import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { InterpreterSnapshot } from "../interpreter/index.js";
 import type { KnowledgeProvenance, PgMemoryStore } from "@away_from/pth-memory";
 import type { Task } from "../storage/task-store-pg.js";
+import type { DomainBinding, DomainId } from "../../contracts/domains.js";
 
 export interface RefineInput {
   task: Pick<Task, "id" | "title" | "tags" | "claimed_by">;
@@ -27,6 +28,10 @@ export interface RefineInput {
   trace?: Array<{ type: string; step?: number; tool?: string; args?: Record<string, unknown>; contentPreview?: string; resultPreview?: string }>;
   /** 执行角色（分化建议的 parent——当前角色） */
   role?: string;
+  /** F5：学科识别结果（lineage 追踪——meta.domains）。 */
+  domains?: readonly DomainId[];
+  /** F5：学科解析证据（合法才传；非法省略）。 */
+  domainBinding?: DomainBinding;
   /** N19 Phase 1b：任务 outcome（供 provenance/诊断——可选）。 */
   outcome?: { status: string; result?: unknown };
   /** N19 Phase 1b：产物引用（provenance.sourceRefs；缺省 ["task:<id>"]）。 */
@@ -256,13 +261,17 @@ export class Refiner {
     };
   }
 
-  /** scoped draft 公共 meta：tenantId + spaceScope:{space,visibility:"private"} + provenance。 */
+  /** scoped draft 公共 meta：tenantId + spaceScope:{space,visibility:"private"} + provenance + lineage。 */
   private scopedMeta(input: RefineInput, content: string, extra: Record<string, unknown>): Record<string, unknown> {
     return {
       ...extra,
       tenantId: input.scope.tenantId,
       spaceScope: { space: input.scope.space, visibility: "private" as const },
       provenance: this.provenanceOf(input, content),
+      domains: [...(input.domains ?? [])],
+      ...(input.domainBinding ? { domainBinding: input.domainBinding } : {}),
+      ...(input.outcome ? { outcomeStatus: input.outcome.status } : {}),
+      artifactRefs: [...(input.artifactRefs ?? [])],
     };
   }
 

@@ -7,6 +7,7 @@ import type { WorkerRole } from "../kernel/execution/worker-cluster.js";
 import type { TaskWorkspaceManager } from "../kernel/execution/workspace.js";
 import type { TaskRepository } from "../contracts/index.js";
 import type { KnowledgeContextProvider } from "../runner/index.js";
+import type { SideEffectOutboxPort } from "../tasking/index.js";
 
 export interface TaskLoopDeps {
   kernel: WorkerKernel;
@@ -39,6 +40,10 @@ export interface TaskLoopDeps {
   toolRegRunChild?: import("../kernel/execution/tool-registry.js").ToolRegRunChild;
   /** K3：任务知识上下文 provider（batch-process 装配注入；缺省 = 关闭知识上下文） */
   knowledgeContextProvider?: KnowledgeContextProvider;
+  /** F5：durable side-effect outbox（post-commit observer enqueue 用；缺省 = 关闭 outbox）。 */
+  sideEffectOutbox?: SideEffectOutboxPort;
+  /** F5：每轮 claim 前 kick 一次 side-effect drain（生产注入 drainer 回调；不阻塞 claim）。 */
+  drainSideEffects?: () => void;
 }
 
 /**

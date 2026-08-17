@@ -99,6 +99,11 @@ describe("Refiner.refine", () => {
       sourceRefs: ["task:t1"],
     });
     expect(fnCall![0].meta.provenance.contentHash).toBe(contentHashOf(fnCall![0].content));
+    // F5 lineage：缺省 domains/artifactRefs 也以数组形态入 meta（domainBinding/outcomeStatus 省略）
+    expect(fnCall![0].meta.domains).toEqual([]);
+    expect(fnCall![0].meta.artifactRefs).toEqual([]);
+    expect(fnCall![0].meta.domainBinding).toBeUndefined();
+    expect(fnCall![0].meta.outcomeStatus).toBeUndefined();
     // insight 写入：scoped draft + provenance
     const insightCall = memory.write.mock.calls.find((c) => c[0].kind === "task-insight");
     expect(insightCall).toBeDefined();
@@ -123,6 +128,33 @@ describe("Refiner.refine", () => {
     const report = await refiner.refine({ ...input, snapshot: { variables: [], functions: [], oversized: [] } });
     expect(report.functionsSaved).toBe(0);
     expect(report.insightsSaved).toBe(0);
+  });
+
+  it("F5 lineage：domains/domainBinding/outcomeStatus/artifactRefs 随输入进入 scopedMeta", async () => {
+    const { refiner, memory } = setup(JSON.stringify({
+      functions: [{ key: "f", source: "function f(){return 1}" }],
+      insights: [],
+    }));
+    await refiner.refine({
+      ...input,
+      domains: ["math", "cs"],
+      domainBinding: {
+        matches: [{ domainId: "math", confidence: 0.9, evidence: ["title hit"] }],
+        primaryDomain: "math",
+        catalogVersion: "v1",
+        resolverVersion: "r1",
+      },
+      outcome: { status: "completed", result: { ok: true } },
+      artifactRefs: ["file:///art/1"],
+    });
+    const fnCall = memory.write.mock.calls.find((c) => c[0].kind === "tool-function");
+    expect(fnCall).toBeDefined();
+    expect(fnCall![0].meta.domains).toEqual(["math", "cs"]);
+    expect(fnCall![0].meta.domainBinding).toMatchObject({ primaryDomain: "math" });
+    expect(fnCall![0].meta.outcomeStatus).toBe("completed");
+    expect(fnCall![0].meta.artifactRefs).toEqual(["file:///art/1"]);
+    // provenance.sourceRefs 优先 artifactRefs（已有语义保留）
+    expect(fnCall![0].meta.provenance.sourceRefs).toEqual(["file:///art/1"]);
   });
 });
 
