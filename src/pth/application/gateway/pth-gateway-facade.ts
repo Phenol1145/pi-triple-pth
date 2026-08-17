@@ -13,6 +13,8 @@ import type { MemoryEntry } from "@away_from/pth-memory";
 import type { TaskCancelResult, TenantScope } from "../../contracts/index.js";
 import { TaskControlService } from "../../tasking/task-control-service.js";
 import { PgTaskQueries } from "../../tasking/task-queries.js";
+import { promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../execution/knowledge-promotion.js";
+import type { KnowledgeVerdict } from "../../execution/knowledge-verdicts.js";
 
 export type PthGatewayFacadeInput = KernelRuntime;
 
@@ -47,6 +49,10 @@ export interface PthGatewayFacade {
   optimizerSuggestions(): Promise<unknown[]>;
   applyOptimizer(id: string): Promise<unknown>;
   approveMemoryAdmin(id: string): Promise<unknown>;
+  /** K4 Phase 4（N22 4）：候选验证（监督通道——domain verdict 或 adversarial verdict） */
+  verifyKnowledge(entryId: string, verdict: KnowledgeVerdict): Promise<unknown>;
+  /** K4 Phase 4（N22 4）：候选晋升 official（监督通道） */
+  promoteKnowledge(entryId: string): Promise<unknown>;
   spawnBatches(count: number, profile?: BatchProfile): Promise<SpawnBatchesResult>;
   batchWorkers(id: string, action: "pause" | "resume" | "remove" | "add", role: string, copies: number): Promise<boolean>;
   removeBatches(count: number): Promise<number>;
@@ -186,6 +192,14 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     }
     const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
     return applyMemoryAdminProposal(this.#kernel.dataWorld.memory, id);
+  }
+
+  verifyKnowledge(entryId: string, verdict: KnowledgeVerdict): Promise<unknown> {
+    return recordKnowledgeVerdict(this.#kernel.dataWorld.memory, entryId, verdict);
+  }
+
+  promoteKnowledge(entryId: string): Promise<unknown> {
+    return promoteKnowledgeEntry(this.#kernel.dataWorld.memory, entryId);
   }
 
   async spawnBatches(count: number, profile?: BatchProfile): Promise<SpawnBatchesResult> {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { installDefaultRoles } from "../helpers";
 import Fastify from "fastify";
+import { buildKnowledgeProvenance } from "@away_from/pth-memory";
 import { registerKernelRoutes } from "../../src/pth/gateway/routes-kernel";
 import { createPthGatewayFacade, type PthGatewayFacade } from "../../src/pth/application/gateway/pth-gateway-facade.js";
 import type { KernelRuntime } from "../../src/pth/kernel/assembly";
@@ -356,6 +357,152 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
       payload: { op: "write" },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => {
+  function makeMemoryStore() {
+    const rows = new Map<string, any>();
+    return {
+      rows,
+      get: async (id: string) => (rows.has(id) ? structuredClone(rows.get(id)) : undefined),
+      update: async (id: string, patch: { status?: string; meta?: Record<string, unknown> }) => {
+        const e = rows.get(id);
+        if (!e) throw new Error("entry not found");
+        if (patch.status !== undefined) e.status = patch.status;
+        if (patch.meta !== undefined) e.meta = { ...(e.meta ?? {}), ...patch.meta };
+      },
+      write: async (entry: { id: string; status?: string; meta?: Record<string, unknown>; content?: string; kind?: string; anchors?: string[]; tenantId?: string }) => {
+        rows.set(entry.id, structuredClone(entry));
+      },
+    };
+  }
+
+  function seedDraft(store: ReturnType<typeof makeMemoryStore>, id = "cand-1") {
+    const content = "Earth orbits the Sun.";
+    store.rows.set(id, {
+      id,
+      kind: "task-insight",
+      anchors: ["science"],
+      content,
+      status: "draft",
+      tenantId: "default",
+      meta: {
+        provenance: buildKnowledgeProvenance({
+          content,
+          sourceTaskId: "task-1",
+          producerRole: "developer",
+          producerModel: "deepseek-v4-flash",
+          sourceRefs: ["task:task-1"],
+        }),
+        verdicts: [],
+      },
+    });
+    return id;
+  }
+
+  function knowledgeApp(store = makeMemoryStore()) {
+    const app = Fastify();
+    registerKernelRoutes(app, wrap(fakeKernel({
+      dataWorld: {
+        tasks: {
+          publish: async (input: any) => ({ id: "t-1", ...input, status: "pending" }),
+          candidates: async () => [],
+          countPending: async () => 2,
+        },
+        memory: store,
+        transcripts: {} as any,
+        audit: {} as any,
+      } as any,
+    })));
+    return { app, store };
+  }
+
+  it("verify：合法 domain pass → 200 且落 verdict", async () => {
+    const { app, store } = knowledgeApp();
+    seedDraft(store);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/verify",
+      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "evidence verified" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    expect((store.rows.get("cand-1").meta as { verdicts?: unknown[] }).verdicts).toHaveLength(1);
+    await app.close();
+  });
+
+  it("verify：body 形状非法 → 400（kind/verdict/note/entryId）", async () => {
+    const { app } = knowledgeApp();
+    const base = { entryId: "cand-1", kind: "domain", verdict: "pass", note: "ok" };
+    for (const payload of [
+      { ...base, kind: "bad" },
+      { ...base, verdict: "maybe" },
+      { ...base, note: "" },
+      { ...base, entryId: "" },
+    ]) {
+      const res = await app.inject({ method: "POST", url: "/api/v1/kernel/knowledge/verify", payload });
+      expect(res.statusCode).toBe(400);
+    }
+    await app.close();
+  });
+
+  it("verify：recordKnowledgeVerdict 拒绝（非 draft）→ 400", async () => {
+    const { app, store } = knowledgeApp();
+    const id = seedDraft(store);
+    store.rows.get(id).status = "official";
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/verify",
+      payload: { entryId: id, kind: "domain", verdict: "pass", note: "too late" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().ok).toBe(false);
+    await app.close();
+  });
+
+  it("promote：合规候选 → 200 且写 official", async () => {
+    const { app, store } = knowledgeApp();
+    const id = seedDraft(store);
+    (store.rows.get(id).meta as { verdicts?: unknown[] }).verdicts = [
+      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1 },
+      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut", at: 2 },
+    ];
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/promote",
+      payload: { entryId: id },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, id });
+    expect(store.rows.get(id).status).toBe("official");
+    expect(store.rows.get(id).meta).toMatchObject({
+      promotion: { promotedBy: "memory-keeper" },
+    });
+    await app.close();
+  });
+
+  it("promote：entryId 缺失 → 400", async () => {
+    const { app } = knowledgeApp();
+    const res = await app.inject({ method: "POST", url: "/api/v1/kernel/knowledge/promote", payload: {} });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("promote：canPromote 拒绝（缺 adversarial pass）→ 400", async () => {
+    const { app, store } = knowledgeApp();
+    const id = seedDraft(store);
+    (store.rows.get(id).meta as { verdicts?: unknown[] }).verdicts = [
+      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1 },
+    ];
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/kernel/knowledge/promote",
+      payload: { entryId: id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().ok).toBe(false);
+    await app.close();
   });
 });
 

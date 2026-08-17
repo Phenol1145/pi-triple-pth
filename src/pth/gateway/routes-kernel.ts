@@ -286,6 +286,40 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
       return reply.code(500).send({ error: (e as Error).message });
     }
   });
+  // ── K4 Phase 4（N22 4）：候选验证与晋升监督通道 ──────────────────
+  // body 形状校验失败 400；service 结果 !ok → 400（fail-closed）。
+  // 认证沿用既有 kernel 路由模式（无新增角色权限判断——监督通道）。
+  app.post("/api/v1/kernel/knowledge/verify", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const body = (req.body ?? {}) as { entryId?: string; kind?: string; verdict?: string; note?: string };
+    const entryId = typeof body.entryId === "string" ? body.entryId.trim() : "";
+    const kind = body.kind === "domain" || body.kind === "adversarial" ? body.kind : null;
+    const verdict = body.verdict === "pass" || body.verdict === "reject" ? body.verdict : null;
+    const note = typeof body.note === "string" ? body.note : "";
+    if (!entryId || kind === null || verdict === null || !note.trim()) {
+      return reply.status(400).send({
+        error: "entryId/kind/verdict/note required: kind ∈ domain|adversarial, verdict ∈ pass|reject, note non-empty",
+      });
+    }
+    const auth = (req as unknown as { auth?: { principalId?: string; role?: string } }).auth;
+    const reviewerRole = kind === "adversarial"
+      ? "controller:adversarial"
+      : `domain:${auth?.principalId ?? auth?.role ?? "supervisor"}`;
+    const r = await facade.verifyKnowledge(entryId, { kind, verdict, reviewerRole, note, at: Date.now() });
+    if (!(r as { ok?: boolean }).ok) return reply.status(400).send(r);
+    return r;
+  });
+
+  app.post("/api/v1/kernel/knowledge/promote", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const body = (req.body ?? {}) as { entryId?: string };
+    const entryId = typeof body.entryId === "string" ? body.entryId.trim() : "";
+    if (!entryId) return reply.status(400).send({ error: "entryId required" });
+    const r = await facade.promoteKnowledge(entryId);
+    if (!(r as { ok?: boolean }).ok) return reply.status(400).send(r);
+    return r;
+  });
+
   app.post("/api/v1/kernel/batch/add", async (req, reply) => {
     if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
