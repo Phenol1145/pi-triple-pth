@@ -14,3 +14,4 @@ export * from "./penetration-skill.js";
 export * from "./penetration-budget.js";
 export * from "./penetration-runner.js";
 export * from "./penetration-discovery.js";
+export * from "./mcp-decompose.js";

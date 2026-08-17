@@ -28,6 +28,7 @@ interface ManageTool {
     list: () => Promise<{ version: string; budget: number; policy: string; tools: Array<{ name: string; version: number }> }>;
     register: (o: { spec?: unknown; rationale?: string }) => Promise<{ ok: boolean; id?: string; status?: string; error?: string }>;
     revise: (o: { spec?: unknown; rationale?: string }) => Promise<{ ok: boolean; id?: string; version?: number; status?: string; error?: string }>;
+    importMcp: (o: { bundle?: unknown }) => Promise<{ ok: boolean; errors?: string[]; imported?: Array<{ name: string; proposalId: string }>; failed?: Array<{ name: string; error: string }> }>;
   };
 }
 
@@ -115,6 +116,60 @@ describe("N14 P3：manage.tool.*（manual 策略——直写 official + 预算�
     expect(r.ok).toBe(false);
     expect(r.error).toContain("预算守卫");
     expect(r.error).toContain("developer");
+  });
+});
+
+describe("D1 manage.tool.importMcp：MCP 拆解 bundle → tool-proposal draft", () => {
+  it("合法 bundle → 逐条 draft 提案 + tool.proposal.created 事件；official 面不可见", async () => {
+    const { rows, activities, tool } = makeCtx();
+    const bundle = {
+      format: "mcp-tool-bundle-v1",
+      server: "example-server",
+      tools: [
+        {
+          name: "parse_log",
+          description: "解析日志首列时间戳",
+          inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+          source: "function parseLog(text) { return text; }",
+          call: "parseLog(String(args.text))",
+        },
+        {
+          name: "upper",
+          description: "转大写",
+          source: "function upper(text) { return String(text).toUpperCase(); }",
+          call: "upper(String(args.text))",
+        },
+      ],
+    };
+    const r = await tool.importMcp({ bundle });
+    expect(r.ok).toBe(true);
+    expect(r.failed).toEqual([]);
+    expect(r.imported).toHaveLength(2);
+    expect(activities).toHaveLength(2);
+    expect(activities[0]).toMatchObject({ kind: "tool.proposal.created", detail: r.imported![0]!.proposalId });
+    expect(activities[0]!.at).toBeTypeOf("number");
+    expect(activities[1]).toMatchObject({ kind: "tool.proposal.created", detail: r.imported![1]!.proposalId });
+
+    const proposalIds = r.imported!.map((x) => x.proposalId);
+    for (const id of proposalIds) {
+      expect(rows.get(id)?.kind).toBe("tool-proposal");
+      expect(rows.get(id)?.status).toBe("draft");
+    }
+    // draft 提案 ≠ 注册条目——不落 tool-reg official
+    expect(rows.get("tool:parse_log")).toBeUndefined();
+    expect(rows.get("tool:upper")).toBeUndefined();
+    expect([...rows.values()].some((row) => row.kind === "tool-reg")).toBe(false);
+  });
+
+  it("非法 bundle → {ok:false, errors} 且不发事件", async () => {
+    const { rows, activities, tool } = makeCtx();
+    const r = await tool.importMcp({ bundle: { format: "bad", server: "Example", tools: [] } });
+    expect(r.ok).toBe(false);
+    expect(r.errors?.join("\n")).toContain("format");
+    expect(r.errors?.join("\n")).toContain("server 非法");
+    expect(r.errors?.join("\n")).toContain("tools 必须为非空数组");
+    expect(activities).toEqual([]);
+    expect(rows.size).toBe(0);
   });
 });
 

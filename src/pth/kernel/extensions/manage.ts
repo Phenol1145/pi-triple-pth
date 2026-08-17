@@ -18,6 +18,7 @@ import { readStrategies } from "./perf.js";
 import type { PerfStrategy } from "./perf.js";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { parseMcpBundle, importMcpTools } from "../../tasking/mcp-decompose.js";
 
 export const manageExtension: TsReplExtension = {
   id: "manage",
@@ -245,6 +246,16 @@ export const manageExtension: TsReplExtension = {
             } as never, { force: true });
             return { ok: true, id: entry.id, version: spec.version, status: "official", note: "manual 策略——修订已生效（新版本链留痕）" };
           },
+          /** MCP 拆解包批量导入（D1）——逐条落 draft tool-proposal，永不直写 official */
+          importMcp: async (opts: { bundle?: unknown }) => {
+            const parsed = parseMcpBundle(opts?.bundle);
+            if (!parsed.ok) return { ok: false, errors: parsed.errors };
+            const r = await importMcpTools(store as never, parsed.bundle);
+            for (const ok of r.imported) {
+              ctx.onActivity?.({ kind: "tool.proposal.created", detail: ok.proposalId, at: Date.now() });
+            }
+            return { ok: r.failed.length === 0, imported: r.imported, failed: r.failed };
+          },
         },
       },
     };
@@ -256,5 +267,6 @@ export const manageExtension: TsReplExtension = {
   manage.fix.approve({bugReport, fixSummary?, parentTaskId?}) 修复批准 → 派发 debug-case-writer（最小复现+回归+边界用例）
   manage.memory.archive({id, rationale?}) 记忆归档提案（draft——监督批准后执行）
   manage.worker.propose({suggestedRoleId, parent, specialization, rationale}) 分化提案（draft）
-  manage.tool.list() 注册工具面清单（N14）；manage.tool.register({spec, rationale?}) 工具注册（预算守卫 + PTH_TOOL_WRITE_POLICY 治理流）；manage.tool.revise({spec, rationale?}) 工具修订（version 递增——不可变语义）`,
+  manage.tool.list() 注册工具面清单（N14）；manage.tool.register({spec, rationale?}) 工具注册（预算守卫 + PTH_TOOL_WRITE_POLICY 治理流）；manage.tool.revise({spec, rationale?}) 工具修订（version 递增——不可变语义）
+  manage.tool.importMcp({bundle}) 导入 MCP 拆解 bundle（mcp-tool-bundle-v1）→ 逐条 tool-proposal draft（复用 tool.proposal.created 自动审核）`,
 };
