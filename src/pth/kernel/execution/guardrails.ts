@@ -86,6 +86,15 @@ export const GUARD_DEFS: Record<string, ConsecutiveGuardDef> = {
   "unknown-tool": { id: "unknown-tool", limitKey: "PTH_GUARD_UNKNOWN_TOOL_LIMIT", limitDefault: 3, mode: "hard" },
 };
 
+/**
+ * A4 护栏 JIT 可放宽白名单（2026-08-18）：仅软处置/负结果族可自动建议放宽——
+ * empty-done/empty-reply/unknown-tool 是 hard 契约护栏，只许人工调，不自动建议。
+ */
+export const GUARD_TUNABLE_DEFS: Record<string, { limitKey: string; default: number; mode: "soft" }> = {
+  "negative-loop": { limitKey: "PTH_GUARD_NEGATIVE_LIMIT", default: 15, mode: "soft" },
+  "repeat-action": { limitKey: "PTH_GUARD_REPEAT_LIMIT", default: 5, mode: "soft" },
+};
+
 /** 豁免矩阵（声明式——2026-08-14 T5 裁决进矩阵；治理族豁免 2026-08-15 D2 裁为不做——阈值放宽替代） */
 export const GUARD_EXEMPTIONS: Record<string, (ctx: GuardContext) => boolean> = {
   // T5：侦察类豁免负结果收敛强制终止（合法多源探测——maxSteps 兜底）

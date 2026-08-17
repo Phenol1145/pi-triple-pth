@@ -346,7 +346,7 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
   it("checkDeopt：capability-index 目标走全局聚合（rollup 跨角色）", async () => {
     const { Optimizer, rollupAggregateRows } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
     // rollup 助手单测
-    expect(rollupAggregateRows([{ content: JSON.stringify({ taskCount: 5, sumFails: 10, sumSteps: 20 }) }, { content: JSON.stringify({ taskCount: 3, sumFails: 2, sumSteps: 12 }) }])).toEqual({ taskCount: 8, sumFails: 12, sumSteps: 32 });
+    expect(rollupAggregateRows([{ content: JSON.stringify({ taskCount: 5, sumFails: 10, sumSteps: 20 }) }, { content: JSON.stringify({ taskCount: 3, sumFails: 2, sumSteps: 12 }) }])).toEqual({ taskCount: 8, sumFails: 12, sumSteps: 32, sumGuardHits: 0, sumGuardSoft: 0, sumGuardHard: 0, sumGuardKills: 0 });
     const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
     const mem = {
       write: async () => {},
@@ -401,5 +401,99 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
     const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
     const opt = new Optimizer({ verifySweepMs: 0 });
     await expect(opt.sweep()).resolves.toBeUndefined();
+  });
+});
+
+describe("A4 护栏 JIT——guard-config deopt 回滚（2026-08-18）", () => {
+  function guardRuntime(initial: Record<string, string>) {
+    const values = { ...initial };
+    const setCalls: Array<{ key: string; value: string }> = [];
+    return {
+      values,
+      setCalls,
+      get: (key: string) => values[key],
+      set: (key: string, value: string) => { values[key] = value; setCalls.push({ key, value }); },
+    };
+  }
+
+  function guardSugRow(over: Record<string, unknown> = {}) {
+    return {
+      id: "sug-guard",
+      content: JSON.stringify({
+        id: "sug-guard",
+        kind: "guard",
+        target: "guard-config:negative-loop",
+        section: "阈值",
+        content: "【优化建议 · guard-kill-spike】\n建议参数: PTH_GUARD_NEGATIVE_LIMIT ×1.5（当前值由批准时配置中心解析）\n写入目标: guard-config:negative-loop §阈值",
+        evidence: { pattern: "guard-kill-spike", tasks: 10, metric: { hits: 8, soft: 5 } },
+        guard: { guard: "negative-loop", limitKey: "PTH_GUARD_NEGATIVE_LIMIT", scale: 1.5 },
+        status: "draft",
+        ts: 1,
+      }),
+      meta: {
+        baseline: { taskCount: 10, avgGuardKills: 1, avgGuardHits: 4 },
+        guardBaseline: {
+          limitKey: "PTH_GUARD_NEGATIVE_LIMIT",
+          from: "15",
+          to: "23",
+          values: { PTH_GUARD_NEGATIVE_LIMIT: "15" },
+        },
+        appliedAt: Date.now(),
+      },
+      ...over,
+    };
+  }
+
+  it("劣化（avgKills 升 50%+）→ sweep 后 runtimeConfig 恢复原值 + rolledBack + guard-deopt 洞察", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const rt = guardRuntime({ PTH_GUARD_NEGATIVE_LIMIT: "23" });
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const writes: Array<Record<string, unknown>> = [];
+    const mem = {
+      write: async (e: Record<string, unknown>) => { writes.push(e); },
+      queryReadOnly: async (sql: string) => {
+        if (sql.includes("optimizer-suggestion")) return [guardSugRow()];
+        if (sql.includes("kind = 'task-scorecard-aggregate'")) {
+          // 当前全局聚合：taskCount 12（基线 10 后 +2 ≥ windowSize 2）——avgKills 30/12=2.5（+150% 劣化）
+          return [{ content: JSON.stringify({ taskCount: 12, sumGuardKills: 30, sumGuardHits: 60 }) }];
+        }
+        return [];
+      },
+      update: async (id: string, patch: Record<string, unknown>) => { updates.push({ id, patch }); },
+    };
+    const opt = new Optimizer({ memory: mem as never, windowSize: 2, deadbandWindows: 0, verifySweepMs: 0, runtimeConfig: rt });
+    await opt.sweep();
+    const rollback = updates.find((u) => u.id === "sug-guard");
+    expect(rollback?.patch.status).toBe("rolled_back");
+    expect(rollback?.patch.meta?.["rolledBack"]).toBe(true);
+    expect(rollback?.patch.meta?.["verifySource"]).toBe("global");
+    expect(rt.values["PTH_GUARD_NEGATIVE_LIMIT"]).toBe("15");
+    expect(rt.setCalls).toEqual([{ key: "PTH_GUARD_NEGATIVE_LIMIT", value: "15" }]);
+    expect(writes.some((w) => w.kind === "task-insight" && JSON.stringify(w.content).includes("guard-deopt"))).toBe(true);
+  });
+
+  it("未劣化 → verified（runtimeConfig 不动）", async () => {
+    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const rt = guardRuntime({ PTH_GUARD_NEGATIVE_LIMIT: "23" });
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const mem = {
+      write: async () => {},
+      queryReadOnly: async (sql: string) => {
+        if (sql.includes("optimizer-suggestion")) return [guardSugRow({ id: "sug-guard-ok" })];
+        if (sql.includes("kind = 'task-scorecard-aggregate'")) {
+          // avgKills 12/12=1.0（未劣化），avgHits 48/12=4.0（≥ 基线 4*0.5=2）→ verified
+          return [{ content: JSON.stringify({ taskCount: 12, sumGuardKills: 12, sumGuardHits: 48 }) }];
+        }
+        return [];
+      },
+      update: async (id: string, patch: Record<string, unknown>) => { updates.push({ id, patch }); },
+    };
+    const opt = new Optimizer({ memory: mem as never, windowSize: 2, deadbandWindows: 0, verifySweepMs: 0, runtimeConfig: rt });
+    await opt.sweep();
+    const verified = updates.find((u) => u.id === "sug-guard-ok");
+    expect(verified?.patch.meta?.["verifiedAt"]).toBeDefined();
+    expect(verified?.patch.meta?.["verifyAfterWindow"]).toBe(false);
+    expect(verified?.patch.meta?.["verifySource"]).toBe("global");
+    expect(rt.setCalls).toHaveLength(0);
   });
 });
