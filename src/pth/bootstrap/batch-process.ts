@@ -3,6 +3,7 @@ import { resolve as resolvePath, relative as relativePath, isAbsolute, sep } fro
 import { createPgPool } from "../kernel/storage/pg.js";
 import { applySchema } from "../kernel/storage/schema.js";
 import { createDataWorld } from "../kernel/storage/index.js";
+import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../impls/kernels/index.js";
 import type { InterpreterResult } from "../kernel/interpreter/index.js";
 import type { Task } from "../kernel/storage/task-store-pg.js";
@@ -71,6 +72,13 @@ class BatchTaskLoop {
   get isStopped(): boolean { return this.inner.isStopped; }
 }
 
+/** K2 Phase 2：从同一份生成数据构建 catalog 快照 + resolver（与 assembly 同源同版本）。 */
+function buildDisciplineResolver(): ReturnType<typeof createDisciplineResolver> {
+  const builder = new DisciplineCatalogBuilder();
+  for (const def of DISCIPLINE_DEFINITIONS) builder.add(def);
+  return createDisciplineResolver(builder.build());
+}
+
 /**
  * batch 子进程主函数（方案 C，裁决 15）：pth 主进程 fork 本文件。
  * 自驱动：轮询 taskStore → 全角色 worker 各跑 TaskLoop.runOnce。
@@ -90,7 +98,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   await applySchema(pool);
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化）
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——batch 子进程与 assembly 同源。
-  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
+  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole }, buildDisciplineResolver());
   // P1-6：batch 子进程启用 tasking dispatcher 路径（真实 lease claim/CAS commit）
   const taskRepository = createPgTaskRepository(pool);
   // W8 P1：任务投递服务（worker 工具面 tasks.delegate/await 的服务器端实现）

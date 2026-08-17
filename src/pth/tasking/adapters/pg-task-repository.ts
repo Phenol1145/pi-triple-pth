@@ -25,6 +25,7 @@ import type {
   TaskWorkItem,
   TenantScope,
 } from "../../contracts/index.js";
+import { readWorkItemDomainBinding, readWorkItemDomains } from "../task-work-item-reader.js";
 
 export interface PgTaskRepositoryOptions {
   /** 新 lease 有效期（默认 10 分钟——与旧 claim 超时余量一致，可由调度器覆盖） */
@@ -47,6 +48,8 @@ interface ClaimRow {
 }
 
 function toWorkItem(row: ClaimRow, scope: TenantScope): TaskWorkItem {
+  const domains = readWorkItemDomains(row.payload);
+  const domainBinding = readWorkItemDomainBinding(row.payload, domains);
   return {
     taskId: row.id,
     scope,
@@ -55,6 +58,8 @@ function toWorkItem(row: ClaimRow, scope: TenantScope): TaskWorkItem {
     tags: row.tags ?? [],
     payload: row.payload,
     assignedRole: row.assigned_role,
+    domains,
+    ...(domainBinding ? { domainBinding } : {}),
   };
 }
 

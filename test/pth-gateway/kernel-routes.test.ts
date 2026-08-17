@@ -93,6 +93,35 @@ describe("kernel routes", () => {
       expect(body.payload.flow.stages[0].id).toBe("s1");
     });
 
+    it("POST /api/v1/kernel/tasks 透传顶层 domains（字符串数组）", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/kernel/tasks",
+        payload: { title: "测试", text: "1+1", createdBy: "tester", tags: ["code"], domains: ["mathematics", "statistics"] },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().domains).toEqual(["mathematics", "statistics"]);
+    });
+
+    it("POST /api/v1/kernel/tasks domains 非字符串数组 → 400", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/kernel/tasks",
+        payload: { title: "测试", text: "1+1", createdBy: "tester", domains: ["ok", 7] },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("domains");
+    });
+
+    it("POST /api/v1/kernel/tasks domains 元素为空字符串 → 400", async () => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/v1/kernel/tasks",
+        payload: { title: "测试", text: "1+1", createdBy: "tester", domains: ["ok", "  "] },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
     it("POST /api/v1/kernel/tasks 缺 title → 400", async () => {
       const res = await app.inject({
         method: "POST",

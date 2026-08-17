@@ -26,7 +26,7 @@ function leaseFor(id: string, generation = 1): TaskLease {
 }
 
 function workFor(id: string): TaskWorkItem {
-  return { taskId: id, scope, title: id, text: "x", tags: ["code"], payload: {}, assignedRole: "developer" };
+  return { taskId: id, scope, title: id, text: "x", tags: ["code"], payload: {}, assignedRole: "developer", domains: [] };
 }
 
 function okOutcome(lease: TaskLease): TaskOutcome {

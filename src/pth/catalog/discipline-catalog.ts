@@ -175,6 +175,11 @@ export class DisciplineCatalogSnapshot {
     return clone([...this.#defs]);
   }
 
+  /** 全部 domain id 集合——resolver 输出校验的 knownIds 来源。 */
+  ids(): ReadonlySet<DomainId> {
+    return new Set(this.#defs.map((d) => d.id));
+  }
+
   ancestors(id: DomainId): DomainId[] {
     this.#assertKnown(id);
     const out: DomainId[] = [id];
