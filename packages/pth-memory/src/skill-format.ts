@@ -241,3 +241,202 @@ export const SEED_OPT_SOPS: SkillSopSeed[] = [
     ],
   },
 ];
+
+/**
+ * N17 A5（2026-08-18）：叶子角色 SOP 种子 × 8——全部 actuator 叶子角色补齐四段式 SOP。
+ * 从 DEFAULT_ROLES 无子类型角色的 role.prompt 提炼（writer/coder/debug-case-writer/
+ * acceptor/planner/spider/solver/predictor）；只写角色实际能力与工具面。
+ */
+export const SEED_LEAF_SOPS: SkillSopSeed[] = [
+  {
+    id: "writer-sop",
+    anchor: "执行 writer 角色任务——文档/报告/教程等内容创作",
+    whenToUse: "任务标签 write/doc/story/tutorial/article，或任务要求文档编写、内容生产",
+    effect: "产出结构完整、术语一致、可直接交付的文档（写入 write 空间）",
+    procedure: [
+      { step: "读需求与素材——memory.query 查既有文档/术语，readSource/readText 读参考，明确读者与交付范围", cost: "1×memory.query + 1–2×fs.readSource" },
+      { step: "列大纲——按文档类型组织章节，先骨架后细节，写大纲文件到 write 空间", cost: "1×write.create（大纲）" },
+      { step: "写草稿——asp.cd(\"write\") 进入 write 空间，用 write.create/edit 分节填充内容，write.section 组织章节", cost: "2–5×write.create/edit" },
+      { step: "修订——按结构/术语一致性/读者视角回读检查（write.read），删除重复与漂移段落", cost: "2–3×write.read + 1–2×write.edit" },
+      { step: "定稿交付——write.save 保存定稿，done 提交 result（文件路径/内容摘要）", cost: "1×write.save + 1×done" },
+    ],
+    pitfalls: [
+      "不先查 memory 既有文档/术语——同义术语漂移，与记忆库冲突",
+      "把 writer 当 coder——writer 无执行核，要求跑代码/调试超出能力面",
+      "直接写全文不列大纲——结构失控，返工轮次增加",
+      "产物不落 write 空间——验收侧 write.list 读不到，交付失败",
+    ],
+    verification: [
+      "write.list 可看到定稿文件，路径在 write 空间",
+      "文档结构完整（大纲章节齐全）且术语与 memory 既有条目一致",
+      "done.result 包含产物路径与摘要，且未要求执行代码/调试",
+    ],
+  },
+  {
+    id: "coder-sop",
+    anchor: "执行 coder 角色任务——按契约编写代码/片段/脚本",
+    whenToUse: "任务标签 coding/write-code/snippet，或任务要求纯代码编写（不调试不测试不写文档）",
+    effect: "得到按契约实现、可运行的最小代码产物（功能测试交给 tester）",
+    procedure: [
+      { step: "读契约与上下文——readSource/readText 读 plan/context/接口契约，明确输入输出与边界", cost: "1×readSource + 1×memory.query（如需既有模式）" },
+      { step: "定位代码落点——读目标模块现状，确定最小改动范围（narrow coherent edits）", cost: "1–2×fs.readSource" },
+      { step: "写代码——fs.task.write/dev.write 写入任务工作区，一次一个一致修改", cost: "1–3×dev.write" },
+      { step: "自验可运行——用 execPy/execBash/dev.run 跑通语法/导入/最小 smoke，只确认可运行；不调试不测试", cost: "1–3×执行核调用" },
+      { step: "交付——done 带 result（代码路径/自验输出）；调试交给 debug 工具、测试交给 tester", cost: "1×done" },
+    ],
+    pitfalls: [
+      "把自验扩张成调试——coder 不调试：卡住时交付现象与自验输出，不陷入修复循环",
+      "替代 tester 写完整测试——功能测试归 tester，边界/回归归 debug-case-writer",
+      "不读契约就写——产物接口与 plan/context 不一致，被打回",
+      "贪大改动——违背 narrow coherent edits：一次只做一个一致的修改",
+    ],
+    verification: [
+      "代码产物存在且路径正确（fs.task.list/dev.list 可见）",
+      "自验运行通过（执行核 ok=true，语法/导入/smoke 级通过）",
+      "done.result 含代码路径与真实自验输出",
+    ],
+  },
+  {
+    id: "debug-case-writer-sop",
+    anchor: "执行 debug-case-writer 角色任务——把 bug 报告/复现/fix diff 变成可验证用例",
+    whenToUse: "任务标签 debug-case/regression-case/boundary-case，或修复验收需要最小复现+回归+边界用例",
+    effect: "拿到四件套 {repro, regression, boundary, verification}，verification 带真实运行输出",
+    procedure: [
+      { step: "读 bug 报告与修复摘要——readSource/readText 读 bug-report/fix-diff，明确触发条件与修复边界", cost: "1–2×readSource" },
+      { step: "写最小复现用例——在任务工作区写测试，复现修复前 FAIL 的条件序列", cost: "1–2×fs.task.write" },
+      { step: "写回归与边界用例——regression 防复发（修复后 PASS）+ boundary 探索空值/极值/类型边界/并发/组合输入", cost: "2–4×fs.task.write" },
+      { step: "实际跑通——用 bash/vitest 或执行核运行：修复前 repro FAIL、修复后 regression PASS、boundary 记录真实结果", cost: "3–6×bash.run/execPy/execBash" },
+      { step: "交付——done 提交 {repro, regression, boundary, verification}，verification 必须带真实运行输出", cost: "1×done" },
+    ],
+    pitfalls: [
+      "verification 基于假设报成功——必须带真实运行输出，不跑不算数",
+      "repro 不是最小复现——堆叠无关步骤掩盖触发条件，回归定位难",
+      "只写 regression 不写 boundary——修复边界（空值/极值/类型）未探索，缺陷复发",
+      "不读 fix-diff 就写用例——用例与修复范围脱节",
+    ],
+    verification: [
+      "done.result 含 repro/regression/boundary/verification 四字段",
+      "repro 在修复前 FAIL、regression 在修复后 PASS 的真实输出可见",
+      "verification 引用真实运行输出（非假设）",
+    ],
+  },
+  {
+    id: "acceptor-sop",
+    anchor: "执行 acceptor 角色任务——按验收标准核查交付物",
+    whenToUse: "任务标签 accept/verify，或交付需要验收结论（pass/reject）",
+    effect: "得到逐项可追溯证据的验收结论（pass/reject），不修改产物",
+    procedure: [
+      { step: "读验收标准——readSource/readText 读 plan/progress/context 中的验收标准，整理为逐项清单", cost: "1–2×readSource" },
+      { step: "检查产物——write.read/write.list/dev.list/fs.readSource 只读检查交付物存在与路径", cost: "2–4×只读检查" },
+      { step: "执行验证——用 python/bash/dev.run 跑验收命令/测试，记录每项证据", cost: "2–5×执行核调用" },
+      { step: "对照结论——逐项 pass/reject，汇总证据与缺口，不修产物", cost: "0–1×write.read（复核）" },
+      { step: "交付——done 带 result（验收结论+证据+缺口清单）", cost: "1×done" },
+    ],
+    pitfalls: [
+      "无证据下 pass——验收结论必须逐项有证据，不能凭印象",
+      "验收时顺手修改产物——acceptor 只读，问题写进缺口清单交回上游",
+      "不读验收标准就查——漏项或按自己偏好验收",
+    ],
+    verification: [
+      "done.result 含逐项验收结论与证据（命令/输出/路径）",
+      "未修改任何产物（只读检查）",
+      "reject 时缺口清单可执行（上游能按清单修复）",
+    ],
+  },
+  {
+    id: "planner-sop",
+    anchor: "执行 planner 角色任务——把上下文/目标分解为可执行计划",
+    whenToUse: "任务标签 plan/design，或任务需要方案设计与步骤规划",
+    effect: "拿到依赖 DAG 清晰、子任务自包含、可并行的计划（done.result JSON）",
+    procedure: [
+      { step: "读上下文——readSource/readText 读 context/plan 输入，明确目标与约束", cost: "1–2×readSource" },
+      { step: "分解子任务——每个子任务自包含（id/type/description/验收标准），粒度可执行", cost: "0（内部推理）" },
+      { step: "画依赖 DAG——dependsOn 只标真实数据依赖（上游产出被下游消费才写）", cost: "0（内部推理）" },
+      { step: "并行分层——无依赖子任务放同一层，用时间复用率检查串行是否可并行", cost: "0（内部推理）" },
+      { step: "交付——done 提交 {subtasks:[{id,type,dependsOn,description}]}，验收标准随 description 声明", cost: "1×done" },
+    ],
+    pitfalls: [
+      "dependsOn 标非数据依赖（组织/偏好顺序）——人为串行，时间复用率差",
+      "子任务不自包含——把结论/隐含上下文留给自己，下游 worker 无法独立执行",
+      "无依赖子任务串排——违反扁平化：能并行不放同一层",
+      "计划缺验收标准——下游不知道做到什么程度算完成",
+    ],
+    verification: [
+      "done.result JSON 可解析且 subtasks 非空",
+      "dependsOn 有向无环，且每个 id 都引用 subtasks 内已有 id",
+      "无依赖子任务在同一层（并行），真实依赖才串行",
+    ],
+  },
+  {
+    id: "spider-sop",
+    anchor: "执行 spider 角色任务——网页抓取与结构化采集",
+    whenToUse: "任务标签 crawl/scrape/fetch，或任务要求多源网页数据聚合",
+    effect: "拿到结构化、带来源、可直接交接下游的 context",
+    procedure: [
+      { step: "明确目标清单——列出要抓的 URL/平台/字段，去重", cost: "0（内部思考）" },
+      { step: "先查记忆——memory.query 查已有抓取结果/来源，不重复抓", cost: "1×memory.query" },
+      { step: "抓取——web.fetchText 抓网页，或 ext.use(agent-reach) 抓平台内容；失败换源", cost: "2–6×web.fetchText/ext.use(agent-reach)" },
+      { step: "结构化抽取——从原始页面抽字段/表格/列表，去噪去重", cost: "2–5×execTs（字符串/解析处理）" },
+      { step: "压缩交接——按「结构化数据 + 来源 URL + 抓取时间」整理为 context，done 交付", cost: "1×done" },
+    ],
+    pitfalls: [
+      "原始输出直接 dump——下游被 HTML 噪音淹没",
+      "无来源记录——下游无法复核，失效链接无法追踪",
+      "同一目标反复抓——重复请求浪费；先查 memory 再抓",
+      "单一来源当事实——多源交叉，抓取失败需换源或标记缺口",
+    ],
+    verification: [
+      "context 含结构化字段与来源 URL/抓取时间",
+      "已查 memory 既有结果，无重复抓取",
+      "抓取失败/缺口已标注，不把缺口当完整数据",
+    ],
+  },
+  {
+    id: "solver-sop",
+    anchor: "执行 solver 角色任务——封闭限制型问题求解",
+    whenToUse: "任务标签 closed-solve/constraint/solve，或问题有明确约束与定解",
+    effect: "拿到约束内推导、带证据验证的确定结论与边界说明",
+    procedure: [
+      { step: "约束盘点——列出全部约束/前提/边界，确认问题封闭（有定解）", cost: "0–1×memory.query/readSource（补充约束）" },
+      { step: "推导求解——在约束内收敛式推导，用 python/bash 执行计算/验证中间步骤", cost: "2–5×execPy/execBash" },
+      { step: "证据验证——对结论的每个关键步骤找证据（计算输出/源码/数据）", cost: "2–4×执行核/readSource" },
+      { step: "边界说明——写出结论成立的条件与不适用边界", cost: "0（内部推理）" },
+      { step: "交付——done 提交 conclusion + 验证证据 + 边界", cost: "1×done" },
+    ],
+    pitfalls: [
+      "把开放问题当封闭问题——无定解问题应转 prospector，不硬求解",
+      "不列约束就推导——结论越出约束而不自知",
+      "只给结论不给证据——封闭求解必须有验证结果",
+      "不写边界——把约束内结论泛化到约束外",
+    ],
+    verification: [
+      "done.result 含 conclusion/verification/边界说明",
+      "关键结论有可追溯证据（执行输出/源码/数据）",
+      "结论未超出约束；边界清晰",
+    ],
+  },
+  {
+    id: "predictor-sop",
+    anchor: "执行 predictor 角色任务——趋势/未来状态/结果分布预测",
+    whenToUse: "任务标签 predict/forecast/extrapolate，或任务要求基于证据外推未来",
+    effect: "拿到概率化预测 + 不确定性说明 + 待验证边界",
+    procedure: [
+      { step: "明确预测对象与模型/假设——确认历史/证据窗口，明确外推假设", cost: "0–1×memory.query/readSource（补充历史证据）" },
+      { step: "分尺度推理——短期/中期/长期分别外推，用 python/bash 拟合/模拟/统计", cost: "2–5×execPy/execBash" },
+      { step: "校准记录——记录基础率/历史准确率/置信度，概率化表达而非点断言", cost: "1–2×execPy（统计）" },
+      { step: "边界标注——写明待验证条件与失效边界", cost: "0（内部推理）" },
+      { step: "交付——done 提交 prediction（概率分布/趋势）+ uncertainty + 待验证边界", cost: "1×done" },
+    ],
+    pitfalls: [
+      "点断言无不确定性——预测必须概率化，给出分布/置信度",
+      "忽略基础率与校准——没有校准记录的预测不可信",
+      "把预测当事实——下游把外推当确定结论",
+      "不写待验证边界——无法触发后续校准/证伪",
+    ],
+    verification: [
+      "done.result 含概率化预测（分布/置信度）与不确定性说明",
+      "预测有历史/证据支撑，校准记录可查",
+      "待验证边界已声明，可被未来数据证伪",
+    ],
+  },
+];
