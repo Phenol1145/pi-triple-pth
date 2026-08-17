@@ -12,6 +12,7 @@
 | Q1 | sensor/controller 细分方式 | ✅ **增补式**——保留现有环向点位，按四维缺口新增 |
 | Q2 | 注册工具执行体形态 | ✅ **三态并存：program（ts 固化）+ builtin（代码内置）+ agent（LLM 子 agent）**（用户 custom「2+3」——含 Q2-1 的 program 态） |
 | Q3 | 通道治理形态 | ✅ **skill 同构治理**——复用 staged 流（提案 → 对抗性审核 → 批准 → 注册生效） |
+| Q4 | 存量归并策略（§3.6） | ✅ **一次性全登记**——存量 35 件硬编码工具全部登记为 builtin 条目（执行不动，条目做治理面），双写一致性对账钉测试 |
 
 衍生澄清（用户提问，已答并纳入设计）：**tool-function 沉淀物不自动进工具列表**——
 沉淀物是候选池，进列表走晋升管线（提案→审核→批准→注册），注册后按可见性定向
@@ -128,6 +129,33 @@ agent-loop 工具解析 = **静态 TOOL_SCHEMAS ∪ 注册表可见集**（按 r
 能力白名单 = 条目声明）/ builtin 走既有 AGENT_TOOLS 表 / agent 走穿透 runChild 执行缝
 （batch-process 已备——深度限 1 规则同样适用）。
 
+### 3.6 现状执行体盘点与归并关系（2026-08-18 用户问询补录）
+
+**现实起点：执行体四套位置、四种管理，互不统一**——通道设计必须正面回应：
+
+| # | 现位置 | 存什么 | 现管理 | 归并去向 |
+|---|---|---|---|---|
+| ① | `agent-tools.ts`（TOOL_SCHEMAS + AGENT_TOOLS 两张硬编码表） | LLM 工具 schema + 执行器（35 件） | 改代码发版——无注册机制 | **builtin 态**——一次性全登记（本节裁决） |
+| ② | `ptc/contract.ts` + `capability.ts` | PTC 能力函数（ts 程序面） | 注册表单一真相源，但装配手写 | **保持程序面**——不进 tool call 层；builtin 条目的执行体可引用同源实现（避免双实现漂移） |
+| ③ | `memory_entries`（kind=tool-function） | refiner 沉淀源码片段 | 有统一存储、无执行管理（召回复制重放） | **program 态候选池**——晋升管线原料（§3.4） |
+| ④ | `toolstore/extensions/<id>/` | 扩展包（plugin.json + index.ts） | 统一目录 + ext-registry 装载，但「代码库式」（2026-08-09 裁决：contracts 不注册装载，ext.use 重放） | **外部工具来源通路**——扩展/MCP 工具经 toolstore → 提案 → 注册（D1 落点）；④的装载器与重放式使用保持不动 |
+
+**归并裁决（Q4——2026-08-18 用户）：一次性全登记。**
+
+- 存量 35 件**全部登记为 builtin 条目**：`executor: {type:"builtin", ref:<AGENT_TOOLS 执行器键>}`；
+  **执行完全不动**（仍走硬编码函数表——零行为变化），条目承担治理面
+  （description 三要素统一/可见性声明/包归属/版本起点 v1）；
+- **登记器**（P0 范围）：从 TOOL_SCHEMAS 自动生成 builtin 条目的 seed 脚本——幂等可重跑
+  （seed-wiki 同款）；visibility 初值 = 现状推导（各角色 actionTools 声明的并集——
+  登记不改变任何角色的实际可见面，只把隐式声明显式化）；
+- **双写一致性对账**（P0 钉测试）：注册表 builtin 条目集 ≡ TOOL_SCHEMAS 键集
+  （名称/包归属/三要素齐备）——防登记漂移；新增硬编码工具必须先有条目否则对账测试红；
+- **归并完成态**：TOOL_SCHEMAS 退化为「builtin 执行器索引」（执行面），tool-reg 成为
+  工具的**唯一治理面**（schema/可见性/版本）——①的两张硬编码表从「真相源」降级为
+  「执行器仓库」，治理真相源归一到 tool-reg。
+- ②的 PTC 能力函数**不做条目化**（程序面基板，非 0.17.1 定义的工具）——但 builtin
+  条目执行体与其同源引用（contract.ts 仍是被引用的实现处）。
+
 ---
 
 ## 4. 分层 SOP × 4（四段式草案——W4 创建时机：本设计即「找到正路」时刻）
@@ -227,7 +255,7 @@ agent-loop 工具解析 = **静态 TOOL_SCHEMAS ∪ 注册表可见集**（按 r
 
 | 期 | 内容 | 量级 |
 |---|---|---|
-| **P0 契约** | `tool-reg` 条目格式 + `__tool_spec__` 校验 + memory-policy PROMPT_KINDS 增补（穿透 P3 同款接口位先行——**可独立成批**） | 小 |
+| **P0 契约** | `tool-reg` 条目格式 + `__tool_spec__` 校验 + memory-policy PROMPT_KINDS 增补 + **存量登记器**（TOOL_SCHEMAS → 35 件 builtin 条目 seed，幂等）+ **双写一致性对账测试**（§3.6——穿透 P3 同款接口位先行，**可独立成批**） | 中（原小——Q4 裁决扩量） |
 | **P1 观测** | sensor 三新点位（builtin-roles + prompt）+ guardrails 计数进 scorecard（N12 二期观测面） | 中 |
 | **P2 通道执行缝** | 注册表驱动动态工具面（快照版本化 + 预算守卫）+ program 执行器（ts 核）+ agent 态接穿透 runChild + `PTH_TOOL_WRITE_POLICY` 配置 | 大 |
 | **P3 调节与 SOP** | controller 三新点位 + manage.tool.* 调节面 + 四条 SOP 固化（skill 落库）+ 晋升管线首跑（1-2 个真实 tool-function 晋升验证） | 中 |
