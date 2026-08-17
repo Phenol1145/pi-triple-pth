@@ -40,9 +40,12 @@
 | **B2** | **N15 B2：穿透执行预算经济化**（单次/累计步数预算 + `penetration-edge` 边级计量面——B1 数据地基） | `tasking/penetration-budget.ts`（新）、`bootstrap/batch-process.ts` | `lane/b2-penetration-budget` / `.worktrees/b2` | **done** | 主会话·子代理·2026-08-18 | ✅ `4c166e5` + `cfe8632`（okCalls 调用级成败对齐）——**已合并 main（8b5edfb 序）**：双预算线 + 边级计量聚合；全量绿 |
 | **B1** | **N15 B1：穿透稳定边自动发现**（`penetration-proposal` → 监督批准 → `skill:penetrate:<child>` 注册） | `tasking/penetration-discovery.ts`（新）、`system-triggers.ts`、`assembly.ts`、`pth-gateway-facade.ts` | `lane/b1-penetration-discovery` / `.worktrees/b1` | **done** | 主会话·子代理·2026-08-18 | ✅ `d5a3019`——**已合并 main**：discovery 巡检 + 治理链 + gateway 同流；全量绿 |
 | **A4** | **N15 A4：护栏 JIT**（guard-kill-spike 热点 → `guard-config` 审批热调 → 复测/deopt 回滚） | `optimizer-hotspots/loop/apply.ts`、`guardrails.ts` | `lane/a4-guard-jit` / `.worktrees/a4` | **done** | 主会话·子代理·2026-08-18 | ✅ `0feeaff`——**已合并 main**：白名单热调 + fail-closed 基线 + deopt 回滚；全量绿 |
+| **A5** | **N17 A5：叶子角色四段式 SOP 种子×8**（writer/coder/debug-case-writer/acceptor/planner/spider/solver/predictor——注入 prompt-docs） | `packages/pth-memory/src/skill-format.ts`、`src/pth/kernel/prompt-docs.ts` | `lane/a5-leaf-sops` / `.worktrees/a5` | **done** | 主会话·子代理·2026-08-18 | ✅ `b09ed8f`——**已合并 main**：SEED_LEAF_SOPS×8 + 注入循环；全量绿 |
++| **D1** | **N17 D1：MCP 拆解→tool-proposal 批量治理导入**（mcp-tool-bundle-v1 → parse/spec/importMcpTools + manage.tool.importMcp + import 脚本） | `src/pth/tasking/mcp-decompose.ts`（新）、`src/pth/kernel/extensions/manage.ts`、`scripts/import-mcp-bundle.ts`（新） | `lane/d1-mcp-decompose` / `.worktrees/d1` | **done** | 主会话·子代理·2026-08-18 | ✅ `3628d71`——**已合并 main**：draft 提案批量落库 + tool.proposal.created 自动审核；全量绿 |
 
-> 车道池（下批候选）：A5 叶子角色 seed skill（随 L1 SOP 工作）；D1 MCP 拆解
-> （A2 已开通道——价值翻倍，下批）。B1/B2/A4 本批已开——合并顺序 B2 → B1 → A4。
+> 车道池（下批候选）：A5 叶子角色 seed skill ✅（N17——8 条叶子 SOP 已落）；D1 MCP 拆解
+> ✅（N17——mcp-tool-bundle-v1 → tool-proposal 治理注册）。B1/B2/A4/N17 A5/N17 D1 均已落——
+> 下一批见下方 v1.2 车道节。
 
 ## fork 引导词（每条 lane 一段——粘贴进新会话即上岗）
 

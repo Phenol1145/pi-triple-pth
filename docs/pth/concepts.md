@@ -470,7 +470,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 |---|---|---|
 | plugin/pi-extension（TS） | toolstore/extensions（ext-registry——agent-reach 已验证） | ✅ 已有 |
 | skill | 记忆区条目化 pipeline（SKILL.md → memory 条目） | ⚠️ 无转化流程 |
-| MCP | 拆解 server 源码→工具逻辑重实现 | ❌ 无 |
+| MCP | 拆解 server 源码→工具逻辑重实现 | ✅ 已建（2026-08-18 N17 D1——`mcp-tool-bundle-v1` → `mcp-decompose.ts` 校验/spec → tool-proposal draft 治理注册） |
 
 ### 0.14 猜想：伪世界模型〔猜想〕（2026-08-14 用户）
 
@@ -1090,7 +1090,7 @@ v0.9（动作面/权限/任务池纯化）
 - [x] T1-T10 裁决后落地（2026-08-14 全部裁决完成——T1/T2/T3/T4/T5/T7 代码已落地；T6/T9 概念层重写；T8 文案对齐分批推进；T10 观察）
 - [x] 术语统一：工具 description 三要素对齐已完成（2026-08-14 T8——35 schema+能力索引全量）；role-doc 文案对齐已完成（2026-08-15 D4——`buildRoleDoc` 场景锚点三要素段 + 注入全量）（tenant 为认证概念保留；pit→ptl 已修）
 - [x] 护栏统一抽象（N12——2026-08-14 落地：guardrails.ts 注册表 + 阈值配置化 `PTH_GUARD_*` + 豁免矩阵声明式）
-- [x] 工作流 SOP——角色特定标准作业步骤还不是一等概念（2026-08-15 B4 Phase 1：四段式 skill 格式 + developer/scout/memory-keeper 3 条种子已注入；其余角色随 W4 创建时机补齐）
+- [x] 工作流 SOP——角色特定标准作业步骤还不是一等概念（2026-08-15 B4 Phase 1：四段式 skill 格式 + developer/scout/memory-keeper 3 条种子已注入；其余角色随 W4 创建时机补齐——**2026-08-18 N17 A5：8 条叶子 SOP 补齐（writer/coder/debug-case-writer/acceptor/planner/spider/solver/predictor），当前 actuator 叶子全种子化**）
 - [x] 双 storage 层归属（2026-08-14 A2 已裁决并落地）：kernel/storage = 持久化基座单一包（会话平面并入 session/，src/pth/storage 退役）；引擎不归一（PG 数据世界 + Redis 热面 + 文件产物——分析见 storage-backend-analysis.md）；审计两平面（会话=Redis Stream，任务=PG audit_log）
 - [x] agentic 测试集（✅ 2026-08-15 v3 完成——28/28 completed，见 §10 N10）
 - [ ] 分账账本维护：新方案待建机制清单见 §10（与本清单一一对应——落地时同步勾除）
@@ -1154,9 +1154,9 @@ v0.9（动作面/权限/任务池纯化）
 |---|---|---|---|---|---|
 | N1 | 百科记忆类型（词表条目化） | 0.9 · 域 B | ✅ 已实装（2026-08-13——kind=pth-wiki + scripts/seed-wiki.ts——87 条落库，幂等可重跑） | memory.query 按 anchors 检索 · 术语即锚点 | ✅ 已实装 |
 | N1b | 百科写入矛盾检测（词表校验） | 0.9 · 域 B | ✅ 已落（2026-08-15——`wiki.ts validateWikiWrite`：id/术语锚点/三要素/重复定义；memory.write 写 pth-wiki 前强制校验） | 污染防线（写侧断言）· N1 治理列 | ✅ 已落 |
-| N2 | skill 记忆类型（工作流 SOP 一等化） | 0.9 · 0.13 · 域 B | Phase 1 已落（2026-08-15——四段式格式模板 `skill-format.ts` + 3 条角色 SOP 种子注入）；Phase 2 检索面已落（`skills.list/get` 两级）；Phase 3 已落核心（skills.maintain 仅 memory-keeper + store 层 skill 不可变），staged 审核流/controller:adversarial 待建；Phase 4 SKILL.md→条目映射已定稿（`parseSkillMarkdown`） | 不可变知识条目（B4-1）· 0.13 外部 skill 映射（Phase 4） | 🏗️ 建设中 |
+| N2 | skill 记忆类型（工作流 SOP 一等化） | 0.9 · 0.13 · 域 B | Phase 1–4 已全落：四段式格式 + 种子注入（developer/scout/memory-keeper + N14 四层 opt + **N17 A5 叶子×8**）；两级检索；maintain 仅 memory-keeper + 不可变语义 + staged 审核流/controller:adversarial（L2）；`parseSkillMarkdown` 映射 | 不可变知识条目（B4-1）· 0.13 外部 skill 映射（Phase 4） | ✅ 已完成（A5 补齐叶子种子） |
 | N3 | 数据缓存使用追踪（cacheUtilization） | 0.12 · 域 E/域 D | ✅ 已实装（2026-08-13——get 命中标记 used→utilization()→scorecard+聚合快照+cache-waste 热点+sensor 观测维度；测试 10 全绿） | scorecard 新指标 · sensor 观测（数据流效率） | ✅ 已实装 |
-| N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 分支 ✅（`importSkillMarkdown`：SKILL.md→四段式→维护面写入；staged 分支落提案）；MCP 无 | ext-registry（agent-reach 已验证） | ⚠️ 部分（skill ✅ / MCP ❌） |
+| N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 分支 ✅（`importSkillMarkdown`）；MCP 分支 ✅（2026-08-18 N17 D1——`parseMcpBundle`/`mcpToolToSpec`/`importMcpTools` → tool-proposal draft 治理注册；`scripts/import-mcp-bundle.ts` + `manage.tool.importMcp`） | ext-registry（agent-reach 已验证） | ✅ 已完成（两分支均落） |
 | N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | ✅ 已落（2026-08-15——`obs.resource()`：container cgroup + pg activity/database/slow + storage + batches；`pgStat` 新增慢查询视图） | controller:resource 角色已有 | ✅ 已落 |
 | N6 | 复测（verify）一等化 | 0.7.2 · 域 D | ~~verifyAfterWindow 标志已有；独立复测任务未一等化~~ ✅ 已实装（2026-08-14 B2）：apply 派发独立复测任务（受控复现）→ 证据三通道结算（verify-task＞organic＞global）→ 超时零进展 verify_expired 诚实闭合 + 独立巡检定时器 | optimizer-apply baseline/deopt | ✅ 已实装 |
 | N7 | 记忆归档执行 | 0.9 · 域 B | ✅ 已实装（2026-08-14 T7 执行端 + 2026-08-15 B1 定期触发：`memory-sweep-trigger.ts` 默认每天巡检，提案经监督批准） | sensor:memory / controller:memory 已有 | ✅ 已实装 |
