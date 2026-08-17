@@ -26,7 +26,7 @@ function work(): TaskWorkItem {
   return {
     taskId: "task-1",
     scope: { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-1" },
-    title: "t", text: "x", tags: [], payload: {}, assignedRole: "developer",
+    title: "t", text: "x", tags: [], payload: {}, assignedRole: "developer", domains: [],
   };
 }
 

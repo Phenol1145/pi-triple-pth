@@ -1,5 +1,5 @@
 import type pg from "pg";
-import { PgTaskStore, type TaskStore } from "./task-store-pg.js";
+import { PgTaskStore, type DisciplineResolverPort, type TaskStore, type TaskRouting } from "./task-store-pg.js";
 import { PgMemoryStore, runReadOnlyQuery, TRUSTED_TEMPLATE_TABLES, type ReadQueryVisibility } from "@away_from/pth-memory";
 import { PgTranscriptStore } from "./transcript-store.js";
 import { PgAuditStore } from "./audit-store.js";
@@ -36,9 +36,9 @@ export interface DataWorldAccess {
  * @deprecated legacy assembly-only（模块化 v2 P0-4）：保留给 bootstrap/assembly 兼容装配，
  * 不作为新模块的构造入参。新模块使用 contracts 层 ports 或具体 store 窄接口。
  */
-export function createDataWorld(pool: pg.Pool, routing?: import("./task-store-pg.js").TaskRouting): DataWorldAccess {
+export function createDataWorld(pool: pg.Pool, routing?: TaskRouting, disciplineResolver?: DisciplineResolverPort): DataWorldAccess {
   return {
-    tasks: new PgTaskStore(pool, routing),
+    tasks: new PgTaskStore(pool, routing, disciplineResolver),
     memory: new PgMemoryStore(pool),
     transcripts: new PgTranscriptStore(pool),
     audit: new PgAuditStore(pool),

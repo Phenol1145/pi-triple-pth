@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "./pg.js";
+import type { DomainBinding } from "../../contracts/domains.js";
 import {
   attachEntryDelivery,
   encodeResultForPayload,
@@ -11,6 +12,16 @@ import {
 export interface TaskRouting {
   validate(input: { tags?: string[]; payload?: unknown }): { ok: boolean; error?: string };
   assign(input: { id: string; tags?: string[]; payload?: unknown }): string;
+}
+
+/** 学科识别端口（K2 Phase 2）：装配层注入 catalog resolver；存储层只调不判。 */
+export interface DisciplineResolverPort {
+  resolve(input: {
+    title: string;
+    text: string;
+    tags: readonly string[];
+    explicitDomains?: readonly string[];
+  }): { ok: true; binding: DomainBinding } | { ok: false; error: string };
 }
 
 /** 单任务最大认领次数（防坏任务无限 claim→reject 空转的兜底）——策略常量来自 contracts */
@@ -43,6 +54,10 @@ export interface PublishInput {
   createdBy: string;
   tags?: string[];
   payload?: unknown;
+  /** K2 Phase 2：顶层显式 domains（路由 body 透传；优先级高于 payload.domains） */
+  domains?: string[];
+  /** K2 Phase 2：服务器 resolver 盖章产物；调用方不可信，非 delegate 会被覆盖 */
+  domainBinding?: DomainBinding;
   templateId?: string;
   /** 异步 job 委托（v0.8 循环①）：job 关联 id */
   jobId?: string;
@@ -78,8 +93,27 @@ export interface TaskStore {
   recoverStaleClaims(timeoutMs: number): Promise<number>;
 }
 
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v) as unknown;
+  return proto === Object.prototype || proto === null;
+}
+
+/** 从 input.domains ?? payload.domains 取显式 domains；payload.domains 必须是字符串数组，否则按空处理。 */
+function pickExplicitDomains(inputDomains: string[] | undefined, payload: unknown): string[] {
+  if (Array.isArray(inputDomains)) return inputDomains;
+  if (!isPlainRecord(payload)) return [];
+  const raw = payload["domains"];
+  if (!Array.isArray(raw) || !raw.every((x) => typeof x === "string")) return [];
+  return raw as string[];
+}
+
 export class PgTaskStore implements TaskStore {
-  constructor(private pool: pg.Pool, private routing?: TaskRouting) {}
+  constructor(
+    private pool: pg.Pool,
+    private routing?: TaskRouting,
+    private disciplineResolver?: DisciplineResolverPort,
+  ) {}
 
   async publish(input: PublishInput): Promise<Task> {
     // 任务池纯化（2026-08-10 D5）：publish 唯一入口严格校验——未知标签/歧义/无路由依据
@@ -109,9 +143,32 @@ export class PgTaskStore implements TaskStore {
       : (this.routing?.assign({ id, tags: input.tags, payload: input.payload }) ?? null);
     // W8 P0 入口盖章（用户裁决 Q2：仅外部入口）——无路由策略注入（测试/直连装配）时无法
     // 确定 assignedRole，不盖章降级（不阻断兼容性；生产 gateway 恒注入 routing）。
-    const payload = input.deliveryMode === "entry" && assignedRole
+    const basePayload = input.deliveryMode === "entry" && assignedRole
       ? attachEntryDelivery(input.payload, id, assignedRole)
       : input.payload ?? {};
+    // K2 Phase 2：非 delegate 通道由 disciplineResolver 解析并机读盖章 domains/domainBinding；
+    // delegate 通道不重跑 resolver——子任务继承父 payload 的 domains/domainBinding（父 capability 传入）。
+    let payload = basePayload;
+    if (!isDelegate && this.disciplineResolver) {
+      const explicitDomains = pickExplicitDomains(input.domains, input.payload ?? {});
+      const resolved = this.disciplineResolver.resolve({
+        title: input.title,
+        text: input.text,
+        tags: input.tags ?? [],
+        explicitDomains,
+      });
+      if (!resolved.ok) {
+        const err = new Error(resolved.error) as Error & { statusCode?: number };
+        err.statusCode = 400;
+        throw err;
+      }
+      const binding = resolved.binding;
+      payload = {
+        ...(isPlainRecord(basePayload) ? basePayload : {}),
+        domains: binding.matches.map((m) => m.domainId),
+        domainBinding: binding,
+      };
+    }
     const tenantId = typeof input.tenantId === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(input.tenantId) ? input.tenantId : "default";
     const res = await this.pool.query(
       `INSERT INTO tasks (id, tenant_id, title, text, created_by, tags, payload, template_id, assigned_role, job_id)

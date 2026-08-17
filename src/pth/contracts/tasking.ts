@@ -13,6 +13,11 @@ import {
   type TenantScope,
   type WorkspaceRef,
 } from "./identity.js";
+import {
+  validateDomainBinding,
+  type DomainBinding,
+  type DomainId,
+} from "./domains.js";
 
 export interface TaskLeaseReference {
   readonly taskId: string;
@@ -35,6 +40,10 @@ export interface TaskWorkItem {
   readonly tags: readonly string[];
   readonly payload: unknown;
   readonly assignedRole: string;
+  /** 学科识别结果（可为空；确定性排序）——K2 Phase 2 */
+  readonly domains: readonly DomainId[];
+  /** 解析证据（机读盖章；服务器 resolver 产物） */
+  readonly domainBinding?: DomainBinding;
 }
 
 export interface ArtifactRef {
@@ -232,6 +241,7 @@ export function isTaskLeaseStructurallyValid(v: unknown): v is TaskLease {
 export function isTaskWorkItemStructurallyValid(v: unknown): v is TaskWorkItem {
   if (typeof v !== "object" || v === null) return false;
   const w = v as Record<string, unknown>;
+  const domainsOk = Array.isArray(w.domains) && w.domains.every((d) => NON_EMPTY_STRING(d));
   return (
     NON_EMPTY_STRING(w.taskId) &&
     isTenantScopeStructurallyValid(w.scope) &&
@@ -239,7 +249,10 @@ export function isTaskWorkItemStructurallyValid(v: unknown): v is TaskWorkItem {
     typeof w.text === "string" &&
     Array.isArray(w.tags) &&
     w.tags.every((t) => NON_EMPTY_STRING(t)) &&
-    NON_EMPTY_STRING(w.assignedRole)
+    NON_EMPTY_STRING(w.assignedRole) &&
+    domainsOk &&
+    (w.domainBinding === undefined ||
+      (domainsOk && validateDomainBinding(w.domainBinding as DomainBinding, new Set(w.domains as readonly string[])).ok))
   );
 }
 

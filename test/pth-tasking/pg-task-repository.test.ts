@@ -67,6 +67,49 @@ suite("pg task repository（P1-2）", () => {
     expect(claimed.work.assignedRole).toBe("developer");
   });
 
+  it("K2：claim 映射 payload.domains（去重排序）与合法 domainBinding", async () => {
+    await insertTask(pool, "task-domains", "tenant-a", "developer", {
+      domains: ["statistics", "mathematics", "statistics"],
+      domainBinding: {
+        matches: [
+          { domainId: "mathematics", confidence: 1, evidence: ["explicit:mathematics"] },
+          { domainId: "statistics", confidence: 1, evidence: ["explicit:statistics"] },
+        ],
+        primaryDomain: "mathematics",
+        catalogVersion: "v1",
+        resolverVersion: "v1-explicit-alias",
+      },
+    });
+    const [claimed] = await repo.claim(scope, "developer", ["task-domains"]);
+    expect(claimed.work.domains).toEqual(["mathematics", "statistics"]);
+    expect(claimed.work.domainBinding?.primaryDomain).toBe("mathematics");
+    expect(claimed.work.domainBinding?.resolverVersion).toBe("v1-explicit-alias");
+  });
+
+  it("K2：claim 映射 payload.domains 非法/domainBinding 非法 → domains=[] 且省略 binding", async () => {
+    await insertTask(pool, "task-domains-invalid", "tenant-a", "developer", {
+      domains: "mathematics",
+      domainBinding: {
+        matches: [{ domainId: "mathematics", confidence: 1, evidence: [] }],
+        primaryDomain: "mathematics",
+        catalogVersion: "v1",
+        resolverVersion: "v1-explicit-alias",
+      },
+    });
+    const [claimed] = await repo.claim(scope, "developer", ["task-domains-invalid"]);
+    expect(claimed.work.domains).toEqual([]);
+    expect(claimed.work.domainBinding).toBeUndefined();
+  });
+
+  it("K2：claim 映射 domainBinding 缺失 → domains 保留但 binding 省略", async () => {
+    await insertTask(pool, "task-domains-no-binding", "tenant-a", "developer", {
+      domains: ["mathematics"],
+    });
+    const [claimed] = await repo.claim(scope, "developer", ["task-domains-no-binding"]);
+    expect(claimed.work.domains).toEqual(["mathematics"]);
+    expect(claimed.work.domainBinding).toBeUndefined();
+  });
+
   it("并发 claim 只发一个 lease（FOR UPDATE SKIP LOCKED）", async () => {
     await insertTask(pool, "task-race");
     const [a, b] = await Promise.all([

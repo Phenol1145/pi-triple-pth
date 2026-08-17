@@ -1,4 +1,5 @@
 import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
+import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
 import { getEventBus } from "./execution/event-bus.js";
 import { toKernelActivityEvent } from "./execution/kernel-event-bridge.js";
@@ -153,6 +154,13 @@ export function resolveClaimTimeoutMs(env: NodeJS.ProcessEnv = process.env): num
   return 600_000;
 }
 
+/** K2 Phase 2：从同一份生成数据构建 catalog 快照 + resolver（与 batch-process 同源同版本）。 */
+function buildDisciplineResolver(): ReturnType<typeof createDisciplineResolver> {
+  const builder = new DisciplineCatalogBuilder();
+  for (const def of DISCIPLINE_DEFINITIONS) builder.add(def);
+  return createDisciplineResolver(builder.build());
+}
+
 export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<KernelRuntime> {
   const pool = await createPgPool({ connectionString: opts.databaseUrl });
   await applySchema(pool);
@@ -169,7 +177,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化——task-store 只存不判）
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——唯一合法生产构造入口（batch-process 同源）。
-  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole });
+  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole }, buildDisciplineResolver());
   const assemblyLogger = createKernelLogger();
   const { ActivityHub } = await import("./execution/activity-hub.js");
   const activityHub = new ActivityHub();

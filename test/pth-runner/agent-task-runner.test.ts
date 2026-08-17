@@ -20,7 +20,7 @@ const lease: TaskLease = {
   deadlineAt: new Date(Date.now() + 60_000).toISOString(),
 };
 const work: TaskWorkItem = {
-  taskId: "task-1", scope, title: "do x", text: "return 42;", tags: ["code"], payload: {}, assignedRole: "developer",
+  taskId: "task-1", scope, title: "do x", text: "return 42;", tags: ["code"], payload: {}, assignedRole: "developer", domains: [],
 };
 
 function fakeKernel(opts: { resetMs?: number; executeOk?: boolean } = {}) {
