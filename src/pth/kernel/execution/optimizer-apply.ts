@@ -15,11 +15,19 @@
 import type { PgMemoryStore } from "@away_from/pth-memory";
 import type { OptimizerSuggestion } from "./optimizer-loop.js";
 import { rollupAggregateRows } from "./optimizer-loop.js";
+import { GUARD_TUNABLE_DEFS } from "./guardrails.js";
+import { config } from "../extensions/perf-params.js";
 
 export interface ApplyResult {
   ok: boolean;
   error?: string;
   applied?: { target: string; pattern: string };
+}
+
+/** 运行时配置接口（A4 护栏 JIT 热调/回滚——缺省 perf-params config()；测试注入 fake） */
+export interface RuntimeConfigLike {
+  get(key: string): string | undefined;
+  set(key: string, value: string): void;
 }
 
 /** 同 target+pattern 最大应用次数（防规则堆积——振荡防护上限，待决点 4 落地：
@@ -35,10 +43,11 @@ export function extractRuleLine(suggestionText: string): string {
 }
 
 /** 可逆微调判定（2026-08-14 T4 裁决：分层闸门——
- *  可逆 = prompt 资产（capability-index/role-doc 规则追加——deopt 可回滚）；
+ *  可逆 = prompt 资产（capability-index/role-doc 规则追加——deopt 可回滚）
+ *       + guard-config 参数热调（2026-08-18 A4——runtimeConfig set 可回滚）；
  *  不可逆 = 角色分化/代码/删除类——必须人工闸门，不经本自动通道） */
 export function isReversibleSuggestion(target: string): boolean {
-  return target === "capability-index" || target.startsWith("role-doc:");
+  return target === "capability-index" || target.startsWith("role-doc:") || target.startsWith("guard-config:");
 }
 
 /** 批准并应用一条优化建议（draft → official + 目标资产追加规则 + 派发复测任务） */
@@ -49,6 +58,8 @@ export async function applyOptimizerSuggestion(
   /** 复测任务派发（2026-08-14 N6 一等化——独立复测任务）：role-doc 目标派发受控复现任务
    *  （flow 路由到目标角色）；capability-index 目标无单一角色——不派发（走全局聚合复测） */
   publishVerifyTask?: (t: { title: string; text: string; tags: string[]; payload: unknown }) => Promise<unknown>,
+  /** 运行时配置（A4 护栏 JIT 热调——缺省 perf-params config()；测试注入 fake） */
+  runtimeConfig?: RuntimeConfigLike,
 ): Promise<ApplyResult> {
   const sug = await store.get(suggestionId);
   if (!sug || sug.kind !== "optimizer-suggestion") {
@@ -64,6 +75,62 @@ export async function applyOptimizerSuggestion(
   if (!isReversibleSuggestion(target)) {
     return { ok: false, error: `target "${target}" 为不可逆大变——自动应用通道不接（人工闸门：角色分化→lineage 审批，代码/删除类→监督层）` };
   }
+
+  // ── A4 护栏 JIT（2026-08-18）：guard-config 参数热调——白名单校验 → 当前值解析 →
+  //    next = max(cur+1, ceil(cur*scale)) 且 ≤ ceil(cur*5) → set → 全局聚合基线（fail-closed） →
+  //    official + verifyAfterWindow（不派发独立复测任务——无单一角色）。
+  if (target.startsWith("guard-config:")) {
+    const guardId = target.slice("guard-config:".length);
+    const tunable = GUARD_TUNABLE_DEFS[guardId];
+    const guard = content.guard;
+    if (!tunable || !guard || guard.guard !== guardId) {
+      return { ok: false, error: `guard "${guardId}" 不在可调白名单（仅软处置/负结果族可自动放宽）或建议缺 guard 信息` };
+    }
+    if (guard.limitKey !== tunable.limitKey) {
+      return { ok: false, error: `guard limitKey "${guard.limitKey}" 与白名单不一致（期望 ${tunable.limitKey}）` };
+    }
+    if (typeof guard.scale !== "number" || !Number.isFinite(guard.scale) || guard.scale <= 0) {
+      return { ok: false, error: `非法 scale（${String(guard.scale)}）——护栏热调拒绝` };
+    }
+    const rc = runtimeConfig ?? config();
+    const curRaw = rc.get(tunable.limitKey);
+    const curNum = Number(curRaw);
+    const cur = curRaw !== undefined && curRaw !== "" && Number.isFinite(curNum) ? curNum : tunable.default;
+    const next = Math.min(Math.max(cur + 1, Math.ceil(cur * guard.scale)), Math.ceil(cur * 5));
+    if (next <= cur) {
+      return { ok: false, error: `护栏 ${guardId} 参数已在顶（cur=${cur}）——无需放宽` };
+    }
+    // 基线先行（fail-closed）：护栏是安全面——无全局聚合基线不热调。
+    let baseline: { taskCount: number; avgGuardKills: number; avgGuardHits: number } | undefined;
+    try {
+      const rows = await queryReadOnly?.(`SELECT content FROM memory_entries WHERE kind = 'task-scorecard-aggregate'`) as Array<{ content: string }> | undefined;
+      const g = rows ? rollupAggregateRows(rows) : {};
+      if (g.taskCount) {
+        baseline = {
+          taskCount: g.taskCount,
+          avgGuardKills: (g.sumGuardKills ?? 0) / g.taskCount,
+          avgGuardHits: (g.sumGuardHits ?? 0) / g.taskCount,
+        };
+      }
+    } catch { /* 查询异常 → baseline 保持 undefined → fail-closed */ }
+    if (!baseline) {
+      return { ok: false, error: "全局聚合基线缺失——护栏热调 fail-closed 拒绝（无基线不热调）" };
+    }
+    rc.set(tunable.limitKey, String(next));
+    await store.update(suggestionId, {
+      status: "official",
+      meta: {
+        ...(sug.meta ?? {}),
+        appliedAt: Date.now(),
+        target,
+        verifyAfterWindow: true,
+        guardBaseline: { limitKey: tunable.limitKey, from: String(cur), to: String(next), values: { [tunable.limitKey]: String(cur) } },
+        baseline,
+      },
+    } as never);
+    return { ok: true, applied: { target, pattern } };
+  }
+
   const existing = await store.get(target).catch(() => undefined);
   const base = existing ? String(existing.content ?? "") : "";
   const rule = extractRuleLine(content.content);

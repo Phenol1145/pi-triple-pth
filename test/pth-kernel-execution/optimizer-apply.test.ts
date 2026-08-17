@@ -172,3 +172,118 @@ describe("复测任务派发（2026-08-14 N6 一等化——apply 后受控复�
     expect((store._rows.find((x) => x.id === "opt-test-1") as { meta: Record<string, unknown> }).meta["verifyTaskPublished"]).toBe(false);
   });
 });
+
+// ── A4 护栏 JIT——guard-config 建议批准应用（2026-08-18）────────────
+
+const GUARD_SUGGESTION = {
+  id: "opt-guard-1",
+  kind: "optimizer-suggestion",
+  status: "draft",
+  content: {
+    id: "opt-guard-1",
+    kind: "guard",
+    target: "guard-config:negative-loop",
+    section: "阈值",
+    content: "【优化建议 · guard-kill-spike】（窗口 10 任务 · 护栏误杀尖峰）\n证据: hits=8 soft=5\n建议参数: PTH_GUARD_NEGATIVE_LIMIT ×1.5（当前值由批准时配置中心解析）\n写入目标: guard-config:negative-loop §阈值",
+    evidence: { pattern: "guard-kill-spike", tasks: 10, metric: { hits: 8, soft: 5 } },
+    guard: { guard: "negative-loop", limitKey: "PTH_GUARD_NEGATIVE_LIMIT", scale: 1.5 },
+    status: "draft",
+    ts: Date.now(),
+  },
+  meta: {},
+};
+
+function guardSug(over: Record<string, unknown> = {}): { id: string; kind: string; status: string; content: unknown; meta: Record<string, unknown> } {
+  return { ...structuredClone(GUARD_SUGGESTION), ...over };
+}
+
+function fakeRuntime(initial: Record<string, string>) {
+  const values = { ...initial };
+  const calls: Array<{ key: string; value: string }> = [];
+  return {
+    values,
+    calls,
+    get: (key: string) => values[key],
+    set: (key: string, value: string) => { values[key] = value; calls.push({ key, value }); },
+  };
+}
+
+describe("A4 护栏 JIT——guard-config 建议批准应用", () => {
+  it("guard 建议批准 → runtimeConfig 收到 1.5 取整 set + meta.guardBaseline + official", async () => {
+    const store = fakeStore([guardSug()]);
+    const rt = fakeRuntime({ PTH_GUARD_NEGATIVE_LIMIT: "15" });
+    const r = await applyOptimizerSuggestion(
+      store,
+      "opt-guard-1",
+      async (sql) => {
+        if (sql.includes("kind = 'task-scorecard-aggregate'")) {
+          return [{ content: JSON.stringify({ taskCount: 10, sumGuardKills: 10, sumGuardHits: 50 }) }];
+        }
+        return [];
+      },
+      undefined,
+      rt,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.applied).toEqual({ target: "guard-config:negative-loop", pattern: "guard-kill-spike" });
+    // cur=15，scale=1.5：next=max(16, ceil(22.5)=23)=23（≤ceil(75)）
+    expect(rt.values["PTH_GUARD_NEGATIVE_LIMIT"]).toBe("23");
+    expect(rt.calls).toEqual([{ key: "PTH_GUARD_NEGATIVE_LIMIT", value: "23" }]);
+    const row = store._rows.find((x) => x.id === "opt-guard-1")!;
+    expect(row.status).toBe("official");
+    const meta = row.meta as Record<string, unknown>;
+    expect(meta["guardBaseline"]).toEqual({
+      limitKey: "PTH_GUARD_NEGATIVE_LIMIT",
+      from: "15",
+      to: "23",
+      values: { PTH_GUARD_NEGATIVE_LIMIT: "15" },
+    });
+    expect(meta["baseline"]).toEqual({ taskCount: 10, avgGuardKills: 1, avgGuardHits: 5 });
+    expect(meta["verifyAfterWindow"]).toBe(true);
+    expect(meta["appliedAt"]).toBeDefined();
+  });
+
+  it("无全局聚合基线 → fail-closed 拒绝（不热调）", async () => {
+    const store = fakeStore([guardSug()]);
+    const rt = fakeRuntime({ PTH_GUARD_NEGATIVE_LIMIT: "15" });
+    const r = await applyOptimizerSuggestion(
+      store,
+      "opt-guard-1",
+      async () => [],   // 无聚合行
+      undefined,
+      rt,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("基线");
+    expect(rt.calls).toHaveLength(0);   // 拒绝不 set——护栏安全面 fail-closed
+  });
+
+  it("hard 契约护栏/非白名单 guard → 拒绝", async () => {
+    const hardSug = guardSug({
+      content: {
+        ...(structuredClone(GUARD_SUGGESTION.content as Record<string, unknown>)),
+        target: "guard-config:empty-done",
+        guard: { guard: "empty-done", limitKey: "PTH_GUARD_EMPTY_DONE_LIMIT", scale: 1.5 },
+      },
+    });
+    const rt = fakeRuntime({ PTH_GUARD_EMPTY_DONE_LIMIT: "3" });
+    const r = await applyOptimizerSuggestion(fakeStore([hardSug]), "opt-guard-1", async () => [], undefined, rt);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("白名单");
+    expect(rt.calls).toHaveLength(0);
+  });
+
+  it("非法 scale → 拒绝", async () => {
+    const badScale = guardSug({
+      content: {
+        ...(structuredClone(GUARD_SUGGESTION.content as Record<string, unknown>)),
+        guard: { guard: "negative-loop", limitKey: "PTH_GUARD_NEGATIVE_LIMIT", scale: -1 },
+      },
+    });
+    const rt = fakeRuntime({ PTH_GUARD_NEGATIVE_LIMIT: "15" });
+    const r = await applyOptimizerSuggestion(fakeStore([badScale]), "opt-guard-1", async () => [], undefined, rt);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("scale");
+    expect(rt.calls).toHaveLength(0);
+  });
+});

@@ -15,19 +15,22 @@
  */
 
 import type { WorkerScorecard } from "./worker-scorecard.js";
+import { config } from "../extensions/perf-params.js";
 
 // ── 类型 ─────────────────────────────────────────────────────
 
 export interface OptimizerSuggestion {
   id: string;
-  /** 路径 A（规则编译——现有角色变聪明）/ 路径 B（角色编译——新窄域角色） */
-  kind: "rule" | "role";
-  /** 建议目标（role-doc:<role> / capability-index / lineage:<parent>） */
+  /** 路径 A（规则编译——现有角色变聪明）/ 路径 B（角色编译——新窄域角色）/ guard（护栏 JIT 调参） */
+  kind: "rule" | "role" | "guard";
+  /** 建议目标（role-doc:<role> / capability-index / lineage:<parent> / guard-config:<guardId>） */
   target: string;
-  /** 目标文档的分节（写入位置引导） */
+  /** 目标文档的分节（写入位置引导；guard 路径 = 阈值） */
   section: string;
   /** 建议内容（模板化文本——数据驱动） */
   content: string;
+  /** A4 护栏 JIT：guard 建议的调参信息（从 HotspotHit 带入，与 HotspotHit.guard 同形） */
+  guard?: { guard: string; limitKey: string; scale: number };
   /** 证据（触发任务数 + 指标） */
   evidence: {
     pattern: string;
@@ -70,6 +73,8 @@ export interface OptimizerDeps {
   verifyTimeoutMs?: number;
   /** 复测巡检周期（N6）：checkDeopt 独立触发——不再只挂窗口检测（缺省 30s；0=禁用——测试） */
   verifySweepMs?: number;
+  /** 运行时配置（A4 护栏 JIT：guard deopt 回滚原值——缺省 perf-params config()；测试注入 fake） */
+  runtimeConfig?: { get(key: string): string | undefined; set(key: string, value: string): void };
 }
 
 // 热点检测与建议渲染抽出至 optimizer-hotspots.ts（2026-08-13 审计 P2——纯函数独立模块）
@@ -87,7 +92,7 @@ export function rollupAggregateRows(rows: Array<{ content: string }>): Record<st
   for (const r of rows) {
     try {
       const a = JSON.parse(String(r.content)) as Record<string, number>;
-      for (const k of ["taskCount", "sumFails", "sumSteps"]) {
+      for (const k of ["taskCount", "sumFails", "sumSteps", "sumGuardHits", "sumGuardSoft", "sumGuardHard", "sumGuardKills"]) {
         acc[k] = (acc[k] ?? 0) + (Number(a[k]) || 0);
       }
     } catch { /* 单条坏聚合跳过 */ }
@@ -173,6 +178,11 @@ export class Optimizer {
     // kind=task-scorecard-aggregate 按角色累积——sensor 直接读聚合视图不逐条 parse。
     // 原子 upsert（单条 SQL jsonb 增量——并发同角色任务无 lost update）
     if (this.deps.memory?.incrementAggregate) {
+      // A4 护栏 JIT（2026-08-18）：护栏观测面一并进角色聚合——guard deopt 全局 rollup 的 flat 键。
+      const guards = sc.guards ?? { hits: {}, guide: {}, soft: {}, hard: {} };
+      const sumGuardHits = Object.values(guards.hits ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
+      const sumGuardSoft = Object.values(guards.soft ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
+      const sumGuardHard = Object.values(guards.hard ?? {}).reduce((a, b) => a + (Number(b) || 0), 0);
       void this.deps.memory.incrementAggregate(
         `task-scorecard-aggregate:${ctx.role}`,
         "task-scorecard-aggregate",
@@ -186,6 +196,10 @@ export class Optimizer {
           sumCacheWrite: sc.tokens?.cacheWrite ?? 0,
           sumFails: sc.failedActions ?? 0,
           sumGated: sc.gatedActions ?? 0,
+          sumGuardHits,
+          sumGuardSoft,
+          sumGuardHard,
+          sumGuardKills: sumGuardSoft + sumGuardHard,
           // 时间复用率（2026-08-13 监测量）：sum/planCount 均值——obs 端 avg_time_reuse
           ...(sc.timeReuse != null ? { sumTimeReuse: sc.timeReuse, planCount: 1 } : {}),
           // 数据缓存利用率（2026-08-13 N3）：字符量加权——sensor 读聚合视图算利用率（读入未用=浪费）
@@ -242,6 +256,7 @@ export class Optimizer {
         evidence: { pattern: hit.pattern, tasks: window.length, metric: hit.metric },
         status: "draft",
         ts: Date.now(),
+        ...(hit.guard ? { guard: hit.guard } : {}),
       };
       out.push(s);
       this.suggestions.push(s);
@@ -293,8 +308,49 @@ export class Optimizer {
         const target = sug.target;
         const pattern = sug.evidence?.pattern ?? "rule";
         const roleId = target.startsWith("role-doc:") ? target.slice("role-doc:".length) : undefined;
-        const baseline = row.meta?.["baseline"] as { avgFails: number; avgSteps: number; taskCount: number } | undefined;
+        const baseline = row.meta?.["baseline"] as { avgFails: number; avgSteps: number; taskCount: number; avgGuardKills?: number; avgGuardHits?: number } | undefined;
         if (!baseline) continue;
+
+        // A4 护栏 JIT（2026-08-18）：guard-config 建议走全局聚合通道（无单一角色/无复测任务），
+        // 劣化判定 avgKills 升 50%+ 或 avgHits 跌破 50%——劣化则回滚运行时参数原值。
+        if (target.startsWith("guard-config:")) {
+          const g = await this.readGlobalAgg();
+          if (g?.taskCount && g.taskCount - baseline.taskCount >= this.windowSize) {
+            const avgKills = (g.sumGuardKills ?? 0) / g.taskCount;
+            const avgHits = (g.sumGuardHits ?? 0) / g.taskCount;
+            const worse = avgKills > (baseline.avgGuardKills ?? 0) * 1.5 + 0.001 || avgHits < (baseline.avgGuardHits ?? 0) * 0.5;
+            if (!worse) {
+              await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifiedAt: Date.now(), verifySource: "global" } } as never);
+              continue;
+            }
+            const guardBaseline = row.meta?.["guardBaseline"] as { limitKey?: string; from?: string; to?: string; values?: Record<string, string> } | undefined;
+            const limitKey = guardBaseline?.limitKey ?? sug.guard?.limitKey;
+            const original = (limitKey && guardBaseline?.values?.[limitKey]) ?? guardBaseline?.from;
+            if (limitKey && original !== undefined) {
+              const runtimeConfig = this.deps.runtimeConfig ?? config();
+              runtimeConfig.set(limitKey, original);
+            }
+            const guardId = target.slice("guard-config:".length);
+            await mem.update!(row.id, {
+              status: "rolled_back",
+              meta: { ...row.meta, rolledBack: true, rolledBackAt: Date.now(), verifySource: "global", rollbackReason: `护栏参数放宽后劣化（avgGuardKills ${(baseline.avgGuardKills ?? 0).toFixed(2)}→${avgKills.toFixed(2)} / avgGuardHits ${(baseline.avgGuardHits ?? 0).toFixed(2)}→${avgHits.toFixed(2)}——证据: global）` },
+            } as never);
+            void mem.write({
+              kind: "task-insight",
+              anchors: ["guard-deopt", pattern, guardId],
+              content: JSON.stringify({
+                type: "guard-deopt", suggestionId: row.id, pattern, target, guard: guardId, source: "global",
+                baseline: { avgGuardKills: baseline.avgGuardKills ?? 0, avgGuardHits: baseline.avgGuardHits ?? 0 },
+                current: { avgKills, avgHits }, rolledBackAt: Date.now(),
+                note: "护栏参数放宽后误杀恶化/命中面消失——已自动回滚原值（deopt 刹车）",
+              }),
+              status: "official",
+              meta: { pattern, guard: guardId, ts: Date.now() },
+            }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
+            console.warn(`[optimizer] guard deopt 回滚: ${pattern}（${guardId}——avgKills ${(baseline.avgGuardKills ?? 0).toFixed(2)}→${avgKills.toFixed(2)} / avgHits ${(baseline.avgGuardHits ?? 0).toFixed(2)}→${avgHits.toFixed(2)}——global）`);
+          }
+          continue;
+        }
 
         // ── 复测证据（N6 一等化——三通道：独立复测任务 > 角色有机流量 > 全局聚合）──
         const v = await this.readVerifyAgg(row.id);
