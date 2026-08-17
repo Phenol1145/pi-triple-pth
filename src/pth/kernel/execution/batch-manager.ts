@@ -3,6 +3,7 @@ import { type BatchProfile, profileToWeights, expandRoleWeights, weightsToEnv } 
 import { getEventBus } from "./event-bus.js";
 import { randomUUID } from "node:crypto";
 import type { BatchSuggestion } from "./stats.js";
+import { pthConfig } from "../../config/index.js";
 
 export interface BatchHandle {
   id: string;
@@ -19,6 +20,16 @@ export interface BatchStatus {
   workers: string[];
   currentTasks: Record<string, string>;   // workerId → taskId
   idleRatio: number;
+  /** 健康面（2026-08-18 L3——§9 L2 可观测性补齐）：healthy=心跳在阈值内 / stale=心跳陈旧
+   * （watchdog 将处置）/ dead=进程已退出（崩溃未清理——killBatch 正常移除的不在列） */
+  health: "healthy" | "stale" | "dead";
+  /** 距上次心跳 ms（status 消息 ts——batch-process 每 2s 上报） */
+  heartbeatLagMs: number;
+  /** 子进程自报常驻内存（bytes——status 消息携带；未上报/老版本子进程缺省） */
+  rssBytes?: number;
+  /** 子进程自报累计 CPU（µs——user+system；增量由消费方差分） */
+  cpuUserUs?: number;
+  cpuSystemUs?: number;
 }
 
 export interface BatchManagerDeps {
@@ -51,6 +62,10 @@ export class BatchManager {
     workers: string[];
     currentTasks: Map<string, string>;
     lastHeartbeat: number;
+    /** 子进程自报资源（status 消息携带——2026-08-18 L3 健康面） */
+    lastRss?: number;
+    lastCpuUser?: number;
+    lastCpuSystem?: number;
     /** worker 级控制回执等待表：role → 等待 worker-status 消息的结算回调 */
     pendingCtl: Map<string, Array<(status: { state?: string; error?: string }) => void>>;
   }>();
@@ -76,12 +91,18 @@ export class BatchManager {
       stdio: ["ignore", "inherit", "inherit", "ipc"],
     });
     getEventBus().emit("batch.spawn", { batchId: id, workers });
-    const record = { id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now(), pendingCtl: new Map() };
+    const record: (typeof this.batches) extends Map<string, infer V> ? V : never = {
+      id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now(), pendingCtl: new Map(),
+    };
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
         // H6（watchdog v2）：status 消息即心跳——记录最近到达时间（batch-process 每 2s 上报）
         record.lastHeartbeat = typeof msg.ts === "number" ? msg.ts : Date.now();
+        // 2026-08-18 L3：资源自报随心跳落档（rss/cpu——§9 L2 内存/CPU 缺口）
+        if (typeof msg.rss === "number") record.lastRss = msg.rss;
+        if (typeof msg.cpuU === "number") record.lastCpuUser = msg.cpuU;
+        if (typeof msg.cpuS === "number") record.lastCpuSystem = msg.cpuS;
       } else if (msg?.kind === "activity" && this.deps.onActivity) {
         // 活动事件流（console --follow 数据源）：batch IPC → ActivityHub 广播
         this.deps.onActivity(msg.activity as import("./activity-hub.js").ActivityEvent);
@@ -292,15 +313,25 @@ export class BatchManager {
 
   async listBatches(): Promise<BatchStatus[]> {
     const out: BatchStatus[] = [];
+    // 健康判定阈值（与 watchdog HEARTBEAT_STALE_MS 同档——配置中心可调）
+    const staleMs = pthConfig().num("PTH_BATCH_HEALTH_STALE_MS");
+    const now = Date.now();
     for (const rec of this.batches.values()) {
       const total = rec.workers.length;
       const busy = rec.currentTasks.size;
+      const alive = rec.child.exitCode === null && rec.child.signalCode === null && !rec.child.killed;
+      const lag = now - rec.lastHeartbeat;
       out.push({
         id: rec.id,
         pid: rec.child.pid!,
         workers: rec.workers,
         currentTasks: Object.fromEntries(rec.currentTasks),
         idleRatio: total === 0 ? 1 : (total - busy) / total,
+        health: !alive ? "dead" : lag > staleMs ? "stale" : "healthy",
+        heartbeatLagMs: lag,
+        ...(rec.lastRss !== undefined ? { rssBytes: rec.lastRss } : {}),
+        ...(rec.lastCpuUser !== undefined ? { cpuUserUs: rec.lastCpuUser } : {}),
+        ...(rec.lastCpuSystem !== undefined ? { cpuSystemUs: rec.lastCpuSystem } : {}),
       });
     }
     return out;

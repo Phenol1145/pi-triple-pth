@@ -509,8 +509,11 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const timer = setInterval(tick, intervalMs);
   // 每轮后发 status 给主进程（v1：tasks 占位空——BatchManager 消费 {type,tasks} 契约）
   // H6（watchdog v2）：ts 字段 = 心跳时间戳（主进程 watchdog 据此探测挂死）
+  // 2026-08-18 L3：资源自报随心跳（rss/cpu——主进程 listBatches/obs.batches 健康面数据源）
   const statusTimer = setInterval(() => {
-    process.send?.({ type: "status", tasks: [], ts: Date.now() });
+    const mem = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    process.send?.({ type: "status", tasks: [], ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system });
   }, 2000);
   // keep-alive（试运行发现修正）：pg 连接池在 Node 24 下不 hold 事件循环（socket 默认 unref），
   // 空闲且仅剩 unref 定时器时进程会立即退出——batch 必须保持存活直到主进程显式 shutdown。
