@@ -255,6 +255,8 @@ export function createWorkerKernelWithManager(deps: {
   taskControl?: TaskDispatchPort;
   /** 0.16.3：穿透执行端口（与 taskControl 同批装配；嵌套子 kernel 不传——深度限 1） */
   penetration?: PenetrationPort;
+  /** L2：活动事件上报（skill.proposal.created——batch-process 注入 IPC 转发闭包） */
+  onActivity?: (e: { kind: string; role?: string; detail?: string; at: number }) => void;
   /** W8 P1：当前任务身份引用（task-loop 每任务经 setTaskDispatchContext 盖章） */
   taskContext?: { current: TaskDispatchContext | null };
 }): {
@@ -304,6 +306,7 @@ export function createWorkerKernelWithManager(deps: {
     roleId: deps.roleId,
     taskControl: deps.taskControl,
     penetration: deps.penetration,
+    onActivity: deps.onActivity,
     taskContext,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
     registerKernel: (language, interpreter) => registerHook?.(language, interpreter),
