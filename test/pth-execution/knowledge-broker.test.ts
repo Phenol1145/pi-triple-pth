@@ -118,6 +118,160 @@ describe("KnowledgeBroker（P2-5）", () => {
     if (r.ok) expect(r.entries?.map((e) => (e as { id: string }).id)).toEqual(["m-official"]);
   });
 
+  it("search：tenant 来自 grant + status official + anchors/kinds 默认 + queryText 大小写不敏感过滤 + id 升序", async () => {
+    const retrieveCalls: Array<{ anchors?: string[]; kinds?: string[]; status?: string[]; tenantId?: string }> = [];
+    const broker = createKnowledgeBroker({
+      grantService,
+      dataWorld: {
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async (opts) => {
+            retrieveCalls.push(opts);
+            const all = [
+              { id: "b2", kind: "domain-fact", anchors: ["math", "algebra"], status: "official", content: "Quadratic Formula", meta: {} },
+              { id: "a1", kind: "domain-method", anchors: ["math"], status: "official", content: "Completing the square", meta: {} },
+              { id: "c3", kind: "skill", anchors: ["math"], status: "official", content: "Factor by grouping", meta: {} },
+              { id: "d4", kind: "domain-fact", anchors: ["math"], status: "draft", content: "Draft secret", meta: {} },
+            ];
+            return all.filter((e) => !opts.status || opts.status.includes(e.status));
+          },
+          get: async () => undefined,
+        },
+      },
+      isVisible: () => true,
+    });
+
+    const r = await broker.query({ grant: makeGrant({ space: "meta" }), op: "search", domains: ["math"], queryText: "FORMULA" });
+
+    expect(r.ok).toBe(true);
+    expect(retrieveCalls[0]).toEqual({
+      anchors: ["math"],
+      kinds: ["domain-fact", "domain-method", "skill", "task-insight"],
+      status: ["official"],
+      tenantId: "tenant-a",
+    });
+    if (r.ok) {
+      expect(r.entries?.map((e) => (e as { id: string }).id)).toEqual(["b2"]);
+      expect(r.queryFingerprint).toMatch(/^[0-9a-f]{8}$/);
+    }
+  });
+
+  it("search：queryText 无词命中时保守返回全部锚点结果（不误杀）", async () => {
+    const broker = createKnowledgeBroker({
+      grantService,
+      dataWorld: {
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async () => [
+            { id: "b2", kind: "domain-fact", anchors: ["math"], status: "official", content: "Quadratic Formula", meta: {} },
+            { id: "a1", kind: "domain-method", anchors: ["math"], status: "official", content: "Completing the square", meta: {} },
+            { id: "c3", kind: "skill", anchors: ["math"], status: "official", content: "Factor by grouping", meta: {} },
+          ],
+          get: async () => undefined,
+        },
+      },
+      isVisible: () => true,
+    });
+
+    const r = await broker.query({ grant: makeGrant({ space: "meta" }), op: "search", domains: ["math"], queryText: "zzzz-no-hit" });
+
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.entries?.map((e) => (e as { id: string }).id)).toEqual(["a1", "b2", "c3"]);
+  });
+
+  it("search：limit 缺省 8、显式上限 20", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      id: `e${String(i).padStart(2, "0")}`,
+      kind: "domain-fact",
+      anchors: ["math"],
+      status: "official",
+      content: `entry ${i}`,
+      meta: {},
+    }));
+    const broker = createKnowledgeBroker({
+      grantService,
+      dataWorld: {
+        queryReadOnly: async () => [],
+        memory: { retrieve: async () => many, get: async () => undefined },
+      },
+      isVisible: () => true,
+    });
+
+    const rDefault = await broker.query({ grant: makeGrant({ space: "meta" }), op: "search", domains: ["math"] });
+    expect(rDefault.ok).toBe(true);
+    if (rDefault.ok) expect(rDefault.entries).toHaveLength(8);
+
+    const rCapped = await broker.query({ grant: makeGrant({ space: "meta" }), op: "search", domains: ["math"], limit: 100 });
+    expect(rCapped.ok).toBe(true);
+    if (rCapped.ok) expect(rCapped.entries).toHaveLength(20);
+
+    const rTwo = await broker.query({ grant: makeGrant({ space: "meta" }), op: "search", domains: ["math"], limit: 2 });
+    expect(rTwo.ok).toBe(true);
+    if (rTwo.ok) expect(rTwo.entries).toHaveLength(2);
+  });
+
+  it("search：结果过 space 可见性过滤；注入 search 时优先于 retrieve 兜底", async () => {
+    const searchCalls: Array<{ anchors?: string[]; kinds?: string[]; status?: string[]; tenantId?: string; queryText?: string; limit?: number }> = [];
+    const broker = createKnowledgeBroker({
+      grantService,
+      dataWorld: {
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async () => {
+            throw new Error("retrieve should not be called when search injected");
+          },
+          search: async (opts) => {
+            searchCalls.push(opts);
+            return [
+              { id: "m1", kind: "domain-fact", anchors: ["math"], status: "official", content: "visible", meta: { spaceScope: { space: "meta", visibility: "public" } } },
+              { id: "m2", kind: "domain-fact", anchors: ["math"], status: "official", content: "hidden", meta: { spaceScope: { space: "private-other", visibility: "private" } } },
+            ];
+          },
+          get: async () => undefined,
+        },
+      },
+      isVisible: (meta, space) => {
+        const scope = (meta as { spaceScope?: { space?: string; visibility?: string } } | undefined)?.spaceScope;
+        if (!scope || scope.visibility === "public") return true;
+        return scope.space === space;
+      },
+    });
+
+    const r = await broker.query({ grant: makeGrant({ space: "meta" }), op: "search", domains: ["math"], kinds: ["domain-fact"], queryText: "vis", limit: 5 });
+
+    expect(r.ok).toBe(true);
+    expect(searchCalls[0]).toEqual({
+      anchors: ["math"],
+      kinds: ["domain-fact"],
+      status: ["official"],
+      tenantId: "tenant-a",
+      queryText: "vis",
+      limit: 5,
+    });
+    if (r.ok) expect(r.entries?.map((e) => (e as { id: string }).id)).toEqual(["m1"]);
+  });
+
+  it("get：非 official 条目返回 404（worker 面只读 official）", async () => {
+    const broker = createKnowledgeBroker({
+      grantService,
+      dataWorld: {
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async () => [],
+          get: async (id: string) => (id === "draft-1"
+            ? { id: "draft-1", kind: "domain-fact", anchors: ["a"], status: "draft", content: "draft", meta: {} }
+            : undefined),
+        },
+      },
+      isVisible: () => true,
+    });
+
+    const r = await broker.query({ grant: makeGrant({ space: "meta" }), op: "get", id: "draft-1" });
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(404);
+  });
+
   it("K1a：get tenantId 透传 + 命中后触发 recordConsumption（未命中/不可见不触发）", async () => {
     const getCalls: Array<{ id: string; opts?: { tenantId?: string } }> = [];
     const consumed: Array<{ id: string; tenantId?: string }> = [];

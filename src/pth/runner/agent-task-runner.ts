@@ -22,6 +22,7 @@ import { translateTask } from "../kernel/execution/nl-translator.js";
 import { runPtcProgram } from "../kernel/ptc/runner.js";
 import { defaultRunnerConfig, type RunnerConfig } from "./runner-config.js";
 import type { TaskWorkspace } from "./task-workspace.js";
+import type { KnowledgeContext, KnowledgeContextProvider } from "./knowledge-context.js";
 
 export interface AgentTaskRunnerDeps {
   kernel: WorkerKernel;
@@ -40,6 +41,8 @@ export interface AgentTaskRunnerDeps {
   toolRegStore?: import("../kernel/execution/tool-registry.js").ToolRegStoreLike;
   /** N14 P2：agent 态注册工具执行缝（穿透 runChild 同一闭包——深度限 1 由实现保证） */
   toolRegRunChild?: import("../kernel/execution/tool-registry.js").ToolRegRunChild;
+  /** K3：任务知识上下文 provider（claim 后一次性快照；抛错 → logger warn + 原文执行，降级不阻塞） */
+  knowledgeContextProvider?: KnowledgeContextProvider;
 }
 
 function leaseRef(lease: TaskLease): TaskOutcome["lease"] {
@@ -94,6 +97,33 @@ export class AgentTaskRunner implements TaskRunner {
       const { CacheStore } = await import("../kernel/execution/cache-store.js");
       const cacheStore = new CacheStore();
       const cs = cacheStore;
+      const sessionRef = (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef;
+      // K3：空间从 kernel sessionRef.currentSpace 取（显式传参）；取不到用 "meta"。
+      const space = sessionRef?.current?.currentSpace ?? "meta";
+      let knowledgeContext: KnowledgeContext | undefined;
+      let taskText = work.text;
+      if (this.deps.knowledgeContextProvider) {
+        try {
+          knowledgeContext = await this.deps.knowledgeContextProvider.build({
+            tenantId: work.scope.tenantId,
+            space,
+            roleId: role.id,
+            domains: work.domains ?? [],
+            title: work.title,
+            text: work.text,
+            catalogVersion: work.domainBinding?.catalogVersion ?? "",
+          });
+          const header = `\n\n【Knowledge Context（catalog ${knowledgeContext.catalogVersion}）】\n`;
+          const body = knowledgeContext.entries.length > 0
+            ? knowledgeContext.entries.map((e) => `- [${e.entryId}] ${e.anchor}: ${e.summary}`).join("\n")
+            : "无相关 official 知识条目";
+          taskText = `${work.text}${header}${body}`;
+        } catch (e) {
+          // 组合设计 §4.5 裁决：知识降级不阻塞任务——provider 抛错 → warn + 原文执行。
+          this.deps.logger?.(`[knowledge-context] build failed: ${(e as Error).message}（降级原文执行）`);
+          knowledgeContext = undefined;
+        }
+      }
       const capabilityInject: Record<string, unknown> = {
         cache: {
           get: (k: string) => cs.get(k),
@@ -104,16 +134,19 @@ export class AgentTaskRunner implements TaskRunner {
           utilization: () => cs.utilization(),
         },
       };
+      if (knowledgeContext) {
+        capabilityInject["knowledge"] = { context: knowledgeContext };
+      }
       const r = await runAgentTask({
         llm,
         kernel,
         caps,
-        task: { title: work.title, text: work.text },
+        task: { title: work.title, text: taskText },
         taskWorkspace: this.deps.workspace.dir,
         toolstore: (kernel as unknown as { toolstore?: import("../kernel/interpreter/toolstore.js").Toolstore }).toolstore,
         role,
         asp: config.aspMode,
-        sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
+        sessionRef,
         cache: cs,
         capabilityInject,
         // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传

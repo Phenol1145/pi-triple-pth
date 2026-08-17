@@ -173,4 +173,88 @@ describe("AgentTaskRunner（P1-4）", () => {
     expect(okOutcome.status).toBe("completed");
     expect(okOutcome.result).toMatchObject({ value: { done: true }, steps: 2 });
   });
+
+  it("K3：provider 成功时正文追加 Knowledge Context + capabilityInject.knowledge，space 缺省 meta 显式传", async () => {
+    vi.mocked(runAgentTask).mockReset();
+    vi.mocked(runAgentTask).mockResolvedValue({ ok: true, value: { done: true }, summary: "done", steps: 1 });
+
+    const build = vi.fn(async (input: { tenantId: string; space: string; roleId: string; domains: readonly string[]; title: string; text: string; catalogVersion: string }) => ({
+      id: "kc-abc12345",
+      catalogVersion: "cat-1",
+      queryFingerprint: "abc12345",
+      domains: ["math"],
+      entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: null }],
+      omitted: { count: 0, reason: "budget" },
+    }));
+
+    const { kernel } = fakeKernel();
+    const runner = new AgentTaskRunner({
+      kernel,
+      role: { id: "developer", tags: ["code"], prompt: "dev" },
+      workspace: { taskId: "task-1", tenant: "tenant-a", dir: "/tmp/task-1" },
+      llm: fakeLlm,
+      caps: { memory: {} },
+      config: { agentMode: true, aspMode: false },
+      knowledgeContextProvider: { build },
+    });
+
+    const outcome = await runner.run({ lease, work });
+
+    expect(outcome.status).toBe("completed");
+    expect(build).toHaveBeenCalledWith({
+      tenantId: "tenant-a",
+      space: "meta",
+      roleId: "developer",
+      domains: [],
+      title: "do x",
+      text: "return 42;",
+      catalogVersion: "",
+    });
+
+    const opts = vi.mocked(runAgentTask).mock.calls[0]![0] as { task: { title: string; text: string }; capabilityInject: Record<string, unknown> };
+    expect(opts.task.title).toBe("do x");
+    expect(opts.task.text).toContain("【Knowledge Context（catalog cat-1）】");
+    expect(opts.task.text).toContain("- [e1] math: summary-1");
+    expect(opts.capabilityInject["knowledge"]).toEqual({
+      context: {
+        id: "kc-abc12345",
+        catalogVersion: "cat-1",
+        queryFingerprint: "abc12345",
+        domains: ["math"],
+        entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: null }],
+        omitted: { count: 0, reason: "budget" },
+      },
+    });
+  });
+
+  it("K3：provider 抛错 → logger warn + 原文执行（不追加上下文，不注入 knowledge）", async () => {
+    vi.mocked(runAgentTask).mockReset();
+    vi.mocked(runAgentTask).mockResolvedValue({ ok: true, value: { done: true }, summary: "done", steps: 1 });
+
+    const logs: string[] = [];
+    const { kernel } = fakeKernel();
+    const runner = new AgentTaskRunner({
+      kernel,
+      role: { id: "developer", tags: ["code"], prompt: "dev" },
+      workspace: { taskId: "task-1", tenant: "tenant-a", dir: "/tmp/task-1" },
+      llm: fakeLlm,
+      caps: { memory: {} },
+      config: { agentMode: true, aspMode: false },
+      logger: (m) => logs.push(m),
+      knowledgeContextProvider: {
+        build: async () => {
+          throw new Error("kb down");
+        },
+      },
+    });
+
+    const outcome = await runner.run({ lease, work });
+
+    expect(outcome.status).toBe("completed");
+    expect(logs.some((m) => m.includes("kb down") && m.includes("降级原文执行"))).toBe(true);
+
+    const opts = vi.mocked(runAgentTask).mock.calls[0]![0] as { task: { title: string; text: string }; capabilityInject: Record<string, unknown> };
+    expect(opts.task.text).toBe("return 42;");
+    expect(opts.capabilityInject["knowledge"]).toBeUndefined();
+  });
 });
