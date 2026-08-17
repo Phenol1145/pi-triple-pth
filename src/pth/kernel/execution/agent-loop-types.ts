@@ -36,6 +36,13 @@ export interface AgentLoopOptions {
   /** 任务级能力装配（Phase 3 条目 12——cache 收敛）：透传 runner caps
    *  （task-loop 构建——每 ts 程序执行前统一注入 vm；与越界预检同一机制） */
   capabilityInject?: Record<string, unknown>;
+  /** N14 P2：tool-reg 注册表快照（任务开始冻结——T3 防线；缺省 = 注册面关闭） */
+  toolRegistry?: import("./tool-registry.js").ToolRegSnapshot;
+  /** N14 P2：注册工具 agent 态执行缝 + 调用方上下文（穿透 runChild 同款——深度限 1） */
+  toolRegExec?: {
+    runChild?: import("./tool-registry.js").ToolRegRunChild;
+    caller?: import("../../contracts/index.js").TaskDispatchContext;
+  };
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */

@@ -32,6 +32,10 @@ export interface TaskLoopDeps {
   repository?: TaskRepository;
   /** P1-6：归档钩子注入（BatchTaskLoop 组合用；缺省用 protected archive 默认实现） */
   archiveFn?: (task: Task, ws: { dir: string; tenant: string }, result: unknown) => Promise<void>;
+  /** N14 P2：tool-reg 注册表读取口（任务开始冻结快照——T3 防线）；缺省 = 注册面关闭 */
+  toolRegStore?: import("../kernel/execution/tool-registry.js").ToolRegStoreLike;
+  /** N14 P2：agent 态注册工具执行缝（穿透 runChild 同一闭包——深度限 1 由实现保证） */
+  toolRegRunChild?: import("../kernel/execution/tool-registry.js").ToolRegRunChild;
 }
 
 /**

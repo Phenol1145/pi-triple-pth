@@ -36,6 +36,10 @@ export interface AgentTaskRunnerDeps {
   onTrace?: (event: AgentTraceEvent) => void;
   onStep?: (step: { n: number; tool: string; durationMs: number; ok: boolean; args?: string }) => void;
   logger?: (msg: string) => void;
+  /** N14 P2：tool-reg 注册表读取口（任务开始冻结快照——T3 防线）；缺省 = 注册面关闭 */
+  toolRegStore?: import("../kernel/execution/tool-registry.js").ToolRegStoreLike;
+  /** N14 P2：agent 态注册工具执行缝（穿透 runChild 同一闭包——深度限 1 由实现保证） */
+  toolRegRunChild?: import("../kernel/execution/tool-registry.js").ToolRegRunChild;
 }
 
 function leaseRef(lease: TaskLease): TaskOutcome["lease"] {
@@ -112,6 +116,13 @@ export class AgentTaskRunner implements TaskRunner {
         sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
         cache: cs,
         capabilityInject,
+        // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
+        toolRegistry: this.deps.toolRegStore
+          ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore)
+          : undefined,
+        toolRegExec: this.deps.toolRegRunChild
+          ? { runChild: this.deps.toolRegRunChild, caller: { taskId: lease.taskId, roleId: role.id, tenantId: work.scope.tenantId, delivery: null } }
+          : undefined,
         onStep: this.deps.onStep,
         logger: this.deps.logger,
         onTrace: (e) => {

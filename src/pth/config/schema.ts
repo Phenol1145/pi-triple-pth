@@ -175,6 +175,8 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_ASP_MODE", "string", "on", "mode", "batch", "动作空间协议（on/off）"),
   d("PTH_REFINE", "string", "auto", "mode", "batch", "任务完成后 refine（off 关闭）"),
   d("PTH_SKILL_WRITE_POLICY", "string", "manual", "mode", "batch", "skill 写策略：manual / staged"),
+  d("PTH_TOOL_WRITE_POLICY", "string", "manual", "mode", "batch", "tool-reg 注册写策略（N14）：manual / staged（W5 同款）"),
+  d("PTH_TOOL_FACE_BUDGET", "number", 24, "mode", "batch", "每角色工具面预算（N14 §3.3 预算守卫——注册工具面超限裁减）", { runtime: true }),
   d("PTH_BATCH_PROCESS", "string", "0", "mode", "batch", "batch 子进程入口标志（1=子进程）"),
   d("PTH_BATCH_TS", "string", "0", "mode", "main", "dev 源码模式（1=tsx loader）"),
   d("PTH_METRICS_INTERVAL_MS", "number", 5_000, "observability", "main", "prom-client 采样周期"),

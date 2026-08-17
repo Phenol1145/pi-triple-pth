@@ -24,6 +24,8 @@ import { runPtcProgram } from "../ptc/runner.js";
 import { modelState } from "../extensions/model.js";
 import { spaceRegistry, isRoleBoundToSpace } from "./space-registry.js";
 import { TASK_AWAIT_SUSPENDED_CODE } from "../../contracts/index.js";
+import { checkToolFaceBudget, registryToolToSchema, visibleRegistryTools } from "./tool-registry.js";
+import type { ToolRegSpec } from "@away_from/pth-memory";
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -70,6 +72,34 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   (input as { __messages?: unknown }).__messages = messages;   // 压缩包装器读取（同一引用——循环内持续 push）
   const staticTools = toolsToSchema(input.role?.actionTools, { asp: aspMode });
 
+  // ── N14 P2：注册表可见集并入工具面（§3.5 执行缝 = 静态 TOOL_SCHEMAS ∪ 注册表可见集）──
+  // 快照冻结（T3 防线——任务开始装载，任务中途注册不生效）+ 预算守卫（§3.3——注册面超限裁减，静态面不动）
+  // + 名冲突静态面优先（builtin 条目只承担治理面，执行仍走 AGENT_TOOLS 静态表——Q4 裁决执行不动）。
+  // P2 自决：注册工具面 ASP 空间无关（全空间可见）——空间级投放留待后续细化。
+  const registryByName = new Map<string, ToolRegSpec>();
+  const registrySchemas: Array<{ name: string; description: string; parameters: { type: "object"; properties: Record<string, unknown>; required: string[] } }> = [];
+  if (input.toolRegistry && input.role?.id) {
+    const visible = visibleRegistryTools(input.toolRegistry, input.role.id);
+    const budget = configNumber("PTH_TOOL_FACE_BUDGET", 24);
+    const { allowed, dropped } = checkToolFaceBudget(staticTools.length, visible, budget);
+    if (dropped.length > 0) {
+      input.logger?.(`[tool-reg] 工具面预算守卫（≤${budget}）：注册工具裁减 ${dropped.join("/")}——走合并/退役提案（N14 §3.3）`);
+    }
+    const staticNames = new Set(staticTools.map((t) => t.name));
+    for (const spec of allowed) {
+      const schema = registryToolToSchema(spec);
+      if (staticNames.has(schema.name)) continue;
+      registryByName.set(spec.name, spec);   // 键 = 点形真相源名（executeStep 归一 下划线→点 后查表）
+      // 下划线命名可达性别名（调用面名归一后下划线名否则不可达；名称序先到先得不覆盖——确定性）
+      const dotAlias = spec.name.replace(/_/g, ".");
+      if (dotAlias !== spec.name && !registryByName.has(dotAlias)) registryByName.set(dotAlias, spec);
+      registrySchemas.push(schema);
+    }
+    if (registrySchemas.length > 0) {
+      input.logger?.(`[tool-reg] 快照 ${input.toolRegistry.version}：注册工具面 +${registrySchemas.length}（${registrySchemas.map((s) => s.name).join("/")}）`);
+    }
+  }
+
   // ── 工具面（2026-08-14 T3 裁决：废弃 pick_tools 动态注入——结构化动作空间+记忆空间
   //    已减少同时暴露的工具数；工具面 = 空间面 ∩ 角色白名单，不再动态收窄）──
   /** 当前轮 LLM 调用实际工具面 */
@@ -77,8 +107,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     const base = aspMode
       ? toolsForSpace(aspCurrent, input.role?.actionTools)
       : [...staticTools];
-    // 同名工具去重（OpenAI 对重复工具名 400）
-    return [...new Map(base.map((t) => [t.name, t])).values()];
+    // 同名工具去重（OpenAI 对重复工具名 400）；N14 P2：注册表可见集并入（空间无关）
+    return [...new Map([...base, ...registrySchemas].map((t) => [t.name, t])).values()];
   }
 
   const start = Date.now();
@@ -365,7 +395,87 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
 
     // tool_calls 名已在 executeStep 入口归一（下划线→点 + 直觉别名）——直接查执行器表
     const executorKey = tool;
-    const executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
+    let executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
+    // N14 P2：注册表分发（静态表未命中时）——builtin 态回指 AGENT_TOOLS 执行器（归并标准路径）；
+    // program/agent 态走注册执行缝（下方独立分发）
+    let regSpec: ToolRegSpec | undefined;
+    if (!executor && registryByName.size > 0) {
+      regSpec = registryByName.get(tool) ?? registryByName.get(tool.replace(/_/g, "."));
+      if (regSpec?.executor.type === "builtin") {
+        const refExec = AGENT_TOOLS[regSpec.executor.ref as keyof typeof AGENT_TOOLS];
+        if (refExec) {
+          executor = refExec;
+          regSpec = undefined;   // 归并静态执行面——走下方标准路径（含 EXEC_TOOL_CAP 门控）
+        }
+        // asp-inline:* 引用 = ASP 内联执行面——不走注册通道调用（静态面已覆盖；防御分支）
+      }
+    }
+    if (!executor && regSpec) {
+      const regExec = regSpec.executor;
+      if (regExec.type === "program") {
+        // program 态：固化 ts 程序（无 LLM）——args 注入为 const 绑定，源程序 return 值即结果
+        const code = `const args = ${JSON.stringify(args ?? {})};\n${regExec.source}`;
+        input.logger?.(`[agent] step=${steps + 1} tool-reg program ${regSpec.name}（tool:${regSpec.name}@v${regSpec.version}）`);
+        const { raw } = await runPtcProgram({
+          code, cwd: input.taskWorkspace ?? "/tmp", ts: kernel.ts, caps: input.capabilityInject,
+          registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
+        });
+        // W8 P2 同款：tasks.await 挂起信号 → 软终止（value=null + warning）
+        if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+          input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
+          return { ok: true, value: null, steps: steps + 1, warning: raw.error.message };
+        }
+        const result: AgentToolResult = raw.ok
+          ? { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text }
+          : { ok: false, error: raw.error?.message ?? "tool-reg program 执行失败" };
+        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
+        const summary = result.ok
+          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
+          : `error: ${result.error ?? "unknown"}`;
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
+        return undefined;
+      }
+      // agent 态：穿透 runChild 同款缝（深度限 1——子 kernel 不注入穿透/投递端口）
+      if (regExec.type !== "agent") {
+        // builtin 态 ref 未解析（asp-inline:* 等）——执行面不走注册通道（防御：正常路径已在上方归并）
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `tool-reg builtin ${regSpec.name} 的执行器引用 ${regExec.ref} 不在 AGENT_TOOLS 表（ASP 内联工具请切到对应空间后直接调用）` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "builtin ref 未解析" });
+        return undefined;
+      }
+      const exec = input.toolRegExec;
+      if (!exec?.runChild || !exec.caller) {
+        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+          content: `tool-reg agent 态执行缝未装配（toolRegExec.runChild/caller 缺失）——${regSpec.name} 暂不可调用` });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "agent 态执行缝未装配" });
+        return undefined;
+      }
+      const text = [
+        `【注册工具调用】tool:${regSpec.name}（agent 态——子 agent ${regExec.role}）`,
+        "",
+        "【调用参数】",
+        JSON.stringify(args ?? {}, null, 2),
+      ].join("\n");
+      input.logger?.(`[agent] step=${steps + 1} tool-reg agent ${regSpec.name} → ${regExec.role}`);
+      const r = await exec.runChild({
+        childRoleId: regExec.role,
+        title: `tool:${regSpec.name}`,
+        text,
+        inputContract: regExec.input ?? "（未声明——调用参数 JSON 自描述）",
+        outputContract: regExec.output ?? "（未声明——done.result 即产物）",
+        skillId: `tool:${regSpec.name}`,
+        caller: exec.caller,
+      });
+      const result: AgentToolResult = r.ok
+        ? { ok: true, value: r.value, stdout: truncate(JSON.stringify(r.value ?? null), 2000).text }
+        : { ok: false, error: r.error ?? "tool-reg agent 执行失败" };
+      input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
+      const summary = result.ok
+        ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
+        : `error: ${result.error ?? "unknown"}`;
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
+      return undefined;
+    }
     if (!executor) {
       // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行。
       // 2026-08-12 审计 LOW-11 修复：下划线形（memory_query）同样降级——归一后查表
@@ -398,7 +508,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       // 模型幻觉工具名（write_doc）时引导正确工具名——连续 N 次才终止（N12 护栏））
       const uv = unknownToolGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, true);
       input.onTrace?.({ type: "guard", step: steps + 1, guard: "unknown-tool", kind: uv.kind === "hard" ? "hard" : "hit", count: uv.count, limit: uv.limit });
-      const knownNames = Object.keys(AGENT_TOOLS).filter((n) => n !== "done");
+      const knownNames = [...Object.keys(AGENT_TOOLS).filter((n) => n !== "done"), ...new Set([...registryByName.values()].map((s) => s.name))];
       const hint = knownNames.slice(0, 12).join("/");
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
         content: `未知工具 ${tool}（第 ${uv.count} 次）——可用工具如: ${hint}… 请用已注册工具名重试（下划线形也可）。` });

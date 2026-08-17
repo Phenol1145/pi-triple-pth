@@ -277,11 +277,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     // 失败报错由父决策 / 本批只做执行面）。runChild = 嵌套子 agent 执行缝：
     // 建子 kernel（子角色能力面，无 taskControl/penetration——深度限 1）→ 嵌套
     // runAgentTask（共享父任务工作区）→ dispose。校验编排在 tasking/penetration-runner。
+    // N14 P2：runChild 提取为独立闭包——穿透 runner 与 tool-reg agent 态执行缝共用同一实现
+    // （toolRegRunChild 进 TaskLoop deps；agent 态工具的授权 = tool-reg 条目治理审批本身）。
     const parentKernelRef: { current?: { ts: unknown } } = {};
-    const penetration = canDelegate
-      ? createPenetrationRunner({
-          memory: dataWorld.memory,
-          runChild: async (req) => {
+    const runChildImpl: import("../tasking/index.js").PenetrationRunChild = async (req) => {
             const started = Date.now();
             const childRole = knownRoleById(req.childRoleId);
             if (!childRole) {
@@ -372,7 +371,11 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
             } finally {
               childKernel.dispose();
             }
-          },
+    };
+    const penetration = canDelegate
+      ? createPenetrationRunner({
+          memory: dataWorld.memory,
+          runChild: runChildImpl,
         })
       : undefined;
     const manager = createKernelManager({
@@ -475,6 +478,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const loop = new BatchTaskLoop({
       kernel, role: effectiveRole, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
       repository: taskRepository,
+      // N14 P2：tool-reg 注册面——任务开始冻结快照 + agent 态执行缝（穿透 runChild 同一闭包）
+      toolRegStore: dataWorld.memory,
+      toolRegRunChild: runChildImpl,
       // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
       llm,
       // agent 循环的 capability 白名单（与 vm 注入同一份）

@@ -109,6 +109,8 @@ export class TaskLoop {
         workspace: { taskId: task.id, tenant: ws.tenant, dir: ws.dir },
         llm: this.deps.llm,
         caps: this.deps.agentCaps,
+        toolRegStore: this.deps.toolRegStore,   // N14 P2：注册表快照读取口
+        toolRegRunChild: this.deps.toolRegRunChild,   // N14 P2：agent 态执行缝
         onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {
@@ -328,6 +330,10 @@ export class TaskLoop {
           // sandbox grant 动态绑定：本任务 taskId/tenantId 下发给 kernel 工厂（worker 级兜底 → 任务级）
           (kernel as { setExecutionGrantContext?(ctx: { taskId: string; tenantId: string; principalId?: string }): void })
             .setExecutionGrantContext?.({ taskId: task.id, tenantId: task.tenantId ?? "system", principalId: role.id });
+          // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
+          const toolRegistry = this.deps.toolRegStore
+            ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore)
+            : undefined;
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
@@ -338,6 +344,10 @@ export class TaskLoop {
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
             cache: cs,
             capabilityInject,
+            toolRegistry,
+            toolRegExec: this.deps.toolRegRunChild
+              ? { runChild: this.deps.toolRegRunChild, caller: { taskId: task.id, roleId: role.id, tenantId: task.tenantId ?? "default", delivery: null } }
+              : undefined,
             onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
             logger: (m) => taskLogger?.info(m),
             onTrace: (e) => {
