@@ -14,6 +14,7 @@
  * 部署（写 role-doc/capability-index）走监督层（prompt 层只读——draft 建议 + 人工/监督批准）。
  */
 
+import { createHash } from "node:crypto";
 import type { WorkerScorecard } from "./worker-scorecard.js";
 import { config } from "../extensions/perf-params.js";
 
@@ -101,6 +102,21 @@ export function rollupAggregateRows(rows: Array<{ content: string }>): Record<st
 }
 
 const MAX_BUFFER = 200;   // 缓冲上限（防内存无界——窗口不触发时丢弃最旧）
+
+/** N19 Phase 1b：official task-insight 现要求 meta.provenance（六字段）——deopt 洞察补齐。 */
+function deoptInsightMeta(content: string, suggestionId: string, extra: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...extra,
+    provenance: {
+      sourceTaskId: suggestionId,
+      producerRole: "optimizer-loop",
+      producerModel: "optimizer-loop",
+      sourceRefs: [`optimizer-suggestion:${suggestionId}`],
+      contentHash: createHash("sha256").update(content).digest("hex"),
+      createdAt: Date.now(),
+    },
+  };
+}
 
 export class Optimizer {
   private deps: OptimizerDeps;
@@ -335,17 +351,18 @@ export class Optimizer {
               status: "rolled_back",
               meta: { ...row.meta, rolledBack: true, rolledBackAt: Date.now(), verifySource: "global", rollbackReason: `护栏参数放宽后劣化（avgGuardKills ${(baseline.avgGuardKills ?? 0).toFixed(2)}→${avgKills.toFixed(2)} / avgGuardHits ${(baseline.avgGuardHits ?? 0).toFixed(2)}→${avgHits.toFixed(2)}——证据: global）` },
             } as never);
+            const guardDeoptContent = JSON.stringify({
+              type: "guard-deopt", suggestionId: row.id, pattern, target, guard: guardId, source: "global",
+              baseline: { avgGuardKills: baseline.avgGuardKills ?? 0, avgGuardHits: baseline.avgGuardHits ?? 0 },
+              current: { avgKills, avgHits }, rolledBackAt: Date.now(),
+              note: "护栏参数放宽后误杀恶化/命中面消失——已自动回滚原值（deopt 刹车）",
+            });
             void mem.write({
               kind: "task-insight",
               anchors: ["guard-deopt", pattern, guardId],
-              content: JSON.stringify({
-                type: "guard-deopt", suggestionId: row.id, pattern, target, guard: guardId, source: "global",
-                baseline: { avgGuardKills: baseline.avgGuardKills ?? 0, avgGuardHits: baseline.avgGuardHits ?? 0 },
-                current: { avgKills, avgHits }, rolledBackAt: Date.now(),
-                note: "护栏参数放宽后误杀恶化/命中面消失——已自动回滚原值（deopt 刹车）",
-              }),
+              content: guardDeoptContent,
               status: "official",
-              meta: { pattern, guard: guardId, ts: Date.now() },
+              meta: deoptInsightMeta(guardDeoptContent, row.id, { pattern, guard: guardId, ts: Date.now() }),
             }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
             console.warn(`[optimizer] guard deopt 回滚: ${pattern}（${guardId}——avgKills ${(baseline.avgGuardKills ?? 0).toFixed(2)}→${avgKills.toFixed(2)} / avgHits ${(baseline.avgGuardHits ?? 0).toFixed(2)}→${avgHits.toFixed(2)}——global）`);
           }
@@ -376,12 +393,13 @@ export class Optimizer {
             const progressed = (v?.taskCount ?? 0) > 0 || (roleId ? ((await this.readRoleAgg(roleId))?.taskCount ?? 0) > baseline.taskCount : false);
             if (!progressed) {
               await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifyExpired: true, expiredAt: Date.now(), expiryReason: "verify 超时零进展——复测证据未积累（无复测任务完成/无有机流量），验证未闭合需人工复核" } } as never);
+              const expiredContent = JSON.stringify({ type: "verify-expired", suggestionId: row.id, pattern, target, note: "应用后复测超时零证据——已标记 verify_expired（诚实缺口——人工复核或降级人工闸门）" });
               void mem.write({
                 kind: "task-insight",
                 anchors: ["verify-expired", pattern, roleId ?? "capability-index"],
-                content: JSON.stringify({ type: "verify-expired", suggestionId: row.id, pattern, target, note: "应用后复测超时零证据——已标记 verify_expired（诚实缺口——人工复核或降级人工闸门）" }),
+                content: expiredContent,
                 status: "official",
-                meta: { pattern, ts: Date.now() },
+                meta: deoptInsightMeta(expiredContent, row.id, { pattern, ts: Date.now() }),
               }).catch(() => { /* 洞察落库失败不阻塞 */ });
               console.warn(`[optimizer] verify 超时未闭合: ${row.id}（${pattern}——${target}）`);
             }
@@ -407,16 +425,17 @@ export class Optimizer {
           status: "rolled_back",
           meta: { ...row.meta, rolledBack: true, rolledBackAt: Date.now(), verifySource: evidence.source, rollbackReason: `指标劣化（avgFails ${baseline.avgFails.toFixed(2)}→${evidence.avgFails.toFixed(2)} / avgSteps ${baseline.avgSteps.toFixed(1)}→${evidence.avgSteps.toFixed(1)}——证据: ${evidence.source}）` },
         } as never);
+        const deoptContent = JSON.stringify({
+          type: "deopt-rollback", pattern, target, roleId, source: evidence.source,
+          baseline, current: { avgFails: evidence.avgFails, avgSteps: evidence.avgSteps }, rolledBackAt: Date.now(),
+          note: "优化规则应用后指标劣化——已自动回滚（deopt 刹车——不优于基线即撤）",
+        });
         void mem.write({
           kind: "task-insight",
           anchors: ["deopt", pattern, roleId ?? "capability-index"],
-          content: JSON.stringify({
-            type: "deopt-rollback", pattern, target, roleId, source: evidence.source,
-            baseline, current: { avgFails: evidence.avgFails, avgSteps: evidence.avgSteps }, rolledBackAt: Date.now(),
-            note: "优化规则应用后指标劣化——已自动回滚（deopt 刹车——不优于基线即撤）",
-          }),
+          content: deoptContent,
           status: "official",
-          meta: { pattern, role: roleId, ts: Date.now() },
+          meta: deoptInsightMeta(deoptContent, row.id, { pattern, role: roleId, ts: Date.now() }),
         }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
         console.warn(`[optimizer] deopt 回滚: ${pattern}（${roleId ?? "capability-index"}——基线 ${baseline.avgFails.toFixed(2)}→${evidence.avgFails.toFixed(2)} fails——${evidence.source}）`);
       } catch (e) {
