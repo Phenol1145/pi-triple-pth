@@ -28,11 +28,11 @@ export const ORIGIN_ROLE: WorkerRole = {
 //   thinking=推理深度 / capabilities=PTC 访问权限 / output=产出约定 / defaultReads=角色间产物约定
 //   / acceptanceRole=验收角色——谱系元数据声明（thinking 传 LLM/acceptanceRole done 限制后续实现）
 export const DEFAULT_ROLES: WorkerRole[] = [
-  { id: "analyst", tags: ["analysis", "research", "deep-analysis"], prompt: "你是分析者——负责对复杂问题进行深度演化式分析：拆解问题→多假设推演→综合收敛→产出知识结论与研究报告。族内已有特化（按问题类型二分）：prospector（开放探索型——无定解/发散假设生成）/solver（封闭限制型——有约束/收敛推导）——若任务明确属于特化方向，在产物中注明建议路由。",
+  { id: "analyst", tags: ["analysis", "research", "deep-analysis"], prompt: "你是分析者——负责对复杂问题进行深度演化式分析：拆解问题→多假设推演→综合收敛→产出知识结论与研究报告。族内已有特化（按问题类型二分）：prospector（开放探索型——无定解/发散假设生成）/solver（封闭限制型——有约束/收敛推导）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化分析任务亲自执行。",
     description: "深度演化分析问题（researcher 族——按问题类型二分：开放探索/封闭限制两子类型）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research",
     exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（backlog 差距 11——分析可双语言核验证）
-    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：执行核+导航+随身缓存（无生产核 dev/debug/write）
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型（已分 prospector/solver）= 基本工具+投递
     parent: "researcher", generation: 3, differentiation: "研究类任务诱导——复杂问题深度演化分析需要 web 与数据能力的特化" },
   // 2026-08-14 用户裁决：analyst 升中间层——按"负责的问题类型"二分：
   // 开放探索型（无定解/发散）→ prospector；封闭限制型（有约束/收敛）→ solver
@@ -40,7 +40,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     description: "开放探索型问题（analyst 子类型——无定解/发散假设生成/解空间勘探）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "hypothesis",
     exploreKernels: ["python", "bash"],   // 发散探索可双语言核对比验证假设
-    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型（已分 predictor）= 基本工具+投递
     parent: "analyst", generation: 4, differentiation: "开放探索型任务诱导——无定解/边界开放的探索需要发散假设生成与解空间勘探——从 analyst 分出开放探索专精" },
   { id: "solver", tags: ["closed-solve", "constraint", "solve"], prompt: "你是求解者——负责封闭限制型问题：有约束/定解、边界封闭的求解。收敛式推导、约束内求解、证据验证，产出确定的结论与验证结果。",
     description: "封闭限制型问题（analyst 子类型——有约束/收敛推导/证据验证）", thinking: "high",
@@ -58,11 +58,11 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "readSource", "readText"], output: "plan", defaultReads: ["context"], acceptanceRole: "read-only",
     actionTools: ["nav", "cache"],   // 2026-08-12 裁剪：只读推理——仅导航+随身缓存（无执行核）
     parent: "governor", generation: 3, differentiation: "规划类任务诱导——方案设计只需读取/推理——收窄为只读访问权限" },
-  { id: "developer", tags: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。族内已有特化：coder（纯代码编写）/tester（功能测试）——若任务明确属于特化方向，在产物中注明建议路由。",
+  { id: "developer", tags: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。族内已有特化：coder（纯代码编写）/tester（功能测试）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化实现任务亲自执行。",
     description: "实现与开发（worker 对应——narrow coherent edits）", thinking: "high",
     // 权限 v2 R4：显式声明（缺省全量废止）——core+data 全量，无管理面
     capabilities: ["python", "bash", "c", "fs", "web", "llm", "state", "ext", "env", "memory", "skills", "obs"],
-    actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "write", "nav", "cache"],   // 2026-08-12 裁剪：执行核+生产核 dev/debug+文档 write（2026-08-13 修复：写文档是 developer 常见交付——write 族必须授）+导航/缓存（2026-08-14 N8：spaceMaint 族退役——空间生成走治理通道）
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型（已分 coder/tester）= 基本工具+投递（capabilities 不动——引导级收口，用户裁决 Q1）
     output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer",
     parent: "executor", generation: 3, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
   { id: "coder", tags: ["coding", "write-code", "snippet"], prompt: "你是代码编写者——负责编写代码实现、片段、脚本。只写代码——不调试、不测试、不写文档（调试交给 debug 工具、测试交给 tester、文档交给 writer）。",
@@ -94,11 +94,11 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     // 2026-08-12 裁剪：只读验收面——执行核 python/bash + dev.run/list（验证不写）+ write.read/list（审查不写）+ 导航/缓存
     actionTools: ["execTs", "execPy", "execBash", "dev.run", "dev.list", "write.read", "write.list", "nav", "cache"],
     parent: "governor", generation: 3, differentiation: "验收类任务诱导——质量检查需要执行验证但不应修改产物——只读审查特化" },
-  { id: "tester", tags: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。",
+  { id: "tester", tags: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。族内已有特化：debug-case-writer（调试用例——最小复现/回归/边界）——修复验证类任务用 tasks.delegate 派发给 debug-case-writer 并 tasks.await 回收用例产物。",
     exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（功能验证可双语言核对比）
     description: "能力测试与行为验证（developer 子类型——功能测试）", thinking: "high",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer",
-    actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "nav", "cache"],   // 2026-08-12 裁剪：执行核+生产核 dev/debug（测试产物/调试验证）
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型（已分 debug-case-writer）= 基本工具+投递
     parent: "developer", generation: 4, differentiation: "测试类任务诱导——能力/行为验证需要全部执行核（含 c 编译核）写测试产物——从 developer 收窄出验证专精" },
   // P3.6（2026-08-15）：debug-case-writer——自修正闭环验证环节（tester 特化）
   { id: "debug-case-writer", tags: ["debug-case", "regression-case", "boundary-case"],
@@ -124,8 +124,9 @@ export const MID_ROLES: WorkerRole[] = [
   // 2026-08-14 类型树修理（用户裁决）：控制论三元组 sensor/controller/actuator 升格为真实类型（gen=1 挂 Origin）——
   // actuator = 执行侧（executor/explorer/governor/researcher 四族根）；
   // sensor = 观测侧（sensor:* 四观测点根）；controller = 调节侧（controller:* 五调节点根）
-  { id: "actuator", tags: ["actuate"], prompt: "你是执行器——actuator 控制论执行侧（执行/信息/治理/研究四族根）。族内四大分支：executor（执行——生产交付）/explorer（信息——侦察摄入）/governor（计划——规划治理）/researcher（研究——知识生产）。你不预设分支方向：按任务性质判断归属，并在产物中注明建议路由。",
+  { id: "actuator", tags: ["actuate"], prompt: "你是执行器——actuator 控制论执行侧（执行/信息/治理/研究四族根）。族内四大分支：executor（执行——生产交付）/explorer（信息——侦察摄入）/governor（计划——规划治理）/researcher（研究——知识生产）。你不预设分支方向：按任务性质判断归属——用 tasks.delegate 把任务派发给合适的直接子类型、tasks.await 回收产物后汇总交付；仅无需下分的泛化任务才亲自执行。",
     description: "执行器中间层（控制论三元组 sensor/controller/actuator 的执行侧——执行/信息/治理/研究四族根）", thinking: "high",
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递（tasks 由 batch-process 按组织权注入）
     parent: "origin", generation: 1, differentiation: "Origin 控制论分割（2026-08-12 裁决）执行侧落地——executor/explorer/governor 三族收敛于 actuator（2026-08-14 +researcher 研究族）" },
   { id: "sensor", tags: ["sensor", "observe"], prompt: "你是观测者——sensor 控制论观测侧（控制论三元组的感知位）。族内四大观测点：worker-opt（内环调用点）/system-opt（中环系统）/resource（外环资源）/memory（记忆健康）。你不预设观测对象：按观测任务性质判断归属，并在产物中注明建议路由。",
     description: "观测器中间层（控制论三元组 sensor/controller/actuator 的观测侧——4 观测点族根）", thinking: "medium",
@@ -133,21 +134,25 @@ export const MID_ROLES: WorkerRole[] = [
   { id: "controller", tags: ["controller", "regulate"], prompt: "你是调节者——controller 控制论调节侧（控制论三元组的决策位）。族内五大调节点：router（任务路由）/worker-opt（worker 优化）/pth-opt（PTH 面优化）/resource（资源优化）/memory（记忆管理）。你不预设调节对象：按调节任务性质判断归属，并在产物中注明建议路由。",
     description: "调节器中间层（控制论三元组 sensor/controller/actuator 的调节侧——5 调节点族根）", thinking: "high",
     parent: "origin", generation: 1, differentiation: "Origin 控制论分割（2026-08-12 裁决）调节侧落地——controller:* 五调节点收敛于 controller 类型（2026-08-14 用户裁决：sensor/controller 升格为真实类型）" },
-  { id: "executor", tags: ["execute", "deliver"], prompt: "你是执行者——执行族中间层。负责族内泛化的任务交付（未明确开发/测试之分的执行任务）：按任务需求组合执行能力完成并交付产物。族内已有特化：developer（实现——含 coder/tester 子类型）/writer（编写）——若任务明确属于特化方向，在产物中注明建议路由。",
+  { id: "executor", tags: ["execute", "deliver"], prompt: "你是执行者——执行族中间层。负责族内泛化的任务交付（未明确开发/测试之分的执行任务）：按任务需求组合执行能力完成并交付产物。族内已有特化：developer（实现——含 coder/tester 子类型）/writer（编写）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化交付任务亲自执行。",
     description: "执行族中间层（泛化任务交付）", thinking: "high", acceptanceRole: "writer",
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 2, differentiation: "执行类任务族诱导——做事型任务（实现/构建/验证）从 actuator 分出独立分支" },
-  { id: "explorer", tags: ["explore", "survey"], prompt: "你是探索者——信息族中间层。负责族内泛化的信息获取（未明确侦察/分析之分的探索任务）：快速定位信息源、收集并压缩上下文交接下游。族内已有特化：scout（快速侦察）/spider（网页抓取）——若任务明确属于特化方向，在产物中注明建议路由。",
+  { id: "explorer", tags: ["explore", "survey"], prompt: "你是探索者——信息族中间层。负责族内泛化的信息获取（未明确侦察/分析之分的探索任务）：快速定位信息源、收集并压缩上下文交接下游。族内已有特化：scout（快速侦察）/spider（网页抓取）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化探索任务亲自执行。",
     description: "信息族中间层（泛化信息获取）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "bash"], output: "context",
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 2, differentiation: "信息类任务族诱导——获取型任务（侦察/调研/分析）从 actuator 分出独立分支" },
-  { id: "governor", tags: ["govern", "oversight"], prompt: "你是治理者——治理族中间层。负责族内泛化的质量与秩序任务（未明确规划/验收/记忆之分的治理任务）：审查现状、维护秩序、产出治理结论。族内已有特化：planner（规划）/acceptor（验收）——若任务明确属于特化方向，在产物中注明建议路由。",
+  { id: "governor", tags: ["govern", "oversight"], prompt: "你是治理者——治理族中间层。负责族内泛化的质量与秩序任务（未明确规划/验收/记忆之分的治理任务）：审查现状、维护秩序、产出治理结论。族内已有特化：planner（规划）/acceptor（验收）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化治理任务亲自执行。",
     description: "治理族中间层（泛化质量与秩序）", thinking: "high", acceptanceRole: "read-only",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"],
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 2, differentiation: "治理类任务族诱导——秩序型任务（规划/验收/记忆维护）从 actuator 分出独立分支" },
   // 2026-08-14 研究族（用户裁决）：研究/知识生产——explorer 管摄入、researcher 管研究产出、memory-keeper 管维护
-  { id: "researcher", tags: ["research", "knowledge"], prompt: "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（深度演化分析——含 prospector/solver 子类型）/memory-keeper（记忆维护）——若任务明确属于特化方向，在产物中注明建议路由。",
+  { id: "researcher", tags: ["research", "knowledge"], prompt: "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（深度演化分析——含 prospector/solver 子类型）/memory-keeper（记忆维护）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化研究任务亲自执行。",
     description: "研究族中间层（知识生产与深度研究——伪世界模型「组装+校准」的知识端）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "context",
+    actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 2, differentiation: "知识类任务族诱导——研究型任务（深度分析/知识生产）从 actuator 分出独立分支" },
 ];
 

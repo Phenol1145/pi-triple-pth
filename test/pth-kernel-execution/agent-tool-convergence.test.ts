@@ -240,20 +240,20 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
     expect(coder.parent).toBe("developer");
   });
 
-  it("developer 面：执行核+dev+debug+write+导航+缓存——无 spaceMaint 治理面（2026-08-13 write 补回）", async () => {
+  it("developer 面（0.16.4 收口后）：内部类型 = 基本工具面（dev/debug/write 下沉 coder/tester/writer）", async () => {
     const { DEFAULT_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
     const dev = DEFAULT_ROLES.find((r) => r.id === "developer")!;
     const schemas = filterToolSchemas(dev.actionTools);
     const names = Object.keys(schemas);
-    expect(names).toContain("dev.build");
-    expect(names).toContain("debug.attach");
     expect(names).toContain("ts.run");
-    expect(names).toContain("write.create");   // 2026-08-13：write 文档族补回（写文档是 developer 常见交付）
+    expect(names).not.toContain("dev.build");     // 生产核归 coder/tester（developer 已分拆——只投递）
+    expect(names).not.toContain("debug.attach");
+    expect(names).not.toContain("write.create");
     expect(names).not.toContain("asp.create");
     expect(names).not.toContain("asp.destroy");
-    // 裁剪量级：34 → 32（dev6+debug8+exec6+write6+nav3+cache3）
-    expect(names.length).toBe(32);
+    // 基本工具面：execTs2 + nav3 + cache3 = 8
+    expect(names.length).toBe(8);
   });
 
   it("acceptor 只读面：dev.run/dev.list/write.read/write.list——无 dev.write/write.create（验收不写）", async () => {
@@ -313,5 +313,67 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
     const asp = toolsDescription(undefined, { asp: true });
     expect(asp).toContain("asp_cd:");
     expect(asp).toContain("cache_load:");
+  });
+});
+
+describe("0.16.4 分拆 worker 工具面收口（2026-08-18——内部类型 = 基本工具 + 直接子类型投递）", () => {
+  // 裁决：Q1 仅收 actionTools（capabilities 不动——引导级收口）/ Q2 一次全收 + 测试钉死 / Q3 MID prompt 同步改写
+  const INTERNAL_TYPES = ["actuator", "executor", "explorer", "governor", "researcher", "analyst", "developer", "tester", "prospector"];
+  const BASE_FACE = ["ts.run", "ts.eval", "asp.cd", "asp.index", "memory.index", "cache.load", "cache.index", "cache.cancel"];
+
+  it("九个内部类型 actionTools 统一收为 [execTs, nav, cache]", async () => {
+    const { DEFAULT_ROLES, MID_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
+    const all = [...DEFAULT_ROLES, ...MID_ROLES];
+    for (const id of INTERNAL_TYPES) {
+      const role = all.find((r) => r.id === id);
+      expect(role, `内部类型 ${id} 应存在`).toBeDefined();
+      expect(role!.actionTools, `${id} 工具面`).toEqual(["execTs", "nav", "cache"]);
+    }
+  });
+
+  it("内部类型过滤后工具面 = 基本工具 8 件（无执行核/生产核/治理面）", async () => {
+    const { DEFAULT_ROLES, MID_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
+    const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const all = [...DEFAULT_ROLES, ...MID_ROLES];
+    for (const id of INTERNAL_TYPES) {
+      const names = Object.keys(filterToolSchemas(all.find((r) => r.id === id)!.actionTools)).sort();
+      expect(names, `${id} 过滤面`).toEqual([...BASE_FACE].sort());
+    }
+  });
+
+  it("MID 类型 prompt 已改写为 tasks.delegate 实际派发（用户裁决 Q3）", async () => {
+    const { MID_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
+    for (const id of ["actuator", "executor", "explorer", "governor", "researcher"]) {
+      const role = MID_ROLES.find((r) => r.id === id)!;
+      expect(role.prompt, `${id} prompt`).toContain("tasks.delegate");
+      expect(role.prompt, `${id} prompt`).not.toContain("注明建议路由");
+    }
+  });
+
+  it("叶子类型工具面不受收口影响（coder/scout/writer 等保持专精面）", async () => {
+    const { DEFAULT_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
+    const coder = DEFAULT_ROLES.find((r) => r.id === "coder")!;
+    expect(coder.actionTools).toContain("dev");
+    const scout = DEFAULT_ROLES.find((r) => r.id === "scout")!;
+    expect(scout.actionTools).toContain("execBash");
+    const writer = DEFAULT_ROLES.find((r) => r.id === "writer")!;
+    expect(writer.actionTools).toContain("write");
+    const solver = DEFAULT_ROLES.find((r) => r.id === "solver")!;
+    expect(solver.actionTools).toContain("execPy");
+  });
+
+  it("sensor/controller 治理族根不按 0.16.4 收口（各自治理工具面保留）", async () => {
+    const { MID_ROLES, GOVERNANCE_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
+    const sensor = MID_ROLES.find((r) => r.id === "sensor")!;
+    expect(sensor.actionTools ?? []).not.toEqual(["execTs", "nav", "cache"]);
+    const ctrl = GOVERNANCE_ROLES.find((r) => r.id === "controller:worker-opt")!;
+    expect(ctrl.actionTools).toContain("execPy");
+  });
+
+  it("九内部类型均有直接子类型（tasks 投递白名单非空——收口后投递面可用）", async () => {
+    const { allowedDelegationTargets } = await import("../../src/pth/tasking/index.js");
+    for (const id of INTERNAL_TYPES) {
+      expect(allowedDelegationTargets(id).length, `${id} 可投递目标`).toBeGreaterThan(0);
+    }
   });
 });

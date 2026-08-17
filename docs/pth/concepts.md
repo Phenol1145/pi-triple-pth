@@ -606,6 +606,14 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   治理族根，不按此条收口，按各自治理工具面）。
 - **落地顺序**：W8（PTL 任务派发与交互逻辑）定稿前，投递工具尚未定义——为保持当前工作闭环，
   上述内部类型暂时保留现有工具面；W8 定稿后逐类型收口到「基本工具 + 直接子类型投递」。
+- **✅ 已收口（2026-08-18——用户裁决：Q1 仅收 actionTools 工具面（capabilities 不动——引导级
+  收口）；Q2 一次全收 + 测试钉死；Q3 MID prompt 同步改写）**：九类型 actionTools 统一为
+  `["execTs","nav","cache"]`（过滤面 = ts.run/ts.eval/asp.cd/asp.index/memory.index/cache.* 八件），
+  tasks 投递面由 batch-process 按组织权注入（W8 P1 机制）；actuator/executor/explorer/governor/
+  researcher 五 MID prompt「注明建议路由」改写为「tasks.delegate 派发 + tasks.await 回收」，
+  analyst/developer/tester 同步；sensor/controller 治理族根不收口（各自治理工具面）。
+  测试钉死：`agent-tool-convergence.test.ts`「0.16.4 分拆 worker 工具面收口」六例
+  （九类型面一致 / 过滤面八件 / MID prompt 改写 / 叶子不受影响 / 治理族根豁免 / 投递白名单非空）。
 
 **分化轴（2026-08-14 用户裁决——按「负责的问题类型」二分）**：
 - researcher 族 analyst 升中间层，按问题类型二分：**开放探索型**（无定解/发散——假设生成/解空间勘探）
