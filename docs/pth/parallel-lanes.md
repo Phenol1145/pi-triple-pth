@@ -85,6 +85,7 @@
 > K1a 已落：`f4c760d`（PgMemoryStore tenant 隔离 + KnowledgeBroker official/tenant/hit + skills.list official）→ 已合并 main（`7d00b90`）。
 >
 > F1 已落：`c717677`（canonical provenance + capability 合并 + update revision + promote 幂等重放）→ 已合并 main。
+> F4 已落：`aa0aa34`（生产 Catalog aliases + query ranking + DB evidence + snapshot hash + 84 题/7 指标）→ 已合并 main。
 > F3 已落：`8d79538`（delegate domain 继承 + verdict/promotion 主体与 RBAC）→ 已合并 main。
 > F2 已落：`d6f6487`（(tenant_id,id) 复合身份 + requireTenant fail-closed + raw query 门禁）→ 已合并 main。
 >
