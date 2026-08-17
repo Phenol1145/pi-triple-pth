@@ -6,6 +6,7 @@
  */
 
 export * from "./identity.js";
+export * from "./domains.js";
 export * from "./tasking.js";
 export * from "./execution.js";
 export * from "./catalog-contribution-schema.js";
