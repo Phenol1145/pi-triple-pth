@@ -29,7 +29,7 @@
 |---|---|---|---|---|---|---|
 | **L1** | **N14 设计：sensor/controller 四维细分 + 分层 SOP + 一等工具注册通道设计**（0.17.4 落地；A2 已裁开通道——按完整四层次：工具面/单工具/记忆/规则；细分含 SOP 四段式草案；通道含注册契约+审批治理设计） | `docs/pth/concepts.md`、`builtin-roles.ts`、`skill` 格式、`docs/pth/` | `lane/l1-n14-design` / `.worktrees/l1` | free | — | 纯设计批——产出 = 设计文档 + 概念录入，不改执行代码 |
 | **L2** | **A3：skill staged 审核流接线**（`PTH_SKILL_WRITE_POLICY=staged`：提案 → controller:adversarial 对抗性审核 → 监督批准 → memory-keeper 执行；配置项与角色已有，链路未闭） | `packages/pth-memory/src/skills.ts`、`src/pth/impls/kernels/capability.ts`、相关测试 | `lane/l2-staged-flow` / `.worktrees/l2` | **claimed** | 主会话·2026-08-18 | 链路短、闭环收益明确——N2 Phase 3 收尾 |
-| **L3** | **C1：worker 子进程健康/卡死检测**（§9 L2 缺口——IPC metric 只有耗时）**+ E2 文档同步**（§8.2 agentic 测试集 checkbox 勾除、§9 L3 标注 N5 已补齐） | `batch-manager.ts`、obs、`docs/pth/concepts.md` §9 表（仅 L3 行——经 L1 协调） | `lane/l3-health-docs` / `.worktrees/l3` | free | — | 小颗粒；concepts.md 改动限 §9 表格行（与 L1 文件域交叠处——L3 先动手，冲突时 L1 让行后 rebase） |
+| **L3** | **C1：worker 子进程健康/卡死检测**（§9 L2 缺口——IPC metric 只有耗时）**+ E2 文档同步**（§8.2 agentic 测试集 checkbox 勾除、§9 L3 标注 N5 已补齐） | `batch-manager.ts`、obs、`docs/pth/concepts.md` §9 表（仅 L3 行——经 L1 协调） | `lane/l3-health-docs` / `.worktrees/l3` | **claimed** | 主会话-L3·2026-08-18 | 小颗粒；concepts.md 改动限 §9 表格行（与 L1 文件域交叠处——L3 先动手，冲突时 L1 让行后 rebase） |
 | **L4** | **E1：v1.1.3 发布**（8 commit 未发版：W8×4 + flaky 修复 + 0.16.4 + 0.16.3 + 0.17 文档；走仓库 release 流程——版本号/changelog/徽章/tag） | `package.json`、CHANGELOG/发布文档、README 徽章 | `lane/l4-release` / `.worktrees/l4` | **claimed** | 主会话（本线程）·2026-08-18 | 等 L2/L3 合并后可重基再发（或先发 W8+0.16 批次） |
 
 > 车道池（本批未开——下批候选）：B1 穿透自动发现通道（等 W8 派发数据积累）；
