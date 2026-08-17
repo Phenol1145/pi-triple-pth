@@ -93,6 +93,8 @@ export function buildCapabilities(deps: {
   taskControl?: TaskDispatchPort;
   /** 0.16.3：穿透执行端口（与 taskControl 同批装配；缺省不注入 tasks.penetrate） */
   penetration?: PenetrationPort;
+  /** L2：活动事件上报（skill.proposal.created 等——batch-process 注入 IPC 转发闭包） */
+  onActivity?: (e: { kind: string; role?: string; detail?: string; at: number }) => void;
   /** W8 P1：当前任务身份（task-loop 每任务盖章——delegate/await 的调用者上下文） */
   taskContext?: { current: TaskDispatchContext | null };
 }): Record<string, unknown> {
@@ -180,7 +182,18 @@ export function buildCapabilities(deps: {
                   const v = validatePenetrationSkillRegistration(input.content);
                   if (!v.ok) throw new PtcContractError("skills.maintain.propose", v.error);
                 }
-                return proposeSkillMaintenance(deps.dataWorld.memory, input);
+                const r = await proposeSkillMaintenance(deps.dataWorld.memory, input);
+                // L2（2026-08-18 用户裁决 Q2）：提案落库即发事件——trigger-engine 监听
+                // skill.proposal.created → 自动派发 controller:adversarial 审核任务（事件驱动编排）
+                if (r.ok && r.id) {
+                  deps.onActivity?.({
+                    kind: "skill.proposal.created",
+                    role: deps.roleId,
+                    detail: r.id,
+                    at: Date.now(),
+                  });
+                }
+                return r;
               },
             },
           }

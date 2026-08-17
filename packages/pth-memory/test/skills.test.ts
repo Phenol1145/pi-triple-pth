@@ -107,6 +107,14 @@ describe("skills.maintain（B4 Phase 3）", () => {
     expect((await approveSkillProposal(store, proposal.id!)).ok).toBe(false);
   });
 
+  it("W5 staged：write 无 proposalId → 拒绝并明确引导走 propose（2026-08-18 L2 Q1 裁决）", async () => {
+    const store = makeStore();
+    const r = await maintainSkillWrite(store, { name: "no-proposal", content: "v1" }, { policy: "staged" });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("proposalId");
+    expect(r.error).toContain("skills.maintain.propose");   // 引导：staged 下 worker 必经治理入口
+  });
+
   it("W5 staged：批准后 executeApprovedSkillProposal 执行 archive", async () => {
     const store = makeStore({ "skill:old": { id: "skill:old", kind: "skill:old", content: "old", status: "official", meta: {} } });
     const proposal = await proposeSkillMaintenance(store, { action: "archive", name: "old", audit: "废弃" });

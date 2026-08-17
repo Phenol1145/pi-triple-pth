@@ -414,6 +414,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       roleId: role.id,
       taskControl: canDelegate ? taskControl : undefined,
       penetration,
+      // L2：能力面活动事件上报（skill.proposal.created——与 loop 同一 IPC 转发通道）
+      onActivity: (e) => { try { process.send?.({ kind: "activity", activity: { ...e, batchPid: process.pid } }); } catch { /* IPC 不可用 */ } },
       taskContext,
       registerKernel: (language, interpreter) => manager.registerKernel(language, interpreter as never),
       readSource: pthConfig().str("PTH_SOURCE_ROOT")

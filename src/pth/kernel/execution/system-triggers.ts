@@ -64,6 +64,28 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
   const memorySweep = buildMemorySweepTrigger(env);
   if (memorySweep) engine.addSystemTrigger(memorySweep);
 
+  // skill 维护提案对抗性审核派发（L2——2026-08-18 用户裁决 Q2 事件驱动编排）：
+  // memory-keeper skills.maintain.propose 落库即发 skill.proposal.created 事件（detail=提案 id）
+  // → 本 trigger 自动派发 controller:adversarial 审核任务（W5 staged 流：提案→审核→批准→执行）。
+  // {{detail}} = 提案 id（事件变量注入任务文本——审核角色据此 memory.query 提案并 skills.review）。
+  engine.addSystemTrigger({
+    name: "skill-proposal-review",
+    event: "skill.proposal.created",
+    task: {
+      title: "skill 维护提案对抗性审核",
+      text: [
+        "对 skill 维护提案做对抗性审核（reward-hacking 显式检验）。",
+        "提案 id：{{detail}}",
+        "步骤：① memory.query 读取提案（SELECT * FROM memory_entries WHERE id = '{{detail}}'——kind=skill-maintain-proposal，content 为提案 JSON）；",
+        "② 检验三问：Pitfalls 完整性（是否覆盖已知失败模式）/ Verification 可测性（是否可证伪）/ 作弊捷径（绕过治理、越权、目标函数漏洞）；",
+        "③ 裁决：skills.review('{{detail}}', 'pass', '<理由>') 或 skills.review('{{detail}}', 'reject', '<缺口清单>')；",
+        "只读审核——不执行维护（批准与执行走监督通道）。",
+      ].join("\n"),
+      tags: ["adversarial"],
+    },
+    enabled: true,
+  });
+
   // ── 控制环（loop 形态：schedule trigger → 原生 action）─────────────
   // claim 超时回收：僵尸认领回 pending（batch 崩溃/重启）。
   engine.registerAction(SYSTEM_ACTION.claimReap, async () => {
