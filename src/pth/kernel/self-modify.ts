@@ -9,7 +9,7 @@
  * 指南内容：源码布局/关键文件/修改流程/不变量。注入幂等（同 content 覆盖）。
  */
 
-import type { PgMemoryStore } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, type PgMemoryStore } from "@away_from/pth-memory";
 
 export const SELF_MODIFY_GUIDE = `# PTH 自修改指南（v1——单步修改）
 
@@ -55,6 +55,7 @@ export async function injectSelfModifyGuide(memory: PgMemoryStore): Promise<void
   try {
     await memory.write({
       id: "self-modify-guide",   // 固定 id——幂等覆盖（version 递增）
+      tenantId: DEFAULT_TENANT_ID,
       kind: "self-modify-guide",
       anchors: ["self-modify", "guide", "源码", "自修改"],
       content: SELF_MODIFY_GUIDE,

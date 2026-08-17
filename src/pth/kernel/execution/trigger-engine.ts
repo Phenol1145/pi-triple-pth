@@ -34,7 +34,7 @@ import type { ActivityEvent, ActivityHub } from "./activity-hub.js";
 import { tagRegistry } from "./tag-registry.js";
 import { resolveTemplateTask } from "../templates.js";
 import type { TaskStore } from "../storage/task-store-pg.js";
-import type { PgMemoryStore } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, type PgMemoryStore } from "@away_from/pth-memory";
 
 export interface TriggerAction {
   /** 原生动作类型（registerAction 注册键） */
@@ -143,7 +143,7 @@ export class TriggerEngine {
 
   /** 从 memory 加载 trigger 定义（official——enabled 才生效） */
   async reload(): Promise<number> {
-    const entries = await this.deps.memory.retrieve({ kinds: [TRIGGER_KIND], status: ["official"] });
+    const entries = await this.deps.memory.retrieve({ kinds: [TRIGGER_KIND], status: ["official"], tenantId: DEFAULT_TENANT_ID });
     const loaded: TriggerEntry[] = [];
     for (const e of entries) {
       try {
@@ -272,11 +272,11 @@ export class TriggerEngine {
         await this.fireTrigger(t, vars, depth, "event", e);
         if (t.def.once) {
           // once：memory 更新 enabled=false（内存已在匹配时移除——持久层同步）
-          void this.deps.memory.retrieve({ kinds: [TRIGGER_KIND] }).then((all) => {
+          void this.deps.memory.retrieve({ kinds: [TRIGGER_KIND], tenantId: DEFAULT_TENANT_ID }).then((all) => {
             const entry = all.find((x) => x.id === t.id);
             if (entry) {
               const def = { ...t.def, enabled: false };
-              return this.deps.memory.write({ id: entry.id, kind: entry.kind, anchors: entry.anchors, content: JSON.stringify(def, null, 2), status: "official", meta: entry.meta ?? {} }, { force: true });
+              return this.deps.memory.write({ id: entry.id, tenantId: DEFAULT_TENANT_ID, kind: entry.kind, anchors: entry.anchors, content: JSON.stringify(def, null, 2), status: "official", meta: entry.meta ?? {} }, { force: true });
             }
           }).catch(() => {});
         }

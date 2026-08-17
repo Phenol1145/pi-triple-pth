@@ -8,7 +8,7 @@ import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager 
 import type { InterpreterResult } from "../kernel/interpreter/index.js";
 import type { Task } from "../kernel/storage/task-store-pg.js";
 import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles } from "../kernel/execution/worker-cluster.js";
-import { isVisible, setSpaceLookup } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, isVisible, setSpaceLookup } from "@away_from/pth-memory";
 import { spaceRegistry } from "../kernel/execution/space-registry.js";
 import { registerBuiltinSpaces } from "../kernel/execution/builtin-spaces.js";
 import { checkTaskRouting, routeTaskRole } from "../kernel/execution/role-router.js";
@@ -106,7 +106,12 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——batch 子进程与 assembly 同源。
   // K3：catalog 快照与 K2 resolver 同源（同一 builder 产物），供 KnowledgeContextProvider ancestors 展开。
   const catalog = buildDisciplineCatalogSnapshot();
-  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole }, createDisciplineResolver(catalog));
+  const dataWorld = createDataWorld(
+    pool,
+    { validate: checkTaskRouting, assign: routeTaskRole },
+    createDisciplineResolver(catalog),
+    { requireTenant: true },
+  );
   const knowledgeContextProvider = createKnowledgeContextProvider({
     memory: dataWorld.memory,
     catalog,
@@ -445,6 +450,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
                     sumBudgetExceeded: budgetExceeded ? 1 : 0,
                   },
                   { parent: req.caller.roleId, child: req.childRoleId, ts: Date.now() },
+                  { tenantId: req.caller.tenantId ?? DEFAULT_TENANT_ID },
                 );
               } catch {
                 /* 计量聚合容错（降级：预算照常结算，聚合行缺失不阻断穿透） */

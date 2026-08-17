@@ -1,8 +1,14 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager";
+import { createKernelManager, createWorkerKernelWithManager, sandboxGrantCapabilities } from "../../src/pth/impls/kernels/kernel-manager";
 import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn";
 
 describe("KernelManager（多语言路由）", () => {
+  it("F2：sandbox grant 能力映射 memory → memory.read（不授 memory.query）", () => {
+    expect(sandboxGrantCapabilities(["memory", "llm.complete"])).toEqual(["memory.read", "llm.complete"]);
+    expect(sandboxGrantCapabilities(["memory.read"])).toEqual(["memory.read"]);
+    expect(sandboxGrantCapabilities(["memory.query"])).toEqual(["memory.query"]);
+  });
+
   let mgr: ReturnType<typeof createKernelManager>;
   afterAll(() => mgr?.dispose());
 

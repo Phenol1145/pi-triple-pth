@@ -5,7 +5,13 @@
  */
 
 import type { TsReplExtension } from "./types.js";
-import { checkWrite, checkUpdate, normalizeWriteArgs } from "@away_from/pth-memory";
+import {
+  DEFAULT_TENANT_ID,
+  checkWrite,
+  checkUpdate,
+  normalizeWriteArgs,
+  withMemoryTenant,
+} from "@away_from/pth-memory";
 import { checkVisibilityDeclaration, stampScope, filterVisibleEntries, ancestorChain, requireMetaColumn, validateWikiWrite } from "@away_from/pth-memory";
 import { spaceRegistry } from "../execution/space-registry.js";
 
@@ -28,7 +34,9 @@ function checkEnvAssertion(content: string): { ok: true } | { ok: false; reason:
 export const memoryExtension: TsReplExtension = {
   id: "memory",
   provide: (ctx) => {
-    const store = ctx.dataWorld.memory;
+    // F2（AB-01）：任务路径按 taskContext.tenantId；无任务上下文（exec 通道）走系统 default tenant。
+    const tenantId = () => ctx.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID;
+    const store = () => withMemoryTenant(ctx.dataWorld.memory, tenantId());
     return {
       // 记忆查询：受限只读 SQL（与 agent 侧同源执行器——仅 SELECT/单语句/强制 LIMIT/禁 pg 系统表）
       // 2026-08-12 审计 CRITICAL-1 修复：bindAll(store) 曾把 raw 方法（incrementAggregate/get/bumpHitCount/
@@ -37,7 +45,7 @@ export const memoryExtension: TsReplExtension = {
       memory: {
         // get 包装：可见性过滤（与 query/retrieve 对齐——避免读隐藏条目）
         get: async (id: string) => {
-          const entry = await store.get(id);
+          const entry = await store().get(id);
           const space = ctx.sessionRef?.current?.currentSpace;
           if (!entry || !space) return entry;
           return filterVisibleEntries([entry], space)[0];
@@ -52,7 +60,7 @@ export const memoryExtension: TsReplExtension = {
         },
         retrieve: async (opts?: unknown) => {
           const space = ctx.sessionRef?.current?.currentSpace;
-          return filterVisibleEntries(await store.retrieve(opts as never), space);
+          return filterVisibleEntries(await store().retrieve(opts as never), space);
         },
         // 用途层策略包装（权限 v2 R1——worker 面内嵌规则）：
         //   prompt/config 层拒写；governance 层强制 draft；force 参数剥离（防旁路 store 层系统文档保护）
@@ -78,10 +86,10 @@ export const memoryExtension: TsReplExtension = {
           entry = { ...entry, meta: stampScope(meta, currentSpace) };
           // B5 / N1b：百科写入词表校验（写侧污染防线——重复术语/锚点不符/三要素缺失拒绝）
           if (entry.kind === "pth-wiki") {
-            const wikiCheck = await validateWikiWrite(store, entry as never);
+            const wikiCheck = await validateWikiWrite(store(), entry as never);
             if (!wikiCheck.ok) throw new Error(wikiCheck.reason);
           }
-          return store.write(entry as never);   // force 不透传——worker 无系统通道
+          return store().write(entry as never);   // force 不透传——worker 无系统通道
         },
         update: async (id: string, patch: { content?: string; status?: "draft" | "official" | "archived" }) => {
           // 2026-08-15 筛查 H6：worker 面仅允许 content/status——meta 等额外字段不可透传
@@ -89,12 +97,13 @@ export const memoryExtension: TsReplExtension = {
           const allowed = new Set(["content", "status"]);
           const extra = Object.keys(patch ?? {}).filter((k) => !allowed.has(k));
           if (extra.length > 0) throw new Error(`memory.update: 仅允许 content/status（拒绝: ${extra.join(",")}）`);
-          const existing = await store.get(id);
+          const scoped = store();
+          const existing = await scoped.get(id);
           if (existing) {
             const check = checkUpdate(existing.kind, patch.status, existing.status);
             if (!check.ok) throw new Error(check.reason);
           }
-          return store.update(id, patch);
+          return scoped.update(id, patch);
         },
       },
     };

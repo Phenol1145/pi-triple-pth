@@ -270,9 +270,9 @@ export class Refiner {
    * 加载 refine 任务清单（解硬编码——memory kind='refine-task' 是真相源——
    * 每次 refine 现读（演化即时生效——refine 频率低无性能问题）——缺失/异常 fallback 代码默认。
    */
-  async loadTasks(): Promise<RefineTaskDef[]> {
+  async loadTasks(tenantId: string): Promise<RefineTaskDef[]> {
     try {
-      const entries = await this.deps.memory.retrieve({ kinds: ["refine-task"] });
+      const entries = await this.deps.memory.retrieve({ kinds: ["refine-task"], tenantId });
       const tasks = entries
         .map((e) => { try { return JSON.parse(e.content) as RefineTaskDef; } catch { return null; } })
         .filter((t): t is RefineTaskDef => !!t && typeof t.id === "string" && typeof t.outputField === "string");
@@ -290,7 +290,7 @@ export class Refiner {
     this.assertScope(input);
 
     // 0.1 任务清单（memory 真相源——解硬编码）
-    const tasks = await this.loadTasks();
+    const tasks = await this.loadTasks(input.scope.tenantId);
     const enabled = tasks.filter((t) => t.enabled);
     const taskOf = (persistAs: RefineTaskDef["persistAs"]) => enabled.find((t) => t.persistAs === persistAs);
 

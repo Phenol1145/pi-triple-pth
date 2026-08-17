@@ -31,9 +31,16 @@ const suite = dockerAvailable ? describe : describe.skip;
 // Node 24 strip-types 不做相对导入 .js→.ts 重写（实测 ERR_MODULE_NOT_FOUND），而 src/ 内
 // import 一律 .js 后缀（Node16 模块解析约定）→ 注册 resolve hook：父模块为 .ts 时把
 // 相对 .js specifier 先按 .ts 解析。配合 --experimental-transform-types（参数属性等语法）。
+// F2：node_modules 软链指向主工作树——fork 子进程解析 @away_from/pth-memory 会落到主树
+// dist（旧实现）。这里把该裸 specifier 重定向到本工作树源码，保证子进程跑的是 F2 实现。
+const MEMORY_SRC = new URL("../../packages/pth-memory/src/index.ts", import.meta.url).href;
 const LOADER_SRC = `import { register } from "node:module";
 register(import.meta.url, import.meta.url);
+const MEMORY_SRC = ${JSON.stringify(MEMORY_SRC)};
 export async function resolve(specifier, context, nextResolve) {
+  if (specifier === "@away_from/pth-memory") {
+    return { url: MEMORY_SRC, shortCircuit: true };
+  }
   if (specifier.startsWith(".") && context.parentURL?.endsWith(".ts") && specifier.endsWith(".js")) {
     try {
       return await nextResolve(specifier.replace(/\\.js$/, ".ts"), context);

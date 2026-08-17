@@ -157,7 +157,7 @@ export class AgentTaskRunner implements TaskRunner {
         capabilityInject,
         // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
         toolRegistry: this.deps.toolRegStore
-          ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore)
+          ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: work.scope.tenantId })
           : undefined,
         toolRegExec: this.deps.toolRegRunChild
           ? { runChild: this.deps.toolRegRunChild, caller: { taskId: lease.taskId, roleId: role.id, tenantId: work.scope.tenantId, delivery: null } }

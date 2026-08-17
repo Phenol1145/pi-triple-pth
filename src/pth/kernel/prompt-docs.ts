@@ -9,7 +9,7 @@
  *   - 单一查询面：模型可读信息（角色/能力/指南/知识沉淀）都在 memory
  */
 
-import type { PgMemoryStore } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, type PgMemoryStore } from "@away_from/pth-memory";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { allLineageRoles } from "./execution/worker-cluster.js";
@@ -130,6 +130,7 @@ export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
     try {
       await memory.write({
         id: `role-doc:${role.id}`,
+        tenantId: DEFAULT_TENANT_ID,
         kind: "role-doc",
         anchors: ["role-doc", role.id, "角色", "prompt"],
         content: buildRoleDoc(role),
@@ -143,6 +144,7 @@ export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
     try {
       await memory.write({
         id: `refine-task:${t.id}`,
+        tenantId: DEFAULT_TENANT_ID,
         kind: "refine-task",
         anchors: ["refine-task", t.id, t.persistKind],
         content: JSON.stringify(t, null, 2),
@@ -155,6 +157,7 @@ export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
   try {
     await memory.write({
       id: "capability-index",
+      tenantId: DEFAULT_TENANT_ID,
       kind: "capability-index",
       anchors: ["capability-index", "能力", "索引", "工具"],
       content: buildCapabilityIndex(),
@@ -166,6 +169,7 @@ export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
   try {
     await memory.write({
       id: "pth-worker-system",
+      tenantId: DEFAULT_TENANT_ID,
       kind: "pth-worker-system",
       anchors: ["pth-worker-system", "世界观", "worker", "框架"],
       content: `# PTH Worker 系统提示（世界观——所有角色共享）
@@ -198,6 +202,7 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
   try {
     await memory.write({
       id: "project-map",
+      tenantId: DEFAULT_TENANT_ID,
       kind: "project-map",
       anchors: ["project-map", "项目全貌", "代码库结构", "模块地图", "架构"],
       content: await buildProjectMap(),
@@ -209,6 +214,7 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
   try {
     await memory.write({
       id: "skill:api-investigation",
+      tenantId: DEFAULT_TENANT_ID,
       kind: "skill",
       anchors: ["skill", "api-investigation", "调查", "签名", "语法"],
       content: API_INVESTIGATION_SKILL,
@@ -225,6 +231,7 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
     try {
       await memory.write({
         id: `skill:${seed.id}`,
+        tenantId: DEFAULT_TENANT_ID,
         kind: "skill",
         anchors: ["skill", seed.id, seed.id.replace(/-sop$/, ""), "SOP", "工作流"],
         content: buildSkillContent(seed),

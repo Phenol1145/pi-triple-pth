@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 import type { WorkerScorecard } from "./worker-scorecard.js";
 import { config } from "../extensions/perf-params.js";
+import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 
 // ── 类型 ─────────────────────────────────────────────────────
 
@@ -49,12 +50,12 @@ export interface OptimizerDeps {
    * incrementAggregate：scorecard 聚合快照原子 upsert（2026-08-12 审批面 B——
    * 单条 SQL 增量——避免读-改-写竞态）；缺省 = 跳过聚合（明细仍落库——降级逐条读） */
   memory?: {
-    write(e: { id?: string; kind: string; anchors?: unknown; content: unknown; status?: string; meta?: Record<string, unknown> }): Promise<unknown>;
-    incrementAggregate?(id: string, kind: string, anchors: unknown[], deltas: Record<string, number>, meta: Record<string, unknown>): Promise<void>;
+    write(e: { id?: string; tenantId?: string; kind: string; anchors?: unknown; content: unknown; status?: string; meta?: Record<string, unknown> }): Promise<unknown>;
+    incrementAggregate?(id: string, kind: string, anchors: unknown[], deltas: Record<string, number>, meta: Record<string, unknown>, opts?: { tenantId?: string }): Promise<void>;
     /** 只读查询（deopt 复测读聚合/建议——2026-08-13） */
     queryReadOnly?(sql: string): Promise<unknown>;
     /** 条目更新（deopt 回滚移除规则 stamp——2026-08-13） */
-    update?(id: string, patch: { content?: string; status?: string; meta?: Record<string, unknown> }): Promise<unknown>;
+    update?(id: string, patch: { content?: string; status?: string; meta?: Record<string, unknown> }, opts?: { tenantId?: string }): Promise<unknown>;
   };
   /** 窗口任务数（缺省 10）——满窗触发检测 */
   windowSize?: number;
@@ -160,7 +161,8 @@ export class Optimizer {
   }
 
   /** 任务完成点收集（scorecard + 聚合快照）——窗口满触发检测 */
-  collect(sc: WorkerScorecard, ctx: { role: string; taskId: string; verifyOf?: string }): void {
+  collect(sc: WorkerScorecard, ctx: { role: string; taskId: string; tenantId?: string; verifyOf?: string }): void {
+    const tenantId = ctx.tenantId ?? DEFAULT_TENANT_ID;
     if (ctx.verifyOf) {
       // 复测任务（2026-08-14 N6 一等化）：受控证据——不进热点窗口、不进角色聚合
       // （两者都应是纯有机流量——复测场景会系统性偏置热点检测与基线对比）；
@@ -172,6 +174,7 @@ export class Optimizer {
           [ctx.verifyOf, "verify"],
           { taskCount: 1, sumFails: sc.failedActions ?? 0, sumSteps: sc.steps ?? 0 },
           { verifyOf: ctx.verifyOf, role: ctx.role, ts: Date.now() },
+          { tenantId },
         ).catch((e: unknown) => {
           console.warn(`[optimizer] 复测聚合失败: ${e instanceof Error ? e.message : String(e)}`);
         });
@@ -183,6 +186,7 @@ export class Optimizer {
     // scorecard 落库（验证闭环数据源——anchors 带角色/任务类型）
     void this.deps.memory?.write({
       kind: "task-scorecard",
+      tenantId,
       anchors: [ctx.role, "scorecard"],
       content: sc,
       status: "official",
@@ -224,6 +228,7 @@ export class Optimizer {
             : {}),
         },
         { role: ctx.role, ts: Date.now() },
+        { tenantId },
       ).catch((e: unknown) => { /* 聚合失败不阻塞（明细仍在——降级逐条读）；但错误须可见（2026-08-12 审计 MEDIUM-7） */
         console.warn(`[optimizer] 聚合快照失败（降级明细）: ${e instanceof Error ? e.message : String(e)}`);
       });
@@ -279,6 +284,7 @@ export class Optimizer {
       this.deps.onSuggestion?.(s);
       void this.deps.memory?.write({
         id: s.id,
+        tenantId: DEFAULT_TENANT_ID,
         kind: "optimizer-suggestion",
         anchors: [hit.pattern, hit.target],
         content: s,
@@ -316,10 +322,11 @@ export class Optimizer {
   private async checkDeopt(): Promise<void> {
     const mem = this.deps.memory!;
     const rows = await mem.queryReadOnly!(
-      `SELECT id, content, meta FROM memory_entries WHERE kind = 'optimizer-suggestion' AND status = 'official' AND meta->>'baseline' IS NOT NULL AND meta->>'rolledBack' IS NULL`,
-    ) as Array<{ id: string; content: string; meta: Record<string, unknown> }>;
+      `SELECT id, tenant_id, content, meta FROM memory_entries WHERE kind = 'optimizer-suggestion' AND status = 'official' AND meta->>'baseline' IS NOT NULL AND meta->>'rolledBack' IS NULL`,
+    ) as Array<{ id: string; tenant_id?: string; content: string; meta: Record<string, unknown> }>;
     for (const row of rows) {
       try {
+        const suggestionTenantId = row.tenant_id ?? DEFAULT_TENANT_ID;
         const sug = (typeof row.content === "string" ? JSON.parse(row.content) : row.content) as OptimizerSuggestion;
         const target = sug.target;
         const pattern = sug.evidence?.pattern ?? "rule";
@@ -336,7 +343,7 @@ export class Optimizer {
             const avgHits = (g.sumGuardHits ?? 0) / g.taskCount;
             const worse = avgKills > (baseline.avgGuardKills ?? 0) * 1.5 + 0.001 || avgHits < (baseline.avgGuardHits ?? 0) * 0.5;
             if (!worse) {
-              await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifiedAt: Date.now(), verifySource: "global" } } as never);
+              await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifiedAt: Date.now(), verifySource: "global" } } as never, { tenantId: suggestionTenantId });
               continue;
             }
             const guardBaseline = row.meta?.["guardBaseline"] as { limitKey?: string; from?: string; to?: string; values?: Record<string, string> } | undefined;
@@ -350,7 +357,7 @@ export class Optimizer {
             await mem.update!(row.id, {
               status: "rolled_back",
               meta: { ...row.meta, rolledBack: true, rolledBackAt: Date.now(), verifySource: "global", rollbackReason: `护栏参数放宽后劣化（avgGuardKills ${(baseline.avgGuardKills ?? 0).toFixed(2)}→${avgKills.toFixed(2)} / avgGuardHits ${(baseline.avgGuardHits ?? 0).toFixed(2)}→${avgHits.toFixed(2)}——证据: global）` },
-            } as never);
+            } as never, { tenantId: suggestionTenantId });
             const guardDeoptContent = JSON.stringify({
               type: "guard-deopt", suggestionId: row.id, pattern, target, guard: guardId, source: "global",
               baseline: { avgGuardKills: baseline.avgGuardKills ?? 0, avgGuardHits: baseline.avgGuardHits ?? 0 },
@@ -359,6 +366,7 @@ export class Optimizer {
             });
             void mem.write({
               kind: "task-insight",
+              tenantId: DEFAULT_TENANT_ID,
               anchors: ["guard-deopt", pattern, guardId],
               content: guardDeoptContent,
               status: "official",
@@ -392,10 +400,11 @@ export class Optimizer {
           if (appliedAt && Date.now() - appliedAt > this.verifyTimeoutMs) {
             const progressed = (v?.taskCount ?? 0) > 0 || (roleId ? ((await this.readRoleAgg(roleId))?.taskCount ?? 0) > baseline.taskCount : false);
             if (!progressed) {
-              await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifyExpired: true, expiredAt: Date.now(), expiryReason: "verify 超时零进展——复测证据未积累（无复测任务完成/无有机流量），验证未闭合需人工复核" } } as never);
+              await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifyExpired: true, expiredAt: Date.now(), expiryReason: "verify 超时零进展——复测证据未积累（无复测任务完成/无有机流量），验证未闭合需人工复核" } } as never, { tenantId: suggestionTenantId });
               const expiredContent = JSON.stringify({ type: "verify-expired", suggestionId: row.id, pattern, target, note: "应用后复测超时零证据——已标记 verify_expired（诚实缺口——人工复核或降级人工闸门）" });
               void mem.write({
                 kind: "task-insight",
+                tenantId: DEFAULT_TENANT_ID,
                 anchors: ["verify-expired", pattern, roleId ?? "capability-index"],
                 content: expiredContent,
                 status: "official",
@@ -410,21 +419,22 @@ export class Optimizer {
         const worse = evidence.avgFails > baseline.avgFails * 1.5 || evidence.avgSteps > baseline.avgSteps * 1.5;
         if (!worse) {
           // 指标未劣化——规则有效——验证闭合（verified）
-          await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifiedAt: Date.now(), verifySource: evidence.source } } as never);
+          await mem.update!(row.id, { meta: { ...row.meta, verifyAfterWindow: false, verifiedAt: Date.now(), verifySource: evidence.source } } as never, { tenantId: suggestionTenantId });
           continue;
         }
         // 回滚：从目标资产移除该 pattern 的规则 stamp
-        const doc = await mem.queryReadOnly!(`SELECT content FROM memory_entries WHERE id = '${target}'`) as Array<{ content: string }>;
+        const doc = await mem.queryReadOnly!(`SELECT content, tenant_id FROM memory_entries WHERE id = '${target}'`) as Array<{ content: string; tenant_id?: string }>;
+        const docTenantId = doc[0]?.tenant_id ?? DEFAULT_TENANT_ID;
         const docContent = String(doc[0]?.content ?? "");
         const stampRe = new RegExp(`\n\n【优化规则 · ${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\n]*】\n- [^\n]*`);
         const cleaned = docContent.replace(stampRe, "");
         if (cleaned !== docContent) {
-          await mem.update!(target, { content: cleaned });
+          await mem.update!(target, { content: cleaned }, { tenantId: docTenantId });
         }
         await mem.update!(row.id, {
           status: "rolled_back",
           meta: { ...row.meta, rolledBack: true, rolledBackAt: Date.now(), verifySource: evidence.source, rollbackReason: `指标劣化（avgFails ${baseline.avgFails.toFixed(2)}→${evidence.avgFails.toFixed(2)} / avgSteps ${baseline.avgSteps.toFixed(1)}→${evidence.avgSteps.toFixed(1)}——证据: ${evidence.source}）` },
-        } as never);
+        } as never, { tenantId: suggestionTenantId });
         const deoptContent = JSON.stringify({
           type: "deopt-rollback", pattern, target, roleId, source: evidence.source,
           baseline, current: { avgFails: evidence.avgFails, avgSteps: evidence.avgSteps }, rolledBackAt: Date.now(),
@@ -432,6 +442,7 @@ export class Optimizer {
         });
         void mem.write({
           kind: "task-insight",
+          tenantId: DEFAULT_TENANT_ID,
           anchors: ["deopt", pattern, roleId ?? "capability-index"],
           content: deoptContent,
           status: "official",

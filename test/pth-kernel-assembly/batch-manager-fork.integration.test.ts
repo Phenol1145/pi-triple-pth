@@ -32,9 +32,16 @@ const suite = dockerAvailable ? describe : describe.skip;
 // --- fork TS 入口所需 resolve-hook loader（与 batch-process.integration.test.ts 同源）---
 // Node 24 strip-types 不重写相对 .js→.ts specifier；src/ 内 import 一律 .js 后缀 →
 // resolve hook：父模块 .ts 时相对 .js 先按 .ts 解析。
+// F2：node_modules 软链指向主工作树——fork 子进程解析 @away_from/pth-memory 会落到主树
+// dist（旧实现）。这里把该裸 specifier 重定向到本工作树源码，保证子进程跑的是 F2 实现。
+const MEMORY_SRC = new URL("../../packages/pth-memory/src/index.ts", import.meta.url).href;
 const LOADER_SRC = `import { register } from "node:module";
 register(import.meta.url, import.meta.url);
+const MEMORY_SRC = ${JSON.stringify(MEMORY_SRC)};
 export async function resolve(specifier, context, nextResolve) {
+  if (specifier === "@away_from/pth-memory") {
+    return { url: MEMORY_SRC, shortCircuit: true };
+  }
   if (specifier.startsWith(".") && context.parentURL?.endsWith(".ts") && specifier.endsWith(".js")) {
     try {
       return await nextResolve(specifier.replace(/\\.js$/, ".ts"), context);

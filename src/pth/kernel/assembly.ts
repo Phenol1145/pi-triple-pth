@@ -1,4 +1,5 @@
 import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
+import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
 import { BatchManager } from "./execution/batch-manager.js";
 import { getEventBus } from "./execution/event-bus.js";
@@ -177,7 +178,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化——task-store 只存不判）
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——唯一合法生产构造入口（batch-process 同源）。
-  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole }, buildDisciplineResolver());
+  const dataWorld = createDataWorld(
+    pool,
+    { validate: checkTaskRouting, assign: routeTaskRole },
+    buildDisciplineResolver(),
+    { requireTenant: true },
+  );
   const assemblyLogger = createKernelLogger();
   const { ActivityHub } = await import("./execution/activity-hub.js");
   const activityHub = new ActivityHub();
@@ -278,7 +284,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // tags=[roleId]、capabilities/thinking 继承 parent）→ registerWorkerRole + 落 worker-role 条目（幂等）。
   const recoveredRoles: Array<{ id: string }> = [];   // 恢复角色清单（spawnBatch 后热上线）
   try {
-    const approved = await dataWorld.memory.retrieve({ kinds: ["differentiation-proposal"], status: ["official"] });
+    const approved = await dataWorld.memory.retrieve({ kinds: ["differentiation-proposal"], status: ["official"], tenantId: DEFAULT_TENANT_ID });
     let rebuilt = 0;
     for (const e of approved) {
       try {
@@ -305,6 +311,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
         recoveredRoles.push(role);
         await dataWorld.memory.write({
           id: `worker-role:${sug.id}`,
+          tenantId: DEFAULT_TENANT_ID,
           kind: "worker-role",
           anchors: ["worker-role", sug.id],
           content: JSON.stringify(role),
@@ -322,7 +329,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // 持久化扩展角色恢复（2026-08-12 审计 MEDIUM-8 修复：approve 注册的角色重启后恢复——
   // DB 谱系与源码谱系一致；registerWorkerRole 自动重建标签注册）
   try {
-    const persisted = await dataWorld.memory.retrieve({ kinds: ["worker-role"], status: ["official"] });
+    const persisted = await dataWorld.memory.retrieve({ kinds: ["worker-role"], status: ["official"], tenantId: DEFAULT_TENANT_ID });
     for (const e of persisted) {
       try {
         // H7：来源校验 + 结构校验——伪造 official 条目不得驱动装配注册
@@ -347,6 +354,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     const { renderWorkerIndex } = await import("./execution/worker-cluster.js");
     await dataWorld.memory.write({
       id: "worker-index",
+      tenantId: DEFAULT_TENANT_ID,
       kind: "worker-index",
       anchors: ["worker-index", "角色清单"],
       content: renderWorkerIndex(),
@@ -359,7 +367,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // 与 worker-role 对称——空间树不因重启丢失）
   try {
     const { spaceRegistry } = await import("./execution/space-registry.js");
-    const spaces = await dataWorld.memory.retrieve({ kinds: ["space-reg"], status: ["official"] });
+    const spaces = await dataWorld.memory.retrieve({ kinds: ["space-reg"], status: ["official"], tenantId: DEFAULT_TENANT_ID });
     let restored = 0;
     for (const e of spaces) {
       try {

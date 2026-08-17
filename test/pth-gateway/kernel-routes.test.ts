@@ -263,7 +263,7 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
         memory: {
           retrieve: async ({ anchors }: any) =>
             anchors.includes("absent") ? [] : [{ id: "m1", kind: "note", meta: visibleMeta }],
-          get: async (id: string) => (id === "m1" ? { id: "m1", kind: "note", meta: visibleMeta } : null),
+          get: async (id: string) => (id === "m1" ? { id: "m1", kind: "note", status: "official", meta: visibleMeta } : null),
         } as any,
         transcripts: {} as any,
         audit: {} as any,
@@ -300,8 +300,17 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("query：按 token space 过滤可见性，缺 meta 行 fail-closed", async () => {
+  it("query：tenant-agent → 403（raw query 仅 platform-admin）", async () => {
     const app = bridgeApp({ tenantId: "tenant-a", role: "tenant-agent", space: "meta" });
+    const res = await app.inject({
+      method: "POST", url: "/api/v1/kernel/memory-bridge",
+      payload: { op: "query", sql: "SELECT kind, meta FROM memory_entries LIMIT 3" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("query：platform-admin 按 token space 过滤可见性，缺 meta 行 fail-closed", async () => {
+    const app = bridgeApp({ tenantId: "tenant-a", role: "platform-admin", space: "meta" });
     const res = await app.inject({
       method: "POST", url: "/api/v1/kernel/memory-bridge",
       payload: { op: "query", sql: "SELECT kind, meta FROM memory_entries LIMIT 3" },
@@ -313,7 +322,7 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
   it("query：缺 meta 行 → 400", async () => {
     const app = Fastify();
     app.addHook("onRequest", async (req) => {
-      (req as unknown as { auth: unknown }).auth = { tenantId: "tenant-a", role: "tenant-agent", space: "meta" };
+      (req as unknown as { auth: unknown }).auth = { tenantId: "tenant-a", role: "platform-admin", space: "meta" };
     });
     registerKernelRoutes(app, wrap({
       dataWorld: {
@@ -348,6 +357,74 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toHaveLength(1);
+  });
+
+  it("F2：retrieve 固定 official + 传 auth.tenantId（draft/archived 不回）", async () => {
+    const metaVisible = { spaceScope: { space: "meta", visibility: "public" } };
+    const retrieveCalls: Array<{ anchors?: string[]; kinds?: string[]; status?: string[]; tenantId?: string }> = [];
+    const app = Fastify();
+    app.addHook("onRequest", async (req) => {
+      (req as unknown as { auth: unknown }).auth = { tenantId: "tenant-a", role: "tenant-agent", space: "meta" };
+    });
+    registerKernelRoutes(app, wrap({
+      dataWorld: {
+        tasks: { publish: async () => ({}), candidates: async () => [], countPending: async () => 0 } as any,
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async (opts: any) => {
+            retrieveCalls.push(opts);
+            const all = [
+              { id: "official-1", kind: "note", status: "official", meta: metaVisible },
+              { id: "draft-1", kind: "note", status: "draft", meta: metaVisible },
+              { id: "archived-1", kind: "note", status: "archived", meta: metaVisible },
+            ];
+            return all.filter((e) => !opts.status || opts.status.includes(e.status));
+          },
+          get: async () => null,
+        } as any,
+        transcripts: {} as any,
+        audit: {} as any,
+      } as any,
+    }));
+    const res = await app.inject({
+      method: "POST", url: "/api/v1/kernel/memory-bridge",
+      payload: { op: "retrieve", anchors: ["a"] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([{ id: "official-1", kind: "note", status: "official", meta: metaVisible }]);
+    expect(retrieveCalls[0]).toMatchObject({ anchors: ["a"], status: ["official"], tenantId: "tenant-a" });
+  });
+
+  it("F2：get 传 auth.tenantId（跨 tenant 读取隔离）", async () => {
+    const metaVisible = { spaceScope: { space: "meta", visibility: "public" } };
+    const getCalls: Array<{ id: string; opts?: { tenantId?: string } }> = [];
+    const app = Fastify();
+    app.addHook("onRequest", async (req) => {
+      (req as unknown as { auth: unknown }).auth = { tenantId: "tenant-a", role: "tenant-agent", space: "meta" };
+    });
+    registerKernelRoutes(app, wrap({
+      dataWorld: {
+        tasks: { publish: async () => ({}), candidates: async () => [], countPending: async () => 0 } as any,
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async () => [],
+          get: async (id: string, opts?: { tenantId?: string }) => {
+            getCalls.push({ id, opts });
+            return opts?.tenantId === "tenant-a"
+              ? { id: "m1", kind: "note", status: "official", meta: metaVisible }
+              : null;
+          },
+        } as any,
+        transcripts: {} as any,
+        audit: {} as any,
+      } as any,
+    }));
+    const res = await app.inject({
+      method: "POST", url: "/api/v1/kernel/memory-bridge",
+      payload: { op: "get", id: "m1" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(getCalls[0]).toEqual({ id: "m1", opts: { tenantId: "tenant-a" } });
   });
 
   it("op 非法 → 400", async () => {

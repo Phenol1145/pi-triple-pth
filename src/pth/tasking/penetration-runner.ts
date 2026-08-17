@@ -60,7 +60,7 @@ export type PenetrationRunChild = (req: PenetrationRunChildRequest) => Promise<P
 
 /** 记忆读取窄口（结构型——PgMemoryStore.get 兼容） */
 export interface PenetrationMemoryLike {
-  get(id: string): Promise<{ id: string; kind: string; status?: string; content: string } | undefined>;
+  get(id: string, opts?: { tenantId?: string }): Promise<{ id: string; kind: string; status?: string; content: string } | undefined>;
 }
 
 export interface PenetrationRunner {
@@ -92,7 +92,7 @@ export function createPenetrationRunner(deps: {
       }
       // 4. 穿透 skill 条目存在且 official（draft = 未审批——不可执行）
       const skillId = `${PENETRATION_SKILL_ID_PREFIX}${to}`;
-      const entry = await deps.memory.get(skillId);
+      const entry = await deps.memory.get(skillId, { tenantId: caller.tenantId });
       if (!entry) {
         throw new PtcContractError(
           "tasks.penetrate",

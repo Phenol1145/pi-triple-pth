@@ -74,11 +74,31 @@ export interface PgMemoryStoreUpdateOptions {
  *   （FS 等价：{...existing.meta, ...(entry.meta ?? {}), version, updatedAt, hitCount} 整条写回）。
  * 遗留差异（见 task-4-report 疑虑）：update 仅更新 content/status（brief 骨架），anchors/kind 变更请走 write。
  */
+export const REQUIRE_TENANT_ERROR = "memory: tenantId required（TenantScope fail-closed）";
+
 export class PgMemoryStore {
   private readonly defaultTenantId: string;
+  private readonly requireTenant: boolean;
 
-  constructor(private pool: pg.Pool, opts?: { defaultTenantId?: string }) {
+  constructor(private pool: pg.Pool, opts?: { defaultTenantId?: string; requireTenant?: boolean }) {
     this.defaultTenantId = opts?.defaultTenantId ?? DEFAULT_TENANT_ID;
+    this.requireTenant = opts?.requireTenant ?? false;
+  }
+
+  /** write 侧 fail-closed：requireTenant=true 时 entry.tenantId 必填。 */
+  private resolveEntryTenant(entry: MemoryEntry): string {
+    if (this.requireTenant && !entry.tenantId) {
+      throw new Error(REQUIRE_TENANT_ERROR);
+    }
+    return entry.tenantId ?? this.defaultTenantId;
+  }
+
+  /** opts 侧 fail-closed：requireTenant=true 时 opts.tenantId 必填。 */
+  private resolveTenantOpts(opts?: { tenantId?: string }): string {
+    if (this.requireTenant && !opts?.tenantId) {
+      throw new Error(REQUIRE_TENANT_ERROR);
+    }
+    return opts?.tenantId ?? this.defaultTenantId;
   }
 
   /**
@@ -106,14 +126,14 @@ export class PgMemoryStore {
       }
     }
 
-    const tenantId = entry.tenantId ?? this.defaultTenantId;
+    const tenantId = this.resolveEntryTenant(entry);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      // 行锁（PK=id；现有语义不因 tenant 改变）——旧行用于记录 append-only 历史。
+      // 行锁（复合 PK=(tenant_id, id)——同 id 跨 tenant 可并存）——旧行用于记录 append-only 历史。
       const oldRows = await client.query(
-        `SELECT id, tenant_id, content, status, anchors, meta, version FROM memory_entries WHERE id = $1 FOR UPDATE`,
-        [entry.id],
+        `SELECT id, tenant_id, content, status, anchors, meta, version FROM memory_entries WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+        [entry.id, tenantId],
       );
       const old = oldRows.rows[0] as
         | { id: string; tenant_id: string; content: string; status: string; anchors: string[]; meta: Record<string, unknown>; version: number }
@@ -165,7 +185,7 @@ export class PgMemoryStore {
       await client.query(
         `INSERT INTO memory_entries (id, tenant_id, kind, anchors, content, rule_ref, idempotency_key, status, promoted_from, meta)
          VALUES ($1, $10, $2, $3::jsonb, $4, $5, $6, $7, $8, $9::jsonb)
-         ON CONFLICT (id) DO UPDATE SET
+         ON CONFLICT (tenant_id, id) DO UPDATE SET
            content = EXCLUDED.content,
            anchors = EXCLUDED.anchors,
            status = EXCLUDED.status,
@@ -209,7 +229,7 @@ export class PgMemoryStore {
   }
 
   async get(id: string, opts?: { tenantId?: string }): Promise<MemoryEntry | undefined> {
-    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const tenantId = this.resolveTenantOpts(opts);
     const res = await this.pool.query(
       `SELECT * FROM memory_entries WHERE id = $1 AND tenant_id = $2`, [id, tenantId],
     );
@@ -237,7 +257,7 @@ export class PgMemoryStore {
     if (id.startsWith("skill:") && !opts.force) {
       throw new Error(`memory.update: skill 条目不可变（${id}）——修订请走 skills.maintain.archive + 新条目`);
     }
-    const tenantId = opts.tenantId ?? this.defaultTenantId;
+    const tenantId = this.resolveTenantOpts(opts);
     // meta 合并更新（2026-08-13 deopt 回滚需要——原实现 meta 只建初始 version）；
     // H6：受保护字段先剥除（spaceScope/visibility/系统账本键不可经 update 覆盖）
     const metaPatch = patch.meta ? PgMemoryStore.sanitizeMetaPatch(patch.meta) : undefined;
@@ -349,7 +369,7 @@ export class PgMemoryStore {
     }
     if (opts.excludeDrafts) conds.push(`status != 'draft'`);
     // K1a tenant 隔离：缺省 default tenant；status 默认语义保持不变（official-only 由 broker 表达）
-    params.push(opts.tenantId ?? this.defaultTenantId);
+    params.push(this.resolveTenantOpts(opts));
     conds.push(`tenant_id = $${params.length}`);
     const where = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
     const res = await this.pool.query(`SELECT * FROM memory_entries ${where} ORDER BY id`, params);
@@ -358,7 +378,7 @@ export class PgMemoryStore {
 
   /** 旁路计数器（独立列 UPDATE）：不触发版本化、不参与 CAS（对齐 FS 独立计数器文件语义）。 */
   async bumpHitCount(id: string, opts?: { tenantId?: string }): Promise<void> {
-    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const tenantId = this.resolveTenantOpts(opts);
     await this.pool.query(
       `UPDATE memory_entries SET hit_count = hit_count + 1 WHERE id = $1 AND tenant_id = $2`, [id, tenantId],
     );
@@ -381,7 +401,7 @@ export class PgMemoryStore {
     for (const k of keys) {
       if (!/^[a-zA-Z0-9_]{1,64}$/.test(k)) throw new Error(`incrementAggregate: 非法增量键 "${k}"（仅字母数字下划线 ≤64）`);
     }
-    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const tenantId = this.resolveTenantOpts(opts);
     // 两套表达式：INSERT（新行——纯增量值）；UPDATE（现值 + 增量——jsonb || 合并）。
     // ⚠ VALUES 分支不能引用 content 列（新行无列值——2026-08-12 实机修复：INSERT 用纯参数）
     // ⚠ 显式 ::numeric——jsonb_build_object 的 value 参数是 any——pg 无法推断参数类型
@@ -396,7 +416,7 @@ export class PgMemoryStore {
     await this.pool.query(
       `INSERT INTO memory_entries (id, tenant_id, kind, status, content, anchors, meta, created_at, updated_at)
        VALUES ($1, $${tenantParam}, $2, 'official', jsonb_build_object(${insertParts.join(", ")})::text, $3::jsonb, $4::jsonb, now(), now())
-       ON CONFLICT (id) DO UPDATE SET
+       ON CONFLICT (tenant_id, id) DO UPDATE SET
          content = (memory_entries.content::jsonb || jsonb_build_object(${updateParts.join(", ")}))::text,
          updated_at = now()
        WHERE memory_entries.tenant_id = EXCLUDED.tenant_id`,
@@ -406,7 +426,7 @@ export class PgMemoryStore {
 
   /** append-only 历史（旧→新按 revision 升序）。tenant 缺省 default。 */
   async revisionHistory(entryId: string, opts?: { tenantId?: string }): Promise<MemoryRevision[]> {
-    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const tenantId = this.resolveTenantOpts(opts);
     const res = await this.pool.query(
       `SELECT entry_id, tenant_id, revision, content, status, anchors, meta, created_at, created_by, reason
        FROM memory_revisions
@@ -419,7 +439,7 @@ export class PgMemoryStore {
 
   /** 恢复历史 revision：用目标历史内容构造 MemoryEntry → write(force)（恢复前自动记当前版本历史）。 */
   async restoreRevision(entryId: string, revision: number, opts?: { tenantId?: string; createdBy?: string }): Promise<void> {
-    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const tenantId = this.resolveTenantOpts(opts);
     const history = await this.revisionHistory(entryId, { tenantId });
     const target = history.find((r) => r.revision === revision);
     if (!target) {
@@ -453,10 +473,41 @@ export class PgMemoryStore {
   }
 
   async listIds(opts?: { tenantId?: string }): Promise<string[]> {
-    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const tenantId = this.resolveTenantOpts(opts);
     const res = await this.pool.query(`SELECT id FROM memory_entries WHERE tenant_id = $1`, [tenantId]);
     return (res.rows as Array<{ id: string }>).map((r) => r.id);
   }
+}
+
+/**
+ * F2（AB-01）：把 requireTenant=true 的 PgMemoryStore 绑定到显式 tenant 的窄包装。
+ * 供 governance 函数（skills/tool-reg/wiki/memory-admin）等只接收 store 形参的调用点复用——
+ * 这些函数内部调 store.get/listIds/write/update 时不带 tenant opts，包装器统一补齐
+ * （write 补 entry.tenantId，其余补 opts.tenantId）。
+ */
+export function withMemoryTenant(store: PgMemoryStore, tenantId: string): PgMemoryStore {
+  const wrapped = {
+    write: (entry: MemoryEntry, opts?: PgMemoryStoreWriteOptions) => store.write({ ...entry, tenantId }, opts),
+    get: (id: string, opts?: { tenantId?: string }) => store.get(id, { ...opts, tenantId }),
+    update: (id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: PgMemoryStoreUpdateOptions = {}) =>
+      store.update(id, patch, { ...opts, tenantId }),
+    retrieve: (opts: { anchors?: string[]; kinds?: string[]; status?: string[]; excludeDrafts?: boolean; tenantId?: string } = {}) =>
+      store.retrieve({ ...opts, tenantId }),
+    listIds: (opts?: { tenantId?: string }) => store.listIds({ ...opts, tenantId }),
+    bumpHitCount: (id: string, opts?: { tenantId?: string }) => store.bumpHitCount(id, { ...opts, tenantId }),
+    incrementAggregate: (
+      id: string,
+      kind: string,
+      anchors: unknown[],
+      deltas: Record<string, number>,
+      meta: Record<string, unknown>,
+      opts?: { tenantId?: string },
+    ) => store.incrementAggregate(id, kind, anchors, deltas, meta, { ...opts, tenantId }),
+    revisionHistory: (entryId: string, opts?: { tenantId?: string }) => store.revisionHistory(entryId, { ...opts, tenantId }),
+    restoreRevision: (entryId: string, revision: number, opts?: { tenantId?: string; createdBy?: string }) =>
+      store.restoreRevision(entryId, revision, { ...opts, tenantId }),
+  };
+  return wrapped as unknown as PgMemoryStore;
 }
 
 /** 列 → MemoryRevision。 */
