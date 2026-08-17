@@ -161,10 +161,11 @@ export const MID_ROLES: WorkerRole[] = [
  *
  * 用户裁决：Origin 分割为 sensor（观测）/ controller（调节）/ actuator（执行）三类根角色。
  * 2026-08-14 用户裁决：sensor/controller 升格为真实类型（MID_ROLES gen=1 挂 Origin）——
- * 本数组的 9 个叶子是其子类型（gen=2 挂 sensor/controller）：
- *   sensor 系 4 子类：worker-opt（内环观测）/ system-opt（系统观测）/ resource（资源观测）/ memory（记忆观测）
- *   controller 系 5 子类：router（任务路由——guard 占位）/ worker-opt（worker 优化）/
- *     pth-opt（PTH 面优化）/ resource（资源优化——方案管理）/ memory（记忆管理）
+ * 本数组的 13 个叶子是其子类型（gen=2 挂 sensor/controller）：
+ *   sensor 系 7 子类：worker-opt（内环观测）/ system-opt（系统观测）/ resource（资源观测）/ memory（记忆观测）
+ *     + tool-face（工具面观测）/ tool-single（单工具观测）/ rule（规则观测）——N14 四维细分增补（2026-08-18）
+ *   controller 系 6 子类：router（任务路由——guard 占位）/ worker-opt（worker 优化）/
+ *     pth-opt（PTH 面优化）/ resource（资源优化——方案管理）/ memory（记忆管理）/ adversarial（对抗性审核）
  * worker 三元组（动作空间×记忆空间×承诺任务类型）：capabilities=动作空间、memoryScope=记忆空间、
  * 承诺任务类型在 prompt/description 声明（观测任务/控制任务——由 trigger 生成任务源驱动）。
  *
@@ -193,6 +194,22 @@ export const GOVERNANCE_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：观测=执行核（obs 能力在 ts 程序面）+导航（无生产核/治理面）
     parent: "sensor", generation: 2, differentiation: "控制论分割——观测职责从 Origin 分出（记忆管理测量）", acceptanceRole: "read-only" },
+  // ── N14 四维细分（2026-08-18 Q1 增补式裁决）：0.17.4 四层次观测缺口补齐（记忆层已被 sensor:memory 覆盖）──
+  { id: "sensor:tool-face", tags: ["sensor", "observe"], prompt: "你是工具面观测者（sensor:tool-face）——0.17.4 工具面优化层的测量角色。任务：观测工具面缺口——① 重复出现的工具组合链（≥N 步的固定序列 = 固化候选，组合成本可外移为一次调用）② 多步绕行（LLM 用多步组合出单步可得结果）③ 穿透/注册候选路径（稳定派发路径/高频 tool-function 沉淀）。数据源：obs.callpoint（scorecard toolFreq 时序聚合）、obs.search（transcript 轨迹检索——决策链找「岔路口」）、memory.query（tool-function 候选池频率）。产物：memory.write kind=optimizer-suggestion（status=draft——监督层流转）——含组合链频次 TopN / 平均组合深度 / 候选路径清单。只观测不调节——调节归 controller:tool-face。",
+    description: "工具面观测（组合链/多步绕行/注册候选——N14 四层次·工具面层）", thinking: "medium",
+    capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "sensor", generation: 2, differentiation: "N14 四维细分（2026-08-18 Q1 增补式）——0.17.4 工具面优化层观测缺口（组合难度测量）", acceptanceRole: "read-only" },
+  { id: "sensor:tool-single", tags: ["sensor", "observe"], prompt: "你是单工具观测者（sensor:tool-single）——0.17.4 单工具优化层的测量角色。任务：观测单工具质量——① 工具级跨 worker 聚合失败率（>15% 即热点——repeated-fail 同款阈值）② 参数误用模式（聚类）③ 幻觉邻近名（unknown-tool 引导记录——obs.guards 的 unknown-tool 计数）④ 描述三要素缺失/误导（T8 运营面）⑤ 回填带宽浪费（mode 误用——default 全量回填大数据）。数据源：obs.callpoint（avg_fails 角色维）、obs.guards（unknown-tool/repeat-action 计数）、obs.search（transcript 误用轨迹）。产物：memory.write kind=optimizer-suggestion draft——含工具失败率排名 / 误用聚类 / 描述缺陷清单。只观测不调节——调节归 controller:tool-single。",
+    description: "单工具观测（失败率/误用/幻觉邻近名/描述缺陷——N14 四层次·单工具层）", thinking: "medium",
+    capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "sensor", generation: 2, differentiation: "N14 四维细分（2026-08-18 Q1 增补式）——0.17.4 单工具优化层观测缺口（工具视角聚合非调用点视角）", acceptanceRole: "read-only" },
+  { id: "sensor:rule", tags: ["sensor", "observe"], prompt: "你是规则观测者（sensor:rule）——0.17.4 规则优化层的测量角色（N12 二期观测面消费位）。任务：观测规则有效性——① 护栏命中率/误杀率（obs.guards 按护栏分账 hits/guide/soft/hard + killRatio=(soft+hard)/hits）② 权限拒绝分布（用途层/capabilities 拒绝是否合理——transcript 拒绝文案聚类）③ 引导消息反复出现（guide 高但行为不变 = 规则未生效信号）④ 规则冲突（护栏文案与角色 prompt 矛盾）。数据源：obs.guards（N12 二期观测面——本点位核心数据源）、obs.callpoint（gatedActions 门控计数）、obs.search（引导/拒绝文案检索）。产物：memory.write kind=optimizer-suggestion draft——含护栏 hit/kill 比 / 拒绝分布 / 未生效规则清单。只观测不调参——调节归 controller:rule。",
+    description: "规则观测（护栏命中/误杀/拒绝分布/未生效规则——N14 四层次·规则层）", thinking: "medium",
+    capabilities: ["fs", "memory", "obs", "readSource", "python", "bash"], output: "observation",
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "sensor", generation: 2, differentiation: "N14 四维细分（2026-08-18 Q1 增补式）——0.17.4 规则优化层观测缺口（N12 二期观测面消费位）", acceptanceRole: "read-only" },
   // ── controller 系（调节根子角色——承诺任务类型=控制/调节——capabilities 含 manage 控制面）──
   { id: "controller:router", tags: ["controller", "route"], prompt: "你是任务路由者（controller:router）——任务分流决策角色（guard 占位——v1 不实现分流判断）。任务：评审任务-角色匹配（task-resolver 分配合理性），记录路由观察（哪些任务类型反复在角色间迁移），输出路由建议（任务分化/合并方向——任务分化优先于 worker 分化）。",
     description: "任务路由（调用点截断/分流——占位）", thinking: "medium",

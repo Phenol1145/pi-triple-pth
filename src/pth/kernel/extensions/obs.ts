@@ -232,6 +232,58 @@ export const obsExtension: TsReplExtension = {
         }
       },
 
+      /** 护栏计数观测（N12 二期观测面 / N14 P1——sensor:rule 数据源）。
+       *  D1 已落 trace guard 事件 → scorecard.guards 聚合；本方法把计数**出** scorecard：
+       *  按护栏分账 命中/引导/软终/硬终 + killRatio（(soft+hard)/hits——误杀观测起点）。
+       *  role 白名单含冒号（sensor:rule 等治理角色 id——与 callpoint 的 [a-z0-9-] 不同）。 */
+      guards: async (opts: Record<string, unknown> = {}) => {
+        const role = str(opts["role"]);
+        const since = str(opts["since"]);
+        const conds: string[] = ["kind = 'task-scorecard'", "content::jsonb ? 'guards'"];
+        if (role && /^[a-z0-9:-]+$/.test(role)) conds.push(`meta->>'role' = '${role}'`);
+        if (since && /^\d+$/.test(since)) conds.push(`created_at > now() - make_interval(secs => ${since})`);
+        interface GuardCount { hits: number; guide: number; soft: number; hard: number }
+        const blank = (): GuardCount => ({ hits: 0, guide: 0, soft: 0, hard: 0 });
+        try {
+          const rows = (await ctx.dataWorld.queryReadOnly(
+            `SELECT meta->>'role' AS role, content::jsonb->'guards' AS guards FROM memory_entries WHERE ${conds.join(" AND ")} ORDER BY created_at DESC LIMIT 200`,
+          )) as Array<{ role: string | null; guards: unknown }>;
+          const totals = new Map<string, GuardCount>();
+          const byRole = new Map<string, Map<string, GuardCount>>();
+          let tasks = 0;
+          const add = (m: Map<string, GuardCount>, gid: string, kind: keyof GuardCount, n: number) => {
+            const c = m.get(gid) ?? blank();
+            c[kind] += n;
+            m.set(gid, c);
+          };
+          for (const r of rows) {
+            if (!r.guards || typeof r.guards !== "object") continue;   // pre-D1 旧条目无 guards 段
+            tasks++;
+            const g = r.guards as Record<string, Record<string, number> | undefined>;
+            const rn = r.role ?? "?";
+            for (const kind of ["hits", "guide", "soft", "hard"] as const) {
+              for (const [gid, n] of Object.entries(g[kind] ?? {})) {
+                const v = Number(n) || 0;
+                add(totals, gid, kind, v);
+                let rm = byRole.get(rn);
+                if (!rm) { rm = new Map(); byRole.set(rn, rm); }
+                add(rm, gid, kind, v);
+              }
+            }
+          }
+          const withRatio = (m: Map<string, GuardCount>) => Object.fromEntries(
+            [...m.entries()].map(([gid, c]) => [gid, { ...c, killRatio: c.hits > 0 ? Math.round((100 * (c.soft + c.hard)) / c.hits) / 100 : 0 }]),
+          );
+          return {
+            tasks,
+            guards: withRatio(totals),
+            byRole: Object.fromEntries([...byRole.entries()].map(([rn, m]) => [rn, withRatio(m)])),
+          };
+        } catch (e) {
+          return { error: (e as Error).message };
+        }
+      },
+
       /** sandbox 内核池调查（直查宿主——batch 已知 URL） */
       kernels: kernelStatus,
 
@@ -267,5 +319,5 @@ export const obsExtension: TsReplExtension = {
     },
   }),
   doc: `- obs: 可监控数据调查——obs.tasks({status?, role?, since?, limit?}) 任务池状态分布/耗时；obs.metrics({pattern?}) 主进程指标（pth_* 系列）；obs.batches() 批次状态；obs.kernels() sandbox 内核池（inFlight/idle/容量）；obs.search({query?, limit?}) 事件检索（transcripts）；
-  obs.pg({view}) PG 系统视图（activity/database/bgwriter/slow——连接/缓存/后台写/慢查询）；obs.storage() 存储占用（df + compiled-cache）；obs.memory() 记忆质量聚合（kind/status/hit_count）；obs.callpoint({role?, since?}) 调用点统计（task-scorecard 按角色聚合——sensor 内环数据源）；obs.container() 容器级 cgroup 观测；obs.resource() 资源环聚合（container+pg+storage+batches——controller:resource 数据源）`,
+  obs.pg({view}) PG 系统视图（activity/database/bgwriter/slow——连接/缓存/后台写/慢查询）；obs.storage() 存储占用（df + compiled-cache）；obs.memory() 记忆质量聚合（kind/status/hit_count）；obs.callpoint({role?, since?}) 调用点统计（task-scorecard 按角色聚合——sensor 内环数据源）；obs.guards({role?, since?}) 护栏计数（命中/引导/软终/硬终按护栏分账 + killRatio——sensor:rule 数据源，N12 二期观测面）；obs.container() 容器级 cgroup 观测；obs.resource() 资源环聚合（container+pg+storage+batches——controller:resource 数据源）`,
 };
