@@ -11,4 +11,5 @@ export * from "./task-control-service.js";
 export * from "./task-queries.js";
 export * from "./task-dispatch-notifier.js";
 export * from "./penetration-skill.js";
+export * from "./penetration-budget.js";
 export * from "./penetration-runner.js";
