@@ -249,7 +249,10 @@ export class BatchManager {
   }
 
   async addWorker(batchId: string, role: string, copies = 1): Promise<boolean> {
-    return this.workerCtl(batchId, { type: "worker-add", role, copies });
+    // 回执语义（与 removeWorker 同构——2026-08-18 flaky 根治）：子进程 worker-add 处理完
+    // 必发 worker-status:added（batch-process.ts）；resolve=true 即 worker 已创建，
+    // 调用方无需固定 sleep 等待（全量并发下 sleep 竞态是本集成测试反复抖动的根因）。
+    return this.workerCtl(batchId, { type: "worker-add", role, copies }, "added");
   }
 
   async killBatch(id: string): Promise<void> {

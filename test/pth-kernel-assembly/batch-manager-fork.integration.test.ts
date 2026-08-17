@@ -155,11 +155,15 @@ suite("batch manager production fork (BatchManager ↔ batch-process 组合)", (
     st = t2row?.status;
     expect(st).toBe("pending");   // remove 后不认领
     // 3. add developer → 新任务恢复认领
+    // addWorker 现为回执语义（等 worker-status:added——与 removeWorker 同构，2026-08-18 flaky 根治）：
+    // resolve=true 即 worker 已创建，无需固定 sleep；认领仍走轮询（全量并发下 claim 循环慢——同 step 1 模式）。
     expect(await bm3.addWorker(handle.id, "developer", 1)).toBe(true);
-    await new Promise((r) => setTimeout(r, 1500));
     const t3 = await dw3.tasks.publish({ title: "w3", text: "3", createdBy: "test", tags: ["code"] });
-    await new Promise((r) => setTimeout(r, 2500));
-    st = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t3.id])).rows[0]?.status;
+    for (let i = 0; i < 30; i++) {
+      st = (await pool.query("SELECT status FROM tasks WHERE id = $1", [t3.id])).rows[0]?.status as string;
+      if (["completed", "claimed", "submitted"].includes(st)) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     expect(["completed", "claimed", "submitted"]).toContain(st);
     await bm3.killBatch(handle.id);
   }, 60_000);
