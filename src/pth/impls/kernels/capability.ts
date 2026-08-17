@@ -18,6 +18,7 @@ import type {
 } from "../../contracts/index.js";
 import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, reviewToolProposal } from "@away_from/pth-memory";
 import { validatePenetrationSkillRegistration, PENETRATION_SKILL_NAME_PREFIX } from "../../tasking/index.js";
+import { promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../execution/knowledge-promotion.js";
 import { isIP } from "node:net";
 import { pthConfig } from "../../config/index.js";
 import http from "node:http";
@@ -215,6 +216,32 @@ export function buildCapabilities(deps: {
           tools: {
             review: async (proposalId: string, verdict: "pass" | "reject", note?: string) =>
               reviewToolProposal(deps.dataWorld.memory, proposalId, verdict, note ?? ""),
+          },
+        }
+      : {}),
+    // K4 Phase 4（N22 3）：候选验证与晋升闭环的写能力按角色注入——
+    //   controller:adversarial → knowledge.review（对抗 verdict）；
+    //   memory-keeper → knowledge.promote；
+    //   其它角色无 knowledge 写能力（读走 K3 broker 只读 official）。
+    ...(deps.roleId === "controller:adversarial"
+      ? {
+          knowledge: {
+            review: async ({ entryId, verdict, note }: { entryId: string; verdict: "pass" | "reject"; note: string }) =>
+              recordKnowledgeVerdict(deps.dataWorld.memory, entryId, {
+                kind: "adversarial",
+                verdict,
+                reviewerRole: "controller:adversarial",
+                note,
+                at: Date.now(),
+              }),
+          },
+        }
+      : {}),
+    ...(deps.roleId === "memory-keeper"
+      ? {
+          knowledge: {
+            promote: async (entryId: string) =>
+              promoteKnowledgeEntry(deps.dataWorld.memory, entryId, { promoterRole: "memory-keeper" }),
           },
         }
       : {}),

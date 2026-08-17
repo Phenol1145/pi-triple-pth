@@ -3,7 +3,7 @@ import { buildCapabilities } from "../../src/pth/impls/kernels/capability.js";
 import { TriggerEngine } from "../../src/pth/kernel/execution/trigger-engine.js";
 import { registerSystemTriggers } from "../../src/pth/kernel/execution/system-triggers.js";
 import { resetPthConfig } from "../../src/pth/config/config-center.js";
-import { approveSkillProposal, executeApprovedSkillProposal } from "@away_from/pth-memory";
+import { approveSkillProposal, buildKnowledgeProvenance, executeApprovedSkillProposal } from "@away_from/pth-memory";
 
 /**
  * L2（2026-08-18）：skill staged 审核流端到端链路。
@@ -175,5 +175,82 @@ describe("L2：skill staged 审核流端到端（提案 → 事件派发 → 对
       roleId: "developer",
     });
     expect((caps["skills"] as Record<string, unknown>)["review"]).toBeUndefined();
+  });
+});
+
+describe("K4 Phase 4：knowledge 写能力按角色注入（N22 3）", () => {
+  function seedCandidate(store: ReturnType<typeof makeStore>) {
+    const content = "Earth orbits the Sun.";
+    store.rows.set("cand-1", {
+      id: "cand-1",
+      kind: "task-insight",
+      content,
+      status: "draft",
+      anchors: ["science"],
+      meta: {
+        provenance: buildKnowledgeProvenance({
+          content,
+          sourceTaskId: "task-1",
+          producerRole: "developer",
+          producerModel: "deepseek-v4-flash",
+          sourceRefs: ["task:task-1"],
+        }),
+        verdicts: [],
+      },
+    });
+    return "cand-1";
+  }
+
+  it("controller:adversarial 有 knowledge.review，且落 verdict 为 adversarial", async () => {
+    const store = makeStore();
+    const entryId = seedCandidate(store);
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld(store) as never,
+      toolstore: fakeToolstore as never,
+      roleId: "controller:adversarial",
+    });
+    const review = (caps["knowledge"] as {
+      review: (i: { entryId: string; verdict: "pass" | "reject"; note: string }) => Promise<{ ok: boolean; error?: string }>;
+    }).review;
+    const r = await review({ entryId, verdict: "pass", note: "no shortcut" });
+    expect(r.ok).toBe(true);
+    const verdicts = (store.rows.get(entryId)!.meta as { verdicts?: unknown[] }).verdicts ?? [];
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0]).toMatchObject({ kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial" });
+  });
+
+  it("memory-keeper 有 knowledge.promote，可把合规候选晋升 official", async () => {
+    const store = makeStore();
+    const entryId = seedCandidate(store);
+    // 直接铺好两条合规 verdict（不同 reviewer 且非 producer）——capability 测试聚焦注入面
+    (store.rows.get(entryId)!.meta as { verdicts?: unknown[] }).verdicts = [
+      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1 },
+      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut", at: 2 },
+    ];
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld(store) as never,
+      toolstore: fakeToolstore as never,
+      roleId: "memory-keeper",
+    });
+    const promote = (caps["knowledge"] as { promote: (id: string) => Promise<{ ok: boolean; id?: string; error?: string }> }).promote;
+    const r = await promote(entryId);
+    expect(r).toEqual({ ok: true, id: entryId });
+    expect(store.rows.get(entryId)!.status).toBe("official");
+    expect(store.rows.get(entryId)!.meta).toMatchObject({
+      promotion: { promotedBy: "memory-keeper" },
+    });
+  });
+
+  it("developer 无 knowledge 写能力注入", () => {
+    const store = makeStore();
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld(store) as never,
+      toolstore: fakeToolstore as never,
+      roleId: "developer",
+    });
+    expect(caps["knowledge"]).toBeUndefined();
   });
 });
