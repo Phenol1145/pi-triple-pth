@@ -7,11 +7,13 @@
  * 确定性约定：
  *  - queryFingerprint = FNV-1a 32bit（tenantId|space|roleId|domains(排序)|title|text|catalogVersion
  *    的 \n join）转 8 位 hex；同输入同 catalog 同数据版本 → 同 id；
- *  - 排序：relevance 降序 → id 升序；超 maxEntries 记 omitted={count, reason:"budget"}。
+ *  - 排序：rankKnowledgeEntries（domainRelevance * 1000 + queryTokenHits 降序 → id 升序）；
+ *    超 maxEntries 记 omitted={count, reason:"budget"}。
  */
 
 import type { DomainId } from "../contracts/index.js";
 import type { DisciplineCatalogSnapshot } from "../catalog/index.js";
+import { rankKnowledgeEntries } from "../execution/index.js";
 
 export interface KnowledgeContextEntry {
   entryId: string;
@@ -74,8 +76,6 @@ export interface KnowledgeContextProviderDeps {
 export const KNOWLEDGE_CONTEXT_KINDS = ["domain-fact", "domain-method", "skill", "task-insight"] as const;
 const DEFAULT_MAX_ENTRIES = 8;
 const DEFAULT_SUMMARY_CHARS = 240;
-/** relevance 计算时 entry.anchors 最多取前 8 个（有界性——与设计 §1 一致）。 */
-const RELEVANCE_ANCHOR_CAP = 8;
 
 /** FNV-1a 32-bit → 8 位 hex 指纹。 */
 export function fnv1aHex(input: string): string {
@@ -145,25 +145,26 @@ export function createKnowledgeContextProvider(deps: KnowledgeContextProviderDep
       });
       const visible = entries.filter((e) => deps.isVisible(e.meta, input.space));
 
+      // F4 AB-07：统一走 query-sensitive ranking（score = domainRelevance * 1000 + queryTokenHits）。
       // 命中面 = domains + 必要祖先（catalog 存在时展开；ancestors 含自身，深度稳定序）。
-      const hitSet = new Set<DomainId>(domains);
+      const domainAncestors: DomainId[] = [];
       if (deps.catalog) {
+        const seen = new Set<DomainId>(domains);
         for (const domain of domains) {
           for (const ancestor of deps.catalog.ancestors(domain)) {
-            hitSet.add(ancestor);
+            if (!seen.has(ancestor)) {
+              seen.add(ancestor);
+              domainAncestors.push(ancestor);
+            }
           }
         }
       }
 
-      const sorted = visible
-        .map((e) => ({
-          entry: e,
-          relevance: e.anchors
-            .slice(0, RELEVANCE_ANCHOR_CAP)
-            .reduce((n, anchor) => n + (hitSet.has(anchor) ? 1 : 0), 0),
-        }))
-        .sort((a, b) => (b.relevance - a.relevance) || compareIds(a.entry.id, b.entry.id))
-        .map(({ entry }) => entry);
+      const sorted = rankKnowledgeEntries(visible, {
+        queryText: input.text,
+        domains,
+        domainAncestors,
+      });
 
       const selected = sorted.slice(0, maxEntries);
       const contextEntries: KnowledgeContextEntry[] = selected.map((e) => ({

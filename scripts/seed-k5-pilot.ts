@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * seed-k5-pilot.ts —— N23 K5 评测批：双域 source registry + domain-fact seed 脚本。
+ * seed-k5-pilot.ts —— N23 K5 + F4 评测批：双域 source registry + domain-fact seed 脚本。
  *
  * 把 PILOT_SOURCES 与 PILOT_KNOWLEDGE 落 PgMemoryStore：
  *  - sources：kind="knowledge-source"、status=official、tenant=default、
- *    id=`pilot-source:<id>`、meta 存全量 source；
+ *    id=`pilot-source:<id>`、meta 存全量 source + snapshotContent（F4 6.4）；
  *  - knowledge：kind="domain-fact"、status=official、tenant=default、
- *    meta.provenance 用 buildKnowledgeProvenance 生成（sourceTaskId=k5-eval-seed、
- *    producerRole=k5-pilot-seed、producerModel=curated、sourceRefs=evidence locators）。
+ *    meta.provenance 用 buildKnowledgeProvenance 生成（canonical），并同步写结构化
+ *    meta.evidence = [{ sourceId: "pilot-source:" + id, locator }]（F4 AB-08）。
  *
  * 用法（仓库根）：
  *   DATABASE_URL=… npx tsx scripts/seed-k5-pilot.ts          # 落库（幂等：内容相同跳过）
@@ -24,10 +24,13 @@ import type { PilotKnowledgeEntry } from "../src/pth/catalog/data/pilot-knowledg
 import { PILOT_KNOWLEDGE } from "../src/pth/catalog/data/pilot-knowledge.ts";
 import type { PilotKnowledgeSource } from "../src/pth/catalog/data/pilot-source-registry.ts";
 import { PILOT_SOURCES } from "../src/pth/catalog/data/pilot-source-registry.ts";
+import { PILOT_SOURCE_SNAPSHOTS } from "../src/pth/catalog/data/pilot-source-snapshots.ts";
 
 const SOURCE_TASK_ID = "k5-eval-seed";
 const PRODUCER_ROLE = "k5-pilot-seed";
 const PRODUCER_MODEL = "curated";
+/** 固定 createdAt：让 seed 幂等（内容相同跳过；否则 provenance.createdAt 每次变化会触发 version 递增）。 */
+const SEED_CREATED_AT = 0;
 
 const checkOnly = process.argv.includes("--check");
 const dbUrl = process.env.DATABASE_URL;
@@ -40,6 +43,10 @@ function sourceContent(source: PilotKnowledgeSource): string {
   return `${source.authority} | ${source.uri}${source.version ? ` | ${source.version}` : ""}`;
 }
 
+function sourceSnapshotContent(source: PilotKnowledgeSource): string {
+  return PILOT_SOURCE_SNAPSHOTS.find((snapshot) => snapshot.sourceId === source.id)?.snapshotContent ?? "";
+}
+
 function sourceEntry(source: PilotKnowledgeSource) {
   return {
     id: `pilot-source:${source.id}`,
@@ -48,8 +55,17 @@ function sourceEntry(source: PilotKnowledgeSource) {
     anchors: [source.domain, source.id],
     content: sourceContent(source),
     status: "official" as const,
-    meta: { ...source },
+    // F4 6.4：source entry 的 meta.artifactHash 与 meta.snapshotContent 同步落库。
+    // 注意：meta.version 由 PgMemoryStore 列联动占用，source.version 改用 sourceVersion 保留。
+    meta: { ...source, sourceVersion: source.version ?? null, snapshotContent: sourceSnapshotContent(source) },
   };
+}
+
+function structuredEvidence(entry: PilotKnowledgeEntry): Array<{ sourceId: string; locator: string }> {
+  return entry.evidence.map((evidence) => ({
+    sourceId: `pilot-source:${evidence.sourceId}`,
+    locator: evidence.locator,
+  }));
 }
 
 function knowledgeEntryMeta(entry: PilotKnowledgeEntry): Record<string, unknown> {
@@ -59,9 +75,11 @@ function knowledgeEntryMeta(entry: PilotKnowledgeEntry): Record<string, unknown>
     producerRole: PRODUCER_ROLE,
     producerModel: PRODUCER_MODEL,
     sourceRefs: entry.evidence.map((evidence) => evidence.locator),
+    createdAt: SEED_CREATED_AT,
   });
-  // AB-02 canonical：meta.provenance 是唯一契约位置；write 门禁只认嵌套，不再需要顶层平铺。
-  return { provenance };
+  // AB-02 canonical：meta.provenance 是唯一契约位置；F4 AB-08 额外写结构化 meta.evidence
+  // （sourceId 为 DB source row id，即 "pilot-source:" + id）。
+  return { provenance, evidence: structuredEvidence(entry) };
 }
 
 function knowledgeEntry(entry: PilotKnowledgeEntry) {
@@ -81,6 +99,18 @@ function arraysEqual(a: unknown, b: unknown): boolean {
   return a.every((value, index) => value === b[index]);
 }
 
+/** meta.evidence 是对象数组（jsonb 往返后引用不同——必须逐字段比较）。 */
+function evidenceMatches(a: unknown, b: unknown): boolean {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  return a.every((value, index) => {
+    const other = b[index];
+    if (typeof value !== "object" || value === null || typeof other !== "object" || other === null) return false;
+    const v = value as Record<string, unknown>;
+    const o = other as Record<string, unknown>;
+    return v["sourceId"] === o["sourceId"] && v["locator"] === o["locator"];
+  });
+}
+
 function sourceMetaMatches(meta: unknown, source: PilotKnowledgeSource): boolean {
   if (typeof meta !== "object" || meta === null) return false;
   const m = meta as Record<string, unknown>;
@@ -88,23 +118,29 @@ function sourceMetaMatches(meta: unknown, source: PilotKnowledgeSource): boolean
     && m.domain === source.domain
     && m.authority === source.authority
     && m.uri === source.uri
-    && (m.version ?? undefined) === (source.version ?? undefined)
+    && (m.sourceVersion ?? undefined) === (source.version ?? undefined)
     && m.retrievedAt === source.retrievedAt
     && (m.license ?? undefined) === (source.license ?? undefined)
-    && m.contentHash === source.contentHash;
+    && m.registryFingerprint === source.registryFingerprint
+    && m.artifactHash === source.artifactHash
+    && m.snapshotContent === sourceSnapshotContent(source);
 }
 
 function knowledgeMetaMatches(meta: unknown, entry: PilotKnowledgeEntry): boolean {
   if (typeof meta !== "object" || meta === null) return false;
-  const provenance = (meta as Record<string, unknown>)["provenance"];
+  const m = meta as Record<string, unknown>;
+  const provenance = m["provenance"];
   if (typeof provenance !== "object" || provenance === null) return false;
   const p = provenance as Record<string, unknown>;
+  const evidence = m["evidence"];
+  const expectedEvidence = structuredEvidence(entry);
   return p.sourceTaskId === SOURCE_TASK_ID
     && p.producerRole === PRODUCER_ROLE
     && p.producerModel === PRODUCER_MODEL
-    && typeof p.createdAt === "number"
+    && p.createdAt === SEED_CREATED_AT
     && p.contentHash === contentHashOf(entry.content)
-    && arraysEqual(p.sourceRefs, entry.evidence.map((evidence) => evidence.locator));
+    && arraysEqual(p.sourceRefs, entry.evidence.map((evidence) => evidence.locator))
+    && evidenceMatches(evidence, expectedEvidence);
 }
 
 function sourceRowsMatch(row: Record<string, unknown>, source: PilotKnowledgeSource): boolean {

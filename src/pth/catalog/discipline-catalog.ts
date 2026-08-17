@@ -32,7 +32,21 @@ function fnv1aHex(input: string): string {
 }
 
 function computeVersion(defs: readonly DomainDefinition[]): string {
-  const records = defs.map((d) => `${d.id}:${d.level}:${d.parents.join(">")}:${d.names["zh-CN"] ?? ""}`);
+  // F4 AB-06：覆盖全部 catalog 行为字段——任何 aliases/description/methodAnchors/
+  // toolAnchors/sourceRegistryIds 变化都必须改变版本。
+  const records = defs.map((d) =>
+    [
+      d.id,
+      d.level,
+      d.parents.join(">"),
+      d.names["zh-CN"] ?? "",
+      d.aliases.join("|"),
+      d.description,
+      d.methodAnchors.join("|"),
+      d.toolAnchors.join("|"),
+      d.sourceRegistryIds.join("|"),
+    ].join(":"),
+  );
   records.sort();
   return fnv1aHex(records.join("\n"));
 }

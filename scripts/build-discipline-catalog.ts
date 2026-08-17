@@ -22,6 +22,10 @@ import {
   type DomainDefinition,
   type DomainLevel,
 } from "../src/pth/contracts/domains.js";
+import {
+  applyDisciplineAliasOverrides,
+  PRODUCTION_DOMAIN_ALIAS_OVERRIDES,
+} from "../src/pth/catalog/data/discipline-alias-overrides.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE_DOC = resolve(ROOT, "docs/pth/n16-v1.2-role-expansion.md");
@@ -140,7 +144,8 @@ function renderSource(defs: DomainDefinition[], counts: ReturnType<typeof levelC
  * GENERATED FILE — 请勿手改。
  *
  * 生成源：docs/pth/n16-v1.2-role-expansion.md §2.1–§2.5
- * （只取 | id | 3/4/5 | parent | 职责 | 行；§2.6 非 researcher 不导入）。
+ * （只取 | id | 3/4/5 | parent | 职责 | 行；§2.6 非 researcher 不导入）
+ * + src/pth/catalog/data/discipline-alias-overrides.ts（生产别名覆盖，F4 AB-06）。
  * 生成命令：npx tsx scripts/build-discipline-catalog.ts
  * 数量断言（manifest 复算）：category=${counts.category}、discipline=${counts.discipline}、
  *   sub-discipline=${counts.subDiscipline}、total=${counts.total}。
@@ -153,7 +158,8 @@ export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = ${json};
 
 function main(): void {
   const markdown = readFileSync(SOURCE_DOC, "utf8");
-  const defs = buildDefinitions(parseRows(markdown));
+  const baseDefs = buildDefinitions(parseRows(markdown));
+  const defs = applyDisciplineAliasOverrides(baseDefs, PRODUCTION_DOMAIN_ALIAS_OVERRIDES);
   const counts = assertCounts(defs);
   const source = renderSource(defs, counts);
   const checkMode = process.argv.includes("--check");

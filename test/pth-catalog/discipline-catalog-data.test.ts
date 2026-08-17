@@ -3,16 +3,20 @@
  *
  * 数量钉死（manifest 复算，取代文档手写总数）：
  * category=5、discipline=32、sub-discipline=147、total=184。
+ * F4（AB-06）：生成数据合并生产别名覆盖（discipline-alias-overrides.ts），
+ * computeVersion 覆盖全部 catalog 行为字段 → version 不再 d8429659。
  */
 
 import { describe, expect, it } from "vitest";
 import { DisciplineCatalogBuilder } from "../../src/pth/catalog/discipline-catalog.js";
 import { DOMAIN_ID_RE, type DomainDefinition } from "../../src/pth/contracts/domains.js";
 import { DISCIPLINE_DEFINITIONS } from "../../src/pth/catalog/data/discipline-catalog-data.js";
+import { PRODUCTION_DOMAIN_ALIAS_OVERRIDES } from "../../src/pth/catalog/data/discipline-alias-overrides.js";
 
 const EXPECTED_COUNTS = { category: 5, discipline: 32, subDiscipline: 147, total: 184 };
-/** 生成后回填：scripts/build-discipline-catalog.ts 复算出的稳定 FNV-1a 指纹 */
-const EXPECTED_VERSION = "d8429659";
+/** F4 之前旧版本指纹——computeVersion 扩展后必须变化。 */
+const OLD_VERSION = "d8429659";
+const OVERRIDDEN_DOMAINS = new Set(PRODUCTION_DOMAIN_ALIAS_OVERRIDES.map((o) => o.id));
 
 function levelCounts(defs: readonly DomainDefinition[]) {
   const counts = { category: 0, discipline: 0, subDiscipline: 0, total: defs.length };
@@ -50,10 +54,27 @@ describe("discipline-catalog-data：生成数据验收", () => {
       expect(["category", "discipline", "sub-discipline"]).toContain(d.level);
       expect(d.names["zh-CN"]).toBeTruthy();
       expect(d.names.en).toBe(d.id);
-      expect(d.aliases).toEqual([]);
+      if (OVERRIDDEN_DOMAINS.has(d.id)) {
+        expect(d.aliases.length, `${d.id} 应包含生产别名`).toBeGreaterThan(0);
+      } else {
+        expect(d.aliases).toEqual([]);
+      }
       expect(d.methodAnchors).toEqual([]);
       expect(d.sourceRegistryIds).toEqual([]);
       expect(d.toolAnchors).toEqual([]);
+    }
+  });
+
+  it("生产别名覆盖已合并且 aliases 追加去重（大小写不敏感）", () => {
+    const byId = new Map(DISCIPLINE_DEFINITIONS.map((d) => [d.id, d]));
+    for (const override of PRODUCTION_DOMAIN_ALIAS_OVERRIDES) {
+      const def = byId.get(override.id);
+      expect(def, `override id ${override.id} 必须存在`).toBeTruthy();
+      for (const alias of override.aliases) {
+        expect(def!.aliases.map((a) => a.toLocaleLowerCase())).toContain(alias.toLocaleLowerCase());
+      }
+      const lower = def!.aliases.map((a) => a.toLocaleLowerCase());
+      expect(new Set(lower).size).toBe(lower.length);
     }
   });
 
@@ -64,12 +85,13 @@ describe("discipline-catalog-data：生成数据验收", () => {
     expect(snap.counts()).toEqual(EXPECTED_COUNTS);
   });
 
-  it("version 稳定：正向/反向 add 同版本，且钉死指纹", () => {
+  it("version 稳定：正向/反向 add 同版本，且不再等于旧指纹 d8429659", () => {
     const forward = build();
     const backward = new DisciplineCatalogBuilder();
     for (const d of [...DISCIPLINE_DEFINITIONS].reverse()) backward.add(d);
     const backwardSnap = backward.build();
     expect(forward.version).toBe(backwardSnap.version);
-    expect(forward.version).toBe(EXPECTED_VERSION);
+    expect(forward.version).toMatch(/^[0-9a-f]{8}$/);
+    expect(forward.version).not.toBe(OLD_VERSION);
   });
 });

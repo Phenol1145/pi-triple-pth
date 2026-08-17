@@ -1,21 +1,30 @@
 /**
- * catalog/data/pilot-eval-queries.ts — N23 K5 评测批：双域冻结查询集。
+ * catalog/data/pilot-eval-queries.ts — N23 K5 + F4 6.6 双域冻结查询集。
  *
- * 每个域 30 条（共 60），id 形如 pl-01 / ms-01；查询文本必须能被
- * resolver 的 alias 扫描命中（覆盖缺口会被 domain recall 指标自然暴露）。
- * expectedEntryIds 为人工可复核的期望 top-5 命中 knowledge entry。
+ * 现有 60 题（每域 30）保留；F4 每域追加：
+ *  - +6 hard negative / no-answer（expectedEntryIds: []、expectNoKnowledge: true）；
+ *  - +4 多 Domain 组合（expectedDomains: string[]，resolver 前 3 必须包含全部）；
+ *  - +2 混淆题（近义 domain 干扰，期望 primaryDomain=目标域或目标域在 top3）。
+ * 查询 id：pl-01..30 / ms-01..30；pl-hn-01..06 / ms-hn-01..06；
+ *          pl-md-01..04 / ms-md-01..04；pl-ds-01..02 / ms-ds-01..02。
  */
 
 export interface PilotEvalQuery {
   id: string; // 全局唯一
-  domain: string; // 期望 domain
+  domain: string; // 期望 domain（题型归属）
   text: string; // 冻结查询（中文）
   authoritative: boolean; // 是否需要权威事实/证据（§12.3）
-  expectedEntryIds: string[]; // 期望 top-5 命中的 knowledge entry（≥1）
+  expectedEntryIds: string[]; // 期望 top-5 命中的 knowledge entry（标准题 ≥1；硬负例/多域/混淆可为 []）
+  /** hard negative / no-answer：正确行为 = top5 为空 */
+  expectNoKnowledge?: boolean;
+  /** 多 Domain 组合：resolver 前 3 必须包含全部 expectedDomains */
+  expectedDomains?: string[];
+  /** 混淆题：近义 domain 干扰；期望 primaryDomain=目标域或目标域在 top3 */
+  distractorDomain?: string;
 }
 
 export const PILOT_EVAL_QUERIES: PilotEvalQuery[] = [
-  // ── programming-languages（30 条）──
+  // ── programming-languages（30 条标准题）──
   { id: "pl-01", domain: "programming-languages", text: "Java 编程语言中，类型检查发生在编译期还是运行期？", authoritative: true, expectedEntryIds: ["pl-fact-type-checking"] },
   { id: "pl-02", domain: "programming-languages", text: "Rust 编程语言的类型检查如何帮助在运行前排除内存安全问题？", authoritative: true, expectedEntryIds: ["pl-fact-type-checking"] },
   { id: "pl-03", domain: "programming-languages", text: "C++ 编译器的类型检查为什么允许某些隐式转换？", authoritative: true, expectedEntryIds: ["pl-fact-type-checking"] },
@@ -47,7 +56,7 @@ export const PILOT_EVAL_QUERIES: PilotEvalQuery[] = [
   { id: "pl-29", domain: "programming-languages", text: "C++11 编程语言引入内存模型后，volatile 还能用于线程同步吗？", authoritative: true, expectedEntryIds: ["pl-fact-memory-model"] },
   { id: "pl-30", domain: "programming-languages", text: "编译器与 CPU 的指令重排在编程语言内存模型中如何被约束？", authoritative: true, expectedEntryIds: ["pl-fact-memory-model"] },
 
-  // ── materials-science（30 条）──
+  // ── materials-science（30 条标准题）──
   { id: "ms-01", domain: "materials-science", text: "固态电解质的离子电导率达到多少才适合用于全固态电池？", authoritative: true, expectedEntryIds: ["ms-fact-ionic-conductivity"] },
   { id: "ms-02", domain: "materials-science", text: "材料数据库 Materials Project 如何标注固态电解质的离子电导率？", authoritative: true, expectedEntryIds: ["ms-fact-ionic-conductivity"] },
   { id: "ms-03", domain: "materials-science", text: "提高固态电解质离子电导率的主要材料设计策略有哪些？", authoritative: true, expectedEntryIds: ["ms-fact-ionic-conductivity"] },
@@ -78,4 +87,40 @@ export const PILOT_EVAL_QUERIES: PilotEvalQuery[] = [
   { id: "ms-28", domain: "materials-science", text: "ICSD 与 AFLOW 等材料数据库如何提供固态电解质的晶体结构数据？", authoritative: true, expectedEntryIds: ["ms-fact-crystal-structure"] },
   { id: "ms-29", domain: "materials-science", text: "材料科学中，晶体结构对离子电导率的决定作用体现在哪里？", authoritative: true, expectedEntryIds: ["ms-fact-crystal-structure"] },
   { id: "ms-30", domain: "materials-science", text: "NOMAD 与 Materials Project 的晶体结构数据可以互相补充吗？", authoritative: true, expectedEntryIds: ["ms-fact-crystal-structure"] },
+
+  // ── programming-languages：+6 hard negative / no-answer（top5 应为空）──
+  { id: "pl-hn-01", domain: "programming-languages", text: "no-answer-probe-pl-01 该词条未收录于任何知识体系", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "pl-hn-02", domain: "programming-languages", text: "no-answer-probe-pl-02 没有任何条目覆盖这个随机主题", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "pl-hn-03", domain: "programming-languages", text: "no-answer-probe-pl-03 今天晚饭吃什么", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "pl-hn-04", domain: "programming-languages", text: "no-answer-probe-pl-04 这是一个无意义的占位问题", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "pl-hn-05", domain: "programming-languages", text: "no-answer-probe-pl-05 无法找到对应的事实依据", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "pl-hn-06", domain: "programming-languages", text: "no-answer-probe-pl-06 查询内容超出了试点范围", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+
+  // ── materials-science：+6 hard negative / no-answer（top5 应为空）──
+  { id: "ms-hn-01", domain: "materials-science", text: "no-answer-probe-ms-01 该词条没有任何已收录事实", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "ms-hn-02", domain: "materials-science", text: "no-answer-probe-ms-02 这里问一个不存在于目录中的主题", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "ms-hn-03", domain: "materials-science", text: "no-answer-probe-ms-03 明天会下雨吗", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "ms-hn-04", domain: "materials-science", text: "no-answer-probe-ms-04 这是一个无意义的问题占位", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "ms-hn-05", domain: "materials-science", text: "no-answer-probe-ms-05 找不到与该问题对应的事实", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+  { id: "ms-hn-06", domain: "materials-science", text: "no-answer-probe-ms-06 该查询超出试点知识范围", authoritative: false, expectedEntryIds: [], expectNoKnowledge: true },
+
+  // ── programming-languages：+4 多 Domain 组合（resolver 前 3 必须包含全部 expectedDomains）──
+  { id: "pl-md-01", domain: "programming-languages", text: "使用编程语言处理 Materials Project 的晶体结构数据", authoritative: false, expectedEntryIds: [], expectedDomains: ["materials-science", "programming-languages"] },
+  { id: "pl-md-02", domain: "programming-languages", text: "用类型检查分析 NOMAD 材料数据", authoritative: false, expectedEntryIds: [], expectedDomains: ["materials-science", "programming-languages"] },
+  { id: "pl-md-03", domain: "programming-languages", text: "编译器能否处理材料数据库 Materials Project 的数据导出", authoritative: false, expectedEntryIds: [], expectedDomains: ["materials-science", "programming-languages"] },
+  { id: "pl-md-04", domain: "programming-languages", text: "语言规范与固态电解质数据建模", authoritative: false, expectedEntryIds: [], expectedDomains: ["materials-science", "programming-languages"] },
+
+  // ── materials-science：+4 多 Domain 组合（resolver 前 3 必须包含全部 expectedDomains）──
+  { id: "ms-md-01", domain: "materials-science", text: "固态电解质数据需要哪种编程语言分析", authoritative: false, expectedEntryIds: [], expectedDomains: ["materials-science", "programming-languages"] },
+  { id: "ms-md-02", domain: "materials-science", text: "Materials Project 的数据模型与类型系统", authoritative: false, expectedEntryIds: [], expectedDomains: ["materials-science", "programming-languages"] },
+  { id: "ms-md-03", domain: "materials-science", text: "材料科学中的中间表示与离子电导率", authoritative: false, expectedEntryIds: [], expectedDomains: ["materials-science", "programming-languages"] },
+  { id: "ms-md-04", domain: "materials-science", text: "NOMAD 数据与程序分析工具", authoritative: false, expectedEntryIds: [], expectedDomains: ["materials-science", "programming-languages"] },
+
+  // ── programming-languages：+2 混淆题（近义 domain 干扰；目标域在 top3 或 primaryDomain=目标域）──
+  { id: "pl-ds-01", domain: "programming-languages", text: "计算机科学 与 编程语言 的类型检查有什么不同", authoritative: false, expectedEntryIds: [], distractorDomain: "computer-science" },
+  { id: "pl-ds-02", domain: "programming-languages", text: "计算机科学 领域的 编译器 与 程序分析 工具", authoritative: false, expectedEntryIds: [], distractorDomain: "computer-science" },
+
+  // ── materials-science：+2 混淆题（近义 domain 干扰；目标域在 top3 或 primaryDomain=目标域）──
+  { id: "ms-ds-01", domain: "materials-science", text: "化学 视角下的 固态电解质 与 离子电导率", authoritative: false, expectedEntryIds: [], distractorDomain: "chemistry" },
+  { id: "ms-ds-02", domain: "materials-science", text: "化学 与 材料数据库 中的 电化学稳定窗口", authoritative: false, expectedEntryIds: [], distractorDomain: "chemistry" },
 ];
