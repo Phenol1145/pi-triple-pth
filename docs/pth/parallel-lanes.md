@@ -25,13 +25,15 @@
 | 2026-08-18 | R1 发布时机 | **等 L2/L3 合并后一起发 v1.1.3**（L3 已 done `982631e` 待合并；L2 进行中） | L4 |
 | 2026-08-18 | R2 发布范围 | **全量发布**（release.sh --npm --docker --gh：npm 8 包 topo 序 + docker 回归 + GitHub release 附 tgz） | L4 |
 | 2026-08-18 | **L1 设计裁决 Q1/Q2/Q3** | Q1 **增补式**细分（环向保留+四维缺口新增）/ Q2 **执行体三态**（program+builtin+agent——用户 custom「2+3」）/ Q3 **skill 同构治理**。产出：`docs/pth/n14-sensor-controller-four-dims.md`（分期 P0-P3 待批实施） | L1（后续 N14 实施批） |
+| 2026-08-18 | L2 Q1 staged write 行为 | **拒绝 + 引导 propose**（不自动转提案——worker 必经治理入口） | L2 |
+| 2026-08-18 | L2 Q2 审核任务编排 | **事件驱动自动派发**——capability 提案落库发 `skill.proposal.created` → trigger `skill-proposal-review` 自动派 controller:adversarial 审核任务（治理任务源新模式——同类可复用） | L2 |
 
 ## 车道表
 
 | Lane | 任务 | 主要文件域 | 分支 / worktree | 状态 | 认领（会话·日期） | 产出/备注 |
 |---|---|---|---|---|---|---|
 | **L1** | **N14 设计：sensor/controller 四维细分 + 分层 SOP + 一等工具注册通道设计**（0.17.4 落地；A2 已裁开通道——按完整四层次：工具面/单工具/记忆/规则；细分含 SOP 四段式草案；通道含注册契约+审批治理设计） | `docs/pth/concepts.md`、`builtin-roles.ts`、`skill` 格式、`docs/pth/` | `lane/l1-n14-design` / `.worktrees/l1` | **done** | 主会话-L1·2026-08-18 | ✅ `463c289`（lane 分支待合并）——设计文档 + concepts 0.17.6/词表/N14 行；实施分期 P0-P3 见设计文档 §6 |
-| **L2** | **A3：skill staged 审核流接线**（`PTH_SKILL_WRITE_POLICY=staged`：提案 → controller:adversarial 对抗性审核 → 监督批准 → memory-keeper 执行；配置项与角色已有，链路未闭） | `packages/pth-memory/src/skills.ts`、`src/pth/impls/kernels/capability.ts`、相关测试 | `lane/l2-staged-flow` / `.worktrees/l2` | **claimed** | 主会话·2026-08-18 | 链路短、闭环收益明确——N2 Phase 3 收尾 |
+| **L2** | **A3：skill staged 审核流接线**（`PTH_SKILL_WRITE_POLICY=staged`：提案 → controller:adversarial 对抗性审核 → 监督批准 → memory-keeper 执行；配置项与角色已有，链路未闭） | `packages/pth-memory/src/skills.ts`、`src/pth/impls/kernels/capability.ts`、相关测试 | `lane/l2-staged-flow` / `.worktrees/l2` | **done** | 主会话·2026-08-18 | ✅ 产出 `e08ac2a`（lane 分支已推送）：propose 发 `skill.proposal.created` 事件 + trigger `skill-proposal-review` 事件驱动派审核任务 + staged write 引导 propose + 端到端 4 例（全链 pass/reject/审核面收窄）+ trigger 注册断言 6→7；全量 1985 绿/tsc(根+memory)/boundaries/config——**待合并**（徽章合并时更新）。概念记录（归并 concepts.md）：**N2 Phase 3 staged 流已闭**；Q1/Q2 裁决见决策栏。注意：staged 需显式开启 + controller:adversarial 入 batch 配比 |
 | **L3** | **C1：worker 子进程健康/卡死检测**（§9 L2 缺口——IPC metric 只有耗时）**+ E2 文档同步**（§8.2 agentic 测试集 checkbox 勾除、§9 L3 标注 N5 已补齐） | `batch-manager.ts`、obs、`docs/pth/concepts.md` §9 表（仅 L3 行——经 L1 协调） | `lane/l3-health-docs` / `.worktrees/l3` | **done** | 主会话-L3·2026-08-18 | ✅ 产出 `982631e`（lane 分支已推送）：心跳自报 rss/cpu + listBatches/obs.batches 健康面（healthy/stale/dead + lag + 阈值 PTH_BATCH_HEALTH_STALE_MS）+ 3 测试；§8.2 checkbox/§9 L2·L3 行同步；全量 1982 绿/tsc/boundaries/config(108 键)——**待合并**（徽章 1979→1982 合并时更新） |
 | **L4** | **E1：v1.1.3 发布**（8 commit 未发版：W8×4 + flaky 修复 + 0.16.4 + 0.16.3 + 0.17 文档；走仓库 release 流程——版本号/changelog/徽章/tag） | `package.json`、CHANGELOG/发布文档、README 徽章 | `lane/l4-release` / `.worktrees/l4` | **blocked**（预备就绪——待 L2/L3 合并） | 主会话（本线程）·2026-08-18 | ✅ 预备 `2866707`（lane 分支已推送）：版本 1.1.3 全 bump（根+7 子包+lock）+ `docs/releases/v1.1.3.md` 草稿（L2/L3 两节占位）+ deployment/docs 索引同步；R1/R2 已裁（决策栏）——待 L2/L3 合并后重基 → 回填两节 → release.sh 全量 |
 
