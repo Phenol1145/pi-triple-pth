@@ -70,13 +70,14 @@
 | **K0** | Phase 0 设计纠偏：manifest 复算（184+4 事实源）+ 术语/契约定稿 + 目录数据转换脚本 | `lane/k0-v12-design` / `.worktrees/k0` | **done** |
 | **K1a** | Phase 1a 知识正确性收口：tenant 强制隔离 + 常规检索默认 official/排除 archived + hit 计数接线 | `lane/k1a-knowledge-hardening` / `.worktrees/k1a` | **done** |
 | **K1b** | Phase 1b provenance 强制 + append-only revision + refiner 只写 scoped draft | `lane/k1b-provenance` / `.worktrees/k1b` | **done** |
-| **K2** | Phase 2 Discipline Catalog DAG + `TaskWorkItem.domains` + 双轴路由契约 | `lane/k2-discipline-catalog` / `.worktrees/k2` | **free** |
+| **K2** | Phase 2 Discipline Catalog DAG + `TaskWorkItem.domains` + 双轴路由契约 | `lane/k2-discipline-catalog` / `.worktrees/k2` | **done** |
 | **K3** | Phase 3 KnowledgeContextProvider + `KnowledgeBroker` 窄 search/get | `lane/k3-knowledge-context` / `.worktrees/k3` | **free** |
 | **K4** | Phase 4 candidate→domain/adversarial verdict→memory-keeper promotion 闭环 | `lane/k4-knowledge-promotion` / `.worktrees/k4` | **free** |
 | **K5** | Phase 5 双域试点（编程语言官方文档 + 材料科学开放数据库） | `lane/k5-domain-pilot` / `.worktrees/k5` | **free** |
 
 > K0 已落：`f8afa78`（contracts/domains + Discipline Catalog + 生成器 + 184 数据；全量 258/2122 绿）→ 已合并 main（`c027e0a`）。
 > K1b 已落：`aa2762e`（knowledge-provenance + memory_revisions append-only/restore + refiner scoped draft）→ 已合并 main。
+> K2 已落：`853b426`（TaskWorkItem.domains + DisciplineResolver + 发布盖章 + claim 映射）→ 已合并 main。
 > K1a 已落：`f4c760d`（PgMemoryStore tenant 隔离 + KnowledgeBroker official/tenant/hit + skills.list official）→ 已合并 main（`7d00b90`）。
 >
 ### 合并顺序
