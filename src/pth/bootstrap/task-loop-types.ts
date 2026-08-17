@@ -6,6 +6,7 @@ import type { Task, TaskStore } from "../kernel/storage/task-store-pg.js";
 import type { WorkerRole } from "../kernel/execution/worker-cluster.js";
 import type { TaskWorkspaceManager } from "../kernel/execution/workspace.js";
 import type { TaskRepository } from "../contracts/index.js";
+import type { KnowledgeContextProvider } from "../runner/index.js";
 
 export interface TaskLoopDeps {
   kernel: WorkerKernel;
@@ -36,6 +37,8 @@ export interface TaskLoopDeps {
   toolRegStore?: import("../kernel/execution/tool-registry.js").ToolRegStoreLike;
   /** N14 P2：agent 态注册工具执行缝（穿透 runChild 同一闭包——深度限 1 由实现保证） */
   toolRegRunChild?: import("../kernel/execution/tool-registry.js").ToolRegRunChild;
+  /** K3：任务知识上下文 provider（batch-process 装配注入；缺省 = 关闭知识上下文） */
+  knowledgeContextProvider?: KnowledgeContextProvider;
 }
 
 /**

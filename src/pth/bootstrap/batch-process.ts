@@ -3,12 +3,12 @@ import { resolve as resolvePath, relative as relativePath, isAbsolute, sep } fro
 import { createPgPool } from "../kernel/storage/pg.js";
 import { applySchema } from "../kernel/storage/schema.js";
 import { createDataWorld } from "../kernel/storage/index.js";
-import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
+import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver, type DisciplineCatalogSnapshot } from "../catalog/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../impls/kernels/index.js";
 import type { InterpreterResult } from "../kernel/interpreter/index.js";
 import type { Task } from "../kernel/storage/task-store-pg.js";
 import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles } from "../kernel/execution/worker-cluster.js";
-import { setSpaceLookup } from "@away_from/pth-memory";
+import { isVisible, setSpaceLookup } from "@away_from/pth-memory";
 import { spaceRegistry } from "../kernel/execution/space-registry.js";
 import { registerBuiltinSpaces } from "../kernel/execution/builtin-spaces.js";
 import { checkTaskRouting, routeTaskRole } from "../kernel/execution/role-router.js";
@@ -16,6 +16,7 @@ import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../kern
 import { getEventBus } from "../kernel/execution/event-bus.js";
 import { isForwardableKernelEvent, toKernelActivityEvent } from "../kernel/execution/kernel-event-bridge.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
+import { createKnowledgeContextProvider } from "../runner/index.js";
 import {
   createPgTaskRepository,
   TaskControlService,
@@ -72,11 +73,16 @@ class BatchTaskLoop {
   get isStopped(): boolean { return this.inner.isStopped; }
 }
 
-/** K2 Phase 2：从同一份生成数据构建 catalog 快照 + resolver（与 assembly 同源同版本）。 */
-function buildDisciplineResolver(): ReturnType<typeof createDisciplineResolver> {
+/** K2 Phase 2：从同一份生成数据构建 catalog 快照（与 assembly 同源同版本）。 */
+function buildDisciplineCatalogSnapshot(): DisciplineCatalogSnapshot {
   const builder = new DisciplineCatalogBuilder();
   for (const def of DISCIPLINE_DEFINITIONS) builder.add(def);
-  return createDisciplineResolver(builder.build());
+  return builder.build();
+}
+
+/** K2 Phase 2：从同一份生成数据构建 catalog 快照 + resolver（与 assembly 同源同版本）。 */
+function buildDisciplineResolver(): ReturnType<typeof createDisciplineResolver> {
+  return createDisciplineResolver(buildDisciplineCatalogSnapshot());
 }
 
 /**
@@ -98,7 +104,15 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   await applySchema(pool);
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化）
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——batch 子进程与 assembly 同源。
-  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole }, buildDisciplineResolver());
+  // K3：catalog 快照与 K2 resolver 同源（同一 builder 产物），供 KnowledgeContextProvider ancestors 展开。
+  const catalog = buildDisciplineCatalogSnapshot();
+  const dataWorld = createDataWorld(pool, { validate: checkTaskRouting, assign: routeTaskRole }, createDisciplineResolver(catalog));
+  const knowledgeContextProvider = createKnowledgeContextProvider({
+    memory: dataWorld.memory,
+    catalog,
+    // K1a 同款可见性判定：pth-memory isVisible（spaceScope 沿空间树向下可见）。
+    isVisible: (meta, space) => isVisible(meta, space),
+  });
   // P1-6：batch 子进程启用 tasking dispatcher 路径（真实 lease claim/CAS commit）
   const taskRepository = createPgTaskRepository(pool);
   // W8 P1：任务投递服务（worker 工具面 tasks.delegate/await 的服务器端实现）
@@ -550,6 +564,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const loop = new BatchTaskLoop({
       kernel, role: effectiveRole, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
       repository: taskRepository,
+      // K3：任务知识上下文 provider（memory + catalog + isVisible 同源装配）。
+      knowledgeContextProvider,
       // N14 P2：tool-reg 注册面——任务开始冻结快照 + agent 态执行缝（穿透 runChild 同一闭包）
       toolRegStore: dataWorld.memory,
       toolRegRunChild: runChildImpl,

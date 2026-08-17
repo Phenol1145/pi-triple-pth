@@ -3,6 +3,7 @@
  * 跨模块消费方（bootstrap task-loop）只允许 import 本文件。
  */
 export * from "./agent-task-runner.js";
+export * from "./knowledge-context.js";
 export * from "./runner-config.js";
 export * from "./task-workspace.js";
 export * from "./observers/activity-observer.js";
