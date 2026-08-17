@@ -2,7 +2,8 @@
  * GENERATED FILE — 请勿手改。
  *
  * 生成源：docs/pth/n16-v1.2-role-expansion.md §2.1–§2.5
- * （只取 | id | 3/4/5 | parent | 职责 | 行；§2.6 非 researcher 不导入）。
+ * （只取 | id | 3/4/5 | parent | 职责 | 行；§2.6 非 researcher 不导入）
+ * + src/pth/catalog/data/discipline-alias-overrides.ts（生产别名覆盖，F4 AB-06）。
  * 生成命令：npx tsx scripts/build-discipline-catalog.ts
  * 数量断言（manifest 复算）：category=5、discipline=32、
  *   sub-discipline=147、total=184。
@@ -1754,7 +1755,15 @@ export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = [
       "zh-CN": "材料科学：金属/陶瓷/高分子/复合材料",
       "en": "materials-science"
     },
-    "aliases": [],
+    "aliases": [
+      "材料科学",
+      "固态电解质",
+      "离子电导率",
+      "电化学稳定窗口",
+      "材料数据库",
+      "Materials Project",
+      "NOMAD"
+    ],
     "parents": [
       "engineering"
     ],
@@ -2456,7 +2465,15 @@ export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = [
       "zh-CN": "编程语言：类型论/编译器/程序分析",
       "en": "programming-languages"
     },
-    "aliases": [],
+    "aliases": [
+      "编程语言",
+      "类型系统",
+      "编译器",
+      "程序分析",
+      "类型检查",
+      "中间表示",
+      "语言规范"
+    ],
     "parents": [
       "computer-science"
     ],

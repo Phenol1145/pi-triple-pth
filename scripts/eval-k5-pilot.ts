@@ -1,41 +1,61 @@
 #!/usr/bin/env node
 /**
- * eval-k5-pilot.ts —— N23 K5 评测批：离线/在线双域冻结查询评测 CLI。
+ * eval-k5-pilot.ts —— N23 K5 + F4 评测批：离线/在线双域冻结查询评测 CLI。
  *
  * 用法（仓库根）：
  *   npx tsx scripts/eval-k5-pilot.ts           # 离线（内存 knowledge）跑 runPilotEval
  *   DATABASE_URL=… npx tsx scripts/eval-k5-pilot.ts --live
- *                                               # 从 PgMemoryStore 按 K3 provider 规则检索后计算同样指标
+ *                                               # 从 PgMemoryStore 按生产路径检索后计算同样指标
  *
- * 退出码：domainRecallAt3 ≥ 0.9 且 knowledgeRecallAt5 ≥ 0.9 且 evidenceCoverage ≥ 0.95 → 0；否则 1。
+ * F4 退出码：
+ *   domainRecallAt3 ≥ 0.9 且 knowledgeRecallAt5 ≥ 0.9 且 evidenceCoverage ≥ 0.95 且
+ *   hardNegativePassRate = 1.0 且 multiDomainResolution = 1.0 且 distractorTop3Rate ≥ 0.9 → 0；否则 1。
  */
 
 import pg from "pg";
 import { PgMemoryStore } from "@away_from/pth-memory";
+import { DisciplineCatalogBuilder } from "../src/pth/catalog/discipline-catalog.ts";
 import { createDisciplineResolver } from "../src/pth/catalog/discipline-resolver.ts";
-import { buildPilotCatalog } from "../src/pth/catalog/data/pilot-domain-overrides.ts";
+import { DISCIPLINE_DEFINITIONS } from "../src/pth/catalog/data/discipline-catalog-data.ts";
 import type { PilotKnowledgeEntry } from "../src/pth/catalog/data/pilot-knowledge.ts";
 import { PILOT_KNOWLEDGE } from "../src/pth/catalog/data/pilot-knowledge.ts";
 import { PILOT_EVAL_QUERIES } from "../src/pth/catalog/data/pilot-eval-queries.ts";
 import { PILOT_SOURCES } from "../src/pth/catalog/data/pilot-source-registry.ts";
 import {
+  aggregatePilotMetrics,
   evaluatePilotQuery,
   runPilotEval,
   type PilotEvalMetrics,
+  type PilotSourceSnapshotIntegrity,
 } from "../src/pth/catalog/pilot-evaluator.ts";
-import { KNOWLEDGE_CONTEXT_KINDS } from "../src/pth/runner/knowledge-context.ts";
+
 
 const DOMAIN_RECALL_THRESHOLD = 0.9;
 const KNOWLEDGE_RECALL_THRESHOLD = 0.9;
 const EVIDENCE_COVERAGE_THRESHOLD = 0.95;
+const HARD_NEGATIVE_THRESHOLD = 1.0;
+const MULTI_DOMAIN_THRESHOLD = 1.0;
+const DISTRACTOR_TOP3_THRESHOLD = 0.9;
+
+const PILOT_DOMAIN_IDS = new Set(["programming-languages", "materials-science"]);
+
+function buildProductionCatalog() {
+  const builder = new DisciplineCatalogBuilder();
+  for (const def of DISCIPLINE_DEFINITIONS) builder.add(def);
+  return builder.build();
+}
 
 function printMetrics(label: string, metrics: PilotEvalMetrics): void {
   console.log(`\n== ${label} ==`);
-  console.log(`queryCount        : ${metrics.queryCount}`);
-  console.log(`domainRecallAt3   : ${metrics.domainRecallAt3.toFixed(4)}  (threshold ≥ ${DOMAIN_RECALL_THRESHOLD})`);
-  console.log(`domainTop1        : ${metrics.domainTop1.toFixed(4)}`);
-  console.log(`knowledgeRecallAt5: ${metrics.knowledgeRecallAt5.toFixed(4)}  (threshold ≥ ${KNOWLEDGE_RECALL_THRESHOLD})`);
-  console.log(`evidenceCoverage  : ${metrics.evidenceCoverage.toFixed(4)}  (threshold ≥ ${EVIDENCE_COVERAGE_THRESHOLD})`);
+  console.log(`queryCount           : ${metrics.queryCount}`);
+  console.log(`standardQueryCount   : ${metrics.standardQueryCount}`);
+  console.log(`domainRecallAt3      : ${metrics.domainRecallAt3.toFixed(4)}  (threshold ≥ ${DOMAIN_RECALL_THRESHOLD})`);
+  console.log(`domainTop1           : ${metrics.domainTop1.toFixed(4)}`);
+  console.log(`knowledgeRecallAt5   : ${metrics.knowledgeRecallAt5.toFixed(4)}  (threshold ≥ ${KNOWLEDGE_RECALL_THRESHOLD})`);
+  console.log(`evidenceCoverage     : ${metrics.evidenceCoverage.toFixed(4)}  (threshold ≥ ${EVIDENCE_COVERAGE_THRESHOLD})`);
+  console.log(`hardNegativePassRate : ${metrics.hardNegativePassRate.toFixed(4)}  (threshold = ${HARD_NEGATIVE_THRESHOLD})`);
+  console.log(`multiDomainResolution: ${metrics.multiDomainResolution.toFixed(4)}  (threshold = ${MULTI_DOMAIN_THRESHOLD})`);
+  console.log(`distractorTop3Rate   : ${metrics.distractorTop3Rate.toFixed(4)}  (threshold ≥ ${DISTRACTOR_TOP3_THRESHOLD})`);
 
   const failed = metrics.details.filter((detail) => !detail.pass);
   if (failed.length > 0) {
@@ -51,11 +71,19 @@ function printMetrics(label: string, metrics: PilotEvalMetrics): void {
 function metricsPass(metrics: PilotEvalMetrics): boolean {
   return metrics.domainRecallAt3 >= DOMAIN_RECALL_THRESHOLD
     && metrics.knowledgeRecallAt5 >= KNOWLEDGE_RECALL_THRESHOLD
-    && metrics.evidenceCoverage >= EVIDENCE_COVERAGE_THRESHOLD;
+    && metrics.evidenceCoverage >= EVIDENCE_COVERAGE_THRESHOLD
+    && metrics.hardNegativePassRate === HARD_NEGATIVE_THRESHOLD
+    && metrics.multiDomainResolution === MULTI_DOMAIN_THRESHOLD
+    && metrics.distractorTop3Rate >= DISTRACTOR_TOP3_THRESHOLD;
+}
+
+function thresholdMessage(): string {
+  return "domainRecallAt3≥0.9 且 knowledgeRecallAt5≥0.9 且 evidenceCoverage≥0.95 且 "
+    + "hardNegativePassRate=1.0 且 multiDomainResolution=1.0 且 distractorTop3Rate≥0.9";
 }
 
 function runOffline(): PilotEvalMetrics {
-  const catalog = buildPilotCatalog();
+  const catalog = buildProductionCatalog();
   return runPilotEval({
     catalog,
     knowledge: PILOT_KNOWLEDGE,
@@ -64,41 +92,69 @@ function runOffline(): PilotEvalMetrics {
   });
 }
 
+interface LiveMemoryRow {
+  id: string;
+  kind: string;
+  anchors: string[];
+  status: string;
+  content: string;
+  meta?: Record<string, unknown>;
+}
+
+/** live：只读 DB meta.evidence，禁止离线回填；缺字段即 evidence 为空 → authoritative fail-closed。 */
+function toKnowledge(row: LiveMemoryRow): PilotKnowledgeEntry {
+  const domain = row.anchors.find((anchor) => PILOT_DOMAIN_IDS.has(anchor)) ?? "";
+  const meta = (row.meta ?? {}) as Record<string, unknown>;
+  const rawEvidence = meta["evidence"];
+  let evidence: PilotKnowledgeEntry["evidence"] = [];
+  if (Array.isArray(rawEvidence)) {
+    evidence = rawEvidence.flatMap((item) => {
+      if (typeof item !== "object" || item === null) return [];
+      const record = item as Record<string, unknown>;
+      const sourceId = record["sourceId"];
+      const locator = record["locator"];
+      if (typeof sourceId === "string" && sourceId.length > 0 && typeof locator === "string" && locator.length > 0) {
+        return [{ sourceId, locator }];
+      }
+      return [];
+    });
+  }
+  return {
+    id: row.id,
+    domain,
+    kind: "domain-fact",
+    anchors: row.anchors,
+    content: row.content,
+    evidence,
+  };
+}
+
+async function loadLiveSources(pool: pg.Pool): Promise<{
+  sourceIds: Set<string>;
+  sourceSnapshots: Map<string, PilotSourceSnapshotIntegrity>;
+}> {
+  const { rows } = await pool.query<{ id: string; meta: Record<string, unknown> | null }>(
+    `SELECT id, meta FROM memory_entries WHERE id LIKE 'pilot-source:%' ORDER BY id`,
+  );
+  const sourceIds = new Set<string>();
+  const sourceSnapshots = new Map<string, PilotSourceSnapshotIntegrity>();
+  for (const row of rows) {
+    sourceIds.add(row.id);
+    const meta = (row.meta ?? {}) as Record<string, unknown>;
+    const artifactHash = typeof meta["artifactHash"] === "string" ? meta["artifactHash"] : "";
+    const snapshotContent = typeof meta["snapshotContent"] === "string" ? meta["snapshotContent"] : "";
+    sourceSnapshots.set(row.id, { artifactHash, snapshotContent });
+  }
+  return { sourceIds, sourceSnapshots };
+}
+
 async function runLive(pool: pg.Pool): Promise<PilotEvalMetrics> {
-  const catalog = buildPilotCatalog();
+  const catalog = buildProductionCatalog();
   const resolver = createDisciplineResolver(catalog);
   const store = new PgMemoryStore(pool);
-  const sourceIds = new Set(PILOT_SOURCES.map((source) => source.id));
-  const offlineById = new Map(PILOT_KNOWLEDGE.map((entry) => [entry.id, entry]));
+  const { sourceIds, sourceSnapshots } = await loadLiveSources(pool);
 
-  function toKnowledge(row: {
-    id: string;
-    anchors: string[];
-    content: string;
-  }): PilotKnowledgeEntry {
-    const offline = offlineById.get(row.id);
-    const domain = offline?.domain
-      ?? row.anchors.find((anchor) => anchor === "programming-languages" || anchor === "materials-science")
-      ?? "";
-    return {
-      id: row.id,
-      domain,
-      kind: "domain-fact",
-      anchors: row.anchors,
-      content: row.content,
-      // evidence.sourceId 不落 DB（provenance.sourceRefs 只有 locator），
-      // 已知 pilot 条目用离线 registry 回填；未知条目 evidence 为空。
-      evidence: offline?.evidence ?? [],
-    };
-  }
-
-  let domainTop3Hits = 0;
-  let domainTop1Hits = 0;
-  let knowledgeHits = 0;
-  let evidenceHits = 0;
-  let authoritativeCount = 0;
-  const details: PilotEvalMetrics["details"] = [];
-
+  const results = [];
   for (const query of PILOT_EVAL_QUERIES) {
     const resolved = resolver.resolve({
       title: query.text.slice(0, 80),
@@ -113,30 +169,17 @@ async function runLive(pool: pg.Pool): Promise<PilotEvalMetrics> {
     const rows = domains.length > 0
       ? await store.retrieve({
           anchors: domains,
-          kinds: [...KNOWLEDGE_CONTEXT_KINDS],
+          // 冻结查询集评估的是 domain-fact 知识（离线 PILOT_KNOWLEDGE 全为 domain-fact）；
+          // 收窄 kind 避免生产库中 task-insight/skill 等非评测条目污染 top-5。
+          kinds: ["domain-fact"],
           status: ["official"],
         })
       : [];
-    const knowledge = rows.map(toKnowledge);
-    const result = evaluatePilotQuery({ catalog, knowledge, query, sourceIds });
-
-    if (result.domainInTop3) domainTop3Hits += 1;
-    if (result.domainTop1) domainTop1Hits += 1;
-    if (result.knowledgePass) knowledgeHits += 1;
-    if (result.authoritative && result.evidencePass) evidenceHits += 1;
-    if (result.authoritative) authoritativeCount += 1;
-    details.push(result.detail);
+    const knowledge = rows.map((row) => toKnowledge(row as LiveMemoryRow));
+    results.push(evaluatePilotQuery({ catalog, knowledge, query, sourceIds, sourceSnapshots }));
   }
 
-  const queryCount = PILOT_EVAL_QUERIES.length;
-  return {
-    domainRecallAt3: queryCount === 0 ? 0 : domainTop3Hits / queryCount,
-    domainTop1: queryCount === 0 ? 0 : domainTop1Hits / queryCount,
-    knowledgeRecallAt5: queryCount === 0 ? 0 : knowledgeHits / queryCount,
-    evidenceCoverage: authoritativeCount === 0 ? 1 : evidenceHits / authoritativeCount,
-    queryCount,
-    details,
-  };
+  return aggregatePilotMetrics(PILOT_EVAL_QUERIES, results);
 }
 
 const live = process.argv.includes("--live");
@@ -152,7 +195,7 @@ if (live) {
     const metrics = await runLive(pool);
     printMetrics("K5 pilot eval (live, PgMemoryStore)", metrics);
     if (!metricsPass(metrics)) {
-      console.error("\n阈值未达标：domainRecallAt3≥0.9 且 knowledgeRecallAt5≥0.9 且 evidenceCoverage≥0.95");
+      console.error(`\n阈值未达标：${thresholdMessage()}`);
       process.exit(1);
     }
     process.exit(0);
@@ -163,7 +206,7 @@ if (live) {
   const metrics = runOffline();
   printMetrics("K5 pilot eval (offline, in-memory)", metrics);
   if (!metricsPass(metrics)) {
-    console.error("\n阈值未达标：domainRecallAt3≥0.9 且 knowledgeRecallAt5≥0.9 且 evidenceCoverage≥0.95");
+    console.error(`\n阈值未达标：${thresholdMessage()}`);
     process.exit(1);
   }
   process.exit(0);

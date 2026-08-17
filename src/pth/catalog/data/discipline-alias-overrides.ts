@@ -1,22 +1,21 @@
 /**
- * catalog/data/pilot-domain-overrides.ts — N23 K5 评测批：试点域检索别名覆盖。
+ * catalog/data/discipline-alias-overrides.ts — 生产域别名覆盖（F4 AB-06）。
  *
  * 覆盖 programming-languages 与 materials-science 两个既有 discipline id；
- * aliases 追加去重（大小写不敏感）后由 buildPilotCatalog() 合并进
- * DISCIPLINE_DEFINITIONS，再用 DisciplineCatalogBuilder 构建快照。
+ * aliases 追加去重（大小写不敏感）后由 scripts/build-discipline-catalog.ts 在生成
+ * DISCIPLINE_DEFINITIONS 时合并；names 为可选的 names 覆盖。
+ * 生产 assembly/batch/evaluator 都使用同一份生成数据。
  */
 
 import type { DomainDefinition } from "../../contracts/domains.js";
-import { DisciplineCatalogBuilder } from "../discipline-catalog.js";
-import { DISCIPLINE_DEFINITIONS } from "./discipline-catalog-data.js";
 
-export interface PilotDomainOverride {
+export interface DisciplineAliasOverride {
   id: string; // 必须已存在于 DISCIPLINE_DEFINITIONS
   aliases: string[]; // 追加的检索别名（小写/中文均可——resolver 大小写不敏感）
   names?: Record<string, string>; // 覆盖 names（可选）
 }
 
-export const PILOT_DOMAIN_OVERRIDES: PilotDomainOverride[] = [
+export const PRODUCTION_DOMAIN_ALIAS_OVERRIDES: DisciplineAliasOverride[] = [
   {
     id: "programming-languages",
     aliases: [
@@ -55,36 +54,31 @@ function dedupeAliases(existing: readonly string[], additional: readonly string[
   return out;
 }
 
-/** 把 overrides 合并进 DISCIPLINE_DEFINITIONS 后构建 catalog 快照。 */
-export function buildPilotCatalog(): ReturnType<DisciplineCatalogBuilder["build"]> {
-  const knownIds = new Set(DISCIPLINE_DEFINITIONS.map((def) => def.id));
+/** 把生产 overrides 合并进目录定义：aliases 追加去重、names 覆盖。 */
+export function applyDisciplineAliasOverrides(
+  defs: readonly DomainDefinition[],
+  overrides: readonly DisciplineAliasOverride[],
+): DomainDefinition[] {
+  const knownIds = new Set(defs.map((def) => def.id));
   const seenOverrides = new Set<string>();
-  for (const override of PILOT_DOMAIN_OVERRIDES) {
+  for (const override of overrides) {
     if (seenOverrides.has(override.id)) {
-      throw new Error(`pilot domain override: duplicate override id ${override.id}`);
+      throw new Error(`discipline alias override: duplicate override id ${override.id}`);
     }
     seenOverrides.add(override.id);
     if (!knownIds.has(override.id)) {
-      throw new Error(`pilot domain override: unknown domain id ${override.id}`);
+      throw new Error(`discipline alias override: unknown domain id ${override.id}`);
     }
   }
 
-  const builder = new DisciplineCatalogBuilder();
-  const overridesById = new Map(PILOT_DOMAIN_OVERRIDES.map((o) => [o.id, o]));
-
-  for (const def of DISCIPLINE_DEFINITIONS) {
+  const overridesById = new Map(overrides.map((o) => [o.id, o]));
+  return defs.map((def) => {
     const override = overridesById.get(def.id);
-    if (!override) {
-      builder.add(def);
-      continue;
-    }
-    const merged: DomainDefinition = {
+    if (!override) return def;
+    return {
       ...def,
       names: { ...def.names, ...(override.names ?? {}) },
       aliases: dedupeAliases(def.aliases, override.aliases),
     };
-    builder.add(merged);
-  }
-
-  return builder.build();
+  });
 }

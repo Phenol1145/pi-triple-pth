@@ -36,7 +36,7 @@ export const PILOT_KNOWLEDGE: PilotKnowledgeEntry[] = [
   entry({
     id: "pl-fact-type-checking",
     domain: "programming-languages",
-    anchors: [...PL_CHAIN, "类型检查", "type checking", "静态类型"],
+    anchors: [...PL_CHAIN, "类型检查", "type checking", "静态类型", "C++", "Python"],
     content:
       "类型检查是在编译期依据语言类型规则核对程序中的名字与表达式、拒绝违反类型规则的代码；Java、Rust 等静态类型语言借此在运行前排除一类类型错误。",
     evidence: [
@@ -58,7 +58,7 @@ export const PILOT_KNOWLEDGE: PilotKnowledgeEntry[] = [
   entry({
     id: "pl-fact-codegen",
     domain: "programming-languages",
-    anchors: [...PL_CHAIN, "代码生成", "code generation", "指令选择"],
+    anchors: [...PL_CHAIN, "代码生成", "code generation", "指令选择", "LLVM", "Rust", "JIT"],
     content:
       "代码生成是编译器后端把中间表示翻译为目标机器码或字节码的步骤，通常包含指令选择、寄存器分配与指令调度等阶段。",
     evidence: [
@@ -79,7 +79,7 @@ export const PILOT_KNOWLEDGE: PilotKnowledgeEntry[] = [
   entry({
     id: "pl-fact-memory-model",
     domain: "programming-languages",
-    anchors: [...PL_CHAIN, "内存模型", "memory model", "happens-before"],
+    anchors: [...PL_CHAIN, "内存模型", "memory model", "happens-before", "Rust"],
     content:
       "内存模型规定多线程程序读写共享内存的可见性与顺序约束；C++ 内存模型以 happens-before 与原子操作界定数据竞争的边界。",
     evidence: [

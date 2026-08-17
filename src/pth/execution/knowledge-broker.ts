@@ -10,6 +10,7 @@
 
 import type { ExecutionGrant } from "../contracts/index.js";
 import type { ExecutionGrantService } from "./authorization/execution-grant-service.js";
+import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "./knowledge-ranking.js";
 import { computeKnowledgeQueryFingerprint } from "../runner/index.js";
 
 export type KnowledgeOp = "query" | "retrieve" | "get" | "search";
@@ -80,29 +81,9 @@ export function normalizeKnowledgeSearchLimit(limit: number | undefined): number
   return Math.min(Math.floor(limit), KNOWLEDGE_SEARCH_MAX_LIMIT);
 }
 
-/** queryText 大小写不敏感子串过滤：content 或 anchors 命中任一空白分词；无词命中 → 返回全部（保守不误杀）。 */
-export function filterKnowledgeEntriesByQueryText(
-  entries: KnowledgeMemoryEntry[],
-  queryText: string | undefined,
-): KnowledgeMemoryEntry[] {
-  const query = queryText?.trim() ?? "";
-  if (query === "") return entries;
-
-  const tokens = query.split(/\s+/).map((t) => t.toLowerCase());
-  if (tokens.length === 0) return entries;
-
-  const matched = entries.filter((entry) => {
-    const content = entry.content.toLowerCase();
-    const anchors = entry.anchors.map((a) => a.toLowerCase());
-    return tokens.some((token) => content.includes(token) || anchors.some((a) => a.includes(token)));
-  });
-
-  return matched.length > 0 ? matched : entries;
-}
-
 /**
  * search 的 retrieve 兜底实现（也供生产 adapter 注入——保持单一实现）：
- * retrieve（anchors/kinds/status/tenant）→ queryText 过滤 → id 升序 → limit 截断。
+ * retrieve（anchors/kinds/status/tenant）→ queryText 过滤 → rankKnowledgeEntries → limit 截断。
  * 空间可见性过滤由 broker 统一执行（search 窄口不感知 space）。
  */
 export async function searchKnowledgeEntries(
@@ -116,8 +97,11 @@ export async function searchKnowledgeEntries(
     tenantId: opts.tenantId,
   });
   const filtered = filterKnowledgeEntriesByQueryText(entries, opts.queryText);
-  filtered.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return filtered.slice(0, normalizeKnowledgeSearchLimit(opts.limit));
+  const ranked = rankKnowledgeEntries(filtered, {
+    queryText: opts.queryText,
+    domains: opts.anchors ?? [],
+  });
+  return ranked.slice(0, normalizeKnowledgeSearchLimit(opts.limit));
 }
 
 export interface KnowledgeBroker {

@@ -1,11 +1,14 @@
 /**
  * catalog/data/pilot-source-registry.ts — N23 K5 评测批：双域 source registry。
  *
- * URI 全部使用真实官方文档/站点根；contentHash = sha256(uri|version|authority)
- * （version 缺省按空串参与）。
+ * F4 6.4：
+ *  - registryFingerprint = sha256(uri|version|authority)（version 缺省按空串参与，原 contentHash 改名）；
+ *  - artifactHash 来自 pilot-source-snapshots.ts（sha256(snapshotContent)），必填；
+ *  - seed 写 source entry 的 meta.artifactHash 与 meta.snapshotContent；evaluator 校验一致性。
  */
 
 import { createHash } from "node:crypto";
+import { pilotSourceSnapshotBySourceId } from "./pilot-source-snapshots.js";
 
 export interface PilotKnowledgeSource {
   id: string;
@@ -15,15 +18,24 @@ export interface PilotKnowledgeSource {
   version?: string;
   retrievedAt: string; // ISO 日期
   license?: string;
-  contentHash: string; // sha256(uri|version|authority)
+  registryFingerprint: string; // sha256(uri|version|authority)
+  artifactHash: string; // sha256(snapshotContent)，来自 pilot-source-snapshots
 }
 
-export function hashSource(uri: string, version: string | undefined, authority: string): string {
+export function registryFingerprintOf(uri: string, version: string | undefined, authority: string): string {
   return createHash("sha256").update(`${uri}|${version ?? ""}|${authority}`).digest("hex");
 }
 
-function source(args: Omit<PilotKnowledgeSource, "contentHash">): PilotKnowledgeSource {
-  return { ...args, contentHash: hashSource(args.uri, args.version, args.authority) };
+function source(args: Omit<PilotKnowledgeSource, "registryFingerprint" | "artifactHash">): PilotKnowledgeSource {
+  const snapshot = pilotSourceSnapshotBySourceId(args.id);
+  if (!snapshot) {
+    throw new Error(`pilot source registry: missing snapshot for source ${args.id}`);
+  }
+  return {
+    ...args,
+    registryFingerprint: registryFingerprintOf(args.uri, args.version, args.authority),
+    artifactHash: snapshot.artifactHash,
+  };
 }
 
 export const PILOT_SOURCES: PilotKnowledgeSource[] = [
