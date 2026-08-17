@@ -141,3 +141,71 @@ describe("W8 P1：tasks.delegate/await 能力注入", () => {
     await expect(skills.maintain.propose({ action: "write", name: "penetrate:coder" })).rejects.toThrow(/必须携带 content/);
   });
 });
+
+describe("0.16.3：tasks.penetrate 能力注入（显式原语——与 taskControl 同批装配）", () => {
+  const stampedCtx: TaskDispatchContext = { taskId: "p", roleId: "developer", tenantId: "t", delivery: null };
+
+  it("penetration 端口缺省 → 不注入 tasks.penetrate（嵌套子 kernel 形态——深度限 1）", () => {
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld() as never,
+      toolstore: fakeToolstore as never,
+      taskControl: { delegate: async () => ({ taskId: "x", roleId: "coder", path: ["x"] }), awaitTask: async () => ({ status: "pending" }) },
+      taskContext: { current: stampedCtx },
+    });
+    const tasks = caps["tasks"] as Record<string, unknown>;
+    expect(tasks).toBeDefined();
+    expect(tasks["penetrate"]).toBeUndefined();
+    expect(tasks["delegate"]).toBeDefined();
+  });
+
+  it("penetration 端口装配 → penetrate 以服务器身份转发（scope 由上下文派生）", async () => {
+    const penetrate = vi.fn(async () => ({ ok: true as const, value: { code: "f()" }, steps: 3, childRole: "coder", durationMs: 50 }));
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld() as never,
+      toolstore: fakeToolstore as never,
+      taskControl: { delegate: async () => ({ taskId: "x", roleId: "coder", path: ["x"] }), awaitTask: async () => ({ status: "pending" }) },
+      penetration: { penetrate },
+      taskContext: { current: stampedCtx },
+    });
+    const tasks = caps["tasks"] as { penetrate: (i: unknown) => Promise<unknown> };
+    const r = await tasks.penetrate({ to: "coder", title: "t", text: "x" });
+    expect(r).toMatchObject({ ok: true, childRole: "coder", steps: 3 });
+    expect(penetrate).toHaveBeenCalledWith(
+      { to: "coder", title: "t", text: "x" },
+      stampedCtx,
+      expect.objectContaining({ tenantId: "t", principalId: "worker:developer", traceId: "task:p" }),
+    );
+  });
+
+  it("任务上下文未盖章 → penetrate 结构化报错（不伪造调用者）", async () => {
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld() as never,
+      toolstore: fakeToolstore as never,
+      taskControl: { delegate: async () => ({ taskId: "x", roleId: "coder", path: ["x"] }), awaitTask: async () => ({ status: "pending" }) },
+      penetration: { penetrate: async () => ({ ok: true as const, value: null, steps: 0, childRole: "coder", durationMs: 0 }) },
+      taskContext: { current: null },
+    });
+    const tasks = caps["tasks"] as { penetrate: (i: unknown) => Promise<unknown> };
+    await expect(tasks.penetrate({ to: "coder", title: "t", text: "x" })).rejects.toThrow(/任务上下文未就绪/);
+  });
+
+  it("PTC 契约校验：缺 to/title/text 直接结构化报错（不进端口）", async () => {
+    const penetrate = vi.fn(async () => ({ ok: true as const, value: null, steps: 0, childRole: "coder", durationMs: 0 }));
+    const caps = buildCapabilities({
+      llm: async () => ({ text: "" }) as never,
+      dataWorld: fakeDataWorld() as never,
+      toolstore: fakeToolstore as never,
+      taskControl: { delegate: async () => ({ taskId: "x", roleId: "coder", path: ["x"] }), awaitTask: async () => ({ status: "pending" }) },
+      penetration: { penetrate },
+      taskContext: { current: stampedCtx },
+    });
+    const tasks = caps["tasks"] as { penetrate: (i: unknown) => Promise<unknown> };
+    expect(() => tasks.penetrate({ title: "t", text: "x" })).toThrow(/\[tasks.penetrate\].*to/);
+    expect(() => tasks.penetrate({ to: "coder", title: "", text: "x" })).toThrow(/\[tasks.penetrate\].*title/);
+    expect(() => tasks.penetrate({ to: "coder", title: "t", text: "" })).toThrow(/\[tasks.penetrate\].*text/);
+    expect(penetrate).not.toHaveBeenCalled();
+  });
+});

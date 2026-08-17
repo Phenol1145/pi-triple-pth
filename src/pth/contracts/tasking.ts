@@ -139,6 +139,28 @@ export interface TaskAwaitResult {
   error?: { code: string; message: string };
 }
 
+/** 0.16.3 穿透调用输入（显式原语 tasks.penetrate——已注册穿透边才可用） */
+export interface TaskPenetrateInput {
+  /** 被穿透调用的直接子类型（必须已注册 skill:penetrate:<to> 且边 parent = 调用方） */
+  to: string;
+  title: string;
+  /** 自包含子任务描述（按穿透 skill 的输入契约组织） */
+  text: string;
+  /** 附加上下文快照（可选——随任务文本传给子 agent） */
+  context?: Record<string, unknown>;
+}
+
+export interface TaskPenetrateResult {
+  ok: true;
+  /** 子 agent done.result（产物契约 v1 文档级——不做机器形状校验，用户裁决 P4） */
+  value: unknown;
+  summary?: string;
+  /** 子 agent 步数（计入父任务计量面——预算经济化后续细化） */
+  steps: number;
+  childRole: string;
+  durationMs: number;
+}
+
 export type TaskOutcomeStatus = "completed" | "rejected" | "cancelled";
 
 export interface TaskOutcome {

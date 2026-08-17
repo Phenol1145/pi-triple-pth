@@ -376,6 +376,21 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     effect: '只读本任务 payload.dispatchWait/childResult 快照（task-loop 盖章——不可伪造）',
     asAction: () => 'return await tasks.resume();',
   },
+  'tasks.penetrate': {
+    name: 'tasks.penetrate', family: 'tasks',
+    params: '(input: { to: string; title: string; text: string; context?: object })',
+    returnType: 'Promise<{ ok: true; value: unknown; summary?: string; steps: number; childRole: string; durationMs: number }>',
+    anchor: '穿透调用：父 worker 任务内直呼子 agent（0.16.3 固化捷径边——跳过任务池往返）',
+    whenToUse: '已注册 skill:penetrate:<child>（official）的稳定路径——同步拿回子 agent done.result',
+    effect: '嵌套子 agent 执行（深度限 1——子 agent 内不可再穿透）；未注册/draft/边归属不符/组织权违规调用即拒绝；执行失败报错由父决策',
+    validate: (args) => {
+      const e = requireObject(args, 0, 'tasks.penetrate');
+      if (typeof e.to !== 'string' || e.to.trim() === '') throw new PtcContractError('tasks.penetrate', 'to 必须是非空字符串');
+      if (typeof e.title !== 'string' || e.title.trim() === '') throw new PtcContractError('tasks.penetrate', 'title 必须是非空字符串');
+      if (typeof e.text !== 'string' || e.text.trim() === '') throw new PtcContractError('tasks.penetrate', 'text 必须是非空字符串');
+    },
+    asAction: (a) => `return await tasks.penetrate(${JSON.stringify(a)});`,
+  },
   'ext': {
     name: 'ext', family: 'ts-local',
     params: '（扩展编排对象——index/use/kernel/syncIndex）',

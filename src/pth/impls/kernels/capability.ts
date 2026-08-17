@@ -12,6 +12,8 @@ import type {
   TaskDelegateInput,
   TaskDelegateResult,
   TaskDispatchContext,
+  TaskPenetrateInput,
+  TaskPenetrateResult,
   TenantScope,
 } from "../../contracts/index.js";
 import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
@@ -55,6 +57,14 @@ export interface TaskDispatchPort {
 }
 
 /**
+ * 0.16.3 穿透执行端口（PenetrationRunner 实现；仅组织权持有角色注入——与 taskControl 同批装配）。
+ * 嵌套子 kernel 不传本端口 → 穿透深度限 1（用户裁决 P2）。
+ */
+export interface PenetrationPort {
+  penetrate(input: TaskPenetrateInput, caller: TaskDispatchContext, scope: TenantScope): Promise<TaskPenetrateResult>;
+}
+
+/**
  * 能力注入：context 默认空，只注入白名单。
  * 不注入 fs/child_process/net——语言层面无能力。
  * 任务动词面收窄：tasks 只暴露 peek/submit（claim/reject 由 TaskLoop 机械控制）。
@@ -81,6 +91,8 @@ export function buildCapabilities(deps: {
   roleId?: string;
   /** W8 P1：任务投递端口（仅组织权持有角色传入；缺省不注入 tasks 键） */
   taskControl?: TaskDispatchPort;
+  /** 0.16.3：穿透执行端口（与 taskControl 同批装配；缺省不注入 tasks.penetrate） */
+  penetration?: PenetrationPort;
   /** W8 P1：当前任务身份（task-loop 每任务盖章——delegate/await 的调用者上下文） */
   taskContext?: { current: TaskDispatchContext | null };
 }): Record<string, unknown> {
@@ -220,6 +232,24 @@ export function buildCapabilities(deps: {
               }
               return { waiting: ctx.dispatchWait ?? {}, results: ctx.childResult ?? {} };
             }),
+            // 0.16.3 穿透原语：仅装配了 penetration 端口时注入（嵌套子 kernel 无此端口——深度限 1）
+            ...(deps.penetration
+              ? {
+                  penetrate: wrapValidated("tasks.penetrate", async (input: TaskPenetrateInput) => {
+                    const ctx = deps.taskContext?.current;
+                    if (!ctx || !ctx.taskId || !ctx.roleId) {
+                      throw new PtcContractError("tasks.penetrate", "任务上下文未就绪——tasks.penetrate 仅可在任务程序内调用");
+                    }
+                    const scope: TenantScope = {
+                      tenantId: ctx.tenantId,
+                      principalId: `worker:${ctx.roleId}`,
+                      roles: [ctx.roleId],
+                      traceId: `task:${ctx.taskId}`,
+                    };
+                    return deps.penetration!.penetrate(input, ctx, scope);
+                  }),
+                }
+              : {}),
           },
         }
       : {}),

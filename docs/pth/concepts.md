@@ -637,7 +637,8 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   **P2 事件驱动回流已实施**：await 挂起（dispatchWait + task-await-suspended → retryable requeue）、
   子终态 → `payload.childResult`（task-dispatch-notifier）、`tasks.resume()` 重跑续接、
   取消沿派发树传播、PTL wait --follow。**P3 穿透接口位已实施**：`skill:penetrate:<child>`
-  注册校验（组织权矩阵），执行优化后续。
+  注册校验（组织权矩阵）；**穿透执行面已实施（2026-08-18）**：tasks.penetrate 显式原语
+  （嵌套子 agent 同进程直呼——见 0.16.3），自动发现通道后续。
 - **与 Prime 的对照**：Prime 在运行时 spawn 持久子 agent 长成树；PTH 是**静态类型树 + 任务投递**——
   「展开成图，而不是长成树」（图的节点 = 类型，边 = 投递/回流）。
 
@@ -656,7 +657,16 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   注册后不可变（skill 治理——§8.3/B4）；
 - **接口位（W8 P3 已实施）**：`skill:penetrate:<child>` 四段式 + 机读边信息
   （parent/child/input/output 契约）；注册校验强制 parent→child 命中组织权矩阵
-  （memory-keeper 维护面调用即拒绝）；执行优化（父直调子 agent）留待后续阶段；
+  （memory-keeper 维护面调用即拒绝）；
+- **✅ 执行面已落（2026-08-18——用户裁决：P1 显式原语 / P2 计父计量面+深度限 1（预算
+  经济化后续细化）/ P3 只做执行面（自动发现通道后续）/ P4 失败报错由父决策）**：
+  `tasks.penetrate({to,title,text})` 同步直呼子 agent（同进程嵌套 agent-loop，跳过任务池
+  往返）；执行期机器校验 = 组织权实时重验 + skill 条目 official 门槛 + 机读边 parent=调用方；
+  嵌套子 kernel 不注入 taskControl/penetration（深度限 1——子 agent 纯执行）；失败抛
+  PtcContractError 由父 worker 自行 catch 决策（重试/回退 delegate）；步数/LLM/kernel 计量
+  以 domain=penetration 汇入父任务计量面，活动事件 kind=task.penetrate。
+  落点：`tasking/penetration-runner.ts`（校验编排）+ `batch-process` runChild 执行缝
+  （建子 kernel→嵌套 runAgentTask→dispose——共享父任务工作区）+ PTC 契约/tasks 能力注入；
 - **与 rlm 的对照**：穿透 skill ≈ **编译后的 rlm 调用点**——把「运行时决定 spawn」固化为
   「稳定调用边」（rlm 是解释执行，穿透是 JIT 编译产物——与 0.7 同构）。
 
@@ -665,9 +675,9 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | 概念 | 现状 | 待建 |
 |---|---|---|
 | 类型树 | 谱系/分化（worker-cluster——lineage approve 注册新类型） | ✅ 已有 |
-| 任务投递 = rlm 等效 | 任务池六状态机 + 正交路由直达 + trigger 链续派（chainDepth） | ⚠️ 入口类型与投递协议——PTL 派发逻辑未设计（§8.3 W8 前置） |
-| 派发路径显式化 | 无 | ⚠️ 路径记录/审计待建 |
-| 穿透 skill | 无 | ❌ 特殊 skill 类型 + 优化循环注册通道 + 直接调用执行面 |
+| 任务投递 = rlm 等效 | ✅ W8 已建（tasks.delegate/await + 事件驱动回流；入口强制显式路由） | ✅ 已有 |
+| 派发路径显式化 | ✅ W8 P0 已建（payload.delivery.path/lineageId 全链盖章 + PTL wait --follow 逐层展示） | ✅ 已有 |
+| 穿透 skill | 特殊 skill 类型 ✅（W8 P3 接口位）+ 直接调用执行面 ✅（2026-08-18 tasks.penetrate） | ⚠️ 优化循环自动发现→提案注册通道待建（现走 memory-keeper 维护面人工/治理提案） |
 
 ---
 

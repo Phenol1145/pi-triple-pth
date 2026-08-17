@@ -22,7 +22,7 @@ import { SandboxCompiledKernel } from "@away_from/pth-sandbox";
 import { getEventBus } from "../../kernel/execution/event-bus.js";
 import { roleAnchorOf, hasRoleAnchor, filterOwnEntries, filterOwnRows, requireAnchorRows } from "../../kernel/execution/memory-scope.js";
 import { pthConfig } from "../../config/index.js";
-import { buildCapabilities, type TaskDispatchPort } from "./capability.js";
+import { buildCapabilities, type TaskDispatchPort, type PenetrationPort } from "./capability.js";
 import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
 import type { DataWorldAccess } from "../../kernel/storage/index.js";
 import type { TaskDispatchContext } from "../../contracts/index.js";
@@ -253,6 +253,8 @@ export function createWorkerKernelWithManager(deps: {
   roleId?: string;
   /** W8 P1：任务投递端口（仅组织权持有角色传入；缺省不注入 tasks 键） */
   taskControl?: TaskDispatchPort;
+  /** 0.16.3：穿透执行端口（与 taskControl 同批装配；嵌套子 kernel 不传——深度限 1） */
+  penetration?: PenetrationPort;
   /** W8 P1：当前任务身份引用（task-loop 每任务经 setTaskDispatchContext 盖章） */
   taskContext?: { current: TaskDispatchContext | null };
 }): {
@@ -301,6 +303,7 @@ export function createWorkerKernelWithManager(deps: {
     sessionRef,
     roleId: deps.roleId,
     taskControl: deps.taskControl,
+    penetration: deps.penetration,
     taskContext,
     // 环境感知（env.inspect）：LLM 友好摘要——过滤 _ 私有项 + 值截断（不 dump 大对象）
     registerKernel: (language, interpreter) => registerHook?.(language, interpreter),

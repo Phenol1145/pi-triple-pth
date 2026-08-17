@@ -156,4 +156,8 @@ tasks.await({ taskId, timeoutMs? }) →
 - **P3 穿透接口**：✅ 已完成——`skill:penetrate:<child>` 类型与四段式内容/机读边信息
   （`penetration-skill.ts`）+ 注册校验（parent→child 必须命中组织权矩阵——memory-keeper
   `skills.maintain.write/propose` 调用即拒绝）+ 内存条目构造器 `buildPenetrationSkillEntry`
-  （后续优化管线发现→审批→注册直接落库）；执行优化（父直调子 agent）留待后续阶段。
+  （后续优化管线发现→审批→注册直接落库）；**穿透执行面已实施（2026-08-18——
+  0.16.3 用户裁决：显式原语 tasks.penetrate / 深度限 1 / 失败报错由父决策 /
+  本批只做执行面）**：`tasking/penetration-runner.ts` 校验编排（组织权实时重验 +
+  official 门槛 + 边归属校验）+ batch-process runChild 执行缝（嵌套 runAgentTask）
+  + PTC 契约/能力注入；自动发现→提案通道后续。

@@ -1,12 +1,13 @@
 /**
- * tasking/penetration-skill.ts —— W8 P3 穿透 skill 接口位（不实现执行优化）。
+ * tasking/penetration-skill.ts —— W8 P3 穿透 skill 接口位 + 0.16.3 执行面配套。
  *
  * 穿透 = 类型树上的固化捷径边（0.16.3）：把「父类型 → 直接子类型」的稳定派发路径
- * 注册成特殊 skill（skill:penetrate:<child>）。P3 只落：
+ * 注册成特殊 skill（skill:penetrate:<child>）。本模块落：
  *   - 类型/内容四段式（可被 listSkills 三要素读取）；
  *   - 注册校验：parent→child 必须命中组织权矩阵（allowedDelegationTargets）；
- *   - 内存条目构造器（后续优化管线发现→审批→注册时直接落库）。
- * 执行优化（父直接调用子 agent、跳过任务池往返）留待后续阶段。
+ *   - 内存条目构造器（优化管线发现→审批→注册时直接落库）。
+ * 执行面（2026-08-18 已落）：tasking/penetration-runner.ts——tasks.penetrate 显式原语，
+ * 执行期重验组织权 + official 门槛 + 边归属校验；稳定路径自动发现→提案通道后续。
  */
 
 import {

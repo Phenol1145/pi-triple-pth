@@ -15,7 +15,7 @@ import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../kern
 import { getEventBus } from "../kernel/execution/event-bus.js";
 import { isForwardableKernelEvent, toKernelActivityEvent } from "../kernel/execution/kernel-event-bridge.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
-import { createPgTaskRepository, TaskControlService, PgTaskQueries, allowedDelegationTargets } from "../tasking/index.js";
+import { createPgTaskRepository, TaskControlService, PgTaskQueries, allowedDelegationTargets, createPenetrationRunner } from "../tasking/index.js";
 import { DefaultTaskWorkspaceManager } from "../kernel/execution/workspace.js";
 import { archiveTask, type ArchiveDeps } from "../kernel/execution/archive.js";
 import { createKernelModelRouter } from "../kernel/execution/model-router.js";
@@ -26,6 +26,7 @@ import { createToolstore } from "../kernel/interpreter/toolstore.js";
 import { createKernelLogger } from "../kernel/logger.js";
 import { loadKernelConfig } from "../kernel/interpreter/kernel-config.js";
 import { pthConfig } from "../config/index.js";
+import { runAgentTask } from "../kernel/execution/agent-loop.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -272,6 +273,108 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       : role;
     // W8 P1：任务身份引用（task-loop 每任务盖章；delegate/await 调用者上下文）
     const taskContext: { current: import("../contracts/index.js").TaskDispatchContext | null } = { current: null };
+    // 0.16.3 穿透执行面（2026-08-18 用户裁决：显式原语 tasks.penetrate / 深度限 1 /
+    // 失败报错由父决策 / 本批只做执行面）。runChild = 嵌套子 agent 执行缝：
+    // 建子 kernel（子角色能力面，无 taskControl/penetration——深度限 1）→ 嵌套
+    // runAgentTask（共享父任务工作区）→ dispose。校验编排在 tasking/penetration-runner。
+    const parentKernelRef: { current?: { ts: unknown } } = {};
+    const penetration = canDelegate
+      ? createPenetrationRunner({
+          memory: dataWorld.memory,
+          runChild: async (req) => {
+            const started = Date.now();
+            const childRole = knownRoleById(req.childRoleId);
+            if (!childRole) {
+              return { ok: false, steps: 0, error: `穿透目标角色未注册: ${req.childRoleId}`, durationMs: 0 };
+            }
+            const childManager = createKernelManager({
+              pythonMode: pthConfig().str("PTH_PYTHON_MODE") as any,
+              bashMode: pthConfig().str("PTH_BASH_MODE") as any,
+              sandboxKernel: {
+                url: pthConfig().str("PTH_SANDBOX_KERNEL_URL"),
+                secret: pthConfig().str("SANDBOX_SHARED_SECRET"),
+                grantSecret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET"),
+                grantIdentity: {
+                  principalId: `worker:${childRole.id}`,
+                  roleId: childRole.id,
+                  capabilities: childRole.capabilities ?? [],
+                },
+              },
+              kernelConfig: loadKernelConfig(process.env),
+              onKernelStderr: (language, line) => batchLogger.child(language === "python" ? "pykernel" : "bashkernel")?.warn(line.trim()),
+              onKernelMetric: (metric) => {
+                try { process.send?.({ kind: "metric", metric: { ...metric, domain: "penetration" } }); } catch { /* IPC 不可用 */ }
+              },
+            });
+            const childLlm = createLlmFn({
+              modelRouter,
+              onMetric: (m) => {
+                try { process.send?.({ kind: "metric", metric: { ...m, kind: "llm", domain: "penetration" } }); } catch { /* IPC 不可用 */ }
+              },
+            });
+            const childKernel = createWorkerKernelWithManager({
+              llm: childLlm, dataWorld, manager: childManager, toolstore,
+              roleFilter: childRole.capabilities,
+              memoryScope: childRole.memoryScope ? { role: childRole.id, scope: childRole.memoryScope } : undefined,
+              roleId: childRole.id,
+              // 深度限 1：不传 taskControl/penetration——嵌套子 agent 纯执行，不再派发/穿透
+              registerKernel: (language, interpreter) => childManager.registerKernel(language, interpreter as never),
+              readSource: pthConfig().str("PTH_SOURCE_ROOT")
+                ? (relPath) => import("../kernel/interpreter/read-source.js").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
+                : undefined,
+              taskWorkspaceResolve: (relPath) => {
+                const cwd = (childKernel.ts as unknown as { currentCwd?: string | null }).currentCwd;
+                if (!cwd || !cwd.includes("/tasks/")) throw new Error("fs.task: 任务工作区未就绪（非任务上下文）");
+                if (typeof relPath !== "string" || relPath.trim() === "" || relPath.includes("\0")) {
+                  throw new Error(`fs.task: 仅允许相对路径（拒绝: ${String(relPath).slice(0, 60)}）`);
+                }
+                const base = resolvePath(cwd);
+                const abs = resolvePath(base, relPath);
+                const rel = relativePath(base, abs);
+                if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+                  throw new Error(`fs.task: 路径越出任务工作区（拒绝: ${relPath.slice(0, 60)}）`);
+                }
+                return abs;
+              },
+            });
+            try {
+              // 共享父任务工作区（父 kernel ts.currentCwd——穿透调用发生在父任务程序内）
+              const parentCwd = (parentKernelRef.current?.ts as { currentCwd?: string | null } | undefined)?.currentCwd;
+              const r = await runAgentTask({
+                llm: childLlm, kernel: childKernel, caps: childKernel.capabilities,
+                task: { title: req.title, text: req.text },
+                taskWorkspace: parentCwd ?? undefined,
+                toolstore,
+                role: childRole,
+                asp: pthConfig().str("PTH_ASP_MODE") === "on",
+                onTrace: (e) => {
+                  if (e.type === "finish") {
+                    try {
+                      process.send?.({
+                        kind: "activity",
+                        activity: {
+                          kind: "task.penetrate", taskId: req.caller.taskId, role: req.caller.roleId,
+                          ok: e.ok, step: e.steps,
+                          detail: `穿透 ${req.caller.roleId}→${req.childRoleId}（${req.skillId}）${e.ok ? "完成" : `失败: ${(e.error ?? "").slice(0, 80)}`}`,
+                          batchPid: process.pid, at: Date.now(),
+                        },
+                      });
+                    } catch { /* IPC 不可用 */ }
+                  }
+                },
+              });
+              const durationMs = Date.now() - started;
+              if (!r.ok) return { ok: false, steps: r.steps, error: r.error ?? "子 agent 执行失败", durationMs };
+              if (r.value === undefined || r.value === null) {
+                return { ok: false, steps: r.steps, error: r.warning ? `soft-terminated: ${r.warning}` : "子 agent 未产出结果（done 未带 result）", durationMs };
+              }
+              return { ok: true, value: r.value, summary: r.summary, steps: r.steps, durationMs };
+            } finally {
+              childKernel.dispose();
+            }
+          },
+        })
+      : undefined;
     const manager = createKernelManager({
       pythonMode: pthConfig().str("PTH_PYTHON_MODE") as any,
       bashMode: pthConfig().str("PTH_BASH_MODE") as any,
@@ -310,6 +413,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
       roleId: role.id,
       taskControl: canDelegate ? taskControl : undefined,
+      penetration,
       taskContext,
       registerKernel: (language, interpreter) => manager.registerKernel(language, interpreter as never),
       readSource: pthConfig().str("PTH_SOURCE_ROOT")
@@ -332,6 +436,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         return abs;
       },
     });
+    parentKernelRef.current = kernel;   // 穿透 runChild 共享父任务工作区（ts.currentCwd）
     // Refine 钩子（T4，裁决 P6：默认 auto——任务完成后自动提炼；PTH_REFINE=off 关闭）
     const refineEnabled = pthConfig().str("PTH_REFINE") !== "off";
     const refiner = refineEnabled ? new Refiner({
