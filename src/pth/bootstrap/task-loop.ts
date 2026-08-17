@@ -21,6 +21,7 @@ import { runAgentTask } from "../kernel/execution/agent-loop.js";
 import { getEventBus } from "../kernel/execution/event-bus.js";
 import { publishDebugCaseTask } from "../kernel/execution/debug-case-dispatch.js";
 import { notifyTaskDone, classifyReason } from "./task-loop-helpers.js";
+import { readWorkItemDomainBinding, readWorkItemDomains } from "../tasking/index.js";
 import type { TaskLoopDeps } from "./task-loop-types.js";
 export type { TaskLoopDeps } from "./task-loop-types.js";
 import { pthConfig } from "../config/index.js";
@@ -50,11 +51,17 @@ export class TaskLoop {
     const payload = task.payload as
       | { delivery?: TaskDispatchContext["delivery"]; dispatchWait?: TaskDispatchContext["dispatchWait"]; childResult?: TaskDispatchContext["childResult"] }
       | undefined;
+    // F3：domains/domainBinding 复用 task-work-item-reader（与 claim/query 同一解析口径），
+    // 不再从 payload 手工解析。
+    const domains = readWorkItemDomains(task.payload);
+    const domainBinding = readWorkItemDomainBinding(task.payload, domains);
     kernel.setTaskDispatchContext?.({
       taskId: task.id,
       roleId: this.deps.role.id,
       tenantId: task.tenantId ?? "default",
       delivery: payload?.delivery ?? null,
+      domains,
+      ...(domainBinding ? { domainBinding } : {}),
       dispatchWait: payload?.dispatchWait,
       childResult: payload?.childResult,
     });

@@ -241,7 +241,10 @@ export function buildCapabilities(deps: {
                 reviewerRole: "controller:adversarial",
                 note,
                 at: Date.now(),
-              }, { tenantId: deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID }),
+              }, {
+                tenantId: deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID,
+                principalId: "worker:controller:adversarial",
+              }),
           },
         }
       : {}),
@@ -249,7 +252,11 @@ export function buildCapabilities(deps: {
       ? {
           knowledge: {
             promote: async (entryId: string) =>
-              promoteKnowledgeEntry(memoryStore(), entryId, { promoterRole: "memory-keeper", tenantId: deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID }),
+              promoteKnowledgeEntry(memoryStore(), entryId, {
+                promoterRole: "memory-keeper",
+                tenantId: deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID,
+                principalId: "worker:memory-keeper",
+              }),
           },
         }
       : {}),

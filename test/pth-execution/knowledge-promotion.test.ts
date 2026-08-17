@@ -60,6 +60,7 @@ function makeDraft(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
     content,
     status: "draft",
     meta: {
+      version: 1,
       provenance: buildKnowledgeProvenance({
         content,
         sourceTaskId: "task-1",
@@ -73,12 +74,31 @@ function makeDraft(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   };
 }
 
-function domainPass(reviewerRole = "domain:expert"): KnowledgeVerdict {
-  return { kind: "domain", verdict: "pass", reviewerRole, note: "domain evidence verified", at: 1 };
+function domainPass(reviewerRole = "domain:expert", overrides: Partial<KnowledgeVerdict> = {}): KnowledgeVerdict {
+  return {
+    kind: "domain",
+    verdict: "pass",
+    reviewerRole,
+    note: "domain evidence verified",
+    at: 1,
+    principalId: "tenant:tenant-a:platform-admin",
+    domainId: "mathematics",
+    candidateRevision: 1,
+    ...overrides,
+  };
 }
 
-function adversarialPass(reviewerRole = "controller:adversarial"): KnowledgeVerdict {
-  return { kind: "adversarial", verdict: "pass", reviewerRole, note: "no shortcut / pitfall covered", at: 2 };
+function adversarialPass(reviewerRole = "controller:adversarial", overrides: Partial<KnowledgeVerdict> = {}): KnowledgeVerdict {
+  return {
+    kind: "adversarial",
+    verdict: "pass",
+    reviewerRole,
+    note: "no shortcut / pitfall covered",
+    at: 2,
+    principalId: "worker:controller:adversarial",
+    candidateRevision: 1,
+    ...overrides,
+  };
 }
 
 describe("validateKnowledgeVerdict（N22 1）", () => {
@@ -97,6 +117,21 @@ describe("validateKnowledgeVerdict（N22 1）", () => {
     expect(validateKnowledgeVerdict({ ...domainPass(), at: Number.NaN }).ok).toBe(false);
     expect(validateKnowledgeVerdict(null).ok).toBe(false);
     expect(validateKnowledgeVerdict("x").ok).toBe(false);
+  });
+
+  it("F3：optional 字段形状非法 → 拒绝", () => {
+    expect(validateKnowledgeVerdict({ ...domainPass(), principalId: "" }).ok).toBe(false);
+    expect(validateKnowledgeVerdict({ ...domainPass(), executionId: " " }).ok).toBe(false);
+    expect(validateKnowledgeVerdict({ ...domainPass(), candidateRevision: Number.NaN }).ok).toBe(false);
+    expect(validateKnowledgeVerdict({ ...domainPass(), domainId: "" }).ok).toBe(false);
+    expect(validateKnowledgeVerdict({ ...domainPass(), evidence: ["ok", 7] }).ok).toBe(false);
+    expect(validateKnowledgeVerdict({ ...domainPass(), evidence: ["ok", ""] }).ok).toBe(false);
+  });
+
+  it("F3：domain verdict 必须带 domainId；adversarial 不填 domainId 仍合法", () => {
+    expect(validateKnowledgeVerdict({ ...domainPass(), domainId: undefined }).ok).toBe(false);
+    const adv = validateKnowledgeVerdict(adversarialPass("controller:adversarial", { domainId: undefined }));
+    expect(adv.ok).toBe(true);
   });
 });
 
@@ -134,6 +169,36 @@ describe("recordKnowledgeVerdict（N22 2）", () => {
     expect((store.rows.get("cand-1")!.meta.verdicts as unknown[])).toHaveLength(0);
   });
 
+  it("F3：candidateRevision 自动取 entry.meta.version（调用方不可覆盖）", async () => {
+    const store = makeStore([makeDraft()]);
+    const r = await recordKnowledgeVerdict(store as never, "cand-1", domainPass("domain:expert", { candidateRevision: 99 }));
+    expect(r).toEqual({ ok: true });
+    const verdicts = store.rows.get("cand-1")!.meta.verdicts as KnowledgeVerdict[];
+    expect(verdicts[0].candidateRevision).toBe(1);
+  });
+
+  it("F3：opts.principalId/domainId 作为服务端盖章写入 verdict", async () => {
+    const store = makeStore([makeDraft()]);
+    const verdict: KnowledgeVerdict = {
+      kind: "domain",
+      verdict: "pass",
+      reviewerRole: "domain:expert",
+      note: "ok",
+      at: 1,
+    };
+    const r = await recordKnowledgeVerdict(store as never, "cand-1", verdict, {
+      principalId: "tenant:tenant-a:platform-admin",
+      domainId: "mathematics",
+    });
+    expect(r).toEqual({ ok: true });
+    const verdicts = store.rows.get("cand-1")!.meta.verdicts as KnowledgeVerdict[];
+    expect(verdicts[0]).toMatchObject({
+      principalId: "tenant:tenant-a:platform-admin",
+      domainId: "mathematics",
+      candidateRevision: 1,
+    });
+  });
+
   it("entry 不存在 → 拒绝", async () => {
     const store = makeStore();
     const r = await recordKnowledgeVerdict(store as never, "nope", domainPass());
@@ -160,25 +225,74 @@ describe("canPromote / promoteKnowledgeEntry（N22 1/2）", () => {
     if (!r.ok) expect(r.error).toContain("reject");
   });
 
-  it("domain 与 adversarial reviewer 相同 → promote 拒绝", async () => {
+  it("F3：domain 与 adversarial principal 相同 → promote 拒绝", async () => {
     const store = makeStore([makeDraft()]);
-    await recordKnowledgeVerdict(store as never, "cand-1", domainPass("controller:adversarial"));
-    await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass("controller:adversarial"));
+    await recordKnowledgeVerdict(store as never, "cand-1", domainPass("domain:expert", { principalId: "worker:controller:adversarial" }));
+    await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass("controller:adversarial", { principalId: "worker:controller:adversarial" }));
     const r = await promoteKnowledgeEntry(store as never, "cand-1");
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("differ");
+    if (!r.ok) expect(r.error).toContain("principals");
   });
 
-  it("producer 自核验（producerRole 等于 pass reviewer）→ promote 拒绝", async () => {
+  it("F3：producer 自核验（principalId === provenance.producerRole）→ promote 拒绝", async () => {
     const entry = makeDraft();
     entry.meta = {
       ...entry.meta,
-      verdicts: [domainPass("developer"), adversarialPass()],
+      verdicts: [domainPass("domain:expert", { principalId: "developer" }), adversarialPass()],
     };
     const store = makeStore([entry]);
     const r = await promoteKnowledgeEntry(store as never, "cand-1");
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("producer");
+  });
+
+  it("F3：domain pass 缺 principalId 或 domainId → promote 拒绝", async () => {
+    const noPrincipal = makeDraft();
+    noPrincipal.meta = {
+      ...noPrincipal.meta,
+      verdicts: [
+        { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "ok", at: 1, domainId: "mathematics", candidateRevision: 1 },
+        adversarialPass(),
+      ],
+    };
+    const r1 = promoteKnowledgeEntry(makeStore([noPrincipal]) as never, "cand-1");
+    await expect(r1).resolves.toMatchObject({ ok: false, error: expect.stringContaining("principalId") });
+
+    const noDomain = makeDraft();
+    noDomain.meta = {
+      ...noDomain.meta,
+      verdicts: [
+        { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "ok", at: 1, principalId: "tenant:tenant-a:platform-admin", candidateRevision: 1 },
+        adversarialPass(),
+      ],
+    };
+    const r2 = promoteKnowledgeEntry(makeStore([noDomain]) as never, "cand-1");
+    await expect(r2).resolves.toMatchObject({ ok: false, error: expect.stringContaining("domainId") });
+  });
+
+  it("F3：adversarial pass 缺 principalId → promote 拒绝", async () => {
+    const entry = makeDraft();
+    entry.meta = {
+      ...entry.meta,
+      verdicts: [
+        domainPass(),
+        { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "ok", at: 2, candidateRevision: 1 },
+      ],
+    };
+    const r = await promoteKnowledgeEntry(makeStore([entry]) as never, "cand-1");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("principalId");
+  });
+
+  it("F3：candidateRevision 不等于 entry.meta.version → promote 拒绝", async () => {
+    const entry = makeDraft();
+    entry.meta = {
+      ...entry.meta,
+      verdicts: [domainPass("domain:expert", { candidateRevision: 2 }), adversarialPass()],
+    };
+    const r = await promoteKnowledgeEntry(makeStore([entry]) as never, "cand-1");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("candidateRevision");
   });
 
   it("provenance 缺失/哈希不匹配 → canPromote 拒绝", () => {
@@ -210,13 +324,14 @@ describe("canPromote / promoteKnowledgeEntry（N22 1/2）", () => {
     expect((await recordKnowledgeVerdict(store as never, "cand-1", domainPass())).ok).toBe(true);
     expect((await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass())).ok).toBe(true);
 
-    const r = await promoteKnowledgeEntry(store as never, "cand-1");
+    const r = await promoteKnowledgeEntry(store as never, "cand-1", { principalId: "worker:memory-keeper" });
     expect(r).toEqual({ ok: true, id: "cand-1" });
 
     const entry = store.rows.get("cand-1")!;
     expect(entry.status).toBe("official");
     expect(entry.meta.promotion).toMatchObject({
       promotedBy: "memory-keeper",
+      principalId: "worker:memory-keeper",
       verdicts: [domainPass(), adversarialPass()],
     });
     expect((entry.meta.promotion as { promotedAt?: unknown }).promotedAt).toEqual(expect.any(Number));
@@ -225,17 +340,20 @@ describe("canPromote / promoteKnowledgeEntry（N22 1/2）", () => {
     expect(store.writeCalls[0].opts).toEqual({ force: true, reason: "knowledge-promotion", createdBy: "memory-keeper" });
     expect(store.writeCalls[0].entry.status).toBe("official");
     expect(store.writeCalls[0].entry.meta).toMatchObject({
-      promotion: { promotedBy: "memory-keeper", promotedAt: expect.any(Number) },
+      promotion: { promotedBy: "memory-keeper", principalId: "worker:memory-keeper", promotedAt: expect.any(Number) },
     });
   });
 
-  it("promoterRole 显式传入 → 写入 createdBy/promotedBy", async () => {
+  it("promoterRole 显式传入 → 写入 createdBy/promotedBy/principalId", async () => {
     const store = makeStore([makeDraft()]);
     await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
     await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass());
-    const r = await promoteKnowledgeEntry(store as never, "cand-1", { promoterRole: "memory-keeper" });
+    const r = await promoteKnowledgeEntry(store as never, "cand-1", { promoterRole: "memory-keeper", principalId: "worker:memory-keeper" });
     expect(r).toEqual({ ok: true, id: "cand-1" });
-    expect((store.rows.get("cand-1")!.meta.promotion as { promotedBy?: unknown }).promotedBy).toBe("memory-keeper");
+    expect(store.rows.get("cand-1")!.meta.promotion).toMatchObject({
+      promotedBy: "memory-keeper",
+      principalId: "worker:memory-keeper",
+    });
   });
 
   it("F1 6.3 幂等重放：已 official 且 promotedBy===promoterRole → 直接 ok 且不重复写", async () => {

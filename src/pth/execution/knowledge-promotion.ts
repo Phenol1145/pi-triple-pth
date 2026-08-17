@@ -18,14 +18,23 @@ function tenantOpts(opts?: { tenantId?: string }): { tenantId?: string } | undef
 /**
  * 记录候选 verdict。仅 draft 可审；同 kind + reviewer 重复提交幂等返回 ok（不重复 append）；
  * producer 自审（reviewerRole === provenance.producerRole）拒绝。
+ * F3：opts.principalId/executionId/domainId 作为服务端盖章写入 verdict（缺省保留调用方字段）；
+ * candidateRevision 恒等于 entry.meta.version（调用方不可覆盖）。
  */
 export async function recordKnowledgeVerdict(
   store: Pick<PgMemoryStore, "get" | "update">,
   entryId: string,
   verdict: KnowledgeVerdict,
-  opts?: { tenantId?: string },
+  opts?: { tenantId?: string; principalId?: string; executionId?: string; domainId?: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const checked = validateKnowledgeVerdict(verdict);
+  // 先做服务端字段覆盖（body 不可自报 principalId/executionId/domainId），再统一校验形状。
+  const mergedVerdict: KnowledgeVerdict = {
+    ...verdict,
+    ...(opts?.principalId !== undefined ? { principalId: opts.principalId } : {}),
+    ...(opts?.executionId !== undefined ? { executionId: opts.executionId } : {}),
+    ...(opts?.domainId !== undefined ? { domainId: opts.domainId } : {}),
+  };
+  const checked = validateKnowledgeVerdict(mergedVerdict);
   if (!checked.ok) return { ok: false, error: checked.error };
 
   const entry = await store.get(entryId, tenantOpts(opts));
@@ -36,33 +45,51 @@ export async function recordKnowledgeVerdict(
     return { ok: false, error: "only draft knowledge can be reviewed" };
   }
 
+  // candidateRevision 恒由 entry.meta.version 决定（调用方不可覆盖）。
+  const { candidateRevision: _callerRevision, ...baseVerdict } = checked.verdict;
+  const version = entry.meta?.["version"];
+  const finalVerdict: KnowledgeVerdict = {
+    ...baseVerdict,
+    ...(typeof version === "number" ? { candidateRevision: version } : {}),
+  };
+  const finalCheck = validateKnowledgeVerdict(finalVerdict);
+  if (!finalCheck.ok) return { ok: false, error: finalCheck.error };
+
   const producerRole = (entry.meta?.["provenance"] as { producerRole?: unknown } | undefined)?.producerRole;
-  if (typeof producerRole === "string" && producerRole === checked.verdict.reviewerRole) {
+  if (typeof producerRole === "string" && producerRole === finalCheck.verdict.reviewerRole) {
+    return { ok: false, error: "producer cannot review own knowledge" };
+  }
+  if (typeof producerRole === "string" && finalCheck.verdict.principalId === producerRole) {
     return { ok: false, error: "producer cannot review own knowledge" };
   }
 
   const existing = Array.isArray(entry.meta?.["verdicts"]) ? (entry.meta["verdicts"] as unknown[]) : [];
   const duplicate = existing.some((raw) => {
     const v = raw as Record<string, unknown>;
-    return v.kind === checked.verdict.kind && v.reviewerRole === checked.verdict.reviewerRole;
+    return v.kind === finalCheck.verdict.kind && v.reviewerRole === finalCheck.verdict.reviewerRole;
   });
   if (duplicate) return { ok: true };
 
-  const metaPatch: Record<string, unknown> = { verdicts: [...existing, checked.verdict] };
+  const metaPatch: Record<string, unknown> = { verdicts: [...existing, finalCheck.verdict] };
   await store.update(entryId, { meta: metaPatch }, { tenantId: opts?.tenantId });
   return { ok: true };
 }
 
 /**
  * 晋升 draft → official。canPromote fail-closed；promoterRole 缺省 "memory-keeper"。
- * 写入 meta.promotion = { promotedBy, promotedAt, verdicts }（留痕可反查）；
+ * F3：写入 meta.promotion = { promotedBy, principalId, promotedAt, verdicts }（留痕可反查）；
+ * 幂等重放保持 F1 语义（official + promotedBy 匹配 → 直接 ok，不重复写）。
  * write 走 force 系统通道（official 后 K1b provenance 门禁自然再次校验）。
  */
 export async function promoteKnowledgeEntry(
   store: Pick<PgMemoryStore, "get" | "write">,
   entryId: string,
-  opts?: { tenantId?: string; promoterRole?: string; note?: string },
+  opts?: { tenantId?: string; promoterRole?: string; note?: string; principalId?: string },
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  if (opts?.principalId !== undefined && (typeof opts.principalId !== "string" || opts.principalId.trim() === "")) {
+    return { ok: false, error: "principalId must be a non-empty string when provided" };
+  }
+
   const entry = await store.get(entryId, tenantOpts(opts));
   if (!entry) {
     return { ok: false, error: `entry not found in tenant ${opts?.tenantId ?? "default"}` };
@@ -93,6 +120,7 @@ export async function promoteKnowledgeEntry(
         ...entry.meta,
         promotion: {
           promotedBy: promoterRole,
+          ...(opts?.principalId !== undefined ? { principalId: opts.principalId } : {}),
           promotedAt: Date.now(),
           verdicts,
         },

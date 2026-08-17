@@ -291,11 +291,18 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     }
   });
   // ── K4 Phase 4（N22 4）：候选验证与晋升监督通道 ──────────────────
+  // F3：verify/promote 仅 platform-admin（否则 403）；principalId/tenantId 由 auth 透传，
   // body 形状校验失败 400；service 结果 !ok → 400（fail-closed）。
-  // 认证沿用既有 kernel 路由模式（无新增角色权限判断——监督通道）。
   app.post("/api/v1/kernel/knowledge/verify", async (req, reply) => {
     if (!facade) return unavailable(reply);
-    const body = (req.body ?? {}) as { entryId?: string; kind?: string; verdict?: string; note?: string };
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    if (auth?.role !== "platform-admin") {
+      return reply.status(403).send({ error: "knowledge verify requires platform-admin" });
+    }
+    if (typeof auth.principalId !== "string" || auth.principalId.trim() === "") {
+      return reply.status(401).send({ error: "knowledge verify requires authenticated principalId" });
+    }
+    const body = (req.body ?? {}) as { entryId?: string; kind?: string; verdict?: string; note?: string; domainId?: string; executionId?: string };
     const entryId = typeof body.entryId === "string" ? body.entryId.trim() : "";
     const kind = body.kind === "domain" || body.kind === "adversarial" ? body.kind : null;
     const verdict = body.verdict === "pass" || body.verdict === "reject" ? body.verdict : null;
@@ -305,21 +312,45 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
         error: "entryId/kind/verdict/note required: kind ∈ domain|adversarial, verdict ∈ pass|reject, note non-empty",
       });
     }
-    const auth = (req as unknown as { auth?: { principalId?: string; role?: string } }).auth;
+    // F3：domain 必须带 domainId；adversarial 不接收 body.domainId
+    if (kind === "domain" && (typeof body.domainId !== "string" || body.domainId.trim() === "")) {
+      return reply.status(400).send({ error: "domain verify requires body.domainId" });
+    }
+    if (kind === "adversarial" && body.domainId !== undefined) {
+      return reply.status(400).send({ error: "adversarial verify must not receive body.domainId" });
+    }
+    const executionId = typeof body.executionId === "string" && body.executionId.trim() !== "" ? body.executionId.trim() : undefined;
     const reviewerRole = kind === "adversarial"
       ? "controller:adversarial"
-      : `domain:${auth?.principalId ?? auth?.role ?? "supervisor"}`;
-    const r = await facade.verifyKnowledge(entryId, { kind, verdict, reviewerRole, note, at: Date.now() });
+      : `domain:${auth.principalId}`;
+    const tenantId = auth.tenantId ?? "default";
+    const r = await facade.verifyKnowledge(entryId, { kind, verdict, reviewerRole, note, at: Date.now() }, {
+      tenantId,
+      principalId: auth.principalId,
+      ...(executionId !== undefined ? { executionId } : {}),
+      ...(kind === "domain" ? { domainId: body.domainId!.trim() } : {}),
+    });
     if (!(r as { ok?: boolean }).ok) return reply.status(400).send(r);
     return r;
   });
 
   app.post("/api/v1/kernel/knowledge/promote", async (req, reply) => {
     if (!facade) return unavailable(reply);
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    if (auth?.role !== "platform-admin") {
+      return reply.status(403).send({ error: "knowledge promote requires platform-admin" });
+    }
+    if (typeof auth.principalId !== "string" || auth.principalId.trim() === "") {
+      return reply.status(401).send({ error: "knowledge promote requires authenticated principalId" });
+    }
     const body = (req.body ?? {}) as { entryId?: string };
     const entryId = typeof body.entryId === "string" ? body.entryId.trim() : "";
     if (!entryId) return reply.status(400).send({ error: "entryId required" });
-    const r = await facade.promoteKnowledge(entryId);
+    const r = await facade.promoteKnowledge(entryId, {
+      tenantId: auth.tenantId ?? "default",
+      principalId: auth.principalId,
+      promoterRole: "memory-keeper",
+    });
     if (!(r as { ok?: boolean }).ok) return reply.status(400).send(r);
     return r;
   });

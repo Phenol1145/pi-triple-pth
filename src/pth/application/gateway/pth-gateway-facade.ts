@@ -49,10 +49,10 @@ export interface PthGatewayFacade {
   optimizerSuggestions(): Promise<unknown[]>;
   applyOptimizer(id: string): Promise<unknown>;
   approveMemoryAdmin(id: string): Promise<unknown>;
-  /** K4 Phase 4（N22 4）：候选验证（监督通道——domain verdict 或 adversarial verdict） */
-  verifyKnowledge(entryId: string, verdict: KnowledgeVerdict): Promise<unknown>;
-  /** K4 Phase 4（N22 4）：候选晋升 official（监督通道） */
-  promoteKnowledge(entryId: string): Promise<unknown>;
+  /** K4 Phase 4（N22 4）：候选验证（监督通道——domain verdict 或 adversarial verdict）。F3：tenantId/principalId/executionId/domainId 透传。 */
+  verifyKnowledge(entryId: string, verdict: KnowledgeVerdict, opts?: { tenantId?: string; principalId?: string; executionId?: string; domainId?: string }): Promise<unknown>;
+  /** K4 Phase 4（N22 4）：候选晋升 official（监督通道）。F3：tenantId/principalId 透传，promoterRole 缺省 memory-keeper。 */
+  promoteKnowledge(entryId: string, opts?: { tenantId?: string; promoterRole?: string; principalId?: string }): Promise<unknown>;
   spawnBatches(count: number, profile?: BatchProfile): Promise<SpawnBatchesResult>;
   batchWorkers(id: string, action: "pause" | "resume" | "remove" | "add", role: string, copies: number): Promise<boolean>;
   removeBatches(count: number): Promise<number>;
@@ -195,12 +195,25 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     return applyMemoryAdminProposal(memory, id);
   }
 
-  verifyKnowledge(entryId: string, verdict: KnowledgeVerdict): Promise<unknown> {
-    return recordKnowledgeVerdict(this.#kernel.dataWorld.memory, entryId, verdict, { tenantId: DEFAULT_TENANT_ID });
+  verifyKnowledge(
+    entryId: string,
+    verdict: KnowledgeVerdict,
+    opts?: { tenantId?: string; principalId?: string; executionId?: string; domainId?: string },
+  ): Promise<unknown> {
+    return recordKnowledgeVerdict(this.#kernel.dataWorld.memory, entryId, verdict, {
+      tenantId: opts?.tenantId ?? DEFAULT_TENANT_ID,
+      ...(opts?.principalId !== undefined ? { principalId: opts.principalId } : {}),
+      ...(opts?.executionId !== undefined ? { executionId: opts.executionId } : {}),
+      ...(opts?.domainId !== undefined ? { domainId: opts.domainId } : {}),
+    });
   }
 
-  promoteKnowledge(entryId: string): Promise<unknown> {
-    return promoteKnowledgeEntry(this.#kernel.dataWorld.memory, entryId, { tenantId: DEFAULT_TENANT_ID });
+  promoteKnowledge(entryId: string, opts?: { tenantId?: string; promoterRole?: string; principalId?: string }): Promise<unknown> {
+    return promoteKnowledgeEntry(this.#kernel.dataWorld.memory, entryId, {
+      tenantId: opts?.tenantId ?? DEFAULT_TENANT_ID,
+      ...(opts?.promoterRole !== undefined ? { promoterRole: opts.promoterRole } : {}),
+      ...(opts?.principalId !== undefined ? { principalId: opts.principalId } : {}),
+    });
   }
 
   async spawnBatches(count: number, profile?: BatchProfile): Promise<SpawnBatchesResult> {
