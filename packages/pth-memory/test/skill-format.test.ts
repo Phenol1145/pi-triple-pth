@@ -5,6 +5,7 @@ import {
   buildSkillContent,
   SEED_SKILL_SOPS,
   SEED_OPT_SOPS,
+  SEED_LEAF_SOPS,
 } from "@away_from/pth-memory";
 
 describe("skill 四段式格式（B4 Phase 1 / W1）", () => {
@@ -100,5 +101,79 @@ describe("skill 四段式格式（B4 Phase 1 / W1）", () => {
     const rule = SEED_OPT_SOPS.find((s) => s.id === "opt-rule")!;
     expect(buildSkillContent(rule)).toContain("manage.params.set");
     expect(buildSkillContent(rule)).toContain("PTH_GUARD_*");
+  });
+});
+
+describe("A5：叶子角色 SOP 种子（N17 §1——8 条四段式）", () => {
+  const LEAF_SOP_IDS = [
+    "writer-sop",
+    "coder-sop",
+    "debug-case-writer-sop",
+    "acceptor-sop",
+    "planner-sop",
+    "spider-sop",
+    "solver-sop",
+    "predictor-sop",
+  ];
+
+  it("id 精确为设计 1.1 的 8 个（不多不少、顺序一致）", () => {
+    expect(SEED_LEAF_SOPS.map((s) => s.id)).toEqual(LEAF_SOP_IDS);
+  });
+
+  it("每条都是完整四段式：procedure 每步 cost 非空、pitfalls≥2、verification≥1", () => {
+    expect(SEED_LEAF_SOPS).toHaveLength(8);
+    for (const seed of SEED_LEAF_SOPS) {
+      const content = buildSkillContent(seed);
+      for (const sec of ["【场景锚点】", "【何时用】", "【效果】", "## Procedure", "## Pitfalls", "## Verification"]) {
+        expect(content, seed.id).toContain(sec);
+      }
+      expect(seed.anchor.length, seed.id).toBeGreaterThan(0);
+      expect(seed.whenToUse.length, seed.id).toBeGreaterThan(0);
+      expect(seed.effect.length, seed.id).toBeGreaterThan(0);
+      expect(seed.procedure.length, seed.id).toBeGreaterThan(0);
+      for (const p of seed.procedure) {
+        expect(p.step.length, seed.id).toBeGreaterThan(0);
+        expect(p.cost, seed.id).not.toBe("");
+      }
+      expect(content, seed.id).toMatch(/1\. .+（代价：.+）/);
+      expect(seed.pitfalls.length, seed.id).toBeGreaterThanOrEqual(2);
+      expect(seed.verification.length, seed.id).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("与既有两组种子（SEED_SKILL_SOPS / SEED_OPT_SOPS）无 id 冲突", () => {
+    const existing = new Set([
+      ...SEED_SKILL_SOPS.map((s) => s.id),
+      ...SEED_OPT_SOPS.map((s) => s.id),
+    ]);
+    const seen = new Set<string>();
+    for (const seed of SEED_LEAF_SOPS) {
+      expect(existing.has(seed.id), seed.id).toBe(false);
+      expect(seen.has(seed.id), seed.id).toBe(false);
+      seen.add(seed.id);
+    }
+  });
+
+  it("关键契约入内容：planner 依赖 DAG / debug-case-writer 用例四件套 / spider 抓取能力", () => {
+    const planner = SEED_LEAF_SOPS.find((s) => s.id === "planner-sop")!;
+    const plannerContent = buildSkillContent(planner);
+    expect(plannerContent).toContain("dependsOn");
+    expect(plannerContent).toContain("DAG");
+    expect(plannerContent).toContain("自包含");
+    expect(plannerContent).toContain("时间复用");
+
+    const dcw = SEED_LEAF_SOPS.find((s) => s.id === "debug-case-writer-sop")!;
+    const dcwContent = buildSkillContent(dcw);
+    expect(dcwContent).toContain("repro");
+    expect(dcwContent).toContain("regression");
+    expect(dcwContent).toContain("boundary");
+    expect(dcwContent).toContain("verification");
+
+    const spider = SEED_LEAF_SOPS.find((s) => s.id === "spider-sop")!;
+    const spiderContent = buildSkillContent(spider);
+    expect(spiderContent).toContain("web.fetchText");
+    expect(spiderContent).toContain("ext.use(agent-reach)");
+    expect(spiderContent).toContain("结构化");
+    expect(spiderContent).toContain("来源");
   });
 });
