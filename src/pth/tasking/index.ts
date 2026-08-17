@@ -13,3 +13,4 @@ export * from "./task-dispatch-notifier.js";
 export * from "./penetration-skill.js";
 export * from "./penetration-budget.js";
 export * from "./penetration-runner.js";
+export * from "./penetration-discovery.js";

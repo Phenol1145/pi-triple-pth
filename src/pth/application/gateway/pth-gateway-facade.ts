@@ -175,6 +175,15 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
       if (!executed.ok) return executed;
       return executed;
     }
+    // N15 B1：穿透稳定边提案同流（draft → 监督批准 → 执行注册 skill:penetrate:<child>）
+    if (proposal?.kind === "penetration-proposal") {
+      const { approvePenetrationProposal, executeApprovedPenetrationProposal } = await import("../../tasking/penetration-discovery.js");
+      const approved = await approvePenetrationProposal(this.#kernel.dataWorld.memory, id);
+      if (!approved.ok) return approved;
+      const executed = await executeApprovedPenetrationProposal(this.#kernel.dataWorld.memory, id);
+      if (!executed.ok) return executed;
+      return executed;
+    }
     const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
     return applyMemoryAdminProposal(this.#kernel.dataWorld.memory, id);
   }
