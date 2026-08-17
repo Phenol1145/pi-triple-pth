@@ -1026,6 +1026,7 @@ v0.9（动作面/权限/任务池纯化）
  → v1.1.0（2026-08-16——结构收口与安全基线：模块化 v2 全落 + 沙箱 grant 硬化 + 全流程 trigger 化 + 任务模板统一 + 107 键配置集中/secrets :?）
   → v1.1.1（2026-08-17——安装路径修复补丁：build/Dockerfile 拓扑序 + 首装 onboard + compose strict 密钥注入 + check-sandbox-env + tgz/文档修正）
   → v1.1.2（2026-08-17——全模块结构专项收账：依赖环清零 + 大文件拆分 + sandbox 配置收口 + framework 测试补强）
+  → v1.1.3（2026-08-18——W8 PTL 任务派发 P0-P3 + 0.16.4 工具面收口 + 0.16.3 穿透执行面 + skill staged 审核流全链 + batch 健康面 + 0.17 四层次概念 + fork-session 并行协议）
 ```
 
 ---
