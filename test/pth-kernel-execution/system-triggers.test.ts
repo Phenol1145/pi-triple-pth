@@ -33,7 +33,7 @@ function baseDeps(over: Record<string, unknown> = {}) {
 }
 
 describe("system-triggers（trigger 统一化：系统级调度指令注册中心）", () => {
-  it("恒注册：origin-escalation + memory-sweep + claim/watchdog/resolver/optimizer 六个 trigger", () => {
+  it("恒注册：origin-escalation + memory-sweep + claim/watchdog/resolver/optimizer + skill-proposal-review 七个 trigger", () => {
     const { system, engine } = captureEngine();
     registerSystemTriggers(engine as never, baseDeps());
     const names = system.map((t) => t.name).sort();
@@ -44,6 +44,7 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
       "memory-maintenance-sweep",
       "optimizer-deopt-sweep",
       "origin-escalation",
+      "skill-proposal-review",
     ].sort());
     // workflow 链：origin 事件触发；memory 巡检 schedule
     expect(system.find((t) => t.name === "origin-escalation")?.event).toBe("task.rejected");
@@ -73,6 +74,18 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     registerSystemTriggers(engine as never, baseDeps({ scaler: { enabled: true, intervalMs: 30_000, evaluate: async () => ({ action: "keep" }) } }));
     expect(system.find((t) => t.name === "batch-scaler")?.action?.type).toBe(SYSTEM_ACTION.batchScale);
     expect(actions.has(SYSTEM_ACTION.batchScale)).toBe(true);
+  });
+
+  it("skill-proposal-review：事件驱动编排（L2 用户裁决 Q2）——提案落库事件 → adversarial 审核任务", () => {
+    const { system, engine } = captureEngine();
+    registerSystemTriggers(engine as never, baseDeps());
+    const t = system.find((x) => x.name === "skill-proposal-review")!;
+    expect(t.event).toBe("skill.proposal.created");
+    expect(t.task?.tags).toEqual(["adversarial"]);
+    // {{detail}} 事件变量（提案 id）注入任务文本——审核角色据此 query + review
+    expect(t.task?.text).toContain("{{detail}}");
+    expect(t.task?.text).toContain("skills.review");
+    expect(t.task?.text).toContain("对抗性审核");
   });
 
   it("resolver action：空转 → nextMs 指数退避；有产出 → 恢复基础周期", async () => {

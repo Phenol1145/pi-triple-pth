@@ -281,7 +281,8 @@ export async function maintainSkillWrite(store: SkillMaintenanceStore, input: Sk
     return { ok: false, error: "skill content required" };
   }
   if (opts.policy === "staged") {
-    if (!input.proposalId) return { ok: false, error: "staged 策略需要已批准提案 proposalId" };
+    // 2026-08-18 用户裁决（L2 Q1）：拒绝 + 明确引导走 propose——staged 下 worker 必经治理入口
+    if (!input.proposalId) return { ok: false, error: "staged 策略需要已批准提案 proposalId——请先用 skills.maintain.propose 落提案（对抗性审核 pass + 监督批准后由治理通道执行，不可直写）" };
     const p = await getProposal(store, input.proposalId);
     if (!p || p.status !== "official") return { ok: false, error: "提案不存在或未批准" };
     const proposal = JSON.parse(String(p.content)) as SkillMaintainProposal;
