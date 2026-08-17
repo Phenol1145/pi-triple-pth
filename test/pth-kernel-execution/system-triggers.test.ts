@@ -77,6 +77,25 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     expect(actions.has(SYSTEM_ACTION.batchScale)).toBe(true);
   });
 
+  it("条件注册：penetrationDiscovery enabled → penetration-discovery schedule + penetration.discovery action 回传 created", async () => {
+    const { system, actions, engine } = captureEngine();
+    registerSystemTriggers(engine as never, baseDeps({
+      penetrationDiscovery: {
+        enabled: true,
+        intervalMs: 600_000,
+        discover: async () => ({ created: ["pp-1"], skipped: [] }),
+      },
+    }));
+    const t = system.find((x) => x.name === "penetration-discovery")!;
+    expect(t.schedule?.everySec).toBe(600);
+    expect(t.action?.type).toBe(SYSTEM_ACTION.penetrationDiscovery);
+    expect(actions.has(SYSTEM_ACTION.penetrationDiscovery)).toBe(true);
+
+    const handler = actions.get(SYSTEM_ACTION.penetrationDiscovery)!;
+    const r = await handler({} as TriggerFireContext);
+    expect((r as { created?: string[] }).created).toEqual(["pp-1"]);
+  });
+
   it("skill-proposal-review：事件驱动编排（L2 用户裁决 Q2）——提案落库事件 → adversarial 审核任务", () => {
     const { system, engine } = captureEngine();
     registerSystemTriggers(engine as never, baseDeps());

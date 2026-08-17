@@ -9,6 +9,7 @@ import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "./execu
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { registerSystemTriggers } from "./execution/system-triggers.js";
+import { createPenetrationDiscoveryService } from "../tasking/penetration-discovery.js";
 import { createKernelLogger } from "./logger.js";
 import { pthConfig } from "../config/index.js";
 import type pg from "pg";
@@ -409,6 +410,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const scalerCfg = loadScalerConfig(process.env);
   const autoscaleMode = pthConfig().str("PTH_AUTOSCALE_MODE") as "balanced" | "reinforced";
   const scalerLogger = createKernelLogger();
+  // N15 B1：穿透稳定边自动发现 service（主进程装配：queryReadOnly = dataWorld.queryReadOnly）。
+  const penetrationDiscovery = createPenetrationDiscoveryService({
+    queryReadOnly: (sql) => dataWorld.queryReadOnly(sql),
+    memory: dataWorld.memory,
+    log: (m) => assemblyLogger.info(m),
+  });
   registerSystemTriggers(triggerEngine, {
     env: opts.env ?? process.env,
     recoverStaleClaims: (timeoutMs) => dataWorld.tasks.recoverStaleClaims(timeoutMs),
@@ -449,6 +456,11 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
         },
         { min: scalerCfg.min, max: scalerCfg.max, upThreshold: scalerCfg.upThreshold, mode: autoscaleMode, roleThreshold: pthConfig().num("PTH_AUTOSCALE_ROLE_THRESHOLD"), reinforceCopies: pthConfig().num("PTH_AUTOSCALE_REINFORCE_COPIES") },
       ),
+    },
+    penetrationDiscovery: {
+      enabled: true,
+      intervalMs: pthConfig().num("PTH_PENETRATION_DISCOVERY_INTERVAL_MS"),
+      discover: () => penetrationDiscovery.discover(),
     },
     log: (m) => assemblyLogger.info(m),
   });
