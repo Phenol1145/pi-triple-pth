@@ -27,6 +27,7 @@
 | 2026-08-18 | **L1 设计裁决 Q1/Q2/Q3** | Q1 **增补式**细分（环向保留+四维缺口新增）/ Q2 **执行体三态**（program+builtin+agent——用户 custom「2+3」）/ Q3 **skill 同构治理**。产出：`docs/pth/n14-sensor-controller-four-dims.md`（分期 P0-P3 待批实施） | L1（后续 N14 实施批） |
 | 2026-08-18 | L2 Q1 staged write 行为 | **拒绝 + 引导 propose**（不自动转提案——worker 必经治理入口） | L2 |
 | 2026-08-18 | L2 Q2 审核任务编排 | **事件驱动自动派发**——capability 提案落库发 `skill.proposal.created` → trigger `skill-proposal-review` 自动派 controller:adversarial 审核任务（治理任务源新模式——同类可复用） | L2 |
+| 2026-08-18 | **L1 Q4 存量归并** | **一次性全登记**——35 件硬编码工具全登记为 builtin 条目（执行不动、条目做治理面；TOOL_SCHEMAS 降级为执行器索引；P0 扩量：登记器 seed + 双写对账测试）。补录：`e719f04`（设计文档 §3.6） | L1（N14 P0） |
 
 ## 车道表
 
