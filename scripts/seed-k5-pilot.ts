@@ -60,10 +60,8 @@ function knowledgeEntryMeta(entry: PilotKnowledgeEntry): Record<string, unknown>
     producerModel: PRODUCER_MODEL,
     sourceRefs: entry.evidence.map((evidence) => evidence.locator),
   });
-  // N23 契约：meta.provenance 为六字段 provenance；
-  // PgMemoryStore.write 对 official domain-fact 的门禁校验 meta 顶层六字段，
-  // 因此同时平铺同一份 provenance（保持门禁兼容，meta.provenance 仍为唯一契约读取位）。
-  return { ...provenance, provenance };
+  // AB-02 canonical：meta.provenance 是唯一契约位置；write 门禁只认嵌套，不再需要顶层平铺。
+  return { provenance };
 }
 
 function knowledgeEntry(entry: PilotKnowledgeEntry) {

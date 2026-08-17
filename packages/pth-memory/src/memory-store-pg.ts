@@ -46,6 +46,14 @@ export interface PgMemoryStoreWriteOptions {
   reason?: string;
 }
 
+/** update opts：force=skill 维护通道；createdBy/reason=update revision 历史记录（F1 6.3）。 */
+export interface PgMemoryStoreUpdateOptions {
+  force?: boolean;
+  tenantId?: string;
+  createdBy?: string;
+  reason?: string;
+}
+
 /**
  * PgMemoryStore —— memory v1 MemoryStore 接口的 pg 实现（接口保留、实现替换）。
  *
@@ -88,10 +96,11 @@ export class PgMemoryStore {
     if (!opts?.force && isSystemDocId(entry.id)) {
       throw new Error(`memory.write: 系统文档 ${entry.id} 受保护（静态上下文——worker 不可覆盖）`);
     }
-    // provenance 门禁（N19 Phase 1b 设计 1.2）：official 领域知识必须带有效 provenance；draft/archived 不强制。
+    // provenance 门禁（N19 Phase 1b 设计 1.2 / AB-02 canonical）：official 领域知识必须带有效
+    // meta.provenance（唯一 canonical 位置）；顶层平铺六字段不再接受；draft/archived 不强制。
     const status = entry.status ?? "official";
     if (status === "official" && PROVENANCE_REQUIRED_KINDS.has(entry.kind)) {
-      const checked = validateKnowledgeProvenance(entry.meta, entry.content);
+      const checked = validateKnowledgeProvenance(entry.meta?.provenance, entry.content);
       if (!checked.ok) {
         throw new Error(`memory.write: provenance invalid for official ${entry.kind}: ${checked.error}`);
       }
@@ -224,7 +233,7 @@ export class PgMemoryStore {
     return out;
   }
 
-  async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: { force?: boolean; tenantId?: string } = {}): Promise<void> {
+  async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: PgMemoryStoreUpdateOptions = {}): Promise<void> {
     if (id.startsWith("skill:") && !opts.force) {
       throw new Error(`memory.update: skill 条目不可变（${id}）——修订请走 skills.maintain.archive + 新条目`);
     }
@@ -232,25 +241,90 @@ export class PgMemoryStore {
     // meta 合并更新（2026-08-13 deopt 回滚需要——原实现 meta 只建初始 version）；
     // H6：受保护字段先剥除（spaceScope/visibility/系统账本键不可经 update 覆盖）
     const metaPatch = patch.meta ? PgMemoryStore.sanitizeMetaPatch(patch.meta) : undefined;
-    const metaExpr = metaPatch
-      ? `meta || $4::jsonb || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`
-      : `meta || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`;
-    const params: unknown[] = [id, patch.content ?? null, patch.status ?? null];
-    if (metaPatch) params.push(JSON.stringify(metaPatch));
-    const tenantParam = params.length + 1;
-    params.push(tenantId);
-    const res = await this.pool.query(
-      `UPDATE memory_entries SET
-         content = COALESCE($2, content),
-         status = COALESCE($3, status),
-         version = version + 1,
-         updated_at = now(),
-         meta = ${metaExpr}
-       WHERE id = $1 AND tenant_id = $${tenantParam}
-       RETURNING id`,
-      params,
-    );
-    if (res.rows.length === 0) throw new Error(`entry not found in tenant ${tenantId}`);
+
+    // F1 6.3：update 也记 append-only revision。单 client 事务：
+    // SELECT … WHERE id AND tenant_id FOR UPDATE → 旧行写 memory_revisions → UPDATE → COMMIT；
+    // 幂等 no-op（patch 与旧值全同）不写历史。tenant fail-closed 语义不变。
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const oldRows = await client.query(
+        `SELECT id, tenant_id, content, status, anchors, meta, version
+         FROM memory_entries
+         WHERE id = $1 AND tenant_id = $2
+         FOR UPDATE`,
+        [id, tenantId],
+      );
+      const old = oldRows.rows[0] as
+        | { id: string; tenant_id: string; content: string; status: string; anchors: string[]; meta: Record<string, unknown>; version: number }
+        | undefined;
+      if (!old) {
+        throw new Error(`entry not found in tenant ${tenantId}`);
+      }
+
+      const stripSystemMeta = (m: Record<string, unknown> | undefined): string => {
+        const copy: Record<string, unknown> = { ...(m ?? {}) };
+        for (const key of ["spaceScope", "visibility", "version", "updatedAt", "hitCount", "notWriteBack"]) {
+          delete copy[key];
+        }
+        return JSON.stringify(copy, Object.keys(copy).sort());
+      };
+      const hasAnyPatch = patch.content !== undefined || patch.status !== undefined || metaPatch !== undefined;
+      const contentChanged = patch.content !== undefined && patch.content !== old.content;
+      const statusChanged = patch.status !== undefined && patch.status !== old.status;
+      const metaChanged = metaPatch !== undefined && stripSystemMeta(old.meta) !== stripSystemMeta(metaPatch);
+      const isNoOp = hasAnyPatch && !contentChanged && !statusChanged && !metaChanged;
+
+      if (!isNoOp) {
+        await client.query(
+          `INSERT INTO memory_revisions
+             (entry_id, tenant_id, revision, content, status, anchors, meta, created_by, reason)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)`,
+          [
+            old.id,
+            old.tenant_id,
+            old.version,
+            old.content,
+            old.status,
+            JSON.stringify(old.anchors ?? []),
+            JSON.stringify(old.meta ?? {}),
+            opts.createdBy ?? null,
+            opts.reason ?? "update",
+          ],
+        );
+
+        const metaExpr = metaPatch
+          ? `meta || $4::jsonb || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`
+          : `meta || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`;
+        const params: unknown[] = [id, patch.content ?? null, patch.status ?? null];
+        if (metaPatch) params.push(JSON.stringify(metaPatch));
+        const tenantParam = params.length + 1;
+        params.push(tenantId);
+        const res = await client.query(
+          `UPDATE memory_entries SET
+             content = COALESCE($2, content),
+             status = COALESCE($3, status),
+             version = version + 1,
+             updated_at = now(),
+             meta = ${metaExpr}
+           WHERE id = $1 AND tenant_id = $${tenantParam}
+           RETURNING id`,
+          params,
+        );
+        if (res.rows.length === 0) throw new Error(`entry not found in tenant ${tenantId}`);
+      }
+
+      await client.query("COMMIT");
+    } catch (e) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // 保留原始异常——rollback 失败不掩盖主错误
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 
   /**

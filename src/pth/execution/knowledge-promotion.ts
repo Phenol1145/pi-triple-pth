@@ -68,10 +68,21 @@ export async function promoteKnowledgeEntry(
     return { ok: false, error: `entry not found in tenant ${opts?.tenantId ?? "default"}` };
   }
 
+  const promoterRole = opts?.promoterRole ?? "memory-keeper";
+
+  // F1 6.3 幂等重放：已 official 且 meta.promotion.promotedBy === promoterRole → 直接 ok（不重复写）；
+  // official 但无本 promoter 的 promotion 记录 → 拒绝（防绕过治理流改判）。
+  if (entry.status === "official") {
+    const promotion = entry.meta?.promotion as { promotedBy?: unknown } | undefined;
+    if (promotion && promotion.promotedBy === promoterRole) {
+      return { ok: true, id: entryId };
+    }
+    return { ok: false, error: `entry is already official but not promoted by ${promoterRole}` };
+  }
+
   const decision = canPromote(entry);
   if (!decision.ok) return { ok: false, error: decision.reason };
 
-  const promoterRole = opts?.promoterRole ?? "memory-keeper";
   const verdicts = entry.meta?.verdicts;
   await store.write(
     {

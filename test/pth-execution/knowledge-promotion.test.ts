@@ -237,6 +237,46 @@ describe("canPromote / promoteKnowledgeEntry（N22 1/2）", () => {
     expect(r).toEqual({ ok: true, id: "cand-1" });
     expect((store.rows.get("cand-1")!.meta.promotion as { promotedBy?: unknown }).promotedBy).toBe("memory-keeper");
   });
+
+  it("F1 6.3 幂等重放：已 official 且 promotedBy===promoterRole → 直接 ok 且不重复写", async () => {
+    const store = makeStore([makeDraft()]);
+    await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
+    await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass());
+
+    const first = await promoteKnowledgeEntry(store as never, "cand-1");
+    expect(first).toEqual({ ok: true, id: "cand-1" });
+    expect(store.writeCalls).toHaveLength(1);
+
+    const second = await promoteKnowledgeEntry(store as never, "cand-1");
+    expect(second).toEqual({ ok: true, id: "cand-1" });
+    expect(store.writeCalls).toHaveLength(1); // replay 不重复写
+
+    const entry = store.rows.get("cand-1")!;
+    expect(entry.status).toBe("official");
+    expect((entry.meta.promotion as { promotedBy?: unknown }).promotedBy).toBe("memory-keeper");
+  });
+
+  it("F1 6.3 幂等重放：official 但无本 promoter 记录 → 拒绝", async () => {
+    const officialWithoutPromotion = makeDraft({ status: "official" as const });
+    const store = makeStore([officialWithoutPromotion]);
+    const r = await promoteKnowledgeEntry(store as never, "cand-1");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("not promoted by memory-keeper");
+    expect(store.writeCalls).toHaveLength(0);
+  });
+
+  it("F1 6.3 幂等重放：official 但 promotedBy 与 promoterRole 不同 → 拒绝", async () => {
+    const entry = makeDraft({ status: "official" as const });
+    entry.meta = {
+      ...entry.meta,
+      promotion: { promotedBy: "other-keeper", promotedAt: 1, verdicts: [] },
+    };
+    const store = makeStore([entry]);
+    const r = await promoteKnowledgeEntry(store as never, "cand-1", { promoterRole: "memory-keeper" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("not promoted by memory-keeper");
+    expect(store.writeCalls).toHaveLength(0);
+  });
 });
 
 describe("rejectKnowledgeEntry（N22 2）", () => {

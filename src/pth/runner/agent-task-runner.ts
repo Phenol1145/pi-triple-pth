@@ -135,7 +135,13 @@ export class AgentTaskRunner implements TaskRunner {
         },
       };
       if (knowledgeContext) {
-        capabilityInject["knowledge"] = { context: knowledgeContext };
+        // AB-03：与角色既有 capability（如 adversarial 的 knowledge.review / memory-keeper 的
+        // knowledge.promote）合并，只注入/刷新 context，不覆盖同键能力。
+        const existingKnowledge = caps["knowledge"];
+        const knowledgeCap = typeof existingKnowledge === "object" && existingKnowledge !== null && !Array.isArray(existingKnowledge)
+          ? existingKnowledge as Record<string, unknown>
+          : {};
+        capabilityInject["knowledge"] = { ...knowledgeCap, context: knowledgeContext };
       }
       const r = await runAgentTask({
         llm,
