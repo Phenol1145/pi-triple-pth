@@ -406,6 +406,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
               // N15 B2：无论成败都按实际 steps 结算（防重试放大）；单次命中 maxSteps 不额外扣满
               penetrationLedgers.set(ledgerKey, recordPenetrationUse(ledger, r.steps));
               const budgetExceeded = r.steps >= budget.maxSteps;
+              // 调用级成败（r.ok 是 agent-loop 层；done.result 缺失时父任务仍收失败——
+              // 边级 okCalls 与父任务最终语义一致，防 B1 成功率口径虚高）
+              const childOk = r.ok && r.value !== undefined && r.value !== null;
               // N15 B2：边级计量聚合（B1 地基）——成功/失败都计；incrementAggregate 缺失时 skip 不报错
               try {
                 await dataWorld.memory.incrementAggregate?.(
@@ -414,7 +417,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
                   [req.caller.roleId, req.childRoleId, "penetration-edge"],
                   {
                     calls: 1,
-                    okCalls: r.ok ? 1 : 0,
+                    okCalls: childOk ? 1 : 0,
                     sumSteps: r.steps,
                     sumDurationMs: durationMs,
                     sumBudgetExceeded: budgetExceeded ? 1 : 0,
