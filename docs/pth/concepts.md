@@ -667,6 +667,11 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   以 domain=penetration 汇入父任务计量面，活动事件 kind=task.penetrate。
   落点：`tasking/penetration-runner.ts`（校验编排）+ `batch-process` runChild 执行缝
   （建子 kernel→嵌套 runAgentTask→dispose——共享父任务工作区）+ PTC 契约/tasks 能力注入；
+   **预算经济化已落（2026-08-18 N15 B2）**：单次 `PTH_PENETRATION_MAX_STEPS` +
+   父任务累计 `PTH_PENETRATION_TASK_BUDGET_STEPS` 双预算线（耗尽报错、父回退 delegate），
+   每次调用结算进 `penetration-edge` 边级计量聚合；
+   **自动发现通道已落（2026-08-18 N15 B1）**：`penetration-edge` 达标 →
+   `penetration-proposal`（draft）→ 监督批准 → `skill:penetrate:<child>` 注册生效。
 - **与 rlm 的对照**：穿透 skill ≈ **编译后的 rlm 调用点**——把「运行时决定 spawn」固化为
   「稳定调用边」（rlm 是解释执行，穿透是 JIT 编译产物——与 0.7 同构）。
 
@@ -677,7 +682,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | 类型树 | 谱系/分化（worker-cluster——lineage approve 注册新类型） | ✅ 已有 |
 | 任务投递 = rlm 等效 | ✅ W8 已建（tasks.delegate/await + 事件驱动回流；入口强制显式路由） | ✅ 已有 |
 | 派发路径显式化 | ✅ W8 P0 已建（payload.delivery.path/lineageId 全链盖章 + PTL wait --follow 逐层展示） | ✅ 已有 |
-| 穿透 skill | 特殊 skill 类型 ✅（W8 P3 接口位）+ 直接调用执行面 ✅（2026-08-18 tasks.penetrate） | ⚠️ 优化循环自动发现→提案注册通道待建（现走 memory-keeper 维护面人工/治理提案） |
+| 穿透 skill | 特殊 skill 类型 ✅（W8 P3 接口位）+ 直接调用执行面 ✅（2026-08-18 tasks.penetrate）+ 执行预算 ✅（N15 B2） | ✅ 自动发现→提案→监督注册已建（N15 B1——penetration-edge 计量面驱动） |
 
 ---
 
@@ -1162,6 +1167,7 @@ v0.9（动作面/权限/任务池纯化）
 | N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | ✅ 已实装（2026-08-14——guardrails.ts 注册表：ConsecutiveGuard 三段式 + 豁免矩阵 + `PTH_GUARD_*` 阈值配置化；agent-loop 五计数器收敛，行为逐字保留；9 新测试） | agent-loop 五计数器 → guardrails.ts 注册表 | ✅ 已实装（二期已随 N14 落：P1 scorecard 观测 + obs.guards；P3 controller:rule 调节面——`manage.params.set` 热调 + SOP） |
 | N13 | 思考路径图重建器（trace reconstruction） | 0.15 · 域 D | ✅ 已落（2026-08-15——`thinking-path.ts`：发现链/决策链/意图链 + 重复探测/盲试 + 记忆/工具缺口） | transcript 轨迹 · CoT 压缩产物 · refiner | ✅ 已落 |
 | N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计 + 实施全部完成（2026-08-18——[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP（manage.tool.* + 治理流 + 真实 tool-function 晋升首跑） | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ P0–P3 已落（GOVERNANCE_ROLES 13→16；首跑 `fn-wx7wk7`/`fn-v2u2if` 晋升验证） |
+| N15 | **穿透预算/发现/护栏 JIT**（B1/B2/A4——2026-08-18） | 0.16.3 · 0.7 | ✅ **已落（2026-08-18——[n15-lane-b1-b2-a4-design.md](./n15-lane-b1-b2-a4-design.md)）**：B2 穿透执行预算经济化（单次/累计步数预算 + `penetration-edge` 边级计量面）/ B1 穿透稳定边自动发现（proposal→监督批准→skill:penetrate 注册）/ A4 护栏 JIT（guard-kill-spike 热点→`guard-config` 审批热调→复测/deopt 回滚） | 穿透执行面 · optimizer-hotspots · guardrails | ✅ 三车道已落（合并顺序 B2→B1→A4） |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
@@ -1190,5 +1196,5 @@ v0.9（动作面/权限/任务池纯化）
 | empty-reply | LLM 空回复 | PTH_GUARD_EMPTY_REPLY_LIMIT=3 | hard |
 | unknown-tool | 幻觉工具名 | PTH_GUARD_UNKNOWN_TOOL_LIMIT=3 | hard |
 
-**二期（2026-08-18 已随 N14 P1/P3 落——与 JIT 咬合）**：护栏命中率/误杀率进 scorecard（`obs.guards`——sensor:rule 数据源）→ optimizer 把护栏本身当优化对象（`manage.params.set` 热调 `PTH_GUARD_*`——护栏的护栏=审批面，controller:rule + skill:opt-rule 承接）；治理族豁免裁决已关（2026-08-15 D2：阈值放宽替代豁免）。
+**二期（2026-08-18 已随 N14 P1/P3 + N15 A4 落——与 JIT 咬合）**：护栏命中率/误杀率进 scorecard（`obs.guards`——sensor:rule 数据源）→ optimizer 把护栏本身当优化对象（`guard-kill-spike` 热点 → `guard-config` 建议 → `/optimizer/apply` 审批热调 `PTH_GUARD_*` → 复测窗口 → 劣化 deopt 回滚；软处置/负结果族白名单，hard 契约护栏只人工调；controller:rule + skill:opt-rule 承接人工调节面）；治理族豁免裁决已关（2026-08-15 D2：阈值放宽替代豁免）。
 
