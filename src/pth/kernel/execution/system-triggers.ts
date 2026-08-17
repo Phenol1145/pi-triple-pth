@@ -18,6 +18,7 @@ export const SYSTEM_ACTION = {
   resolverResolve: "resolver.resolve",
   optimizerDeoptSweep: "optimizer.deopt-sweep",
   batchScale: "batch.scale",
+  penetrationDiscovery: "penetration.discovery",
 } as const;
 
 export interface SystemTriggerDeps {
@@ -40,6 +41,8 @@ export interface SystemTriggerDeps {
   optimizerSweep?: { enabled: boolean; intervalMs: number; broadcast: () => number };
   /** batch 自动扩缩容评估 */
   scaler?: { enabled: boolean; intervalMs: number; evaluate: () => Promise<unknown> };
+  /** 穿透稳定边自动发现巡检（B1） */
+  penetrationDiscovery?: { enabled: boolean; intervalMs: number; discover: () => Promise<unknown> };
   /** 日志（claim-reaper 等） */
   log?: (msg: string) => void;
 }
@@ -170,6 +173,20 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
       name: "batch-scaler",
       schedule: { everySec: deps.scaler.intervalMs / 1000 },
       action: { type: SYSTEM_ACTION.batchScale },
+      enabled: true,
+    });
+  }
+
+  // 穿透稳定边自动发现巡检（N15 B1——enabled 时注册 schedule + 原生 action）。
+  if (deps.penetrationDiscovery?.enabled) {
+    engine.registerAction(SYSTEM_ACTION.penetrationDiscovery, async () => {
+      const result = (await deps.penetrationDiscovery!.discover()) as { created?: unknown };
+      return { created: result?.created } as unknown as { nextMs?: number };
+    });
+    engine.addSystemTrigger({
+      name: "penetration-discovery",
+      schedule: { everySec: deps.penetrationDiscovery.intervalMs / 1000 },
+      action: { type: SYSTEM_ACTION.penetrationDiscovery },
       enabled: true,
     });
   }
