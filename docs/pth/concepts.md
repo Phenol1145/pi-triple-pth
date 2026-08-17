@@ -762,6 +762,65 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 - **0.3.6 状态**：三态工具仍是串联代偿深化（LLM 触发/回填）；通道是并联〔待议〕的
   机制前提——〔待议〕状态不变。
 
+### 0.18 学科域组合（2026-08-18——v1.2 改进稿）
+
+> 原「每个学科静态物化为 `WorkerRole`」方案经审稿否决（证据见
+> [N16 问题反馈](./n16-v1.2-role-expansion-review.md)）；学科目录内容保留，
+> 实施方式改为**角色 × 学科域组合**。完整设计：
+> [角色 × 学科域组合与 PTH Knowledge](./n16-v1.2-role-domain-composition-design.md)。
+
+- **四维任务级组合**：Worker Assignment = Operational Role（怎么工作）+
+  Discipline Scope[]（懂什么）+ Knowledge Context（本任务获准读取的版本化证据包）+
+  Capability Grant（本任务获准动作）。
+- **Discipline Catalog**：184 个 researcher 侧学科节点（5 category / 32 discipline /
+  147 sub-discipline）作为不可变、确定排序、允许多父的 DAG 目录数据；
+  不进入 `DEFAULT_ROLES`/`MID_ROLES`，不占用角色 generation/parent，不增加常驻 worker。
+- **双轴路由**：任务只有一个 `assignedRole`（如 solver），可同时绑定多个 `domains`
+  （如 materials-science + artificial-intelligence）；角色标签与 domain id 命名空间分离。
+- **知识先 draft**：committed outcome → candidate（draft + evidence + scope）→
+  domain verdict → adversarial verdict → memory-keeper canonicalization → official；
+  生产者不能核验自己的 candidate。
+- **首版设施**：PostgreSQL + `pth-memory` + grant-bound `KnowledgeBroker`；
+  真实评测证明需要前不引入图库/向量库。
+
+------|------|----------|
+| **形式科学（formal-science）** | 理论工具——数学/逻辑/CS/统计/系统 | 理论 |
+| **自然科学（natural-science）** | 理解物理世界——物理/化学/生物/地球/空间 | 理论 |
+| **社会科学（social-science）** | 理解人的行为——经济/社会/心理/政治/人类/语言/地理/历史 | 理论 |
+| **人文学科（humanities）** | 理解意义与价值——文学/哲学/艺术/宗教/区域 | 理论 |
+| **应用科学（applied-science）** | 改造世界——工程/医学/农业/建筑/传媒/教育/商业/军事 | 实践 |
+
+#### 0.18.2 分化层级
+
+```
+researcher (gen=2)
+├─ 门类 (gen=3) ×5     ← 中间层：路由派发（0.16.4 收口——execTs+nav+cache+投递）
+│   └─ 学科 (gen=4) ×32   ← 叶子（部分）：学科级推理
+│       └─ 子学科 (gen=5) ×112 ← 叶子（多数）：深度专精
+```
+
+- **门类（gen=3）**：判断任务归属哪个子学科，用 tasks.delegate 派发。不做具体执行。
+- **学科（gen=4）**：携带学科背景知识框架，处理该学科内的泛化任务。若学科下有子学科，
+  则进一步 delegate。
+- **子学科（gen=5）**：最小专精单元——携带该子学科的专用方法论、工具和数据源。
+
+#### 0.18.3 与 0.16.1 类型树的咬合
+
+- 新角色全部挂在 researcher 下，遵循已有的分化机制（lineage approve → 注册）；
+- 组织权逐级继承：researcher → 门类 → 学科 → 子学科；
+- 0.16.4 工具面收口：门类角色仅 `execTs+nav+cache+投递`，学科/子学科可扩展执行核；
+- 新角色默认不进 batch（`PTH_WORKER_ROLES` 显式启用），避免 164 个角色同时常驻的内存压力。
+
+#### 0.18.4 非 researcher 新增
+
+executor 族新增 3 个（debugger / reviewer / communicator），governor 族新增 1 个（coordinator），
+补齐实用阶段的代码质量和沟通协调缺口。
+
+#### 0.18.5 与 N14 的关系
+
+N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N16 扩展执行侧（学科专精分化）。
+两者互补：治理侧负责优化与调节，执行侧负责专业交付。
+
 ---
 
 ## 1. 系统定位（v2）
@@ -826,6 +885,10 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | **类型树（type tree）**〔新〕 | worker 谱系的语义澄清（2026-08-14 0.16.1）——谱系描述**类型**（节点=角色定义），实例=batch 副本；类型持久、按需分化添加 = rlm() 持久化 agent 的等效物 | worker-cluster |
 | **任务投递（rlm 等效）**〔新〕 | 高级 worker 以**任务投递**方式实现对子 worker 类型的调用（rlm() 等效——子类型 = 持久化 agent，父 = 投递方；2026-08-14 0.16.2）；入口类型由 PTL 派发逻辑决定（未设计——Origin 仅为示例） | PTL 派发逻辑（待设计） |
 | **穿透（penetration）**〔新〕 | 优化循环发现稳定高效派发路径 → 注册成特殊 skill → 父**直接调用子 agent**（跳过逐级派发/任务池往返，减少传播损耗——2026-08-14 0.16.3）；穿透 = 类型树上的固化捷径边 = 编译后的 rlm 调用点 | 待建 |
+| **Operational Role（操作角色）**〔新·v1.2〕 | 对任务类型、产物与协作权作出稳定承诺的角色（analyst/solver/reviewer 等）；工作方式维度——与学科域组合使用，不复制学科分类 | n16-v1.2-role-domain-composition-design.md |
+| **Discipline Catalog（学科目录）**〔新·v1.2〕 | 不可变、确定排序、允许多父的学科 DAG 快照（level=category/discipline/sub-discipline）；目录规模与常驻 worker 规模分离 | n16-v1.2-role-domain-composition-design.md |
+| **Discipline Scope（学科作用域）**〔新·v1.2〕 | 单个任务获准使用的一组学科节点及其祖先/相关节点；多值，不与 role tags 争用路由 | n16-v1.2-role-domain-composition-design.md |
+| **Knowledge Candidate（知识候选）**〔新·v1.2〕 | 带 tenant/space/domains/evidence/provenance 的 draft 知识条目；未通过领域与对抗验证不得晋升 official | n16-v1.2-role-domain-composition-design.md |
 
 ### 域 B：知识（理论坐标：0.9 锚点-原文 · 0.10.2 上下文-空间绑定 · 0.13 生态转化）
 
@@ -1168,6 +1231,7 @@ v0.9（动作面/权限/任务池纯化）
 | N13 | 思考路径图重建器（trace reconstruction） | 0.15 · 域 D | ✅ 已落（2026-08-15——`thinking-path.ts`：发现链/决策链/意图链 + 重复探测/盲试 + 记忆/工具缺口） | transcript 轨迹 · CoT 压缩产物 · refiner | ✅ 已落 |
 | N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计 + 实施全部完成（2026-08-18——[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP（manage.tool.* + 治理流 + 真实 tool-function 晋升首跑） | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ P0–P3 已落（GOVERNANCE_ROLES 13→16；首跑 `fn-wx7wk7`/`fn-v2u2if` 晋升验证） |
 | N15 | **穿透预算/发现/护栏 JIT**（B1/B2/A4——2026-08-18） | 0.16.3 · 0.7 | ✅ **已落（2026-08-18——[n15-lane-b1-b2-a4-design.md](./n15-lane-b1-b2-a4-design.md)）**：B2 穿透执行预算经济化（单次/累计步数预算 + `penetration-edge` 边级计量面）/ B1 穿透稳定边自动发现（proposal→监督批准→skill:penetrate 注册）/ A4 护栏 JIT（guard-kill-spike 热点→`guard-config` 审批热调→复测/deopt 回滚） | 穿透执行面 · optimizer-hotspots · guardrails | ✅ 三车道已落（合并顺序 B2→B1→A4） |
+| N16 | **v1.2 学科域组合**（0.18 角色×学科域 + Knowledge 加固） | 0.18 · 域 C/域 B | 🆕 审稿裁决完成（2026-08-18）：原「静态物化 188 角色」冻结（[review](./n16-v1.2-role-expansion-review.md) 实证 P0×5 + P1×5 + P2×3）；采纳 [组合设计](./n16-v1.2-role-domain-composition-design.md)——184 researcher 节点转 Discipline Catalog，4 非 researcher 独立评审；实施序 Phase 0 → 1a → 1b → 2 → 3 → 4 → 5（双域试点） | researcher 谱系 · 0.16.1 类型树 · 0.9/0.10 知识治理 · W4 SOP | 🆕 设计裁决完成（K0–K5 车道见 parallel-lanes） |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >

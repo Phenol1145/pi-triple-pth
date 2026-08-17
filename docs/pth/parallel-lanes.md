@@ -47,6 +47,110 @@
 > ✅（N17——mcp-tool-bundle-v1 → tool-proposal 治理注册）。B1/B2/A4/N17 A5/N17 D1 均已落——
 > 下一批见下方 v1.2 车道节。
 
+---
+
+## v1.2 车道（角色 × 学科域组合——审稿后路线切换）
+
+> 2026-08-18 审稿裁决：原 N16 V1–V5（批量静态物化 188 个 WorkerRole）**冻结**。
+> 问题证据：[N16 问题反馈评审](./n16-v1.2-role-expansion-review.md)（P0×5 / P1×5 / P2×3）。
+> 采纳设计：[角色 × 学科域组合与 PTH Knowledge](./n16-v1.2-role-domain-composition-design.md)。
+> 学科目录内容保留为输入：[N16 原稿](./n16-v1.2-role-expansion.md)。
+
+### 决策栏（v1.2 修订）
+
+| 日期 | 决策 | 结果 |
+|------|------|------|
+| 2026-08-18 | 原 V1–V5 批量角色生成 | **冻结**——空配置全量展开 / 32-worker 上限 / catalog 重复 id / tag 冲突 / 知识治理缺口均实证成立 |
+| 2026-08-18 | 实施路线 | **组合设计 Phase 0 → 1a → 1b → 2 → 3 → 4 → 5**：先知识正确性加固，再目录/双轴路由，最后双域试点 |
+
+### 车道表（v1.2 修订）
+
+| Lane | 任务 | 分支 / worktree | 状态 |
+|------|------|-----------------|------|
+| **K0** | Phase 0 设计纠偏：manifest 复算（184+4 事实源）+ 术语/契约定稿 + 目录数据转换脚本 | `lane/k0-v12-design` / `.worktrees/k0` | **free** |
+| **K1a** | Phase 1a 知识正确性收口：tenant 强制隔离 + 常规检索默认 official/排除 archived + hit 计数接线 | `lane/k1a-knowledge-hardening` / `.worktrees/k1a` | **free** |
+| **K1b** | Phase 1b provenance 强制 + append-only revision + refiner 只写 scoped draft | `lane/k1b-provenance` / `.worktrees/k1b` | **free** |
+| **K2** | Phase 2 Discipline Catalog DAG + `TaskWorkItem.domains` + 双轴路由契约 | `lane/k2-discipline-catalog` / `.worktrees/k2` | **free** |
+| **K3** | Phase 3 KnowledgeContextProvider + `KnowledgeBroker` 窄 search/get | `lane/k3-knowledge-context` / `.worktrees/k3` | **free** |
+| **K4** | Phase 4 candidate→domain/adversarial verdict→memory-keeper promotion 闭环 | `lane/k4-knowledge-promotion` / `.worktrees/k4` | **free** |
+| **K5** | Phase 5 双域试点（编程语言官方文档 + 材料科学开放数据库） | `lane/k5-domain-pilot` / `.worktrees/k5` | **free** |
+
+### 合并顺序
+
+K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint 绿后串行合并）
+
+## fork 引导词（v1.2）
+
+#### V1 引导词
+
+```
+仓库 /Users/anzhize/pi-platform 的 lane V1（角色定义批）。先读 docs/pth/parallel-lanes.md
+全部（协议+决策栏+v1.2 车道），把车道表 V1 行标 claimed（填你的会话名+日期）并 commit push。
+工作目录 .worktrees/v1（分支 lane/v1-role-defs——若不存在先运行
+scripts/lane-worktrees.sh 初始化；依赖：ln -s ../../node_modules node_modules 快速起步）。
+任务：按 docs/pth/n16-v1.2-role-expansion.md 的设计，手写 41 个角色的完整定义：
+- 5 个门类（gen=3）：formal-science / natural-science / social-science / humanities / applied-science
+- 32 个学科（gen=4）：见设计文档 §2 完整清单
+- 4 个非 researcher：debugger / reviewer / communicator / coordinator
+每个角色需：id / tags / prompt（含学科背景知识框架） / description / thinking / capabilities /
+actionTools / parent / generation / differentiation。
+产出：更新 builtin-roles.ts（DEFAULT_ROLES + MID_ROLES）+ 角色定义完整性测试。
+约束：遵循 0.16.4 收口（gen=3 门类 actionTools=["execTs","nav","cache"]）；
+gen=4 学科 capabilities=["fs","memory","readSource","readText","web","python","bash"]；
+不改 concepts.md（概念记录写入本表产出/备注列）。遇分叉停下来给我选择题；做完更新账本。
+```
+
+#### V2 引导词
+
+```
+仓库 /Users/anzhize/pi-platform 的 lane V2（子学科生成批）。先读 docs/pth/parallel-lanes.md
+全部，把 V2 行标 claimed 并 commit push。工作目录 .worktrees/v2（分支
+lane/v2-subdisciplines——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+node_modules 起步）。任务：基于 V1 产出的 32 个学科 prompt，用模板化方式生成 112 个
+gen=5 子学科角色定义。模板参数见 n16-v1.2-role-expansion.md §4。每个子学科需：
+id / tags / prompt（父学科 prompt + 子学科专精段） / description / thinking="medium" /
+capabilities（继承父学科） / actionTools / parent / generation=5 / differentiation。
+产出：builtin-roles.ts 追加 112 个角色 + 测试。约束：不改 concepts.md；等 V1 完成。
+遇分叉停下来给我选择题；做完更新账本。
+```
+
+#### V3 引导词
+
+```
+仓库 /Users/anzhize/pi-platform 的 lane V3（SOP 批）。先读 docs/pth/parallel-lanes.md
+全部，把 V3 行标 claimed 并 commit push。工作目录 .worktrees/v3（分支
+lane/v3-sop——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+node_modules 起步）。任务：为所有角色（现有 15 + 新增 149 ≈ 164）编写四段式 SOP：
+场景锚点/何时用/效果/Procedure/Pitfalls/Verification。SOP 遵循 skill 四段式格式
+（concepts.md W1）。每个角色至少 1 条。产出：skills/ 目录 + memory_entries seed。
+约束：等 V1/V2 完成角色列表；不改 concepts.md。遇分叉停下来给我选择题；做完更新账本。
+```
+
+#### V4 引导词
+
+```
+仓库 /Users/anzhize/pi-platform 的 lane V4（知识填充批）。先读 docs/pth/parallel-lanes.md
+全部，把 V4 行标 claimed 并 commit push。工作目录 .worktrees/v4（分支
+lane/v4-knowledge——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+node_modules 起步）。任务两件：① 百科扩展——按五大门类填充核心术语/概念/方法论到
+pth-wiki（seed-wiki 同款幂等脚本）；② 角色文档完善——每个角色的三要素
+（场景锚点/何时用/效果）注入 role-doc。产出：pth-wiki seed + role-doc 注入。
+约束：等 V1/V2 完成角色列表；不改 concepts.md。遇分叉停下来给我选择题；做完更新账本。
+```
+
+#### V5 引导词
+
+```
+仓库 /Users/anzhize/pi-platform 的 lane V5（工程实施批）。先读 docs/pth/parallel-lanes.md
+全部，把 V5 行标 claimed 并 commit push。工作目录 .worktrees/v5（分支
+lane/v5-engineering——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+node_modules 起步）。任务：① 合并 V1-V4 产出到 builtin-roles.ts 最终版本；
+② 谱系完整性测试（所有 parent 存在/无循环/标签唯一性/组织权覆盖）；
+③ 全量 vitest + tsc + boundaries 绿；④ 版本号 bump 到 1.2.0（根+7 子包+lock）；
+⑤ 写 docs/releases/v1.2.0.md 发布说明草稿。约束：等 V1-V4 全部完成；
+README 徽章/测试总数只在合并时更新。遇分叉停下来给我选择题；做完更新账本。
+```
+
 ## fork 引导词（每条 lane 一段——粘贴进新会话即上岗）
 
 ### L1 引导词
