@@ -11,6 +11,7 @@ export * from "./memory-index.js";
 export * from "./memory-admin.js";
 export * from "./skill-format.js";
 export * from "./skills.js";
+export * from "./tool-reg.js";
 export * from "./wiki.js";
 export * from "./pth-memory-lib.js";
 export * from "./read-only-query.js";

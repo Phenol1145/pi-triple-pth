@@ -4,7 +4,7 @@
  * 背景：memory_entries 一表四用途（提示词/配置/治理/知识）——权限按【用途层】切。
  * 本模块是 worker 面 memory.* 环境函数的内嵌规则（ASP 权限第二层）：
  *
- *   prompt 层（role-doc:* · capability-index · project-map · pth-worker-system · self-modify-guide · skill:* · extension-index）
+ *   prompt 层（role-doc:* · capability-index · project-map · pth-worker-system · self-modify-guide · skill:* · extension-index · tool-reg）
  *     —— 系统提示词资产：worker 只读。写了 = 污染全 worker 的 prompt 注入。
  *   config 层（trigger · refine-task:*）
  *     —— 系统行为配置：worker 只读。写了 = 自开触发器/自改 refine 行为。
@@ -29,6 +29,9 @@ const PROMPT_KINDS = new Set([
   "worker-role",
   "space-reg",
   "worker-index",
+  // 2026-08-18 N14 P0：工具注册表治理面（tool:<name> 条目）——worker 只读防伪造注册；
+  // 注册走治理流（提案→对抗性审核→批准→注册生效）
+  "tool-reg",
 ]);
 
 /** kind → 用途层（策略的唯一事实源） */
