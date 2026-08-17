@@ -15,7 +15,18 @@ import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../kern
 import { getEventBus } from "../kernel/execution/event-bus.js";
 import { isForwardableKernelEvent, toKernelActivityEvent } from "../kernel/execution/kernel-event-bridge.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
-import { createPgTaskRepository, TaskControlService, PgTaskQueries, allowedDelegationTargets, createPenetrationRunner } from "../tasking/index.js";
+import {
+  createPgTaskRepository,
+  TaskControlService,
+  PgTaskQueries,
+  allowedDelegationTargets,
+  childBudgetFor,
+  createPenetrationRunner,
+  penetrationBudgetError,
+  recordPenetrationUse,
+  type PenetrationBudgetConfig,
+  type PenetrationLedger,
+} from "../tasking/index.js";
 import { DefaultTaskWorkspaceManager } from "../kernel/execution/workspace.js";
 import { archiveTask, type ArchiveDeps } from "../kernel/execution/archive.js";
 import { createKernelModelRouter } from "../kernel/execution/model-router.js";
@@ -264,6 +275,16 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // worker 注册表（worker 级控制面：pause/resume/remove/add——IPC 指令寻址）
   const loops: Array<BatchTaskLoop & { role: import("../kernel/execution/worker-cluster.js").WorkerRole }> = [];
 
+  // N15 B2：穿透执行预算账本（key = req.caller.taskId，单 batch 进程生命周期；
+  // 任务不跨 batch 进程迁移——与现有「穿透共享父任务工作区」假设一致）。
+  // 预算配置与 PTH_AGENT_MAX_STEPS 同语义：batch 进程配置中心快照，不逐调用热读。
+  const penetrationLedgers = new Map<string, PenetrationLedger>();
+  const penetrationBudgetCfg: PenetrationBudgetConfig = {
+    maxSteps: pthConfig().num("PTH_PENETRATION_MAX_STEPS"),
+    taskBudgetSteps: pthConfig().num("PTH_PENETRATION_TASK_BUDGET_STEPS"),
+    timeoutMs: pthConfig().num("PTH_PENETRATION_TIMEOUT_MS"),
+  };
+
   /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
   const createWorker = (role: import("../kernel/execution/worker-cluster.js").WorkerRole) => {
     // W8 P1：组织权矩阵派生能力授予——有投递权的角色追加 tasks capability（缺省全量角色不受影响）
@@ -282,6 +303,19 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const parentKernelRef: { current?: { ts: unknown } } = {};
     const runChildImpl: import("../tasking/index.js").PenetrationRunChild = async (req) => {
             const started = Date.now();
+            // N15 B2：每次穿透调用前先过预算闸——累计耗尽立即失败（父可回退 tasks.delegate）
+            const ledgerKey = req.caller?.taskId ?? "unknown-task";
+            const ledger = penetrationLedgers.get(ledgerKey) ?? { calls: 0, steps: 0 };
+            const budgetResult = childBudgetFor(ledger, penetrationBudgetCfg);
+            if (!budgetResult.ok) {
+              return {
+                ok: false,
+                steps: ledger.steps,
+                error: `${budgetResult.error}（父任务 ${ledgerKey}）`,
+                durationMs: 0,
+              };
+            }
+            const budget = budgetResult.budget!;
             const childRole = knownRoleById(req.childRoleId);
             if (!childRole) {
               return { ok: false, steps: 0, error: `穿透目标角色未注册: ${req.childRoleId}`, durationMs: 0 };
@@ -345,6 +379,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
                 taskWorkspace: parentCwd ?? undefined,
                 toolstore,
                 role: childRole,
+                // N15 B2：单次穿透预算（步数取 min(单次上限, 剩余累计额度)；超时取预算超时）
+                maxSteps: budget.maxSteps,
+                timeoutMs: budget.timeoutMs,
                 asp: pthConfig().str("PTH_ASP_MODE") === "on",
                 onTrace: (e) => {
                   if (e.type === "finish") {
@@ -354,6 +391,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
                         activity: {
                           kind: "task.penetrate", taskId: req.caller.taskId, role: req.caller.roleId,
                           ok: e.ok, step: e.steps,
+                          // N15 B2：软限命中标记（累计耗尽走预算闸失败路径，不进这里）
+                          budgetUsed: e.steps,
+                          budgetExceeded: e.steps >= budget.maxSteps,
                           detail: `穿透 ${req.caller.roleId}→${req.childRoleId}（${req.skillId}）${e.ok ? "完成" : `失败: ${(e.error ?? "").slice(0, 80)}`}`,
                           batchPid: process.pid, at: Date.now(),
                         },
@@ -363,6 +403,30 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
                 },
               });
               const durationMs = Date.now() - started;
+              // N15 B2：无论成败都按实际 steps 结算（防重试放大）；单次命中 maxSteps 不额外扣满
+              penetrationLedgers.set(ledgerKey, recordPenetrationUse(ledger, r.steps));
+              const budgetExceeded = r.steps >= budget.maxSteps;
+              // 调用级成败（r.ok 是 agent-loop 层；done.result 缺失时父任务仍收失败——
+              // 边级 okCalls 与父任务最终语义一致，防 B1 成功率口径虚高）
+              const childOk = r.ok && r.value !== undefined && r.value !== null;
+              // N15 B2：边级计量聚合（B1 地基）——成功/失败都计；incrementAggregate 缺失时 skip 不报错
+              try {
+                await dataWorld.memory.incrementAggregate?.(
+                  `penetration-edge:${req.caller.roleId}->${req.childRoleId}`,
+                  "penetration-edge",
+                  [req.caller.roleId, req.childRoleId, "penetration-edge"],
+                  {
+                    calls: 1,
+                    okCalls: childOk ? 1 : 0,
+                    sumSteps: r.steps,
+                    sumDurationMs: durationMs,
+                    sumBudgetExceeded: budgetExceeded ? 1 : 0,
+                  },
+                  { parent: req.caller.roleId, child: req.childRoleId, ts: Date.now() },
+                );
+              } catch {
+                /* 计量聚合容错（降级：预算照常结算，聚合行缺失不阻断穿透） */
+              }
               if (!r.ok) return { ok: false, steps: r.steps, error: r.error ?? "子 agent 执行失败", durationMs };
               if (r.value === undefined || r.value === null) {
                 return { ok: false, steps: r.steps, error: r.warning ? `soft-terminated: ${r.warning}` : "子 agent 未产出结果（done 未带 result）", durationMs };

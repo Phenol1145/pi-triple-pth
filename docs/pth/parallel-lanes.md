@@ -37,10 +37,12 @@
 | **L2** | **A3：skill staged 审核流接线**（`PTH_SKILL_WRITE_POLICY=staged`：提案 → controller:adversarial 对抗性审核 → 监督批准 → memory-keeper 执行；配置项与角色已有，链路未闭） | `packages/pth-memory/src/skills.ts`、`src/pth/impls/kernels/capability.ts`、相关测试 | `lane/l2-staged-flow` / `.worktrees/l2` | **done** | 主会话·2026-08-18 | ✅ 产出 `e08ac2a`（lane 分支已推送）：propose 发 `skill.proposal.created` 事件 + trigger `skill-proposal-review` 事件驱动派审核任务 + staged write 引导 propose + 端到端 4 例（全链 pass/reject/审核面收窄）+ trigger 注册断言 6→7；全量 1985 绿/tsc(根+memory)/boundaries/config——**✅ 已合并 main（merge commit `1f8c6c9`，2026-08-18 主会话-L4 代合）**。概念记录（归并 concepts.md）：**N2 Phase 3 staged 流已闭**；Q1/Q2 裁决见决策栏。注意：staged 需显式开启 + controller:adversarial 入 batch 配比 |
 | **L3** | **C1：worker 子进程健康/卡死检测**（§9 L2 缺口——IPC metric 只有耗时）**+ E2 文档同步**（§8.2 agentic 测试集 checkbox 勾除、§9 L3 标注 N5 已补齐） | `batch-manager.ts`、obs、`docs/pth/concepts.md` §9 表（仅 L3 行——经 L1 协调） | `lane/l3-health-docs` / `.worktrees/l3` | **done** | 主会话-L3·2026-08-18 | ✅ 产出 `982631e`（lane 分支已推送）：心跳自报 rss/cpu + listBatches/obs.batches 健康面（healthy/stale/dead + lag + 阈值 PTH_BATCH_HEALTH_STALE_MS）+ 3 测试；§8.2 checkbox/§9 L2·L3 行同步；全量 1982 绿/tsc/boundaries/config(108 键)——**✅ 已合并 main（2026-08-18 主会话-L4 代合）** |
 | **L4** | **E1：v1.1.3 发布**（8 commit 未发版：W8×4 + flaky 修复 + 0.16.4 + 0.16.3 + 0.17 文档；走仓库 release 流程——版本号/changelog/徽章/tag） | `package.json`、CHANGELOG/发布文档、README 徽章 | `lane/l4-release` / `.worktrees/l4` | **done** | 主会话（本线程）·2026-08-18 | ✅ 预备 `2866707`（lane 分支已推送）：版本 1.1.3 全 bump（根+7 子包+lock）+ `docs/releases/v1.1.3.md` 草稿（L2/L3 两节占位）+ deployment/docs 索引同步；✅ **v1.1.3 已全量发布**（2026-08-18）：L3→L2 串行合并（244 文件/1988 绿）→ 发布说明定稿 → release.sh --npm --docker --gh 全过（npm 8 包 1.1.3 dist-tags 验证✓ / docker 健康+冒烟✓ / GH release+tag v1.1.3+tgz 附件✓）；途中修 release.sh 阶段 6 三坑（compose 路径/env-file/sandbox 同构构建）+ postgres 卷保数据改密（用户裁决） |
+| **B2** | **N15 B2：穿透执行预算经济化**（单次/累计步数预算 + `penetration-edge` 边级计量面——B1 数据地基） | `tasking/penetration-budget.ts`（新）、`bootstrap/batch-process.ts` | `lane/b2-penetration-budget` / `.worktrees/b2` | **claimed** | 主会话·子代理·2026-08-18 | 设计契约 `docs/pth/n15-lane-b1-b2-a4-design.md` §1 |
+| **B1** | **N15 B1：穿透稳定边自动发现**（`penetration-proposal` → 监督批准 → `skill:penetrate:<child>` 注册） | `tasking/penetration-discovery.ts`（新）、`system-triggers.ts`、`assembly.ts`、`pth-gateway-facade.ts` | `lane/b1-penetration-discovery` / `.worktrees/b1` | **claimed** | 主会话·子代理·2026-08-18 | 设计契约 §2 |
+| **A4** | **N15 A4：护栏 JIT**（guard-kill-spike 热点 → `guard-config` 审批热调 → 复测/deopt 回滚） | `optimizer-hotspots/loop/apply.ts`、`guardrails.ts` | `lane/a4-guard-jit` / `.worktrees/a4` | **claimed** | 主会话·子代理·2026-08-18 | 设计契约 §3 |
 
-> 车道池（本批未开——下批候选）：B1 穿透自动发现通道（等 W8 派发数据积累）；
-> B2 执行预算经济化（穿透计量面数据基础）；A4 N12 护栏二期（建议并入 L1 规则层 SOP）；
-> A5 叶子角色 seed skill（随 L1 SOP 工作）；D1 MCP 拆解（A2 已开通道——价值翻倍，下批）。
+> 车道池（下批候选）：A5 叶子角色 seed skill（随 L1 SOP 工作）；D1 MCP 拆解
+> （A2 已开通道——价值翻倍，下批）。B1/B2/A4 本批已开——合并顺序 B2 → B1 → A4。
 
 ## fork 引导词（每条 lane 一段——粘贴进新会话即上岗）
 
