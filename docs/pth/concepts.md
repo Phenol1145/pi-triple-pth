@@ -1057,7 +1057,7 @@ v0.9（动作面/权限/任务池纯化）
 - [x] 护栏统一抽象（N12——2026-08-14 落地：guardrails.ts 注册表 + 阈值配置化 `PTH_GUARD_*` + 豁免矩阵声明式）
 - [x] 工作流 SOP——角色特定标准作业步骤还不是一等概念（2026-08-15 B4 Phase 1：四段式 skill 格式 + developer/scout/memory-keeper 3 条种子已注入；其余角色随 W4 创建时机补齐）
 - [x] 双 storage 层归属（2026-08-14 A2 已裁决并落地）：kernel/storage = 持久化基座单一包（会话平面并入 session/，src/pth/storage 退役）；引擎不归一（PG 数据世界 + Redis 热面 + 文件产物——分析见 storage-backend-analysis.md）；审计两平面（会话=Redis Stream，任务=PG audit_log）
-- [ ] agentic 测试集（建设中——planner 规划已产出——执行按计划）
+- [x] agentic 测试集（✅ 2026-08-15 v3 完成——28/28 completed，见 §10 N10）
 - [ ] 分账账本维护：新方案待建机制清单见 §10（与本清单一一对应——落地时同步勾除）
 
 ---
@@ -1095,16 +1095,16 @@ v0.9（动作面/权限/任务池纯化）
 | | | timeReuse（时间复用率） | ✅ | |
 | | | 行为轨迹（trace 步骤级） | ✅ onTrace | |
 | | | 任务状态/耗时 | ✅ | |
-| **L2 进程及数据级** | 主容器/子进程/DB | worker 子进程数/内存/CPU | ⚠️ 部分（IPC metric 耗时——健康/卡死缺失） | sensor:system-opt |
+| **L2 进程及数据级** | 主容器/子进程/DB | worker 子进程数/内存/CPU | ✅（2026-08-18 L3——status 心跳自报 rss/cpu + listBatches/obs.batches 健康面 healthy/stale/dead + 心跳 lag；watchdog 挂死重启原有） | sensor:system-opt |
 | | | 任务队列深度（pending/claimed） | ✅ 可查 | |
 | | | memory 条目数/按 kind 分布 | ✅ 可查 | |
 | | | 空间数/角色数/trigger 数 | ✅ 可查 | |
-| | | DB 连接/慢查询 | ⚠️ 无 | |
-| **L3 容器级** | 容器 | 各容器 CPU/内存/网络/磁盘 | ❌ 缺失（perf-autopilot 设计未实装） | sensor:resource |
-| | | sandbox 核池负载（session 数/TTL 回收数） | ❌ 缺失 | |
-| | | postgres/redis 容器资源 | ❌ 缺失 | |
+| | | DB 连接/慢查询 | ✅（2026-08-15 N5——obs.resource：pg activity/database/slow + pgStat 慢查询视图） | |
+| **L3 容器级** | 容器 | 各容器 CPU/内存/网络/磁盘 | ✅（2026-08-15 N5——obs.resource/obs.container cgroup 采集） | sensor:resource |
+| | | sandbox 核池负载（session 数/TTL 回收数） | ✅（N5——obs.kernels 池观测 + obs.resource 聚合） | |
+| | | postgres/redis 容器资源 | ✅（N5——obs.resource 容器面） | |
 
-**采集机制**：L1 已闭环（scorecard 落库 + obs 上报 + 聚合快照）；L2 半闭环（IPC metric + DB 统计查询）；L3 无采集（资源环只有设计角色无数据源）。
+**采集机制**：L1 已闭环（scorecard 落库 + obs 上报 + 聚合快照）；L2 已闭环（2026-08-18 L3 健康面补齐——IPC metric + 心跳自报 + DB 统计查询）；L3 已采集（2026-08-15 N5 obs.resource——资源环数据源就位，自动调节闭环随 controller:resource 实测运转验证）。
 
 **对齐 0.7 多级循环**：L1 → JIT 内环数据源；L2 → 控制环数据源；L3 → 资源环（第三级闭环）数据源。
 

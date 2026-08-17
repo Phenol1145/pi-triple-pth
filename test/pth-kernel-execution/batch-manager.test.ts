@@ -122,4 +122,49 @@ describe("batch manager", () => {
     expect(ts2).toBeLessThanOrEqual(before + 500);
     await mgr.killBatch(handle.id);
   }, 5000);
+
+  it("L3 健康面：status 自报 rss/cpu → listBatches 含 healthy + 资源字段（§9 L2 内存/CPU）", async () => {
+    const resPath = join(dir, "res-batch.mjs");
+    await writeFile(resPath, `
+      const mem = process.memoryUsage(); const cpu = process.cpuUsage();
+      process.send?.({ type: "status", tasks: [], ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system });
+      process.on("message", (msg) => { if (msg.type === "shutdown") process.exit(0); });
+    `);
+    const mgr = new BatchManager({ batchProcessPath: resPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 150));
+    const b = (await mgr.listBatches()).find((x) => x.id === handle.id)!;
+    expect(b.health).toBe("healthy");
+    expect(b.heartbeatLagMs).toBeLessThan(15_000);
+    expect(b.rssBytes).toBeGreaterThan(0);
+    expect(b.cpuUserUs).toBeGreaterThanOrEqual(0);
+    expect(b.cpuSystemUs).toBeGreaterThanOrEqual(0);
+    await mgr.killBatch(handle.id);
+  });
+
+  it("L3 健康面：心跳陈旧 → stale（watchdog 处置前的可观测态）", async () => {
+    const mgr = new BatchManager({ batchProcessPath: stubPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 150));
+    // 手工老化心跳（模拟事件循环阻塞——stub 不再上报）
+    const rec = (mgr as unknown as { batches: Map<string, { lastHeartbeat: number }> }).batches.get(handle.id)!;
+    rec.lastHeartbeat = Date.now() - 60_000;
+    const b = (await mgr.listBatches()).find((x) => x.id === handle.id)!;
+    expect(b.health).toBe("stale");
+    expect(b.heartbeatLagMs).toBeGreaterThanOrEqual(60_000);
+    await mgr.killBatch(handle.id);
+  });
+
+  it("L3 健康面：子进程崩溃未清理 → dead（killBatch 正常移除的不在列）", async () => {
+    const crashPath = join(dir, "crash-batch.mjs");
+    await writeFile(crashPath, `setTimeout(() => process.exit(1), 50);`);
+    const mgr = new BatchManager({ batchProcessPath: crashPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 300));   // 等崩溃落地
+    const b = (await mgr.listBatches()).find((x) => x.id === handle.id)!;
+    expect(b.health).toBe("dead");
+    expect(mgr.isBatchAlive(handle.id)).toBe(false);
+    await mgr.killBatch(handle.id);   // 清理出 map
+    expect((await mgr.listBatches()).some((x) => x.id === handle.id)).toBe(false);
+  });
 });

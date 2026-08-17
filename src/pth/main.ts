@@ -257,6 +257,12 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
               // BatchStatus.currentTasks 是 Record（workerId → taskId）——Object.values 遍历
               tasks: b.currentTasks && typeof b.currentTasks === "object" ? Object.values(b.currentTasks) : [],
               idleRatio: b.idleRatio,
+              // 2026-08-18 L3：健康面透传（sensor:system-opt 数据源——§9 L2）
+              health: b.health,
+              heartbeatLagMs: b.heartbeatLagMs,
+              rssBytes: b.rssBytes,
+              cpuUserUs: b.cpuUserUs,
+              cpuSystemUs: b.cpuSystemUs,
             }));
           }
           return { error: `未知 obs 请求: ${req}` };
