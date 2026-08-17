@@ -73,13 +73,14 @@
 | **K2** | Phase 2 Discipline Catalog DAG + `TaskWorkItem.domains` + 双轴路由契约 | `lane/k2-discipline-catalog` / `.worktrees/k2` | **done** |
 | **K3** | Phase 3 KnowledgeContextProvider + `KnowledgeBroker` 窄 search/get | `lane/k3-knowledge-context` / `.worktrees/k3` | **done** |
 | **K4** | Phase 4 candidate→domain/adversarial verdict→memory-keeper promotion 闭环 | `lane/k4-knowledge-promotion` / `.worktrees/k4` | **done** |
-| **K5** | Phase 5 双域试点（编程语言官方文档 + 材料科学开放数据库） | `lane/k5-domain-pilot` / `.worktrees/k5` | **free** |
+| **K5** | Phase 5 双域试点（编程语言官方文档 + 材料科学开放数据库） | 真实 PTH 任务试点（无独立 lane） | **done** |
 
 > K0 已落：`f8afa78`（contracts/domains + Discipline Catalog + 生成器 + 184 数据；全量 258/2122 绿）→ 已合并 main（`c027e0a`）。
 > K1b 已落：`aa2762e`（knowledge-provenance + memory_revisions append-only/restore + refiner scoped draft）→ 已合并 main。
 > K2 已落：`853b426`（TaskWorkItem.domains + DisciplineResolver + 发布盖章 + claim 映射）→ 已合并 main。
 > K3 已落：`4ee2b40`（KnowledgeContextProvider + runner 注入 + broker search/get official 门槛）→ 已合并 main。
 > K4 已落：`5fe95b1`（knowledge-verdicts/promotion + adversarial/memory-keeper 能力 + verify/promote 路由）→ 已合并 main。
+> K5 已落：真实任务试点（报告 `docs/pth/k5-pilot-report.md`；任务 `f2aee2ff`/`9ec54497` 完成，K4 链真机通过）。
 > K1a 已落：`f4c760d`（PgMemoryStore tenant 隔离 + KnowledgeBroker official/tenant/hit + skills.list official）→ 已合并 main（`7d00b90`）。
 >
 ### 合并顺序
