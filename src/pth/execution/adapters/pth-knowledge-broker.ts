@@ -24,5 +24,7 @@ export function createPthKnowledgeBroker(deps: PthKnowledgeBrokerDeps): Knowledg
       memory: deps.dataWorld.memory,
     },
     isVisible: (meta, space) => isVisible(meta, space),
+    // K1a hit 计数最小接线：get 命中（全文 consumption）→ bumpHitCount；retrieve 列表 exposure 不计数。
+    recordConsumption: (id, tenantId) => deps.dataWorld.memory.bumpHitCount(id, { tenantId }),
   });
 }

@@ -63,6 +63,29 @@ describe("capabilities", () => {
     expect((keeper.skills as Record<string, unknown>).maintain).toBeDefined();
     expect((developer.skills as Record<string, unknown>).maintain).toBeUndefined();
   });
+
+  it("K1a：skills.list 只暴露 official（draft 与 archived 都不进 worker 面）", async () => {
+    const dataWorld = {
+      ...mockDataWorld(),
+      memory: {
+        listIds: async () => ["skill:official", "skill:draft", "skill:archived"],
+        get: async (id: string) => ({
+          id,
+          kind: id,
+          anchors: ["a"],
+          content: "【场景锚点】a\n【何时用】b\n【效果】c",
+          status: id === "skill:official" ? "official" : id === "skill:draft" ? "draft" : "archived",
+          meta: {},
+        }),
+      },
+    } as any;
+    const caps = buildCapabilities({
+      llm: { complete: async () => ({ content: "x" }) } as any,
+      dataWorld,
+    });
+    const list = await (caps.skills as { list: () => Promise<Array<{ id: string; status: string }>> }).list();
+    expect(list.map((s) => s.id)).toEqual(["skill:official"]);
+  });
 });
 
 /**

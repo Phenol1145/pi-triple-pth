@@ -88,4 +88,78 @@ describe("KnowledgeBroker（P2-5）", () => {
     expect(hidden.ok).toBe(false);
     if (!hidden.ok) expect(hidden.status).toBe(404);
   });
+
+  it("K1a：retrieve 固定 status=official + tenantId 从 grant.scope.tenantId 透传（draft/archived 不回）", async () => {
+    const retrieveCalls: Array<{ anchors?: string[]; kinds?: string[]; status?: string[]; tenantId?: string }> = [];
+    const broker = createKnowledgeBroker({
+      grantService,
+      dataWorld: {
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async (opts) => {
+            retrieveCalls.push(opts);
+            const all = [
+              { id: "m-official", kind: "note", anchors: ["a"], status: "official", content: "official", meta: {} },
+              { id: "m-draft", kind: "note", anchors: ["a"], status: "draft", content: "draft", meta: {} },
+              { id: "m-archived", kind: "note", anchors: ["a"], status: "archived", content: "archived", meta: {} },
+            ];
+            // 模拟 store 的 status 过滤契约（broker 只向 store 表达 official）
+            return all.filter((e) => !opts.status || opts.status.includes(e.status));
+          },
+          get: async () => undefined,
+        },
+      },
+      isVisible: () => true,
+    });
+    const r = await broker.query({ grant: makeGrant({ space: "meta" }), op: "retrieve", anchors: ["a"], kinds: ["note"] });
+    expect(r.ok).toBe(true);
+    expect(retrieveCalls).toHaveLength(1);
+    expect(retrieveCalls[0]).toEqual({ anchors: ["a"], kinds: ["note"], status: ["official"], tenantId: "tenant-a" });
+    if (r.ok) expect(r.entries?.map((e) => (e as { id: string }).id)).toEqual(["m-official"]);
+  });
+
+  it("K1a：get tenantId 透传 + 命中后触发 recordConsumption（未命中/不可见不触发）", async () => {
+    const getCalls: Array<{ id: string; opts?: { tenantId?: string } }> = [];
+    const consumed: Array<{ id: string; tenantId?: string }> = [];
+    const broker = createKnowledgeBroker({
+      grantService,
+      dataWorld: {
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async () => [],
+          get: async (id: string, opts?: { tenantId?: string }) => {
+            getCalls.push({ id, opts });
+            if (id === "m1") return { id: "m1", kind: "note", anchors: ["a"], status: "official", content: "x", meta: {} };
+            if (id === "m-hidden") return { id: "m-hidden", kind: "note", anchors: ["a"], status: "official", content: "hidden", meta: { spaceScope: { space: "private-other", visibility: "private" } } };
+            return undefined;
+          },
+        },
+      },
+      isVisible: (meta, space) => {
+        const scope = (meta as { spaceScope?: { space?: string; visibility?: string } } | undefined)?.spaceScope;
+        if (!scope || scope.visibility === "public") return true;
+        return scope.space === space;
+      },
+      recordConsumption: async (id, tenantId) => {
+        consumed.push({ id, tenantId });
+      },
+    });
+
+    const visible = await broker.query({ grant: makeGrant({ space: "meta" }), op: "get", id: "m1" });
+    expect(visible.ok).toBe(true);
+    expect(getCalls[0]).toEqual({ id: "m1", opts: { tenantId: "tenant-a" } });
+    expect(consumed).toEqual([{ id: "m1", tenantId: "tenant-a" }]);
+
+    // 未命中不触发
+    const miss = await broker.query({ grant: makeGrant({ space: "meta" }), op: "get", id: "nope" });
+    expect(miss.ok).toBe(false);
+    if (!miss.ok) expect(miss.status).toBe(404);
+    expect(consumed).toHaveLength(1);
+
+    // 命中但空间不可见 → 404 且不触发（全文未消费）
+    const hidden = await broker.query({ grant: makeGrant({ space: "meta" }), op: "get", id: "m-hidden" });
+    expect(hidden.ok).toBe(false);
+    if (!hidden.ok) expect(hidden.status).toBe(404);
+    expect(consumed).toHaveLength(1);
+  });
 });
