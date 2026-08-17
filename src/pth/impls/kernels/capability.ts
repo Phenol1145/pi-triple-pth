@@ -157,7 +157,8 @@ export function buildCapabilities(deps: {
     skills: {
       // B4 Phase 2（2026-08-15 已裁 C 两级检索）：
       //   Level 0 = list() 三要素清单；Level 1 = get(id) 全文
-      list: async () => (await listSkills(deps.dataWorld.memory)).filter((s) => s.status !== "draft"),
+      // K1a 知识正确性收口：draft 与 archived 都不进 worker 面（治理查询走 store/其它通道）
+      list: async () => (await listSkills(deps.dataWorld.memory)).filter((s) => s.status === "official"),
       get: async (name: string) => getSkill(deps.dataWorld.memory, String(name)),
       // B4 Phase 3：维护面只给 memory-keeper（写后冻结；修订 = force + audit / archive + 新条目）
       //   W5 策略：PTH_SKILL_WRITE_POLICY=manual（默认人工闸门）| staged（提案→审核→批准→执行）

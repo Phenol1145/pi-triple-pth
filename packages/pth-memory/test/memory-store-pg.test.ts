@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
-import { MEMORY_SCHEMA_SQL, PgMemoryStore, runReadOnlyQuery } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, MEMORY_SCHEMA_SQL, PgMemoryStore, runReadOnlyQuery } from "@away_from/pth-memory";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1/2/3（pg.test.ts / schema.test.ts / task-store-pg.test.ts）：
@@ -159,6 +159,81 @@ suite("memory store pg", () => {
       { currentSpace: "dev", ancestors: ["dev", "meta"] },
     ) as Array<{ id: string }>;
     expect(devRows.map((r) => r.id).sort()).toEqual(["h3-private", "h3-public"]);
+  });
+
+  it("K1a：DEFAULT_TENANT_ID 导出为 default", () => {
+    expect(DEFAULT_TENANT_ID).toBe("default");
+  });
+
+  it("K1a：write/get/retrieve/listIds 跨 tenant 隔离（缺省走 default）", async () => {
+    await store.write({ id: "k1a-t1-default", kind: "fact", anchors: ["k1a-tenant"], content: "default", meta: {} } as any);
+    await store.write({ id: "k1a-t1-other", kind: "fact", anchors: ["k1a-tenant"], content: "other", tenantId: "tenant-a", meta: {} } as any);
+
+    // get：tenant 不符 → undefined
+    expect((await store.get("k1a-t1-default"))?.content).toBe("default");
+    expect(await store.get("k1a-t1-default", { tenantId: "tenant-a" })).toBeUndefined();
+    expect((await store.get("k1a-t1-other", { tenantId: "tenant-a" }))?.content).toBe("other");
+    expect(await store.get("k1a-t1-other")).toBeUndefined();
+
+    // retrieve：缺省只回 default tenant；显式 tenant 只回本 tenant
+    const defaults = await store.retrieve({ anchors: ["k1a-tenant"] });
+    expect(defaults.map((e) => e.id)).toContain("k1a-t1-default");
+    expect(defaults.map((e) => e.id)).not.toContain("k1a-t1-other");
+    const others = await store.retrieve({ anchors: ["k1a-tenant"], tenantId: "tenant-a" });
+    expect(others.map((e) => e.id)).toContain("k1a-t1-other");
+    expect(others.map((e) => e.id)).not.toContain("k1a-t1-default");
+
+    // listIds：缺省只列 default tenant
+    const defaultIds = await store.listIds();
+    expect(defaultIds).toContain("k1a-t1-default");
+    expect(defaultIds).not.toContain("k1a-t1-other");
+    const otherIds = await store.listIds({ tenantId: "tenant-a" });
+    expect(otherIds).toContain("k1a-t1-other");
+    expect(otherIds).not.toContain("k1a-t1-default");
+  });
+
+  it("K1a：update tenant 不符 0 行 → fail-closed 抛 entry not found in tenant", async () => {
+    await store.write({ id: "k1a-t2-other", kind: "fact", anchors: ["k1a-tenant-upd"], content: "v1", tenantId: "tenant-a", meta: {} } as any);
+    await expect(store.update("k1a-t2-other", { content: "v2" })).rejects.toThrow("entry not found in tenant default");
+    await store.update("k1a-t2-other", { content: "v2" }, { tenantId: "tenant-a" });
+    const got = await store.get("k1a-t2-other", { tenantId: "tenant-a" });
+    expect(got?.content).toBe("v2");
+  });
+
+  it("K1a：bumpHitCount tenant 条件——错 tenant 不递增", async () => {
+    await store.write({ id: "k1a-t3-other", kind: "fact", anchors: ["k1a-tenant-hit"], content: "h", tenantId: "tenant-a", meta: {} } as any);
+    await store.bumpHitCount("k1a-t3-other"); // default tenant → 0 行
+    let got = await store.get("k1a-t3-other", { tenantId: "tenant-a" });
+    expect(got?.meta?.hitCount ?? 0).toBe(0);
+    await store.bumpHitCount("k1a-t3-other", { tenantId: "tenant-a" });
+    got = await store.get("k1a-t3-other", { tenantId: "tenant-a" });
+    expect(got?.meta?.hitCount ?? 0).toBe(1);
+  });
+
+  it("K1a：incrementAggregate 默认 tenant 兼容 + tenant 条件不串写", async () => {
+    await store.incrementAggregate("k1a-agg-default", "agg-kind", ["k1a-agg"], { n: 1 }, {});
+    let got = await store.get("k1a-agg-default");
+    expect(got?.kind).toBe("agg-kind");
+    expect(JSON.parse(got?.content ?? "{}").n).toBe(1);
+
+    // 同 id 但 tenant 不符：DO UPDATE 的 tenant 条件挡住——default 行不被串写
+    await store.incrementAggregate("k1a-agg-default", "agg-kind", ["k1a-agg"], { n: 5 }, {}, { tenantId: "tenant-a" });
+    got = await store.get("k1a-agg-default");
+    expect(JSON.parse(got?.content ?? "{}").n).toBe(1);
+
+    // 不同 id + 显式 tenant：写入本 tenant，default 不可见
+    await store.incrementAggregate("k1a-agg-other", "agg-kind", ["k1a-agg"], { n: 2 }, {}, { tenantId: "tenant-a" });
+    const other = await store.get("k1a-agg-other", { tenantId: "tenant-a" });
+    expect(JSON.parse(other?.content ?? "{}").n).toBe(2);
+    expect(await store.get("k1a-agg-other")).toBeUndefined();
+  });
+
+  it("K1a：构造 defaultTenantId 可覆盖缺省 default", async () => {
+    const customStore = new PgMemoryStore(pool, { defaultTenantId: "tenant-custom" });
+    await customStore.write({ id: "k1a-t4-custom", kind: "fact", anchors: ["k1a-tenant-custom"], content: "c", meta: {} } as any);
+    expect(await customStore.get("k1a-t4-custom")).toBeDefined();
+    expect(await store.get("k1a-t4-custom")).toBeUndefined();
+    expect(await store.listIds({ tenantId: "tenant-custom" })).toContain("k1a-t4-custom");
   });
 
 });

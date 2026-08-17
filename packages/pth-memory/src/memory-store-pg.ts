@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 
+/** 缺省租户 id（tenant_id 列 DDL 已 default 'default'；本批不迁移存量行）。 */
+export const DEFAULT_TENANT_ID = "default";
+
 /**
  * MemoryEntry —— 对齐 memory v1 entry.ts 结构（extensions/agent-lab/src/memory/entry.ts）。
  * 列映射：ruleRef→rule_ref、idempotencyKey→idempotency_key、promotedFrom→promoted_from、
@@ -8,6 +11,8 @@ import type pg from "pg";
  */
 export interface MemoryEntry {
   id: string;
+  /** 租户 id（不强制——存量调用缺省 DEFAULT_TENANT_ID）。 */
+  tenantId?: string;
   kind: string;
   anchors: string[];
   content: string;
@@ -40,7 +45,11 @@ export interface MemoryEntry {
  * 遗留差异（见 task-4-report 疑虑）：update 仅更新 content/status（brief 骨架），anchors/kind 变更请走 write。
  */
 export class PgMemoryStore {
-  constructor(private pool: pg.Pool) {}
+  private readonly defaultTenantId: string;
+
+  constructor(private pool: pg.Pool, opts?: { defaultTenantId?: string }) {
+    this.defaultTenantId = opts?.defaultTenantId ?? DEFAULT_TENANT_ID;
+  }
 
   /** upsert：id 冲突则版本递增（CAS 语义，对齐 FS 实现）。anchors 必须显式传非空数组（schema CHECK 约束）。 */
   async write(entry: MemoryEntry, opts?: { force?: boolean }): Promise<void> {
@@ -58,8 +67,8 @@ export class PgMemoryStore {
     //   最后强制 version/updatedAt 与列联动（FS：meta={...existing.meta, ...entry.meta, version: next, updatedAt: now}）；
     // - version 列与 meta.version 引用同一 CASE 表达式（SET 中均引用旧行值）→ 二者保持一致。
     await this.pool.query(
-      `INSERT INTO memory_entries (id, kind, anchors, content, rule_ref, idempotency_key, status, promoted_from, meta)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9::jsonb)
+      `INSERT INTO memory_entries (id, tenant_id, kind, anchors, content, rule_ref, idempotency_key, status, promoted_from, meta)
+       VALUES ($1, $10, $2, $3::jsonb, $4, $5, $6, $7, $8, $9::jsonb)
        ON CONFLICT (id) DO UPDATE SET
          content = EXCLUDED.content,
          anchors = EXCLUDED.anchors,
@@ -87,13 +96,15 @@ export class PgMemoryStore {
         entry.status ?? "official",
         entry.promotedFrom ?? null,
         JSON.stringify(entry.meta ?? {}),
+        entry.tenantId ?? this.defaultTenantId,
       ],
     );
   }
 
-  async get(id: string): Promise<MemoryEntry | undefined> {
+  async get(id: string, opts?: { tenantId?: string }): Promise<MemoryEntry | undefined> {
+    const tenantId = opts?.tenantId ?? this.defaultTenantId;
     const res = await this.pool.query(
-      `SELECT * FROM memory_entries WHERE id = $1`, [id],
+      `SELECT * FROM memory_entries WHERE id = $1 AND tenant_id = $2`, [id, tenantId],
     );
     if (res.rows.length === 0) return undefined;
     return mapEntry(res.rows[0]);
@@ -115,16 +126,21 @@ export class PgMemoryStore {
     return out;
   }
 
-  async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: { force?: boolean } = {}): Promise<void> {
+  async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: { force?: boolean; tenantId?: string } = {}): Promise<void> {
     if (id.startsWith("skill:") && !opts.force) {
       throw new Error(`memory.update: skill 条目不可变（${id}）——修订请走 skills.maintain.archive + 新条目`);
     }
+    const tenantId = opts.tenantId ?? this.defaultTenantId;
     // meta 合并更新（2026-08-13 deopt 回滚需要——原实现 meta 只建初始 version）；
     // H6：受保护字段先剥除（spaceScope/visibility/系统账本键不可经 update 覆盖）
     const metaPatch = patch.meta ? PgMemoryStore.sanitizeMetaPatch(patch.meta) : undefined;
     const metaExpr = metaPatch
       ? `meta || $4::jsonb || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`
       : `meta || jsonb_build_object('version', version + 1, 'updatedAt', extract(epoch from now()) * 1000)`;
+    const params: unknown[] = [id, patch.content ?? null, patch.status ?? null];
+    if (metaPatch) params.push(JSON.stringify(metaPatch));
+    const tenantParam = params.length + 1;
+    params.push(tenantId);
     const res = await this.pool.query(
       `UPDATE memory_entries SET
          content = COALESCE($2, content),
@@ -132,11 +148,11 @@ export class PgMemoryStore {
          version = version + 1,
          updated_at = now(),
          meta = ${metaExpr}
-       WHERE id = $1
+       WHERE id = $1 AND tenant_id = $${tenantParam}
        RETURNING id`,
-      [id, patch.content ?? null, patch.status ?? null, ...(metaPatch ? [JSON.stringify(metaPatch)] : [])],
+      params,
     );
-    if (res.rows.length === 0) throw new Error(`entry not found: ${id}`);
+    if (res.rows.length === 0) throw new Error(`entry not found in tenant ${tenantId}`);
   }
 
   /**
@@ -144,7 +160,7 @@ export class PgMemoryStore {
    * kinds/status 过滤（ANY(text[])）；excludeDrafts 排除 status='draft'。
    * 返回按 id 字典序稳定排序。
    */
-  async retrieve(opts: { anchors?: string[]; kinds?: string[]; status?: string[]; excludeDrafts?: boolean } = {}): Promise<MemoryEntry[]> {
+  async retrieve(opts: { anchors?: string[]; kinds?: string[]; status?: string[]; excludeDrafts?: boolean; tenantId?: string } = {}): Promise<MemoryEntry[]> {
     const conds: string[] = [];
     const params: unknown[] = [];
     if (opts.anchors && opts.anchors.length > 0) {
@@ -160,15 +176,19 @@ export class PgMemoryStore {
       conds.push(`status = ANY($${params.length}::text[])`);
     }
     if (opts.excludeDrafts) conds.push(`status != 'draft'`);
+    // K1a tenant 隔离：缺省 default tenant；status 默认语义保持不变（official-only 由 broker 表达）
+    params.push(opts.tenantId ?? this.defaultTenantId);
+    conds.push(`tenant_id = $${params.length}`);
     const where = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
     const res = await this.pool.query(`SELECT * FROM memory_entries ${where} ORDER BY id`, params);
     return res.rows.map(mapEntry);
   }
 
   /** 旁路计数器（独立列 UPDATE）：不触发版本化、不参与 CAS（对齐 FS 独立计数器文件语义）。 */
-  async bumpHitCount(id: string): Promise<void> {
+  async bumpHitCount(id: string, opts?: { tenantId?: string }): Promise<void> {
+    const tenantId = opts?.tenantId ?? this.defaultTenantId;
     await this.pool.query(
-      `UPDATE memory_entries SET hit_count = hit_count + 1 WHERE id = $1`, [id],
+      `UPDATE memory_entries SET hit_count = hit_count + 1 WHERE id = $1 AND tenant_id = $2`, [id, tenantId],
     );
   }
 
@@ -180,6 +200,7 @@ export class PgMemoryStore {
     anchors: unknown[],
     deltas: Record<string, number>,
     meta: Record<string, unknown>,
+    opts?: { tenantId?: string },
   ): Promise<void> {
     const keys = Object.keys(deltas);
     if (keys.length === 0) return;
@@ -188,27 +209,32 @@ export class PgMemoryStore {
     for (const k of keys) {
       if (!/^[a-zA-Z0-9_]{1,64}$/.test(k)) throw new Error(`incrementAggregate: 非法增量键 "${k}"（仅字母数字下划线 ≤64）`);
     }
+    const tenantId = opts?.tenantId ?? this.defaultTenantId;
     // 两套表达式：INSERT（新行——纯增量值）；UPDATE（现值 + 增量——jsonb || 合并）。
     // ⚠ VALUES 分支不能引用 content 列（新行无列值——2026-08-12 实机修复：INSERT 用纯参数）
     // ⚠ 显式 ::numeric——jsonb_build_object 的 value 参数是 any——pg 无法推断参数类型
     // （2026-08-12 实机复现："could not determine data type of parameter $3"——psql 字面量验证掩盖）
     // ⚠ 占位符从 $5 起（$1=id/$2=kind/$3=anchors/$4=meta——deltas 参数在数组尾部）——
     // 2026-08-12 实机复现 "inconsistent types deduced for parameter $1"（$1 同时是 id 和增量——类型冲突）
+    // K1a：tenant_id 参数化后置于 deltas 尾部（$5+keys.length），DO UPDATE 加 tenant 条件防串写。
     const insertParts = keys.map((k, i) => `'${k}', $${i + 5}::numeric`);
     // ⚠ 表名限定（memory_entries.content）——SET 目标列与 RHS 同名列歧义（2026-08-12 实机修复）
     const updateParts = keys.map((k, i) => `'${k}', COALESCE((memory_entries.content::jsonb->>'${k}')::numeric, 0) + $${i + 5}::numeric`);
+    const tenantParam = keys.length + 5;
     await this.pool.query(
       `INSERT INTO memory_entries (id, tenant_id, kind, status, content, anchors, meta, created_at, updated_at)
-       VALUES ($1, 'default', $2, 'official', jsonb_build_object(${insertParts.join(", ")})::text, $3::jsonb, $4::jsonb, now(), now())
+       VALUES ($1, $${tenantParam}, $2, 'official', jsonb_build_object(${insertParts.join(", ")})::text, $3::jsonb, $4::jsonb, now(), now())
        ON CONFLICT (id) DO UPDATE SET
          content = (memory_entries.content::jsonb || jsonb_build_object(${updateParts.join(", ")}))::text,
-         updated_at = now()`,
-      [id, kind, JSON.stringify(anchors ?? []), JSON.stringify(meta ?? {}), ...keys.map((k) => deltas[k])],
+         updated_at = now()
+       WHERE memory_entries.tenant_id = EXCLUDED.tenant_id`,
+      [id, kind, JSON.stringify(anchors ?? []), JSON.stringify(meta ?? {}), ...keys.map((k) => deltas[k]), tenantId],
     );
   }
 
-  async listIds(): Promise<string[]> {
-    const res = await this.pool.query(`SELECT id FROM memory_entries`);
+  async listIds(opts?: { tenantId?: string }): Promise<string[]> {
+    const tenantId = opts?.tenantId ?? this.defaultTenantId;
+    const res = await this.pool.query(`SELECT id FROM memory_entries WHERE tenant_id = $1`, [tenantId]);
     return (res.rows as Array<{ id: string }>).map((r) => r.id);
   }
 }
@@ -217,6 +243,7 @@ export class PgMemoryStore {
 function mapEntry(row: any): MemoryEntry {
   return {
     id: row.id,
+    tenantId: row.tenant_id ?? undefined,
     kind: row.kind,
     anchors: row.anchors,
     content: row.content,
