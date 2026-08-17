@@ -13,7 +13,7 @@
  */
 
 import type { TsReplExtension, ExtContext } from "./types.js";
-import { config } from "./perf-params.js";
+import { config, configNumber } from "./perf-params.js";
 import { readStrategies } from "./perf.js";
 import type { PerfStrategy } from "./perf.js";
 import fs from "node:fs/promises";
@@ -169,6 +169,83 @@ export const manageExtension: TsReplExtension = {
             return { ok: true, id: pid, status: "draft", note: "分化提案已落 draft（监督层批准后注册角色）" };
           },
         },
+
+        // ── 工具注册通道（N14 P3——tool-reg 治理流：提案 → 对抗性审核 → 批准 → 注册生效）──
+        // PTH_TOOL_WRITE_POLICY=manual（缺省）：治理任务分配即人工闸门——直写 official；
+        // staged：tool-proposal draft → controller:adversarial 审核 → 监督批准 → 执行。
+        tool: {
+          /** 注册面清单（快照版本 + 条目三要素/执行体/可见性） */
+          list: async () => {
+            const { loadToolRegSnapshot } = await import("../execution/tool-registry.js");
+            const snap = await loadToolRegSnapshot(store as never);
+            return {
+              version: snap.version,
+              budget: configNumber("PTH_TOOL_FACE_BUDGET", 24),
+              policy: config().get("PTH_TOOL_WRITE_POLICY") ?? "manual",
+              tools: [...snap.entries.values()].map((s) => ({
+                name: s.name, version: s.version, pack: s.visibility.pack,
+                executor: s.executor.type, roles: s.visibility.roles,
+                anchor: s.description.anchor,
+              })),
+            };
+          },
+          /** 工具注册（晋升管线入口——候选 tool-function 包装为 tool-reg spec 后在此裁决） */
+          register: async (opts: { spec?: unknown; rationale?: string }) => {
+            const { validateToolRegSpec, validateToolRegAction, buildToolRegEntry, proposeToolRegistration } = await import("@away_from/pth-memory");
+            const checked = validateToolRegSpec(opts?.spec);
+            if (!checked.ok) return { ok: false, error: `manage.tool.register: ${checked.error}` };
+            const action = await validateToolRegAction(store as never, "register", checked.spec);
+            if (!action.ok) return { ok: false, error: `manage.tool.register: ${action.error}` };
+            const spec = action.spec;
+            // 预算守卫（§3.3 执行位——每个投放角色的投影面不得超 PTH_TOOL_FACE_BUDGET）
+            const budget = configNumber("PTH_TOOL_FACE_BUDGET", 24);
+            const { toolFaceBudgetCheck } = await import("../execution/tool-registry.js");
+            const check = await toolFaceBudgetCheck(store as never, spec, budget);
+            if (!check.ok) {
+              return { ok: false, error: `manage.tool.register: 工具面预算守卫（≤${budget}）拒绝——${check.over.map((o) => `${o.role} ${o.face}→${o.projected}`).join("，")}；先走合并/退役提案（命题 3 防线）` };
+            }
+            const policy = config().get("PTH_TOOL_WRITE_POLICY") ?? "manual";
+            if (policy === "staged") {
+              const r = await proposeToolRegistration(store as never, { action: "register", name: spec.name, spec, rationale: opts?.rationale });
+              // 事件驱动编排（skill-proposal-review 同构）：提案落库即发 → trigger 自动派审核任务
+              if (r.ok && r.id) ctx.onActivity?.({ kind: "tool.proposal.created", detail: r.id, at: Date.now() });
+              return { ...r, status: "draft", note: "staged 策略——提案已落 draft（对抗性审核 → 监督批准 → 注册生效）" };
+            }
+            const entry = buildToolRegEntry(spec, { status: "official" });
+            await store.write({
+              ...entry,
+              meta: { ...entry.meta, registeredAt: Date.now(), registeredBy: "manage.tool.register", ...(opts?.rationale ? { rationale: String(opts.rationale) } : {}) },
+            } as never, { force: true });
+            return { ok: true, id: entry.id, status: "official", note: "manual 策略——已直接注册（审计留痕）" };
+          },
+          /** 工具修订（不可变语义——version 必须递增；promotedFrom/版本链留痕） */
+          revise: async (opts: { spec?: unknown; rationale?: string }) => {
+            const { validateToolRegSpec, validateToolRegAction, buildToolRegEntry, proposeToolRegistration } = await import("@away_from/pth-memory");
+            const checked = validateToolRegSpec(opts?.spec);
+            if (!checked.ok) return { ok: false, error: `manage.tool.revise: ${checked.error}` };
+            const action = await validateToolRegAction(store as never, "revise", checked.spec);
+            if (!action.ok) return { ok: false, error: `manage.tool.revise: ${action.error}` };
+            const spec = action.spec;
+            const budget = configNumber("PTH_TOOL_FACE_BUDGET", 24);
+            const { toolFaceBudgetCheck } = await import("../execution/tool-registry.js");
+            const check = await toolFaceBudgetCheck(store as never, spec, budget);
+            if (!check.ok) {
+              return { ok: false, error: `manage.tool.revise: 工具面预算守卫（≤${budget}）拒绝——${check.over.map((o) => `${o.role} ${o.face}→${o.projected}`).join("，")}` };
+            }
+            const policy = config().get("PTH_TOOL_WRITE_POLICY") ?? "manual";
+            if (policy === "staged") {
+              const r = await proposeToolRegistration(store as never, { action: "revise", name: spec.name, spec, rationale: opts?.rationale });
+              if (r.ok && r.id) ctx.onActivity?.({ kind: "tool.proposal.created", detail: r.id, at: Date.now() });
+              return { ...r, status: "draft", note: "staged 策略——修订提案已落 draft（对抗性审核 → 监督批准 → 生效）" };
+            }
+            const entry = buildToolRegEntry(spec, { status: "official" });
+            await store.write({
+              ...entry,
+              meta: { ...entry.meta, registeredAt: Date.now(), registeredBy: "manage.tool.revise", ...(opts?.rationale ? { rationale: String(opts.rationale) } : {}) },
+            } as never, { force: true });
+            return { ok: true, id: entry.id, version: spec.version, status: "official", note: "manual 策略——修订已生效（新版本链留痕）" };
+          },
+        },
       },
     };
   },
@@ -178,5 +255,6 @@ export const manageExtension: TsReplExtension = {
   manage.resource.scheme.list() 方案清单；.publish({name, params}) 发布方案；.apply({id}) 应用方案（参数生效）
   manage.fix.approve({bugReport, fixSummary?, parentTaskId?}) 修复批准 → 派发 debug-case-writer（最小复现+回归+边界用例）
   manage.memory.archive({id, rationale?}) 记忆归档提案（draft——监督批准后执行）
-  manage.worker.propose({suggestedRoleId, parent, specialization, rationale}) 分化提案（draft）`,
+  manage.worker.propose({suggestedRoleId, parent, specialization, rationale}) 分化提案（draft）
+  manage.tool.list() 注册工具面清单（N14）；manage.tool.register({spec, rationale?}) 工具注册（预算守卫 + PTH_TOOL_WRITE_POLICY 治理流）；manage.tool.revise({spec, rationale?}) 工具修订（version 递增——不可变语义）`,
 };

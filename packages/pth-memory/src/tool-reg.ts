@@ -20,6 +20,9 @@ export const TOOL_REG_ID_PREFIX = "tool:";
 export const TOOL_REG_FORMAT = "tool-reg-v1";
 export const TOOL_SPEC_MARKER = "__tool_spec__";
 
+import { randomUUID } from "node:crypto";
+import type { MemoryEntry } from "./memory-store-pg.js";
+
 /** 工具名约束（点形/下划线形均可——builtin 条目用 TOOL_SCHEMAS 点形真相源名） */
 export const TOOL_REG_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
@@ -199,4 +202,160 @@ export function buildToolRegEntry(
       ...(spec.promotedFrom ? { promotedFrom: spec.promotedFrom } : {}),
     },
   };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// N14 P3：治理流（§3.4——skill 同构，Q3 裁决）
+//   候选（tool-function 沉淀 / sensor 观测提案 / 人工）
+//     → controller:tool-face 包装提案（kind=tool-proposal，draft）
+//     → controller:adversarial 对抗性审核（schema 质量 / 执行体安全 / 作弊捷径）
+//     → 监督批准（PTH_TOOL_WRITE_POLICY=staged|manual——W5 同款配置）
+//     → tool-reg official 生效（不可变 + 审计留痕；修订 = version+1，promotedFrom 链）
+// ════════════════════════════════════════════════════════════════════════════
+
+export const TOOL_PROPOSAL_KIND = "tool-proposal";
+
+/** 治理面 store 窄口（PgMemoryStore 结构型兼容——与 SkillMaintenanceStore 同形） */
+export interface ToolRegGovernanceStore {
+  get(id: string): Promise<MemoryEntry | undefined>;
+  write(entry: MemoryEntry, opts?: { force?: boolean }): Promise<void>;
+  update(id: string, patch: Partial<MemoryEntry>, opts?: { force?: boolean }): Promise<void>;
+}
+
+export interface ToolRegProposal {
+  action: "register" | "revise";
+  /** 工具名（不带 tool: 前缀） */
+  name: string;
+  /** 完整 ToolRegSpec（register=新条目 version 1；revise=version 必须大于现条目） */
+  spec?: unknown;
+  rationale?: string;
+  audit?: string;
+}
+
+export interface ToolGovernanceResult {
+  ok: boolean;
+  id?: string;
+  error?: string;
+}
+
+async function getToolProposal(store: ToolRegGovernanceStore, proposalId: string) {
+  const p = await store.get(proposalId);
+  if (!p || p.kind !== TOOL_PROPOSAL_KIND) return undefined;
+  return p;
+}
+
+/**
+ * 晋升动作校验（register/revise 的调用即拒绝点——propose 与 execute 共用同一真相源）：
+ *   register——新条目 version 必须为 1（已存在 → 拒绝，修订走 revise）；
+ *   revise  ——现条目存在 + version 递增（不可变语义：修订 = 新版本）；
+ *             promotedFrom 链自动承继现条目（提案未显式携带时——B4-1 同款留痕）。
+ */
+export async function validateToolRegAction(
+  store: ToolRegGovernanceStore,
+  action: "register" | "revise",
+  spec: ToolRegSpec,
+): Promise<{ ok: true; spec: ToolRegSpec } | { ok: false; error: string }> {
+  if (action !== "register" && action !== "revise") {
+    return { ok: false, error: `动作 "${String(action)}" 暂不支持（register/revise）` };
+  }
+  const existing = await store.get(`${TOOL_REG_ID_PREFIX}${spec.name}`);
+  if (action === "register") {
+    if (existing && existing.status !== "archived") {
+      return { ok: false, error: `tool:${spec.name} 已存在且不可变——修订请走 revise（version+1，promotedFrom 链留痕）` };
+    }
+    if (spec.version !== 1) {
+      return { ok: false, error: `register 新条目版本必须为 1（收到 v${spec.version}）——修订请走 revise` };
+    }
+    return { ok: true, spec };
+  }
+  if (!existing) return { ok: false, error: `tool:${spec.name} 不存在——revise 须基于现条目` };
+  const currentVersion = Number(existing.meta?.version ?? 1);
+  if (spec.version <= currentVersion) {
+    return { ok: false, error: `revise 版本必须递增：现 v${currentVersion}，提案 v${spec.version}（不可变语义——修订 = 新版本）` };
+  }
+  const existingPromotedFrom = typeof existing.meta?.promotedFrom === "string" ? existing.meta.promotedFrom : undefined;
+  if (existingPromotedFrom && !spec.promotedFrom) {
+    spec = { ...spec, promotedFrom: existingPromotedFrom };
+  }
+  return { ok: true, spec };
+}
+
+/** 提案落 draft（调用即拒绝——spec 先过注册校验 + 晋升动作校验；与 skills.maintain.propose 同款） */
+export async function proposeToolRegistration(store: ToolRegGovernanceStore, input: ToolRegProposal): Promise<ToolGovernanceResult> {
+  const name = String(input?.name ?? "").trim();
+  if (!TOOL_REG_NAME_RE.test(name)) return { ok: false, error: `tool 名非法: ${name}` };
+  if (input.action !== "register" && input.action !== "revise") {
+    return { ok: false, error: `动作 "${String(input.action)}" 暂不支持（register/revise）` };
+  }
+  const checked = validateToolRegSpec(input.spec);
+  if (!checked.ok) return { ok: false, error: `提案 spec 非法：${checked.error}` };
+  if (checked.spec.name !== name) return { ok: false, error: `提案 name "${name}" 与 spec.name "${checked.spec.name}" 不一致` };
+  const action = await validateToolRegAction(store, input.action, checked.spec);
+  if (!action.ok) return { ok: false, error: `晋升动作校验失败：${action.error}` };
+  const id = `${TOOL_PROPOSAL_KIND}:${randomUUID()}`;
+  await store.write({
+    id,
+    kind: TOOL_PROPOSAL_KIND,
+    anchors: ["tool-reg", name, input.action],
+    content: JSON.stringify({ ...input, name, spec: action.spec } satisfies ToolRegProposal),
+    status: "draft",
+    meta: { proposedAt: Date.now(), action: input.action, toolName: name, stage: "proposed" },
+  });
+  return { ok: true, id };
+}
+
+/** 对抗性审核（controller:adversarial——schema 质量/执行体安全/作弊捷径） */
+export async function reviewToolProposal(
+  store: ToolRegGovernanceStore,
+  proposalId: string,
+  verdict: "pass" | "reject",
+  note = "",
+): Promise<ToolGovernanceResult> {
+  const p = await getToolProposal(store, proposalId);
+  if (!p) return { ok: false, error: "tool 注册提案不存在或类型不符" };
+  if (p.status !== "draft") return { ok: false, error: `提案状态 ${p.status}——仅 draft 可审核` };
+  await store.update(proposalId, {
+    meta: {
+      ...(p.meta ?? {}),
+      adversarialReview: { verdict, note, reviewer: "controller:adversarial", reviewedAt: Date.now() },
+      stage: verdict === "pass" ? "reviewed" : "rejected",
+    },
+  });
+  return { ok: verdict === "pass", id: proposalId, error: verdict === "pass" ? undefined : "adversarial review rejected" };
+}
+
+/** 监督批准（审批面——gateway approve 流消费；必须已过对抗性审核） */
+export async function approveToolProposal(store: ToolRegGovernanceStore, proposalId: string): Promise<ToolGovernanceResult> {
+  const p = await getToolProposal(store, proposalId);
+  if (!p) return { ok: false, error: "tool 注册提案不存在或类型不符" };
+  if (p.status !== "draft") return { ok: false, error: `提案状态 ${p.status}——仅 draft 可批准` };
+  const review = (p.meta?.adversarialReview ?? {}) as { verdict?: string };
+  if (review.verdict !== "pass") return { ok: false, error: "提案未经 controller:adversarial pass 审核——不可批准" };
+  await store.update(proposalId, { status: "official", meta: { ...(p.meta ?? {}), approvedAt: Date.now(), stage: "approved" } });
+  return { ok: true, id: proposalId };
+}
+
+/**
+ * 执行已批准提案（监督通道）：
+ *   register——新条目 official 落库（已存在 → 拒绝，修订走 revise）；
+ *   revise  ——现条目存在 + spec.version > 现版本（不可变语义：修订 = 新版本，promotedFrom 链留痕）。
+ */
+export async function executeApprovedToolProposal(store: ToolRegGovernanceStore, proposalId: string): Promise<ToolGovernanceResult> {
+  const p = await getToolProposal(store, proposalId);
+  if (!p || p.status !== "official") return { ok: false, error: "提案不存在或未批准" };
+  const proposal = JSON.parse(String(p.content)) as ToolRegProposal;
+  const checked = validateToolRegSpec(proposal.spec);
+  if (!checked.ok) return { ok: false, error: `提案 spec 非法：${checked.error}` };
+  if (checked.spec.name !== proposal.name) return { ok: false, error: `提案 name "${proposal.name}" 与 spec.name "${checked.spec.name}" 不一致` };
+  const action = await validateToolRegAction(store, proposal.action, checked.spec);
+  if (!action.ok) return { ok: false, error: `晋升动作校验失败：${action.error}` };
+  const spec = action.spec;
+  const entryId = `${TOOL_REG_ID_PREFIX}${proposal.name}`;
+  const entry = buildToolRegEntry(spec, { status: "official" });
+  await store.write({
+    ...entry,
+    meta: { ...entry.meta, registeredAt: Date.now(), proposalId, registeredBy: "controller:tool-face", ...(proposal.rationale ? { rationale: proposal.rationale } : {}) },
+  }, { force: true });
+  await store.update(proposalId, { meta: { ...(p.meta ?? {}), executedAt: Date.now(), stage: "executed" } });
+  return { ok: true, id: entryId };
 }

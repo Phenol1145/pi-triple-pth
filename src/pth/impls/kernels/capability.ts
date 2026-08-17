@@ -16,7 +16,7 @@ import type {
   TaskPenetrateResult,
   TenantScope,
 } from "../../contracts/index.js";
-import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal } from "@away_from/pth-memory";
+import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, reviewToolProposal } from "@away_from/pth-memory";
 import { validatePenetrationSkillRegistration, PENETRATION_SKILL_NAME_PREFIX } from "../../tasking/index.js";
 import { isIP } from "node:net";
 import { pthConfig } from "../../config/index.js";
@@ -99,7 +99,8 @@ export function buildCapabilities(deps: {
   taskContext?: { current: TaskDispatchContext | null };
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
-  const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore, sessionRef: deps.sessionRef });
+  // N14 P3：onActivity 透传 ExtContext（manage.tool.register 的 tool.proposal.created 事件源）
+  const ext = buildExtensions({ dataWorld: deps.dataWorld, toolstore: deps.toolstore, sessionRef: deps.sessionRef, onActivity: deps.onActivity });
   // 管理面裁剪（权限 v2 R3——2026-08-10）：worker 执行面只给只读子集——
   //   perf.set/publish/apply（运行时调参/策略）与 model.set（切模型）是管理面写操作，不进注入面；
   //   tasks（peek/submit）整体摘除（task-loop 内部走 store——vm 暴露是历史遗留面）。
@@ -206,6 +207,16 @@ export function buildCapabilities(deps: {
           }
         : {}),
     },
+    // N14 P3：工具注册提案对抗性审核（与 skills.review 同构——controller:adversarial 专属；
+    // 审核对象 kind=tool-proposal——schema 质量/执行体安全/作弊捷径）
+    ...(deps.roleId === "controller:adversarial"
+      ? {
+          tools: {
+            review: async (proposalId: string, verdict: "pass" | "reject", note?: string) =>
+              reviewToolProposal(deps.dataWorld.memory, proposalId, verdict, note ?? ""),
+          },
+        }
+      : {}),
     // W8 P1：任务投递原语——仅组织权持有角色注入（batch-process 按 delegation-policy 传 taskControl）。
     // 调用者身份来自 task-loop 每任务盖章的 taskContext（worker 不可自报）。
     ...(deps.taskControl

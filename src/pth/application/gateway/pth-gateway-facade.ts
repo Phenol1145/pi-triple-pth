@@ -166,6 +166,15 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
       if (!executed.ok) return executed;
       return executed;
     }
+    // N14 P3：工具注册提案同流（提案 → adversarial pass → 监督批准 → 注册生效）
+    if (proposal?.kind === "tool-proposal") {
+      const { approveToolProposal, executeApprovedToolProposal } = await import("@away_from/pth-memory");
+      const approved = await approveToolProposal(this.#kernel.dataWorld.memory, id);
+      if (!approved.ok) return approved;
+      const executed = await executeApprovedToolProposal(this.#kernel.dataWorld.memory, id);
+      if (!executed.ok) return executed;
+      return executed;
+    }
     const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
     return applyMemoryAdminProposal(this.#kernel.dataWorld.memory, id);
   }

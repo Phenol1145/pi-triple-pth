@@ -155,3 +155,89 @@ export const SEED_SKILL_SOPS: SkillSopSeed[] = [
     ],
   },
 ];
+
+/**
+ * N14 P3（2026-08-18）：分层 SOP × 4——0.17.4 四层次优化工作流标准
+ * （设计 docs/pth/n14-sensor-controller-four-dims.md §4 原文条目化；W4 创建时机=「找到正路」）。
+ * SOP 粒度裁决（设计内自决）：每层次一条通用 SOP——点位级差异在 Procedure 内分化。
+ */
+export const SEED_OPT_SOPS: SkillSopSeed[] = [
+  {
+    id: "opt-tool-face",
+    anchor: "sensor:tool-face 观测到重复工具组合链/多步绕行",
+    whenToUse: "组合链频次 ≥ 阈值（≥3 任务复现）或穿透/注册候选出现",
+    effect: "组合成本外移——LLM 一次 tool call 替代 N 步组合",
+    procedure: [
+      { step: "读 sensor:tool-face 观测报告（候选链清单）", cost: "1×obs 查询" },
+      { step: "判定固化形态：确定性→program；判断类→agent；性能/特权→builtin", cost: "1×推理" },
+      { step: "走治理流提案（manage.tool.register——kind=tool-proposal draft → 对抗性审核 → 批准 → 注册）", cost: "1×manage.tool.register" },
+      { step: "复测验证（组合步数下降）", cost: "1×verify 任务" },
+    ],
+    pitfalls: [
+      "工具面预算守卫：超限先合并/退役，不硬塞（专注度命题 3）",
+      "快照版本化：不在任务中途变工具面（T3 教训）",
+      "候选池 ≠ 工具：未过审批的沉淀物不进列表",
+    ],
+    verification: [
+      "复测任务同场景组合步数下降 ≥50% 或调用成功率上升；tool-reg official 可查",
+    ],
+  },
+  {
+    id: "opt-tool-single",
+    anchor: "sensor:tool-single 报告某工具高失败率/误用聚类/描述缺陷",
+    whenToUse: "工具级失败率 > 15%（repeated-fail 同款阈值）或 unknown-tool 幻觉集中",
+    effect: "单工具调用成功率上升、误用率下降",
+    procedure: [
+      { step: "读观测报告定位工具与失败模式", cost: "1×obs 查询" },
+      { step: "归因分类：描述误导 / 参数契约不清 / 交互摩擦（mode 误用）/ 功能缺口", cost: "1×推理" },
+      { step: "对症提案：修描述三要素 / 调交互协议 / 提功能扩展（manage.tool.revise——修订 = 新版本）", cost: "1×manage.tool.revise" },
+      { step: "审批生效后复测", cost: "1×verify 任务" },
+    ],
+    pitfalls: [
+      "描述修订保持三要素（T8 标准——场景锚点/何时用/效果）",
+      "工具不可变：修订 = 新版本，不就地改（B4-1）",
+    ],
+    verification: [
+      "复测窗口该工具失败率回落至阈值下；幻觉邻近名消失",
+    ],
+  },
+  {
+    id: "opt-memory",
+    anchor: "sensor:memory 报告记忆缺口/重复条目/僵尸 draft/低命中",
+    whenToUse: "缺口定位（0.15 记忆缺口）或质量聚合超阈值",
+    effect: "检索步数下降、命中质量上升",
+    procedure: [
+      { step: "读观测报告（缺口清单/重复聚类）", cost: "1×obs 查询" },
+      { step: "对症：补条目（refiner 沉淀路由）/ 合并重复 / 归档僵尸 / 优检索路径", cost: "1-2×memory 操作" },
+      { step: "归档/合并类走 manage.memory.archive 提案（治理流）", cost: "1×提案" },
+      { step: "复测检索面（两级检索 ≤2 步达标——W3 访问复杂度）", cost: "1×verify 任务" },
+    ],
+    pitfalls: [
+      "删除类不自动（记忆是核心资产——治理层流转）",
+      "补条目先查重（N1b 矛盾检测）",
+    ],
+    verification: [
+      "缺口场景检索 ≤2 步命中；重复聚类收敛；hit_count 均值回升",
+    ],
+  },
+  {
+    id: "opt-rule",
+    anchor: "sensor:rule 报告护栏误杀/规则未生效/权限拒绝异常",
+    whenToUse: "护栏 hit/kill 比异常或引导消息反复出现 ≥3 任务",
+    effect: "行为约束精准化——误杀下降、越界收敛",
+    procedure: [
+      { step: "读观测报告（obs.guards 护栏计数/拒绝分布）", cost: "1×obs 查询" },
+      { step: "归因：阈值不当 / 豁免缺失 / 规则文案不生效 / 权限过紧过松", cost: "1×推理" },
+      { step: "对症：manage.params.set 热调 PTH_GUARD_* / 豁免矩阵提案 / 规则文案 stamp 提案（optimizer-suggestion 通道）", cost: "1×调节调用" },
+      { step: "复测窗口对比（恶化回滚——deopt 同款）", cost: "1×verify 任务" },
+    ],
+    pitfalls: [
+      "阈值调整走配置中心（PTH_GUARD_*——不硬编码）",
+      "豁免不进代码——豁免矩阵声明式（N12）",
+      "治理族不豁免（D2 裁决——阈值放宽替代豁免的先例）",
+    ],
+    verification: [
+      "复测窗口误杀率下降且越界事件不升；护栏参数变更有 audit 留痕",
+    ],
+  },
+];

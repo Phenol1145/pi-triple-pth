@@ -33,7 +33,7 @@ function baseDeps(over: Record<string, unknown> = {}) {
 }
 
 describe("system-triggers（trigger 统一化：系统级调度指令注册中心）", () => {
-  it("恒注册：origin-escalation + memory-sweep + claim/watchdog/resolver/optimizer + skill-proposal-review 七个 trigger", () => {
+  it("恒注册：origin-escalation + memory-sweep + claim/watchdog/resolver/optimizer + skill/tool-proposal-review 八个 trigger", () => {
     const { system, engine } = captureEngine();
     registerSystemTriggers(engine as never, baseDeps());
     const names = system.map((t) => t.name).sort();
@@ -45,6 +45,7 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
       "optimizer-deopt-sweep",
       "origin-escalation",
       "skill-proposal-review",
+      "tool-proposal-review",
     ].sort());
     // workflow 链：origin 事件触发；memory 巡检 schedule
     expect(system.find((t) => t.name === "origin-escalation")?.event).toBe("task.rejected");
@@ -86,6 +87,18 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     expect(t.task?.text).toContain("{{detail}}");
     expect(t.task?.text).toContain("skills.review");
     expect(t.task?.text).toContain("对抗性审核");
+  });
+
+  it("tool-proposal-review：N14 P3 事件驱动编排（tool.proposal.created → adversarial 审核任务）", () => {
+    const { system, engine } = captureEngine();
+    registerSystemTriggers(engine as never, baseDeps());
+    const t = system.find((x) => x.name === "tool-proposal-review")!;
+    expect(t.event).toBe("tool.proposal.created");
+    expect(t.task?.tags).toEqual(["adversarial"]);
+    expect(t.task?.text).toContain("{{detail}}");
+    expect(t.task?.text).toContain("tools.review");
+    expect(t.task?.text).toContain("tool-proposal");
+    expect(t.task?.text).toContain("schema 质量");
   });
 
   it("resolver action：空转 → nextMs 指数退避；有产出 → 恢复基础周期", async () => {

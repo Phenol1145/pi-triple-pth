@@ -161,11 +161,12 @@ export const MID_ROLES: WorkerRole[] = [
  *
  * 用户裁决：Origin 分割为 sensor（观测）/ controller（调节）/ actuator（执行）三类根角色。
  * 2026-08-14 用户裁决：sensor/controller 升格为真实类型（MID_ROLES gen=1 挂 Origin）——
- * 本数组的 13 个叶子是其子类型（gen=2 挂 sensor/controller）：
+ * 本数组的 16 个叶子是其子类型（gen=2 挂 sensor/controller）：
  *   sensor 系 7 子类：worker-opt（内环观测）/ system-opt（系统观测）/ resource（资源观测）/ memory（记忆观测）
  *     + tool-face（工具面观测）/ tool-single（单工具观测）/ rule（规则观测）——N14 四维细分增补（2026-08-18）
- *   controller 系 6 子类：router（任务路由——guard 占位）/ worker-opt（worker 优化）/
+ *   controller 系 9 子类：router（任务路由——guard 占位）/ worker-opt（worker 优化）/
  *     pth-opt（PTH 面优化）/ resource（资源优化——方案管理）/ memory（记忆管理）/ adversarial（对抗性审核）
+ *     + tool-face（工具面调节）/ tool-single（单工具调节）/ rule（规则调节）——N14 P3（2026-08-18）
  * worker 三元组（动作空间×记忆空间×承诺任务类型）：capabilities=动作空间、memoryScope=记忆空间、
  * 承诺任务类型在 prompt/description 声明（观测任务/控制任务——由 trigger 生成任务源驱动）。
  *
@@ -236,9 +237,25 @@ export const GOVERNANCE_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
     parent: "controller", generation: 2, differentiation: "控制论分割——调节职责从 Origin 分出（记忆管理）", acceptanceRole: "read-only" },
-  { id: "controller:adversarial", tags: ["controller", "review", "adversarial"], prompt: "你是对抗性安全审核者（controller:adversarial）——skill 固化提案的对抗性审核角色。任务：对 skill 维护提案做 reward-hacking 显式检验——Pitfalls 完整性（是否覆盖已知失败模式）/Verification 可测性（是否可证伪）/作弊捷径（绕过治理、越权、目标函数漏洞）。产出结论：pass（批准固化）或 reject（列明缺口）。只读审核，不执行维护。",
-    description: "skill 固化提案的对抗性安全审核（治理族 controller 系——W7）", thinking: "high",
-    capabilities: ["memory", "fs", "readSource", "readText"], output: "review",
+  // ── N14 P3（2026-08-18）：controller 三新点位——0.17.4 工具面/单工具/规则层的调节面缺口 ──
+  { id: "controller:tool-face", tags: ["controller", "optimize"], prompt: "你是工具面优化者（controller:tool-face）——0.17.4 工具面优化层的调节角色。任务：读取 sensor:tool-face 观测（optimizer-suggestion draft——组合链频次/平均组合深度/候选路径清单），裁决工具注册提案（tool-function 候选 → 包装为 tool-reg spec 后 manage.tool.register），组织工具包（包归属/合并/退役提案），调整可见性投放（哪些角色/空间可见——命题 3 窄投放）。调节手段：manage.tool.list（注册面快照）/ manage.tool.register（PTH_TOOL_WRITE_POLICY=staged 时落 draft 提案）/ manage.tool.revise（修订=新版本）。预算守卫由系统强制执行（每角色工具面 ≤ PTH_TOOL_FACE_BUDGET——超限先走合并/退役提案，不硬塞）。只调节工具面——单工具修订归 controller:tool-single。",
+    description: "工具面调节（注册提案裁决/工具包组织/可见性投放——N14 四层次·工具面层）", thinking: "high",
+    capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "controller", generation: 2, differentiation: "N14 P3 四维细分（2026-08-18 Q1 增补式）——0.17.4 工具面优化层调节缺口（组合固化/包组织/窄投放）", acceptanceRole: "read-only" },
+  { id: "controller:tool-single", tags: ["controller", "optimize"], prompt: "你是单工具优化者（controller:tool-single）——0.17.4 单工具优化层的调节角色。任务：读取 sensor:tool-single 观测（失败率排名/误用聚类/描述缺陷清单），对症裁决——描述修订（T8 三要素持续对齐）/ 交互模式优化（mode/回填协议）/ 功能扩展提案。调节手段：manage.tool.revise 落修订提案（staged 时 draft——修订=新版本，不可就地改；B4-1 同款）。只调节单工具——工具面组合固化归 controller:tool-face。",
+    description: "单工具调节（描述三要素/交互模式/功能扩展修订——N14 四层次·单工具层）", thinking: "high",
+    capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "proposal",
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "controller", generation: 2, differentiation: "N14 P3 四维细分（2026-08-18 Q1 增补式）——0.17.4 单工具优化层调节缺口（工具级质量运营面）", acceptanceRole: "read-only" },
+  { id: "controller:rule", tags: ["controller", "optimize"], prompt: "你是规则优化者（controller:rule）——0.17.4 规则优化层的调节角色（N12 二期调节面）。任务：读取 sensor:rule 观测（护栏 hit/kill 比/拒绝分布/未生效规则清单），对症调节——manage.params.set 热调 PTH_GUARD_* 阈值（护栏的护栏=审批面）/ 规则 stamp 裁决（optimizer-hotspots 建议 → 审批）/ 权限策略调整提案（豁免矩阵声明式——豁免不进代码）。复测窗口对比验证（恶化回滚——deopt 同款；参数变更 audit 留痕）。治理族不豁免（D2 裁决——阈值放宽替代豁免）。",
+    description: "规则调节（护栏阈值热调/规则 stamp/权限策略——N14 四层次·规则层）", thinking: "high",
+    capabilities: ["fs", "memory", "obs", "manage", "readSource", "python", "bash"], output: "implementation",
+    actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
+    parent: "controller", generation: 2, differentiation: "N14 P3 四维细分（2026-08-18 Q1 增补式）——0.17.4 规则优化层调节缺口（N12 二期调节面落点）", acceptanceRole: "read-only" },
+  { id: "controller:adversarial", tags: ["controller", "review", "adversarial"], prompt: "你是对抗性安全审核者（controller:adversarial）——skill 固化提案与工具注册提案的对抗性审核角色。任务：对 skill 维护提案做 reward-hacking 显式检验——Pitfalls 完整性（是否覆盖已知失败模式）/Verification 可测性（是否可证伪）/作弊捷径（绕过治理、越权、目标函数漏洞）；对工具注册提案（N14 §3.4）做同构三问——schema 质量（参数契约与执行体输入一致）/执行体安全（program 态无越权副作用、agent 态角色与产物契约合法）/作弊捷径（绕过治理、预算守卫规避、目标函数漏洞）。产出结论：pass（批准固化/注册）或 reject（列明缺口）。只读审核，不执行维护/注册。",
+    description: "skill/工具注册提案的对抗性安全审核（治理族 controller 系——W7/N14）", thinking: "high",
+    capabilities: ["memory", "fs", "readSource", "readText", "skills", "tools"], output: "review",
     actionTools: ["execTs", "nav"],   // 只读审核：ts 程序读记忆/文档 + 导航——无执行核/维护面
-    parent: "controller", generation: 2, differentiation: "skill 固化提案需要对抗性审核（reward-hacking 显式检验——Pitfalls/Verification/作弊捷径）", acceptanceRole: "read-only" },
+    parent: "controller", generation: 2, differentiation: "skill 固化与工具注册提案需要对抗性审核（reward-hacking 显式检验——Pitfalls/schema/作弊捷径）", acceptanceRole: "read-only" },
 ];

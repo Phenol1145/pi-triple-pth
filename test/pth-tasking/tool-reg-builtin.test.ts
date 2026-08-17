@@ -66,7 +66,7 @@ describe("N14 P0：存量登记器（Q4 一次性全登记）", () => {
     const done = deriveVisibilityRoles("done");
     expect(done).toContain("planner");
     expect(done).toContain("writer");
-    expect(done).toHaveLength(32);   // 声明 actionTools 的角色总数（14 DEFAULT + 5 MID + 13 GOVERNANCE——N14 P1 后）
+    expect(done).toHaveLength(35);   // 声明 actionTools 的角色总数（14 DEFAULT + 5 MID + 16 GOVERNANCE——N14 P3 六点位后）
   });
 
   it("双写一致性对账：生成集零 issue", () => {

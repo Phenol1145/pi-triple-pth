@@ -83,10 +83,10 @@ describe("checkTaskRouting（publish 前严格校验）", () => {
 });
 
 describe("GOVERNANCE_ROLES（控制论骨架——2026-08-12 体系自制）", () => {
-  it("谱系可见：sensor/controller 13 角色在 allLineageRoles（默认不派发）", async () => {
+  it("谱系可见：sensor/controller 16 角色在 allLineageRoles（默认不派发）", async () => {
     const { allLineageRoles, allWorkerRoles } = await import("../../src/pth/kernel/execution/worker-cluster.js");
     const { GOVERNANCE_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
-    expect(GOVERNANCE_ROLES.length).toBe(13);   // 9 + controller:adversarial（B4 W7）+ sensor:tool-face/tool-single/rule（N14 P1）
+    expect(GOVERNANCE_ROLES.length).toBe(16);   // 10 + controller:adversarial（B4 W7）+ N14 六点位（sensor/controller × tool-face/tool-single/rule）
     const lineage = allLineageRoles().map((r) => r.id);
     for (const g of GOVERNANCE_ROLES) expect(lineage).toContain(g.id);
     // 默认派发面（allWorkerRoles）不含 governance（池容量安全——显式启用才进 batch）

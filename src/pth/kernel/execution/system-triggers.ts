@@ -86,6 +86,28 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
     enabled: true,
   });
 
+  // 工具注册提案对抗性审核派发（N14 P3——skill-proposal-review 同构）：
+  // controller:tool-face manage.tool.register（staged 策略）落库即发 tool.proposal.created
+  // → 本 trigger 自动派发 controller:adversarial 审核任务（§3.4 治理流：提案→审核→批准→注册）。
+  // {{detail}} = 提案 id——审核角色 tools.review 裁决（schema 质量 / 执行体安全 / 作弊捷径）。
+  engine.addSystemTrigger({
+    name: "tool-proposal-review",
+    event: "tool.proposal.created",
+    task: {
+      title: "工具注册提案对抗性审核",
+      text: [
+        "对工具注册提案做对抗性审核（N14 §3.4 治理流——与 skill 审核同构）。",
+        "提案 id：{{detail}}",
+        "步骤：① memory.query 读取提案（SELECT * FROM memory_entries WHERE id = '{{detail}}'——kind=tool-proposal，content 为提案 JSON）；",
+        "② 检验三问：schema 质量（参数契约与执行体输入一致）/ 执行体安全（program 态无越权副作用、agent 态角色与产物契约合法）/ 作弊捷径（绕过治理、预算守卫规避、目标函数漏洞）；",
+        "③ 裁决：tools.review('{{detail}}', 'pass', '<理由>') 或 tools.review('{{detail}}', 'reject', '<缺口清单>')；",
+        "只读审核——不执行注册（批准与执行走监督通道）。",
+      ].join("\n"),
+      tags: ["adversarial"],
+    },
+    enabled: true,
+  });
+
   // ── 控制环（loop 形态：schedule trigger → 原生 action）─────────────
   // claim 超时回收：僵尸认领回 pending（batch 崩溃/重启）。
   engine.registerAction(SYSTEM_ACTION.claimReap, async () => {

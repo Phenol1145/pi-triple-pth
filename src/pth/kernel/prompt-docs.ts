@@ -16,7 +16,7 @@ import { allLineageRoles } from "./execution/worker-cluster.js";
 import { DEFAULT_REFINE_TASKS } from "./execution/refiner.js";
 import { buildDoc } from "./extensions/index.js";
 import { buildCapabilityIndexDoc } from "./ptc/docs.js";
-import { SEED_SKILL_SOPS, buildSkillContent } from "@away_from/pth-memory";
+import { SEED_SKILL_SOPS, SEED_OPT_SOPS, buildSkillContent } from "@away_from/pth-memory";
 
 /** 角色文档生成（人设/任务类型/工作偏好 + 谱系元数据 + T8 场景锚点三要素——lazy 下 LLM 按需读） */
 export function buildRoleDoc(role: {
@@ -219,7 +219,8 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
   // 角色 SOP 种子（2026-08-15 B4 Phase 1 / B4-2 裁决 A）：
   // developer / scout / memory-keeper 三条四段式 SOP——从 role.prompt 提炼条目化。
   // 系统通道注入 + force 写（受 isSystemDocId 保护——worker 不可覆盖；kind=skill 属 prompt 层只读）。
-  for (const seed of SEED_SKILL_SOPS) {
+  // N14 P3（2026-08-18）：+ 分层 SOP × 4（SEED_OPT_SOPS——0.17.4 四层次优化工作流标准）。
+  for (const seed of [...SEED_SKILL_SOPS, ...SEED_OPT_SOPS]) {
     try {
       await memory.write({
         id: `skill:${seed.id}`,

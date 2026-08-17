@@ -4,6 +4,7 @@ import {
   SKILL_SOP_TEMPLATE,
   buildSkillContent,
   SEED_SKILL_SOPS,
+  SEED_OPT_SOPS,
 } from "@away_from/pth-memory";
 
 describe("skill 四段式格式（B4 Phase 1 / W1）", () => {
@@ -74,5 +75,30 @@ describe("skill 四段式格式（B4 Phase 1 / W1）", () => {
     expect(i1).toBeGreaterThan(-1);
     expect(i2).toBeGreaterThan(i1);
     expect(i3).toBeGreaterThan(i2);
+  });
+
+  it("N14 P3：分层 SOP × 4 固化（opt-tool-face/tool-single/memory/rule——0.17.4 四层次）", () => {
+    expect(SEED_OPT_SOPS.map((s) => s.id)).toEqual([
+      "opt-tool-face",
+      "opt-tool-single",
+      "opt-memory",
+      "opt-rule",
+    ]);
+    for (const seed of SEED_OPT_SOPS) {
+      const content = buildSkillContent(seed);
+      for (const sec of ["【场景锚点】", "【何时用】", "【效果】", "## Procedure", "## Pitfalls", "## Verification"]) {
+        expect(content, seed.id).toContain(sec);
+      }
+      expect(seed.procedure.length).toBeGreaterThan(0);
+      expect(seed.pitfalls.length).toBeGreaterThan(0);
+      expect(seed.verification.length).toBeGreaterThan(0);
+      for (const p of seed.procedure) expect(p.cost).not.toBe("");
+    }
+    // 各 SOP 的调节手段与设计 §4 一致（manage.tool.* / manage.params.set / manage.memory.archive）
+    const face = SEED_OPT_SOPS.find((s) => s.id === "opt-tool-face")!;
+    expect(buildSkillContent(face)).toContain("manage.tool.register");
+    const rule = SEED_OPT_SOPS.find((s) => s.id === "opt-rule")!;
+    expect(buildSkillContent(rule)).toContain("manage.params.set");
+    expect(buildSkillContent(rule)).toContain("PTH_GUARD_*");
   });
 });

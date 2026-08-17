@@ -28,6 +28,9 @@ describe("memory-policy 层分类（layerOfKind）", () => {
   it("governance 层：治理状态机", () => {
     expect(layerOfKind("differentiation-proposal")).toBe("governance");
     expect(layerOfKind("refine-report")).toBe("governance");
+    // N14 P3：工具注册提案——worker 可提交草案，强制 draft（流转走监督层）
+    expect(layerOfKind("tool-proposal")).toBe("governance");
+    expect(layerOfKind("tool-proposal:uuid")).toBe("governance");
   });
 
   it("knowledge 层：默认（共享知识）", () => {
@@ -54,6 +57,8 @@ describe("memory-policy write 规则", () => {
     expect(r1).toEqual({ ok: true, forceStatus: "draft" });
     const r2 = checkWrite("differentiation-proposal");   // 未传 status 也强制
     expect(r2.forceStatus).toBe("draft");
+    // N14 P3：tool-proposal 同款治理层——不可自批 official
+    expect(checkWrite("tool-proposal", "official")).toEqual({ ok: true, forceStatus: "draft" });
   });
 
   it("knowledge 层放行", () => {

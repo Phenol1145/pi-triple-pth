@@ -1159,9 +1159,9 @@ v0.9（动作面/权限/任务池纯化）
 | N9 | 术语统一 | 域 B 全域 | ✅ 容器入口统一（2026-08-13——Dockerfile.sandbox /usr/local/bin/pit→ptl）；tenant 为认证租户概念保留（非残留——PTH sections preserved）；role-doc/工具 description 词表对齐为持续事项 | 百科类型落地同步（N1 ✅） | ✅ 已实装 |
 | N10 | agentic 测试集 | 0.6 · 全域 | 规划 v2 在记忆库（official——28 子任务/3 族）；执行 7/28（2026-08-14 消化：4 个 rejected 全部处置——2×T2+v2 规划为迭代性拒绝、重试已成 ✅ 取代；T1/T3/T4 根因=任务文本非自包含规格，重派为 T01/T03/T04 自包含规格 3/3 完成 ✅）；21 子任务未派发 → **✅ 2026-08-15 v3 完成**：sensor:worker-opt 轨迹分析（llm-timeout/meta 缺列/asp.cd 循环）→ v3 重规划（现行 22 角色×28 子任务五要素）→ 试点 5 条绿 → 余 20 条派发，**28/28 completed**（T22/T24 经 D5 回池重试后完成） | 测试基线 1716 全绿 | ✅ 已完成 |
 | N11 | 可预测性地图（predictability map） | 0.14 · 全域 | 无对应机制——伪世界模型猜想的落地接口：分尺度可预测性注册 + 相变预警 | 外部数据源接入（sensor 外环） · JIT 环（错误预测→修规则） | 💭 猜想·未启动 |
-| N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | ✅ 已实装（2026-08-14——guardrails.ts 注册表：ConsecutiveGuard 三段式 + 豁免矩阵 + `PTH_GUARD_*` 阈值配置化；agent-loop 五计数器收敛，行为逐字保留；9 新测试） | agent-loop 五计数器 → guardrails.ts 注册表 | ✅ 已实装（二期未启：scorecard 观测/JIT 调参/治理族豁免裁决） |
+| N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | ✅ 已实装（2026-08-14——guardrails.ts 注册表：ConsecutiveGuard 三段式 + 豁免矩阵 + `PTH_GUARD_*` 阈值配置化；agent-loop 五计数器收敛，行为逐字保留；9 新测试） | agent-loop 五计数器 → guardrails.ts 注册表 | ✅ 已实装（二期已随 N14 落：P1 scorecard 观测 + obs.guards；P3 controller:rule 调节面——`manage.params.set` 热调 + SOP） |
 | N13 | 思考路径图重建器（trace reconstruction） | 0.15 · 域 D | ✅ 已落（2026-08-15——`thinking-path.ts`：发现链/决策链/意图链 + 重复探测/盲试 + 记忆/工具缺口） | transcript 轨迹 · CoT 压缩产物 · refiner | ✅ 已落 |
-| N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计完成（2026-08-18——[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4 草案；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ 设计完成（实施待批——见设计文档 §6 分期） |
+| N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计 + 实施全部完成（2026-08-18——[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP（manage.tool.* + 治理流 + 真实 tool-function 晋升首跑） | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ P0–P3 已落（GOVERNANCE_ROLES 13→16；首跑 `fn-wx7wk7`/`fn-v2u2if` 晋升验证） |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
@@ -1190,5 +1190,5 @@ v0.9（动作面/权限/任务池纯化）
 | empty-reply | LLM 空回复 | PTH_GUARD_EMPTY_REPLY_LIMIT=3 | hard |
 | unknown-tool | 幻觉工具名 | PTH_GUARD_UNKNOWN_TOOL_LIMIT=3 | hard |
 
-**二期（未实装——与 JIT 咬合）**：护栏命中率/误杀率进 scorecard（sensor 观测维度）→ optimizer 把护栏本身当优化对象（JIT 调护栏参数——护栏的护栏=审批面）；治理族豁免裁决已关（2026-08-15 D2：阈值放宽替代豁免）。
+**二期（2026-08-18 已随 N14 P1/P3 落——与 JIT 咬合）**：护栏命中率/误杀率进 scorecard（`obs.guards`——sensor:rule 数据源）→ optimizer 把护栏本身当优化对象（`manage.params.set` 热调 `PTH_GUARD_*`——护栏的护栏=审批面，controller:rule + skill:opt-rule 承接）；治理族豁免裁决已关（2026-08-15 D2：阈值放宽替代豁免）。
 

@@ -8,7 +8,7 @@
  *     —— 系统提示词资产：worker 只读。写了 = 污染全 worker 的 prompt 注入。
  *   config 层（trigger · refine-task:*）
  *     —— 系统行为配置：worker 只读。写了 = 自开触发器/自改 refine 行为。
- *   governance 层（differentiation-proposal/refine-report）
+ *   governance 层（differentiation-proposal/refine-report/tool-proposal:*）
  *     —— 治理状态机：worker 可提交草案（强制 status=draft），不可自批/不可流转。
  *   knowledge 层（其余全部——task-insight/tool-function/dev-artifact/…）
  *     —— 共享知识层：读写全开（记忆系统主用途）。
@@ -42,6 +42,8 @@ export function layerOfKind(kind: string): MemoryLayer {
   if (kind === "trigger") return "config";
   if (kind === "refine-task" || kind.startsWith("refine-task:")) return "config";
   if (kind === "differentiation-proposal" || kind === "refine-report") return "governance";
+  // N14 P3：工具注册提案（tool-reg 治理流——worker 可提交草案，强制 draft，流转走监督层）
+  if (kind === "tool-proposal" || kind.startsWith("tool-proposal:")) return "governance";
   return "knowledge";
 }
 

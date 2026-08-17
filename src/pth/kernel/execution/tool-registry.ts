@@ -123,3 +123,33 @@ export function registryToolToSchema(spec: ToolRegSpec): { name: string; descrip
     parameters: { type: "object", properties: spec.parameters.properties, required: spec.parameters.required },
   };
 }
+
+/**
+ * P3 预算守卫执行位（§3.3——manage.tool.register/revise 调用即校验）：
+ * visibility.roles 每个角色的投影工具面（静态面 + 已注册可见 + 候选）不得超预算。
+ * 口径：静态面 = toolsToSchema(actionTools, asp:false)（非 ASP 面——与运行面同口径）；
+ * 与静态面同名的 builtin 条目不占额（执行不动——Q4）；revise 同名不重复计。
+ */
+export async function toolFaceBudgetCheck(
+  store: ToolRegStoreLike,
+  candidate: ToolRegSpec,
+  budget: number,
+): Promise<{ ok: boolean; over: Array<{ role: string; face: number; projected: number }> }> {
+  const { knownRoleById } = await import("./worker-cluster.js");
+  const { toolsToSchema } = await import("./agent-tools.js");
+  const snap = await loadToolRegSnapshot(store);
+  const over: Array<{ role: string; face: number; projected: number }> = [];
+  const candidateSchemaName = candidate.name.replace(/\./g, "_");
+  for (const roleId of candidate.visibility.roles) {
+    const role = knownRoleById(roleId);
+    const staticTools = toolsToSchema(role?.actionTools, { asp: false });
+    const staticNames = new Set(staticTools.map((t) => t.name));
+    const registered = visibleRegistryTools(snap, roleId)
+      .filter((s) => !staticNames.has(s.name.replace(/\./g, "_")));
+    const alreadyIn = staticNames.has(candidateSchemaName) || registered.some((s) => s.name === candidate.name);
+    const face = staticNames.size + registered.length;
+    const projected = face + (alreadyIn ? 0 : 1);
+    if (projected > budget) over.push({ role: roleId, face, projected });
+  }
+  return { ok: over.length === 0, over };
+}

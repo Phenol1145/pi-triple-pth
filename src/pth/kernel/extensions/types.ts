@@ -15,6 +15,8 @@ export interface ExtContext {
   strategiesDir?: string;
   /** ASP 会话空间引用（2026-08-10）：可见性盖章/过滤依赖当前空间——任务级会话状态（agent-loop cd 更新） */
   sessionRef?: { current: { currentSpace: string } | null };
+  /** N14 P3：治理事件上报（tool.proposal.created——trigger 引擎事件源；capability 装配透传） */
+  onActivity?: (e: { kind: string; role?: string; detail?: string; at: number }) => void;
 }
 
 export interface TsReplExtension {
