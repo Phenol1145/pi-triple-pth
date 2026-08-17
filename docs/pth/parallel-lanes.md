@@ -84,6 +84,9 @@
 > K5-eval 已落：`75ea7e8`（source registry 12 + knowledge 24 + 60 冻结题 + 评测器；离线与 live 均为 recallAt3/At5/evidence = 1.0/1.0/1.0）。
 > K1a 已落：`f4c760d`（PgMemoryStore tenant 隔离 + KnowledgeBroker official/tenant/hit + skills.list official）→ 已合并 main（`7d00b90`）。
 >
+> F1 已落：`c717677`（canonical provenance + capability 合并 + update revision + promote 幂等重放）→ 已合并 main。
+> F2 已落：`d6f6487`（(tenant_id,id) 复合身份 + requireTenant fail-closed + raw query 门禁）→ 已合并 main。
+>
 ### 合并顺序
 
 K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint 绿后串行合并）
