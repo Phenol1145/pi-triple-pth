@@ -72,6 +72,12 @@ export interface PgMemoryStoreWriteOptions {
   force?: boolean;
   createdBy?: string;
   reason?: string;
+  /**
+   * N29/P0-4：official 领域知识（PROVENANCE_REQUIRED_KINDS）直写授权。
+   * 与 worker capability 完全分离——只有 seed/migration 与 promotion 内部路径可以出示；
+   * 缺省（含 `force: true` 的系统文档通道）一律 fail closed。
+   */
+  knowledgeOfficialAuthority?: KnowledgeOfficialAuthority;
 }
 
 /** update opts：force=skill 维护通道；createdBy/reason=update revision 历史记录（F1 6.3）。 */
@@ -80,6 +86,37 @@ export interface PgMemoryStoreUpdateOptions {
   tenantId?: string;
   createdBy?: string;
   reason?: string;
+  /** N29/P0-4：official 领域知识状态流转授权（同 write；缺省 fail closed）。 */
+  knowledgeOfficialAuthority?: KnowledgeOfficialAuthority;
+}
+
+/**
+ * N29/P0-4（§1.6 / §2.4 G0）：official 领域知识的内部写授权。
+ *
+ * 只有两类持有者：
+ *  - `"promotion-service"`：Promotion Service 的窄 CAS 路径（`promoteOfficial()`）；
+ *  - `"seed-migration"`：bootstrap seed / 数据迁移脚本（与 worker capability 分离的内部通道）。
+ *
+ * 普通 `memory.write` / store write（含 service 与 platform-admin service 调用）不出示 authority
+ * → 一律拒绝写 official 领域知识；`force: true`（系统文档通道）不是 authority，不构成旁路。
+ */
+export type KnowledgeOfficialAuthority = "promotion-service" | "seed-migration";
+
+/** official 领域知识直写被拒的统一错误前缀（测试与调用方据此断言）。 */
+export const KNOWLEDGE_OFFICIAL_WRITE_DENIED = "memory: knowledge official 直写被拒绝";
+
+/** N29/P0-4：判定"是否受 official 知识写授权约束"的唯一事实源。 */
+function requiresKnowledgeOfficialAuthority(kind: string, status: string | undefined): boolean {
+  return (status ?? "official") === "official" && PROVENANCE_REQUIRED_KINDS.has(kind);
+}
+
+function denyKnowledgeOfficialWrite(kind: string, op: "write" | "update" | "incrementAggregate"): never {
+  throw new Error(
+    `${KNOWLEDGE_OFFICIAL_WRITE_DENIED}（${op} kind="${kind}"）——`
+    + `外部内容与普通写侧只能产出 private draft candidate；official 只能由 Promotion Service `
+    + `的 promoteOfficial() 在 VerificationPlan + 双 verdict + exact hash 满足后晋升`
+    + `（seed/migration 请出示 knowledgeOfficialAuthority）`,
+  );
 }
 
 /** promotion CAS 冲突——结构化错误（不静默返回 ok）。 */
@@ -175,6 +212,11 @@ export class PgMemoryStore {
     // provenance 门禁（N19 Phase 1b 设计 1.2 / AB-02 canonical）：official 领域知识必须带有效
     // meta.provenance（唯一 canonical 位置）；顶层平铺六字段不再接受；draft/archived 不强制。
     const status = entry.status ?? "official";
+    // N29/P0-4：official 领域知识直写门禁（先于 provenance 判定——无授权者连门都进不来）。
+    // 注意：这里不看调用者角色，只看是否出示内部 authority → platform-admin service 同样被拒。
+    if (requiresKnowledgeOfficialAuthority(entry.kind, status) && !opts?.knowledgeOfficialAuthority) {
+      denyKnowledgeOfficialWrite(entry.kind, "write");
+    }
     if (status === "official" && PROVENANCE_REQUIRED_KINDS.has(entry.kind)) {
       const checked = validateKnowledgeProvenance(entry.meta?.provenance, entry.content);
       if (!checked.ok) {
@@ -281,6 +323,10 @@ export class PgMemoryStore {
    * evaluate（锁内行）→ 写 memory_revisions（旧 revision）→ UPDATE memory_entries 为 official、
    * version+1、meta 合并 meta.promotion → enqueueOutbox hook（可选）→ COMMIT。
    * 不满足 CAS 时抛 PromotionConflictError（不静默返回）。
+   *
+   * N29/P0-4：本方法是 official 知识的**唯一**晋升入口（promotion-only 窄 PG 方法）——
+   * 只接受 draft→official 且必须通过 evaluate/evaluateAsync 门禁；普通 write/update
+   * （含 platform-admin service）无法产出 official 领域知识。
    */
   async promoteOfficial(
     id: string,
@@ -431,7 +477,7 @@ export class PgMemoryStore {
     try {
       await client.query("BEGIN");
       const oldRows = await client.query(
-        `SELECT id, tenant_id, content, status, anchors, meta, version
+        `SELECT id, tenant_id, kind, content, status, anchors, meta, version
          FROM memory_entries
          WHERE id = $1 AND tenant_id = $2
          FOR UPDATE`,
@@ -442,6 +488,13 @@ export class PgMemoryStore {
         | undefined;
       if (!old) {
         throw new Error(`entry not found in tenant ${tenantId}`);
+      }
+      // N29/P0-4：draft → official 的状态流转不能经普通 update 完成（否则 write 门禁形同虚设）；
+      // 目标 kind 从锁内旧行读取（调用方不能靠不传 kind 绕过）。
+      // 注意：update 的 `status === undefined` 表示"不改状态"——只有显式 official 才受门禁约束。
+      const existingKind = (oldRows.rows[0] as { kind?: string }).kind ?? patch.kind ?? "";
+      if (patch.status === "official" && PROVENANCE_REQUIRED_KINDS.has(existingKind) && !opts.knowledgeOfficialAuthority) {
+        denyKnowledgeOfficialWrite(existingKind, "update");
       }
 
       const stripSystemMeta = (m: Record<string, unknown> | undefined): string => {
@@ -554,10 +607,14 @@ export class PgMemoryStore {
     anchors: unknown[],
     deltas: Record<string, number>,
     meta: Record<string, unknown>,
-    opts?: { tenantId?: string },
+    opts?: { tenantId?: string; knowledgeOfficialAuthority?: KnowledgeOfficialAuthority },
   ): Promise<void> {
     const keys = Object.keys(deltas);
     if (keys.length === 0) return;
+    // N29/P0-4：聚合 upsert 硬编码 status='official'——不得成为 official 领域知识的伪造入口。
+    if (requiresKnowledgeOfficialAuthority(kind, "official") && !opts?.knowledgeOfficialAuthority) {
+      denyKnowledgeOfficialWrite(kind, "incrementAggregate");
+    }
     // 键名校验（2026-08-12 审计 CRITICAL-1 修复）：键直接拼入 SQL（jsonb_build_object 键位）——
     // 非法键（引号/分号/括号）可注入——白名单 [a-zA-Z0-9_]
     for (const k of keys) {
@@ -600,7 +657,11 @@ export class PgMemoryStore {
   }
 
   /** 恢复历史 revision：用目标历史内容构造 MemoryEntry → write(force)（恢复前自动记当前版本历史）。 */
-  async restoreRevision(entryId: string, revision: number, opts?: { tenantId?: string; createdBy?: string }): Promise<void> {
+  async restoreRevision(
+    entryId: string,
+    revision: number,
+    opts?: { tenantId?: string; createdBy?: string; knowledgeOfficialAuthority?: KnowledgeOfficialAuthority },
+  ): Promise<void> {
     const tenantId = this.resolveTenantOpts(opts);
     const history = await this.revisionHistory(entryId, { tenantId });
     const target = history.find((r) => r.revision === revision);
@@ -631,6 +692,8 @@ export class PgMemoryStore {
       force: true,
       createdBy: opts?.createdBy,
       reason: "restore",
+      // N29/P0-4：恢复一条历史 official 领域知识同样需要内部 authority（缺省 fail closed）。
+      ...(opts?.knowledgeOfficialAuthority ? { knowledgeOfficialAuthority: opts.knowledgeOfficialAuthority } : {}),
     });
   }
 
@@ -646,13 +709,25 @@ export class PgMemoryStore {
  * 供 governance 函数（skills/tool-reg/wiki/memory-admin）等只接收 store 形参的调用点复用——
  * 这些函数内部调 store.get/listIds/write/update 时不带 tenant opts，包装器统一补齐
  * （write 补 entry.tenantId，其余补 opts.tenantId）。
+ *
+ * N29/P0-4：本包装器是 worker/service 面的 capability facade——**剥离**
+ * `knowledgeOfficialAuthority`。official 领域知识只能由内部路径（promoteOfficial 的窄 CAS，
+ * 或 seed/migration 直接持有 raw store）写入，经 capability facade 一律拿不到该 authority。
  */
 export function withMemoryTenant(store: PgMemoryStore, tenantId: string): PgMemoryStore {
+  /** 去掉内部 authority（capability 面不得携带）。 */
+  const stripAuthority = <T extends object>(opts?: T): T | undefined => {
+    if (!opts) return opts;
+    const rest = { ...(opts as Record<string, unknown>) };
+    delete rest.knowledgeOfficialAuthority;
+    return rest as T;
+  };
   const wrapped = {
-    write: (entry: MemoryEntry, opts?: PgMemoryStoreWriteOptions) => store.write({ ...entry, tenantId }, opts),
+    write: (entry: MemoryEntry, opts?: PgMemoryStoreWriteOptions) =>
+      store.write({ ...entry, tenantId }, stripAuthority(opts)),
     get: (id: string, opts?: { tenantId?: string }) => store.get(id, { ...opts, tenantId }),
     update: (id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: PgMemoryStoreUpdateOptions = {}) =>
-      store.update(id, patch, { ...opts, tenantId }),
+      store.update(id, patch, { ...(stripAuthority(opts) ?? {}), tenantId }),
     retrieve: (opts: { anchors?: string[]; kinds?: string[]; status?: string[]; excludeDrafts?: boolean; tenantId?: string } = {}) =>
       store.retrieve({ ...opts, tenantId }),
     listIds: (opts?: { tenantId?: string }) => store.listIds({ ...opts, tenantId }),
@@ -664,10 +739,10 @@ export function withMemoryTenant(store: PgMemoryStore, tenantId: string): PgMemo
       deltas: Record<string, number>,
       meta: Record<string, unknown>,
       opts?: { tenantId?: string },
-    ) => store.incrementAggregate(id, kind, anchors, deltas, meta, { ...opts, tenantId }),
+    ) => store.incrementAggregate(id, kind, anchors, deltas, meta, { ...stripAuthority(opts), tenantId }),
     revisionHistory: (entryId: string, opts?: { tenantId?: string }) => store.revisionHistory(entryId, { ...opts, tenantId }),
     restoreRevision: (entryId: string, revision: number, opts?: { tenantId?: string; createdBy?: string }) =>
-      store.restoreRevision(entryId, revision, { ...opts, tenantId }),
+      store.restoreRevision(entryId, revision, { ...stripAuthority(opts), tenantId }),
     promoteOfficial: (
       id: string,
       _tenantId: string,

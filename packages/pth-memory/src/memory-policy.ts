@@ -10,11 +10,13 @@
  *     —— 系统行为配置：worker 只读。写了 = 自开触发器/自改 refine 行为。
  *   governance 层（differentiation-proposal/refine-report/tool-proposal:*）
  *     —— 治理状态机：worker 可提交草案（强制 status=draft），不可自批/不可流转。
- *   knowledge 层（其余全部——task-insight/tool-function/dev-artifact/…）
- *     —— 共享知识层：读写全开（记忆系统主用途）。
+ *   knowledge 层（其余全部——task-insight/tool-function/dev-artifact/domain-fact/…）
+ *     —— 共享知识层：读可，写强制 draft（N29/P0-4，§1.6）。外部内容与 LLM 产物只能进 private
+ *        draft candidate；official 必须由 Promotion Service 在核验后晋升。本策略没有
+ *        principal/role 入参——worker、service 与 platform-admin service 得到同一结论。
  *
  * 系统通道（refiner/lineage approve/trigger API/injectPromptDocs）直写 store 不经本策略。
- * store 层 isSystemDocId 保留作纵深防御。
+ * store 层 isSystemDocId 与 knowledge official authority 保留作纵深防御。
  */
 
 export type MemoryLayer = "prompt" | "config" | "governance" | "knowledge";
@@ -50,7 +52,7 @@ export function layerOfKind(kind: string): MemoryLayer {
 export interface PolicyCheck {
   ok: boolean;
   reason?: string;
-  /** governance 层写入时的状态强制（draft——worker 可提交草案不可自批） */
+  /** 写入时的状态强制（draft）：governance 层不可自批；knowledge 层不可 direct official（N29 P0-4）。 */
   forceStatus?: "draft";
 }
 
@@ -94,7 +96,11 @@ export function checkWrite(kind: string, status?: string): PolicyCheck {
     }
     return { ok: true, forceStatus: "draft" };
   }
-  return { ok: true };
+  // N29/P0-4（§1.6）：knowledge 层一律强制 draft——recon/memory-maintain/processor 等
+  // 外部内容路径都不能 direct official；official 只能由 Promotion Service 在
+  // VerificationPlan + 双 verdict + exact hash 满足后晋升。
+  // 注意：本函数没有 principal/role 入参 → service 与 platform-admin service 同样被强制。
+  return { ok: true, forceStatus: "draft" };
 }
 
 /** worker 面 update 校验（目标条目的 kind——补 isSystemDocId 不到 update 的洞） */
@@ -112,6 +118,14 @@ export function checkUpdate(kind: string, patchStatus?: string, existingStatus?:
   // 2026-08-15 筛查 H6：governance 层 official 条目冻结——内容修正仅限 draft
   if (layer === "governance" && existingStatus && existingStatus !== "draft" && patchStatus === undefined) {
     return { ok: false, reason: `memory.update: governance 层 ${existingStatus} 条目不可改内容（仅 draft 可修订）` };
+  }
+  // N29/P0-4：knowledge 层不得经 update 把 draft 流转为 official（否则 write 强制 draft 形同虚设）。
+  // 晋升只能走 Promotion Service（promoteOfficial 的窄 CAS 方法）。
+  if (layer === "knowledge" && patchStatus === "official") {
+    return {
+      ok: false,
+      reason: `memory.update: kind "${kind}" 属 knowledge 层——draft→official 只能由 Promotion Service 晋升（worker/service 不可自批）`,
+    };
   }
   return { ok: true };
 }

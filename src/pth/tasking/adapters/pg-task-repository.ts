@@ -5,9 +5,15 @@
  *  - claim：tenant + assigned_role + status=pending 过滤，事务内 FOR UPDATE SKIP LOCKED
  *    抢占；生成 UUID lease，generation 单调递增，expires_at = now + leaseTtlMs；
  *    claimed_by/claims_count/claimed_at 保留为诊断字段，不作为授权依据。
- *  - commit：CAS（id + lease_id + lease_generation + status='claimed'），重复/过期/跨租户
- *    outcome 一律 committed:false。
+ *  - commit：CAS（id + lease_id + lease_generation + status='claimed' + tenant_id +
+ *    未过期 lease_expires_at），重复/过期/跨租户 outcome 一律 committed:false。
  *  - recoverExpired：只清 lease_expires_at 过期的 claimed 行，generation 不回退。
+ *
+ * N29 L1（§1.3 P0-1 / §1.4 P0-2）：
+ *  - 三条终态 CAS（completed / retry / rejected）都必须带 tenant_id 与
+ *    `lease_expires_at IS NOT NULL AND lease_expires_at > now()`；
+ *  - side effect 只在 `upd.rowCount === 1` 时于同一事务内 enqueue，CAS 未命中直接返回 upd；
+ *  - 无法确定服务端 tenant scope 时 fail closed（committed:false，零 side effect）。
  */
 
 import { randomUUID } from "node:crypto";
@@ -16,9 +22,12 @@ import { withTx } from "../../kernel/storage/pg.js";
 import {
   buildCompletedResultWriteback,
   buildErrorResultWriteback,
+  resolveTaskCommitTenantId,
   TASK_MAX_CLAIMS,
 } from "../../contracts/index.js";
 import type {
+  TaskCommitOptions,
+  TaskCommitSideEffect,
   TaskLease,
   TaskOutcome,
   TaskRepository,
@@ -26,7 +35,7 @@ import type {
   TenantScope,
 } from "../../contracts/index.js";
 import { readWorkItemDomainBinding, readWorkItemDomains } from "../task-work-item-reader.js";
-import type { TaskOutcomeCommitOptions, TaskOutcomeSideEffect } from "../task-outcome-committer.js";
+import { enqueueSideEffectInTx } from "../side-effect-outbox.js";
 
 export interface PgTaskRepositoryOptions {
   /** 新 lease 有效期（默认 10 分钟——与旧 claim 超时余量一致，可由调度器覆盖） */
@@ -48,19 +57,23 @@ interface ClaimRow {
   lease_generation: string | number | null;
 }
 
-/** R4/P0-4：在同一 PG 事务内写入 side_effect_outbox（key 幂等，首写生效）。 */
+/**
+ * R4/P0-4 + N29/P0-1：在同一 PG 事务内写入 side_effect_outbox。
+ * identity=(tenant_id,key)；exact 重放幂等，不同 kind/payload 抛 conflict 让整个 commit 回滚。
+ * 只允许在 task CAS `rowCount === 1` 之后调用。
+ */
 async function insertSideEffects(
   client: pg.PoolClient,
-  sideEffects?: ReadonlyArray<TaskOutcomeSideEffect>,
+  sideEffects?: ReadonlyArray<TaskCommitSideEffect>,
 ): Promise<void> {
   if (!sideEffects || sideEffects.length === 0) return;
   for (const se of sideEffects) {
-    await client.query(
-      `INSERT INTO side_effect_outbox (key, tenant_id, kind, payload)
-       VALUES ($1, $2, $3, $4::jsonb)
-       ON CONFLICT (key) DO NOTHING`,
-      [se.key, se.tenantId, se.kind, JSON.stringify(se.payload ?? {})],
-    );
+    await enqueueSideEffectInTx(client, {
+      key: se.key,
+      tenantId: se.tenantId,
+      kind: se.kind,
+      payload: se.payload,
+    });
   }
 }
 
@@ -155,8 +168,12 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
       return res.rowCount ?? 0;
     },
 
-    async commit(outcome: TaskOutcome, opts?: TaskOutcomeCommitOptions) {
+    async commit(outcome: TaskOutcome, opts?: TaskCommitOptions) {
       const { taskId, leaseId, generation } = outcome.lease;
+      // N29 P0-2：tenant scope 必须由服务端盖章（dispatcher 从 claim lease 取；或完整 lease 自带 scope）。
+      // 拿不到 tenant 就 fail closed——不提交、不写任何 side effect。
+      const tenantId = resolveTaskCommitTenantId(outcome, opts);
+      if (tenantId === null) return { committed: false };
       let res: pg.QueryResult;
       if (outcome.status === "completed") {
         // W8 P0 终态回写：payload.result = JSON-safe 编码结果（≤64KiB/截断标记）；
@@ -173,42 +190,35 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
                payload = jsonb_set(
                  jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $4::jsonb, true),
                  '{outputRef}', $5::jsonb, true)
-             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-            [taskId, leaseId, generation, JSON.stringify(result), JSON.stringify({ ref: result })],
+             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3
+               AND status = 'claimed'
+               AND tenant_id = $6
+               AND lease_expires_at IS NOT NULL
+               AND lease_expires_at > now()`,
+            [taskId, leaseId, generation, JSON.stringify(result), JSON.stringify({ ref: result }), tenantId],
           );
-          if ((upd.rowCount ?? 0) > 0 && artifactRef) {
+          // N29 P0-1：CAS 未命中（错 generation/过期 lease/跨 tenant/重复提交）→ 立即返回，
+          // 不写 side effect、不推进下一阶段。
+          if ((upd.rowCount ?? 0) !== 1) return upd;
+          if (artifactRef) {
             await client.query(
               `UPDATE tasks SET
                  payload = jsonb_set(
                    jsonb_set(payload, '{delivery}', COALESCE(payload->'delivery', '{}'::jsonb), true),
                    '{delivery,artifactRef}', $4::jsonb, true),
                  updated_at = now()
-               WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'completed'`,
-              [taskId, leaseId, generation, JSON.stringify(artifactRef)],
+               WHERE id = $1 AND lease_id = $2 AND lease_generation = $3
+                 AND status = 'completed'
+                 AND tenant_id = $5`,
+              [taskId, leaseId, generation, JSON.stringify(artifactRef), tenantId],
             );
           }
           await insertSideEffects(client, opts?.sideEffects);
           return upd;
         });
       } else if (outcome.retryable === true) {
-        if (opts?.sideEffects?.length) {
-          res = await withTx(pool, async (client) => {
-            const upd = await client.query(
-              `UPDATE tasks SET
-                 status = 'pending',
-                 claimed_by = NULL,
-                 claimed_at = NULL,
-                 lease_id = NULL,
-                 lease_expires_at = NULL,
-                 updated_at = now()
-               WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-              [taskId, leaseId, generation],
-            );
-            await insertSideEffects(client, opts.sideEffects);
-            return upd;
-          });
-        } else {
-          res = await pool.query(
+        res = await withTx(pool, async (client) => {
+          const upd = await client.query(
             `UPDATE tasks SET
                status = 'pending',
                claimed_by = NULL,
@@ -216,41 +226,41 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
                lease_id = NULL,
                lease_expires_at = NULL,
                updated_at = now()
-             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-            [taskId, leaseId, generation],
+             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3
+               AND status = 'claimed'
+               AND tenant_id = $4
+               AND lease_expires_at IS NOT NULL
+               AND lease_expires_at > now()`,
+            [taskId, leaseId, generation, tenantId],
           );
-        }
+          if ((upd.rowCount ?? 0) !== 1) return upd;
+          await insertSideEffects(client, opts?.sideEffects);
+          return upd;
+        });
       } else {
         // W8 P0：终态失败回写——payload.result = { error: {code,message} }（父 await 的错误摘要）
         const { result } = buildErrorResultWriteback(
           outcome.error,
           outcome.status === "cancelled" ? "任务已取消" : "任务被拒绝",
         );
-        if (opts?.sideEffects?.length) {
-          res = await withTx(pool, async (client) => {
-            const upd = await client.query(
-              `UPDATE tasks SET
-                 status = 'rejected',
-                 escalated_at = CASE WHEN $4::text = 'cancelled' THEN now() ELSE escalated_at END,
-                 payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $5::jsonb, true),
-                 updated_at = now()
-               WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-              [taskId, leaseId, generation, outcome.status, JSON.stringify(result)],
-            );
-            await insertSideEffects(client, opts.sideEffects);
-            return upd;
-          });
-        } else {
-          res = await pool.query(
+        res = await withTx(pool, async (client) => {
+          const upd = await client.query(
             `UPDATE tasks SET
                status = 'rejected',
                escalated_at = CASE WHEN $4::text = 'cancelled' THEN now() ELSE escalated_at END,
                payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $5::jsonb, true),
                updated_at = now()
-             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-            [taskId, leaseId, generation, outcome.status, JSON.stringify(result)],
+             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3
+               AND status = 'claimed'
+               AND tenant_id = $6
+               AND lease_expires_at IS NOT NULL
+               AND lease_expires_at > now()`,
+            [taskId, leaseId, generation, outcome.status, JSON.stringify(result), tenantId],
           );
-        }
+          if ((upd.rowCount ?? 0) !== 1) return upd;
+          await insertSideEffects(client, opts?.sideEffects);
+          return upd;
+        });
       }
       return { committed: (res.rowCount ?? 0) > 0 };
     },

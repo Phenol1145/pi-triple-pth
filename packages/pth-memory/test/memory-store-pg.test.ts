@@ -426,8 +426,11 @@ suite("memory store pg", () => {
   });
 
   it("K1b：official + PROVENANCE_REQUIRED_KINDS 写入门禁——meta.provenance 缺失/无效拒绝不落库", async () => {
+    // N29 P0-4：official 领域知识写需先出示内部 authority（seed/migration）；本用例验证
+    // authority 之后的 provenance 门禁仍然生效（两道门叠加，不互相掩盖）。
+    const seedAuthority = { knowledgeOfficialAuthority: "seed-migration" } as any;
     await expect(
-      store.write({ id: "k1b-prov-bad", kind: "domain-fact", anchors: ["k1b-prov"], content: "x", status: "official", meta: {} } as any),
+      store.write({ id: "k1b-prov-bad", kind: "domain-fact", anchors: ["k1b-prov"], content: "x", status: "official", meta: {} } as any, seedAuthority),
     ).rejects.toThrow(/provenance/);
     expect(await store.get("k1b-prov-bad")).toBeUndefined();
 
@@ -438,7 +441,7 @@ suite("memory store pg", () => {
     await store.write({
       id: "k1b-prov-ok", kind: "domain-fact", anchors: ["k1b-prov"], content: "x",
       status: "official", meta: { provenance },
-    } as any);
+    } as any, seedAuthority);
     expect((await store.get("k1b-prov-ok"))?.content).toBe("x");
     expect((await store.get("k1b-prov-ok"))?.meta.provenance).toEqual(provenance);
   });
@@ -452,7 +455,7 @@ suite("memory store pg", () => {
       store.write({
         id: "k1b-prov-flat", kind: "domain-fact", anchors: ["k1b-prov"],
         content: "flat", status: "official", meta: { ...flat },
-      } as any),
+      } as any, { knowledgeOfficialAuthority: "seed-migration" } as any),
     ).rejects.toThrow(/provenance/);
     expect(await store.get("k1b-prov-flat")).toBeUndefined();
   });
@@ -460,6 +463,78 @@ suite("memory store pg", () => {
   it("K1b：draft 不强制 provenance", async () => {
     await store.write({ id: "k1b-prov-draft", kind: "domain-fact", anchors: ["k1b-prov"], content: "draft-x", status: "draft", meta: {} } as any);
     expect((await store.get("k1b-prov-draft"))?.status).toBe("draft");
+  });
+
+  // ── N29 L1（§1.6 P0-4）：official 知识只能由 Promotion Service 晋升 ────────────
+  // 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
+
+  it("N29 P0-4：official domain 知识直写被拒（普通 store write / service 均无 authority）", async () => {
+    const provenance = buildKnowledgeProvenance({
+      content: "direct", sourceTaskId: "t-n29", producerRole: "developer",
+      producerModel: "deepseek-v4-flash", sourceRefs: ["task:t-n29"],
+    });
+    await expect(
+      store.write({
+        id: "n29-direct-official", kind: "domain-fact", anchors: ["n29"],
+        content: "direct", status: "official", meta: { provenance },
+      } as any),
+    ).rejects.toThrow(/official/);
+    expect(await store.get("n29-direct-official")).toBeUndefined();
+
+    await expect(
+      store.write({
+        id: "n29-direct-official-method", kind: "domain-method", anchors: ["n29"],
+        content: "direct", status: "official", meta: { provenance },
+      } as any),
+    ).rejects.toThrow(/official/);
+    expect(await store.get("n29-direct-official-method")).toBeUndefined();
+  });
+
+  it("N29 P0-4：platform-admin service 身份也不能绕过（store 层无 role 分支）", async () => {
+    const provenance = buildKnowledgeProvenance({
+      content: "admin", sourceTaskId: "t-admin", producerRole: "platform-admin",
+      producerModel: "deepseek-v4-flash", sourceRefs: ["task:t-admin"],
+    });
+    // force=true（系统文档通道）不是 knowledge official authority——不得成为旁路
+    await expect(
+      store.write({
+        id: "n29-admin-official", kind: "domain-fact", anchors: ["n29"],
+        content: "admin", status: "official", meta: { provenance },
+      } as any, { force: true, createdBy: "tenant:tenant-a:platform-admin" }),
+    ).rejects.toThrow(/official/);
+    expect(await store.get("n29-admin-official")).toBeUndefined();
+  });
+
+  it("N29 P0-4：draft → official 的 update 直写同样被拒", async () => {
+    const provenance = buildKnowledgeProvenance({
+      content: "upd", sourceTaskId: "t-upd", producerRole: "developer",
+      producerModel: "deepseek-v4-flash", sourceRefs: ["task:t-upd"],
+    });
+    await store.write({
+      id: "n29-update-official", kind: "domain-fact", anchors: ["n29"],
+      content: "upd", status: "draft", meta: { provenance },
+    } as any);
+    await expect(store.update("n29-update-official", { status: "official" })).rejects.toThrow(/official/);
+    expect((await store.get("n29-update-official"))?.status).toBe("draft");
+  });
+
+  it("N29 P0-4：incrementAggregate 不能伪造 official domain 知识", async () => {
+    await expect(
+      store.incrementAggregate("n29-agg-official", "domain-fact", ["n29"], { hits: 1 }, {}),
+    ).rejects.toThrow(/official/);
+    expect(await store.get("n29-agg-official")).toBeUndefined();
+  });
+
+  it("N29 P0-4：seed/migration 内部 authority 与 worker capability 分离且可写 official", async () => {
+    const provenance = buildKnowledgeProvenance({
+      content: "seeded", sourceTaskId: "seed", producerRole: "seed",
+      producerModel: "seed", sourceRefs: ["seed:n29"],
+    });
+    await store.write({
+      id: "n29-seed-official", kind: "domain-fact", anchors: ["n29"],
+      content: "seeded", status: "official", meta: { provenance },
+    } as any, { knowledgeOfficialAuthority: "seed-migration" } as any);
+    expect((await store.get("n29-seed-official"))?.status).toBe("official");
   });
 
   it("K1b：真实 PG 链路 draft domain-fact（meta.provenance）→ plan verdict rows → promote → official", async () => {

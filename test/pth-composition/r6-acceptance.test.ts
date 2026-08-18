@@ -211,6 +211,7 @@ suite("R6 组合验收（真实 PostgreSQL）", () => {
         const space = tenantId === TENANT_A && entry.id === "pl-fact-type-checking"
           ? SPACE_DEV
           : SPACE_META;
+        // N29 P0-4：official 领域知识 seed 走与 worker capability 分离的内部 authority。
         await store.write({
           id: `r6-${entry.id}`,
           tenantId,
@@ -223,7 +224,7 @@ suite("R6 组合验收（真实 PostgreSQL）", () => {
             evidence: entry.evidence,
             spaceScope: { space, visibility: space === SPACE_META ? "public" : "private" },
           },
-        });
+        }, { knowledgeOfficialAuthority: "seed-migration" });
       }
     }
   }, 120_000);
@@ -574,8 +575,8 @@ suite("R6 组合验收（真实 PostgreSQL）", () => {
     const taskId = "r6-atomic-task";
     const leaseId = randomUUID();
     await pool.query(
-      `INSERT INTO tasks (id, tenant_id, title, text, created_by, status, assigned_role, lease_id, lease_generation)
-       VALUES ($1, $2, 'atomic', 'x', 'r6', 'claimed', 'developer', $3, 1)`,
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, status, assigned_role, lease_id, lease_generation, lease_expires_at)
+       VALUES ($1, $2, 'atomic', 'x', 'r6', 'claimed', 'developer', $3, 1, now() + interval '5 minutes')`,
       [taskId, TENANT_A, leaseId],
     );
     const outcome: TaskOutcome = {
@@ -589,6 +590,7 @@ suite("R6 组合验收（真实 PostgreSQL）", () => {
     // 注入：side_effect_outbox.key 为 NOT NULL，null key 触发 INSERT 失败 → 事务回滚。
     await expect(
       taskRepository.commit(outcome, {
+        scope: { tenantId: TENANT_A },
         sideEffects: [{ key: null as unknown as string, tenantId: TENANT_A, kind: "refine", payload: { n: 1 } }],
       }),
     ).rejects.toThrow();
@@ -603,6 +605,7 @@ suite("R6 组合验收（真实 PostgreSQL）", () => {
 
     // 可修复：同 lease 重放 valid side effect → task completed + outbox pending 同事务落库。
     const repaired = await taskRepository.commit(outcome, {
+      scope: { tenantId: TENANT_A },
       sideEffects: [{
         key: "refine:tenant-a:r6-atomic-task:1",
         tenantId: TENANT_A,
@@ -679,7 +682,7 @@ suite("R6 组合验收（真实 PostgreSQL）", () => {
     expect(second).toBeDefined();
 
     // 旧 worker 想 complete：token 已不匹配 → false，行仍 processing。
-    expect(await outbox.complete(key, first!.processingToken!)).toBe(false);
+    expect(await outbox.complete({ tenantId: TENANT_A, key, token: first!.processingToken! })).toBe(false);
     let row = await pool.query(
       "SELECT status, owner, processing_token FROM side_effect_outbox WHERE key = $1",
       [key],
@@ -689,8 +692,9 @@ suite("R6 组合验收（真实 PostgreSQL）", () => {
     expect(row.rows[0].processing_token).toBe(second!.processingToken);
 
     // 新 worker 完成后，旧 worker 想 markFailed 把行改回 pending：同样 CAS 拒绝。
-    expect(await outboxB.complete(key, second!.processingToken!)).toBe(true);
+    expect(await outboxB.complete({ tenantId: TENANT_A, key, token: second!.processingToken! })).toBe(true);
     expect(await outbox.markFailed({
+      tenantId: TENANT_A,
       key,
       token: first!.processingToken!,
       attempts: first!.attempts,
@@ -703,7 +707,12 @@ suite("R6 组合验收（真实 PostgreSQL）", () => {
   it("§4.2 duplicate result：同 key 重复 enqueue / 重复 promotion 幂等，不重复处理、不重复晋升", async () => {
     const key = "r6-duplicate-key";
     await outbox.enqueue({ key, tenantId: TENANT_A, kind: "refine", payload: { n: 1 } });
-    await outbox.enqueue({ key, tenantId: TENANT_A, kind: "refine", payload: { n: 2 } }); // 幂等：DO NOTHING
+    // N29 P0-3：同 tenant/key 的 exact 重放（同 kind + payload + payload_hash）才算幂等；
+    await outbox.enqueue({ key, tenantId: TENANT_A, kind: "refine", payload: { n: 1 } });
+    // 不同 payload 不再 DO NOTHING 静默丢弃，而是显式 conflict（不覆盖首写）。
+    await expect(
+      outbox.enqueue({ key, tenantId: TENANT_A, kind: "refine", payload: { n: 2 } }),
+    ).rejects.toThrow(/conflict/);
     const countRow = await pool.query("SELECT count(*)::int AS n FROM side_effect_outbox WHERE key = $1", [key]);
     expect(countRow.rows[0].n).toBe(1);
 
