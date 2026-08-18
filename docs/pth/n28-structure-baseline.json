@@ -42,8 +42,8 @@
       "lines": 370
     },
     "src/pth/bootstrap/batch-process.ts": {
-      "sha256": "2f0740a4d69e60951bb440c8f8626cc6bb3a02f25b9eb1dd1e4ae0784727ae4b",
-      "lines": 845
+      "sha256": "6946004883cdcf6adba70b2b53eecad191ede91e3da92042f01a91c420a9b5b0",
+      "lines": 945
     },
     "src/pth/bootstrap/batch-runtime-assembly.ts": {
       "sha256": "13639d9a36dbae67515556fe6c4e0bda58d352639cfd51a4db581d3a3d892237",
@@ -3108,6 +3108,12 @@
       "kind": "type",
       "specifier": "./worker-slot-runtime.js",
       "target": "src/pth/bootstrap/worker-slot-runtime.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-process.ts",
+      "kind": "type",
+      "specifier": "@away_from/pth-memory",
+      "target": null
     },
     {
       "from": "src/pth/bootstrap/batch-runtime-assembly.ts",
@@ -8204,10 +8210,10 @@
     "scriptFiles": 20,
     "packageFiles": 183,
     "totalFiles": 679,
-    "totalLines": 105167,
-    "importEdges": 899,
+    "totalLines": 105267,
+    "importEdges": 900,
     "runtimeEdges": 413,
-    "typeEdges": 486,
-    "packageSpecifierEdges": 201
+    "typeEdges": 487,
+    "packageSpecifierEdges": 202
   }
 }

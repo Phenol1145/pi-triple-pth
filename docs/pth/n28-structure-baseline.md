@@ -13,8 +13,8 @@
 | test 文件 | 252 |
 | scripts 文件 | 20 |
 | packages 文件（.ts + package.json） | 183 |
-| 合计 | 679（105167 行） |
-| src/pth 导入边 | 899（runtime 413 / type 486 / 包 specifier 201） |
+| 合计 | 679（105267 行） |
+| src/pth 导入边 | 900（runtime 413 / type 487 / 包 specifier 202） |
 | 根一级目录 | archive、config、deploy、docs、examples、extensions、packages、scripts、src、test、tools、toolstore |
 
 ## src/pth 分层
