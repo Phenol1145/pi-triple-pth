@@ -46,12 +46,31 @@ import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
 import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
 import type { WorkerReplica } from "../kernel/execution/worker-replica.js";
 import type { WorkerControlMessage, WorkerSlot } from "./worker-slot-runtime.js";
+import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type WorkerReplicaRef } from "../contracts/index.js";
+import { assertMemoryDirectoryResponsibilityCapacity, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
+import { createCognitiveWorkingSetProvider, type AuthorizedTaskReadFactory } from "../runner/index.js";
+import type { RoleDefinition } from "../kernel/execution/worker-cluster.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
   basePath: string;       // 工作区根（workspaces）
   artifactPath: string;   // 产物归档根（artifacts）
   intervalMs?: number;
+  /** N28 T6：feasibility 依赖（正常 CLI 入口全部 undefined → off 模式）。 */
+  memoryDirectory?: MemoryDirectorySnapshot;
+  authorizedTaskReadFactory?: AuthorizedTaskReadFactory;
+  verifiedReadScopeFactory?: VerifiedTaskReadScopeFactory;
+  resolveRoleBudget?: (loadPolicyRef: string) => Partial<CognitiveBudget> | undefined;
+  workerSpecs?: readonly {
+    role: RoleDefinition;
+    requestedReplica?: WorkerReplicaRef;
+  }[];
+  replicaFactory?: (input: {
+    role: RoleDefinition;
+    batchId: string;
+    index: number;
+    requestedReplica?: WorkerReplicaRef;
+  }) => WorkerReplica;
 }
 
 /**
@@ -204,6 +223,17 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // N28 T2：认知责任模式（默认 off=legacy 逐字节兼容）；feasibility 由确定性装配/harness 显式开启。
   const mode = pthConfig().str("PTH_COGNITIVE_RESPONSIBILITY_MODE") === "feasibility" ? "feasibility" as const : "off" as const;
   const batchId = pthConfig().str("PTH_BATCH_ID") || `batch:${process.pid}`;
+
+  // N28 T6：feasibility 模式 provider + 启动前责任容量硬闸（缺依赖=启动错误，绝不省略）。
+  const cognitiveWorkingSetProvider = mode === "feasibility"
+    ? (() => {
+        if (!deps.memoryDirectory || !deps.authorizedTaskReadFactory || !deps.verifiedReadScopeFactory) {
+          throw new Error("feasibility mode requires memoryDirectory/authorizedTaskReadFactory/verifiedReadScopeFactory");
+        }
+        assertMemoryDirectoryResponsibilityCapacity(deps.memoryDirectory, N28_FEASIBILITY_BUDGET.responsibility);
+        return createCognitiveWorkingSetProvider({ budget: N28_FEASIBILITY_BUDGET, resolveRoleBudget: deps.resolveRoleBudget });
+      })()
+    : undefined;
 
   /** 退出前释放全部 worker kernel（sandbox acquire 归还——防池泄漏）——幂等 */
   let disposed = false;
@@ -685,8 +715,13 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const loop = new BatchTaskLoop({
       kernel, role: effectiveRole, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
       repository: taskRepository,
-      // N28 T2：仅 feasibility 模式注入副本；off 缺省 = legacy 形状不变。
+      // N28 T2/T6：feasibility 依赖透传（off 全部 undefined）。
       replica,
+      memoryDirectory: deps.memoryDirectory,
+      cognitiveWorkingSetProvider,
+      authorizedReads: deps.authorizedTaskReadFactory,
+      verifiedReadScopeFactory: deps.verifiedReadScopeFactory,
+      cognitiveResponsibilityMode: mode,
       // F5：post-commit refine 走 durable outbox；每轮 claim 前 kick 一次 drain。
       sideEffectOutbox,
       drainSideEffects: kickSideEffectDrainer,

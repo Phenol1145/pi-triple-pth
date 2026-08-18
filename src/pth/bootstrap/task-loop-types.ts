@@ -46,6 +46,12 @@ export interface TaskLoopDeps {
   drainSideEffects?: () => void;
   /** N28 T2：运行时副本（仅在 feasibility 模式注入）；缺省 = 无副本身份（legacy 形状不变）。 */
   replica?: import("../kernel/execution/worker-replica.js").WorkerReplica;
+  /** N28 T6：feasibility 依赖透传（off 全部 undefined）。 */
+  memoryDirectory?: import("../execution/index.js").MemoryDirectorySnapshot;
+  cognitiveWorkingSetProvider?: import("../runner/index.js").CognitiveWorkingSetProvider;
+  authorizedReads?: import("../runner/index.js").AuthorizedTaskReadFactory;
+  verifiedReadScopeFactory?: import("../execution/index.js").VerifiedTaskReadScopeFactory;
+  cognitiveResponsibilityMode?: "off" | "feasibility";
 }
 
 /**

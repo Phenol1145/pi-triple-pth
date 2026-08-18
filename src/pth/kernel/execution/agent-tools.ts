@@ -115,11 +115,15 @@ export function toolsToSchema(actionTools?: string[], opts: ToolFaceOptions = {}
  *  opts.asp=false：与 toolsToSchema(asp:false) 同步剔除 ASP-only。
  *  2026-08-15 审计 LOW：列表名用下划线形（与 OpenAI tool_calls 声明一致——命名一致性）；
  *  done 在固定协议段输出一次（schema 内 done 行跳过——去重）。 */
-export function toolsDescription(actionTools?: string[], opts: ToolFaceOptions = {}): string {
+export function toolsDescription(actionTools?: string[], opts: ToolFaceOptions & { allowlist?: readonly string[] } = {}): string {
   const schemas = filterToolSchemas(actionTools, opts);
+  const allowed = opts.allowlist && opts.allowlist.length > 0
+    ? new Set(opts.allowlist.map((name) => name.replace(/_/g, ".")))
+    : null;
   return `可用工具（每次输出一个 JSON 动作 {"thought":"...","action":{"tool":"<tool>","args":{...}}}）：
 ${Object.entries(schemas)
     .filter(([name]) => name !== "done")
+    .filter(([name]) => !allowed || allowed.has(name))
     .map(([name, s]) => `- ${name.replace(/\./g, "_")}: ${s.description}`)
     .join("\n")}
 - done: {result, summary?} —— 完成任务，result 为最终产出对象

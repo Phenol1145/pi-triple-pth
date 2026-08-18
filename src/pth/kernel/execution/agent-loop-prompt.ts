@@ -2,7 +2,7 @@
  * agent-loop-prompt.ts —— agent system prompt 与 ASP 工具面（模块专项 ② 大文件拆分：自 agent-loop.ts 抽出）。
  */
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_CAPABILITY_DOC, toolsDescription, toolsForExecTool, toolSchemaFor, expandToolGroups } from "./agent-tools.js";
+import { AGENT_CAPABILITY_DOC, toolsDescription, toolsForExecTool, toolSchemaFor, expandToolGroups, toolsToSchema } from "./agent-tools.js";
 import { spaceRegistry } from "./space-registry.js";
 import { pthConfig } from "../../config/index.js";
 
@@ -52,6 +52,25 @@ export function toolsForSpace(spaceId: string, actionTools?: string[]): import("
     if (execs.length > 0) return [...ambient, ...execs];
   }
   return ambient;
+}
+
+/** N28 T6：冻结任务工具 union（schema/prompt/执行器共用同一集合）。
+ *  ASP 开：快照 meta + 当前已注册空间，union toolsForSpace(space, role.actionTools)，
+ *  canonicalize 名并恒含 protocol-pinned done；ASP 关：toolsToSchema(...,{asp:false}) + done。 */
+export function taskToolUnion(actionTools: string[] | undefined, opts: { asp: boolean }): import("@earendil-works/pi-ai").Tool[] {
+  const byName = new Map<string, import("@earendil-works/pi-ai").Tool>();
+  const add = (tools: import("@earendil-works/pi-ai").Tool[]) => {
+    for (const tool of tools) byName.set(normalizeToolName(tool.name), tool);
+  };
+  if (opts.asp) {
+    add(toolsForSpace("meta", actionTools));
+    for (const space of spaceRegistry.list()) add(toolsForSpace(space.id, actionTools));
+  } else {
+    add(toolsToSchema(actionTools, { asp: false }));
+  }
+  const done = toolSchemaFor("done");
+  if (done) byName.set("done", done);
+  return [...byName.values()];
 }
 
 /** ASP 模式 system prompt 附加块（协议世界观——空间/迁移/完成规则；
@@ -116,7 +135,7 @@ export function filterCapabilityDoc(doc: string, capabilities: string[]): string
 export async function buildAgentSystemPrompt(
   role: WorkerRole | undefined,
   taskTitle: string,
-  opts: { mode?: "eager" | "lazy" | "auto"; asp?: boolean; memory?: { query(sql: string): Promise<Array<{ content: string }>> } } = {},
+  opts: { mode?: "eager" | "lazy" | "auto"; asp?: boolean; allowlist?: readonly string[]; memory?: { query(sql: string): Promise<Array<{ content: string }>> } } = {},
 ): Promise<string> {
   const { renderWorkerIndex, isPlanningRole } = await import("./worker-cluster.js");
   // 模式（2026-08-14 T2 裁决）：env 显式覆盖 > 角色类缺省——规划系 eager（高频稳定、缓存价值高），
@@ -200,7 +219,7 @@ ${roleBlock}
 ${workerIndexBlock}
 ${thinkingBlock}
 ${exploreBlock}
-${toolsDescription(role?.actionTools, { asp: opts.asp })}
+${toolsDescription(role?.actionTools, { asp: opts.asp, allowlist: opts.allowlist })}
 
 ${capBlock}
 
