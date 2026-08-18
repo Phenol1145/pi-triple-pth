@@ -782,24 +782,24 @@
       "lines": 430
     },
     "src/pth/runner/authorized-state-reads.ts": {
-      "sha256": "4fc374db9a463bb566315c73e8848b7af0795df326b3728050252fb9628b0411",
-      "lines": 77
+      "sha256": "a39546a3daf1f6e3995d10726c84a0f54986ea0d3fa48fbcbeb288bec0f7054c",
+      "lines": 79
     },
     "src/pth/runner/authorized-task-reads.ts": {
       "sha256": "9d38c58e459bba1c04ba1c632f3fe8bd26055b0d5d68d648467642f6a71c041c",
       "lines": 228
     },
     "src/pth/runner/cognitive-working-set.ts": {
-      "sha256": "cd2e276e7f63a568741619bc463a4d3f72bb2b45cd93a1e436283aa83f2baa03",
-      "lines": 196
+      "sha256": "3d3deced167470a9e1451fdba30af7e0c4b7f988813e1d357b13c0835ee852d1",
+      "lines": 200
     },
     "src/pth/runner/index.ts": {
       "sha256": "908572765a25a300e5d6caf9bb5cc92b383eaab37f7a4f8d0ce2499d2bc31377",
       "lines": 19
     },
     "src/pth/runner/knowledge-context.ts": {
-      "sha256": "5458ffd2792d74d3995ef6e94ff9fcaf5f546656320b713aea8e82781dbd1013",
-      "lines": 316
+      "sha256": "3b785a46c09bad8f04bc8b000c19188c40b8f3cdc56a67998fada10340480372",
+      "lines": 298
     },
     "src/pth/runner/observers/activity-observer.ts": {
       "sha256": "9487d0c28db9a9e8b948fe5a08a5ffb489f45fbfc8856d6b4e3b21832a047923",
@@ -1532,8 +1532,8 @@
       "lines": 50
     },
     "test/pth-runner/cognitive-working-set.test.ts": {
-      "sha256": "5095ad49c8504a9a5d1cd7a1a3eff20830967810099fedcd528b56561859b1fc",
-      "lines": 126
+      "sha256": "034e71961e3d82b5a5729a838f276aae31439a56cf2cd8f716f990f5b0142675",
+      "lines": 157
     },
     "test/pth-runner/knowledge-context.test.ts": {
       "sha256": "639ec7af2a132e79b476b9b3a5c96e44166a406ee29bb5bffda9168adf2cd3c3",
@@ -8204,7 +8204,7 @@
     "scriptFiles": 20,
     "packageFiles": 183,
     "totalFiles": 679,
-    "totalLines": 105148,
+    "totalLines": 105167,
     "importEdges": 899,
     "runtimeEdges": 413,
     "typeEdges": 486,
