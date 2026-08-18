@@ -183,7 +183,7 @@ function deriveHypotheses(m: N28FeasibilityMetrics): N28FeasibilityResult["hypot
         m.responsibilityViolations === 0 &&
         m.snapshotDeterminismMismatches === 0 &&
         m.workingSetDeterminismMismatches === 0,
-      evidence: [`budget=${m.generatedBudgetCases}/1000 responsibility=${m.generatedResponsibilityCases}/1000 violations=${m.budgetViolations}/${m.responsibilityViolations}`],
+      evidence: [`budget=${m.generatedBudgetCases}/1000 responsibility=${m.generatedResponsibilityCases}/1000 violations=${m.budgetViolations}/${m.responsibilityViolations} workingSetMismatches=${m.workingSetDeterminismMismatches}`],
     },
     H6: {
       passed: m.surfaceComparisonCases === 12 &&
@@ -256,7 +256,15 @@ export function decideN28Feasibility(metrics: N28FeasibilityMetrics): N28Feasibi
   };
 }
 
-async function probeGoldAndDirectory() {
+export type N28Sabotage =
+  | "control-target-swap"
+  | "directory-body-copy"
+  | "remove-global-wave"
+  | "scope-guard-bypass"
+  | "budget-wrapper-bypass"
+  | "tool-dispatch-guard-bypass";
+
+async function probeGoldAndDirectory(sabotage?: N28Sabotage) {
   const corpus = n28AuthorizedCorpus();
   const entries = n28DirectoryInputs(corpus);
   const directory = buildMemoryDirectorySnapshot({
@@ -292,6 +300,9 @@ async function probeGoldAndDirectory() {
       authorization, workerId: worker.workerId, queryText: query.text,
       queryFingerprint: `q-${query.id}`, domains: ["mathematics"], limit: 8,
       searchWave: async ({ wave, candidateScope, regionIds, limit }) => {
+        if (sabotage === "remove-global-wave" && wave === 3) {
+          return { entries: [], candidateCount: 0, visibleCount: 0, scannedCount: 0, completeForQuery: false };
+        }
         const regionSet = new Set(regionIds.flatMap((id) => regionEntryIds(directory, id)));
         const inWave = corpus.filter((e) => candidateScope === "global" || regionSet.has(e.id));
         const matching = filterKnowledgeEntriesByQueryText(inWave, query.text, { strict: true });
@@ -329,6 +340,10 @@ async function probeGoldAndDirectory() {
 
   const membershipRefs = directory.memberships.reduce((sum, m) => sum + m.regionIds.length, 0);
   const overlap = directory.memberships.filter((m) => m.regionIds.length > 1).length;
+  // P0-4 sabotage 注入：正文被复制进非 canonical store 的索引结构（结构完整性破坏，而非直写 metric）。
+  const scannedMemberships = sabotage === "directory-body-copy"
+    ? directory.memberships.map((m) => ({ ...m, regionIds: [...m.regionIds], body: "copied:alg-01" }))
+    : directory.memberships;
   // P0-3/H2 修复：ownerless 与正文复制由真实扫描得出，不用常量。
   const ownerlessRegions = directory.regions.filter((region) =>
     !directory.responsibilities.some((r) => r.regionId === region.regionId && r.kind === "primary"),
@@ -346,7 +361,7 @@ async function probeGoldAndDirectory() {
     return 0;
   };
   const bodyCopiesOutsideCanonicalStore = countBodyFields([
-    directory.memberships,
+    scannedMemberships,
     directory.regions,
     directory.responsibilities,
   ]);
@@ -375,13 +390,13 @@ async function probeGoldAndDirectory() {
   };
 }
 
-function probeBudgetAndResponsibility() {
+function probeBudgetAndResponsibility(sabotage?: N28Sabotage) {
   let budgetViolations = 0;
   let responsibilityViolations = 0;
   let snapshotMismatches = 0;
   let workingSetMismatches = 0;
   for (let seed = 0; seed < 1000; seed += 1) {
-    const run = () => {
+    const run = (bypassWrapper: boolean) => {
       const ledger = new CognitiveBudgetLedger({
         taskId: `t-${seed}`, workerId: N28_WORKERS.algebra.workerId,
         directorySnapshotId: "md-1", budget: N28_FEASIBILITY_BUDGET.task,
@@ -395,12 +410,17 @@ function probeBudgetAndResponsibility() {
         if (id) ledger.activateSkill(id, 100 + ((seed + i) % 900));
       }
       ledger.freezeTools(["done", "ts_run"], Array.from({ length: 30 }, (_, i) => `tool_${(seed + i * 11) % 41}`));
-      return ledger.snapshot();
+      const raw = ledger.snapshot();
+      // Working-set 包装层：正常时与 ledger 快照逐字节一致；sabotage 下绕过包装层（冻结工具集丢失）。
+      const wrapped = bypassWrapper ? { ...raw, tools: [] as string[] } : raw;
+      return { raw, wrapped };
     };
-    const first = run();
-    const second = run();
-    if (JSON.stringify(first) !== JSON.stringify(second)) snapshotMismatches += 1;
-    const usage = first.usage;
+    // P0-4 sabotage：镜像运行中的一条绕过 working-set 包装层，只翻转 H5 的 workingSetDeterminismMismatches。
+    const first = run(sabotage === "budget-wrapper-bypass" && seed === 0);
+    const second = run(false);
+    if (JSON.stringify(first.raw) !== JSON.stringify(second.raw)) snapshotMismatches += 1;
+    if (JSON.stringify(first.wrapped) !== JSON.stringify(second.wrapped)) workingSetMismatches += 1;
+    const usage = first.raw.usage;
     if (usage.memoryEntries > N28_FEASIBILITY_BUDGET.task.maxMemoryEntries || usage.memoryChars > N28_FEASIBILITY_BUDGET.task.maxMemoryChars ||
       usage.skillIndexEntries > N28_FEASIBILITY_BUDGET.task.maxSkillIndexEntries || usage.activeSkills > N28_FEASIBILITY_BUDGET.task.maxActiveSkills ||
       usage.skillChars > N28_FEASIBILITY_BUDGET.task.maxSkillChars || usage.tools > N28_FEASIBILITY_BUDGET.task.maxTools) budgetViolations += 1;
@@ -422,7 +442,7 @@ function probeBudgetAndResponsibility() {
   return { generatedBudgetCases: 1000, generatedResponsibilityCases: 1000, budgetViolations, responsibilityViolations, snapshotDeterminismMismatches: snapshotMismatches, workingSetDeterminismMismatches: workingSetMismatches };
 }
 
-async function probeLifecycle() {
+async function probeLifecycle(sabotage?: N28Sabotage) {
   const role = { id: "researcher", tags: ["research"], prompt: "p" };
   const revision = roleDefinitionRevision(role);
   const makeReplica = (workerId: string) => createWorkerReplica("researcher", revision, "batch-a", () => workerId);
@@ -453,7 +473,9 @@ async function probeLifecycle() {
   const runA = runtime.runOnce(a.ref.workerId);
   await new Promise((resolve) => setTimeout(resolve, 10));
   if (a.snapshot().state !== "busy") controlFailures += 1;
-  const removeAck = await runtime.handleControl({ type: "worker-remove", workerId: a.ref.workerId });
+  // P0-4 sabotage：控制面目标被换成了同角色另一个副本，busy 副本未被 remove。
+  const removeTarget = sabotage === "control-target-swap" ? b.ref.workerId : a.ref.workerId;
+  const removeAck = await runtime.handleControl({ type: "worker-remove", workerId: removeTarget });
   if (removeAck.state !== "draining") controlFailures += 1;
   release();
   await runA;
@@ -518,7 +540,7 @@ async function probeVisibility() {
   return { visibilityProbeCases: checked >= cases ? cases : checked, authorizationLeaks: 0, unauthorizedWaveInvocations: 0, unauthorizedReadPortInvocations: 0, authorizationProbeCases: 0 };
 }
 
-async function probeH6(): Promise<{ surfaceComparisonCases: number; surfaceMismatches: number; hiddenDispatchProbeCases: number; hiddenExecutorInvocations: number }> {
+async function probeH6(sabotage?: N28Sabotage): Promise<{ surfaceComparisonCases: number; surfaceMismatches: number; hiddenDispatchProbeCases: number; hiddenExecutorInvocations: number }> {
   const bundle = createN28InMemoryBundle();
   const a = await bundle.runTask({ workerKey: "algebra", taskText: "token:alg-01" });
   const b = await bundle.runTask({ workerKey: "algebra", taskText: "token:alg-01" });
@@ -576,7 +598,8 @@ async function probeH6(): Promise<{ surfaceComparisonCases: number; surfaceMisma
   const r = await runAgentTask({
     llm, kernel, caps: {}, task: { title: "t", text: "x" },
     role: { id: "researcher", tags: ["research"], prompt: "p" },
-    asp: true, maxSteps: 4, toolRegistry: registry, toolAllowlist: ["done"],
+    asp: true, maxSteps: 4, toolRegistry: registry,
+    toolAllowlist: sabotage === "tool-dispatch-guard-bypass" ? ["registry.omitted"] : ["done"],
     onTrace: (e: { type: string; tool?: string; resultPreview?: string }) => trace.push(e),
   });
   const denied = trace.some((e) => e.type === "tool-result" && e.tool === "registry.omitted" &&
@@ -586,7 +609,7 @@ async function probeH6(): Promise<{ surfaceComparisonCases: number; surfaceMisma
   return { surfaceComparisonCases: cases, surfaceMismatches: mismatches, hiddenDispatchProbeCases: hiddenDispatch, hiddenExecutorInvocations: hiddenExec };
 }
 
-async function probeIdentity(): Promise<{ auditIdentityProbeCases: number; auditIdentityFailures: number; grantIdentityProbeCases: number; grantIdentityFailures: number }> {
+async function probeIdentity(sabotage?: N28Sabotage): Promise<{ auditIdentityProbeCases: number; auditIdentityFailures: number; grantIdentityProbeCases: number; grantIdentityFailures: number }> {
   const worker = N28_WORKERS.algebra;
   const principal = `worker:${worker.workerId}`;
   let auditCases = 0;
@@ -646,7 +669,7 @@ async function probeIdentity(): Promise<{ auditIdentityProbeCases: number; audit
   };
 }
 
-async function probeAuthorization(): Promise<{
+async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
   authorizationProbeCases: number;
   visibilityProbeCases: number;
   authorizationLeaks: number;
@@ -818,7 +841,10 @@ async function probeAuthorization(): Promise<{
     // 2. missing capability（surface-specific）
     probes += 1;
     try {
-      if (surface.name === "context.build" || surface.name === "memory.retrieve" || surface.name === "memory.get") {
+      if (sabotage === "scope-guard-bypass") {
+        // P0-4 sabotage：绕过 verified-scope 守卫，直接把有效 scope 塞给 surface。
+        await surface.run(valid, spies);
+      } else if (surface.name === "context.build" || surface.name === "memory.retrieve" || surface.name === "memory.get") {
         const capGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["state"], ttlMs: 120_000 });
         factory.verifyBrokerGrant({ grant: capGrant, worker, leaseDeadlineAt: lease.deadlineAt });
       } else if (surface.name === "memory.query") {
@@ -893,14 +919,15 @@ async function probeAuthorization(): Promise<{
   };
 }
 
-export async function evaluateN28Feasibility(): Promise<N28FeasibilityResult> {
+export async function evaluateN28Feasibility(options?: { sabotage?: N28Sabotage }): Promise<N28FeasibilityResult> {
+  const sabotage = options?.sabotage;
   const [gold, budget, lifecycle, auth, h6, identity] = await Promise.all([
-    probeGoldAndDirectory(),
-    Promise.resolve(probeBudgetAndResponsibility()),
-    probeLifecycle(),
-    probeAuthorization(),
-    probeH6(),
-    probeIdentity(),
+    probeGoldAndDirectory(sabotage),
+    Promise.resolve(probeBudgetAndResponsibility(sabotage)),
+    probeLifecycle(sabotage),
+    probeAuthorization(sabotage),
+    probeH6(sabotage),
+    probeIdentity(sabotage),
   ]);
   const metrics: N28FeasibilityMetrics = {
     ...gold,

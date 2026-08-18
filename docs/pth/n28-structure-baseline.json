@@ -1532,7 +1532,7 @@
       "lines": 50
     },
     "test/pth-runner/cognitive-working-set.test.ts": {
-      "sha256": "034e71961e3d82b5a5729a838f276aae31439a56cf2cd8f716f990f5b0142675",
+      "sha256": "7e4a499aaaeee0ca75b3e6e2f5587966f657e739fdb5f2f7ea9bfb063a1bde83",
       "lines": 157
     },
     "test/pth-runner/knowledge-context.test.ts": {
@@ -1544,8 +1544,8 @@
       "lines": 82
     },
     "test/pth-runner/n28-feasibility-evaluator.test.ts": {
-      "sha256": "709379a24dc201dcc8aff8f2ffed49c0c135dd7e65ad3c58bc05180cc688fdb3",
-      "lines": 75
+      "sha256": "5d93b23977546b0d2d14c13ce0636c6e9fb96c7a3ff8771ce263e1700498ed03",
+      "lines": 94
     },
     "test/pth-tasking/delegation-policy.test.ts": {
       "sha256": "fe924f5564318eed26bb08122d135602924468866bb0e277aeeeb2978e489234",
@@ -1970,8 +1970,8 @@
       "lines": 214
     },
     "scripts/eval-n28-feasibility.ts": {
-      "sha256": "c7efaa7b9e0909828dc801440e43ee744bee893a90e340eb912bc3797cd57356",
-      "lines": 925
+      "sha256": "a7c2c9824175ce85cdbb78a3bb87d188af8540a1238b740e5f8fb2ac5c7545c1",
+      "lines": 952
     },
     "scripts/ext-check.ts": {
       "sha256": "17ead9fb28880f76fc4c4742d3afa3e7f94f4571e7c6d42be47fa3ad3b99581a",
@@ -8210,7 +8210,7 @@
     "scriptFiles": 20,
     "packageFiles": 183,
     "totalFiles": 679,
-    "totalLines": 105775,
+    "totalLines": 105821,
     "importEdges": 900,
     "runtimeEdges": 413,
     "typeEdges": 487,

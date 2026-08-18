@@ -88,3 +88,13 @@
 
 
 
+
+## 8. 裁决 C7 事后人工批准（第二轮复核 P0-5 / §8 条件 7）
+
+- 问题：第二轮独立复核指出 C7 收窄发生在被评估 commit 之后，§8 条件 7 要求
+  人工批准合同版本或恢复 35 文件 typecheck。
+- 裁决（用户选项）：**批准 Task 7 合同 v1.1**——确认 C7 收窄后的 7 文件清单为
+  最终合同范围，n28Typecheck 证据以 `tsconfig.n28.json` 7 文件 zero-skip 为准；
+  `npm run lint` 根 `tsc --noEmit` 继续覆盖源码类型正确性。
+- 落账：`docs/pth/n28-task7-contract.md` §11 v1.1 人工批准修订；envelope 的
+  `contractDisposition` 引用本裁决。
