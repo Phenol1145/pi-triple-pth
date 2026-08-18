@@ -14,10 +14,11 @@ import { createExecutionGrantService } from "../src/pth/execution/authorization/
 import { createHmacGrantKeyProvider } from "../src/pth/execution/authorization/grant-key-provider.js";
 import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "../src/pth/execution/knowledge-ranking.js";
 import { createKnowledgeBroker, type KnowledgeMemoryEntry } from "../src/pth/execution/knowledge-broker.js";
-import type { LayeredSearchWaveInput, VerifiedTaskReadScope } from "../src/pth/execution/index.js";
+import type { LayeredSearchWaveInput } from "../src/pth/execution/index.js";
 import { createKnowledgeContextProvider } from "../src/pth/runner/knowledge-context.js";
 import { createAuthorizedStateReadPort, createScopedSkillPort } from "../src/pth/runner/index.js";
-import { CognitiveBudgetLedger } from "../src/pth/kernel/execution/cognitive-budget.js";
+import { createBudgetedTaskCapabilities, createTaskWorkingSetPolicy } from "../src/pth/runner/cognitive-working-set.js";
+import type { AuthorizedTaskReads } from "../src/pth/runner/authorized-task-reads.js";
 import { createWorkerReplica, roleDefinitionRevision } from "../src/pth/kernel/execution/worker-replica.js";
 import { WorkerSlotRuntime } from "../src/pth/bootstrap/worker-slot-runtime.js";
 import { assembleBatchRuntime, runBatchHost } from "../src/pth/bootstrap/batch-runtime-assembly.js";
@@ -264,6 +265,8 @@ export type N28Sabotage =
   | "budget-wrapper-bypass"
   | "tool-dispatch-guard-bypass";
 
+type BrokerGrant = ReturnType<ReturnType<typeof createExecutionGrantService>["issue"]>;
+
 async function probeGoldAndDirectory(sabotage?: N28Sabotage) {
   const corpus = n28AuthorizedCorpus();
   const entries = n28DirectoryInputs(corpus);
@@ -390,40 +393,59 @@ async function probeGoldAndDirectory(sabotage?: N28Sabotage) {
   };
 }
 
-function probeBudgetAndResponsibility(sabotage?: N28Sabotage) {
+async function probeBudgetAndResponsibility(sabotage?: N28Sabotage) {
   let budgetViolations = 0;
   let responsibilityViolations = 0;
   let snapshotMismatches = 0;
   let workingSetMismatches = 0;
   for (let seed = 0; seed < 1000; seed += 1) {
-    const run = (bypassWrapper: boolean) => {
-      const ledger = new CognitiveBudgetLedger({
-        taskId: `t-${seed}`, workerId: N28_WORKERS.algebra.workerId,
-        directorySnapshotId: "md-1", budget: N28_FEASIBILITY_BUDGET.task,
-      });
-      const memory = Array.from({ length: 1 + (seed % 30) }, (_, i) => ({ id: `m-${(seed * 17 + i * 13) % 97}`, chars: 1 + ((seed * 31 + i * 19) % 1400) }))
-        .sort((a, b) => a.id.localeCompare(b.id));
-      ledger.admitMemory(memory);
-      ledger.freezeSkillIndex(Array.from({ length: 20 }, (_, i) => ({ id: `skill:${(seed + i * 7) % 31}`, chars: 20 + i })).sort((a, b) => a.id.localeCompare(b.id)));
-      for (let i = 0; i < 12; i += 1) {
-        const id = ledger.snapshot().skillIndexIds[i];
-        if (id) ledger.activateSkill(id, 100 + ((seed + i) % 900));
-      }
-      ledger.freezeTools(["done", "ts_run"], Array.from({ length: 30 }, (_, i) => `tool_${(seed + i * 11) % 41}`));
-      const raw = ledger.snapshot();
-      // Working-set 包装层：正常时与 ledger 快照逐字节一致；sabotage 下绕过包装层（冻结工具集丢失）。
-      const wrapped = bypassWrapper ? { ...raw, tools: [] as string[] } : raw;
-      return { raw, wrapped };
+    const memoryRows = Array.from({ length: 1 + (seed % 30) }, (_, i) => ({ id: `m-${(seed * 17 + i * 13) % 97}`, chars: 1 + ((seed * 31 + i * 19) % 1400) }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    const skillRows = Array.from({ length: 20 }, (_, i) => ({ id: `skill:${(seed + i * 7) % 31}`, chars: 20 + i })).sort((a, b) => a.id.localeCompare(b.id));
+    const toolRows = Array.from({ length: 30 }, (_, i) => `tool_${(seed + i * 11) % 41}`);
+    const pendingTrace = {
+      directorySnapshotId: "md-1",
+      workerId: N28_WORKERS.algebra.workerId,
+      queryFingerprint: `q-${seed}`,
+      waves: [{ wave: 0 as const, regionIds: [], candidateCount: memoryRows.length, visibleCount: memoryRows.length, selectedCount: memoryRows.length, scannedCount: memoryRows.length, completeForQuery: true, reason: "primary" }],
+      globalFallback: false,
+      omitted: {},
+      status: "found" as const,
     };
-    // P0-4 sabotage：镜像运行中的一条绕过 working-set 包装层，只翻转 H5 的 workingSetDeterminismMismatches。
-    const first = run(sabotage === "budget-wrapper-bypass" && seed === 0);
-    const second = run(false);
-    if (JSON.stringify(first.raw) !== JSON.stringify(second.raw)) snapshotMismatches += 1;
-    if (JSON.stringify(first.wrapped) !== JSON.stringify(second.wrapped)) workingSetMismatches += 1;
-    const usage = first.raw.usage;
+    const adapters = (rows: typeof memoryRows): AuthorizedTaskReads => ({
+      assertCurrentScope: () => {},
+      retrieveMemory: async () => ({ entries: rows, trace: pendingTrace }),
+      getMemory: async (id) => rows.find((row) => row.id === id),
+      queryMemory: async () => rows,
+      recallFunctions: async () => [],
+      recallInsights: async () => [],
+      listSkills: async () => [],
+      getSkill: async () => undefined,
+    });
+    const runFacade = async (reverseInputs: boolean, bypass: boolean) => {
+      const { policy, ledger } = createTaskWorkingSetPolicy({
+        taskId: `t-${seed}`, worker: N28_WORKERS.algebra, directorySnapshotId: "md-1",
+        budget: N28_FEASIBILITY_BUDGET.task,
+        skillIndexItems: reverseInputs ? [...skillRows].reverse() : skillRows,
+        pinnedToolNames: ["done", "ts_run"],
+        candidateToolNames: reverseInputs ? [...toolRows].reverse() : toolRows,
+      });
+      const caps = createBudgetedTaskCapabilities({}, policy, ledger, adapters(memoryRows), { skillSummaries: Object.freeze([]) });
+      const memoryCap = caps["memory"] as { retrieve(opts: { anchors?: string[]; kinds?: string[]; queryText?: string; limit?: number }): Promise<Array<{ id: string } & Record<string, unknown>>> };
+      const exposed = bypass ? memoryRows : await memoryCap.retrieve({});
+      return { policy, ledger, usage: ledger.snapshot().usage, exposed };
+    };
+    const first = await runFacade(false, false);
+    const second = await runFacade(true, sabotage === "budget-wrapper-bypass" && seed === 9);
+    const third = await runFacade(false, false);
+    if (JSON.stringify(first.ledger.snapshot()) !== JSON.stringify(third.ledger.snapshot())) snapshotMismatches += 1;
+    // 反序输入必须产出同一冻结 working set；bypass 会绕过 facade 暴露原始行。
+    if (JSON.stringify(first.policy) !== JSON.stringify(second.policy) || first.exposed.length !== second.exposed.length || JSON.stringify(first.exposed) !== JSON.stringify(second.exposed)) workingSetMismatches += 1;
+    const usage = first.usage;
     if (usage.memoryEntries > N28_FEASIBILITY_BUDGET.task.maxMemoryEntries || usage.memoryChars > N28_FEASIBILITY_BUDGET.task.maxMemoryChars ||
       usage.skillIndexEntries > N28_FEASIBILITY_BUDGET.task.maxSkillIndexEntries || usage.activeSkills > N28_FEASIBILITY_BUDGET.task.maxActiveSkills ||
       usage.skillChars > N28_FEASIBILITY_BUDGET.task.maxSkillChars || usage.tools > N28_FEASIBILITY_BUDGET.task.maxTools) budgetViolations += 1;
+    if (first.exposed.length !== usage.memoryEntries) budgetViolations += 1;
 
     const regions = Array.from({ length: 1 + (seed % 6) }, (_, i) => ({
       regionId: `region:g-${i}`, revision: 1, selector: { anchorsAny: [`g-${i}`] },
@@ -448,6 +470,8 @@ async function probeLifecycle(sabotage?: N28Sabotage) {
   const makeReplica = (workerId: string) => createWorkerReplica("researcher", revision, "batch-a", () => workerId);
   let controlFailures = 0;
   let cleanupFailures = 0;
+  let lifecycleCases = 0;
+  let batchFailures = 0;
   let heartbeatFailures = 0;
   let heartbeatCases = 0;
 
@@ -472,19 +496,26 @@ async function probeLifecycle(sabotage?: N28Sabotage) {
   });
   const runA = runtime.runOnce(a.ref.workerId);
   await new Promise((resolve) => setTimeout(resolve, 10));
-  if (a.snapshot().state !== "busy") controlFailures += 1;
   // P0-4 sabotage：控制面目标被换成了同角色另一个副本，busy 副本未被 remove。
   const removeTarget = sabotage === "control-target-swap" ? b.ref.workerId : a.ref.workerId;
   const removeAck = await runtime.handleControl({ type: "worker-remove", workerId: removeTarget });
+  lifecycleCases += 1; // busy remove
   if (removeAck.state !== "draining") controlFailures += 1;
   release();
   await runA;
   if (runtime.list().some((s) => s.workerId === a.ref.workerId)) cleanupFailures += 1;
+  lifecycleCases += 1; // no preclaim
   if (calls !== 1) controlFailures += 1;
+  lifecycleCases += 1; // peer continues
   if (await runtime.runOnce(b.ref.workerId) !== true) controlFailures += 1;
 
   const idle = makeReplica("10000000-0000-4000-8000-000000000103");
   runtime.add({ replica: idle, role, loop: { runOnce: async () => false, pause: () => {}, resume: () => {}, stop: () => {} }, dispose: async () => {} });
+  lifecycleCases += 1; // pause
+  if ((await runtime.handleControl({ type: "worker-pause", workerId: idle.ref.workerId })).state !== "paused") controlFailures += 1;
+  lifecycleCases += 1; // resume
+  if ((await runtime.handleControl({ type: "worker-resume", workerId: idle.ref.workerId })).state !== "idle") controlFailures += 1;
+  lifecycleCases += 1; // idle remove
   if ((await runtime.handleControl({ type: "worker-remove", workerId: idle.ref.workerId })).state !== "stopped") cleanupFailures += 1;
   if (runtime.list().some((s) => s.workerId === idle.ref.workerId)) cleanupFailures += 1;
 
@@ -492,6 +523,12 @@ async function probeLifecycle(sabotage?: N28Sabotage) {
   const hb = runtime.heartbeat({ ts: 1, rss: 2, cpuU: 3, cpuS: 4 });
   if (hb.type !== "status" || hb.ts !== 1 || hb.rss !== 2 || hb.cpuU !== 3 || hb.cpuS !== 4) heartbeatFailures += 1;
   if (!Array.isArray(hb.replicas) || !Array.isArray(hb.tasks)) heartbeatFailures += 1;
+  // 逐个验证 heartbeat replicas 的 Worker identity 与运行时一致。
+  const live = runtime.list();
+  if (hb.replicas.length !== live.length || hb.replicas.some((r) => !live.some((s) =>
+    s.workerId === r.workerId && s.role.roleId === r.role.roleId && s.batchId === r.batchId && s.state === r.state))) heartbeatFailures += 1;
+  // 逐个验证 heartbeat tasks 的 workerId 指向真实 replica。
+  if (hb.tasks.some((t) => !hb.replicas.some((r) => r.workerId === t.workerId))) heartbeatFailures += 1;
 
   const batchRuntime = assembleBatchRuntime({
     mode: "feasibility", batchId: "batch-a",
@@ -506,13 +543,13 @@ async function probeLifecycle(sabotage?: N28Sabotage) {
   });
   const sent: unknown[] = [];
   await runBatchHost(batchRuntime, { maxIterations: 1, tickMs: 0, send: (m) => sent.push(m) });
-  if (sent.filter((m) => (m as { type?: string }).type === "status").length !== 1) controlFailures += 1;
+  if (sent.filter((m) => (m as { type?: string }).type === "status").length !== 1) batchFailures += 1;
 
   return {
     sameRoleReplicaControlFailures: controlFailures,
-    workerLifecycleProbeCases: 6,
+    workerLifecycleProbeCases: lifecycleCases,
     batchRuntimeProbeCases: 1,
-    batchRuntimeConsumptionFailures: controlFailures,
+    batchRuntimeConsumptionFailures: batchFailures,
     stoppedSlotCleanupProbeCases: 2,
     stoppedSlotCleanupFailures: cleanupFailures,
     heartbeatIdentityProbeCases: heartbeatCases,
@@ -565,9 +602,21 @@ async function probeH6(sabotage?: N28Sabotage): Promise<{ surfaceComparisonCases
   // 1 Skill snapshot（冻结索引二态稳定）
   check(typeof a.outcome.usage?.["cognitive.skillIndexEntries"] === "number");
 
-  // 1 final Working Set trace（start+finish 各一次，无正文）
-  check(a.traces.some((e: { type: string; phase?: string }) => e.type === "cognitive-working-set" && e.phase === "start") &&
-    a.traces.some((e: { type: string; phase?: string }) => e.type === "cognitive-working-set" && e.phase === "finish"));
+  // 1 final Working Set trace（start+finish 各一次）与 LLM schema/prompt/facade 暴露面精确相等：
+  // tools = 最后回合 LLM schema；memory = prompt Knowledge Context 行；skills = 0 active 且不得漏入 prompt。
+  const finalTrace = a.traces.find((e: { type: string; phase?: string }) => e.type === "cognitive-working-set" && e.phase === "finish") as
+    | { toolNames?: string[]; memoryEntryIds?: string[]; activeSkillIds?: string[] }
+    | undefined;
+  const lastTurnTools = a.toolsByTurn.at(-1) ?? [];
+  const promptEntryIds = new Set(Array.from(a.systemPrompt.matchAll(/^- \[([^\]]+)\]/gm), (m) => m[1] ?? ""));
+  const setEqual = (x: readonly string[] | undefined, y: ReadonlySet<string>): boolean =>
+    Array.isArray(x) && x.length === y.size && x.every((id) => y.has(id));
+  check(!!finalTrace &&
+    (finalTrace.toolNames ?? []).every((name: string) => a.systemPrompt.includes(name)) &&
+    setEqual(finalTrace.toolNames, new Set(lastTurnTools)) &&
+    setEqual(finalTrace.memoryEntryIds, promptEntryIds) &&
+    (finalTrace.activeSkillIds ?? []).length === 0 &&
+    !["skill:a", "skill:b"].some((id) => new RegExp(`${id}(?!\\w)`).test(a.systemPrompt)));
 
   // hidden dispatch：真实 runAgentTask + 冻结 allowlist，omitted program executor 必须零调用。
   let hiddenDispatch = 0;
@@ -720,10 +769,11 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
   let unauthorizedReads = 0;
   let unauthorizedWaves = 0;
 
-  const surfaces: Array<{ name: string; run(auth: VerifiedTaskReadScope, spies: { memory: number; query: number; skill: number; waves: number }): Promise<void> }> = [
+  const surfaces: Array<{ name: string; run(grant: BrokerGrant, spies: { memory: number; query: number; skill: number; waves: number }): Promise<void> }> = [
     {
       name: "context.build",
-      run: async (auth, spies) => {
+      run: async (grant: BrokerGrant, spies) => {
+        const auth = factory.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: lease.deadlineAt });
         const provider = createKnowledgeContextProvider({
           memory: { retrieve: async () => { spies.memory += 1; return corpus; } },
           isVisible: () => true,
@@ -740,7 +790,8 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
     },
     {
       name: "memory.retrieve",
-      run: async (auth, spies) => {
+      run: async (grant: BrokerGrant, spies) => {
+        const auth = factory.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: lease.deadlineAt });
         const broker = createKnowledgeBroker({
           grantService,
           dataWorld: {
@@ -756,7 +807,8 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
     },
     {
       name: "memory.get",
-      run: async (auth, spies) => {
+      run: async (grant: BrokerGrant, spies) => {
+        const auth = factory.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: lease.deadlineAt });
         const broker = createKnowledgeBroker({
           grantService,
           dataWorld: {
@@ -773,7 +825,8 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
     },
     {
       name: "memory.query",
-      run: async (auth, spies) => {
+      run: async (grant: BrokerGrant, spies) => {
+        const auth = factory.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: lease.deadlineAt });
         const broker = createKnowledgeBroker({
           grantService,
           dataWorld: {
@@ -788,7 +841,8 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
     },
     {
       name: "state.recallFunctions",
-      run: async (auth) => {
+      run: async (grant: BrokerGrant) => {
+        const auth = factory.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: lease.deadlineAt });
         const port = createAuthorizedStateReadPort({
           memory: { retrieve: async () => [{ id: "f", kind: "tool-function", anchors: [], status: "official", content: "spec", tenantId: "tenant-a", meta: {} }] },
           isVisible: () => true, clock,
@@ -798,7 +852,8 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
     },
     {
       name: "state.recallInsights",
-      run: async (auth) => {
+      run: async (grant: BrokerGrant) => {
+        const auth = factory.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: lease.deadlineAt });
         const port = createAuthorizedStateReadPort({
           memory: { retrieve: async () => [{ id: "i", kind: "task-insight", anchors: [], status: "official", content: "x", tenantId: "tenant-a", meta: {} }] },
           isVisible: () => true, clock,
@@ -808,7 +863,8 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
     },
     {
       name: "skills.list",
-      run: async (auth, spies) => {
+      run: async (grant: BrokerGrant, spies) => {
+        const auth = factory.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: lease.deadlineAt });
         const port = createScopedSkillPort({
           store: { listIds: async () => { spies.skill += 1; return ["skill:a"]; }, get: async (id: string) => ({ id, tenantId: "tenant-a", kind: id, anchors: [], content: "【场景锚点】a\n【何时用】w\n【效果】e", status: "official", meta: {} }) },
           isVisible: () => true, clock,
@@ -818,7 +874,8 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
     },
     {
       name: "skills.get",
-      run: async (auth, spies) => {
+      run: async (grant: BrokerGrant, spies) => {
+        const auth = factory.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: lease.deadlineAt });
         const port = createScopedSkillPort({
           store: { listIds: async () => ["skill:a"], get: async (id: string) => { spies.skill += 1; return { id, tenantId: "tenant-a", kind: id, anchors: [], content: "【场景锚点】a\n【何时用】w\n【效果】e", status: "official", meta: {} }; } },
           isVisible: () => true, clock,
@@ -828,54 +885,54 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
     },
   ];
 
-  const valid = factory.forTask({ lease, work, space: "meta", worker });
+  const liveGrant = grantService.issue({
+    lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" },
+    workspace: lease.workspace, language: "ts",
+    capabilities: ["memory.read", "memory.query", "state.recallFunctions", "state.recallInsights", "skills.list", "skills.get"],
+    ttlMs: 120_000,
+  });
 
   for (const surface of surfaces) {
     const spies = { memory: 0, query: 0, skill: 0, waves: 0 };
-    // 1. invalid signature
+    // 1. invalid signature：同一 surface 入口负责 verifyBrokerGrant，tampered grant 必须被拒。
     probes += 1;
     try {
-      factory.verifyBrokerGrant({ grant: { ...grantService.issue({ lease, scope, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 120_000 }), signature: "0".repeat(64) }, worker, leaseDeadlineAt: lease.deadlineAt });
+      await surface.run({ ...liveGrant, signature: "0".repeat(64) }, spies);
       unauthorizedReads += 1;
     } catch { /* expected */ }
-    // 2. missing capability（surface-specific）
+    // 2. missing capability（surface-specific）：错误 capability 的 grant 必须被同一 surface 入口拒绝。
     probes += 1;
     try {
+      const missingCap = surface.name === "memory.query" ? ["memory.read"] : ["state"];
       if (sabotage === "scope-guard-bypass") {
-        // P0-4 sabotage：绕过 verified-scope 守卫，直接把有效 scope 塞给 surface。
-        await surface.run(valid, spies);
-      } else if (surface.name === "context.build" || surface.name === "memory.retrieve" || surface.name === "memory.get") {
-        const capGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["state"], ttlMs: 120_000 });
-        factory.verifyBrokerGrant({ grant: capGrant, worker, leaseDeadlineAt: lease.deadlineAt });
-      } else if (surface.name === "memory.query") {
-        const capGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 120_000 });
-        const limited = factory.verifyBrokerGrant({ grant: capGrant, worker, leaseDeadlineAt: lease.deadlineAt });
-        await surface.run(limited, spies);
+        // P0-4 sabotage：绕过 verified-scope 守卫，直接把有效 grant 塞给 surface。
+        await surface.run(liveGrant, spies);
       } else {
-        const capGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 120_000 });
-        const limited = factory.verifyBrokerGrant({ grant: capGrant, worker, leaseDeadlineAt: lease.deadlineAt });
-        await surface.run(limited, spies);
+        const capGrant = grantService.issue({
+          lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" },
+          workspace: lease.workspace, language: "ts", capabilities: missingCap, ttlMs: 120_000,
+        });
+        await surface.run(capGrant, spies);
       }
     } catch { /* expected rejection */ }
-    // 3. already expired（用 t0 签发的旧 grant 在过期时钟上验证）
+    // 3. already expired：t0 签发的旧 grant 在过期时钟上穿过同一 surface 入口。
     probes += 1;
     try {
       clockMs = Date.parse("2030-01-01T00:00:00.000Z");
-      const staleGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 60_000 });
-      clockMs = Date.parse("2030-01-01T00:03:00.000Z");
-      const staleFactory = createVerifiedTaskReadScopeFactory({
-        grantService,
-        grantForTask: () => staleGrant,
+      const staleGrant = grantService.issue({
+        lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" },
+        workspace: lease.workspace, language: "ts", capabilities: ["memory.read", "memory.query"], ttlMs: 60_000,
       });
-      staleFactory.forTask({ lease, work, space: "meta", worker });
+      clockMs = Date.parse("2030-01-01T00:03:00.000Z");
+      await surface.run(staleGrant, spies);
       unauthorizedReads += 1;
     } catch { /* expected */ }
     clockMs = Date.parse("2030-01-01T00:00:00.000Z");
-    // 4. lease-expired-after-creation
+    // 4. lease-expired-after-creation：有效 grant 但 task lease 已过期的同一 surface 入口。
     probes += 1;
     try {
       clockMs = Date.parse("2030-01-01T00:02:01.000Z");
-      await surface.run(valid, spies);
+      await surface.run(liveGrant, spies);
       unauthorizedReads += 1;
     } catch { /* expected */ }
     clockMs = Date.parse("2030-01-01T00:00:00.000Z");
@@ -888,6 +945,7 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
   let visibilityCases = 0;
   let leaks = 0;
   for (const trap of n28TrapCorpus()) {
+    const allowed = trap.tenantId === "tenant-a" && trap.status === "official" && isVisible(trap.meta, "meta");
     visibilityCases += 1;
     const trapBroker = createKnowledgeBroker({
       grantService,
@@ -901,14 +959,19 @@ async function probeAuthorization(sabotage?: N28Sabotage): Promise<{
       isVisible: (meta, space) => isVisible(meta, space),
     });
     const r = await trapBroker.query({ grant: grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 120_000 }), op: "get", id: trap.id, worker, leaseDeadlineAt: lease.deadlineAt });
-    if (r.ok && trap.id.startsWith("trap-")) leaks += 1;
+    // 反向观察：拒绝全部也判失败——allowed 行必须命中，denied 行必须为空。
+    if (r.ok !== allowed) leaks += 1;
+    if (r.ok) {
+      const entry = (r as { entry?: { id?: unknown } }).entry;
+      if ((entry?.id === trap.id) !== allowed) leaks += 1;
+    }
     visibilityCases += 1;
     const trapContext = createKnowledgeContextProvider({
       memory: { retrieve: async (opts) => trap.tenantId === opts.tenantId && trap.status === "official" ? [trap] : [] },
       isVisible: (meta, space) => isVisible(meta, space),
     });
     const ctx = await trapContext.build({ tenantId: "tenant-a", space: "meta", roleId: "researcher", domains: ["algebra"], title: trap.id, text: trap.content, catalogVersion: "" });
-    if (ctx.entries.some((e) => e.entryId === trap.id) && trap.id.startsWith("trap-")) leaks += 1;
+    if (ctx.entries.some((e) => e.entryId === trap.id) !== allowed) leaks += 1;
   }
   return {
     authorizationProbeCases: probes,
@@ -923,7 +986,7 @@ export async function evaluateN28Feasibility(options?: { sabotage?: N28Sabotage 
   const sabotage = options?.sabotage;
   const [gold, budget, lifecycle, auth, h6, identity] = await Promise.all([
     probeGoldAndDirectory(sabotage),
-    Promise.resolve(probeBudgetAndResponsibility(sabotage)),
+    probeBudgetAndResponsibility(sabotage),
     probeLifecycle(sabotage),
     probeAuthorization(sabotage),
     probeH6(sabotage),

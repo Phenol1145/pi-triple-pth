@@ -110,7 +110,8 @@ export class CognitiveBudgetLedger {
   freezeSkillIndex(items: readonly { id: string; chars: number }[]): readonly string[] {
     const seen = new Set<string>();
     let skillChars = this.usageSkillChars();
-    for (const item of items) {
+    // 确定性冻结：输入反序也必须得到同一 skillIndexIds（按 id 字典序取预算内子集）。
+    for (const item of [...items].sort((a, b) => a.id.localeCompare(b.id))) {
       if (seen.has(item.id)) continue;
       seen.add(item.id);
       if (this.skillIndexIds.length + 1 > this.input.budget.maxSkillIndexEntries) {
