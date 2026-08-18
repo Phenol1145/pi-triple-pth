@@ -20,6 +20,9 @@ export interface CommandGateEvidence {
   skipped: readonly { file: string; tests: number }[];
   environmentStatus: "available" | "unavailable";
   unavailableReason?: "postgres" | "redis" | "sandbox" | "toolchain";
+  /** P1-4 修复：门禁输出可追溯（失败证据保留）。 */
+  stdout?: string;
+  stderr?: string;
 }
 
 export interface N28AcceptanceEnvelope {
@@ -92,8 +95,15 @@ function preflight(): Array<{ kind: CommandGateEvidence["unavailableReason"]; ok
   probes.push({ kind: "toolchain", ok: node.status === 0 && npm.status === 0, detail: `node=${(node.stdout ?? "").trim()} npm=${(npm.stdout ?? "").trim()}` });
   const docker = spawnSync("docker", ["info", "--format", "{{.ServerVersion}}"], { encoding: "utf8", timeout: 15_000 });
   probes.push({ kind: "postgres", ok: docker.status === 0, detail: (docker.stdout ?? docker.stderr ?? "").trim().slice(0, 200) });
-  const redis = spawnSync("redis-cli", ["ping"], { encoding: "utf8", timeout: 5_000 });
-  probes.push({ kind: "redis", ok: redis.status === 0, detail: (redis.stdout ?? redis.stderr ?? "").trim().slice(0, 100) });
+  // P1-4 修复：Redis preflight 使用项目配置 endpoint，而不是固定 redis-cli ping。
+  const redisUrl = process.env["PTH_REDIS_URL"] ?? process.env["REDIS_URL"] ?? "redis://localhost:6379";
+  let redisArgs = ["ping"];
+  try {
+    const parsed = new URL(redisUrl);
+    if (parsed.hostname) redisArgs = ["-h", parsed.hostname, "-p", parsed.port || "6379", "ping"];
+  } catch { /* 非法 URL：使用默认 */ }
+  const redis = spawnSync("redis-cli", redisArgs, { encoding: "utf8", timeout: 5_000 });
+  probes.push({ kind: "redis", ok: redis.status === 0, detail: `${redisUrl} → ${(redis.stdout ?? redis.stderr ?? "").trim().slice(0, 100)}` });
   probes.push({ kind: "sandbox", ok: true, detail: "基线沙箱集成套件 9 例 skip 为既有清单（本实验不要求沙箱环境）" });
   return probes;
 }
@@ -104,7 +114,15 @@ function gate(command: string, unavailableReason?: CommandGateEvidence["unavaila
   }
   const started = true;
   const run = spawnSync(command, { shell: true, encoding: "utf8", timeout: 900_000, env: { ...process.env, TSX_TSCONFIG_PATH: "tsconfig.n28.json" } });
-  return { command, started, exitCode: run.status, skipped: [], environmentStatus: "available" };
+  return {
+    command,
+    started,
+    exitCode: run.status,
+    skipped: [],
+    environmentStatus: "available",
+    stdout: (run.stdout ?? "").slice(-20_000),
+    stderr: (run.stderr ?? "").slice(-20_000),
+  };
 }
 
 export function decideN28Acceptance(envelope: N28AcceptanceEnvelope, opts: { currentHead: string }): N28AcceptanceEnvelope["decision"] {
@@ -139,14 +157,15 @@ async function collect(repoRoot: string, currentHead: string, output?: string): 
   const preflights = preflight();
   const unavailable = (kind: CommandGateEvidence["unavailableReason"]) => preflights.find((p) => p.kind === kind)?.ok ? undefined : kind;
 
-  const focused = gate(focusedCommand, unavailable("toolchain") ?? unavailable("postgres"));
+  const focused = gate(focusedCommand, unavailable("toolchain"));
   const n28Typecheck = gate(typecheckCommand, unavailable("toolchain"));
   const fullRegression = gate(fullCommand, unavailable("toolchain") ?? unavailable("postgres"));
   const lint = gate(lintCommand, unavailable("toolchain"));
   const dirty = spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" }).stdout.trim() !== "";
 
   if (focused.started && focused.exitCode === 0) {
-    focused.skipped = [];
+    // P1-4 修复：focused 零 skip 必须解析 JSON 报告确认，而不是直接赋 []。
+    focused.skipped = parseVitestSkipManifest(JSON.parse(await readFile(focusedJson, "utf8")), repoRoot);
   }
   if (fullRegression.started && fullRegression.exitCode === 0) {
     fullRegression.skipped = parseVitestSkipManifest(JSON.parse(await readFile(fullJson, "utf8")), repoRoot);
@@ -163,6 +182,8 @@ async function collect(repoRoot: string, currentHead: string, output?: string): 
     decision: "EVALUATION-INCOMPLETE",
     reasons: [],
   };
+  // P1-4 修复：只有“未启动/预检不可用”才是 EVALUATION-INCOMPLETE；
+  // 已启动 gate 的非零退出由 decideN28Acceptance 判 NO-GO，不得洗白。
   if ([focused, n28Typecheck, fullRegression, lint].some((g) => g.environmentStatus === "unavailable" || !g.started)) {
     envelope.decision = "EVALUATION-INCOMPLETE";
     envelope.reasons = preflights.filter((p) => !p.ok).map((p) => `${p.kind}: ${p.detail}`);
