@@ -50,7 +50,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
   // ── ASP-5 记忆桥（2026-08-11）：sandbox python 空间访问记忆的 PTH 侧端点
   //  P0-1（2026-08-15）：不再使用 SANDBOX_SHARED_SECRET 互信，也不再豁免全局 Bearer 鉴权。
   //  tenant 与 space 一律取自 Redis auth token 的声明（服务器端身份）；body 自报 space 一律拒绝。
-  //  只读桥：query（queryReadOnly 白名单）/ retrieve / get；写仍留 ts 空间（含可见性盖章）
+  //  只读桥：query（R2 数据面强制 tenant/status/space）/ retrieve / get；写仍留 ts 空间（含可见性盖章）
   app.post("/api/v1/kernel/memory-bridge", async (req, reply) => {
     if (!facade) return unavailable(reply);
     const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; space?: string } }).auth;
@@ -70,7 +70,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
         if (auth.role !== "platform-admin") {
           return reply.status(403).send({ error: "memory-bridge query requires platform-admin" });
         }
-        const rows = await facade.bridgeQuery(String(body.sql ?? ""));
+        const rows = await facade.bridgeQuery(String(body.sql ?? ""), auth.tenantId, auth.space);
         // 2026-08-15 筛查 H3：缺 meta 列的行无法判定可见性——fail-closed（不再默认公开）
         if (rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
           return reply.status(400).send({ error: "bridge query: 会话空间下查询必须包含 meta 列（可见性过滤依据）" });

@@ -14,6 +14,7 @@ import type { TaskCancelResult, TenantScope } from "../../contracts/index.js";
 import { TaskControlService } from "../../tasking/task-control-service.js";
 import { PgTaskQueries } from "../../tasking/task-queries.js";
 import { promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../execution/knowledge-promotion.js";
+import { buildRestrictedKnowledgeQuery } from "../../execution/knowledge-broker.js";
 import type { KnowledgeVerdict } from "../../execution/knowledge-verdicts.js";
 
 export type PthGatewayFacadeInput = KernelRuntime;
@@ -35,7 +36,7 @@ export interface SpawnBatchesResult {
 }
 
 export interface PthGatewayFacade {
-  bridgeQuery(sql: string, tenantId?: string): Promise<Array<Record<string, unknown> | null>>;
+  bridgeQuery(sql: string, tenantId: string, space: string): Promise<Array<Record<string, unknown> | null>>;
   bridgeRetrieve(anchors: string[], kinds: string[] | undefined, tenantId: string): Promise<MemoryEntry[]>;
   bridgeGet(id: string, tenantId: string): Promise<MemoryEntry | null>;
   execKernel(input: { code: string; mode: "stateless" | "repl"; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>>;
@@ -80,8 +81,15 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     });
   }
 
-  bridgeQuery(sql: string, _tenantId?: string): Promise<Array<Record<string, unknown> | null>> {
-    return this.#kernel.dataWorld.queryReadOnly(sql) as Promise<Array<Record<string, unknown> | null>>;
+  bridgeQuery(sql: string, tenantId: string, space: string): Promise<Array<Record<string, unknown> | null>> {
+    // R2（P0-2）：bridgeQuery 不再忽略 tenant；server 注入 tenant/status/space 谓词后才执行。
+    // platform-admin 跨租户默认 deny：调用方只能按路由 auth 传来的 tenantId 查询自身租户，
+    // 不提供隐式全局查询路径（跨租户诊断需另行裁决：显式目标租户 + 独立审计）。
+    if (!tenantId) throw new Error("bridgeQuery: tenantId required（fail-closed）");
+    if (!space) throw new Error("bridgeQuery: space required（fail-closed）");
+    const restricted = buildRestrictedKnowledgeQuery(sql, tenantId, space);
+    if (!restricted.ok) throw new Error(restricted.error);
+    return this.#kernel.dataWorld.queryReadOnly(restricted.sql) as Promise<Array<Record<string, unknown> | null>>;
   }
 
   bridgeRetrieve(anchors: string[], kinds: string[] | undefined, tenantId: string): Promise<MemoryEntry[]> {
