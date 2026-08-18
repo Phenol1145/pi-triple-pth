@@ -256,5 +256,5 @@ node_modules 起步）。任务：E1 v1.1.3 发布——盘点 main 上未发版
 > R4 已落：`c5db1a3`（同事务 enqueue + 原子 claim CTE token/lease + observer durable failure + 根修 observer failed）→ 已合并 main（merge `afc870a`）。
 > Wave-1 全部合并后门槛：268 文件 / 2298 用例绿 + 9 skip；observer failed 0；lint 全绿。
 > R3 已落：`ececb2a` + 返修 `c660c36`（capability kernel verification repo 注入缝）→ 已合并 main（merge `00be7c6`/`0fa2e44`）。合并后门槛：269 文件 / 2283 用例绿；lint 全绿。
-> R5 已落：`e8abe1a`（生产端口评测 + 138 题/24 全覆盖/holdout 42(30.4%)/mutation 1.0 + EvidenceRef 全链 + sourceBindingsDigest 填实）→ 已合并 main（merge `763ea2a` 起）。合并后门槛：连续两轮全量 269 文件 / 2292 用例绿（首轮 1 例 flaky 未复现）；lint 全绿。
+> R5 已落：`e8abe1a`（生产端口评测 + 138 题/24 全覆盖/holdout 42(30.4%)/mutation 1.0 + EvidenceRef 全链 + sourceBindingsDigest 填实）→ 已合并 main（merge `1ee7c1b`）。合并后门槛：连续两轮全量 269 文件 / 2292 用例绿（首轮 1 例 flaky 未复现）；lint 全绿。
 > Wave-4 R6 组合验收为最后一棒。
