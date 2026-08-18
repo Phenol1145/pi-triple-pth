@@ -13,8 +13,10 @@ import { createVerifiedTaskReadScopeFactory } from "../src/pth/execution/authori
 import { createExecutionGrantService } from "../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../src/pth/execution/authorization/grant-key-provider.js";
 import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "../src/pth/execution/knowledge-ranking.js";
-import { createKnowledgeBroker } from "../src/pth/execution/knowledge-broker.js";
+import { createKnowledgeBroker, type KnowledgeMemoryEntry } from "../src/pth/execution/knowledge-broker.js";
+import type { LayeredSearchWaveInput, VerifiedTaskReadScope } from "../src/pth/execution/index.js";
 import { createKnowledgeContextProvider } from "../src/pth/runner/knowledge-context.js";
+import { createAuthorizedStateReadPort, createScopedSkillPort } from "../src/pth/runner/index.js";
 import { CognitiveBudgetLedger } from "../src/pth/kernel/execution/cognitive-budget.js";
 import { createWorkerReplica, roleDefinitionRevision } from "../src/pth/kernel/execution/worker-replica.js";
 import { WorkerSlotRuntime } from "../src/pth/bootstrap/worker-slot-runtime.js";
@@ -644,12 +646,259 @@ async function probeIdentity(): Promise<{ auditIdentityProbeCases: number; audit
   };
 }
 
+async function probeAuthorization(): Promise<{
+  authorizationProbeCases: number;
+  visibilityProbeCases: number;
+  authorizationLeaks: number;
+  unauthorizedWaveInvocations: number;
+  unauthorizedReadPortInvocations: number;
+}> {
+  const corpus = n28AuthorizedCorpus();
+  const entries = n28DirectoryInputs(corpus);
+  const directory = buildMemoryDirectorySnapshot({
+    tenantId: "tenant-a", epoch: 1, knownDomainIds: N28_DOMAIN_IDS,
+    workers: Object.values(N28_WORKERS), regions: N28_REGIONS, responsibilities: N28_RESPONSIBILITIES,
+    entries,
+  });
+  let clockMs = Date.parse("2030-01-01T00:00:00.000Z");
+  const clock = () => new Date(clockMs);
+  const grantService = createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: "n28-eval-secret-0123456789" }), clock });
+  const retriever = createLayeredKnowledgeRetriever<KnowledgeMemoryEntry>(directory, {
+    knownDomainIds: N28_DOMAIN_IDS, entries,
+  }, { clock });
+  const worker = N28_WORKERS.algebra;
+  const wavePort = async (input: LayeredSearchWaveInput) => {
+    const regionSet = new Set(input.regionIds.flatMap((id) => regionEntryIds(directory, id)));
+    const authorized = corpus.filter((e) => e.tenantId === input.authorization.tenantId && e.status === "official");
+    const inWave = input.candidateScope === "global" ? authorized : authorized.filter((e) => regionSet.has(e.id));
+    const matching = filterKnowledgeEntriesByQueryText(inWave, input.queryText, { strict: true });
+    const ranked = rankKnowledgeEntries(matching, { queryText: input.queryText, domains: [] });
+    return { entries: ranked.slice(0, input.limit), candidateCount: inWave.length, visibleCount: inWave.length, scannedCount: authorized.length, completeForQuery: true };
+  };
+  const factory = createVerifiedTaskReadScopeFactory({
+    grantService,
+    grantForTask: ({ lease, work, space }) => grantService.issue({
+      lease,
+      scope: { ...work.scope, principalId: `worker:${worker.workerId}`, roles: ["researcher"], space },
+      workspace: lease.workspace, language: "ts",
+      capabilities: ["memory.read", "memory.query", "state.recallFunctions", "state.recallInsights", "skills.list", "skills.get"],
+      ttlMs: 120_000,
+    }),
+  });
+  const scope = { tenantId: "tenant-a", principalId: `worker:${worker.workerId}`, roles: ["researcher"], traceId: "tr", space: "meta" };
+  const lease = {
+    taskId: "t-id", leaseId: "20000000-0000-4000-8000-000000000091", generation: 1,
+    scope, workspace: { tenantId: "tenant-a", workspaceId: "w", taskId: "t-id" },
+    roleId: "researcher", deadlineAt: "2030-01-01T00:02:00.000Z",
+  };
+  const work = { taskId: "t-id", scope, title: "t", text: "token:alg-01", tags: [], payload: {}, assignedRole: "researcher", domains: ["mathematics"] };
+
+  let probes = 0;
+  let unauthorizedReads = 0;
+  let unauthorizedWaves = 0;
+
+  const surfaces: Array<{ name: string; run(auth: VerifiedTaskReadScope, spies: { memory: number; query: number; skill: number; waves: number }): Promise<void> }> = [
+    {
+      name: "context.build",
+      run: async (auth, spies) => {
+        const provider = createKnowledgeContextProvider({
+          memory: { retrieve: async () => { spies.memory += 1; return corpus; } },
+          isVisible: () => true,
+          layeredRetriever: retriever,
+          layeredSearchWave: async (input) => { spies.waves += 1; return wavePort(input); },
+          clock,
+        });
+        await provider.build({
+          tenantId: "tenant-a", space: "meta", roleId: "researcher", domains: ["mathematics"],
+          title: "t", text: "token:alg-01", catalogVersion: "",
+          workerId: worker.workerId, authorization: auth,
+        });
+      },
+    },
+    {
+      name: "memory.retrieve",
+      run: async (auth, spies) => {
+        const broker = createKnowledgeBroker({
+          grantService,
+          dataWorld: {
+            queryReadOnly: async () => { spies.query += 1; return []; },
+            memory: { retrieve: async () => { spies.memory += 1; return corpus; }, get: async () => undefined },
+          },
+          isVisible: () => true, layeredRetriever: retriever,
+          layeredSearchWave: async (input) => { spies.waves += 1; return wavePort(input); },
+          verifiedReadScopeAuthority: factory, clock,
+        });
+        await broker.queryVerified(auth, { op: "search", queryText: "token:alg-01", domains: ["mathematics"], limit: 8 });
+      },
+    },
+    {
+      name: "memory.get",
+      run: async (auth, spies) => {
+        const broker = createKnowledgeBroker({
+          grantService,
+          dataWorld: {
+            queryReadOnly: async () => [], memory: {
+              retrieve: async () => corpus,
+              get: async () => { spies.memory += 1; return corpus[0]; },
+            },
+          },
+          isVisible: () => true, layeredRetriever: retriever, layeredSearchWave: wavePort,
+          verifiedReadScopeAuthority: factory, clock,
+        });
+        await broker.queryVerified(auth, { op: "get", id: "alg-01" });
+      },
+    },
+    {
+      name: "memory.query",
+      run: async (auth, spies) => {
+        const broker = createKnowledgeBroker({
+          grantService,
+          dataWorld: {
+            queryReadOnly: async () => { spies.query += 1; return [{ id: "r", meta: {} }]; },
+            memory: { retrieve: async () => corpus, get: async () => undefined },
+          },
+          isVisible: () => true, layeredRetriever: retriever, layeredSearchWave: wavePort,
+          verifiedReadScopeAuthority: factory, clock,
+        });
+        await broker.queryVerified(auth, { op: "query", sql: "SELECT kind, meta FROM memory_entries LIMIT 1" });
+      },
+    },
+    {
+      name: "state.recallFunctions",
+      run: async (auth) => {
+        const port = createAuthorizedStateReadPort({
+          memory: { retrieve: async () => [{ id: "f", kind: "tool-function", anchors: [], status: "official", content: "spec", tenantId: "tenant-a", meta: {} }] },
+          isVisible: () => true, clock,
+        });
+        await port.forScope(auth).recallFunctions(["a"]);
+      },
+    },
+    {
+      name: "state.recallInsights",
+      run: async (auth) => {
+        const port = createAuthorizedStateReadPort({
+          memory: { retrieve: async () => [{ id: "i", kind: "task-insight", anchors: [], status: "official", content: "x", tenantId: "tenant-a", meta: {} }] },
+          isVisible: () => true, clock,
+        });
+        await port.forScope(auth).recallInsights(["a"]);
+      },
+    },
+    {
+      name: "skills.list",
+      run: async (auth, spies) => {
+        const port = createScopedSkillPort({
+          store: { listIds: async () => { spies.skill += 1; return ["skill:a"]; }, get: async (id: string) => ({ id, tenantId: "tenant-a", kind: id, anchors: [], content: "【场景锚点】a\n【何时用】w\n【效果】e", status: "official", meta: {} }) },
+          isVisible: () => true, clock,
+        });
+        await port.forScope(auth).list();
+      },
+    },
+    {
+      name: "skills.get",
+      run: async (auth, spies) => {
+        const port = createScopedSkillPort({
+          store: { listIds: async () => ["skill:a"], get: async (id: string) => { spies.skill += 1; return { id, tenantId: "tenant-a", kind: id, anchors: [], content: "【场景锚点】a\n【何时用】w\n【效果】e", status: "official", meta: {} }; } },
+          isVisible: () => true, clock,
+        });
+        await port.forScope(auth).get("a");
+      },
+    },
+  ];
+
+  const valid = factory.forTask({ lease, work, space: "meta", worker });
+
+  for (const surface of surfaces) {
+    const spies = { memory: 0, query: 0, skill: 0, waves: 0 };
+    // 1. invalid signature
+    probes += 1;
+    try {
+      factory.verifyBrokerGrant({ grant: { ...grantService.issue({ lease, scope, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 120_000 }), signature: "0".repeat(64) }, worker, leaseDeadlineAt: lease.deadlineAt });
+      unauthorizedReads += 1;
+    } catch { /* expected */ }
+    // 2. missing capability（surface-specific）
+    probes += 1;
+    try {
+      if (surface.name === "context.build" || surface.name === "memory.retrieve" || surface.name === "memory.get") {
+        const capGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["state"], ttlMs: 120_000 });
+        factory.verifyBrokerGrant({ grant: capGrant, worker, leaseDeadlineAt: lease.deadlineAt });
+      } else if (surface.name === "memory.query") {
+        const capGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 120_000 });
+        const limited = factory.verifyBrokerGrant({ grant: capGrant, worker, leaseDeadlineAt: lease.deadlineAt });
+        await surface.run(limited, spies);
+      } else {
+        const capGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 120_000 });
+        const limited = factory.verifyBrokerGrant({ grant: capGrant, worker, leaseDeadlineAt: lease.deadlineAt });
+        await surface.run(limited, spies);
+      }
+    } catch { /* expected rejection */ }
+    // 3. already expired（用 t0 签发的旧 grant 在过期时钟上验证）
+    probes += 1;
+    try {
+      clockMs = Date.parse("2030-01-01T00:00:00.000Z");
+      const staleGrant = grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 60_000 });
+      clockMs = Date.parse("2030-01-01T00:03:00.000Z");
+      const staleFactory = createVerifiedTaskReadScopeFactory({
+        grantService,
+        grantForTask: () => staleGrant,
+      });
+      staleFactory.forTask({ lease, work, space: "meta", worker });
+      unauthorizedReads += 1;
+    } catch { /* expected */ }
+    clockMs = Date.parse("2030-01-01T00:00:00.000Z");
+    // 4. lease-expired-after-creation
+    probes += 1;
+    try {
+      clockMs = Date.parse("2030-01-01T00:02:01.000Z");
+      await surface.run(valid, spies);
+      unauthorizedReads += 1;
+    } catch { /* expected */ }
+    clockMs = Date.parse("2030-01-01T00:00:00.000Z");
+    if (spies.memory > 0 || spies.query > 0 || spies.skill > 0) unauthorizedReads += 1;
+    if (spies.waves > 0) unauthorizedWaves += 1;
+  }
+
+  // 14 visibility observations：7 个陷阱行 × (Broker + Context)
+  setSpaceLookup({ get: (id) => ({ id, parent: id === "meta" ? undefined : "meta" }) });
+  let visibilityCases = 0;
+  let leaks = 0;
+  for (const trap of n28TrapCorpus()) {
+    visibilityCases += 1;
+    const trapBroker = createKnowledgeBroker({
+      grantService,
+      dataWorld: {
+        queryReadOnly: async () => [],
+        memory: {
+          retrieve: async (opts) => trap.tenantId === opts.tenantId && trap.status === "official" ? [trap] : [],
+          get: async () => (trap.tenantId === "tenant-a" && trap.status === "official" ? trap : undefined),
+        },
+      },
+      isVisible: (meta, space) => isVisible(meta, space),
+    });
+    const r = await trapBroker.query({ grant: grantService.issue({ lease, scope: { ...scope, principalId: `worker:${worker.workerId}`, space: "meta" }, workspace: lease.workspace, language: "ts", capabilities: ["memory.read"], ttlMs: 120_000 }), op: "get", id: trap.id, worker, leaseDeadlineAt: lease.deadlineAt });
+    if (r.ok && trap.id.startsWith("trap-")) leaks += 1;
+    visibilityCases += 1;
+    const trapContext = createKnowledgeContextProvider({
+      memory: { retrieve: async (opts) => trap.tenantId === opts.tenantId && trap.status === "official" ? [trap] : [] },
+      isVisible: (meta, space) => isVisible(meta, space),
+    });
+    const ctx = await trapContext.build({ tenantId: "tenant-a", space: "meta", roleId: "researcher", domains: ["algebra"], title: trap.id, text: trap.content, catalogVersion: "" });
+    if (ctx.entries.some((e) => e.entryId === trap.id) && trap.id.startsWith("trap-")) leaks += 1;
+  }
+  return {
+    authorizationProbeCases: probes,
+    visibilityProbeCases: visibilityCases,
+    authorizationLeaks: leaks,
+    unauthorizedWaveInvocations: unauthorizedWaves,
+    unauthorizedReadPortInvocations: unauthorizedReads,
+  };
+}
+
 export async function evaluateN28Feasibility(): Promise<N28FeasibilityResult> {
-  const [gold, budget, lifecycle, visibility, h6, identity] = await Promise.all([
+  const [gold, budget, lifecycle, auth, h6, identity] = await Promise.all([
     probeGoldAndDirectory(),
     Promise.resolve(probeBudgetAndResponsibility()),
     probeLifecycle(),
-    probeVisibility(),
+    probeAuthorization(),
     probeH6(),
     probeIdentity(),
   ]);
@@ -657,12 +906,8 @@ export async function evaluateN28Feasibility(): Promise<N28FeasibilityResult> {
     ...gold,
     ...budget,
     ...lifecycle,
-    ...visibility,
+    ...auth,
     ...identity,
-    authorizationLeaks: 0,
-    unauthorizedWaveInvocations: 0,
-    unauthorizedReadPortInvocations: 0,
-    authorizationProbeCases: 0,
     surfaceMismatches: h6.surfaceMismatches,
     surfaceComparisonCases: h6.surfaceComparisonCases,
     hiddenDispatchProbeCases: h6.hiddenDispatchProbeCases,
