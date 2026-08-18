@@ -59,7 +59,7 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     }
   });
 
-  it("human-interface 已移除（PTL 负责人类交互——PTH 任务池不设）", () => {
+  it("human-interface 不属于 task worker 谱系（PTH Human Interaction 按需调用——任务池不设）", () => {
     expect(DEFAULT_ROLES.some((r) => r.id === "human-interface")).toBe(false);
     expect(allLineageRoles().some((r) => r.id === "human-interface")).toBe(false);
   });

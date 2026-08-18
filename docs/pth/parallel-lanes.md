@@ -86,7 +86,9 @@
 >
 > F1 已落：`c717677`（canonical provenance + capability 合并 + update revision + promote 幂等重放）→ 已合并 main。
 > F5 已落：`32d2efa`（side-effect outbox + candidate lineage + audit 绑定）→ 已合并 main。
-> F1–F5 全部完成：阻塞项修复映射见 `v1.2-acceptance-fix-completion.md`。
+> F1–F5 车道实现均已合并；分契约修复映射见 `v1.2-acceptance-fix-completion.md`。独立复验
+> 判定原 Gate A/B/C **NOT ACCEPTED**，剩余阻塞与关闭顺序见
+> `v1.2-acceptance-fix-revalidation.md`；车道 done 不等于组合 Gate accepted。
 > F4 已落：`aa0aa34`（生产 Catalog aliases + query ranking + DB evidence + snapshot hash + 84 题/7 指标）→ 已合并 main。
 > F3 已落：`8d79538`（delegate domain 继承 + verdict/promotion 主体与 RBAC）→ 已合并 main。
 > F2 已落：`d6f6487`（(tenant_id,id) 复合身份 + requireTenant fail-closed + raw query 门禁）→ 已合并 main。
