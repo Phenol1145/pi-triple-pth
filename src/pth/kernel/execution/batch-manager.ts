@@ -70,9 +70,9 @@ export class BatchManager {
     lastCpuUser?: number;
     lastCpuSystem?: number;
     /** worker 级控制回执等待表：role 或 worker:<workerId> → 等待 worker-status 消息的结算回调 */
-    pendingCtl: Map<string, Array<(status: { state?: string; error?: string }) => void>>;
+    pendingCtl: Map<string, Array<(status: { state?: string; error?: string; accepted?: boolean }) => void>>;
     /** N28 T2：replica remove 的最终回执等待表（只在 worker-removed 事件后结算）。 */
-    pendingRemovalCtl: Map<string, Array<(status: { state?: string; error?: string }) => void>>;
+    pendingRemovalCtl: Map<string, Array<(status: { state?: string; error?: string; accepted?: boolean }) => void>>;
     /** N28 T2：feasibility 模式心跳自报的副本状态（off 模式保持 []）。 */
     replicas: WorkerReplicaStatus[];
   }>();
@@ -275,12 +275,14 @@ export class BatchManager {
         if (onExit) rec.child.off("exit", onExit);
         resolve(ok);
       };
-      const onAck = (status: { state?: string; error?: string }) => {
+      const onAck = (status: { state?: string; error?: string; accepted?: boolean }) => {
         if (expectRemoved) {
           if (status.state === "removed") finish(true);
-        } else {
-          finish(status.state !== "error");
+          return;
         }
+        // P1-2 修复：unknown/accepted=false 不得当成功。
+        if (status.accepted === false || status.state === "unknown" || status.state === "error") finish(false);
+        else finish(true);
       };
       try {
         if (!rec.child.connected) {
@@ -290,7 +292,17 @@ export class BatchManager {
         const waiters = (expectRemoved ? rec.pendingRemovalCtl : rec.pendingCtl).get(key);
         if (waiters) waiters.push(onAck);
         else (expectRemoved ? rec.pendingRemovalCtl : rec.pendingCtl).set(key, [onAck]);
-        timer = setTimeout(() => finish(false), 5000);
+        timer = setTimeout(() => {
+          // P1-2 修复：超时清理 waiter key，防 pendingRemovalCtl 长期积累。
+          const map = expectRemoved ? rec.pendingRemovalCtl : rec.pendingCtl;
+          const list = map.get(key);
+          if (list) {
+            const index = list.indexOf(onAck);
+            if (index >= 0) list.splice(index, 1);
+            if (list.length === 0) map.delete(key);
+          }
+          finish(false);
+        }, 5000);
         onExit = () => finish(false);
         rec.child.once("exit", onExit);
         rec.child.send({ ...msg, workerId });

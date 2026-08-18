@@ -44,7 +44,7 @@ import { pthConfig } from "../config/index.js";
 import { runAgentTask } from "../kernel/execution/agent-loop.js";
 import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
 import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
-import type { WorkerReplica } from "../kernel/execution/worker-replica.js";
+import { roleDefinitionRevision, type WorkerReplica } from "../kernel/execution/worker-replica.js";
 import type { WorkerControlMessage, WorkerSlot } from "./worker-slot-runtime.js";
 import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type WorkerReplicaRef } from "../contracts/index.js";
 import { assertMemoryDirectoryResponsibilityCapacity, buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createKnowledgeBroker, createLayeredKnowledgeRetriever, createVerifiedTaskReadScopeFactory, filterKnowledgeEntriesByQueryText, rankKnowledgeEntries, regionEntryIds, type DirectoryEntryInput, type KnowledgeMemoryEntry, type LayeredSearchWaveInput, type LayeredSearchWaveResult, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
@@ -854,10 +854,25 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     };
   };
 
+  // P0-1 修复：feasibility 下 workerSpecs 必须来自 Directory 的 exact WorkerReplicaRef（UUID 一致）；
+  // role revision 按生产 catalog role 重算，未知 Directory 角色 fail-closed。
+  const assemblyWorkerSpecs = mode === "feasibility"
+    ? deps.workerSpecs ?? (deps.memoryDirectory?.workers ?? []).map((directoryWorker) => {
+        const roleDef = knownRoleById(directoryWorker.role.roleId);
+        if (!roleDef) throw new Error(`unknown directory worker role: ${directoryWorker.role.roleId}`);
+        return {
+          role: roleDef,
+          requestedReplica: {
+            ...directoryWorker,
+            role: { roleId: directoryWorker.role.roleId, revision: roleDefinitionRevision(roleDef) },
+          },
+        };
+      })
+    : workerRoles.map((role) => ({ role }));
   const runtime = assembleBatchRuntime({
     mode,
     batchId,
-    workerSpecs: workerRoles.map((role) => ({ role })),
+    workerSpecs: assemblyWorkerSpecs,
     buildSlot: ({ role, replica }) => makeSlot(createWorker(role, replica)),
     emit: (event) => {
       try {

@@ -912,8 +912,6 @@ export async function evaluateN28Feasibility(): Promise<N28FeasibilityResult> {
     surfaceComparisonCases: h6.surfaceComparisonCases,
     hiddenDispatchProbeCases: h6.hiddenDispatchProbeCases,
     hiddenExecutorInvocations: h6.hiddenExecutorInvocations,
-    bodyCopiesOutsideCanonicalStore: 0,
-    ownerlessRegions: 0,
     workingSetDeterminismMismatches: budget.workingSetDeterminismMismatches,
   };
   return decideN28Feasibility(metrics);
