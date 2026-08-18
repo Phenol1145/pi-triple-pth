@@ -23,14 +23,17 @@
 - Static and ToolReg tools share the same `maxTools` limit; pinned tools count toward it.
 - The experiment does not create PG tables, automatic Region splitting, automatic Role differentiation, autoscaling, embeddings, or production defaults.
 - A tenant/space/status/grant leak, a gold item made unreachable by responsibility assignment, a budget bypass, or non-independent same-Role replicas is an immediate No-Go.
-- N27 R1–R6 files and contracts remain untouched. Tasks 1–7 are blocked until `docs/pth/v1.2-acceptance-fix-revalidation-final.md` exists, says `ACCEPTED`, and records R1–R6 as merged; touching runtime files before that is a plan violation.
+- Before Gate 0, N27 R1–R6 runtime files remain untouched. After Gate 0, this plan may edit shared runtime surfaces named below, but it may not weaken any accepted N27 contract, invariant or regression test. Tasks 1–7 remain blocked until `docs/pth/v1.2-acceptance-fix-revalidation-final.md` exists, says `ACCEPTED`, names a main commit containing R6, and records R1–R6 as merged; touching runtime files before that is a plan violation.
 - All Directory snapshots are single-tenant and bind entry revision/content hash. The builder rejects cross-tenant input, duplicate/unknown bindings, stale epochs and Region sets without a primary owner.
 - `maxTools` counts actual LLM Tool schemas only (static + ToolReg, using canonical underscore names). TypeScript capability functions are governed by the capability grant plus their own Memory/Skill ledgers; they are not fictitious Tool schemas.
 - The feasibility retriever executes all four bounded waves. Early-stop optimization is deferred until semantic confidence is calibrated; a port must distinguish `found`, `exhausted-empty`, `retrieval-incomplete`, and `retrieval-failed`.
 
 ## Feasibility Gate
 
-The implementation is considered feasible only when H1–H6 in the spec all pass. The final evaluator exits `0` only for `GO`; any direct No-Go condition exits non-zero and names the failed hypothesis. A green unit suite without the vertical evaluator is not acceptance evidence.
+The implementation is considered feasible only when H1–H6 in the spec all pass and the final acceptance envelope also
+records the N28 typecheck, focused suite, full regression and lint gates. The evaluator verdict is provisional; only
+`accept-n28-feasibility.ts` may emit final `GO`. A green unit suite or evaluator without the vertical and regression
+evidence is not acceptance.
 
 Gate 0: before Task 1, record the N27 acceptance commit in the implementation branch and verify its final report is
 `ACCEPTED`, names a main commit that already contains R6, and explicitly records R1–R6 as merged. A report whose header
@@ -51,7 +54,7 @@ the same runtime surfaces.
 
 **Interfaces:**
 - Consumes: existing role fields from `WorkerRole` and the canonical terms in `CONTEXT.md`.
-- Produces: `RoleDefinition`, `RoleDefinitionRef`, `WorkerReplicaRef`, `MemoryType`, `MemoryRegion`, `MemoryResponsibility`, `ResponsibilityCapacity`, `CognitiveBudget`, `WorkerLoadEnvelope`, `TaskWorkingSetPolicy`, `TaskWorkingSet`, `RetrievalTrace`, `N28_FEASIBILITY_BUDGET`, `checkResponsibilityCapacity()`.
+- Produces: `RoleDefinition`, `RoleDefinitionRef`, `WorkerReplicaRef`, `MemoryType`, `MemoryRegion`, `MemoryResponsibility`, `ResponsibilityCapacity`, `CognitiveBudget`, `WorkerLoadEnvelope`, `TaskWorkingSetPolicy`, `TaskWorkingSet`, `PendingRetrievalTrace`, `RetrievalTrace`, `N28_FEASIBILITY_BUDGET`, `checkResponsibilityCapacity()`.
 
 - [ ] **Step 1: Write the failing contract tests**
 
@@ -274,6 +277,7 @@ describe("WorkerReplica", () => {
     const b = createWorkerReplica("researcher", "catalog-v1", "batch-a", () => ids.shift()!);
     expect(a.ref.role).toEqual(b.ref.role);
     expect(a.ref.workerId).not.toBe(b.ref.workerId);
+    expect(Object.isFrozen(a.ref.role)).toBe(true);
     a.pause();
     expect(a.snapshot().state).toBe("paused");
     expect(b.snapshot().state).toBe("idle");
@@ -331,7 +335,10 @@ export class WorkerReplica {
   private pauseAfterTask = false;
   private stopAfterTask = false;
 
-  constructor(readonly ref: WorkerReplicaRef) {}
+  readonly ref: WorkerReplicaRef;
+  constructor(ref: WorkerReplicaRef) {
+    this.ref = Object.freeze({ ...ref, role: Object.freeze({ ...ref.role }) });
+  }
 
   startTask(taskId: string): void {
     if (this.state !== "idle") throw new Error(`worker ${this.ref.workerId} already ${this.state}`);
@@ -492,6 +499,17 @@ finite run. `runBatchProcess()` may keep PG/schema/config setup, but after creat
 it cannot assemble workers or interpret worker control a second time. `scripts/n28-feasibility-harness.ts` later invokes the
 same assembly/host with in-memory adapters. Thus H1 executes the production composition, not a source-text assertion.
 
+`assembleBatchRuntime(deps)` includes injectable
+`workerSpecs?: readonly {role:RoleDefinition; requestedReplica?:WorkerReplicaRef}[]` and
+`replicaFactory?: (input:{role:RoleDefinition;batchId:string;index:number;requestedReplica?:WorkerReplicaRef}) => WorkerReplica`.
+Production derives specs from the Runtime Catalog and defaults to a fresh UUID-backed `createWorkerReplica`; the
+deterministic harness passes four specs whose `role` is the exact frozen `N28_ROLE` object and whose requested refs are the
+four exact `N28_WORKERS` values. Assembly
+rejects duplicate IDs, batch mismatch, role ID mismatch or
+`roleDefinitionRevision(input.role) !== replica.ref.role.revision`. A focused test proves the injected IDs appear unchanged
+in TaskLoop principals, heartbeat and final control acknowledgements; this seam is the only way the harness binds Directory
+responsibilities to production slots.
+
 At the start of `createWorker(role)`, call that helper. It creates a replica only when the mode is `feasibility`. Derive its role revision from the canonical Role Definition itself—not the Discipline Catalog—and use the configured batch ID, falling back to `batch:${process.pid}` only when the child is launched outside BatchManager:
 
 ```typescript
@@ -579,7 +597,7 @@ process.on("message", (msg) => {
   if (msg.type === "worker-remove" && msg.workerId) {
     const index = replicas.findIndex((replica) => replica.workerId === msg.workerId);
     if (index >= 0) replicas.splice(index, 1);
-    process.send?.({ type: "worker-status", workerId: msg.workerId, state: "removed" });
+    process.send?.({ type: "worker-removed", workerId: msg.workerId });
     process.send?.({ type: "status", tasks: [], replicas, ts: Date.now() });
   }
   if (msg.type === "shutdown") process.exit(0);
@@ -630,7 +648,9 @@ git commit -m "feat(pth): separate worker replica identity from roles"
 **Interfaces:**
 - Consumes: `MemoryRegion`, `MemoryResponsibility`, active `WorkerReplicaRef[]`, top-level tenant identity and an explicit
   repository revision/classification projection around the existing `KnowledgeMemoryEntry` shape.
-- Produces: explicit `MemoryTypeClassifier`, `MemoryDirectorySnapshot`, `buildMemoryDirectorySnapshot()`, `assertMemoryDirectorySnapshotIntegrity()`, `responsibilitiesForWorker()`, `membershipsForEntry()`, `regionEntryIds()`.
+- Produces: explicit `MemoryTypeClassifier`, `MemoryDirectorySnapshot`, `buildMemoryDirectorySnapshot()`,
+  `assertMemoryDirectorySnapshotIntegrity()`, `assertMemoryDirectoryResponsibilityCapacity()`,
+  `responsibilitiesForWorker()`, `membershipsForEntry()`, `regionEntryIds()`.
 
 - [ ] **Step 1: Create the deterministic feasibility corpus fixture**
 
@@ -649,12 +669,24 @@ Create `scripts/n28-feasibility-fixture.ts` with generators that produce exactly
 
 ```typescript
 import type { KnowledgeMemoryEntry } from "../src/pth/execution/knowledge-broker.js";
+import { N28_FEASIBILITY_BUDGET, type CognitiveBudget } from "../src/pth/contracts/index.js";
 import { classifyFeasibilityMemoryType } from "../src/pth/execution/memory-type-classifier.js";
 import { MID_ROLES } from "../src/pth/kernel/execution/builtin-roles.js";
+import type { RoleDefinition } from "../src/pth/kernel/execution/worker-cluster.js";
 import { roleDefinitionRevision } from "../src/pth/kernel/execution/worker-replica.js";
 
-export const N28_ROLE = { ...MID_ROLES.find((role) => role.id === "researcher")!, loadPolicyRef: "n28-feasibility-v1" };
+const researcher = MID_ROLES.find((role) => role.id === "researcher")!;
+export const N28_ROLE = {
+  ...researcher,
+  capabilities: [...new Set([...(researcher.capabilities ?? []), "memory.query", "state", "skills"])],
+  loadPolicyRef: "n28-feasibility-v1",
+} satisfies RoleDefinition;
+Object.freeze(N28_ROLE.capabilities);
+Object.freeze(N28_ROLE);
 export const N28_ROLE_REVISION = roleDefinitionRevision(N28_ROLE);
+export const N28_ROLE_LOAD_POLICIES: ReadonlyMap<string, Readonly<CognitiveBudget>> = new Map<string, Readonly<CognitiveBudget>>([
+  ["n28-feasibility-v1", Object.freeze({ ...N28_FEASIBILITY_BUDGET.task })],
+]);
 export const N28_DOMAIN_IDS = new Set(["algebra", "geometry", "mathematics"]);
 
 export type N28KnowledgeEntry = KnowledgeMemoryEntry & { tenantId: string };
@@ -762,7 +794,7 @@ export function n28TrapCorpus(): N28KnowledgeEntry[] {
 ```typescript
 import { describe, expect, it } from "vitest";
 import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "../../src/pth/contracts/index.js";
-import { assertMemoryDirectorySnapshotIntegrity, buildMemoryDirectorySnapshot, membershipsForEntry } from "../../src/pth/execution/memory-directory.js";
+import { assertMemoryDirectoryResponsibilityCapacity, assertMemoryDirectorySnapshotIntegrity, buildMemoryDirectorySnapshot, membershipsForEntry } from "../../src/pth/execution/memory-directory.js";
 import { N28_DOMAIN_IDS, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS, n28AuthorizedCorpus, n28DirectoryInputs, type N28KnowledgeEntry } from "../../scripts/n28-feasibility-fixture.js";
 
 describe("MemoryDirectory", () => {
@@ -801,10 +833,15 @@ describe("MemoryDirectory", () => {
 
   it("keeps both same-role replicas inside the fixed responsibility capacity", () => {
     const directory = buildMemoryDirectorySnapshot({ tenantId: "tenant-a", epoch: 1, knownDomainIds: N28_DOMAIN_IDS, workers: Object.values(N28_WORKERS), regions: N28_REGIONS, responsibilities: N28_RESPONSIBILITIES, entries: n28DirectoryInputs() });
+    expect(() => assertMemoryDirectoryResponsibilityCapacity(directory, N28_FEASIBILITY_BUDGET.responsibility)).not.toThrow();
     for (const worker of Object.values(N28_WORKERS)) {
       const assigned = directory.responsibilities.filter((item) => item.workerId === worker.workerId);
       expect(checkResponsibilityCapacity(worker, directory.regions, assigned, N28_FEASIBILITY_BUDGET.responsibility)).toMatchObject({ ok: true });
     }
+    expect(() => assertMemoryDirectoryResponsibilityCapacity(directory, {
+      ...N28_FEASIBILITY_BUDGET.responsibility,
+      maxRegions: 0,
+    })).toThrow(/capacity exceeded/);
   });
 
   it("rejects cross-tenant entries, duplicate bindings, stale epochs and ownerless regions", () => {
@@ -852,7 +889,8 @@ Expected: FAIL because `memory-directory.ts` does not exist.
 
 ```typescript
 import { createHash } from "node:crypto";
-import type { MemoryRegion, MemoryResponsibility, MemoryType, WorkerReplicaRef } from "../contracts/index.js";
+import { checkResponsibilityCapacity } from "../contracts/index.js";
+import type { MemoryRegion, MemoryResponsibility, MemoryType, ResponsibilityCapacity, WorkerReplicaRef } from "../contracts/index.js";
 import type { KnowledgeMemoryEntry } from "./knowledge-broker.js";
 
 export interface RegionMembership {
@@ -1006,6 +1044,21 @@ export function regionEntryIds(directory: MemoryDirectorySnapshot, regionId: str
   return directory.memberships.filter((membership) => membership.regionIds.includes(regionId)).map((membership) => membership.entryId);
 }
 
+export function assertMemoryDirectoryResponsibilityCapacity(
+  directory: MemoryDirectorySnapshot,
+  capacity: ResponsibilityCapacity,
+): void {
+  for (const worker of directory.workers) {
+    const result = checkResponsibilityCapacity(
+      worker,
+      directory.regions,
+      responsibilitiesForWorker(directory, worker.workerId),
+      capacity,
+    );
+    if (!result.ok) throw new Error(`worker responsibility capacity exceeded: ${worker.workerId}:${result.reason}`);
+  }
+}
+
 export function assertMemoryDirectorySnapshotIntegrity(
   directory: MemoryDirectorySnapshot,
   source: { knownDomainIds: ReadonlySet<string>; entries: readonly DirectoryEntryInput[] },
@@ -1058,17 +1111,19 @@ git commit -m "feat(pth): add overlapping memory directory snapshot"
 - Create: `src/pth/execution/authorization/verified-task-read-scope.ts`
 - Modify: `src/pth/execution/knowledge-ranking.ts`
 - Modify: `src/pth/execution/knowledge-broker.ts`
+- Modify: `src/pth/execution/index.ts`
 - Modify: `src/pth/runner/knowledge-context.ts`
 - Modify: `src/pth/runner/agent-task-runner.ts`
 - Modify: `scripts/n28-feasibility-fixture.ts`
 - Create: `test/pth-execution/layered-knowledge-retriever.test.ts`
 - Create: `test/pth-execution/verified-task-read-scope.test.ts`
+- Modify: `test/pth-execution/knowledge-ranking.test.ts`
 - Modify: `test/pth-execution/knowledge-broker.test.ts`
 - Modify: `test/pth-runner/knowledge-context.test.ts`
 
 **Interfaces:**
 - Consumes: immutable `MemoryDirectorySnapshot`, a single verified task-read scope, existing `rankKnowledgeEntries`, memory retrieve/search ports and `isVisible`.
-- Produces: `VerifiedTaskReadScope`, `VerifiedTaskReadScopeFactory`, `createLayeredKnowledgeRetriever()`, `LayeredRetrievalRequest`, per-call `searchWave` port, `RetrievalTrace`, optional layered paths in KnowledgeBroker and KnowledgeContextProvider.
+- Produces: `VerifiedTaskReadScope`, `VerifiedTaskReadScopeFactory`, `createLayeredKnowledgeRetriever()`, `LayeredRetrievalRequest`, per-call `searchWave` port, `PendingRetrievalTrace`, optional layered paths in KnowledgeBroker and KnowledgeContextProvider.
 
 - [ ] **Step 0: Define one verified authorization envelope before adding a wave port**
 
@@ -1083,11 +1138,18 @@ export interface VerifiedTaskReadScope {
   capabilities: readonly string[];
   lease: Readonly<Pick<TaskLease, "taskId" | "leaseId" | "generation">>;
   grantDigest: string;
+  /** min(grant.deadlineAt, TaskLease.deadlineAt), frozen at creation. */
   deadlineAt: string;
 }
 
 export interface VerifiedTaskReadScopeFactory {
   forTask(input: { lease: TaskLease; work: TaskWorkItem; space: string; worker: WorkerReplicaRef }): VerifiedTaskReadScope;
+  verifyBrokerGrant(input: {
+    grant: unknown;
+    worker: WorkerReplicaRef;
+    /** Required when the Broker call belongs to a live task; effective deadline uses the earlier value. */
+    leaseDeadlineAt?: string;
+  }): VerifiedTaskReadScope;
 }
 
 export function createVerifiedTaskReadScopeFactory(deps: {
@@ -1098,15 +1160,20 @@ export function createVerifiedTaskReadScopeFactory(deps: {
 
 `forTask()` immediately verifies signature/deadline and requires the verified tenant, space, principal worker ID and
 `memory.read` capability to equal the server-stamped task input. It returns a frozen envelope; request fields cannot
-override it. The module keeps a private `WeakSet<object>` brand and exports
+override it. `deadlineAt` is the earlier of the verified grant deadline and `TaskLease.deadlineAt`, so a longer grant can
+never outlive its lease. The module keeps a private `WeakSet<object>` brand and exports
 `assertVerifiedTaskReadScope(scope, expected, {clock})`; that assertion checks opaque provenance, task/lease generation,
 worker binding and `deadlineAt > clock()` but does **not** call `grantService.verify()` again. This is
-required because an enabled replay guard may consume a nonce on first verification. Export an internal helper that maps an
-already verified Broker grant to the same branded shape without a second verify. Context, Broker and Task 5's
+required because an enabled replay guard may consume a nonce on first verification. The raw
+`verified grant -> branded scope` mint remains module-private and is never exported from this module or the execution
+barrel. Extend the authority returned by `createVerifiedTaskReadScopeFactory()` with a Broker-facing method that accepts an
+**unverified** grant and performs the one real `grantService.verify()` call before invoking that private mint; refactor the
+Broker to use that authority instead of verifying once and then calling a publicly reachable mint. Context, Broker and Task 5's
 Memory/Skill/state adapters consume this envelope; no surface may manufacture `{tenantId,space}` on its own.
 Write `verified-task-read-scope.test.ts` first and cover valid, bad signature, expired, missing capability, tenant/space/
-worker/generation mismatch and post-construction mutation. Also create a valid scope, advance the injected clock past its
-deadline, and prove every later wave/read fails before the supplied backing-read spy is called. HMAC/replay verification
+worker/generation mismatch and post-construction mutation. Also create a grant whose TTL exceeds the lease, advance the
+injected clock just past the lease deadline, and prove every later wave/read fails before the supplied backing-read spy is
+called. HMAC/replay verification
 still happens exactly once; cheap brand/binding/deadline checks happen before every backing read.
 
 - [ ] **Step 1: Make every fixture entry contain a unique searchable token and freeze 12 gold cases**
@@ -1147,7 +1214,7 @@ export const N28_GOLD_QUERIES = [
 
 - [ ] **Step 2: Expose query token hit count from the production ranking module**
 
-Write a failing test in the existing knowledge-ranking test file:
+Update the existing knowledge-ranking test import to include `knowledgeQueryTokenHits`, then write the failing assertion:
 
 ```typescript
 expect(knowledgeQueryTokenHits({ id: "x", anchors: ["mathematics"], content: "token:alg-01" }, "token:alg-01")).toBe(1);
@@ -1173,7 +1240,7 @@ Expected: PASS after the refactor; existing ranking order is unchanged.
 
 ```typescript
 import { describe, expect, it } from "vitest";
-import { createLayeredKnowledgeRetriever } from "../../src/pth/execution/layered-knowledge-retriever.js";
+import { computeRetrievalQueryFingerprint, createLayeredKnowledgeRetriever } from "../../src/pth/execution/layered-knowledge-retriever.js";
 import { createVerifiedTaskReadScopeFactory, type VerifiedTaskReadScope } from "../../src/pth/execution/authorization/verified-task-read-scope.js";
 import { createExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
@@ -1190,9 +1257,11 @@ import {
   n28DirectoryInputs,
 } from "../../scripts/n28-feasibility-fixture.js";
 
+let nowMs = Date.parse("2030-01-01T00:00:00.000Z");
+const clock = () => new Date(nowMs);
 const grantService = createExecutionGrantService({
   keyProvider: createHmacGrantKeyProvider({ secret: "n28-feasibility-test-secret-0123456789" }),
-  clock: () => new Date("2030-01-01T00:00:00.000Z"),
+  clock,
 });
 
 describe("layered knowledge retrieval", () => {
@@ -1228,7 +1297,14 @@ const scopeFactory = createVerifiedTaskReadScopeFactory({
     scope: { ...work.scope, principalId: `worker:${worker.workerId}`, roles: [worker.role.roleId], space },
     workspace: lease.workspace,
     language: "ts",
-    capabilities: ["memory.read", "memory.query"],
+    capabilities: [
+      "memory.read",
+      "memory.query",
+      "state.recallFunctions",
+      "state.recallInsights",
+      "skills.list",
+      "skills.get",
+    ],
   }),
 });
 
@@ -1248,30 +1324,33 @@ function harness(workerId: string, mode: { completeForQuery?: boolean; failWave?
   const corpus = n28AuthorizedCorpus();
   const directoryEntries = n28DirectoryInputs(corpus);
   const directory = buildMemoryDirectorySnapshot({ tenantId: "tenant-a", epoch: 1, knownDomainIds: N28_DOMAIN_IDS, workers: Object.values(N28_WORKERS), regions: N28_REGIONS, responsibilities: N28_RESPONSIBILITIES, entries: directoryEntries });
-  const retriever = createLayeredKnowledgeRetriever(directory, { knownDomainIds: N28_DOMAIN_IDS, entries: directoryEntries });
+  const retriever = createLayeredKnowledgeRetriever(directory, { knownDomainIds: N28_DOMAIN_IDS, entries: directoryEntries }, { clock });
   return {
     search: (queryText: string, limit: number) => {
       const authorization = verifiedScopeFor(workerId);
       return retriever.search({
-      authorization,
-      workerId,
-      queryText,
-      domains: ["mathematics"],
-      limit,
-      searchWave: async ({ authorization: waveAuthorization, wave, candidateScope, regionIds, limit: waveLimit }) => {
-        if (waveAuthorization !== authorization) throw new Error("authorization identity changed");
-        if (mode.failWave === wave) throw new Error("injected wave failure");
-        const regionSet = new Set(regionIds.flatMap((regionId) => regionEntryIds(directory, regionId)));
-        const inWave = corpus.filter((entry) => candidateScope === "global" || regionSet.has(entry.id));
-        const matching = filterKnowledgeEntriesByQueryText(inWave, queryText, { strict: true });
-        const ranked = rankKnowledgeEntries(matching, { queryText, domains: ["mathematics"] });
-        return {
-          entries: ranked.slice(0, waveLimit),
-          scannedCount: inWave.length,
-          completeForQuery: mode.completeForQuery ?? true,
-        };
-      },
-    });
+        authorization,
+        workerId,
+        queryText,
+        queryFingerprint: computeRetrievalQueryFingerprint({ authorization, queryText, domains: ["mathematics"], directorySnapshotId: directory.snapshotId }),
+        domains: ["mathematics"],
+        limit,
+        searchWave: async ({ authorization: waveAuthorization, wave, candidateScope, regionIds, limit: waveLimit }) => {
+          if (waveAuthorization !== authorization) throw new Error("authorization identity changed");
+          if (mode.failWave === wave) throw new Error("injected wave failure");
+          const regionSet = new Set(regionIds.flatMap((regionId) => regionEntryIds(directory, regionId)));
+          const inWave = corpus.filter((entry) => candidateScope === "global" || regionSet.has(entry.id));
+          const matching = filterKnowledgeEntriesByQueryText(inWave, queryText, { strict: true });
+          const ranked = rankKnowledgeEntries(matching, { queryText, domains: ["mathematics"] });
+          return {
+            entries: ranked.slice(0, waveLimit),
+            candidateCount: inWave.length,
+            visibleCount: inWave.length,
+            scannedCount: inWave.length,
+            completeForQuery: mode.completeForQuery ?? true,
+          };
+        },
+      });
     },
   };
 }
@@ -1301,6 +1380,10 @@ export interface LayeredSearchWaveInput {
 
 export interface LayeredSearchWaveResult<T> {
   entries: readonly T[];
+  /** Rows in the bounded Region/global candidate scope before tenant/space/status filtering. */
+  candidateCount: number;
+  /** Rows remaining after server-side authorization predicates and before query/rank limit. */
+  visibleCount: number;
   scannedCount: number;
   /** True only when this adapter applied query + Region predicates before limit. */
   completeForQuery: boolean;
@@ -1310,6 +1393,8 @@ export interface LayeredRetrievalRequest<T extends RankableKnowledgeEntry> {
   authorization: VerifiedTaskReadScope;
   workerId: string;
   queryText: string;
+  /** Produced by the shared retrieval-query fingerprint helper used by Broker and Context. */
+  queryFingerprint: string;
   domains: readonly string[];
   limit: number;
   searchWave(input: LayeredSearchWaveInput): Promise<LayeredSearchWaveResult<T>>;
@@ -1319,7 +1404,7 @@ export interface LayeredRetrievalResult<T> {
   status: "found" | "exhausted-empty" | "retrieval-incomplete" | "retrieval-failed";
   entries: T[];
   error?: string;
-  trace: RetrievalTrace & { waves: Array<RetrievalWaveTrace & { selectedEntryIds: string[] }> };
+  trace: PendingRetrievalTrace & { waves: Array<RetrievalWaveTrace & { selectedEntryIds: string[] }> };
 }
 
 export interface LayeredKnowledgeRetriever<T extends RankableKnowledgeEntry> {
@@ -1327,13 +1412,21 @@ export interface LayeredKnowledgeRetriever<T extends RankableKnowledgeEntry> {
   entryIdsForRegions(regionIds: readonly string[]): ReadonlySet<string>;
   search(request: LayeredRetrievalRequest<T>): Promise<LayeredRetrievalResult<T>>;
 }
+
+export function computeRetrievalQueryFingerprint(input: {
+  authorization: VerifiedTaskReadScope;
+  queryText: string;
+  domains: readonly string[];
+  directorySnapshotId: string;
+}): string;
 ```
 
-`createLayeredKnowledgeRetriever(directory, integritySource)` first calls
+`createLayeredKnowledgeRetriever(directory, integritySource, {clock})` first calls
 `assertMemoryDirectorySnapshotIntegrity(directory, integritySource)` and refuses a forged epoch/revision/content/index hash
 or invalid primary owner before exposing a search method. The feasibility assembly must retain the frozen
 `DirectoryEntryInput[]` for this check; callers cannot assert a snapshot valid by fiat.
 
+Before planning and immediately before every wave, call the cheap branded scope/binding/deadline assertion with this clock.
 Reject unless `request.workerId === request.authorization.worker.workerId` and the Directory tenant equals
 `request.authorization.tenantId`. Build Region waves from `responsibilitiesForWorker(directory, workerId)`, sorted by
 `kind`, `priority`, then Region ID:
@@ -1357,22 +1450,34 @@ ranking to happen before this limit. Record `scannedCount`, but never expose mor
 retriever. This validates a bounded candidate interface, not a bounded database scan; the report must state that real
 indexed PG search remains outside this feasibility slice.
 An empty Region wave returns an empty complete result; only `candidateScope="global"` may scan globally.
+`computeRetrievalQueryFingerprint()` hashes only normalized query text, sorted domains, Directory ID and the branded
+tenant/space/task/lease-generation/worker binding; it excludes grant nonce, timestamps and object iteration order.
 
-After all waves, rank the merged set once with `rankKnowledgeEntries`. Return `found` only when at least one selected result has `knowledgeQueryTokenHits(entry, queryText) > 0`; return `exhausted-empty` only when every attempted wave says `completeForQuery=true` and no hit exists. Any incomplete wave with no final hit returns `retrieval-incomplete`; any thrown wave error returns `retrieval-failed` with an empty result and trace. A no-token-hit result must never inherit the current production filter's “return everything” fallback.
+After all waves, rank the merged set once with `rankKnowledgeEntries`. Broker and Context must construct
+`queryFingerprint` with one shared helper before calling the retriever; the retriever copies that value unchanged into the
+pending trace. Return `found` only when at least one selected result has `knowledgeQueryTokenHits(entry, queryText) > 0`;
+return `exhausted-empty` only when every attempted wave says `completeForQuery=true` and no hit exists. Any incomplete wave
+with no final hit returns `retrieval-incomplete`; any thrown wave error returns `retrieval-failed` with an empty result and
+trace. A no-token-hit result must never inherit the current production filter's “return everything” fallback.
 
-Return at most `request.limit` entries and a trace containing all four waves, candidate/scanned count, completeness, first-seen selected IDs, fallback reason, and omitted counts. Add a mutation test where the algebra primary Region contains the local decoy text but the more relevant target is in Wave 3; the target must still win.
+Return at most `request.limit` entries and a pending trace containing all four waves, candidate/visible/selected/scanned
+counts, completeness, first-seen selected IDs, fallback reason, query fingerprint and omitted counts. Each wave must satisfy
+`selectedCount <= visibleCount <= candidateCount <= scannedCount`; the authorization-trap matrix must include at least one
+wave where `visibleCount < candidateCount`. Add a mutation test where the algebra primary Region contains the local decoy
+text but the more relevant target is in Wave 3; the target must still win.
 
 - [ ] **Step 6: Wire the optional path into KnowledgeBroker without moving authorization**
 
-Add `layeredRetriever?: LayeredKnowledgeRetriever<KnowledgeMemoryEntry>` and a `layeredSearchWave` port to
-`KnowledgeBrokerDeps`. In the `search` branch, map the already verified grant to `VerifiedTaskReadScope`; use the layered
+Add `layeredRetriever?: LayeredKnowledgeRetriever<KnowledgeMemoryEntry>`, a `layeredSearchWave` port and
+`clock?:()=>Date` (default system clock) to `KnowledgeBrokerDeps`. In the `search` branch, obtain `VerifiedTaskReadScope`
+through the one-shot authority described above; use the layered
 path only when both are injected and the Directory tenant/worker equal that envelope. The per-wave callback receives the
 exact same verified envelope—not caller tenant/space strings—plus Region entry IDs, query and limit. It rechecks the
 branded scope's deadline and lease generation without replaying HMAC verification, then applies tenant +
 `status=official` + `deps.isVisible` + Region IDs + strict query filtering/ranking before returning at most the requested limit
 and a `completeForQuery` flag.
 
-Refactor `KnowledgeBroker` so public `query({grant,...})` verifies exactly once and delegates to a narrow
+Refactor `KnowledgeBroker` so public `query({grant,...})` asks the injected verified-scope authority to verify exactly once and delegates to a narrow
 `queryVerified(authorization, requestWithoutGrant)` method. `queryVerified` first calls
 `assertVerifiedTaskReadScope()` with the current clock and never replays signature verification. Authorized task adapters call only this internal
 method with the task's single envelope; external callers keep using public `query`.
@@ -1389,31 +1494,45 @@ return {
   ok: true,
   entries: layered.entries,
   retrievalTrace: layered.trace,
-  queryFingerprint: computeKnowledgeQueryFingerprint({
-    tenantId,
-    space,
-    roleId: grant.scope.roles[0] ?? "knowledge-search",
-    workerId: grant.scope.principalId.startsWith("worker:") ? grant.scope.principalId.slice("worker:".length) : undefined,
-    domains,
-    title: request.queryText ?? "",
-    text: [...kinds].sort().join("\n"),
-    catalogVersion: layered.trace.directorySnapshotId,
-  }),
+  queryFingerprint: request.queryFingerprint,
 };
 ```
 
-Extend `KnowledgeContextInput`/fingerprinting with optional `workerId`; when absent, preserve the old fingerprint byte-for-byte.
+Add a shared `computeRetrievalQueryFingerprint()` helper used by public Broker input normalization and Context before either
+calls the retriever; `queryVerified()` receives that value in `requestWithoutGrant` and never recomputes it. Extend
+`KnowledgeContextInput`/fingerprinting with optional `workerId`; when absent, preserve the old fingerprint byte-for-byte.
 When present, append it as a distinct component after `roleId`. Never put a worker principal into the `roleId` field. The old
 search branch remains unchanged when no layered retriever is injected.
 
 - [ ] **Step 7: Wire the same retriever into KnowledgeContextProvider**
 
 Add optional `workerId` and `authorization?: VerifiedTaskReadScope` to `KnowledgeContextInput`, plus optional
-`layeredRetriever` and the same envelope-consuming `layeredSearchWave` port to provider deps. The layered path requires the
+`layeredRetriever`, `clock?:()=>Date` and the same envelope-consuming `layeredSearchWave` port to provider deps. The layered path requires the
 verified envelope and calls the retriever through that port; it does not implement a second visibility predicate. Build
 `KnowledgeContextEntry[]` only from `status="found"` entries and expose `retrievalTrace` plus retrieval status on the
 context. `retrieval-failed` is an operational degradation signal, while `exhausted-empty` is a legitimate no-answer. When
 dependencies are absent in mode `off`, preserve the current path exactly.
+
+Freeze the actual prompt/billing projection in this Task—not in the evaluator:
+
+```typescript
+export interface KnowledgeContextPromptRow {
+  entryId: string;
+  anchor: string;
+  summary: string;
+  evidence: readonly { sourceId: string; locator?: string }[];
+  meta: Readonly<{ kind: string; domains: readonly string[] }>;
+}
+
+export function contextPromptProjection(entry: KnowledgeContextEntry): KnowledgeContextPromptRow;
+export function formatKnowledgeContextPromptRows(rows: readonly KnowledgeContextPromptRow[]): string;
+```
+
+Extend `KnowledgeContextEntry` with only the evidence and whitelisted `exposedMeta` needed to construct this row; never pass
+arbitrary storage `meta`. The real AgentTaskRunner prompt uses
+`formatKnowledgeContextPromptRows(entries.map(contextPromptProjection))`, and Task 6 charges
+`canonicalExposureChars(contextPromptProjection(entry))`. Add a test that changes evidence/meta and proves both the prompt
+bytes and billed projection change together, while an unexposed storage-meta field changes neither.
 
 In Task 4, add optional `replica?: WorkerReplicaRef` and `verifiedReadScopeFactory?: VerifiedTaskReadScopeFactory` to
 `AgentTaskRunnerDeps`. Build one verified scope per task and pass it plus `this.deps.replica?.workerId` to
@@ -1443,6 +1562,10 @@ invalid-signature, expired-grant and missing-`memory.read` cases and assert `lay
 Broker `search/get/query/retrieve` here. Budgeted `state.recallFunctions/recallInsights` adapters do not exist until Task 5;
 their authorization/budget bypass matrix belongs to Task 5 Step 6 and the final vertical gate.
 
+The scope factory, Broker, Context and Task 5 adapters share one injected fake clock in tests. Add a case that creates a
+valid scope, advances that clock beyond `deadlineAt`, and then calls Context/Broker; the first wave/backing-read count must
+remain zero. Production defaults all four consumers to the same system clock.
+
 - [ ] **Step 9: Run the retrieval suite**
 
 Run: `npx vitest run test/pth-execution/knowledge-ranking.test.ts test/pth-execution/memory-directory.test.ts test/pth-execution/verified-task-read-scope.test.ts test/pth-execution/layered-knowledge-retriever.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts`
@@ -1451,8 +1574,12 @@ Expected: PASS; 12/12 gold targets are found, the decoy cannot cause early stop,
 
 - [ ] **Step 10: Commit layered retrieval**
 
+Export `authorization/verified-task-read-scope.js` and `layered-knowledge-retriever.js` from
+`src/pth/execution/index.ts`; the authorization module exports only the opaque type, verified authority/factory and cheap
+assertion—never the private raw-grant mint. TaskLoop/batch assembly consume the barrel and may not reach into internal paths.
+
 ```bash
-git add src/pth/execution/authorization/verified-task-read-scope.ts src/pth/execution/layered-knowledge-retriever.ts src/pth/execution/knowledge-ranking.ts src/pth/execution/knowledge-broker.ts src/pth/runner/knowledge-context.ts src/pth/runner/agent-task-runner.ts scripts/n28-feasibility-fixture.ts test/pth-execution/verified-task-read-scope.test.ts test/pth-execution/layered-knowledge-retriever.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts
+git add src/pth/execution/authorization/verified-task-read-scope.ts src/pth/execution/layered-knowledge-retriever.ts src/pth/execution/knowledge-ranking.ts src/pth/execution/knowledge-broker.ts src/pth/execution/index.ts src/pth/runner/knowledge-context.ts src/pth/runner/agent-task-runner.ts scripts/n28-feasibility-fixture.ts test/pth-execution/knowledge-ranking.test.ts test/pth-execution/verified-task-read-scope.test.ts test/pth-execution/layered-knowledge-retriever.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts
 git commit -m "feat(pth): add layered memory responsibility retrieval"
 ```
 
@@ -1463,15 +1590,18 @@ git commit -m "feat(pth): add layered memory responsibility retrieval"
 **Files:**
 - Create: `src/pth/kernel/execution/cognitive-budget.ts`
 - Create: `src/pth/runner/authorized-task-reads.ts`
+- Create: `src/pth/runner/authorized-state-reads.ts`
 - Create: `src/pth/runner/cognitive-working-set.ts`
 - Modify: `src/pth/runner/index.ts`
 - Create: `test/pth-kernel-execution/cognitive-budget.test.ts`
 - Create: `test/pth-runner/authorized-task-reads.test.ts`
+- Create: `test/pth-runner/authorized-state-reads.test.ts`
 - Create: `test/pth-runner/cognitive-working-set.test.ts`
 
 **Interfaces:**
 - Consumes: exact `CognitiveBudget`, WorkerReplicaRef, layered retrieval output, Skill summaries/content and tool schema names.
-- Produces: `CognitiveBudgetLedger`, `CognitiveBudgetExceededError`, `createTaskWorkingSetPolicy()`, `createBudgetedTaskCapabilities()`, deterministic `snapshot()`.
+- Produces: `CognitiveBudgetLedger`, `CognitiveBudgetExceededError`, scope-bound canonical state reads,
+  `AuthorizedTaskReadFactory`, `createTaskWorkingSetPolicy()`, `createBudgetedTaskCapabilities()`, deterministic `snapshot()`.
 
 - [ ] **Step 1: Write failing ledger tests for all six task limits**
 
@@ -1482,15 +1612,22 @@ import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "../../src/p
 import { N28_WORKERS } from "../../scripts/n28-feasibility-fixture.js";
 
 describe("CognitiveBudgetLedger", () => {
+  const ledgerFor = (budget = N28_FEASIBILITY_BUDGET.task) => new CognitiveBudgetLedger({
+    taskId: "task-n28-ledger",
+    workerId: N28_WORKERS.algebra.workerId,
+    directorySnapshotId: "n28-directory-fixture",
+    budget,
+  });
+
   it("counts the initial context and later memory reads in the same budget", () => {
-    const ledger = new CognitiveBudgetLedger(N28_FEASIBILITY_BUDGET.task);
+    const ledger = ledgerFor();
     expect(ledger.admitMemory([{ id: "m1", chars: 2000 }, { id: "m2", chars: 2000 }]).accepted.map((item) => item.id)).toEqual(["m1", "m2"]);
     expect(ledger.admitMemory([{ id: "m3", chars: 200 }]).accepted).toEqual([]);
     expect(ledger.snapshot().usage).toMatchObject({ memoryEntries: 2, memoryChars: 4000 });
   });
 
   it("charges only the positive representation delta when a summary expands to full text", () => {
-    const ledger = new CognitiveBudgetLedger({ ...N28_FEASIBILITY_BUDGET.task, maxMemoryChars: 500 });
+    const ledger = ledgerFor({ ...N28_FEASIBILITY_BUDGET.task, maxMemoryChars: 500 });
     expect(ledger.admitMemory([{ id: "m1", chars: 200 }]).accepted).toHaveLength(1);
     expect(ledger.admitMemory([{ id: "m1", chars: 450 }]).accepted).toHaveLength(1);
     expect(ledger.snapshot().usage.memoryChars).toBe(450);
@@ -1499,15 +1636,16 @@ describe("CognitiveBudgetLedger", () => {
   });
 
   it("counts pinned tools and rejects a pinned face that already exceeds the limit", () => {
-    const ledger = new CognitiveBudgetLedger({ ...N28_FEASIBILITY_BUDGET.task, maxTools: 2 });
+    const ledger = ledgerFor({ ...N28_FEASIBILITY_BUDGET.task, maxTools: 2 });
     expect(() => ledger.freezeTools(["done", "ts_run", "asp_cd"], [])).toThrow(/pinned tools exceed/);
   });
 
   it("allows only indexed skills and caps active skill count and characters", () => {
-    const ledger = new CognitiveBudgetLedger({ ...N28_FEASIBILITY_BUDGET.task, maxActiveSkills: 1, maxSkillChars: 10 });
+    const ledger = ledgerFor({ ...N28_FEASIBILITY_BUDGET.task, maxActiveSkills: 1, maxSkillChars: 15 });
     ledger.freezeSkillIndex([{ id: "skill:a", chars: 5 }, { id: "skill:b", chars: 5 }]);
     expect(ledger.activateSkill("skill:a", 10)).toBe(true);
     expect(ledger.activateSkill("skill:b", 1)).toBe(false);
+    expect(ledger.activateSkill("skill:a", 16)).toBe(false);
     expect(() => ledger.activateSkill("skill:outside", 1)).toThrow(/not in frozen skill index/);
   });
 });
@@ -1525,12 +1663,18 @@ Implement a class with these exact public methods:
 
 ```typescript
 export class CognitiveBudgetLedger {
-  constructor(readonly budget: CognitiveBudget) {}
+  constructor(readonly input: {
+    taskId: string;
+    workerId: string;
+    directorySnapshotId: string;
+    budget: CognitiveBudget;
+  }) {}
 
   admitMemory<T extends { id: string; chars: number }>(items: readonly T[]): { accepted: T[]; omitted: T[] };
   freezeSkillIndex(items: readonly { id: string; chars: number }[]): readonly string[];
   activateSkill(id: string, chars: number): boolean;
   freezeTools(pinned: readonly string[], candidates: readonly string[]): readonly string[];
+  recordRetrievalTrace(trace: PendingRetrievalTrace): RetrievalTrace;
   snapshot(): {
     usage: {
       memoryEntries: number;
@@ -1544,6 +1688,7 @@ export class CognitiveBudgetLedger {
     skillIndexIds: string[];
     activeSkillIds: string[];
     toolNames: string[];
+    retrievalTraces: RetrievalTrace[];
     omitted: Record<string, number>;
   };
 }
@@ -1557,6 +1702,11 @@ expanding a 200-character summary to a 450-character full entry charges the posi
 cannot fit is omitted without mutating prior usage. Memory admission stops before either entry or char limit is exceeded.
 `freezeTools` uses canonical Tool schema names, deduplicates protocol-pinned tools in caller order, fails if pinned count
 exceeds `maxTools`, then appends sorted candidate schemas until the limit.
+`recordRetrievalTrace` rejects a pending trace whose Directory/worker binding differs from the constructor input,
+deep-copies/freezes it, assigns the next deterministic `callIndex`, derives a stable `traceId` from
+task/directory/worker/query fingerprint/call index, appends it and returns the completed trace. Initial Context records call 0;
+every later `memory.retrieve` records exactly one more trace. The ledger snapshot is the sole source of
+`TaskWorkingSet.retrievalTraces`.
 
 Add `canonicalExposureChars(value)` beside the ledger: project only the fields actually returned/injected, sort object keys,
 serialize as UTF-8 JSON and count bytes. Every caller passes that full projected size—never just `content` or `source`.
@@ -1569,20 +1719,28 @@ insight objects and Skill `MemoryEntry` fields.
 it("never exceeds any axis across 1000 deterministic generated surfaces", () => {
   for (let seed = 0; seed < 1000; seed += 1) {
     const run = (reverse = false) => {
-      const ledger = new CognitiveBudgetLedger(N28_FEASIBILITY_BUDGET.task);
-    const generated = Array.from({ length: 1 + (seed % 30) }, (_, index) => ({
-      id: `m-${(seed * 17 + index * 13) % 97}`,
-      chars: 1 + ((seed * 31 + index * 19) % 1400),
-    }));
+      const ledger = new CognitiveBudgetLedger({
+        taskId: `task-generated-${seed}`,
+        workerId: N28_WORKERS.algebra.workerId,
+        directorySnapshotId: "n28-directory-fixture",
+        budget: N28_FEASIBILITY_BUDGET.task,
+      });
+      const generated = Array.from({ length: 1 + (seed % 30) }, (_, index) => ({
+        id: `m-${(seed * 17 + index * 13) % 97}`,
+        chars: 1 + ((seed * 31 + index * 19) % 1400),
+      }));
       const source = reverse ? [...generated].reverse() : generated;
       const memory = [...source].sort((a, b) => a.id.localeCompare(b.id));
       ledger.admitMemory(memory);
-      ledger.freezeSkillIndex(Array.from({ length: 20 }, (_, index) => ({ id: `skill:${(seed + index * 7) % 31}`, chars: 20 + index })));
+      const generatedSkills = Array.from({ length: 20 }, (_, index) => ({ id: `skill:${(seed + index * 7) % 31}`, chars: 20 + index }));
+      const skillSource = reverse ? [...generatedSkills].reverse() : generatedSkills;
+      ledger.freezeSkillIndex([...skillSource].sort((a, b) => a.id.localeCompare(b.id)));
       for (let index = 0; index < 12; index += 1) {
         const id = ledger.snapshot().skillIndexIds[index];
         if (id) ledger.activateSkill(id, 100 + ((seed + index) % 900));
       }
-      ledger.freezeTools(["done", "ts_run"], Array.from({ length: 30 }, (_, index) => `tool_${(seed + index * 11) % 41}`));
+      const generatedTools = Array.from({ length: 30 }, (_, index) => `tool_${(seed + index * 11) % 41}`);
+      ledger.freezeTools(["done", "ts_run"], reverse ? [...generatedTools].reverse() : generatedTools);
       return ledger.snapshot();
     };
     const first = run(false);
@@ -1610,6 +1768,10 @@ it("never exceeds any axis across 1000 deterministic generated surfaces", () => 
       epoch: 1,
     }));
     const capacity = checkResponsibilityCapacity(N28_WORKERS.algebra, generatedRegions, generatedResponsibilities, N28_FEASIBILITY_BUDGET.responsibility);
+    const expectedPrimary = generatedRegions[0]?.estimatedWeight ?? 0;
+    const expectedSecondary = generatedRegions.slice(1).reduce((sum, region) => sum + region.estimatedWeight, 0);
+    const expectedOk = generatedRegions.length <= 3 && expectedPrimary <= 80 && expectedSecondary <= 40;
+    expect(capacity.ok).toBe(expectedOk);
     if (capacity.ok) {
       expect(capacity.usage.regions).toBeLessThanOrEqual(3);
       expect(capacity.usage.primaryWeight).toBeLessThanOrEqual(80);
@@ -1621,11 +1783,47 @@ it("never exceeds any axis across 1000 deterministic generated surfaces", () => 
 
 - [ ] **Step 5: Define the only grant-bound read factory, then build the task policy and budgeted facade**
 
-Create `src/pth/runner/authorized-task-reads.ts` and export these contracts before any facade wiring:
+First create `src/pth/runner/authorized-state-reads.ts`. It defines `AuthorizedStateReadPort.forScope(authorization)`
+and returns canonical internal rows with stable IDs:
+
+```typescript
+type CanonicalFunctionRecall = { id: string; key: string; source: string; spec: unknown };
+type CanonicalInsightRecall = { id: string; content: string };
+
+export interface AuthorizedStateReadPort {
+  forScope(authorization: VerifiedTaskReadScope): {
+    recallFunctions(anchors: string[], opts?: { limit?: number }): Promise<CanonicalFunctionRecall[]>;
+    recallInsights(anchors: string[], opts?: { limit?: number }): Promise<CanonicalInsightRecall[]>;
+  };
+}
+```
+
+`createAuthorizedStateReadPort({memory,isVisible,clock})` checks the branded scope and current deadline before every store
+call, invokes `memory.retrieve` with the explicit scope tenant, `status:["official"]` and the fixed
+`tool-function`/`task-insight` kind, applies the production `isVisible(entry.meta, authorization.space)` predicate (the
+visibility API accepts meta, never the whole entry), sorts by
+entry ID and limits only after filtering. Function rows use `id=state:function:<entry.id>`; insight rows use
+`id=state:insight:<entry.id>`. This is the feasibility production adapter used by batch assembly. It does not reuse
+`createRecallState()` because that legacy helper reads mutable `sessionRef/taskContext`; mode `off` keeps that helper
+unchanged. Its tests create two concurrent scopes and a clock-expiry transition and prove tenant/space/task identity cannot
+cross or reach the store after expiry. Include private same/other-space and public child/ancestor cases so passing the
+whole entry instead of `entry.meta` cannot leak unnoticed.
+
+Then create `src/pth/runner/authorized-task-reads.ts` and export these contracts before any facade wiring:
 
 ```typescript
 export interface AuthorizedTaskReads {
-  retrieveMemory(opts: unknown): Promise<Array<{ id: string } & Record<string, unknown>>>;
+  /** Cheap brand/binding/effective-deadline guard; performs no backing I/O or nonce replay. */
+  assertCurrentScope(): void;
+  retrieveMemory(opts: {
+    anchors?: readonly string[];
+    kinds?: readonly string[];
+    queryText?: string;
+    limit?: number;
+  }): Promise<{
+    entries: Array<{ id: string } & Record<string, unknown>>;
+    trace: PendingRetrievalTrace;
+  }>;
   getMemory(id: string): Promise<({ id: string } & Record<string, unknown>) | undefined>;
   queryMemory(sql: string): Promise<Array<{ id: string } & Record<string, unknown>>>;
   recallFunctions(anchors: string[], opts?: { limit?: number }): Promise<Array<{ id: string; key: string; source: string; spec: unknown }>>;
@@ -1652,19 +1850,54 @@ export function createAuthorizedTaskReadFactory(deps: {
       get(id: string): Promise<import("@away_from/pth-memory").MemoryEntry | undefined>;
     };
   };
-  state: {
-    forScope(authorization: VerifiedTaskReadScope): Pick<AuthorizedTaskReads, "recallFunctions" | "recallInsights">;
-  };
+  state: AuthorizedStateReadPort;
+  clock: () => Date;
 }): AuthorizedTaskReadFactory;
+
+export function expandTaskReadGrantCapabilities(roleCapabilities: readonly string[]): readonly string[];
 ```
 
 The production factory calls `assertVerifiedTaskReadScope()` once to compare the opaque envelope to every server-stamped
-task field; it never calls `ExecutionGrantService.verify()` again. It then closes Broker `queryVerified`, Skill and state
+task field and current deadline; it never calls `ExecutionGrantService.verify()` again. It then closes Broker
+`queryVerified`, Skill and state
 ports over that one scope. The explicit `forScope()` factories prohibit task identity from living in mutable globals or
 session refs when concurrent tasks run. Its scope comes
 only from `work.scope`, signed grant, lease and worker; request arguments cannot replace tenant, space, status or principal.
 Invalid/expired/missing-capability grant fails before any backing port call. Skill list/get must enforce the same
 tenant/space/official boundary before budgeting. Raw memory/store functions are not valid factory deps.
+
+Freeze and test this exact operation-to-grant mapping; family names are not accepted at the read boundary:
+
+| Read surface | Required signed capability |
+|---|---|
+| `memory.retrieve`, `memory.get` | `memory.read` |
+| `memory.query` | `memory.read` and `memory.query` |
+| `state.recallFunctions` | `state.recallFunctions` |
+| `state.recallInsights` | `state.recallInsights` |
+| `skills.list` | `skills.list` |
+| `skills.get` | `skills.get` |
+
+`expandTaskReadGrantCapabilities()` expands Role family `memory` only to `memory.read`, `state` to the two exact state reads and
+`skills` to the two exact Skill reads; `memory.query` is issued only because the frozen experimental `N28_ROLE` declares it
+explicitly. The batch/harness `grantForTask` both call this helper, and its focused test freezes the exact sorted result.
+Every adapter method calls `assertCurrentScope()` and checks its own exact operation capability before any
+backing read. The cheap guard also checks the effective grant/lease deadline on every invocation, so a Skill summary cached
+while valid cannot be exposed by `skills.list()` after the task scope expires.
+
+This factory is the **only** owner of `retrieveMemory/getMemory/queryMemory`: it maps those calls to the Broker's branded
+`queryVerified` search/get/query operations, so `retrieveMemory` necessarily uses Task 4's layered path. The Working Set
+provider consumes the finished `AuthorizedTaskReads`; it owns no retriever or second wave port.
+For `retrieveMemory`, trim/deduplicate/sort anchors and kinds, clamp `limit`, fix status to `official`, and derive
+`queryText = normalized explicit queryText || normalized anchors.join(" ")`; an empty result after both normalizations is
+rejected before a wave call. Domains equal the normalized anchors. Caller tenant/space/status fields are not part of this
+input and are ignored if smuggled through JavaScript. The focused test calls
+`memory.retrieve({anchors:["mathematics"]})`, requires a hit and exactly one pending trace, and compares its fingerprint to
+the Context/Broker helper.
+
+Implement the `skills.forScope` production adapter beside the factory with `withMemoryTenant`, existing
+`listSkills/getSkill`, the branded scope deadline check and production `isVisible(entry.meta, authorization.space)` plus
+status filtering. It preserves exact
+`SkillSummary[]`/`MemoryEntry | undefined` shapes and stable ordering; it never uses a caller-supplied tenant or space.
 
 In `cognitive-working-set.ts`, expose:
 
@@ -1674,7 +1907,7 @@ export function createTaskWorkingSetPolicy(input: {
   worker: WorkerReplicaRef;
   directorySnapshotId: string;
   budget: CognitiveBudget;
-  skillIndexIds: readonly string[];
+  skillIndexItems: readonly { id: string; chars: number }[];
   pinnedToolNames: readonly string[];
   candidateToolNames: readonly string[];
 }): { policy: TaskWorkingSetPolicy; ledger: CognitiveBudgetLedger };
@@ -1684,18 +1917,24 @@ export function createBudgetedTaskCapabilities(
   policy: TaskWorkingSetPolicy,
   ledger: CognitiveBudgetLedger,
   adapters: AuthorizedTaskReads,
+  frozen: { skillSummaries: readonly import("@away_from/pth-memory").SkillSummary[] },
 ): Record<string, unknown>;
 ```
+
+`createTaskWorkingSetPolicy()` calls `ledger.freezeSkillIndex(input.skillIndexItems)` and uses only the returned admitted
+IDs in `policy.skillIndexIds`; it constructs the ledger with `{taskId,workerId,directorySnapshotId,budget}` from the same
+input, so completed traces cannot bind to another Directory or replica. The charged summary projection and exposed index therefore cannot diverge. Add a regression
+where oversized summaries shrink the policy and `skills.list()` exposes exactly the same admitted objects.
 
 The capability wrapper must preserve unrelated capabilities and wrap these paths:
 
 ```typescript
-memory.retrieve       -> adapters.retrieveMemory (layered + authorized) -> admit canonical projected rows -> return accepted rows
+memory.retrieve       -> adapters.retrieveMemory (layered + authorized) -> record trace -> admit canonical projected rows -> return accepted rows
 memory.get            -> adapters.getMemory (tenant/space/official checked) -> admit positive canonical representation delta -> return row or throw cognitive-budget-exhausted
 memory.query          -> adapters.queryMemory (N27 secured query) -> require id -> charge the entire returned row even when content is absent -> return accepted rows
 state.recallFunctions -> adapters.recallFunctions -> charge full `{key,source,spec}` projections under stable IDs -> strip IDs and preserve the current public shape
 state.recallInsights  -> adapters.recallInsights -> charge full returned projections under stable IDs -> return the current public shape
-skills.list           -> adapters.listSkills -> filter real SkillSummary[] by canonical policy IDs, charge the exposed index projections, preserve objects and frozen order
+skills.list           -> adapters.assertCurrentScope -> return the deep-frozen admitted SkillSummary snapshot; no second store read
 skills.get            -> canonicalize `foo`/`skill:foo`, require ID in frozen index -> adapters.getSkill -> charge the complete exposed MemoryEntry projection -> return original shape or throw cognitive-budget-exhausted
 ```
 
@@ -1704,9 +1943,12 @@ cannot override scope. It rejects non-official `get` results even if the legacy 
 write, maintain, review, promotion or task-control functions. Preserve `this` binding by invoking saved functions with
 `.call(originalObject, ...)` where a base method remains involved.
 
-The provider supplies `retrieveMemory` by calling the same `LayeredKnowledgeRetriever` used by KnowledgeContext and
-KnowledgeBroker. It must not pass raw base memory methods as any read adapter. `memory.get` remains a known-ID authorized
+The read factory supplies `retrieveMemory` through the same `LayeredKnowledgeRetriever` used by KnowledgeContext and
+KnowledgeBroker. The provider must not pass raw base memory methods as any read adapter. `memory.get` remains a known-ID authorized
 expansion and therefore bypasses Region priority but never tenant/space/official checks or the shared ledger.
+The provider passes only the ledger-admitted, deep-frozen `SkillSummary[]` to the capability wrapper. `skills.list()`
+first calls `adapters.assertCurrentScope()` and then returns that exact snapshot, so a mid-task registry/store change cannot make policy IDs, charged summaries and exposed
+summaries diverge; `skills.get()` remains a fresh authorized full-entry expansion against one frozen ID.
 
 - [ ] **Step 6: Write facade bypass tests**
 
@@ -1715,10 +1957,13 @@ short summaries, recall functions/insights, and exact production `SkillSummary[]
 sequence through the wrapper, then assert the combined ledger still respects all limits, summary→full charges only the
 positive canonical delta, public API shapes are unchanged, non-official get is rejected, and a Skill outside the frozen
 index is rejected. Include huge metadata-only query, huge function spec and huge Skill meta cases and prove each is charged
-or omitted before exposure. Run invalid/expired/missing-capability grant cases across memory, recall and Skill surfaces and
+or omitted before exposure. Pass a frozen admitted summary snapshot, call `skills.list()` twice, assert it is byte-identical,
+and assert the backing list port is not called by the wrapper. Task 6's provider test separately proves exactly one authorized
+list call builds that snapshot. Advance the shared clock after provider construction and prove cached `skills.list()` rejects
+while the backing list count remains one. Run invalid/expired/missing-capability grant cases across memory, recall and Skill surfaces and
 assert every backing-port invocation count stays zero.
 
-Run: `npx vitest run test/pth-kernel-execution/cognitive-budget.test.ts test/pth-runner/authorized-task-reads.test.ts test/pth-runner/cognitive-working-set.test.ts`
+Run: `npx vitest run test/pth-kernel-execution/cognitive-budget.test.ts test/pth-runner/authorized-state-reads.test.ts test/pth-runner/authorized-task-reads.test.ts test/pth-runner/cognitive-working-set.test.ts`
 
 Expected: PASS; the test must fail if either memory method uses a separate ledger.
 
@@ -1727,11 +1972,13 @@ Expected: PASS; the test must fail if either memory method uses a separate ledge
 Add to `src/pth/runner/index.ts`:
 
 ```typescript
+export * from "./authorized-state-reads.js";
+export * from "./authorized-task-reads.js";
 export * from "./cognitive-working-set.js";
 ```
 
 ```bash
-git add src/pth/kernel/execution/cognitive-budget.ts src/pth/runner/authorized-task-reads.ts src/pth/runner/cognitive-working-set.ts src/pth/runner/index.ts test/pth-kernel-execution/cognitive-budget.test.ts test/pth-runner/authorized-task-reads.test.ts test/pth-runner/cognitive-working-set.test.ts
+git add src/pth/kernel/execution/cognitive-budget.ts src/pth/runner/authorized-state-reads.ts src/pth/runner/authorized-task-reads.ts src/pth/runner/cognitive-working-set.ts src/pth/runner/index.ts test/pth-kernel-execution/cognitive-budget.test.ts test/pth-runner/authorized-state-reads.test.ts test/pth-runner/authorized-task-reads.test.ts test/pth-runner/cognitive-working-set.test.ts
 git commit -m "feat(pth): enforce task cognitive working set budgets"
 ```
 
@@ -1746,6 +1993,7 @@ git commit -m "feat(pth): enforce task cognitive working set budgets"
 - Modify: `src/pth/kernel/execution/agent-loop-guards.ts`
 - Modify: `src/pth/runner/cognitive-working-set.ts`
 - Modify: `src/pth/runner/authorized-task-reads.ts`
+- Modify: `src/pth/runner/knowledge-context.ts`
 - Modify: `src/pth/runner/agent-task-runner.ts`
 - Modify: `src/pth/bootstrap/task-loop-types.ts`
 - Modify: `src/pth/bootstrap/task-loop.ts`
@@ -1766,24 +2014,29 @@ git commit -m "feat(pth): enforce task cognitive working set budgets"
 - [ ] **Step 1: Add a failing agent test that captures the real LLM surface**
 
 In the new integration test (which must not mock `runAgentTask`), create a deterministic fake LLM that records `messages`
-and `options.tools`. In ASP mode it attempts hidden `dev_run`, moves to `ts`, uses `ts_run` to exercise budgeted
+and `options.tools`. Register enough Role-visible ToolReg program tools to exceed `maxTools`; freeze one admitted program
+and make `registry.omitted` the deterministic first omitted program. Unlike `dev.run`, this program has no pre-existing ASP
+space denial and would execute in `meta` if the new Working Set guard were absent. In ASP mode the fake LLM first attempts
+hidden `registry_omitted`, then moves to `ts`, uses `ts_run` to exercise budgeted
 `memory.retrieve`, `skills.list/get` and `state.recall*`, returns to `meta`, then calls `done`:
 
 ```typescript
-const seen: Array<{ messages: unknown; tools: string[] }> = [];
+import type { LlmCompleteOptions, LlmFn, LlmMessage } from "../../src/pth/kernel/interpreter/llm-fn.js";
+
+const seen: Array<{ messages: LlmMessage[]; tools: string[] }> = [];
 let call = 0;
 const scriptedCalls = [
   { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c2", name: "asp_cd", arguments: { space: "ts" } }] },
-  { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c3", name: "ts_run", arguments: { code: "const ms = await memory.retrieve({anchors:['math']}); const ss = await skills.list(); if (ss[0]) await skills.get(ss[0].id); await state.recallInsights(['math']); return {m:ms.length,s:ss.length};" } }] },
+  { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c3", name: "ts_run", arguments: { code: "const ms = await memory.retrieve({anchors:['mathematics']}); const ss = await skills.list(); if (ss[0]) await skills.get(ss[0].id); await state.recallInsights(['mathematics']); return {m:ms.length,s:ss.length};" } }] },
   { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c4", name: "asp_cd", arguments: { space: "meta" } }] },
   { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c5", name: "done", arguments: { result: { ok: true } } }] },
 ];
-const llm = {
-  complete: async (messages: unknown, options: { tools?: Array<{ name: string }> }) => {
+const llm: LlmFn = {
+  complete: async (messages: LlmMessage[], options: LlmCompleteOptions = {}) => {
     seen.push({ messages, tools: (options.tools ?? []).map((tool) => tool.name) });
     call += 1;
     if (call === 1) {
-      return { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c1", name: "dev_run", arguments: { path: "hidden" } }] };
+      return { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c1", name: "registry_omitted", arguments: { probe: true } }] };
     }
     // Subsequent deterministic calls: asp_cd(ts) -> ts_run -> asp_cd(meta) -> done.
     return scriptedCalls[call - 2]!;
@@ -1792,15 +2045,17 @@ const llm = {
 ```
 
 Run through `AgentTaskRunner` with a frozen union that includes protocol-pinned `done`, ASP ambient tools, `ts_run`, and
-one ToolReg schema, plus a Skill index containing four IDs. `memory.retrieve` is a capability inside `ts_run`, not an LLM
+only the ledger-admitted ToolReg schemas, plus a Skill index containing four IDs. The frozen experimental `N28_ROLE` explicitly adds `state`,
+`skills` and diagnostic `memory.query` to the base researcher capability list; assert all three exist before wrapping and that the wrapper never creates a
+capability family absent from the Role-filtered base. `memory.retrieve` is a capability inside `ts_run`, not an LLM
 Tool schema. For every LLM round, assert the visible schema set equals `frozen union ∩ current ASP space face`; also assert:
 
 ```typescript
-expect(trace).toContainEqual(expect.objectContaining({ type: "tool-result", tool: "dev_run", ok: false }));
-expect(baseDevRun).not.toHaveBeenCalled();
-expect(seen.some((round) => round.tools.includes("dev_run"))).toBe(false);
+expect(trace).toContainEqual(expect.objectContaining({ type: "tool-result", tool: "registry.omitted", ok: false, resultPreview: expect.stringContaining("outside the frozen Task Working Set") }));
+expect(omittedRegistryExecutor).not.toHaveBeenCalled();
+expect(seen.some((round) => round.tools.includes("registry_omitted"))).toBe(false);
 const systemPrompts = seen.flatMap((round) => round.messages as Array<{ role?: string; content?: unknown }>).filter((message) => message.role === "system");
-expect(JSON.stringify(systemPrompts)).not.toContain("dev.run");
+expect(JSON.stringify(systemPrompts)).not.toContain("registry.omitted");
 expect(finalWorkingSet.toolNames.length).toBeLessThanOrEqual(16);
 expect(outcome.status).toBe("completed");
 ```
@@ -1816,7 +2071,9 @@ toolAllowlist?: readonly string[];
 
 In `agent-loop.ts`, canonicalize allowlist names with the existing `normalizeToolName()` and apply it in all three places:
 
-1. Filter the combined static + ToolReg schema list before every LLM call.
+1. Filter the combined static + ToolReg schema list before every LLM call. Define the current space face as
+   `toolsForSpace()` for static schemas plus the Role-visible ToolReg schemas (ToolReg has no space field today); intersect
+   that complete face with the frozen policy.
 2. Pass the frozen task union into `buildAgentSystemPrompt()`/`toolsDescription()` so the prompt never names a Tool outside the Working Set. Replace fixed tool inventories inside `PTH_WORKER_SYSTEM` with text derived from that same union; do not leave `dev.run` or another hidden name in worldview/examples. ASP prose explains that each round exposes only the current-space subset. Protocol prose may describe `done` only because `done` is explicitly pinned and budgeted.
 3. Before resolving `AGENT_TOOLS`, capability-action wrappers or ToolReg executors, reject a tool whose canonical name is absent.
 
@@ -1831,7 +2088,11 @@ return undefined;
 ```
 
 The allowlist check must happen before all executor lookup and must not rely on the model respecting advertised schemas.
-`toolAllowlist` is the frozen task union; each ASP round advertises only its intersection with `toolsForSpace()`. The union
+Add a unit test that attempts the same omitted ToolReg program as both `registry_omitted` and `registry.omitted`; both
+normalize to one policy name, both return the outside-Working-Set denial, and the executor count remains zero. Aliases also
+count only once against `maxTools`.
+`toolAllowlist` is the frozen task union; each ASP round advertises only its intersection with the complete current space
+face defined above. The union
 always counts protocol-pinned `done`, even though `done` is available only in `meta`. Update the role-document query and
 environment prelude in `agent-loop-prompt.ts` / `agent-loop-guards.ts` to select `id, ... , meta`; metadata-only rows with an
 ID are legal, but the complete exposed row projection is charged even when `content` is absent.
@@ -1845,6 +2106,7 @@ export interface CognitiveWorkingSetProvider {
   build(input: {
     taskId: string;
     worker: WorkerReplicaRef;
+    directorySnapshotId: string;
     roleId: string;
     loadPolicyRef?: string;
     tenantId: string;
@@ -1867,32 +2129,34 @@ export interface CognitiveWorkingSetProvider {
 export function createCognitiveWorkingSetProvider(deps: {
   budget: WorkerLoadEnvelope;
   resolveRoleBudget?: (loadPolicyRef: string) => Partial<CognitiveBudget> | undefined;
-  layeredRetriever: LayeredKnowledgeRetriever<KnowledgeMemoryEntry>;
-  searchWave: (scope: {
-    worker: WorkerReplicaRef;
-    tenantId: string;
-    space: string;
-    queryText: string;
-    wave: 0 | 1 | 2 | 3;
-    scope: "regions" | "global";
-    regionIds: readonly string[];
-    limit: number;
-  }) => Promise<LayeredSearchWaveResult<KnowledgeMemoryEntry>>;
 }): CognitiveWorkingSetProvider;
 ```
 
 The feasibility provider resolves the optional Role load policy and takes the minimum of each declared axis and the system
 budget. If `loadPolicyRef` is present but no resolver or matching policy exists, it fails before any read or LLM call.
+`assembleBatchRuntime` accepts a generic `resolveRoleBudget` dependency and passes it through without importing any
+`scripts/**` module. The harness is the caller that injects
+`(ref) => N28_ROLE_LOAD_POLICIES.get(ref)` from its fixture; any future non-harness feasibility launcher must inject an
+equivalent runtime-catalog/config resolver. Add an unknown-ref negative test with all backing-read and LLM spies still at
+zero. Mode `off` injects nothing and no `src/**` file imports the fixture map.
 It loads the real `SkillSummary[]` from `authorizedReads.listSkills`, canonicalizes each summary ID, converts each summary
-to `${id}\n${anchor}\n${whenToUse}\n${effect}`, scores that text with `knowledgeQueryTokenHits`, sorts by hit count descending
-then ID, and freezes at most eight summaries while charging their complete exposed projections. It canonicalizes actual Tool schema names to underscore form, counts protocol-pinned
-`done` plus the ASP ambient union first, and returns
-`createBudgetedTaskCapabilities(baseCaps, policy, ledger, input.authorizedReads)`. No raw base read function may be passed
+to `${id}\n${anchor}\n${whenToUse}\n${effect}` **only for relevance scoring**, scores that text with
+`knowledgeQueryTokenHits`, and sorts by hit count descending then ID. It separately builds each charged item as
+`{id,chars:canonicalExposureChars(skillSummaryProjection(summary))}` where `skillSummaryProjection` is the exact returned
+`SkillSummary` object including `status`; scoring text is never a billing projection. It passes those items into
+`createTaskWorkingSetPolicy`; only the ledger-admitted IDs enter the policy. It canonicalizes actual Tool schema names to underscore form, counts protocol-pinned
+`done` plus the ASP ambient union first, deep-freezes the admitted summary objects, and returns
+`createBudgetedTaskCapabilities(baseCaps, policy, ledger, input.authorizedReads, {skillSummaries: admittedSummaries})`.
+No raw base read function may be passed
 as `authorizedReads`.
+The provider has no `layeredRetriever` or `searchWave` dependency: `AuthorizedTaskReadFactory` is the sole owner of all
+Memory reads and of the one envelope-bearing wave port.
+Its integration test asserts `authorizedReads.listSkills()` is called exactly once, the admitted summary objects are
+deep-frozen, and repeated capability `skills.list()` calls perform zero additional backing reads.
 
 - [ ] **Step 4: Wire the provider into the runner without changing the default path**
 
-`replica` was added in Task 4. Add optional `cognitiveWorkingSetProvider`, `cognitiveResponsibilityMode` and
+`replica` was added in Task 4. Add optional `memoryDirectory`, `cognitiveWorkingSetProvider`, `cognitiveResponsibilityMode` and
 `authorizedReads?: AuthorizedTaskReadFactory` to `AgentTaskRunnerDeps`. When mode is `feasibility`, Directory/provider/
 replica/verified-scope factory/read factory and the single grant-bound result are all mandatory; any absence returns a structured rejected outcome before
 the first LLM call. It must never silently fall back to raw base reads. Mode `off` retains the old optional path. Export
@@ -1911,12 +2175,29 @@ const toolRegistry = this.deps.toolRegStore
 Before Context or provider construction, call `verifiedReadScopeFactory.forTask({lease,work,space,worker})` exactly once.
 Pass that same frozen `authorization` to `KnowledgeContextProvider.build()` and to
 `authorizedReads.forTask()`; compare object identity in the vertical test so no surface reissues or weakens the grant.
+The ordering is fixed: build Context first, require its pending trace to name the injected MemoryDirectory snapshot, then
+build the Working Set provider with that exact `directorySnapshotId`, then record the same pending Context trace in the
+new ledger. Do not substitute Domain Catalog `catalogVersion` or a hard-coded ID.
 
 ```typescript
-const cognitive = this.deps.replica && this.deps.cognitiveWorkingSetProvider && this.deps.authorizedReads
+const contextTrace = knowledgeContext?.retrievalTrace;
+if (this.deps.cognitiveResponsibilityMode === "feasibility" &&
+    (!contextTrace || contextTrace.directorySnapshotId !== this.deps.memoryDirectory?.snapshotId)) {
+  return {
+    lease: ref,
+    status: "rejected",
+    retryable: false,
+    error: { code: "cognitive-directory-trace-mismatch", message: "Knowledge Context is missing or bound to another MemoryDirectory snapshot" },
+    artifacts: [],
+    traceId,
+  };
+}
+
+const cognitive = this.deps.replica && this.deps.cognitiveWorkingSetProvider && this.deps.authorizedReads && contextTrace
   ? await this.deps.cognitiveWorkingSetProvider.build({
       taskId: lease.taskId,
       worker: this.deps.replica,
+      directorySnapshotId: contextTrace.directorySnapshotId,
       roleId: role.id,
       loadPolicyRef: role.loadPolicyRef,
       tenantId: work.scope.tenantId,
@@ -1932,21 +2213,29 @@ const cognitive = this.deps.replica && this.deps.cognitiveWorkingSetProvider && 
     })
   : undefined;
 const taskCaps = cognitive?.capabilities ?? caps;
+const completedContextTrace = cognitive && contextTrace
+  ? cognitive.ledger.recordRetrievalTrace(contextTrace)
+  : undefined;
 ```
 
-Use `taskCaps` for `runAgentTask.caps` and capability injection; pass `cognitive?.policy.toolNames` as `toolAllowlist`. After KnowledgeContext is built, debit its selected entries into the same ledger before the first LLM call. If initial context alone cannot fit, truncate it according to the ledger and update `omitted.reason="cognitive-budget"`.
+Use `completedContextTrace` in the emitted Working Set event; do not mutate the pending Context object in place.
+Use `taskCaps` for `runAgentTask.caps` and capability injection; pass `cognitive?.policy.toolNames` as `toolAllowlist`.
+Immediately record the pending Context trace and debit its selected entries into the same ledger before the first LLM call.
+If initial context alone cannot fit, truncate it according to the ledger and update `omitted.reason="cognitive-budget"`.
 In feasibility mode, a Context status of `retrieval-failed` or `retrieval-incomplete` produces a structured rejected outcome
 and H3 evidence; it must not enter the legacy “warn + original text” degradation branch. Mode `off` keeps the existing
 non-blocking degradation behavior.
 
-Use `canonicalExposureChars()` on the exact Context entry projection inserted into the prompt—including id, summary,
-evidence and exposed meta—and retain only admitted IDs:
+Export `contextPromptProjection()` from `knowledge-context.ts` and make the actual prompt builder consume that same
+projection. It contains exactly id, summary, evidence and exposed meta. The budget call imports that function—there is no
+evaluation-only or locally restated projector. Record the Context's `retrievalTrace` in the ledger before admitting its
+rows, then use `canonicalExposureChars()` on the shared projection and retain only admitted IDs:
 
 ```typescript
 const admitted = cognitive?.ledger.admitMemory(
-  knowledgeContext.entries.map((entry) => ({ id: entry.entryId, chars: canonicalExposureChars(contextPromptProjection(entry)) })),
+  (knowledgeContext?.entries ?? []).map((entry) => ({ id: entry.entryId, chars: canonicalExposureChars(contextPromptProjection(entry)) })),
 );
-if (admitted) {
+if (admitted && knowledgeContext) {
   const allowed = new Set(admitted.accepted.map((entry) => entry.id));
   knowledgeContext = {
     ...knowledgeContext,
@@ -1959,18 +2248,21 @@ if (admitted) {
 }
 ```
 
+The budgeted `memory.retrieve` wrapper similarly records the returned internal trace before exposing admitted rows.
+Known-ID `memory.get` and raw metadata query expansion do not invent traces.
+
 Pass the hoisted `toolRegistry` variable into `runAgentTask`; remove the previous inline second load so the task cannot
 observe different registry versions during policy construction and execution.
 
 On completion, expose numeric usage in `TaskOutcome.usage` using keys `cognitive.memoryEntries`, `cognitive.memoryChars`, `cognitive.skillIndexEntries`, `cognitive.activeSkills`, `cognitive.skillChars`, `cognitive.tools`.
 Extend `AgentTraceEvent` with `type:"cognitive-working-set"` carrying the immutable policy/snapshot IDs, exact admitted ID/name
-sets, usage and omitted counts (no entry bodies or Skill content). Emit once before the first LLM call and once at finish.
+sets, usage, omitted counts and ordered `retrievalTraces`/trace IDs (no entry bodies or Skill content). Emit once before the first LLM call and once at finish.
 H6 compares the final trace snapshot—not a separately recomputed report—to the observed prompt/facades/tool schemas.
 
 - [ ] **Step 5: Pass replica and provider through TaskLoop and batch assembly**
 
-Add optional `cognitiveWorkingSetProvider`, `authorizedReads` and the mode to `TaskLoopDeps`, pass
-`this.deps.replica?.ref` and these dependencies into `AgentTaskRunner`, and construct the feasibility provider in
+Add optional `memoryDirectory`, `cognitiveWorkingSetProvider`, `authorizedReads`, `verifiedReadScopeFactory` and the mode to `TaskLoopDeps`, pass
+`this.deps.replica?.ref` and all three dependencies into `AgentTaskRunner`, and construct the feasibility provider in
 `batch-process.ts` when mode is `feasibility`. Missing Directory or read factory is a startup/first-task error, not a reason
 to omit the provider. Mode `off` remains on the old retrieval/capability behavior.
 
@@ -1979,7 +2271,26 @@ Add this optional dependency to `RunBatchProcessDeps`; the normal CLI entry leav
 ```typescript
 memoryDirectory?: import("../execution/index.js").MemoryDirectorySnapshot;
 authorizedTaskReadFactory?: import("../runner/index.js").AuthorizedTaskReadFactory;
+verifiedReadScopeFactory?: import("../execution/index.js").VerifiedTaskReadScopeFactory;
+resolveRoleBudget?: (loadPolicyRef: string) => Partial<import("../contracts/index.js").CognitiveBudget> | undefined;
+workerSpecs?: readonly {
+  role: import("../kernel/execution/worker-cluster.js").RoleDefinition;
+  requestedReplica?: import("../contracts/index.js").WorkerReplicaRef;
+}[];
+replicaFactory?: (input: {
+  role: import("../kernel/execution/worker-cluster.js").RoleDefinition;
+  batchId: string;
+  index: number;
+  requestedReplica?: import("../contracts/index.js").WorkerReplicaRef;
+}) => import("../kernel/execution/worker-replica.js").WorkerReplica;
 ```
+
+`assembleBatchRuntime()` receives these same dependencies. Production constructs both factories from its existing single
+`ExecutionGrantService` and system clock; the harness injects one shared fake clock and grant service. Neither TaskLoop nor
+AgentTaskRunner creates or verifies a second grant. Before starting any slot in feasibility mode, assembly calls
+`assertMemoryDirectoryResponsibilityCapacity(memoryDirectory, N28_FEASIBILITY_BUDGET.responsibility)`; overload is a
+startup error, never a warning or silent limit expansion. Add a vertical negative that overloads one worker and asserts
+zero polls, backing reads and LLM calls.
 
 Do **not** call the long-running, PG-dependent `runBatchProcess()` from the in-memory gate. Instead,
 `scripts/n28-feasibility-harness.ts` must call `assembleBatchRuntime()` and `runBatchHost({maxIterations: ...})` with
@@ -1991,9 +2302,14 @@ composition for slot lifecycle, heartbeat/control, identity, TaskLoop, grant, Co
 
 Create `scripts/n28-feasibility-harness.ts` as the single public assembly used by this vertical test and Task 7's CLI. The test must use:
 
-- all four fixture `WorkerReplica` objects with role `researcher`, so every Directory primary owner is live; H1 focuses on
-  the algebra/geometry pair;
+- four injected `workerSpecs` carrying the exact frozen `N28_ROLE` definition plus all four fixture `WorkerReplica` refs via
+  the injected replica factory, so
+  every Directory primary owner is live; assert
+  `roleDefinitionRevision(N28_ROLE) === worker.ref.role.revision` for every slot before polling. H1 focuses on the
+  algebra/geometry pair; resolving the base catalog researcher instead of `N28_ROLE` is a startup failure because it would
+  omit the experimental state/Skill permissions;
 - one immutable directory with algebra/geometry primary and numerical overlap responsibilities;
+- the frozen `N28_ROLE_LOAD_POLICIES` resolver used by the production feasibility provider;
 - the real layered retriever;
 - the real `createKnowledgeContextProvider()`;
 - production `assembleBatchRuntime` + finite `runBatchHost`, its `WorkerSlotRuntime`, real TaskLoop/archive wrapper,
@@ -2025,12 +2341,13 @@ Also pause the algebra replica and assert the geometry replica can still run a t
 
 Run: `npx vitest run test/pth-runner/agent-task-runner.test.ts test/pth-kernel-execution/agent-loop.test.ts test/pth-kernel-execution/prompt-docs.test.ts test/pth-kernel-execution/agent-loop-ptc.integration.test.ts test/pth-kernel-execution/agent-loop-working-set.integration.test.ts test/pth-kernel-execution/task-loop.test.ts test/pth-runner/cognitive-responsibility.vertical.test.ts`
 
-Expected: PASS; the hidden `dev.run` attempt is rejected before its executor is invoked.
+Expected: PASS; the same-space, Role-visible but budget-omitted `registry.omitted` attempt is rejected by the new Working
+Set guard before its otherwise valid executor is invoked.
 
 - [ ] **Step 8: Commit real agent integration**
 
 ```bash
-git add src/pth/kernel/execution/agent-loop-types.ts src/pth/kernel/execution/agent-loop.ts src/pth/kernel/execution/agent-loop-prompt.ts src/pth/kernel/execution/agent-loop-guards.ts src/pth/runner/authorized-task-reads.ts src/pth/runner/cognitive-working-set.ts src/pth/runner/agent-task-runner.ts src/pth/bootstrap/task-loop-types.ts src/pth/bootstrap/task-loop.ts src/pth/bootstrap/worker-slot-runtime.ts src/pth/bootstrap/batch-runtime-assembly.ts src/pth/bootstrap/batch-process.ts scripts/n28-feasibility-harness.ts test/pth-runner/agent-task-runner.test.ts test/pth-kernel-execution/agent-loop.test.ts test/pth-kernel-execution/prompt-docs.test.ts test/pth-kernel-execution/agent-loop-working-set.integration.test.ts test/pth-runner/cognitive-responsibility.vertical.test.ts
+git add src/pth/kernel/execution/agent-loop-types.ts src/pth/kernel/execution/agent-loop.ts src/pth/kernel/execution/agent-loop-prompt.ts src/pth/kernel/execution/agent-loop-guards.ts src/pth/runner/authorized-task-reads.ts src/pth/runner/cognitive-working-set.ts src/pth/runner/knowledge-context.ts src/pth/runner/agent-task-runner.ts src/pth/bootstrap/task-loop-types.ts src/pth/bootstrap/task-loop.ts src/pth/bootstrap/worker-slot-runtime.ts src/pth/bootstrap/batch-runtime-assembly.ts src/pth/bootstrap/batch-process.ts scripts/n28-feasibility-harness.ts test/pth-runner/agent-task-runner.test.ts test/pth-kernel-execution/agent-loop.test.ts test/pth-kernel-execution/prompt-docs.test.ts test/pth-kernel-execution/agent-loop-working-set.integration.test.ts test/pth-runner/cognitive-responsibility.vertical.test.ts
 git commit -m "feat(pth): enforce cognitive working set in agent runtime"
 ```
 
@@ -2040,41 +2357,59 @@ git commit -m "feat(pth): enforce cognitive working set in agent runtime"
 
 **Files:**
 - Create: `scripts/eval-n28-feasibility.ts`
+- Create: `scripts/accept-n28-feasibility.ts`
+- Create: `tsconfig.n28.json`
 - Modify: `scripts/n28-feasibility-harness.ts`
 - Modify: `scripts/n28-feasibility-fixture.ts`
 - Create: `test/pth-runner/n28-feasibility-evaluator.test.ts`
+- Create: `test/pth-runner/n28-feasibility-acceptance.test.ts`
 - Create after execution: `docs/pth/n28-feasibility-report.md`
 - Modify: `docs/README.md`
 
 **Interfaces:**
 - Consumes: all Task 1–6 production classes and frozen fixtures.
-- Produces: machine-readable `N28FeasibilityResult`, CLI JSON, process exit status, evidence-backed GO/NO-GO report.
+- Produces: machine-readable `N28FeasibilityResult`, `N28AcceptanceEnvelope`, CLI JSON, process exit status, evidence-backed GO/NO-GO report.
 
 - [ ] **Step 1: Write a failing evaluator aggregation test**
 
 ```typescript
 import { describe, expect, it } from "vitest";
-import { decideN28Feasibility, evaluateN28Feasibility, type N28FeasibilityMetrics } from "../../scripts/eval-n28-feasibility.js";
+import { METRIC_KEYS, decideN28Feasibility, evaluateN28Feasibility, validateN28FeasibilityMetrics, type N28FeasibilityMetrics } from "../../scripts/eval-n28-feasibility.js";
 
 describe("N28 feasibility evaluator", () => {
-  it("derives hypotheses and decision only from metrics", () => {
+  it("rejects a bad value for every metric, plus missing/non-finite fields", () => {
     const observed = passingMetricsFixture();
     expect(decideN28Feasibility(observed).decision).toBe("GO");
-    for (const metric of [
-      "sameRoleReplicaControlFailures", "bodyCopiesOutsideCanonicalStore", "missingFourWaveCases",
-      "authorizationLeaks", "budgetViolations", "hiddenExecutorInvocations",
-    ] as const) {
+    const badValueByMetric = failingValueForEveryMetric() satisfies Record<keyof N28FeasibilityMetrics, number>;
+    expect(Object.keys(badValueByMetric).sort()).toEqual([...METRIC_KEYS].sort());
+    for (const metric of METRIC_KEYS) {
       const mutated = structuredClone(observed);
-      mutated[metric] += 1;
+      mutated[metric] = badValueByMetric[metric];
       expect(decideN28Feasibility(mutated).decision, metric).toBe("NO-GO");
     }
+    for (const invalid of [NaN, Infinity, -1]) {
+      expect(validateN28FeasibilityMetrics({ ...observed, goldQueries: invalid })).not.toEqual([]);
+    }
+    const missing = structuredClone(observed) as Partial<N28FeasibilityMetrics>;
+    delete missing.goldQueries;
+    expect(decideN28Feasibility(missing as N28FeasibilityMetrics).decision).toBe("NO-GO");
   });
 
   it("detects one mutation for each H1-H6 path through the shared harness", async () => {
-    for (const sabotage of ["control-target-swap", "directory-body-copy", "remove-global-wave", "grant-bypass", "oversized-spec", "hidden-executor"] as const) {
+    const baseline = await evaluateN28Feasibility();
+    const cases = {
+      "control-target-swap": { hypothesis: "H1", sentinel: "sameRoleReplicaControlFailures" },
+      "directory-body-copy": { hypothesis: "H2", sentinel: "bodyCopiesOutsideCanonicalStore" },
+      "remove-global-wave": { hypothesis: "H3", sentinel: "missingFourWaveCases" },
+      "scope-guard-bypass": { hypothesis: "H4", sentinel: "unauthorizedReadPortInvocations" },
+      "budget-wrapper-bypass": { hypothesis: "H5", sentinel: "budgetViolations" },
+      "tool-dispatch-guard-bypass": { hypothesis: "H6", sentinel: "hiddenExecutorInvocations" },
+    } as const;
+    for (const [sabotage, expected] of Object.entries(cases) as Array<[keyof typeof cases, typeof cases[keyof typeof cases]]>) {
       const result = await evaluateN28Feasibility({ sabotage });
       expect(result.decision, sabotage).toBe("NO-GO");
-      expect(Object.values(result.hypotheses).filter((item) => !item.passed), sabotage).toHaveLength(1);
+      expect(result.hypotheses[expected.hypothesis].passed, sabotage).toBe(false);
+      expect(result.metrics[expected.sentinel], sabotage).toBeGreaterThan(baseline.metrics[expected.sentinel]);
     }
   });
 
@@ -2088,8 +2423,13 @@ describe("N28 feasibility evaluator", () => {
 ```
 
 Define `passingMetricsFixture()` locally in the test with `satisfies N28FeasibilityMetrics`, enumerating every metric:
-12/12 recall, coverage 1, overlap ≥1, exactly four waves for all gold cases, 1,000 generated cases, candidates ≤20 and
+12/12 recall, coverage 1, all four memory types, overlap ≥1, exactly four waves for all gold cases, 1,000 generated task
+and responsibility cases, and exact non-vacuous probe denominators: 6 lifecycle, 1 batch, 2 cleanup, 4 heartbeat,
+3 audit, 3 grant, 8 directory invariants, 1 directory determinism, 32 authorization, 14 visibility,
+12 surface comparisons and 1 hidden dispatch. Selected rows per wave are ≤20 and
 every failure/leak/mismatch counter 0. It is decision-unit-test input only; the evaluator and harness may not import it.
+`failingValueForEveryMetric()` must enumerate every key and choose a value that violates that field's documented
+predicate; this prevents a newly added but unwired metric from silently defaulting green.
 
 - [ ] **Step 2: Implement one evaluator that calls the real test harness exports**
 
@@ -2097,33 +2437,51 @@ Use this result contract:
 
 ```typescript
 export interface N28FeasibilityMetrics {
-    goldQueries: 12;
+    goldQueries: number;
+    goldFoundQueries: number;
+    fourWaveCases: number;
     goldRecall: number;
     authorizationLeaks: number;
     maxRetrievalWaves: number;
-    generatedBudgetCases: 1000;
+    generatedBudgetCases: number;
+    generatedResponsibilityCases: number;
     budgetViolations: number;
     sameRoleReplicaControlFailures: number;
+    workerLifecycleProbeCases: number;
+    batchRuntimeProbeCases: number;
     batchRuntimeConsumptionFailures: number;
+    stoppedSlotCleanupProbeCases: number;
     stoppedSlotCleanupFailures: number;
+    heartbeatIdentityProbeCases: number;
     heartbeatIdentityFailures: number;
+    auditIdentityProbeCases: number;
     auditIdentityFailures: number;
+    grantIdentityProbeCases: number;
     grantIdentityFailures: number;
     directoryCoverage: number;
+    memoryTypesCovered: number;
+    canonicalBodyEntries: number;
+    directoryMembershipReferences: number;
     overlapMemberships: number;
     ownerlessRegions: number;
     bodyCopiesOutsideCanonicalStore: number;
     directoryInvariantFailures: number;
+    directoryInvariantProbeCases: number;
+    directoryDeterminismProbeCases: number;
     snapshotDeterminismMismatches: number;
     workingSetDeterminismMismatches: number;
     responsibilityViolations: number;
     retrievalIncompleteCases: number;
     retrievalFailedCases: number;
-    maxWaveCandidates: number;
+    maxWaveSelectedCount: number;
     missingFourWaveCases: number;
     unauthorizedWaveInvocations: number;
     unauthorizedReadPortInvocations: number;
+    authorizationProbeCases: number;
+    visibilityProbeCases: number;
     surfaceMismatches: number;
+    surfaceComparisonCases: number;
+    hiddenDispatchProbeCases: number;
     hiddenExecutorInvocations: number;
 }
 
@@ -2137,16 +2495,39 @@ export interface N28FeasibilityResult {
 }
 ```
 
+Export a literal `METRIC_KEYS` containing every interface key and implement
+`validateN28FeasibilityMetrics(value: unknown): string[]`. It performs **structural validation only**: missing/extra
+fields, non-numbers, `NaN`, infinity, negative counts and ratios outside `[0,1]`. Exact denominators and thresholds belong
+to hypothesis/direct predicates, not this schema validator. Counts are incremented by the shared observers; the evaluator
+may not assign expected denominators after the run. For structurally invalid input, `decideN28Feasibility` returns `NO-GO`
+with all H1–H6 marked false and validation evidence. For structurally valid but failing counts (including sabotage), it
+still derives the individual hypotheses so the responsible H remains observable.
+
+Also require exact non-vacuous probe denominators: `workerLifecycleProbeCases===6` (pause/resume/idle remove/busy remove/
+no-preclaim/peer continues), `directoryInvariantProbeCases===8` (tenant/revision/content hash/index hash/epoch/owner/
+unknown worker/duplicate binding), `authorizationProbeCases===32` (eight read surfaces × invalid signature,
+missing capability, already expired, and lease-expired-after-creation), and `surfaceComparisonCases===12` (five per-turn
+schema checks, five per-turn prompt checks, one Skill snapshot and one final Working Set trace). These counts increment only
+after the named public probe actually returns an observation. H1 additionally requires
+`batchRuntimeProbeCases===1`, `stoppedSlotCleanupProbeCases===2` (idle and busy),
+`heartbeatIdentityProbeCases===4`, `auditIdentityProbeCases===3` and `grantIdentityProbeCases===3`; zero failures without
+these observations is vacuous and therefore No-Go.
+H2 separately requires `directoryDeterminismProbeCases===1`: build two snapshots from independently allocated, oppositely
+ordered inputs and compare snapshot/corpus IDs and memberships before incrementing the denominator.
+H4 also requires `visibilityProbeCases===14`: all seven frozen visibility rows observed once through Broker and once through
+Context, with expected allow/deny results. H6 requires `hiddenDispatchProbeCases===1`, incremented only after the omitted
+same-space ToolReg call produces the Working Set-specific denial and its otherwise valid executor spy remains zero.
+
 Derive hypotheses mechanically from metrics:
 
 | Hypothesis | Exact pass predicate |
 |---|---|
-| H1 | same-role control, batch-runtime consumption, stopped-slot cleanup, heartbeat identity, audit identity and grant identity failures are all 0 |
-| H2 | directory coverage is 1; overlap memberships ≥1; ownerless Regions/body copies/directory invariant failures/snapshot mismatches are 0 |
-| H3 | gold recall is 1; every gold case has exactly waves `[0,1,2,3]`; max waves ≤4; max returned candidates/wave ≤20; incomplete/failed gold cases are 0 |
-| H4 | authorization leaks, unauthorized wave invocations and unauthorized Memory/Skill/state backing-port invocations are 0; invalid/expired/missing-capability grants call no backing read |
-| H5 | 1,000 task + responsibility cases ran; budget/responsibility/snapshot/Working Set determinism violations are 0 |
-| H6 | schema/Skill/working-set surface mismatches and hidden executor invocations are 0 |
+| H1 | all six lifecycle probes plus exact batch-runtime/cleanup/heartbeat/audit/grant observation denominators ran; same-role control, batch-runtime consumption, stopped-slot cleanup, heartbeat identity, audit identity and grant identity failures are all 0 |
+| H2 | all eight invariant probes and one independent reordered-input determinism probe ran; directory coverage is 1; exactly four Memory Types are projected; canonical body count is 100; membership references exceed canonical bodies; overlap memberships ≥1; ownerless Regions/body copies/directory invariant failures/snapshot mismatches are 0 |
+| H3 | exactly 12 gold queries ran and were found; gold recall is 1; all 12 cases have exactly waves `[0,1,2,3]`; max waves ≤4; max `RetrievalWaveTrace.selectedCount` ≤20; incomplete/failed gold cases are 0. `candidateCount`/`scannedCount` remain honest observability values and are not capped by this in-memory proof |
+| H4 | all 32 authorization cells and all 14 Broker/Context visibility observations ran; authorization leaks, unauthorized wave invocations and unauthorized Memory/Skill/state backing-port invocations are 0; invalid/expired/missing-capability grants call no backing read |
+| H5 | exactly 1,000 task budget cases and 1,000 responsibility cases ran; budget/responsibility/snapshot/Working Set determinism violations are 0 |
+| H6 | all 12 surface comparisons and the real omitted-tool dispatch probe ran; schema/Skill/working-set surface mismatches and hidden executor invocations are 0 |
 
 Each evidence array names the producing test/harness probe and observed counter; booleans may not be supplied independently
 of their metrics.
@@ -2154,7 +2535,8 @@ Direct counters describe the unsabotaged acceptance run only; deliberately injec
 detector fires but are not added to the positive run's leak/failure totals.
 
 The unsabotaged run still performs negative contract probes and records an invariant failure only when a bad input is
-unexpectedly accepted: invalid Directory tenant/revision/hash/epoch/owner, invalid/expired/missing-capability grant, and a
+unexpectedly accepted: invalid Directory tenant/entry revision/content hash/index hash/epoch/owner,
+invalid/expired/missing-capability grant, and a
 busy-remove cleanup race. It also builds two independent ledgers from reordered inputs and compares policy, admitted sets,
 usage and omitted trace. These are observations from public components, not constants.
 
@@ -2165,8 +2547,12 @@ All WorkerReplica IDs come from that fixture or an injected ID factory, so evalu
 The optional `sabotage` argument exists only in `scripts/n28-feasibility-harness.ts`. It may alter a fixture input,
 dependency behavior or requested action, but it may not write a metric/hypothesis/counter directly. The same observers that
 measure the unsabotaged production component must detect the mutation. Fix the mapping: control target swap→H1, body field
-in Directory projection→H2, omitted global wave→H3, verifier bypass→H4, oversized function spec→H5, outside-union executor
-attempt→H6. No sabotage branch or evaluator import may enter `src/pth/**`.
+in Directory projection→H2, omitted global wave→H3, permissive scope-guard dependency→H4, omitted budget-wrapper
+composition with an oversized function spec that reaches the agent→H5, and omitted dispatch guard that actually invokes
+the outside-union executor→H6. A correctly rejected oversized spec or hidden-tool attempt is a positive security probe,
+not sabotage. No sabotage branch or evaluator import may enter `src/pth/**`.
+Each sabotage test compares against an unsabotaged run and requires its mapped failure sentinel to increase; merely returning
+an already-failing baseline hypothesis is not evidence that the mutation probe is wired.
 
 The shared harness owns exactly one canonical `Map<tenantId|entryId, body>`. Traverse the Directory/Responsibility/
 WorkingSet objects and count any `content`/`body` field outside that map. Also report membership reference count separately;
@@ -2174,8 +2560,13 @@ overlap must increase references without increasing canonical body count:
 
 ```typescript
 const duplicateCompositeIds = corpus.length - new Set(corpus.map((entry) => `${entry.tenantId}|${entry.id}`)).size;
-metrics.bodyCopiesOutsideCanonicalStore = duplicateCompositeIds + countBodyFields(directory);
+const projectionRoots = [directory.memberships, directory.regions, directory.responsibilities, ...workingSetSnapshots] as const;
+metrics.bodyCopiesOutsideCanonicalStore = duplicateCompositeIds + countBodyFields(projectionRoots);
 ```
+
+Add three detector tests that inject one `content` field into a Directory membership, a Responsibility and a Working Set
+snapshot respectively; each must increment the same H2 counter. `canonicalBodyEntries` is the canonical map size, while
+`directoryMembershipReferences` is `sum(membership.regionIds.length)` and must exceed it because overlap is by reference.
 
 Guard the CLI entry so importing the evaluator from Vitest does not execute it:
 
@@ -2196,8 +2587,27 @@ hypothesis and every direct invariant below passes. Callers cannot supply indepe
 never hardcodes expected success:
 
 ```typescript
+const metricSchemaErrors = validateN28FeasibilityMetrics(metrics);
 const directNoGo =
+  metricSchemaErrors.length > 0 ||
   Object.values(hypotheses).some((item) => !item.passed) ||
+  metrics.goldQueries !== 12 ||
+  metrics.goldFoundQueries !== 12 ||
+  metrics.fourWaveCases !== 12 ||
+  metrics.generatedBudgetCases !== 1000 ||
+  metrics.generatedResponsibilityCases !== 1000 ||
+  metrics.workerLifecycleProbeCases !== 6 ||
+  metrics.batchRuntimeProbeCases !== 1 ||
+  metrics.stoppedSlotCleanupProbeCases !== 2 ||
+  metrics.heartbeatIdentityProbeCases !== 4 ||
+  metrics.auditIdentityProbeCases !== 3 ||
+  metrics.grantIdentityProbeCases !== 3 ||
+  metrics.directoryInvariantProbeCases !== 8 ||
+  metrics.directoryDeterminismProbeCases !== 1 ||
+  metrics.authorizationProbeCases !== 32 ||
+  metrics.visibilityProbeCases !== 14 ||
+  metrics.surfaceComparisonCases !== 12 ||
+  metrics.hiddenDispatchProbeCases !== 1 ||
   metrics.authorizationLeaks > 0 ||
   metrics.goldRecall < 1 ||
   metrics.budgetViolations > 0 ||
@@ -2209,6 +2619,9 @@ const directNoGo =
   metrics.auditIdentityFailures > 0 ||
   metrics.grantIdentityFailures > 0 ||
   metrics.directoryCoverage < 1 ||
+  metrics.memoryTypesCovered !== 4 ||
+  metrics.canonicalBodyEntries !== 100 ||
+  metrics.directoryMembershipReferences <= metrics.canonicalBodyEntries ||
   metrics.overlapMemberships < 1 ||
   metrics.ownerlessRegions > 0 ||
   metrics.bodyCopiesOutsideCanonicalStore > 0 ||
@@ -2217,7 +2630,7 @@ const directNoGo =
   metrics.workingSetDeterminismMismatches > 0 ||
   metrics.maxRetrievalWaves > 4 ||
   metrics.missingFourWaveCases > 0 ||
-  metrics.maxWaveCandidates > 20 ||
+  metrics.maxWaveSelectedCount > 20 ||
   metrics.unauthorizedWaveInvocations > 0 ||
   metrics.unauthorizedReadPortInvocations > 0 ||
   metrics.retrievalIncompleteCases > 0 ||
@@ -2228,10 +2641,141 @@ const directNoGo =
 
 H6 also fails when the fake LLM receives a schema outside the frozen Tool face or a hidden executor is invoked.
 
-- [ ] **Step 4: Commit the evaluator and shared harness before collecting evidence**
+- [ ] **Step 4: Define the final acceptance envelope and its decision tests**
+
+Create `scripts/accept-n28-feasibility.ts` and keep the evaluator verdict explicitly **provisional**. Define:
+
+```typescript
+export interface CommandGateEvidence {
+  command: string;
+  started: boolean;
+  exitCode: number | null;
+  skipped: readonly { file: string; tests: number }[];
+  environmentStatus: "available" | "unavailable";
+  unavailableReason?: "postgres" | "redis" | "sandbox" | "toolchain";
+}
+
+export interface N28AcceptanceEnvelope {
+  evaluatedCommit: string;
+  implementationTreeClean: boolean;
+  evaluator: {
+    first: N28FeasibilityResult;
+    second: N28FeasibilityResult;
+    byteIdentical: boolean;
+  };
+  focused: CommandGateEvidence;
+  n28Typecheck: CommandGateEvidence;
+  fullRegression: CommandGateEvidence;
+  lint: CommandGateEvidence;
+  decision: "GO" | "NO-GO" | "EVALUATION-INCOMPLETE";
+  reasons: readonly string[];
+}
+```
+
+Freeze the only accepted pre-N28 skip manifest in `scripts/n28-feasibility-fixture.ts`:
+
+```typescript
+export const N28_ACCEPTED_BASELINE_SKIPS = [
+  { file: "test/pth-execution/sandbox-security.integration.test.ts", tests: 9 },
+] as const;
+```
+
+Export and unit-test `parseVitestSkipManifest(json, repoRoot)`. For every `testResults[]` row, derive the file with
+`path.relative(repoRoot, result.name)`, replace platform separators with `/`, and count only `assertionResults[]` whose
+status is `pending`, `skipped`, `todo` or `disabled`; reject an unknown JSON shape instead of falling back to stdout or
+`numPendingTests`. Aggregate duplicate file rows, drop zero counts and sort by repo-relative path before comparing to the
+frozen manifest. Feed the parser equivalent POSIX and macOS-style absolute paths in its acceptance unit test and require the
+same normalized manifest. Raw absolute Vitest `testResults[].name` values are never compared directly.
+
+`decideN28Acceptance(envelope,{currentHead})` returns `GO` only when `evaluatedCommit` is the current non-empty HEAD,
+`implementationTreeClean=true`, both evaluator outputs are byte-identical and provisionally GO, the focused
+gate and N28-specific typecheck start/exit 0 with zero skips, full `npm test` starts/exits 0 with exactly the frozen skip
+manifest and no new skip, and lint starts/exits 0. The driver records `environmentStatus="unavailable"` only from explicit
+preflight probes run **before** a command; it may not relabel an executed failing test as an environment problem. A command
+that cannot start or a preflight-classified unavailable accepted environment produces
+`EVALUATION-INCOMPLETE`; an executed failing test/lint or changed skip manifest produces `NO-GO`. No report may copy the
+provisional evaluator decision as its final verdict.
+
+Implement `probeAcceptedN27Environment()` in the driver before any gate: verify Node/npm/npx toolchain availability, run
+the same Docker/Testcontainers readiness probe used by N27 for PostgreSQL, ping the configured Redis endpoint when the full
+suite requires it, and run the existing sandbox/listen smoke probe. Map only those four named failures to the controlled
+`unavailableReason` union. Store stderr evidence in the report but not in the deterministic evaluator metrics. Once a gate
+has `started=true`, a nonzero exit is always `NO-GO`; the driver cannot infer “environment unavailable” from test output.
+
+Like the evaluator, the acceptance driver must guard its CLI entry with
+`import.meta.url === pathToFileURL(process.argv[1]).href`. Importing its pure decision function from Vitest must never run
+the driver, otherwise the acceptance test would recursively launch its own focused gate.
+
+In `n28-feasibility-acceptance.test.ts`, start from a complete passing envelope and mutate every envelope field/gate:
+non-identical evaluator JSON, provisional NO-GO, focused/typecheck nonzero or skip, full nonzero/new or missing baseline
+skip, lint nonzero, missing/mismatched commit, dirty tree, non-started command, controlled unavailable preflight and a
+post-start failure falsely labelled unavailable. Assert none returns GO. This test calls the real decision function; it does
+not execute the long-running commands.
+
+- [ ] **Step 5: Commit the evaluator, acceptance driver and shared harness before collecting evidence**
+
+First create the narrow typecheck config that both the TSX CLIs and the later N28 typecheck gate use:
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "paths": {
+      "@away_from/infra": ["./packages/infra/src/index.ts"],
+      "@away_from/shared": ["./packages/shared/src/index.ts"],
+      "@away_from/pth-memory": ["./packages/pth-memory/src/index.ts"],
+      "@away_from/pth-sandbox": ["./packages/pth-sandbox/src/index.ts"]
+    }
+  },
+  "files": [
+    "scripts/n28-feasibility-fixture.ts",
+    "scripts/n28-feasibility-harness.ts",
+    "scripts/eval-n28-feasibility.ts",
+    "scripts/accept-n28-feasibility.ts",
+    "test/pth-contracts/cognitive-responsibility.test.ts",
+    "test/pth-kernel-execution/worker-cluster.test.ts",
+    "test/pth-kernel-execution/role-lineage.test.ts",
+    "test/pth-config/config.test.ts",
+    "test/pth-kernel-execution/worker-replica.test.ts",
+    "test/pth-kernel-execution/worker-slot-assembly.test.ts",
+    "test/pth-kernel-execution/worker-slot-runtime.test.ts",
+    "test/pth-kernel-execution/batch-runtime-assembly.test.ts",
+    "test/pth-kernel-execution/task-loop.test.ts",
+    "test/pth-kernel-execution/batch-manager.test.ts",
+    "test/pth-execution/memory-type-classifier.test.ts",
+    "test/pth-execution/memory-directory.test.ts",
+    "test/pth-execution/knowledge-ranking.test.ts",
+    "test/pth-execution/verified-task-read-scope.test.ts",
+    "test/pth-execution/layered-knowledge-retriever.test.ts",
+    "test/pth-execution/knowledge-broker.test.ts",
+    "test/pth-kernel-execution/cognitive-budget.test.ts",
+    "test/pth-runner/authorized-state-reads.test.ts",
+    "test/pth-runner/authorized-task-reads.test.ts",
+    "test/pth-runner/cognitive-working-set.test.ts",
+    "test/pth-tasking/task-outcome-observers.test.ts",
+    "test/pth-runner/knowledge-context.test.ts",
+    "test/pth-runner/agent-task-runner.test.ts",
+    "test/pth-kernel-execution/agent-loop.test.ts",
+    "test/pth-kernel-execution/prompt-docs.test.ts",
+    "test/pth-kernel-execution/agent-tool-convergence.test.ts",
+    "test/pth-kernel-execution/agent-loop-working-set.integration.test.ts",
+    "test/pth-kernel-execution/agent-loop-ptc.integration.test.ts",
+    "test/pth-runner/cognitive-responsibility.vertical.test.ts",
+    "test/pth-runner/n28-feasibility-evaluator.test.ts",
+    "test/pth-runner/n28-feasibility-acceptance.test.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+These source path overrides cover the clean-checkout dependency closure; do not replace them with workspace `dist`
+declarations.
 
 ```bash
-git add scripts/eval-n28-feasibility.ts scripts/n28-feasibility-harness.ts scripts/n28-feasibility-fixture.ts test/pth-runner/n28-feasibility-evaluator.test.ts
+git add scripts/eval-n28-feasibility.ts scripts/accept-n28-feasibility.ts scripts/n28-feasibility-harness.ts scripts/n28-feasibility-fixture.ts tsconfig.n28.json test/pth-runner/n28-feasibility-evaluator.test.ts test/pth-runner/n28-feasibility-acceptance.test.ts
 git commit -m "test(pth): add N28 feasibility evaluator"
 git rev-parse HEAD
 ```
@@ -2239,37 +2783,45 @@ git rev-parse HEAD
 Record this SHA as the evaluated implementation commit. Do not amend it after collecting results; fixes require a new
 commit and a fresh complete run.
 
-- [ ] **Step 5: Run the evaluator twice and verify byte-stable semantic output**
+- [ ] **Step 6: Run the evaluator twice and verify byte-stable semantic output**
 
 Run:
 
 ```bash
-node --import tsx scripts/eval-n28-feasibility.ts > /tmp/n28-run-1.json
-node --import tsx scripts/eval-n28-feasibility.ts > /tmp/n28-run-2.json
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval-n28-feasibility.ts > /tmp/n28-run-1.json
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval-n28-feasibility.ts > /tmp/n28-run-2.json
 diff -u /tmp/n28-run-1.json /tmp/n28-run-2.json
 ```
 
-Expected: both evaluator runs have the same exit status (`0` for GO, `1` for NO-GO) and `diff` has no output. A NO-GO is
+Expected: both evaluator runs have the same exit status (`0` for provisional GO, `1` for provisional NO-GO) and `diff` has no output. A NO-GO is
 a valid feasibility result and still proceeds to report generation; do not massage it into a green test. Do not include
 timestamps, random IDs or machine paths in evaluator JSON.
 
-- [ ] **Step 6: Run the complete N28 focused gate**
+- [ ] **Step 7: Run the complete N28 focused gate**
 
-Run:
+Use the committed narrow config from Step 5 so `scripts/**` and the feasibility tests cannot pass merely because Vitest
+transpiles without checking types. Run `npx tsc -p tsconfig.n28.json --noEmit` and record it as the independent
+`n28Typecheck` gate, then run:
 
 ```bash
 npx vitest run \
   test/pth-contracts/cognitive-responsibility.test.ts \
+  test/pth-kernel-execution/worker-cluster.test.ts \
+  test/pth-kernel-execution/role-lineage.test.ts \
   test/pth-config/config.test.ts \
   test/pth-kernel-execution/worker-replica.test.ts \
   test/pth-kernel-execution/worker-slot-assembly.test.ts \
   test/pth-kernel-execution/worker-slot-runtime.test.ts \
+  test/pth-kernel-execution/batch-runtime-assembly.test.ts \
   test/pth-kernel-execution/task-loop.test.ts \
   test/pth-kernel-execution/batch-manager.test.ts \
+  test/pth-execution/memory-type-classifier.test.ts \
   test/pth-execution/memory-directory.test.ts \
   test/pth-execution/knowledge-ranking.test.ts \
+  test/pth-execution/verified-task-read-scope.test.ts \
   test/pth-execution/layered-knowledge-retriever.test.ts \
   test/pth-kernel-execution/cognitive-budget.test.ts \
+  test/pth-runner/authorized-state-reads.test.ts \
   test/pth-runner/authorized-task-reads.test.ts \
   test/pth-runner/cognitive-working-set.test.ts \
   test/pth-tasking/task-outcome-observers.test.ts \
@@ -2282,19 +2834,22 @@ npx vitest run \
   test/pth-kernel-execution/agent-loop-working-set.integration.test.ts \
   test/pth-kernel-execution/agent-loop-ptc.integration.test.ts \
   test/pth-runner/cognitive-responsibility.vertical.test.ts \
-  test/pth-runner/n28-feasibility-evaluator.test.ts
+  test/pth-runner/n28-feasibility-evaluator.test.ts \
+  test/pth-runner/n28-feasibility-acceptance.test.ts \
+  --reporter=json \
+  --outputFile /tmp/n28-focused.json
 ```
 
 Expected: all contract and mutation tests PASS with no PG/Redis skips because the feasibility slice is intentionally
 in-memory. The unsabotaged integration test verifies evidence/decision consistency without requiring GO; the CLI and report
 carry the actual feasibility verdict.
 
-- [ ] **Step 7: Run existing regression and architecture gates**
+- [ ] **Step 8: Run existing regression and architecture gates**
 
 Run:
 
 ```bash
-npm test
+npm test -- --reporter=json --outputFile /tmp/n28-full.json
 npm run lint
 ```
 
@@ -2302,25 +2857,43 @@ Expected: PASS in the same approved environment used for N27 acceptance, with no
 `check:pth-config` report zero violations. An unavailable PG/Redis or sandbox-restricted baseline means “evaluation not
 completed,” not GO and not an N28 functional failure. Record the environment blocker and rerun in the accepted environment.
 
-- [ ] **Step 8: Record the exact result without upgrading it to production acceptance**
+- [ ] **Step 9: Build the acceptance envelope and record the exact result without upgrading it to production acceptance**
+
+Run the final authority from the clean evaluated commit:
+
+```bash
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept-n28-feasibility.ts --output /tmp/n28-acceptance.json
+```
+
+The acceptance module exports one `N28_FOCUSED_TEST_FILES` array used to spawn the command; an acceptance unit test asserts
+that it exactly equals the frozen file list shown in Step 7, so the driver may not maintain a drifting second list. It
+creates a private temporary directory, invokes Vitest with
+`--reporter=json --outputFile <temp>` for both focused and `npm test -- ...`, parses those JSON files (never default
+human stdout), runs `npx tsc -p tsconfig.n28.json --noEmit` and lint, compares the full-suite skips to
+`N28_ACCEPTED_BASELINE_SKIPS`, and emits one envelope. It must not accept
+predeclared booleans or a hand-authored metrics file. Its process exit is 0 only for final `GO`, 1 for `NO-GO`, and 2 for
+`EVALUATION-INCOMPLETE`. The driver sets `TSX_TSCONFIG_PATH=tsconfig.n28.json` in the environment of every evaluator or
+other TSX child it spawns; it may not inherit the root config and resolve runtime imports through unbuilt `dist` output.
 
 Create `docs/pth/n28-feasibility-report.md` with:
 
 - evaluated commit SHA and exact commands;
 - one row for each H1–H6 with `PASS` or `FAIL` and named test/evaluator evidence;
-- the evaluator JSON metrics;
-- explicit `GO` or `NO-GO`;
+- the evaluator JSON metrics and complete acceptance envelope;
+- explicit final `GO`, `NO-GO`, or `EVALUATION-INCOMPLETE` taken only from the envelope;
 - the sentence: “This result validates the reversible in-memory orchestration model; it does not validate PG durability, automatic partitioning, autoscaling, real-LLM retrieval quality, or production default thresholds.”
 
-If the result is `NO-GO`, list the failing direct condition and stop. Do not create production schema or an ADR.
+If the result is `NO-GO`, list the failing direct condition and stop. If it is `EVALUATION-INCOMPLETE`, list the missing
+environment/command evidence and rerun in the accepted N27 environment. Do not create production schema or an ADR.
 
 If the result is `GO`, list the next planning inputs only: persistent WorkerReplica lease identity, Region/Responsibility revision tables, membership outbox, real-corpus weight calibration and make-before-break rebalance. Do not implement them in this plan.
 
-- [ ] **Step 9: Link N28 from the documentation index**
+- [ ] **Step 10: Link N28 from the documentation index**
 
-Add two PTH rows to `docs/README.md`: one for the N28 design/implementation plan and one for the feasibility report. Mark the report “GO” only when the evaluator says GO.
+Add two PTH rows to `docs/README.md`: one for the N28 design/implementation plan and one for the feasibility report. Mark
+the report “GO” only when the final acceptance envelope—not the provisional evaluator—says GO.
 
-- [ ] **Step 10: Commit the immutable report and index update**
+- [ ] **Step 11: Commit the immutable report and index update**
 
 ```bash
 git add docs/pth/n28-feasibility-report.md docs/README.md
@@ -2343,7 +2916,8 @@ Task 1 contracts
   → Task 7 evaluator and decision
 ```
 
-Each task gets a fresh implementation review and a spec-compliance review before the next begins. Task 7 is the only authority for the feasibility decision.
+Each task gets a fresh implementation review and a spec-compliance review before the next begins. Task 7's final
+`N28AcceptanceEnvelope` is the only authority for the feasibility decision; its raw evaluator result is provisional.
 
 ## Productionization Boundary
 

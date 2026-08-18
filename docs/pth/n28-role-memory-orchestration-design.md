@@ -342,17 +342,25 @@ export interface RetrievalWaveTrace {
   reason: string;
 }
 
-export interface RetrievalTrace {
+export interface PendingRetrievalTrace {
   directorySnapshotId: string;
   workerId: string;
+  queryFingerprint: string;
   waves: readonly RetrievalWaveTrace[];
   globalFallback: boolean;
   omitted: Readonly<Record<string, number>>;
   status: "found" | "exhausted-empty" | "retrieval-incomplete" | "retrieval-failed";
 }
+
+export interface RetrievalTrace extends PendingRetrievalTrace {
+  traceId: string;
+  callIndex: number;
+}
 ~~~
 
-Trace 是可行性判断和后续自动均衡的观测面，不是新的知识或授权事实源。
+Retriever 只产生 `PendingRetrievalTrace`；任务账本在录入时按任务内调用顺序分配 `callIndex`，并由
+`taskId + directorySnapshotId + workerId + queryFingerprint + callIndex` 生成稳定 `traceId`。完成后的
+`RetrievalTrace` 是可行性判断和后续自动均衡的观测面，不是新的知识或授权事实源。
 
 ## 6. Cognitive Budget 与 Task Working Set
 
@@ -405,7 +413,7 @@ memory/knowledge 展开、`skills.list/get` 和静态+ToolReg 工具面都使用
 也计入 `maxTools`；如果 pinned tools 自身已超限，任务在调用 LLM 前失败，而不是把超额隐藏到
 “系统工具”。
 
-每次实际暴露 Memory/Knowledge 结果时，都把对应的 `RetrievalTrace` 追加到同一任务账本；
+每次实际暴露 Memory/Knowledge 结果时，都把对应的 `PendingRetrievalTrace` 交给同一任务账本完成编号；
 `TaskWorkingSet.retrievalTraces` 按调用序号保存不可变 trace（仅 ID、计数、wave 与状态，不含正文）。
 初始 KnowledgeContext 是第一条，后续 `memory.retrieve` 各追加一条；`get`/已知 ID 展开不伪造检索 trace。
 
@@ -469,7 +477,7 @@ export const N28_FEASIBILITY_BUDGET: WorkerLoadEnvelope = {
 | 假设 | Go 条件 | No-Go 条件 |
 |---|---|---|
 | **H1 Role/Worker 可分离** | 同一 Role 的两个副本具有不同 workerId、相同 role ref；通过 batch 实际消费的共享 slot/controller 可独立 pause/remove（含 busy remove 收尾）；heartbeat、audit 和 grant 能定位实例 | 任一关键运行身份仍只能用 roleId 表达，控制一个副本影响同 Role 其他副本，或停止状态没有释放 slot/kernel |
-| **H2 Region 可重叠且不复制正文** | 100 条授权 fixture 全部属于声明 Region 或 `unclassified`；跨域条目命中至少两个 Region；所有 primary owner 都是快照中的有效副本；entry 数不因 membership 增加 | 任一条目静默无区域、责任指向无效副本、revision/hash/epoch 校验失效，或为重叠复制正文 |
+| **H2 Region 可重叠且不复制正文** | 100 条授权 fixture 覆盖 `setting/wiki/skill/log` 四类且全部属于声明 Region 或 `unclassified`；跨域条目命中至少两个 Region；所有 primary owner 都是快照中的有效副本；entry 数不因 membership 增加 | 任一 MemoryType 未进入投影、任一条目静默无区域、责任指向无效副本、revision/hash/epoch 校验失效，或为重叠复制正文 |
 | **H3 错误绑定不造成不可达** | 12 个冻结 gold query 全部召回目标，覆盖 primary、overlap、局部诱饵后的 global-only、unclassified；每个成功 gold case 都完整执行四个有界波次且每波声明 query 完整性 | 任一目标因责任绑定错误不可达、少执行波次、候选截断被误报成无知识，或只有无界 retrieve 才能找到 |
 | **H4 授权在 fallback 中不变** | 通过真实 Broker/Context 与统一 `isVisible` 覆盖跨租户、public 祖先/子空间、private 同/异空间、draft、archived；泄漏为 0，invalid/expired/missing-capability grant 调用 wave port 为 0 | 任一 fallback 或 get/query/retrieve/recall 旁路返回越权条目，或鉴权失败后仍触发检索后端 |
 | **H5 统一预算是硬上限** | 1,000 组确定性生成输入均满足责任权重、memory、Skill、Tool 全部上限；对实际序列化投影计费，摘要到全文只补收差额；两个独立 ledger 在重排输入下输出与 omitted trace 相同 | 任一轴超限、排序不确定、metadata/spec 不计费、同 ID 展开免费或存在旁路 |
