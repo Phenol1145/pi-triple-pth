@@ -282,12 +282,12 @@
       "lines": 34
     },
     "src/pth/execution/index.ts": {
-      "sha256": "708d49404a1dafeca203faa0b32142b276de3d2d32ee6e60d025d1c709376407",
-      "lines": 13
+      "sha256": "e6fc3b1caaacd4c208bab53bae4fa33e1eae6ccc32104b196f3c2b6b0ed870ef",
+      "lines": 14
     },
     "src/pth/execution/knowledge-broker.ts": {
-      "sha256": "e5d7943d4db7a4d0ba904da87ea642145fa06584acc114d39fff83fbab8fcd7f",
-      "lines": 377
+      "sha256": "5305375f4380b6df1172f2af698e576efa1c263bbd7f1da5abe5c19edfe43fe9",
+      "lines": 379
     },
     "src/pth/execution/knowledge-promotion.ts": {
       "sha256": "776f65da152eb188b2ee9be284a9f70962b9b8db647076f43ff5a8af0a0a0710",
@@ -300,6 +300,14 @@
     "src/pth/execution/knowledge-verdicts.ts": {
       "sha256": "a946e3428032406892cd6453748eff67ab00d36056b4c7e1b9eb0c622c904f9a",
       "lines": 355
+    },
+    "src/pth/execution/memory-directory.ts": {
+      "sha256": "4c2fac459e943cfc643be4c363e3e5036b10805f4624ab0c4907412379e445bc",
+      "lines": 204
+    },
+    "src/pth/execution/memory-type-classifier.ts": {
+      "sha256": "03c45949701d0ab8f69fc8f89de13ced4363b8c7fe0ace2a8e7280167225dec4",
+      "lines": 30
     },
     "src/pth/fallback/requests.ts": {
       "sha256": "16a1d475ec9f9b1830c277baa9c98be0848099fc4b37e58e485e8981409ece15",
@@ -1038,6 +1046,14 @@
     "test/pth-execution/knowledge-verdicts.test.ts": {
       "sha256": "53e659594c01974c24767b043cde600260d6c15bb6cddfaa107ff159fa09467d",
       "lines": 428
+    },
+    "test/pth-execution/memory-directory.test.ts": {
+      "sha256": "ff22c476ae91e9a81db5d97ef6709bb7a6079c7221f4c2af92bf66e720de3a50",
+      "lines": 86
+    },
+    "test/pth-execution/memory-type-classifier.test.ts": {
+      "sha256": "92ce6517df12d8b2006cf17285f4535ccbea65a4c04632a3618080888681cdf4",
+      "lines": 33
     },
     "test/pth-execution/sandbox-execution-adapter.test.ts": {
       "sha256": "a8380a0ef2bf1e444f18ad55e45487333bd0b951c8d3eb2a8190ca74a84521d2",
@@ -1896,6 +1912,10 @@
     "scripts/n14-p3-tool-promotion.ts": {
       "sha256": "6e6970b642dc1d72734fa6af8071de7a6d8b6f167bfc1cb7253189ab87d628f6",
       "lines": 202
+    },
+    "scripts/n28-feasibility-fixture.ts": {
+      "sha256": "d48bd0e11d1e66773ee748d7ef7b7dddc8efe7abe65037641ad3447ed8e28e83",
+      "lines": 127
     },
     "scripts/n28-structure-snapshot.ts": {
       "sha256": "9c3800dc79e88afa00d36b1b489e74cfdb91bd67cda7e76ca6214bba07fe23a9",
@@ -4240,6 +4260,12 @@
       "target": "src/pth/execution/knowledge-verdicts.ts"
     },
     {
+      "from": "src/pth/execution/index.ts",
+      "kind": "runtime",
+      "specifier": "./memory-directory.js",
+      "target": "src/pth/execution/memory-directory.ts"
+    },
+    {
       "from": "src/pth/execution/knowledge-broker.ts",
       "kind": "runtime",
       "specifier": "../runner/index.js",
@@ -4298,6 +4324,42 @@
       "kind": "type",
       "specifier": "@away_from/pth-memory",
       "target": null
+    },
+    {
+      "from": "src/pth/execution/memory-directory.ts",
+      "kind": "runtime",
+      "specifier": "../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/execution/memory-directory.ts",
+      "kind": "runtime",
+      "specifier": "node:crypto",
+      "target": null
+    },
+    {
+      "from": "src/pth/execution/memory-directory.ts",
+      "kind": "type",
+      "specifier": "../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/execution/memory-directory.ts",
+      "kind": "type",
+      "specifier": "./knowledge-broker.js",
+      "target": "src/pth/execution/knowledge-broker.ts"
+    },
+    {
+      "from": "src/pth/execution/memory-type-classifier.ts",
+      "kind": "type",
+      "specifier": "../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/execution/memory-type-classifier.ts",
+      "kind": "type",
+      "specifier": "./knowledge-broker.js",
+      "target": "src/pth/execution/knowledge-broker.ts"
     },
     {
       "from": "src/pth/fallback/requests.ts",
@@ -7829,15 +7891,15 @@
     }
   ],
   "summary": {
-    "srcPthFiles": 216,
-    "testFiles": 240,
-    "scriptFiles": 16,
+    "srcPthFiles": 218,
+    "testFiles": 242,
+    "scriptFiles": 17,
     "packageFiles": 183,
-    "totalFiles": 655,
-    "totalLines": 100820,
-    "importEdges": 854,
-    "runtimeEdges": 396,
-    "typeEdges": 458,
-    "packageSpecifierEdges": 194
+    "totalFiles": 660,
+    "totalLines": 101303,
+    "importEdges": 861,
+    "runtimeEdges": 399,
+    "typeEdges": 462,
+    "packageSpecifierEdges": 195
   }
 }

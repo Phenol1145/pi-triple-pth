@@ -9,12 +9,12 @@
 
 | 项 | 值 |
 |---|---|
-| src/pth 文件 | 216 |
-| test 文件 | 240 |
-| scripts 文件 | 16 |
+| src/pth 文件 | 218 |
+| test 文件 | 242 |
+| scripts 文件 | 17 |
 | packages 文件（.ts + package.json） | 183 |
-| 合计 | 655（100820 行） |
-| src/pth 导入边 | 854（runtime 396 / type 458 / 包 specifier 194） |
+| 合计 | 660（101303 行） |
+| src/pth 导入边 | 861（runtime 399 / type 462 / 包 specifier 195） |
 | 根一级目录 | archive、config、deploy、docs、examples、extensions、packages、scripts、src、test、tools、toolstore |
 
 ## src/pth 分层
@@ -28,7 +28,7 @@
 | config/ | 3 |
 | contracts/ | 9 |
 | core/ | 9 |
-| execution/ | 10 |
+| execution/ | 12 |
 | fallback/ | 1 |
 | gateway/ | 14 |
 | impls/ | 7 |
