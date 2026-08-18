@@ -23,12 +23,14 @@ import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import {
   createKnowledgeIntakeRepository,
   KnowledgeIntakeConflictError,
-  type KnowledgeIntakeRepository,
-  type SourceSubscription,
-  type StoreAcquisitionInput,
-  type TrustPolicyManifest,
-  type VerifiedTrustPolicy,
 } from "../../src/pth/kernel/storage/knowledge-intake-pg.js";
+import type {
+  KnowledgeIntakeRepository,
+  SourceSubscription,
+  StoreAcquisitionInput,
+  TrustPolicyManifest,
+  VerifiedTrustPolicy,
+} from "../../src/pth/contracts/index.js";
 
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -71,6 +73,13 @@ function verifiedOf(manifest: TrustPolicyManifest): VerifiedTrustPolicy {
     verifiedAt: "2026-08-19T00:00:00.000Z",
     verifiedBy: manifest.approvedBy,
     installedBy: "human:alice",
+    // PG install 只消费 manifest 与审计字段；matcher 方法仅用于满足冻结合同的结构。
+    authorizeFetch: () => {
+      throw new Error("authorizeFetch is not used by installVerifiedPolicy");
+    },
+    authorizeUse: () => {
+      throw new Error("authorizeUse is not used by installVerifiedPolicy");
+    },
   };
 }
 
@@ -529,11 +538,12 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
       await repo.transitionRun({
         tenantId,
         runId: run.id,
+        fromStage: "fetch",
         leaseToken: first!.leaseToken!,
-        expectedLeaseGeneration: first!.leaseGeneration,
+        leaseGeneration: first!.leaseGeneration,
         expectedRowVersion: first!.rowVersion,
         toStage: "admit",
-        toStatus: "queued",
+        status: "queued",
         principalId: "worker:a",
         executionId: "exec-a",
         sideEffects: [{ key: `stale:${run.id}`, kind: "intake.admit", payload: { runId: run.id } }],
@@ -545,11 +555,12 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const moved = await repo.transitionRun({
       tenantId,
       runId: run.id,
+      fromStage: "fetch",
       leaseToken: second!.leaseToken!,
-      expectedLeaseGeneration: second!.leaseGeneration,
+      leaseGeneration: second!.leaseGeneration,
       expectedRowVersion: second!.rowVersion,
       toStage: "admit",
-      toStatus: "queued",
+      status: "queued",
       principalId: "worker:b",
       executionId: "exec-b",
       sideEffects: [{ key: `intake.admit:${run.id}`, kind: "intake.admit", payload: { runId: run.id } }],
@@ -568,18 +579,19 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const base = {
       tenantId,
       runId: run.id,
+      fromStage: "fetch" as const,
       leaseToken: claimed!.leaseToken!,
-      expectedLeaseGeneration: claimed!.leaseGeneration,
+      leaseGeneration: claimed!.leaseGeneration,
       expectedRowVersion: claimed!.rowVersion,
       toStage: "extract" as const,
-      toStatus: "queued" as const,
+      status: "queued" as const,
       principalId: "worker:a",
       executionId: "exec-a",
       sideEffects: [{ key: `intake.extract:${run.id}`, kind: "intake.extract", payload: { runId: run.id } }],
     };
 
     expect(await repo.transitionRun({ ...base, leaseToken: "tok:forged" })).toBeNull();
-    expect(await repo.transitionRun({ ...base, expectedLeaseGeneration: 99 })).toBeNull();
+    expect(await repo.transitionRun({ ...base, leaseGeneration: 99 })).toBeNull();
     expect(await repo.transitionRun({ ...base, expectedRowVersion: 99 })).toBeNull();
     expect(await repo.transitionRun({ ...base, tenantId: `${tenantId}-other` })).toBeNull();
 
@@ -608,11 +620,12 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
       repo.transitionRun({
         tenantId,
         runId: run.id,
+        fromStage: "fetch",
         leaseToken: claimed!.leaseToken!,
-        expectedLeaseGeneration: claimed!.leaseGeneration,
+        leaseGeneration: claimed!.leaseGeneration,
         expectedRowVersion: claimed!.rowVersion,
         toStage: "admit",
-        toStatus: "queued",
+        status: "queued",
         principalId: "worker:a",
         executionId: "exec-a",
         sideEffects: [{ key: fetchKey, kind: "intake.fetch", payload: { tampered: true } }],
@@ -639,11 +652,12 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     await repo.transitionRun({
       tenantId,
       runId: run.id,
+      fromStage: "fetch",
       leaseToken: claimed!.leaseToken!,
-      expectedLeaseGeneration: claimed!.leaseGeneration,
+      leaseGeneration: claimed!.leaseGeneration,
       expectedRowVersion: claimed!.rowVersion,
       toStage: "admit",
-      toStatus: "queued",
+      status: "queued",
       disposition: "succeeded",
       outputHash: sha("out"),
       principalId: "worker:a",
@@ -669,11 +683,12 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const done = await repo.transitionRun({
       tenantId,
       runId: run.id,
+      fromStage: "fetch",
       leaseToken: claimed!.leaseToken!,
-      expectedLeaseGeneration: claimed!.leaseGeneration,
+      leaseGeneration: claimed!.leaseGeneration,
       expectedRowVersion: claimed!.rowVersion,
       toStage: "complete",
-      toStatus: "completed",
+      status: "completed",
       principalId: "worker:a",
       executionId: "exec-a",
     });
@@ -686,11 +701,12 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
       await repo.transitionRun({
         tenantId,
         runId: run.id,
+        fromStage: "complete",
         leaseToken: claimed!.leaseToken!,
-        expectedLeaseGeneration: claimed!.leaseGeneration,
+        leaseGeneration: claimed!.leaseGeneration,
         expectedRowVersion: done!.rowVersion,
         toStage: "promote",
-        toStatus: "queued",
+        status: "queued",
         principalId: "worker:a",
         executionId: "exec-a",
         sideEffects: [{ key: `zombie:${run.id}`, kind: "intake.promote", payload: { runId: run.id } }],
@@ -896,7 +912,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
 
     // 跨 tenant 零效果 + 零可见
     expect(
-      await repo.markDependentsStale({ tenantId: tenantA, subscriptionId: subB.id, reason: "cross-tenant" }),
+      await repo.markDependentsStale({ tenantId: tenantA, subscriptionId: subB.id, reason: "source-changed" }),
     ).toEqual([]);
     expect(await repo.listDependencies(tenantA, subB.id)).toHaveLength(0);
     expect((await repo.listDependencies(tenantB, subB.id))[0].stale).toBe(false);

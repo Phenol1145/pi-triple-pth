@@ -18,312 +18,37 @@
  *  - artifact/revision 正文 append-only：raw-quarantine 与 admitted 是两条独立行
  *    （admitted 用 `derivedFromRevisionId` 指回 quarantine 行），`raw_hash` 在 tenant 内去重复用。
  *
- * 合同来源（合并注意）：L2 的 `src/pth/contracts/knowledge-intake.ts` 在本 lane 基线上尚不存在，
- * 因此 M0 类型在本文件**本地声明**，形状对齐 plan §3.2/§3.3（可选字段取最宽松形态，
- * 便于合并时改成 `import type { … } from "../../contracts/knowledge-intake.js"` 而不改 SQL）。
+ * 合同来源：M0 类型与端口来自 L2 冻结合同 `src/pth/contracts/knowledge-intake.ts`；
+ * 本文件只声明 PG 实现专属类型（错误、选项、工厂），不再本地声明 M0 重复类型。
  */
 
 import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "./pg.js";
 import { enqueueSideEffectInTx } from "../../tasking/side-effect-outbox.js";
+import type {
+  ClaimIntakeRunInput,
+  CreateSubscriptionInput,
+  DueScanOptions,
+  IntakeAttempt,
+  IntakeAttemptDisposition,
+  IntakeRun,
+  IntakeRunReason,
+  IntakeRunStage,
+  KnowledgeIntakeRepository,
+  MarkDependentsStaleInput,
+  SourceDependency,
+  SourceDependencyInput,
+  SourceRevision,
+  SourceSubscription,
+  StoreAcquisitionInput,
+  SubscriptionStatus,
+  TransitionIntakeRunInput,
+  TransitionSubscriptionInput,
+  VerifiedTrustPolicy,
+} from "../../contracts/knowledge-intake.js";
 
-// ---------------------------------------------------------------- M0 类型（plan §3.2）
-
-export interface HumanPrincipalRef {
-  readonly kind: "human";
-  readonly principalId: string;
-  readonly tenantId: string;
-  /** 只接受 PTL Human Interface 签发（"ptl-human-interface"）；此处按字符串存审计镜像。 */
-  readonly issuer: string;
-}
-
-export interface TrustPolicyRule {
-  readonly ruleId: string;
-  readonly effect: "allow" | "deny";
-  readonly httpsOrigin: string;
-  readonly pathPrefix: string;
-  readonly spaces: readonly string[];
-  readonly domains: readonly string[];
-  readonly sourceTypes: readonly string[];
-  readonly contentTypes: readonly string[];
-  readonly licenses: readonly string[];
-  readonly maxBytes: number;
-  readonly redirectOrigins: readonly string[];
-}
-
-export interface PolicyDecisionRef {
-  readonly policyId: string;
-  readonly policyVersion: string;
-  readonly policyDigest: string;
-  readonly ruleId: string;
-  readonly decision: "allow" | "deny";
-  readonly decidedAt: string;
-}
-
-export interface TrustPolicyManifest {
-  readonly policyId: string;
-  readonly version: string;
-  readonly tenantId: string;
-  readonly spaces: readonly string[];
-  readonly validFrom: string;
-  readonly validUntil: string;
-  readonly approvedBy: HumanPrincipalRef;
-  readonly approvalProof: { readonly method: string; readonly keyId: string; readonly signature: string };
-  readonly rules: readonly TrustPolicyRule[];
-  readonly digest: string;
-}
-
-/**
- * 已验签策略（L2 产物）。本仓库只消费 `manifest`（其余字段可选），
- * 以便 L2 的 `VerifiedTrustPolicy` 结构化兼容传入。
- */
-export interface VerifiedTrustPolicy {
-  readonly manifest: TrustPolicyManifest;
-  readonly digest?: string;
-  readonly verifiedAt?: string;
-  readonly verifiedBy?: HumanPrincipalRef;
-  /** 审计镜像的安装者（human principal id）；缺省取 manifest.approvedBy.principalId。 */
-  readonly installedBy?: string;
-}
-
-export type SubscriptionStatus = "probing" | "active" | "paused" | "revoked" | "retired";
-export type IntakeRunStage = "fetch" | "admit" | "extract" | "verify" | "promote" | "complete";
-export type IntakeRunStatus = "queued" | "leased" | "waiting" | "completed" | "failed" | "dead-letter";
-export type IntakeRunReason = "initial" | "scheduled" | "manual-retry";
-export type IntakeAttemptDisposition = "leased" | "succeeded" | "retryable-failed" | "terminal-failed" | "expired";
-export type SourceRevisionDisposition = "raw-quarantine" | "admitted" | "unchanged" | "rejected";
-
-export interface SourceSubscription {
-  readonly id: string;
-  readonly tenantId: string;
-  readonly space: string;
-  readonly canonicalUri: string;
-  readonly domainId: string;
-  readonly status: SubscriptionStatus;
-  readonly policyId: string;
-  readonly policyVersion: string;
-  readonly policyDigest: string;
-  readonly policyRuleId: string;
-  readonly recrawlIntervalMs: number;
-  readonly nextCrawlAt: string;
-  readonly lastSuccessfulRevisionId?: string;
-  readonly rowVersion: number;
-}
-
-export interface IntakeRun {
-  readonly id: string;
-  readonly tenantId: string;
-  readonly subscriptionId: string;
-  readonly reason: IntakeRunReason;
-  readonly stage: IntakeRunStage;
-  readonly status: IntakeRunStatus;
-  readonly attempt: number;
-  readonly leaseToken?: string;
-  readonly leaseGeneration: number;
-  readonly lockedUntil?: string;
-  readonly sourceRevisionId?: string;
-  readonly candidateId?: string;
-  readonly verificationPlanId?: string;
-  readonly lastError?: string;
-  readonly rowVersion: number;
-}
-
-export interface IntakeAttemptRow {
-  readonly runId: string;
-  readonly tenantId: string;
-  readonly stage: IntakeRunStage;
-  readonly attempt: number;
-  readonly leaseGeneration: number;
-  readonly leaseTokenHash: string;
-  readonly inputHash: string;
-  readonly outputHash?: string;
-  readonly disposition: IntakeAttemptDisposition;
-  readonly principalId: string;
-  readonly executionId: string;
-  readonly createdAt: string;
-}
-
-export interface SourceRevision {
-  readonly id: string;
-  readonly tenantId: string;
-  readonly subscriptionId: string;
-  readonly runId?: string;
-  readonly previousRevisionId?: string;
-  readonly derivedFromRevisionId?: string;
-  readonly requestedUri: string;
-  readonly finalUri: string;
-  readonly redirectChain: readonly string[];
-  readonly acquiredAt: string;
-  readonly responseStatus: number;
-  readonly contentType: string;
-  readonly etag?: string;
-  readonly lastModified?: string;
-  readonly artifactId: string;
-  readonly rawHash: string;
-  readonly normalizedTextHash: string;
-  readonly normalizedText: string;
-  readonly disposition: SourceRevisionDisposition;
-  readonly fetchPolicyDecision: PolicyDecisionRef;
-  readonly usePolicyDecision?: PolicyDecisionRef;
-}
-
-export interface SourceDependencyRow {
-  readonly tenantId: string;
-  readonly subscriptionId: string;
-  readonly sourceRevisionId: string;
-  readonly dependentKind: "knowledge-entry" | "candidate";
-  readonly dependentId: string;
-  readonly dependentRevision?: number;
-  readonly space: string;
-  readonly evidenceDigest: string;
-  readonly stale: boolean;
-  readonly staleAt?: string;
-  readonly staleReason?: string;
-  readonly rowVersion: number;
-}
-
-// ---------------------------------------------------------------- 输入类型
-
-export interface CreateSubscriptionInput {
-  readonly tenantId: string;
-  readonly space: string;
-  readonly canonicalUri: string;
-  readonly domainId: string;
-  readonly policyId: string;
-  readonly policyVersion: string;
-  readonly policyDigest: string;
-  readonly policyRuleId: string;
-  readonly recrawlIntervalMs: number;
-  readonly nextCrawlAt?: Date | string;
-  /** 缺省 uuid；由 service 提供确定性 id 时传入。 */
-  readonly id?: string;
-}
-
-export interface TransitionSubscriptionInput {
-  readonly tenantId: string;
-  readonly subscriptionId: string;
-  readonly expectedRowVersion: number;
-  readonly toStatus: SubscriptionStatus;
-  readonly nextCrawlAt?: Date | string;
-  readonly lastSuccessfulRevisionId?: string;
-}
-
-export interface DueScanOptions {
-  /** 只扫单一 tenant（缺省 = 系统级跨 tenant 扫描）。 */
-  readonly tenantId?: string;
-  /** 下一阶段 outbox kind（缺省 "intake.fetch"）。 */
-  readonly outboxKind?: string;
-}
-
-export interface ClaimIntakeRunInput {
-  readonly tenantId: string;
-  readonly runId: string;
-  readonly principalId: string;
-  readonly executionId: string;
-  readonly inputHash?: string;
-  /** 可选 CAS：不符 → 零行。 */
-  readonly expectedRowVersion?: number;
-  readonly expectedLeaseGeneration?: number;
-  readonly leaseMs?: number;
-}
-
-/** 与状态迁移同事务入队的下一阶段 side effect（identity=(tenantId,key)，见 L1）。 */
-export interface IntakeSideEffect {
-  readonly key: string;
-  readonly kind: string;
-  readonly payload: unknown;
-  /** 缺省取迁移的 tenantId；跨 tenant 入队不允许（会被下游 tenant 过滤拒绝）。 */
-  readonly tenantId?: string;
-}
-
-export interface TransitionIntakeRunInput {
-  readonly tenantId: string;
-  readonly runId: string;
-  readonly leaseToken: string;
-  readonly expectedLeaseGeneration: number;
-  readonly expectedRowVersion: number;
-  readonly toStage: IntakeRunStage;
-  readonly toStatus: IntakeRunStatus;
-  readonly principalId: string;
-  readonly executionId: string;
-  readonly disposition?: IntakeAttemptDisposition;
-  readonly inputHash?: string;
-  readonly outputHash?: string;
-  readonly sourceRevisionId?: string;
-  readonly candidateId?: string;
-  readonly verificationPlanId?: string;
-  readonly lastError?: string;
-  readonly sideEffects?: readonly IntakeSideEffect[];
-}
-
-export interface StoreAcquisitionInput {
-  readonly tenantId: string;
-  readonly subscriptionId: string;
-  readonly runId?: string;
-  readonly revisionId?: string;
-  readonly artifact: {
-    readonly rawHash: string;
-    readonly byteLength: number;
-    readonly rawBytes: Uint8Array;
-    readonly contentType?: string;
-  };
-  readonly revision: {
-    readonly requestedUri: string;
-    readonly finalUri: string;
-    readonly redirectChain?: readonly string[];
-    readonly acquiredAt: Date | string;
-    readonly responseStatus: number;
-    readonly contentType: string;
-    readonly etag?: string;
-    readonly lastModified?: string;
-    readonly normalizedText: string;
-    readonly normalizedTextHash: string;
-    readonly disposition: SourceRevisionDisposition;
-    readonly fetchPolicyDecision: PolicyDecisionRef;
-    readonly usePolicyDecision?: PolicyDecisionRef;
-    readonly previousRevisionId?: string;
-    readonly derivedFromRevisionId?: string;
-  };
-}
-
-export interface SourceDependencyInput {
-  readonly tenantId: string;
-  readonly subscriptionId: string;
-  readonly sourceRevisionId: string;
-  readonly dependentId: string;
-  readonly dependentKind?: "knowledge-entry" | "candidate";
-  readonly dependentRevision?: number;
-  readonly space?: string;
-  readonly evidenceDigest?: string;
-}
-
-export interface MarkDependentsStaleInput {
-  readonly tenantId: string;
-  readonly subscriptionId: string;
-  readonly reason: string;
-  /** 新 revision 自身的 dependent 不标 stale（unchanged 重爬语义）。 */
-  readonly exceptSourceRevisionId?: string;
-}
-
-/** N29 Task 3 端口（plan §3.3 + 本 lane 需要的 tenant-scoped 读侧）。 */
-export interface KnowledgeIntakeRepository {
-  installVerifiedPolicy(input: VerifiedTrustPolicy): Promise<void>;
-  createSubscription(input: CreateSubscriptionInput): Promise<SourceSubscription>;
-  transitionSubscription(input: TransitionSubscriptionInput): Promise<SourceSubscription | null>;
-  createDueRuns(now: Date, limit: number, opts?: DueScanOptions): Promise<readonly IntakeRun[]>;
-  claimRun(input: ClaimIntakeRunInput): Promise<IntakeRun | null>;
-  transitionRun(input: TransitionIntakeRunInput): Promise<IntakeRun | null>;
-  storeAcquisition(input: StoreAcquisitionInput): Promise<SourceRevision>;
-  recordDependency(input: SourceDependencyInput): Promise<void>;
-  markDependentsStale(input: MarkDependentsStaleInput): Promise<readonly string[]>;
-  getSubscription(tenantId: string, subscriptionId: string): Promise<SourceSubscription | null>;
-  getRun(tenantId: string, runId: string): Promise<IntakeRun | null>;
-  getRevision(tenantId: string, revisionId: string): Promise<SourceRevision | null>;
-  listRevisions(tenantId: string, subscriptionId: string): Promise<readonly SourceRevision[]>;
-  listAttempts(tenantId: string, runId: string): Promise<readonly IntakeAttemptRow[]>;
-  listDependencies(tenantId: string, subscriptionId: string): Promise<readonly SourceDependencyRow[]>;
-}
+// ---------------------------------------------------------------- 错误与选项（PG 实现专属）
 
 /** fail closed 的显式冲突：DB 行不得替换 policy / 不得跨语义复用 raw_hash。 */
 export class KnowledgeIntakeConflictError extends Error {
@@ -459,7 +184,7 @@ function mapRevision(r: any): SourceRevision {
   };
 }
 
-function mapAttempt(r: any): IntakeAttemptRow {
+function mapAttempt(r: any): IntakeAttempt {
   return {
     runId: r.run_id,
     tenantId: r.tenant_id,
@@ -476,7 +201,7 @@ function mapAttempt(r: any): IntakeAttemptRow {
   };
 }
 
-function mapDependency(r: any): SourceDependencyRow {
+function mapDependency(r: any): SourceDependency {
   return {
     tenantId: r.tenant_id,
     subscriptionId: r.subscription_id,
@@ -874,10 +599,10 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
           input.tenantId,
           input.runId,
           input.leaseToken,
-          input.expectedLeaseGeneration,
+          input.leaseGeneration,
           input.expectedRowVersion,
           input.toStage,
-          input.toStatus,
+          input.status,
           input.sourceRevisionId ?? null,
           input.candidateId ?? null,
           input.verificationPlanId ?? null,
@@ -889,9 +614,9 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
 
       const disposition: IntakeAttemptDisposition =
         input.disposition
-        ?? (input.toStatus === "failed"
+        ?? (input.status === "failed"
           ? "retryable-failed"
-          : input.toStatus === "dead-letter"
+          : input.status === "dead-letter"
             ? "terminal-failed"
             : "succeeded");
       await insertAttempt(client, {
@@ -1083,7 +808,7 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
     return (res.rows as Row[]).map(mapRevision);
   }
 
-  async listAttempts(tenantId: string, runId: string): Promise<readonly IntakeAttemptRow[]> {
+  async listAttempts(tenantId: string, runId: string): Promise<readonly IntakeAttempt[]> {
     const res = await this.pool.query(
       `SELECT * FROM knowledge_intake_attempts
         WHERE tenant_id = $1 AND run_id = $2 ORDER BY id`,
@@ -1092,7 +817,7 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
     return (res.rows as Row[]).map(mapAttempt);
   }
 
-  async listDependencies(tenantId: string, subscriptionId: string): Promise<readonly SourceDependencyRow[]> {
+  async listDependencies(tenantId: string, subscriptionId: string): Promise<readonly SourceDependency[]> {
     const res = await this.pool.query(
       `SELECT * FROM knowledge_source_dependencies
         WHERE tenant_id = $1 AND subscription_id = $2 ORDER BY id`,
