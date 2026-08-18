@@ -42,8 +42,8 @@
       "lines": 378
     },
     "src/pth/bootstrap/batch-process.ts": {
-      "sha256": "b66242c28af99c5d4c1db17dffe2231750cc5d84984abc7d56d2042f8a17beee",
-      "lines": 968
+      "sha256": "434e5d8b70d4e240f50c72883b213c980861da645c5b0d0cde84814178c33ff2",
+      "lines": 983
     },
     "src/pth/bootstrap/batch-runtime-assembly.ts": {
       "sha256": "13639d9a36dbae67515556fe6c4e0bda58d352639cfd51a4db581d3a3d892237",
@@ -454,8 +454,8 @@
       "lines": 53
     },
     "src/pth/kernel/execution/batch-manager.ts": {
-      "sha256": "8b3293a2dfd3e3ac1827c26441468d74ac8fa268620ac5d814ab5c71e2cf3be7",
-      "lines": 438
+      "sha256": "7518c63511297fc65b0a3b0dd246bf8a2d63a5ceac8af74ff6f3b616d79621f1",
+      "lines": 450
     },
     "src/pth/kernel/execution/batch-scaler.ts": {
       "sha256": "e5496c3534d5a670c3ae2d8748a694dbf8f73f1c76b04671460fc06973cd56af",
@@ -790,7 +790,7 @@
       "lines": 228
     },
     "src/pth/runner/cognitive-working-set.ts": {
-      "sha256": "3d3deced167470a9e1451fdba30af7e0c4b7f988813e1d357b13c0835ee852d1",
+      "sha256": "275ab0213d342092426c4b5c05e4f682f1e46b3c2a433700ce4930eaf2d4e50c",
       "lines": 200
     },
     "src/pth/runner/index.ts": {
@@ -1970,8 +1970,8 @@
       "lines": 214
     },
     "scripts/eval-n28-feasibility.ts": {
-      "sha256": "6ffadae176db39d919f47a45c6a5ddbe0e777bafaae4554ed098ac1186136142",
-      "lines": 927
+      "sha256": "c7efaa7b9e0909828dc801440e43ee744bee893a90e340eb912bc3797cd57356",
+      "lines": 925
     },
     "scripts/ext-check.ts": {
       "sha256": "17ead9fb28880f76fc4c4742d3afa3e7f94f4571e7c6d42be47fa3ad3b99581a",
@@ -8210,7 +8210,7 @@
     "scriptFiles": 20,
     "packageFiles": 183,
     "totalFiles": 679,
-    "totalLines": 105736,
+    "totalLines": 105761,
     "importEdges": 900,
     "runtimeEdges": 413,
     "typeEdges": 487,
