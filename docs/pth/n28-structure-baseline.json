@@ -42,7 +42,7 @@
       "lines": 378
     },
     "src/pth/bootstrap/batch-process.ts": {
-      "sha256": "434e5d8b70d4e240f50c72883b213c980861da645c5b0d0cde84814178c33ff2",
+      "sha256": "cf8a33d78be991b31dcfa2b29d61c8744511003e7139e9c71ee6e2b71a6578f2",
       "lines": 983
     },
     "src/pth/bootstrap/batch-runtime-assembly.ts": {
@@ -1946,8 +1946,8 @@
   },
   "scripts": {
     "scripts/accept-n28-feasibility.ts": {
-      "sha256": "7326dec810c1ad20f7cabf49668f344f66665dc35bd5e3f679f21dc4f5e4cfe5",
-      "lines": 216
+      "sha256": "7f4a9792a1196b483de54c7debae1827194defaa7a3fdd96f45cbe2cbb48e1b3",
+      "lines": 230
     },
     "scripts/adjudicate-tensions.ts": {
       "sha256": "213a536eceb924b3e63cded8f5a4b60e73e346e4998a31ad9a94d12e84e8413a",
@@ -8210,7 +8210,7 @@
     "scriptFiles": 20,
     "packageFiles": 183,
     "totalFiles": 679,
-    "totalLines": 105761,
+    "totalLines": 105775,
     "importEdges": 900,
     "runtimeEdges": 413,
     "typeEdges": 487,
