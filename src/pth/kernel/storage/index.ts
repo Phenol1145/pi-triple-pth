@@ -96,5 +96,9 @@ export * from "./task-store-pg.js";
 export * from "@away_from/pth-memory";
 export * from "./transcript-store.js";
 export * from "./audit-store.js";
+// N29 Task 3：知识摄入内环 PG 真相源（Subscription/Run/Attempt/Artifact/Revision/Dependency）。
+// 命名冲突核查：KnowledgeIntake*/SourceSubscription/IntakeRun/SourceRevision/SourceDependency*/
+// TrustPolicy*/PolicyDecisionRef/HumanPrincipalRef 在本 barrel 既有导出面中均唯一。
+export * from "./knowledge-intake-pg.js";
 export type { SessionStore, SettingsStore, CredentialProvider } from "./session/interfaces.js";
 export type { SessionMeta, SessionEntry, Snapshot, VersionSnapshotRecord, Settings } from "./session/types.js";
