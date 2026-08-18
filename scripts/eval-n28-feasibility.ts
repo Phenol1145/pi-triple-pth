@@ -25,8 +25,10 @@ import type { LlmFn } from "../src/pth/kernel/interpreter/llm-fn.js";
 import type { WorkerKernel } from "../src/pth/kernel/interpreter/index.js";
 import type { ToolRegSnapshot } from "../src/pth/kernel/execution/tool-registry.js";
 import { createN28InMemoryBundle } from "./n28-feasibility-harness.js";
+import { createAuditObserver } from "../src/pth/runner/index.js";
+import { assembleWorkerSlotIdentity } from "../src/pth/bootstrap/worker-slot-assembly.js";
 import {
-  N28_DOMAIN_IDS, N28_GOLD_QUERIES, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS,
+  N28_DOMAIN_IDS, N28_GOLD_QUERIES, N28_REGIONS, N28_RESPONSIBILITIES, N28_ROLE, N28_WORKERS,
   n28AuthorizedCorpus, n28DirectoryInputs, n28TrapCorpus,
 } from "./n28-feasibility-fixture.js";
 
@@ -582,19 +584,81 @@ async function probeH6(): Promise<{ surfaceComparisonCases: number; surfaceMisma
   return { surfaceComparisonCases: cases, surfaceMismatches: mismatches, hiddenDispatchProbeCases: hiddenDispatch, hiddenExecutorInvocations: hiddenExec };
 }
 
+async function probeIdentity(): Promise<{ auditIdentityProbeCases: number; auditIdentityFailures: number; grantIdentityProbeCases: number; grantIdentityFailures: number }> {
+  const worker = N28_WORKERS.algebra;
+  const principal = `worker:${worker.workerId}`;
+  let auditCases = 0;
+  let auditFailures = 0;
+
+  // 3 个 audit identity 观测（completed / rejected / requeued，生产 AuditObserver）
+  const audit = createAuditObserver({
+    write: async (ev) => {
+      auditCases += 1;
+      const payload = ev.payload as { roleId?: string } | undefined;
+      if (ev.actor !== principal || ev.workerId !== worker.workerId || payload?.roleId !== "researcher") auditFailures += 1;
+    },
+  });
+  const baseWork = {
+    taskId: "t-id",
+    scope: { tenantId: "tenant-a", principalId: principal, roles: ["researcher"], traceId: "tr", space: "meta" },
+    assignedRole: "researcher",
+  };
+  await audit({ outcome: { status: "completed" } as never, work: baseWork as never } as never);
+  await audit({ outcome: { status: "rejected", retryable: false } as never, work: baseWork as never } as never);
+  await audit({ outcome: { status: "rejected", retryable: true } as never, work: baseWork as never } as never);
+
+  // 3 个 grant identity 观测（task/sandbox 双 principal + scope 绑定）
+  let grantCases = 0;
+  let grantFailures = 0;
+  const identity = assembleWorkerSlotIdentity({ mode: "feasibility", role: N28_ROLE, batchId: worker.batchId, idFactory: () => worker.workerId });
+  grantCases += 2;
+  if (identity.taskPrincipalId !== principal) grantFailures += 1;
+  if (identity.sandboxPrincipalId !== principal) grantFailures += 1;
+
+  const scope = { tenantId: "tenant-a", principalId: principal, roles: ["researcher"], traceId: "tr", space: "meta" };
+  const lease = {
+    taskId: "t-id", leaseId: "20000000-0000-4000-8000-000000000091", generation: 1,
+    scope, workspace: { tenantId: "tenant-a", workspaceId: "w", taskId: "t-id" },
+    roleId: "researcher", deadlineAt: "2030-01-01T00:02:00.000Z",
+  };
+  const work = { taskId: "t-id", scope, title: "t", text: "t", tags: [], payload: {}, assignedRole: "researcher", domains: [] };
+  const clock = () => new Date("2030-01-01T00:00:00.000Z");
+  const grantService = createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: "n28-eval-secret-0123456789" }), clock });
+  const factory = createVerifiedTaskReadScopeFactory({
+    grantService,
+    grantForTask: ({ lease: l, work: w, space }) => grantService.issue({
+      lease: l, scope: { ...w.scope, principalId: principal, roles: ["researcher"], space },
+      workspace: l.workspace, language: "ts",
+      capabilities: ["memory.read"], ttlMs: 120_000,
+    }),
+  });
+  const minted = factory.forTask({ lease, work, space: "meta", worker });
+  grantCases += 1;
+  if (minted.principalId !== principal || minted.worker.workerId !== worker.workerId || minted.lease.generation !== 1) grantFailures += 1;
+
+  return {
+    auditIdentityProbeCases: auditCases,
+    auditIdentityFailures: auditFailures,
+    grantIdentityProbeCases: grantCases,
+    grantIdentityFailures: grantFailures,
+  };
+}
+
 export async function evaluateN28Feasibility(): Promise<N28FeasibilityResult> {
-  const [gold, budget, lifecycle, visibility, h6] = await Promise.all([
+  const [gold, budget, lifecycle, visibility, h6, identity] = await Promise.all([
     probeGoldAndDirectory(),
     Promise.resolve(probeBudgetAndResponsibility()),
     probeLifecycle(),
     probeVisibility(),
     probeH6(),
+    probeIdentity(),
   ]);
   const metrics: N28FeasibilityMetrics = {
     ...gold,
     ...budget,
     ...lifecycle,
     ...visibility,
+    ...identity,
     authorizationLeaks: 0,
     unauthorizedWaveInvocations: 0,
     unauthorizedReadPortInvocations: 0,

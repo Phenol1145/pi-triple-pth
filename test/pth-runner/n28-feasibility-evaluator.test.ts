@@ -64,15 +64,16 @@ describe("N28 feasibility evaluator（纯判定）", () => {
     expect(validateN28FeasibilityMetrics({ ...observed, extraField: 1 } as unknown)).not.toEqual([]);
   });
 
-  it("unsabotaged 运行不硬编码决定：现有证据面诚实出 NO-GO，且 H2/H3/H5/H6 为 true", async () => {
+  it("unsabotaged 运行不硬编码决定：现有证据面诚实出 NO-GO，且 H1/H2/H3/H5/H6 为 true，H4 分母未满", async () => {
     const result = await evaluateN28Feasibility();
     expect(result.decision).toBe("NO-GO");
     expect(result.metrics.goldQueries).toBe(12);
     expect(result.metrics.generatedBudgetCases).toBe(1000);
+    expect(result.hypotheses.H1.passed).toBe(true);
     expect(result.hypotheses.H2.passed).toBe(true);
     expect(result.hypotheses.H3.passed).toBe(true);
     expect(result.hypotheses.H5.passed).toBe(true);
     expect(result.hypotheses.H6.passed).toBe(true);
-    expect(result.hypotheses.H1.passed || result.hypotheses.H4.passed).toBe(false);
+    expect(result.hypotheses.H4.passed).toBe(false);
   });
 });
