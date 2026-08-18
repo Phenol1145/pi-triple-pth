@@ -117,6 +117,43 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 
 > Wave 划分：wave1 = R1/R2/R4 并行；wave2 = R3；wave3 = R5；wave4 = R6。每 wave 串行合并回 main，合并前全量 vitest + lint 绿。
 
+## N28 车道（Role/Memory/Worker 可行性验证）
+
+> 触发：N28 设计已确认 + 新实施计划 7 Task；按用户裁决「先把 7 个任务写成正式 lane 契约再动手」，
+> 契约集已随本提交落库。实现期串行合并，每 lane 合并前全量 vitest + lint 绿。
+>
+> Gate 0 已过：N27 最终复验报告 ACCEPTED；复验对象 `main@c2c0729`（R6=`4d0a38b` 经 merge
+> `c2c0729` 合入 main，R1–R6 全部 merged）；N28 计划基线 `9f10082`（docs-only）。
+>
+> 计划与契约：`n28-role-memory-orchestration-implementation-plan.md` + `n28-task1..7-contract.md` +
+> `n28-lane-contract-rulings.md`（C1–C4 已裁决）。
+
+### 决策栏（N28）
+
+| 日期 | 决策 | 结果 | 影响 |
+|---|---|---|---|
+| 2026-08-18 | Gate 0 报告头修订 | 最终复验报告对象改为 `main@c2c0729`，记录 R1–R6 merged；提交 `9f10082` | T1–T7 全部 |
+| 2026-08-18 | **C1 契约类型归属** | §2.2/§5.3/§6.2 归 T1 contracts（含 RetrievalWaveTrace）；§4.1 Directory 类型归 T3 独家 | T1/T3/T4 |
+| 2026-08-18 | **C2 授权探针分母** | 32 = 8 面 × 4 失效；第 8 面 = KnowledgeContext build | T4/T5/T7 |
+| 2026-08-18 | **C3 legacy fail-closed** | 未注入 layered=旧路径不变；已注入但无 worker 绑定/Directory-envelope 不匹配 → 零 wave 调用 | T4 |
+| 2026-08-18 | **C4 ASP 模式取法** | 计划不改；实现按现状 `pthConfig().str("PTH_ASP_MODE")==="on"` 适配 | T6 |
+
+### 车道表（N28）
+
+| Lane | 任务 | 分支 / worktree | 状态 | 认领 |
+|------|------|-----------------|------|------|
+| **T1** | 冻结认知责任契约 + RoleDefinition 兼容别名（H1–H6 公共地基） | `lane/n28-t1-contracts` / `.worktrees/n28-t1` | **free** | — |
+| **T2** | WorkerReplica 独立运行时身份/控制（H1；off 逐字节兼容） | `lane/n28-t2-worker-replica-identity` / `.worktrees/n28-t2` | **free** | — |
+| **T3** | 确定性内存 MemoryDirectory + 重叠/unclassified（H2） | `lane/n28-t3-memory-directory` / `.worktrees/n28-t3` | **free** | — |
+| **T4** | 分层检索共享给 Broker/Context + verified scope（H3/H4） | `lane/n28-t4-layered-retrieval` / `.worktrees/n28-t4` | **free** | — |
+| **T5** | 单任务统一 Cognitive Budget（H5） | `lane/n28-t5-cognitive-budget` / `.worktrees/n28-t5` | **free** | — |
+| **T6** | 真实 agent 面服从 Working Set（H6）+ vertical harness | `lane/n28-t6-agent-working-set` / `.worktrees/n28-t6` | **free** | — |
+| **T7** | Go/No-Go evaluator + acceptance + 报告（H1–H6 终审） | `lane/n28-t7-evaluator-acceptance` / `.worktrees/n28-t7` | **free** | — |
+
+> Wave 划分：**T1→T2→T3→T4→T5→T6→T7 严格串行**（每 lane 合并回 main 后下一 lane 从新 main 出发）。
+> T7 例外允许计划规定的两次提交（evaluator 实现提交 + 报告提交）。契约逐条见
+> `docs/pth/n28-task{n}-contract.md`；跨 lane 裁决见 `docs/pth/n28-lane-contract-rulings.md`。
+
 ## fork 引导词（v1.2）
 
 #### V1 引导词
