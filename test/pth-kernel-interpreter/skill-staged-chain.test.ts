@@ -4,6 +4,7 @@ import { TriggerEngine } from "../../src/pth/kernel/execution/trigger-engine.js"
 import { registerSystemTriggers } from "../../src/pth/kernel/execution/system-triggers.js";
 import { resetPthConfig } from "../../src/pth/config/config-center.js";
 import { approveSkillProposal, buildKnowledgeProvenance, executeApprovedSkillProposal } from "@away_from/pth-memory";
+import { createInMemoryPromoteOfficial } from "../helpers";
 
 /**
  * L2（2026-08-18）：skill staged 审核流端到端链路。
@@ -38,6 +39,7 @@ function makeStore() {
       if (!old) throw new Error("entry not found");
       rows.set(id, { ...old, ...patch, meta: { ...(old.meta ?? {}), ...((patch.meta ?? {}) as Record<string, unknown>) } } as never);
     },
+    promoteOfficial: createInMemoryPromoteOfficial(rows),
   };
 }
 

@@ -7,9 +7,9 @@ import {
   DEFAULT_TENANT_ID,
   MEMORY_SCHEMA_SQL,
   PgMemoryStore,
-  PromotionConflictError,
   type MemoryEntry,
 } from "@away_from/pth-memory";
+import { createInMemoryPromoteOfficial } from "../helpers";
 import {
   canPromote,
   validateKnowledgeVerdict,
@@ -34,6 +34,7 @@ function makeStore(initial: MemoryEntry[] = []) {
     opts?: { createdBy?: string; reason?: string; evaluate?: (entry: MemoryEntry) => { ok: true } | { ok: false; reason: string } };
   }> = [];
   for (const e of initial) rows.set(e.id, structuredClone(e));
+  const sharedPromote = createInMemoryPromoteOfficial(rows);
   return {
     rows,
     writeCalls,
@@ -70,31 +71,7 @@ function makeStore(initial: MemoryEntry[] = []) {
       opts?: { createdBy?: string; reason?: string; evaluate?: (entry: MemoryEntry) => { ok: true } | { ok: false; reason: string } },
     ) {
       promoteCalls.push({ id, tenantId, expectedRevision, promotionMeta: structuredClone(promotionMeta), opts });
-      const e = rows.get(id);
-      if (!e) throw new PromotionConflictError(`entry not found in tenant ${tenantId}`);
-      if (e.tenantId && e.tenantId !== tenantId) throw new PromotionConflictError(`entry not found in tenant ${tenantId}`);
-      if (e.status === "official") {
-        const promotion = e.meta?.promotion as { promotedBy?: unknown } | undefined;
-        if (promotion && promotion.promotedBy === promotionMeta.promotedBy) return { ok: true, id };
-        throw new PromotionConflictError(`entry is already official but not promoted by ${promotionMeta.promotedBy}`);
-      }
-      if (e.status !== "draft") throw new PromotionConflictError("only draft knowledge can be promoted");
-      const currentVersion = e.meta?.["version"];
-      if (currentVersion !== expectedRevision) {
-        throw new PromotionConflictError(`expectedRevision ${expectedRevision} does not match current version ${String(currentVersion)}`);
-      }
-      if (opts?.evaluate) {
-        const decision = opts.evaluate(structuredClone(e));
-        if (!decision.ok) throw new PromotionConflictError(decision.reason);
-      }
-      const nextVersion = typeof currentVersion === "number" ? currentVersion + 1 : 2;
-      e.status = "official";
-      e.meta = {
-        ...(e.meta ?? {}),
-        version: nextVersion,
-        promotion: { ...promotionMeta, verdicts: (e.meta as Record<string, unknown> | undefined)?.["verdicts"] ?? [] },
-      };
-      return { ok: true, id };
+      return sharedPromote(id, tenantId, expectedRevision, promotionMeta, opts);
     },
   };
 }
