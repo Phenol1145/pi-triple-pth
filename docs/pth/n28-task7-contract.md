@@ -277,3 +277,13 @@ TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept-n28-feasibi
 - README 徽章/测试总数只在合并回 main 时更新。
 - 每 lane 一条 commit（focus 测试 + 契约内文件域）；偏差必须写进 commit body。**T7 例外**：按计划 Task 7 允许且仅允许两次提交——Step 5 的 `test(pth): add N28 feasibility evaluator`（该 SHA 即 evaluated implementation commit，之后不得 amend）与 Step 11 的 `docs(pth): record N28 feasibility decision`。
 - 实现期不得弱化任何 N27 已验收契约、不变量或回归测试。
+
+## 11. 人工批准修订 v1.1（第二轮复核 P0-5 / §8 条件 7）
+
+- 批准人：本会话用户（选项「批准 Task7 合同 v1.1（推荐）」）。
+- 批准内容：确认裁决 C7 合法有效——`tsconfig.n28.json` 收窄为 N28 专有 7 文件
+  （4 scripts + vertical/evaluator/acceptance 三测试）是**批准后的合同版本**，不再是
+  「评估后追加的收窄」；n28Typecheck 证据以 7 文件 zero-skip typecheck 为准，
+  `npm run lint` 的根 `tsc --noEmit` 继续承担源码类型正确性。
+- 效力：本修订作为 Task 7 合同 v1.1 的一部分，与 §1–§10 同等效力；若未来扩回
+  31 文件 typecheck，需另立 v1.2 修订并再次人工批准。

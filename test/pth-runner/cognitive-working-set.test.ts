@@ -109,9 +109,9 @@ describe("cognitive working set（policy + budgeted facade）", () => {
     expect(insights).toHaveLength(0);    // 同一账本条目轴已满——两条 insight 都 omit，不得暴露
     const snapshot = ledger.snapshot();
     expect(snapshot.usage.memoryEntries).toBe(1);
-    expect(snapshot.omitted["state:function:f2"]).toBe(1);
-    expect(snapshot.omitted["state:insight:i1"]).toBe(1);
-    expect(snapshot.omitted["state:insight:i2"]).toBe(1);
+    expect(snapshot.omitted["state:function:f2#row1"]).toBe(1);
+    expect(snapshot.omitted["state:insight:i1#row0"]).toBe(1);
+    expect(snapshot.omitted["state:insight:i2#row1"]).toBe(1);
   });
 
   it("超预算展开：memory.get / skills.get 抛 CognitiveBudgetExceededError 且不暴露", async () => {
