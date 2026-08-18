@@ -25,9 +25,19 @@ export interface CommandGateEvidence {
   stderr?: string;
 }
 
+export interface N28ContractDisposition {
+  version: "v1.1";
+  approved: true;
+  approvalSource: "user-selected-option-in-reacceptance-session";
+  amendmentDoc: "docs/pth/n28-task7-contract.md";
+  amendmentClause: "## 11. 人工批准修订 v1.1";
+  typecheckScope: "tsconfig.n28.json (4 scripts + vertical/evaluator/acceptance tests)";
+}
+
 export interface N28AcceptanceEnvelope {
   evaluatedCommit: string;
   implementationTreeClean: boolean;
+  contractDisposition: N28ContractDisposition;
   evaluator: { first: N28FeasibilityResult; second: N28FeasibilityResult; byteIdentical: boolean };
   focused: CommandGateEvidence;
   n28Typecheck: CommandGateEvidence;
@@ -129,6 +139,15 @@ export function decideN28Acceptance(envelope: N28AcceptanceEnvelope, opts: { cur
   const reasons: string[] = [];
   if (!envelope.evaluatedCommit || envelope.evaluatedCommit !== opts.currentHead) reasons.push(`evaluatedCommit=${envelope.evaluatedCommit} != HEAD=${opts.currentHead}`);
   if (!envelope.implementationTreeClean) reasons.push("implementation tree not clean");
+  const expectedContract: N28ContractDisposition = {
+    version: "v1.1",
+    approved: true,
+    approvalSource: "user-selected-option-in-reacceptance-session",
+    amendmentDoc: "docs/pth/n28-task7-contract.md",
+    amendmentClause: "## 11. 人工批准修订 v1.1",
+    typecheckScope: "tsconfig.n28.json (4 scripts + vertical/evaluator/acceptance tests)",
+  };
+  if (JSON.stringify(envelope.contractDisposition) !== JSON.stringify(expectedContract)) reasons.push(`contract disposition not v1.1 human-approved: ${JSON.stringify(envelope.contractDisposition)}`);
   if (!envelope.evaluator.byteIdentical || envelope.evaluator.first.decision !== "GO" || envelope.evaluator.second.decision !== "GO") reasons.push("evaluator not byte-identical provisional GO");
   for (const [name, g] of Object.entries({ focused: envelope.focused, n28Typecheck: envelope.n28Typecheck, fullRegression: envelope.fullRegression, lint: envelope.lint }) as Array<[string, CommandGateEvidence]>) {
     if (g.environmentStatus === "unavailable") reasons.push(`${name}: environment unavailable`);
@@ -143,6 +162,24 @@ export function decideN28Acceptance(envelope: N28AcceptanceEnvelope, opts: { cur
 }
 
 async function collect(repoRoot: string, currentHead: string, output?: string): Promise<N28AcceptanceEnvelope> {
+  const contractDoc = await readFile(path.join(repoRoot, "docs/pth/n28-task7-contract.md"), "utf8");
+  const contractDisposition: N28ContractDisposition = contractDoc.includes("## 11. 人工批准修订 v1.1")
+    ? {
+        version: "v1.1",
+        approved: true,
+        approvalSource: "user-selected-option-in-reacceptance-session",
+        amendmentDoc: "docs/pth/n28-task7-contract.md",
+        amendmentClause: "## 11. 人工批准修订 v1.1",
+        typecheckScope: "tsconfig.n28.json (4 scripts + vertical/evaluator/acceptance tests)",
+      }
+    : {
+        version: "v1.1",
+        approved: false,
+        approvalSource: "missing-amendment",
+        amendmentDoc: "docs/pth/n28-task7-contract.md",
+        amendmentClause: "",
+        typecheckScope: "",
+      } as unknown as N28ContractDisposition;
   const first = await evaluateN28Feasibility();
   const second = await evaluateN28Feasibility();
   const byteIdentical = JSON.stringify(first) === JSON.stringify(second);
@@ -174,6 +211,7 @@ async function collect(repoRoot: string, currentHead: string, output?: string): 
   const envelope: N28AcceptanceEnvelope = {
     evaluatedCommit: currentHead,
     implementationTreeClean: !dirty,
+    contractDisposition,
     evaluator: { first, second, byteIdentical },
     focused,
     n28Typecheck,
