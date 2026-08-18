@@ -139,6 +139,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | 2026-08-18 | **C4 ASP 模式取法** | 计划不改；实现按现状 `pthConfig().str("PTH_ASP_MODE")==="on"` 适配 | T6 |
 | 2026-08-18 | **结构快照工具** | `scripts/n28-structure-snapshot.ts` + 基线 `n28-structure-baseline.json/.md`（645 文件 / 1275 导入边）；每 lane 合并后 `--check` 对照契约 §3 复核漂移 → 确认后以单独 docs commit `--update` 刷新 | T1–T7 |
 | 2026-08-19 | **C5 snapshot 键** | 实现改为恒定输出 `currentTaskId`（无任务=undefined）；计划 Step 3 代码已同步 | T2 |
+| 2026-08-19 | **C6 toolsDescription allowlist** | 允许 T6 多动 `agent-tools.ts`（契约 §3 漏列；计划 Step 2 要求 prompt 只列冻结 union） | T6 |
 
 ### 车道表（N28）
 
@@ -149,8 +150,8 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | **T3** | 确定性内存 MemoryDirectory + 重叠/unclassified（H2） | `lane/n28-t3-memory-directory` / `.worktrees/n28-t3` | **done** | 主会话·2026-08-19 ✅ lane `e8345e6` → merge `b132cad`（全量 2334 绿 + lint 绿；结构漂移 14 项全部落 T3 契约 §3） |
 | **T4** | 分层检索共享给 Broker/Context + verified scope（H3/H4） | `lane/n28-t4-layered-retrieval` / `.worktrees/n28-t4` | **done** | 主会话·2026-08-19 ✅ lane `b4964c0` → merge `df3e737`（全量 2348 绿 + lint 绿；结构漂移 28 项全部落 T4 契约 §3） |
 | **T5** | 单任务统一 Cognitive Budget（H5） | `lane/n28-t5-cognitive-budget` / `.worktrees/n28-t5` | **done** | 主会话·2026-08-19 ✅ lane `22ffdc3` → merge `ab7ceaa`（全量 2362 绿 + lint 绿；结构漂移 24 项全部落 T5 契约 §3） |
-| **T6** | 真实 agent 面服从 Working Set（H6）+ vertical harness | `lane/n28-t6-agent-working-set` / `.worktrees/n28-t6` | **claimed** | 主会话·2026-08-19 |
-| **T7** | Go/No-Go evaluator + acceptance + 报告（H1–H6 终审） | `lane/n28-t7-evaluator-acceptance` / `.worktrees/n28-t7` | **free** | — |
+| **T6** | 真实 agent 面服从 Working Set（H6）+ vertical harness | `lane/n28-t6-agent-working-set` / `.worktrees/n28-t6` | **done** | 主会话·2026-08-19 ✅ lane `db4efce` → merge `ed5ddf6`（全量 2366 绿 + lint 绿；结构漂移 23 项全部落 T6 域 + C6） |
+| **T7** | Go/No-Go evaluator + acceptance + 报告（H1–H6 终审） | `lane/n28-t7-evaluator-acceptance` / `.worktrees/n28-t7` | **claimed** | 主会话·2026-08-19 |
 
 > Wave 划分：**T1→T2→T3→T4→T5→T6→T7 严格串行**（每 lane 合并回 main 后下一 lane 从新 main 出发）。
 > T7 例外允许计划规定的两次提交（evaluator 实现提交 + 报告提交）。契约逐条见

@@ -66,3 +66,12 @@
   `undefined`；JSON/IPC 序列化时自然省略）。测试与契约不动。
 - 落账：计划 Task 2 Step 3 代码已修订；T2 实现 `c0f09fa` 已按此落地。
 
+## 6. 裁决 C6：toolsDescription 增加 allowlist 参数（计划 Task 6）
+
+- 问题：计划 Step 2 要求 prompt 只列冻结 union（`buildAgentSystemPrompt()`/
+  `toolsDescription()`），但 T6 契约 §3 文件域漏列 `agent-tools.ts`。
+- 裁决（用户选项 1）：**允许 T6 修改 `agent-tools.ts`**——`toolsDescription`
+  接受 `allowlist?: readonly string[]`（过滤前先 canonicalize 下划线→点）。
+- 落账：T6 实现 `db4efce` 已落地；账本决策栏 C6 已登记。
+
+

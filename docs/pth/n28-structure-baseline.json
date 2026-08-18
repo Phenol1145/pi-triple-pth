@@ -38,8 +38,8 @@
       "lines": 370
     },
     "src/pth/bootstrap/batch-process.ts": {
-      "sha256": "0d4eaa065cc61c4859cf81a06eec3784999985f1c9e04c187bfaa66204d52df3",
-      "lines": 810
+      "sha256": "2f0740a4d69e60951bb440c8f8626cc6bb3a02f25b9eb1dd1e4ae0784727ae4b",
+      "lines": 845
     },
     "src/pth/bootstrap/batch-runtime-assembly.ts": {
       "sha256": "13639d9a36dbae67515556fe6c4e0bda58d352639cfd51a4db581d3a3d892237",
@@ -62,12 +62,12 @@
       "lines": 34
     },
     "src/pth/bootstrap/task-loop-types.ts": {
-      "sha256": "6687a9973b0bc9c067c00c2f7573ab11b805141c323bf0f5876caa853181196b",
-      "lines": 62
+      "sha256": "6cb033a88a46bb01327ecbb2235987c577ff0f440f08cdb27a36f17fce1061ee",
+      "lines": 68
     },
     "src/pth/bootstrap/task-loop.ts": {
-      "sha256": "1c5808bead92107038bc1d20f357df4680ae9545a8c928ad261cff798fa7d3df",
-      "lines": 606
+      "sha256": "142746a77f66a076cb2d182e09fbb54db78b564c798962fcb89e50a265ac04df",
+      "lines": 612
     },
     "src/pth/bootstrap/worker-slot-assembly.ts": {
       "sha256": "c3dd481558e110c8000bc1cf8066d9ac4455a8ca14f712bf0000b01c43dd461c",
@@ -426,24 +426,24 @@
       "lines": 156
     },
     "src/pth/kernel/execution/agent-loop-prompt.ts": {
-      "sha256": "1d5e5b4015045d67ee5fe399ce7f16fb0f256002d7e531c2324ad63f76c4894c",
-      "lines": 230
+      "sha256": "df4bebe2990ec4544044886eabf61dcd00a3006cab22575b96aceb273e676055",
+      "lines": 249
     },
     "src/pth/kernel/execution/agent-loop-types.ts": {
-      "sha256": "3dfa43f9fc4125186b88bf319bf4ce0db8a384bf08114a8c4fadbf242b1030a7",
-      "lines": 60
+      "sha256": "b4062dfd5543778b054ed26ff303c5cdc7ca768cab679669714aa8403ddde4ee",
+      "lines": 63
     },
     "src/pth/kernel/execution/agent-loop.ts": {
-      "sha256": "e50e77e95de2a7abdaad0423ae8f5b05c119686edfb702b13bd444d37fe14a06",
-      "lines": 621
+      "sha256": "438ff01984ca861a1fdcb45f5d5f327dfbedf71c6a845405b904d63394a20077",
+      "lines": 641
     },
     "src/pth/kernel/execution/agent-tools-registry.ts": {
       "sha256": "d606d32bf2d59373a9e7ed71d5b13b7f0cbcfeaac2cfad49054cc1c5ff0d3e8a",
       "lines": 465
     },
     "src/pth/kernel/execution/agent-tools.ts": {
-      "sha256": "7dfe083fb1c9797519121f85d18923f9deebf9ed89f0300c2b60952b5950635c",
-      "lines": 141
+      "sha256": "696ea97986703cf9655a66b13b43fa9c553225a36eaaa23ffd3ae64a0a6f94ab",
+      "lines": 145
     },
     "src/pth/kernel/execution/archive.ts": {
       "sha256": "ff043b1c1b7f4cd595edc82cdf09f32330cc85279af5185ba4a3b16cd53a4487",
@@ -774,8 +774,8 @@
       "lines": 20
     },
     "src/pth/runner/agent-task-runner.ts": {
-      "sha256": "15caa2854738900c049cfe39c9c7034036ca7b0d66fc451b1ed61b2eb4cab4da",
-      "lines": 253
+      "sha256": "2d2cb6a4fd01c23c18a4e5c79d268104b8aff581958c0192aa9c27acd989b139",
+      "lines": 430
     },
     "src/pth/runner/authorized-state-reads.ts": {
       "sha256": "4fc374db9a463bb566315c73e8848b7af0795df326b3728050252fb9628b0411",
@@ -786,8 +786,8 @@
       "lines": 228
     },
     "src/pth/runner/cognitive-working-set.ts": {
-      "sha256": "f9a23469d9580600b25ebd6f641dd8e491a8ba1c2f14d9497cc2fcf5f4a8d85a",
-      "lines": 115
+      "sha256": "cd2e276e7f63a568741619bc463a4d3f72bb2b45cd93a1e436283aa83f2baa03",
+      "lines": 196
     },
     "src/pth/runner/index.ts": {
       "sha256": "908572765a25a300e5d6caf9bb5cc92b383eaab37f7a4f8d0ce2499d2bc31377",
@@ -1130,6 +1130,10 @@
     "test/pth-kernel-execution/agent-loop-ptc.integration.test.ts": {
       "sha256": "cbac01f81bc6278f70798d37bb3d8d5b5ff73c84f87cd21dbd0340b71ea4454a",
       "lines": 78
+    },
+    "test/pth-kernel-execution/agent-loop-working-set.integration.test.ts": {
+      "sha256": "f8fc3822a72abf68fa9612979683e96b3a82502da95698e9f7766c4d035218c4",
+      "lines": 93
     },
     "test/pth-kernel-execution/agent-loop.test.ts": {
       "sha256": "00332b6560ec5ceec1a45450c7c2cd777032e64d204b253a9f2697eacf042124",
@@ -1508,7 +1512,7 @@
       "lines": 62
     },
     "test/pth-runner/agent-task-runner.test.ts": {
-      "sha256": "052e08cf4880121bd88984c493c22d8628348ccda888ba2545f6aed84aacde33",
+      "sha256": "d9cfc9106f2760fe1e5235c11154978aa512eb6aa32d5e4f03fcbbf9a6ccdedf",
       "lines": 304
     },
     "test/pth-runner/authorized-state-reads.test.ts": {
@@ -1518,6 +1522,10 @@
     "test/pth-runner/authorized-task-reads.test.ts": {
       "sha256": "3c0685c7075ca88613749ddcae85d9d976f9ad2ff3473c5f1459f33f81983759",
       "lines": 97
+    },
+    "test/pth-runner/cognitive-responsibility.vertical.test.ts": {
+      "sha256": "9cc565887a280ebd7cfbaf65b6c60e15ce51dda53f96104b552f4ea2db6bad52",
+      "lines": 50
     },
     "test/pth-runner/cognitive-working-set.test.ts": {
       "sha256": "5095ad49c8504a9a5d1cd7a1a3eff20830967810099fedcd528b56561859b1fc",
@@ -1964,6 +1972,10 @@
     "scripts/n28-feasibility-fixture.ts": {
       "sha256": "f2ef978370def5cc821b63639f9a5f75ff465e7fde9028e9fd9a235a4eb5f4b5",
       "lines": 145
+    },
+    "scripts/n28-feasibility-harness.ts": {
+      "sha256": "de03692610f3fb005089dd474d961e616e24973603ee27a071c249442afb370e",
+      "lines": 229
     },
     "scripts/n28-structure-snapshot.ts": {
       "sha256": "9c3800dc79e88afa00d36b1b489e74cfdb91bd67cda7e76ca6214bba07fe23a9",
@@ -2972,6 +2984,12 @@
     {
       "from": "src/pth/bootstrap/batch-process.ts",
       "kind": "type",
+      "specifier": "../execution/index.js",
+      "target": "src/pth/execution/index.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-process.ts",
+      "kind": "type",
       "specifier": "../kernel/execution/archive.js",
       "target": "src/pth/kernel/execution/archive.ts"
     },
@@ -3034,6 +3052,12 @@
       "kind": "type",
       "specifier": "../kernel/storage/task-store-pg.js",
       "target": "src/pth/kernel/storage/task-store-pg.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-process.ts",
+      "kind": "type",
+      "specifier": "../runner/index.js",
+      "target": "src/pth/runner/index.ts"
     },
     {
       "from": "src/pth/bootstrap/batch-process.ts",
@@ -3130,6 +3154,12 @@
       "kind": "type",
       "specifier": "../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/task-loop-types.ts",
+      "kind": "type",
+      "specifier": "../execution/index.js",
+      "target": "src/pth/execution/index.ts"
     },
     {
       "from": "src/pth/bootstrap/task-loop-types.ts",
@@ -7250,14 +7280,38 @@
     {
       "from": "src/pth/runner/agent-task-runner.ts",
       "kind": "runtime",
+      "specifier": "../kernel/execution/agent-loop-prompt.js",
+      "target": "src/pth/kernel/execution/agent-loop-prompt.ts"
+    },
+    {
+      "from": "src/pth/runner/agent-task-runner.ts",
+      "kind": "runtime",
+      "specifier": "../kernel/execution/cognitive-budget.js",
+      "target": "src/pth/kernel/execution/cognitive-budget.ts"
+    },
+    {
+      "from": "src/pth/runner/agent-task-runner.ts",
+      "kind": "runtime",
       "specifier": "../kernel/execution/nl-translator.js",
       "target": "src/pth/kernel/execution/nl-translator.ts"
     },
     {
       "from": "src/pth/runner/agent-task-runner.ts",
       "kind": "runtime",
+      "specifier": "../kernel/execution/tool-registry.js",
+      "target": "src/pth/kernel/execution/tool-registry.ts"
+    },
+    {
+      "from": "src/pth/runner/agent-task-runner.ts",
+      "kind": "runtime",
       "specifier": "../kernel/ptc/runner.js",
       "target": "src/pth/kernel/ptc/runner.ts"
+    },
+    {
+      "from": "src/pth/runner/agent-task-runner.ts",
+      "kind": "runtime",
+      "specifier": "./knowledge-context.js",
+      "target": "src/pth/runner/knowledge-context.ts"
     },
     {
       "from": "src/pth/runner/agent-task-runner.ts",
@@ -7316,6 +7370,18 @@
     {
       "from": "src/pth/runner/agent-task-runner.ts",
       "kind": "type",
+      "specifier": "./authorized-task-reads.js",
+      "target": "src/pth/runner/authorized-task-reads.ts"
+    },
+    {
+      "from": "src/pth/runner/agent-task-runner.ts",
+      "kind": "type",
+      "specifier": "./cognitive-working-set.js",
+      "target": "src/pth/runner/cognitive-working-set.ts"
+    },
+    {
+      "from": "src/pth/runner/agent-task-runner.ts",
+      "kind": "type",
       "specifier": "./knowledge-context.js",
       "target": "src/pth/runner/knowledge-context.ts"
     },
@@ -7366,6 +7432,12 @@
       "kind": "type",
       "specifier": "@away_from/pth-memory",
       "target": null
+    },
+    {
+      "from": "src/pth/runner/cognitive-working-set.ts",
+      "kind": "runtime",
+      "specifier": "../execution/index.js",
+      "target": "src/pth/execution/index.ts"
     },
     {
       "from": "src/pth/runner/cognitive-working-set.ts",
@@ -8108,14 +8180,14 @@
   ],
   "summary": {
     "srcPthFiles": 224,
-    "testFiles": 248,
-    "scriptFiles": 17,
+    "testFiles": 250,
+    "scriptFiles": 18,
     "packageFiles": 183,
-    "totalFiles": 672,
-    "totalLines": 103539,
-    "importEdges": 889,
-    "runtimeEdges": 408,
-    "typeEdges": 481,
+    "totalFiles": 675,
+    "totalLines": 104262,
+    "importEdges": 899,
+    "runtimeEdges": 413,
+    "typeEdges": 486,
     "packageSpecifierEdges": 201
   }
 }
