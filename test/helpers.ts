@@ -62,7 +62,15 @@ export function createInMemoryPromoteOfficial(rows: Map<string, any>) {
       throw new PromotionConflictError(`expectedRevision ${expectedRevision} does not match current version ${String(currentVersion)}`);
     }
 
-    if (opts.evaluate) {
+    if (opts.evaluateAsync) {
+      const decision = await opts.evaluateAsync(
+        structuredClone({ ...row, status, meta }) as MemoryEntry,
+        undefined as never,
+      );
+      if (!decision.ok) {
+        throw new PromotionConflictError(decision.reason);
+      }
+    } else if (opts.evaluate) {
       const decision = opts.evaluate(structuredClone({ ...row, status, meta }) as MemoryEntry);
       if (!decision.ok) {
         throw new PromotionConflictError(decision.reason);

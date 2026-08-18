@@ -19,6 +19,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 import type { KnowledgeBroker } from "../execution/index.js";
+import type { KnowledgeServiceAuth } from "../execution/knowledge-promotion.js";
 import type { TenantScope } from "../contracts/index.js";
 import { listPublicTemplates, resolveTemplateTask } from "../kernel/templates.js";
 import { pthConfig } from "../config/index.js";
@@ -302,14 +303,21 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     if (typeof auth.principalId !== "string" || auth.principalId.trim() === "") {
       return reply.status(401).send({ error: "knowledge verify requires authenticated principalId" });
     }
-    const body = (req.body ?? {}) as { entryId?: string; kind?: string; verdict?: string; note?: string; domainId?: string; executionId?: string };
-    const entryId = typeof body.entryId === "string" ? body.entryId.trim() : "";
+    const body = (req.body ?? {}) as {
+      planId?: string; checkId?: string; expectedCandidateRevision?: number;
+      kind?: string; verdict?: string; note?: string; domainId?: string; executionId?: string;
+    };
+    const planId = typeof body.planId === "string" ? body.planId.trim() : "";
+    const checkId = typeof body.checkId === "string" ? body.checkId.trim() : "";
+    const expectedCandidateRevision = typeof body.expectedCandidateRevision === "number" && Number.isFinite(body.expectedCandidateRevision)
+      ? body.expectedCandidateRevision
+      : null;
     const kind = body.kind === "domain" || body.kind === "adversarial" ? body.kind : null;
     const verdict = body.verdict === "pass" || body.verdict === "reject" ? body.verdict : null;
     const note = typeof body.note === "string" ? body.note : "";
-    if (!entryId || kind === null || verdict === null || !note.trim()) {
+    if (!planId || !checkId || expectedCandidateRevision === null || kind === null || verdict === null || !note.trim()) {
       return reply.status(400).send({
-        error: "entryId/kind/verdict/note required: kind ∈ domain|adversarial, verdict ∈ pass|reject, note non-empty",
+        error: "planId/checkId/expectedCandidateRevision/kind/verdict/note required: kind ∈ domain|adversarial, verdict ∈ pass|reject, note non-empty",
       });
     }
     // F3：domain 必须带 domainId；adversarial 不接收 body.domainId
@@ -319,17 +327,34 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     if (kind === "adversarial" && body.domainId !== undefined) {
       return reply.status(400).send({ error: "adversarial verify must not receive body.domainId" });
     }
-    const executionId = typeof body.executionId === "string" && body.executionId.trim() !== "" ? body.executionId.trim() : undefined;
     const reviewerRole = kind === "adversarial"
       ? "controller:adversarial"
       : `domain:${auth.principalId}`;
     const tenantId = auth.tenantId ?? "default";
-    const r = await facade.verifyKnowledge(entryId, { kind, verdict, reviewerRole, note, at: Date.now() }, {
-      tenantId,
+    const serviceAuth: KnowledgeServiceAuth = {
       principalId: auth.principalId,
-      ...(executionId !== undefined ? { executionId } : {}),
-      ...(kind === "domain" ? { domainId: body.domainId!.trim() } : {}),
-    });
+      executionId: typeof body.executionId === "string" && body.executionId.trim() !== ""
+        ? body.executionId.trim()
+        : (req as unknown as { id?: string }).id ?? `http:${tenantId}:${auth.principalId}:${Date.now()}`,
+      roleId: auth.role,
+    };
+    const r = await facade.verifyKnowledge(
+      {
+        planId,
+        checkId,
+        expectedCandidateRevision,
+        verdict: {
+          kind,
+          verdict,
+          reviewerRole,
+          note,
+          at: Date.now(),
+          ...(kind === "domain" ? { domainId: body.domainId!.trim() } : {}),
+        },
+      },
+      serviceAuth,
+      { tenantId },
+    );
     if (!(r as { ok?: boolean }).ok) return reply.status(400).send(r);
     return r;
   });
@@ -343,14 +368,26 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     if (typeof auth.principalId !== "string" || auth.principalId.trim() === "") {
       return reply.status(401).send({ error: "knowledge promote requires authenticated principalId" });
     }
-    const body = (req.body ?? {}) as { entryId?: string };
+    const body = (req.body ?? {}) as { entryId?: string; planId?: string; expectedCandidateRevision?: number };
     const entryId = typeof body.entryId === "string" ? body.entryId.trim() : "";
-    if (!entryId) return reply.status(400).send({ error: "entryId required" });
-    const r = await facade.promoteKnowledge(entryId, {
-      tenantId: auth.tenantId ?? "default",
+    const planId = typeof body.planId === "string" ? body.planId.trim() : "";
+    const expectedCandidateRevision = typeof body.expectedCandidateRevision === "number" && Number.isFinite(body.expectedCandidateRevision)
+      ? body.expectedCandidateRevision
+      : null;
+    if (!entryId || !planId || expectedCandidateRevision === null) {
+      return reply.status(400).send({ error: "entryId/planId/expectedCandidateRevision required" });
+    }
+    const tenantId = auth.tenantId ?? "default";
+    const serviceAuth: KnowledgeServiceAuth = {
       principalId: auth.principalId,
-      promoterRole: "memory-keeper",
-    });
+      executionId: (req as unknown as { id?: string }).id ?? `http:${tenantId}:${auth.principalId}:${Date.now()}`,
+      roleId: auth.role,
+    };
+    const r = await facade.promoteKnowledge(
+      { entryId, planId, expectedCandidateRevision },
+      serviceAuth,
+      { tenantId, promoterRole: "memory-keeper" },
+    );
     if (!(r as { ok?: boolean }).ok) return reply.status(400).send(r);
     return r;
   });

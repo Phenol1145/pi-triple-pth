@@ -165,6 +165,52 @@ ALTER TABLE side_effect_outbox DROP CONSTRAINT IF EXISTS side_effect_outbox_stat
 ALTER TABLE side_effect_outbox ADD CONSTRAINT side_effect_outbox_status_check
   CHECK (status IN ('pending','processing','done','failed','dead-letter'));
 CREATE INDEX IF NOT EXISTS idx_side_effect_outbox_claim ON side_effect_outbox(status, available_at, id);
+
+-- R3/P1-2（2026-08-18）：持久 VerificationPlan + verdict rows（不 append entry.meta.verdicts）。
+-- candidate_revision/candidate_hash 建计划时快照；verdict 行严格绑定 plan+check+revision+hash+principal+execution。
+-- row_version 为 review-row 独立版本，与 memory_entries.version（candidate content revision）分离。
+CREATE TABLE IF NOT EXISTS knowledge_verification_plans (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
+  candidate_id TEXT NOT NULL,
+  candidate_revision INTEGER NOT NULL,
+  candidate_hash TEXT NOT NULL,
+  required_domains JSONB NOT NULL DEFAULT '[]',
+  checks JSONB NOT NULL DEFAULT '[]',
+  source_bindings_digest TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','satisfied','rejected','invalidated')),
+  row_version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_verification_plans_tenant_candidate_rev
+  ON knowledge_verification_plans(tenant_id, candidate_id, candidate_revision);
+CREATE INDEX IF NOT EXISTS idx_verification_plans_candidate ON knowledge_verification_plans(tenant_id, candidate_id);
+
+CREATE TABLE IF NOT EXISTS knowledge_verdict_rows (
+  id BIGSERIAL PRIMARY KEY,
+  plan_id TEXT NOT NULL REFERENCES knowledge_verification_plans(id),
+  tenant_id TEXT NOT NULL DEFAULT 'default',
+  check_id TEXT NOT NULL,
+  candidate_id TEXT NOT NULL,
+  candidate_revision INTEGER NOT NULL,
+  candidate_hash TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  execution_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('domain','adversarial')),
+  verdict TEXT NOT NULL CHECK (verdict IN ('pass','reject')),
+  reviewer_role TEXT NOT NULL,
+  note TEXT NOT NULL,
+  domain_id TEXT,
+  evidence JSONB DEFAULT '[]',
+  at BIGINT NOT NULL,
+  row_version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_verdict_rows_plan_check_principal
+  ON knowledge_verdict_rows(plan_id, check_id, principal_id);
+CREATE INDEX IF NOT EXISTS idx_verdict_rows_plan ON knowledge_verdict_rows(plan_id, tenant_id);
 `;
 
 export async function applySchema(pool: pg.Pool): Promise<void> {

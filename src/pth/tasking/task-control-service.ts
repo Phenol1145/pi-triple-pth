@@ -22,6 +22,7 @@ import {
   type TaskDispatchContext,
   type TenantScope,
 } from "../contracts/index.js";
+import type { DomainBinding } from "../contracts/domains.js";
 import { PgTaskQueries } from "./task-queries.js";
 import { allowedDelegationTargets } from "./delegation-policy.js";
 import { tagRegistry } from "../kernel/execution/tag-registry.js";
@@ -100,12 +101,16 @@ export class TaskControlService {
     // F3：domains 显式子集收窄。body 的 domains 仅用于子集校验（不可自报最终 payload）；
     // 缺省完整继承 caller.domains/domainBinding，子 payload 由调用者封套派生。
     const callerDomains = caller.domains ?? [];
+    const explicitSubset = input.domains !== undefined;
     let childDomains: readonly string[];
     if (input.domains !== undefined) {
       if (!Array.isArray(input.domains) || input.domains.some((d) => typeof d !== "string" || d.trim() === "")) {
         throw new PtcContractError("tasks.delegate", "domains 可选——若提供必须是字符串数组且元素非空");
       }
       const requested = [...new Set(input.domains.map((d) => d.trim()))];
+      if (requested.length === 0) {
+        throw new PtcContractError("tasks.delegate", "domains 子集不能为空");
+      }
       const callerSet = new Set(callerDomains);
       const overreach = requested.filter((d) => !callerSet.has(d));
       if (overreach.length > 0) {
@@ -114,6 +119,28 @@ export class TaskControlService {
       childDomains = requested;
     } else {
       childDomains = callerDomains;
+    }
+
+    // P1-1：delegate 显式 domains 子集时，必须按选中 domains 重构造 domainBinding——
+    // 只保留 domainId ∈ childDomains 的 matches；primaryDomain 优先保留父 primary（若仍选中），
+    // 否则取父 matches 顺序中第一个保留项；catalogVersion/resolverVersion 与父一致。
+    // 保留集为空 → 报错（不产出空 binding，避免 claim reader 丢弃合法 binding）。
+    let childDomainBinding: DomainBinding | undefined = caller.domainBinding;
+    if (caller.domainBinding && explicitSubset) {
+      const childSet = new Set(childDomains);
+      const matches = caller.domainBinding.matches.filter((m) => childSet.has(m.domainId));
+      if (matches.length === 0) {
+        throw new PtcContractError("tasks.delegate", "domains 子集裁剪后 domainBinding.matches 为空");
+      }
+      const primaryDomain = caller.domainBinding.primaryDomain && childSet.has(caller.domainBinding.primaryDomain)
+        ? caller.domainBinding.primaryDomain
+        : matches[0]!.domainId;
+      childDomainBinding = {
+        matches,
+        primaryDomain,
+        catalogVersion: caller.domainBinding.catalogVersion,
+        resolverVersion: caller.domainBinding.resolverVersion,
+      };
     }
 
     // D3：组织权 fail-fast——违规不进入任务池、无 draft 旁路
@@ -172,9 +199,10 @@ export class TaskControlService {
     const payload = {
       ...templatePayload,
       delivery,
-      // 服务端盖章：domains/domainBinding 由调用者封套派生（body 不可自报）
+      // 服务端盖章：domains/domainBinding 由调用者封套派生（body 不可自报）；
+      // 显式子集时 domainBinding 已按子集裁剪（P1-1）。
       domains: [...childDomains],
-      ...(caller.domainBinding ? { domainBinding: caller.domainBinding } : {}),
+      ...(childDomainBinding ? { domainBinding: childDomainBinding } : {}),
       ...(input.context !== undefined ? { context: input.context } : {}),
       ...(input.expect !== undefined ? { expect: input.expect } : {}),
     };

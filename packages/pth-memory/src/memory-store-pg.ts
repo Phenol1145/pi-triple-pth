@@ -100,11 +100,13 @@ export interface PgMemoryStorePromotionMeta {
   verdicts?: unknown;
 }
 
-/** promoteOfficial 选项：evaluate 在锁内基于旧行重算晋升门禁；enqueueOutbox 在同一事务执行。 */
+/** promoteOfficial 选项：evaluate 在锁内基于旧行重算晋升门禁；enqueueOutbox 在同一事务执行。
+ *  R3/P0-3：evaluateAsync 接收同一事务 client，供 service 在锁内重读持久 plan/verdict rows 后再判定。 */
 export interface PgMemoryStorePromoteOfficialOptions {
   createdBy?: string;
   reason?: string;
   evaluate?: (entry: MemoryEntry) => { ok: true } | { ok: false; reason: string };
+  evaluateAsync?: (entry: MemoryEntry, client: pg.PoolClient) => Promise<{ ok: true } | { ok: false; reason: string }>;
   enqueueOutbox?: (client: pg.PoolClient) => Promise<void>;
 }
 
@@ -319,7 +321,12 @@ export class PgMemoryStore {
         throw new PromotionConflictError(`expectedRevision ${expectedRevision} does not match current version ${currentVersion}`);
       }
 
-      if (opts.evaluate) {
+      if (opts.evaluateAsync) {
+        const decision = await opts.evaluateAsync(mapEntry(oldRow), client);
+        if (!decision.ok) {
+          throw new PromotionConflictError(decision.reason);
+        }
+      } else if (opts.evaluate) {
         const decision = opts.evaluate(mapEntry(oldRow));
         if (!decision.ok) {
           throw new PromotionConflictError(decision.reason);

@@ -2,8 +2,14 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
-import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, MEMORY_SCHEMA_SQL, PgMemoryStore, provenanceFromMeta, runReadOnlyQuery } from "@away_from/pth-memory";
-import { promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../../src/pth/execution/knowledge-promotion.js";
+import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, PgMemoryStore, provenanceFromMeta, runReadOnlyQuery } from "@away_from/pth-memory";
+import { applySchema } from "../../../src/pth/kernel/storage/schema.js";
+import {
+  createPgKnowledgeVerificationRepo,
+  promoteKnowledgeEntry,
+  recordKnowledgeVerdict,
+} from "../../../src/pth/execution/knowledge-promotion.js";
+import { computeCandidateHash } from "../../../src/pth/execution/knowledge-verdicts.js";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1/2/3（pg.test.ts / schema.test.ts / task-store-pg.test.ts）：
@@ -30,7 +36,9 @@ suite("memory store pg", () => {
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     pool = new Pool({ connectionString: container.getConnectionUri() });
-    await pool.query(MEMORY_SCHEMA_SQL);
+    // R3 后 promotion 服务需要 knowledge_verification_plans/knowledge_verdict_rows/side_effect_outbox；
+    // 统一走 core applySchema（含 MEMORY_SCHEMA_SQL）。
+    await applySchema(pool);
     store = new PgMemoryStore(pool);
   }, 120_000);
 
@@ -454,7 +462,7 @@ suite("memory store pg", () => {
     expect((await store.get("k1b-prov-draft"))?.status).toBe("draft");
   });
 
-  it("K1b：真实 PG 链路 draft domain-fact（meta.provenance）→ verdicts → promote → official", async () => {
+  it("K1b：真实 PG 链路 draft domain-fact（meta.provenance）→ plan verdict rows → promote → official", async () => {
     const content = "The Earth orbits the Sun.";
     const provenance = buildKnowledgeProvenance({
       content,
@@ -468,33 +476,51 @@ suite("memory store pg", () => {
       content, status: "draft", meta: { provenance, verdicts: [] },
     } as any);
 
-    expect((await recordKnowledgeVerdict(store, "k1b-chain", {
+    const repo = createPgKnowledgeVerificationRepo(pool);
+    await pool.query(
+      `INSERT INTO knowledge_verification_plans
+         (id, tenant_id, candidate_id, candidate_revision, candidate_hash, required_domains, checks, source_bindings_digest, status)
+       VALUES ('plan-k1b-chain', $1, 'k1b-chain', 1, $2, '["mathematics"]'::jsonb, $3::jsonb, '', 'open')`,
+      [
+        DEFAULT_TENANT_ID,
+        computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+        JSON.stringify([
+          { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:platform-admin"], separationFrom: ["producer", "other-verifier"] },
+          { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer", "other-verifier"] },
+        ]),
+      ],
+    );
+
+    const authDomain = { principalId: "tenant:tenant-a:platform-admin", executionId: "task-d", roleId: "platform-admin" };
+    const authAdv = { principalId: "worker:controller:adversarial", executionId: "task-a", roleId: "controller:adversarial" };
+    expect((await recordKnowledgeVerdict(store, repo, "plan-k1b-chain", "domain-1", 1, {
       kind: "domain", verdict: "pass", reviewerRole: "domain:expert",
-      note: "domain evidence verified", at: 1,
-      principalId: "tenant:tenant-a:platform-admin", domainId: "mathematics",
-    })).ok).toBe(true);
-    expect((await recordKnowledgeVerdict(store, "k1b-chain", {
+      note: "domain evidence verified", at: 1, domainId: "mathematics",
+    }, authDomain, { tenantId: DEFAULT_TENANT_ID })).ok).toBe(true);
+    expect((await recordKnowledgeVerdict(store, repo, "plan-k1b-chain", "adv-1", 1, {
       kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial",
       note: "no shortcut / pitfall covered", at: 2,
-      principalId: "worker:controller:adversarial",
-    })).ok).toBe(true);
+    }, authAdv, { tenantId: DEFAULT_TENANT_ID })).ok).toBe(true);
 
-    const promoted = await promoteKnowledgeEntry(store, "k1b-chain");
+    const promoted = await promoteKnowledgeEntry(
+      store, repo, "k1b-chain", "plan-k1b-chain", 1,
+      { principalId: "worker:memory-keeper", executionId: "task-mk", roleId: "memory-keeper" },
+      { tenantId: DEFAULT_TENANT_ID },
+    );
     expect(promoted).toEqual({ ok: true, id: "k1b-chain" });
 
     const got = await store.get("k1b-chain");
     expect(got?.status).toBe("official");
     expect(got?.meta.provenance).toEqual(provenance);
-    expect(got?.meta.promotion).toMatchObject({ promotedBy: "memory-keeper" });
+    expect(got?.meta.promotion).toMatchObject({ promotedBy: "memory-keeper", planId: "plan-k1b-chain" });
 
-    // verdict/reject 的 update 产生 revision（F1 6.3）；promote 的 write 也记晋升前旧版本。
+    // R3：verdict 落新表不 append meta.verdicts、不递增 candidate version；
+    // promotion 事务只写晋升前旧 revision 一次。
     const history = await store.revisionHistory("k1b-chain");
-    expect(history.map((h) => h.revision)).toEqual([1, 2, 3]);
+    expect(history.map((h) => h.revision)).toEqual([1]);
     expect(history[0].meta?.verdicts).toHaveLength(0);
-    expect(history[1].meta?.verdicts).toHaveLength(1);
-    expect(history[2].meta?.verdicts).toHaveLength(2);
-    expect(history[2].status).toBe("draft");
-    expect(history[2].reason).toBe("knowledge-promotion");
+    expect(history[0].status).toBe("draft");
+    expect(history[0].reason).toBe("knowledge-promotion");
   });
 
   it("F2：复合 PK 后同 id 跨 tenant 可并存（write/get/retrieve 互不可见）", async () => {

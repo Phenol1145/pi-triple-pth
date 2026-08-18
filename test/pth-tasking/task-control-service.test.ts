@@ -7,6 +7,7 @@ import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg.js";
 import { TaskControlService, TaskAwaitSuspendedError } from "../../src/pth/tasking/task-control-service.js";
 import { PgTaskQueries } from "../../src/pth/tasking/task-queries.js";
 import { readWorkItemDomainBinding, readWorkItemDomains } from "../../src/pth/tasking/task-work-item-reader.js";
+import { createPgTaskRepository } from "../../src/pth/tasking/adapters/pg-task-repository.js";
 import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
 import { installDefaultRoles } from "../helpers.js";
 import type { TenantScope } from "../../src/pth/contracts/index.js";
@@ -227,6 +228,125 @@ suite("task control service（P1-3）", () => {
     const legacyRow = await pool.query("SELECT payload FROM tasks WHERE id = $1", [child.taskId]);
     expect(legacyRow.rows[0].payload.domains).toEqual([]);
     expect(legacyRow.rows[0].payload.domainBinding).toBeUndefined();
+  });
+
+  it("publish(A,B) → delegate(A) → claim keeps binding with only A", async () => {
+    // root publish 已把 domains/domainBinding 写入 payload（A,B）；claim 侧由 reader 盖章后，
+    // delegate 显式子集 [A] 必须把 binding 裁剪为 only A——claim reader 不再因 B 丢弃整个 binding。
+    const bindingAB = {
+      matches: [
+        { domainId: "mathematics", confidence: 0.9, evidence: ["title math"] },
+        { domainId: "statistics", confidence: 0.8, evidence: ["tag stats"] },
+      ],
+      primaryDomain: "mathematics",
+      catalogVersion: "v1",
+      resolverVersion: "v1",
+    };
+    const rootPayload = { domains: ["mathematics", "statistics"], domainBinding: bindingAB };
+    const domains = readWorkItemDomains(rootPayload);
+    const domainBinding = readWorkItemDomainBinding(rootPayload, domains);
+    expect(domainBinding).toEqual(bindingAB);
+
+    const caller = {
+      taskId: "parent-claim-subset",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-claim-subset" },
+      domains,
+      ...(domainBinding ? { domainBinding } : {}),
+    };
+    const child = await routedService.delegate(
+      { to: "coder", title: "claim subset", text: "x", domains: ["mathematics"] },
+      caller,
+      scopeA,
+    );
+
+    const taskRepository = createPgTaskRepository(pool);
+    const claimed = await taskRepository.claim(
+      { tenantId: "tenant-a", principalId: "worker:coder", roles: ["coder"], traceId: "claim-subset" },
+      "coder",
+      [child.taskId],
+    );
+    expect(claimed).toHaveLength(1);
+    expect(claimed[0]!.work.domains).toEqual(["mathematics"]);
+    expect(claimed[0]!.work.domainBinding).toEqual({
+      matches: [{ domainId: "mathematics", confidence: 0.9, evidence: ["title math"] }],
+      primaryDomain: "mathematics",
+      catalogVersion: "v1",
+      resolverVersion: "v1",
+    });
+  });
+
+  it("delegate(subset) preserves catalogVersion/resolverVersion and primaryDomain order", async () => {
+    const bindingAB = {
+      matches: [
+        { domainId: "mathematics", confidence: 0.9, evidence: ["title math"] },
+        { domainId: "statistics", confidence: 0.8, evidence: ["tag stats"] },
+      ],
+      primaryDomain: "statistics",
+      catalogVersion: "v2",
+      resolverVersion: "v3",
+    };
+    const caller = {
+      taskId: "parent-preserve-binding",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-preserve-binding" },
+      domains: ["mathematics", "statistics"],
+      domainBinding: bindingAB,
+    };
+
+    // 子集 [statistics]：primary 仍保留父 primary（statistics 在保留集中）→ 取父 primary。
+    const keepPrimary = await routedService.delegate(
+      { to: "coder", title: "preserve binding", text: "x", domains: ["statistics"] },
+      caller,
+      scopeA,
+    );
+    const keepRow = await pool.query("SELECT payload FROM tasks WHERE id = $1", [keepPrimary.taskId]);
+    expect(keepRow.rows[0].payload.domains).toEqual(["statistics"]);
+    expect(keepRow.rows[0].payload.domainBinding).toEqual({
+      matches: [{ domainId: "statistics", confidence: 0.8, evidence: ["tag stats"] }],
+      primaryDomain: "statistics",
+      catalogVersion: "v2",
+      resolverVersion: "v3",
+    });
+
+    // 子集 [mathematics]：父 primary 不在保留集 → 取父 matches 顺序中第一个保留项。
+    const fallbackPrimary = await routedService.delegate(
+      { to: "coder", title: "preserve binding fallback", text: "x", domains: ["mathematics"] },
+      caller,
+      scopeA,
+    );
+    const fallbackRow = await pool.query("SELECT payload FROM tasks WHERE id = $1", [fallbackPrimary.taskId]);
+    expect(fallbackRow.rows[0].payload.domains).toEqual(["mathematics"]);
+    expect(fallbackRow.rows[0].payload.domainBinding).toEqual({
+      matches: [{ domainId: "mathematics", confidence: 0.9, evidence: ["title math"] }],
+      primaryDomain: "mathematics",
+      catalogVersion: "v2",
+      resolverVersion: "v3",
+    });
+  });
+
+  it("delegate(empty subset or overreach) rejected", async () => {
+    const caller = {
+      taskId: "parent-empty-subset",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-empty-subset" },
+      domains: ["mathematics", "statistics"],
+    };
+
+    // 空子集：显式 domains=[] 拒绝（不产出空 binding）。
+    await expect(
+      routedService.delegate({ to: "coder", title: "empty subset", text: "x", domains: [] }, caller, scopeA),
+    ).rejects.toThrow(/domains.*子集/);
+
+    const before = Number((await pool.query(`SELECT count(*)::int AS n FROM tasks`)).rows[0].n);
+    await expect(
+      routedService.delegate({ to: "coder", title: "overreach subset", text: "x", domains: ["physics"] }, caller, scopeA),
+    ).rejects.toThrow(/domains.*子集/);
+    const after = Number((await pool.query(`SELECT count(*)::int AS n FROM tasks`)).rows[0].n);
+    expect(after).toBe(before);
   });
 
   it("F3：delegate domains 非法形状 → PtcContractError", async () => {
