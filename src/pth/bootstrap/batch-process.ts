@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { resolve as resolvePath, relative as relativePath, isAbsolute, sep } from "node:path";
 import { createPgPool } from "../kernel/storage/pg.js";
 import { applySchema } from "../kernel/storage/schema.js";
@@ -47,8 +47,10 @@ import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js"
 import type { WorkerReplica } from "../kernel/execution/worker-replica.js";
 import type { WorkerControlMessage, WorkerSlot } from "./worker-slot-runtime.js";
 import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type WorkerReplicaRef } from "../contracts/index.js";
-import { assertMemoryDirectoryResponsibilityCapacity, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
-import { createCognitiveWorkingSetProvider, type AuthorizedTaskReadFactory } from "../runner/index.js";
+import { assertMemoryDirectoryResponsibilityCapacity, buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createKnowledgeBroker, createLayeredKnowledgeRetriever, createVerifiedTaskReadScopeFactory, filterKnowledgeEntriesByQueryText, rankKnowledgeEntries, regionEntryIds, type DirectoryEntryInput, type KnowledgeMemoryEntry, type LayeredSearchWaveInput, type LayeredSearchWaveResult, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
+import { KNOWLEDGE_CONTEXT_KINDS } from "../runner/index.js";
+import { createAuthorizedStateReadPort, createAuthorizedTaskReadFactory, createCognitiveWorkingSetProvider, createScopedSkillPort, expandTaskReadGrantCapabilities, type AuthorizedTaskReadFactory } from "../runner/index.js";
+import type { SkillStoreLike } from "@away_from/pth-memory";
 import type { RoleDefinition } from "../kernel/execution/worker-cluster.js";
 
 export interface RunBatchProcessDeps {
@@ -58,6 +60,9 @@ export interface RunBatchProcessDeps {
   intervalMs?: number;
   /** N28 T6：feasibility 依赖（正常 CLI 入口全部 undefined → off 模式）。 */
   memoryDirectory?: MemoryDirectorySnapshot;
+  /** N28 复核修复 Layer2：Directory 完整性源（entries + catalog 域）——feasibility 必填。 */
+  directoryEntries?: readonly DirectoryEntryInput[];
+  knownDomainIds?: ReadonlySet<string>;
   authorizedTaskReadFactory?: AuthorizedTaskReadFactory;
   verifiedReadScopeFactory?: VerifiedTaskReadScopeFactory;
   resolveRoleBudget?: (loadPolicyRef: string) => Partial<CognitiveBudget> | undefined;
@@ -170,7 +175,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     createDisciplineResolver(catalog),
     { requireTenant: true },
   );
-  const knowledgeContextProvider = createKnowledgeContextProvider({
+  let knowledgeContextProvider = createKnowledgeContextProvider({
     memory: dataWorld.memory,
     catalog,
     // K1a 同款可见性判定：pth-memory isVisible（spaceScope 沿空间树向下可见）。
@@ -224,13 +229,83 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const mode = pthConfig().str("PTH_COGNITIVE_RESPONSIBILITY_MODE") === "feasibility" ? "feasibility" as const : "off" as const;
   const batchId = pthConfig().str("PTH_BATCH_ID") || `batch:${process.pid}`;
 
-  // N28 T6：feasibility 模式 provider + 启动前责任容量硬闸（缺依赖=启动错误，绝不省略）。
+  // N28 T6 + 复核 Layer2：feasibility 模式 provider + 启动前责任容量硬闸（缺依赖=启动错误，绝不省略）。
+  let authorizedTaskReadFactory = deps.authorizedTaskReadFactory;
+  let verifiedReadScopeFactory = deps.verifiedReadScopeFactory;
   const cognitiveWorkingSetProvider = mode === "feasibility"
     ? (() => {
-        if (!deps.memoryDirectory || !deps.authorizedTaskReadFactory || !deps.verifiedReadScopeFactory) {
-          throw new Error("feasibility mode requires memoryDirectory/authorizedTaskReadFactory/verifiedReadScopeFactory");
+        if (!deps.memoryDirectory || !deps.directoryEntries || !deps.knownDomainIds) {
+          throw new Error("feasibility mode requires memoryDirectory/directoryEntries/knownDomainIds");
         }
         assertMemoryDirectoryResponsibilityCapacity(deps.memoryDirectory, N28_FEASIBILITY_BUDGET.responsibility);
+        // P0-2 修复：生产 batch 构造并注入同一 layeredRetriever + layeredSearchWave，
+        // Broker 与 Context 共用同一 wave port/trace 语义；factory 未注入时用生产 grant service 自建。
+        const directory = deps.memoryDirectory;
+        const clock = () => new Date();
+        const layeredRetriever = createLayeredKnowledgeRetriever<KnowledgeMemoryEntry>(directory, {
+          knownDomainIds: deps.knownDomainIds,
+          entries: deps.directoryEntries,
+        }, { clock });
+        const layeredSearchWave = async (input: LayeredSearchWaveInput): Promise<LayeredSearchWaveResult<KnowledgeMemoryEntry>> => {
+          const regionSet = new Set(input.regionIds.flatMap((id) => regionEntryIds(directory, id)));
+          const all = await dataWorld.memory.retrieve({
+            anchors: [],
+            kinds: [...KNOWLEDGE_CONTEXT_KINDS],
+            status: ["official"],
+            tenantId: input.authorization.tenantId,
+          });
+          const authorized = all.filter((e) => isVisible(e.meta, input.authorization.space));
+          const inWave = input.candidateScope === "global" ? authorized : authorized.filter((e) => regionSet.has(e.id));
+          const matching = filterKnowledgeEntriesByQueryText(inWave, input.queryText, { strict: true });
+          const ranked = rankKnowledgeEntries(matching, { queryText: input.queryText, domains: [] });
+          return {
+            entries: ranked.slice(0, input.limit),
+            candidateCount: inWave.length,
+            visibleCount: inWave.length,
+            scannedCount: all.length,
+            completeForQuery: true,
+          };
+        };
+        knowledgeContextProvider = createKnowledgeContextProvider({
+          memory: dataWorld.memory,
+          catalog,
+          isVisible: (meta, space) => isVisible(meta, space),
+          layeredRetriever,
+          layeredSearchWave,
+          clock,
+        });
+        const grantService = createExecutionGrantService({
+          keyProvider: createHmacGrantKeyProvider({ secret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET") }),
+          clock,
+        });
+        verifiedReadScopeFactory ??= createVerifiedTaskReadScopeFactory({
+          grantService,
+          grantForTask: ({ lease, work, space, worker }) => {
+            const roleDef = knownRoleById(worker.role.roleId);
+            return grantService.issue({
+              lease,
+              scope: { ...work.scope, principalId: `worker:${worker.workerId}`, roles: [worker.role.roleId], space },
+              workspace: lease.workspace,
+              language: "ts",
+              capabilities: expandTaskReadGrantCapabilities(roleDef?.capabilities ?? []),
+              ttlMs: 120_000,
+            });
+          },
+        });
+        authorizedTaskReadFactory ??= createAuthorizedTaskReadFactory({
+          broker: createKnowledgeBroker({
+            grantService,
+            dataWorld: { queryReadOnly: dataWorld.queryReadOnly, memory: dataWorld.memory },
+            isVisible: (meta, space) => isVisible(meta, space),
+            layeredRetriever,
+            layeredSearchWave,
+            verifiedReadScopeAuthority: verifiedReadScopeFactory,
+            clock,
+          }),
+          skills: createScopedSkillPort({ store: dataWorld.memory as unknown as SkillStoreLike, isVisible: (meta, space) => isVisible(meta, space), clock }),
+          state: createAuthorizedStateReadPort({ memory: dataWorld.memory, isVisible: (meta, space) => isVisible(meta, space), clock }),
+          clock,
+        });
         return createCognitiveWorkingSetProvider({ budget: N28_FEASIBILITY_BUDGET, resolveRoleBudget: deps.resolveRoleBudget });
       })()
     : undefined;
@@ -719,8 +794,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       replica,
       memoryDirectory: deps.memoryDirectory,
       cognitiveWorkingSetProvider,
-      authorizedReads: deps.authorizedTaskReadFactory,
-      verifiedReadScopeFactory: deps.verifiedReadScopeFactory,
+      authorizedReads: authorizedTaskReadFactory,
+      verifiedReadScopeFactory,
       cognitiveResponsibilityMode: mode,
       // F5：post-commit refine 走 durable outbox；每轮 claim 前 kick 一次 drain。
       sideEffectOutbox,
@@ -837,7 +912,32 @@ if (pthConfig().str("PTH_BATCH_PROCESS") === "1" || process.argv[1]?.endsWith("b
   }
   const basePath = pthConfig().str("PTH_WORKSPACES_PATH");
   const artifactPath = pthConfig().str("PTH_ARTIFACTS_PATH");
-  runBatchProcess({ databaseUrl, basePath, artifactPath }).catch((e) => {
+  void (async () => {
+    let extras: Partial<RunBatchProcessDeps> = {};
+    if (pthConfig().str("PTH_COGNITIVE_RESPONSIBILITY_MODE") === "feasibility") {
+      const dirPath = pthConfig().str("PTH_N28_FEASIBILITY_DIRECTORY");
+      if (!dirPath) throw new Error("PTH_N28_FEASIBILITY_DIRECTORY required in feasibility mode（Directory JSON 路径）");
+      const raw = JSON.parse(await readFile(dirPath, "utf8")) as {
+        tenantId: string; epoch: number; knownDomainIds: string[];
+        regions: unknown; responsibilities: unknown; workers: unknown; entries: unknown;
+      };
+      const directory = buildMemoryDirectorySnapshot({
+        tenantId: raw.tenantId,
+        epoch: raw.epoch,
+        knownDomainIds: new Set(raw.knownDomainIds),
+        workers: raw.workers as never,
+        regions: raw.regions as never,
+        responsibilities: raw.responsibilities as never,
+        entries: raw.entries as never,
+      });
+      extras = {
+        memoryDirectory: directory,
+        directoryEntries: raw.entries as never,
+        knownDomainIds: new Set(raw.knownDomainIds),
+      };
+    }
+    await runBatchProcess({ databaseUrl, basePath, artifactPath, ...extras });
+  })().catch((e) => {
     console.error("batch process fatal:", e);
     process.exit(1);
   });
