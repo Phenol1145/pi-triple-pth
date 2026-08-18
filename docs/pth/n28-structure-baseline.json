@@ -1946,8 +1946,8 @@
   },
   "scripts": {
     "scripts/accept-n28-feasibility.ts": {
-      "sha256": "d00bd8c56de8746c662aabb7d38dec8517acc339530a820321fc76225cac54a3",
-      "lines": 195
+      "sha256": "7326dec810c1ad20f7cabf49668f344f66665dc35bd5e3f679f21dc4f5e4cfe5",
+      "lines": 216
     },
     "scripts/adjudicate-tensions.ts": {
       "sha256": "213a536eceb924b3e63cded8f5a4b60e73e346e4998a31ad9a94d12e84e8413a",
@@ -1970,8 +1970,8 @@
       "lines": 214
     },
     "scripts/eval-n28-feasibility.ts": {
-      "sha256": "6436628dcace5d0c467bae24f5a5ff8668a5d480fba08217c790032365241c9e",
-      "lines": 523
+      "sha256": "461d7740414e27e84e26d2a7e988ef5574b27ea797f8c67c24049a75a1703854",
+      "lines": 544
     },
     "scripts/ext-check.ts": {
       "sha256": "17ead9fb28880f76fc4c4742d3afa3e7f94f4571e7c6d42be47fa3ad3b99581a",
@@ -8210,7 +8210,7 @@
     "scriptFiles": 20,
     "packageFiles": 183,
     "totalFiles": 679,
-    "totalLines": 105314,
+    "totalLines": 105356,
     "importEdges": 900,
     "runtimeEdges": 413,
     "typeEdges": 487,
