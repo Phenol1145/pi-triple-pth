@@ -1,22 +1,30 @@
-# N28 可行性验证报告（ROLE/MEMORY/WORKER 编排）——修复后权威版
+# N28 可行性验证报告（ROLE/MEMORY/WORKER 编排）——第二轮复核修复后权威版
 
 > 日期：2026-08-19
-> evaluated commit：`62bb8b22a566decdadd63b9ed31705501b429c8d`
+> evaluated commit：`7e761806e7c9a3b5bef75ecfa7d52c7775b88b4a`
 > 最终决定：**GO**（provisional evaluator 与 acceptance envelope 均为 GO）
 > 决定来源：`scripts/accept-n28-feasibility.ts`（唯一终审权威）
+> 完整权威 envelope：`docs/pth/n28-feasibility-envelope.json`
 
 ## 0. 结论
 
-**GO。** H1–H6 全部非空分母且全部 PASS；两次 evaluator byte-identical；四道门禁全绿。
+**GO。** H1–H6 全部非空分母且全部 PASS；两次 evaluator byte-identical；focused 31 文件
+zero-skip、合同一致的 7 文件 typecheck、full regression（冻结 9 skip）、lint 四道门禁全绿。
+合同 disposition 为人工批准的 Task 7 合同 **v1.1**（C7 收窄合法化）。
+
 GO 只授权编写生产化实施计划（persistent lease/Region 表/outbox 投影/权重校准/重平衡），
 不授权数据库迁移、自动扩缩容或默认开启。
 
-## 1. 验收门禁（clean worktree 上真实执行）
+> 独立符合性处置保持：外部第二轮复核报告的 **NOT ACCEPTED / NO-GO** 处置属于复核方；
+> 本报告只陈述自动验收结果与修复证据，不代表复核方已改判。
+
+## 1. 验收门禁（clean worktree 上真实执行，同 commit `7e76180`）
 
 | 门禁 | 结果 |
 |---|---|
-| 两次 evaluator | byte-identical，exit 0（provisional GO） |
-| `npx tsc -p tsconfig.n28.json --noEmit` | exit 0 |
+| 两次 evaluator | byte-identical，provisional GO |
+| 六条 sabotage 敏感度 | 每条 NO-GO 且只翻转其映射 H，sentinel > baseline（见 §3） |
+| `npx tsc -p tsconfig.n28.json --noEmit` | exit 0（合同 v1.1：4 scripts + vertical/evaluator/acceptance 三测试） |
 | N28 focused 31 文件 | exit 0，skips=[] |
 | `npm test` | exit 0，skip manifest = 冻结清单 9（sandbox-security） |
 | `npm run lint` | exit 0（boundaries 0 / config 0） |
@@ -25,37 +33,56 @@ GO 只授权编写生产化实施计划（persistent lease/Region 表/outbox 投
 
 | H | 证据（非空分母） |
 |---|---|
-| H1 | workerLifecycle 6/6、batchRuntime 1/1、stoppedSlotCleanup 2/2、heartbeat 4/4、auditIdentity 3/3、grantIdentity 3/3；failures 全 0 |
-| H2 | invariant 8/8、determinism 1/1、coverage=1、memoryTypes=4、bodies=100、refs=101>100、overlap=1、ownerless/bodyCopies 真实扫描=0 |
+| H1 | workerLifecycle 6/6（busy remove / no-preclaim / peer continues / pause / resume / idle remove）、batchRuntime 1/1、cleanup 2/2、heartbeat 4/4（逐 replica/task identity）、audit 3/3、grant 3/3；failures 全 0 |
+| H2 | invariant 8/8、determinism 1/1、coverage=1、memoryTypes=4、bodies=100、refs=101>100、overlap=1、ownerless/bodyCopies 由真实扫描得出=0 |
 | H3 | gold 12/12、fourWave 12/12、maxWave=4、maxSelected=16、incomplete/failed=0 |
-| H4 | authorization 32/32（8 面×4 失效）、visibility 14/14、leaks=0、unauthorizedWave=0、unauthorizedRead=0 |
-| H5 | budget 1000/1000、responsibility 1000/1000、violations 0、determinism 0 |
-| H6 | surfaceComparison 12/12、hiddenDispatch 1/1、mismatches=0、hiddenExecutor=0 |
+| H4 | authorization 32/32（8 面 × 4 失效，全部穿过同一 surface 入口）、visibility 14/14（7 行 × Broker/Context，allow/deny 双向断言）、leaks=0、unauthorizedWave=0、unauthorizedRead=0 |
+| H5 | budget 1000/1000（全部经 `createBudgetedTaskCapabilities` facade）、responsibility 1000/1000、violations 0、workingSet 反序输入 determinism 0（freezeSkillIndex 已改为字典序冻结） |
+| H6 | surfaceComparison 12/12（含 final Working Set 与最后一回合 LLM tools 面、prompt Knowledge Context 行、Skill facade 的精确集合相等）、hiddenDispatch 1/1、hiddenExecutor=0 |
 
-## 3. Evaluator JSON（摘要）
+## 3. 六条 sabotage 对账（P0-4）
+
+| Sabotage | 翻转假设 | Sentinel |
+|---|---|---|
+| `control-target-swap` | H1 | `sameRoleReplicaControlFailures` > 0 |
+| `directory-body-copy` | H2 | `bodyCopiesOutsideCanonicalStore` > 0 |
+| `remove-global-wave` | H3 | `missingFourWaveCases` > 0 |
+| `scope-guard-bypass` | H4 | `unauthorizedReadPortInvocations` > 0 |
+| `budget-wrapper-bypass` | H5 | `budgetViolations` > 0 |
+| `tool-dispatch-guard-bypass` | H6 | `hiddenExecutorInvocations` > 0 |
+
+敏感度测试 `test/pth-runner/n28-feasibility-evaluator.test.ts` 逐条断言：decision=NO-GO、
+映射假设 FAIL、其余五条假设保持 PASS。sabotage 只改变共享 harness 输入/依赖/动作，不直写 metric。
+
+## 4. 第二轮复核阻断项修复对照
+
+| 阻断项 | 修复 | 落点 |
+|---|---|---|
+| P0-1 身份对齐 | batch feasibility 从 `deps.memoryDirectory.workers` 派生 workerSpecs（`requestedReplica` + `roleDefinitionRevision`），unknown worker 抛错 | `batch-process.ts` |
+| P0-2 重复 ID 硬限 | state recall/memory retrieve/query 逐行 `#rowN` token 计费并按 token 过滤，omitted 不可见 | `cognitive-working-set.ts` |
+| P0-3 扫描常量 | 删除 H2 常量覆盖；ownerless 与三类 projection 正文复制由扫描得出 | `eval-n28-feasibility.ts` |
+| P0-4 六 sabotage | 六条冻结哨兵全部实现 + 敏感度测试 | 同上 + evaluator test |
+| P0-5 合同收窄 | Task 7 合同 **v1.1** 人工批准修订（用户选项）；envelope 绑定 `contractDisposition` 并纳入终审校验 | `n28-task7-contract.md` §11、`accept-n28-feasibility.ts` |
+| P1-1 分母真实化 | pause/resume、逐 worker heartbeat、四类失效穿 8 surface、visibility allow/deny 双向、H5 facade 反序、H6 精确集合相等；`freezeSkillIndex` 顺序确定性缺陷根修 | `eval-n28-feasibility.ts`、`cognitive-budget.ts` |
+| P1-2 unknown 回执/waiter | `accepted` 字段 + unknown/false/error 判失败，超时清理 waiter | `batch-manager.ts` |
+| P1-3 trace 三态 | `candidateCount=all`、`visibleCount=inWave`、`scannedCount=all` 分列 | `batch-process.ts` |
+| P1-4 混合门禁优先 | started 非零先判 NO-GO，再判 EVALUATION-INCOMPLETE | `accept-n28-feasibility.ts` |
+
+## 5. 最终 acceptance envelope（摘要；完整 JSON 见同目录 envelope 文件）
 
 ```json
 {
-  "decision": "GO",
-  "hypotheses": { "H1": { "passed": true }, "H2": { "passed": true }, "H3": { "passed": true },
-    "H4": { "passed": true }, "H5": { "passed": true }, "H6": { "passed": true } },
-  "metrics": {
-    "goldQueries": 12, "goldFoundQueries": 12, "fourWaveCases": 12, "goldRecall": 1,
-    "authorizationProbeCases": 32, "visibilityProbeCases": 14,
-    "generatedBudgetCases": 1000, "generatedResponsibilityCases": 1000,
-    "workerLifecycleProbeCases": 6, "auditIdentityProbeCases": 3, "grantIdentityProbeCases": 3,
-    "surfaceComparisonCases": 12, "hiddenDispatchProbeCases": 1
-  }
-}
-```
-
-## 4. 最终 acceptance envelope
-
-```json
-{
-  "evaluatedCommit": "62bb8b22a566decdadd63b9ed31705501b429c8d",
+  "evaluatedCommit": "7e761806e7c9a3b5bef75ecfa7d52c7775b88b4a",
   "implementationTreeClean": true,
-  "evaluator": { "byteIdentical": true, "decision": "GO" },
+  "contractDisposition": {
+    "version": "v1.1",
+    "approved": true,
+    "approvalSource": "user-selected-option-in-reacceptance-session",
+    "amendmentDoc": "docs/pth/n28-task7-contract.md",
+    "amendmentClause": "## 11. 人工批准修订 v1.1",
+    "typecheckScope": "tsconfig.n28.json (4 scripts + vertical/evaluator/acceptance tests)"
+  },
+  "evaluator": { "byteIdentical": true, "first": "GO", "second": "GO" },
   "focused": { "started": true, "exitCode": 0, "skipped": [] },
   "n28Typecheck": { "started": true, "exitCode": 0, "skipped": [] },
   "fullRegression": {
@@ -67,21 +94,6 @@ GO 只授权编写生产化实施计划（persistent lease/Region 表/outbox 投
 }
 ```
 
-## 5. 修复轮对照（复核报告 §8 四层）
-
-- Layer 1：P0-1 state recall 只返回 ledger accepted（红→绿）；P1-1 Context 复用同一 wave port。
-- Layer 2：P0-2 生产 batch feasibility 组合路径（Directory+retriever+wavePort+自建 factories+CLI JSON）。
-- Layer 3：P1-2 workerId 生产 API/role 最终回执；P1-3 child-agent 真实 worker UUID。
-- Layer 4：P1-4 driver 门禁语义/跳过清单/输出留档；P0-3 全部探针真实化；P1-5 类型门禁按裁决 C7 正式收窄并修订契约。
-
 ## 6. 免责声明
 
 This result validates the reversible in-memory orchestration model; it does not validate PG durability, automatic partitioning, autoscaling, real-LLM retrieval quality, or production default thresholds.
-
-## 7. 下一步（仅规划输入，不在本计划实施）
-
-1. persistent WorkerReplica lease identity；
-2. Region/Responsibility revision 表与 CAS 模型；
-3. membership 投影 transactional outbox；
-4. real-corpus 权重校准（索引字节/延迟/摄入速率）；
-5. make-before-break Region 重平衡与副本扩缩容。

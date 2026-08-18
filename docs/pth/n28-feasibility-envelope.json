@@ -1,0 +1,236 @@
+{
+  "evaluatedCommit": "7e761806e7c9a3b5bef75ecfa7d52c7775b88b4a",
+  "implementationTreeClean": true,
+  "contractDisposition": {
+    "version": "v1.1",
+    "approved": true,
+    "approvalSource": "user-selected-option-in-reacceptance-session",
+    "amendmentDoc": "docs/pth/n28-task7-contract.md",
+    "amendmentClause": "## 11. 人工批准修订 v1.1",
+    "typecheckScope": "tsconfig.n28.json (4 scripts + vertical/evaluator/acceptance tests)"
+  },
+  "evaluator": {
+    "first": {
+      "decision": "GO",
+      "hypotheses": {
+        "H1": {
+          "passed": true,
+          "evidence": [
+            "workerLifecycle=6/6 batchRuntime=1/1 cleanup=2/2 heartbeat=4/4 audit=3/3 grant=3/3"
+          ]
+        },
+        "H2": {
+          "passed": true,
+          "evidence": [
+            "directoryInvariant=8/8 determinism=1/1 coverage=1 refs=101 bodies=100"
+          ]
+        },
+        "H3": {
+          "passed": true,
+          "evidence": [
+            "gold=12/12 fourWave=12/12 maxWave=4 maxSelected=16"
+          ]
+        },
+        "H4": {
+          "passed": true,
+          "evidence": [
+            "authorization=32/32 visibility=14/14 leaks=0 unauthorizedWave=0 unauthorizedRead=0"
+          ]
+        },
+        "H5": {
+          "passed": true,
+          "evidence": [
+            "budget=1000/1000 responsibility=1000/1000 violations=0/0 workingSetMismatches=0"
+          ]
+        },
+        "H6": {
+          "passed": true,
+          "evidence": [
+            "surface=12/12 hiddenDispatch=1/1 mismatches=0 hiddenExec=0"
+          ]
+        }
+      },
+      "metrics": {
+        "goldQueries": 12,
+        "goldFoundQueries": 12,
+        "fourWaveCases": 12,
+        "goldRecall": 1,
+        "maxRetrievalWaves": 4,
+        "maxWaveSelectedCount": 16,
+        "missingFourWaveCases": 0,
+        "retrievalIncompleteCases": 0,
+        "retrievalFailedCases": 0,
+        "directoryCoverage": 1,
+        "memoryTypesCovered": 4,
+        "canonicalBodyEntries": 100,
+        "directoryMembershipReferences": 101,
+        "overlapMemberships": 1,
+        "ownerlessRegions": 0,
+        "bodyCopiesOutsideCanonicalStore": 0,
+        "directoryInvariantProbeCases": 8,
+        "directoryInvariantFailures": 0,
+        "directoryDeterminismProbeCases": 1,
+        "snapshotDeterminismMismatches": 0,
+        "generatedBudgetCases": 1000,
+        "generatedResponsibilityCases": 1000,
+        "budgetViolations": 0,
+        "responsibilityViolations": 0,
+        "workingSetDeterminismMismatches": 0,
+        "sameRoleReplicaControlFailures": 0,
+        "workerLifecycleProbeCases": 6,
+        "batchRuntimeProbeCases": 1,
+        "batchRuntimeConsumptionFailures": 0,
+        "stoppedSlotCleanupProbeCases": 2,
+        "stoppedSlotCleanupFailures": 0,
+        "heartbeatIdentityProbeCases": 4,
+        "heartbeatIdentityFailures": 0,
+        "auditIdentityProbeCases": 3,
+        "auditIdentityFailures": 0,
+        "grantIdentityProbeCases": 3,
+        "grantIdentityFailures": 0,
+        "authorizationProbeCases": 32,
+        "visibilityProbeCases": 14,
+        "authorizationLeaks": 0,
+        "unauthorizedWaveInvocations": 0,
+        "unauthorizedReadPortInvocations": 0,
+        "surfaceMismatches": 0,
+        "surfaceComparisonCases": 12,
+        "hiddenDispatchProbeCases": 1,
+        "hiddenExecutorInvocations": 0
+      }
+    },
+    "second": {
+      "decision": "GO",
+      "hypotheses": {
+        "H1": {
+          "passed": true,
+          "evidence": [
+            "workerLifecycle=6/6 batchRuntime=1/1 cleanup=2/2 heartbeat=4/4 audit=3/3 grant=3/3"
+          ]
+        },
+        "H2": {
+          "passed": true,
+          "evidence": [
+            "directoryInvariant=8/8 determinism=1/1 coverage=1 refs=101 bodies=100"
+          ]
+        },
+        "H3": {
+          "passed": true,
+          "evidence": [
+            "gold=12/12 fourWave=12/12 maxWave=4 maxSelected=16"
+          ]
+        },
+        "H4": {
+          "passed": true,
+          "evidence": [
+            "authorization=32/32 visibility=14/14 leaks=0 unauthorizedWave=0 unauthorizedRead=0"
+          ]
+        },
+        "H5": {
+          "passed": true,
+          "evidence": [
+            "budget=1000/1000 responsibility=1000/1000 violations=0/0 workingSetMismatches=0"
+          ]
+        },
+        "H6": {
+          "passed": true,
+          "evidence": [
+            "surface=12/12 hiddenDispatch=1/1 mismatches=0 hiddenExec=0"
+          ]
+        }
+      },
+      "metrics": {
+        "goldQueries": 12,
+        "goldFoundQueries": 12,
+        "fourWaveCases": 12,
+        "goldRecall": 1,
+        "maxRetrievalWaves": 4,
+        "maxWaveSelectedCount": 16,
+        "missingFourWaveCases": 0,
+        "retrievalIncompleteCases": 0,
+        "retrievalFailedCases": 0,
+        "directoryCoverage": 1,
+        "memoryTypesCovered": 4,
+        "canonicalBodyEntries": 100,
+        "directoryMembershipReferences": 101,
+        "overlapMemberships": 1,
+        "ownerlessRegions": 0,
+        "bodyCopiesOutsideCanonicalStore": 0,
+        "directoryInvariantProbeCases": 8,
+        "directoryInvariantFailures": 0,
+        "directoryDeterminismProbeCases": 1,
+        "snapshotDeterminismMismatches": 0,
+        "generatedBudgetCases": 1000,
+        "generatedResponsibilityCases": 1000,
+        "budgetViolations": 0,
+        "responsibilityViolations": 0,
+        "workingSetDeterminismMismatches": 0,
+        "sameRoleReplicaControlFailures": 0,
+        "workerLifecycleProbeCases": 6,
+        "batchRuntimeProbeCases": 1,
+        "batchRuntimeConsumptionFailures": 0,
+        "stoppedSlotCleanupProbeCases": 2,
+        "stoppedSlotCleanupFailures": 0,
+        "heartbeatIdentityProbeCases": 4,
+        "heartbeatIdentityFailures": 0,
+        "auditIdentityProbeCases": 3,
+        "auditIdentityFailures": 0,
+        "grantIdentityProbeCases": 3,
+        "grantIdentityFailures": 0,
+        "authorizationProbeCases": 32,
+        "visibilityProbeCases": 14,
+        "authorizationLeaks": 0,
+        "unauthorizedWaveInvocations": 0,
+        "unauthorizedReadPortInvocations": 0,
+        "surfaceMismatches": 0,
+        "surfaceComparisonCases": 12,
+        "hiddenDispatchProbeCases": 1,
+        "hiddenExecutorInvocations": 0
+      }
+    },
+    "byteIdentical": true
+  },
+  "focused": {
+    "command": "npx vitest run test/pth-contracts/cognitive-responsibility.test.ts test/pth-kernel-execution/worker-cluster.test.ts test/pth-kernel-execution/role-lineage.test.ts test/pth-config/config.test.ts test/pth-kernel-execution/worker-replica.test.ts test/pth-kernel-execution/worker-slot-assembly.test.ts test/pth-kernel-execution/worker-slot-runtime.test.ts test/pth-kernel-execution/batch-runtime-assembly.test.ts test/pth-kernel-execution/task-loop.test.ts test/pth-kernel-execution/batch-manager.test.ts test/pth-execution/memory-type-classifier.test.ts test/pth-execution/memory-directory.test.ts test/pth-execution/knowledge-ranking.test.ts test/pth-execution/verified-task-read-scope.test.ts test/pth-execution/layered-knowledge-retriever.test.ts test/pth-kernel-execution/cognitive-budget.test.ts test/pth-runner/authorized-state-reads.test.ts test/pth-runner/authorized-task-reads.test.ts test/pth-runner/cognitive-working-set.test.ts test/pth-tasking/task-outcome-observers.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts test/pth-runner/agent-task-runner.test.ts test/pth-kernel-execution/agent-loop.test.ts test/pth-kernel-execution/prompt-docs.test.ts test/pth-kernel-execution/agent-tool-convergence.test.ts test/pth-kernel-execution/agent-loop-working-set.integration.test.ts test/pth-kernel-execution/agent-loop-ptc.integration.test.ts test/pth-runner/cognitive-responsibility.vertical.test.ts test/pth-runner/n28-feasibility-evaluator.test.ts test/pth-runner/n28-feasibility-acceptance.test.ts --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n28-accept-N9ZTfq/focused.json",
+    "started": true,
+    "exitCode": 0,
+    "skipped": [],
+    "environmentStatus": "available",
+    "stdout": "JSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n28-accept-N9ZTfq/focused.json\n",
+    "stderr": "node:internal/modules/cjs/loader:1459\n  throw err;\n  ^\n\nError: Cannot find module '/var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/pth-batch-WoOHl2/does-not-exist.mjs'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1456:15)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1066:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1071:22)\n    at Module._load (node:internal/modules/cjs/loader:1242:25)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: []\n}\n\nNode.js v24.14.1\n(node:4112) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:4113) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+  },
+  "n28Typecheck": {
+    "command": "npx tsc -p tsconfig.n28.json --noEmit",
+    "started": true,
+    "exitCode": 0,
+    "skipped": [],
+    "environmentStatus": "available",
+    "stdout": "",
+    "stderr": ""
+  },
+  "fullRegression": {
+    "command": "npm test -- --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n28-accept-N9ZTfq/full.json",
+    "started": true,
+    "exitCode": 0,
+    "skipped": [
+      {
+        "file": "test/pth-execution/sandbox-security.integration.test.ts",
+        "tests": 9
+      }
+    ],
+    "environmentStatus": "available",
+    "stdout": "\n> @away_from/pi-triple@1.1.3 test\n> vitest run --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n28-accept-N9ZTfq/full.json\n\n{\"ts\":\"2026-08-18T20:56:05.321Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[assembly] 默认 batch 已启动（pid=5799 workers=15）\"}\n{\"ts\":\"2026-08-18T20:56:08.492Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] memory-maintenance-sweep 触发任务 9d0bd64c-eb3e-41fb-8521-3ba1f821fd1c（定时源——间隔 86400s——第 1 次）\"}\n{\"ts\":\"2026-08-18T20:56:08.818Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] origin-escalation 升级任务 9d0bd64c-eb3e-41fb-8521-3ba1f821fd1c（memory-keeper 失败）→ 5b73558f-4794-4dab-87f1-c4125efc5731（tags: origin）\"}\n{\"ts\":\"2026-08-18T20:56:11.706Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drainer: poll failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.733Z\",\"level\":\"error\",\"component\":\"batch\",\"msg\":\"[batch] unhandledRejection（容忍——不终止）: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\n{\"ts\":\"2026-08-18T20:56:11.734Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":5799,\"batchPid\":5799}\nJSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n28-accept-N9ZTfq/full.json\n",
+    "stderr": "s: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 636,\n    secretKey: 552023647,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 10,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\npg pool error: error: terminating connection due to administrator command\n    at parseErrorMessage (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:305:11)\n    at Parser.handlePacket (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:143:27)\n    at Parser.parse (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:37:38)\n    at Socket.<anonymous> (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/index.js:12:42)\n    at Socket.emit (node:events:508:28)\n    at addChunk (node:internal/streams/readable:563:12)\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\n    at Readable.push (node:internal/streams/readable:394:5)\n    at TCP.onStreamRead (node:internal/stream_base_commons:189:23) {\n  length: 116,\n  severity: 'FATAL',\n  code: '57P01',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postgres.c',\n  line: '3286',\n  routine: 'ProcessInterrupts',\n  client: Client {\n    _events: [Object: null prototype] { error: [Function (anonymous)] },\n    _eventsCount: 1,\n    _maxListeners: undefined,\n    connectionParameters: ConnectionParameters {\n      user: 'test',\n      database: 'test',\n      port: 38918,\n      host: 'localhost',\n      binary: false,\n      options: undefined,\n      ssl: false,\n      sslnegotiation: undefined,\n      client_encoding: '',\n      replication: undefined,\n      isDomainSocket: false,\n      application_name: undefined,\n      fallback_application_name: undefined,\n      statement_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'test',\n    database: 'test',\n    port: 38918,\n    host: 'localhost',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides { _types: [Object], text: {}, binary: {} },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    _activeQuery: null,\n    _txStatus: 'I',\n    enableChannelBinding: false,\n    scramMaxIterations: 100000,\n    connection: Connection {\n      _events: [Object: null prototype],\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: [Socket],\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      parsedStatements: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 637,\n    secretKey: 489878530,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 7,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\npg pool error: error: terminating connection due to administrator command\n    at parseErrorMessage (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:305:11)\n    at Parser.handlePacket (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:143:27)\n    at Parser.parse (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:37:38)\n    at Socket.<anonymous> (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/index.js:12:42)\n    at Socket.emit (node:events:508:28)\n    at addChunk (node:internal/streams/readable:563:12)\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\n    at Readable.push (node:internal/streams/readable:394:5)\n    at TCP.onStreamRead (node:internal/stream_base_commons:189:23) {\n  length: 116,\n  severity: 'FATAL',\n  code: '57P01',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postgres.c',\n  line: '3286',\n  routine: 'ProcessInterrupts',\n  client: Client {\n    _events: [Object: null prototype] { error: [Function (anonymous)] },\n    _eventsCount: 1,\n    _maxListeners: undefined,\n    connectionParameters: ConnectionParameters {\n      user: 'test',\n      database: 'test',\n      port: 38918,\n      host: 'localhost',\n      binary: false,\n      options: undefined,\n      ssl: false,\n      sslnegotiation: undefined,\n      client_encoding: '',\n      replication: undefined,\n      isDomainSocket: false,\n      application_name: undefined,\n      fallback_application_name: undefined,\n      statement_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'test',\n    database: 'test',\n    port: 38918,\n    host: 'localhost',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides { _types: [Object], text: {}, binary: {} },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    _activeQuery: null,\n    _txStatus: 'I',\n    enableChannelBinding: false,\n    scramMaxIterations: 100000,\n    connection: Connection {\n      _events: [Object: null prototype],\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: [Socket],\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      parsedStatements: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 634,\n    secretKey: -1644662101,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 8,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\npg pool error: error: terminating connection due to administrator command\n    at parseErrorMessage (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:305:11)\n    at Parser.handlePacket (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:143:27)\n    at Parser.parse (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:37:38)\n    at Socket.<anonymous> (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/index.js:12:42)\n    at Socket.emit (node:events:508:28)\n    at addChunk (node:internal/streams/readable:563:12)\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\n    at Readable.push (node:internal/streams/readable:394:5)\n    at TCP.onStreamRead (node:internal/stream_base_commons:189:23) {\n  length: 116,\n  severity: 'FATAL',\n  code: '57P01',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postgres.c',\n  line: '3286',\n  routine: 'ProcessInterrupts',\n  client: Client {\n    _events: [Object: null prototype] { error: [Function (anonymous)] },\n    _eventsCount: 1,\n    _maxListeners: undefined,\n    connectionParameters: ConnectionParameters {\n      user: 'test',\n      database: 'test',\n      port: 38918,\n      host: 'localhost',\n      binary: false,\n      options: undefined,\n      ssl: false,\n      sslnegotiation: undefined,\n      client_encoding: '',\n      replication: undefined,\n      isDomainSocket: false,\n      application_name: undefined,\n      fallback_application_name: undefined,\n      statement_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'test',\n    database: 'test',\n    port: 38918,\n    host: 'localhost',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides { _types: [Object], text: {}, binary: {} },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    _activeQuery: null,\n    _txStatus: 'I',\n    enableChannelBinding: false,\n    scramMaxIterations: 100000,\n    connection: Connection {\n      _events: [Object: null prototype],\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: [Socket],\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      parsedStatements: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 633,\n    secretKey: 1339386994,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 8,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\npg pool error: error: terminating connection due to administrator command\n    at parseErrorMessage (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:305:11)\n    at Parser.handlePacket (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:143:27)\n    at Parser.parse (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:37:38)\n    at Socket.<anonymous> (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/index.js:12:42)\n    at Socket.emit (node:events:508:28)\n    at addChunk (node:internal/streams/readable:563:12)\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\n    at Readable.push (node:internal/streams/readable:394:5)\n    at TCP.onStreamRead (node:internal/stream_base_commons:189:23) {\n  length: 116,\n  severity: 'FATAL',\n  code: '57P01',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postgres.c',\n  line: '3286',\n  routine: 'ProcessInterrupts',\n  client: Client {\n    _events: [Object: null prototype] { error: [Function (anonymous)] },\n    _eventsCount: 1,\n    _maxListeners: undefined,\n    connectionParameters: ConnectionParameters {\n      user: 'test',\n      database: 'test',\n      port: 38918,\n      host: 'localhost',\n      binary: false,\n      options: undefined,\n      ssl: false,\n      sslnegotiation: undefined,\n      client_encoding: '',\n      replication: undefined,\n      isDomainSocket: false,\n      application_name: undefined,\n      fallback_application_name: undefined,\n      statement_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'test',\n    database: 'test',\n    port: 38918,\n    host: 'localhost',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides { _types: [Object], text: {}, binary: {} },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    _activeQuery: null,\n    _txStatus: 'I',\n    enableChannelBinding: false,\n    scramMaxIterations: 100000,\n    connection: Connection {\n      _events: [Object: null prototype],\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: [Socket],\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      parsedStatements: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 635,\n    secretKey: -1758921340,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 7,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\npg pool error: error: terminating connection due to administrator command\n    at parseErrorMessage (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:305:11)\n    at Parser.handlePacket (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:143:27)\n    at Parser.parse (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/parser.js:37:38)\n    at Socket.<anonymous> (/Users/anzhize/pi-platform/node_modules/pg-protocol/dist/index.js:12:42)\n    at Socket.emit (node:events:508:28)\n    at addChunk (node:internal/streams/readable:563:12)\n    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)\n    at Readable.push (node:internal/streams/readable:394:5)\n    at TCP.onStreamRead (node:internal/stream_base_commons:189:23) {\n  length: 116,\n  severity: 'FATAL',\n  code: '57P01',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postgres.c',\n  line: '3286',\n  routine: 'ProcessInterrupts',\n  client: Client {\n    _events: [Object: null prototype] { error: [Function (anonymous)] },\n    _eventsCount: 1,\n    _maxListeners: undefined,\n    connectionParameters: ConnectionParameters {\n      user: 'test',\n      database: 'test',\n      port: 38918,\n      host: 'localhost',\n      binary: false,\n      options: undefined,\n      ssl: false,\n      sslnegotiation: undefined,\n      client_encoding: '',\n      replication: undefined,\n      isDomainSocket: false,\n      application_name: undefined,\n      fallback_application_name: undefined,\n      statement_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'test',\n    database: 'test',\n    port: 38918,\n    host: 'localhost',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides { _types: [Object], text: {}, binary: {} },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    _activeQuery: null,\n    _txStatus: 'I',\n    enableChannelBinding: false,\n    scramMaxIterations: 100000,\n    connection: Connection {\n      _events: [Object: null prototype],\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: [Socket],\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      parsedStatements: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 618,\n    secretKey: -2021894316,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 16,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\n(node:7125) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:7192) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:7726) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:7826) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:7856) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8008) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8121) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8132) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8139) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8137) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8138) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8140) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8131) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8180) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8489) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8766) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8774) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9018) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9113) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9157) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9321) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+  },
+  "lint": {
+    "command": "npm run lint",
+    "started": true,
+    "exitCode": 0,
+    "skipped": [],
+    "environmentStatus": "available",
+    "stdout": "\n> @away_from/pi-triple@1.1.3 lint\n> tsc -p packages/shared && tsc -p packages/infra && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc --noEmit && tsc -p packages/shared --noEmit && tsc -p packages/framework --noEmit && npm run check:pth-boundaries && npm run check:pth-config\n\n\n> @away_from/pi-triple@1.1.3 check:pth-boundaries\n> tsx scripts/check-pth-boundaries.ts\n\n── pth-boundaries：当前违规 0 条 ──\n✅ 无新增边界违规\n\n> @away_from/pi-triple@1.1.3 check:pth-config\n> tsx scripts/check-pth-config.ts\n\n── pth-config：schema 119 键 · 直读 0（pth + pth-sandbox src）· compose 未声明 81 键 ──\n✅ pth-config 检查通过\n",
+    "stderr": ""
+  },
+  "decision": "GO",
+  "reasons": []
+}
