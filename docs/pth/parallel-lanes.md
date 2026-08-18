@@ -146,7 +146,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 |------|------|-----------------|------|------|
 | **T1** | 冻结认知责任契约 + RoleDefinition 兼容别名（H1–H6 公共地基） | `lane/n28-t1-contracts` / `.worktrees/n28-t1` | **done** | 主会话·2026-08-19 ✅ lane `910c088` → merge `9b5d554`（全量 2305 绿 + lint 绿；结构漂移 13 项全部落 T1 契约 §3） |
 | **T2** | WorkerReplica 独立运行时身份/控制（H1；off 逐字节兼容） | `lane/n28-t2-worker-replica-identity` / `.worktrees/n28-t2` | **done** | 主会话·2026-08-19 ✅ lane `c0f09fa` → merge `837c3ea`（全量 2324 绿 + lint 绿；结构漂移 37 项全部落 T2 契约 §3） |
-| **T3** | 确定性内存 MemoryDirectory + 重叠/unclassified（H2） | `lane/n28-t3-memory-directory` / `.worktrees/n28-t3` | **free** | — |
+| **T3** | 确定性内存 MemoryDirectory + 重叠/unclassified（H2） | `lane/n28-t3-memory-directory` / `.worktrees/n28-t3` | **claimed** | 主会话·2026-08-19 |
 | **T4** | 分层检索共享给 Broker/Context + verified scope（H3/H4） | `lane/n28-t4-layered-retrieval` / `.worktrees/n28-t4` | **free** | — |
 | **T5** | 单任务统一 Cognitive Budget（H5） | `lane/n28-t5-cognitive-budget` / `.worktrees/n28-t5` | **free** | — |
 | **T6** | 真实 agent 面服从 Working Set（H6）+ vertical harness | `lane/n28-t6-agent-working-set` / `.worktrees/n28-t6` | **free** | — |
