@@ -168,3 +168,59 @@ describe("batch manager", () => {
     expect((await mgr.listBatches()).some((x) => x.id === handle.id)).toBe(false);
   });
 });
+
+describe("N28 T2：replica 级控制传输/关联（BatchManager）", () => {
+  let dir: string;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "pth-batch-replica-"));
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("transport stub 报告两个 researcher 副本，只移除被寻址 ID，w-b 仍在 listBatches", async () => {
+    const replicaPath = join(dir, "replica-batch.mjs");
+    await writeFile(replicaPath, `
+      const replicas = [
+        { workerId: "w-a", batchId: "batch-a", role: { roleId: "researcher", revision: "v1" }, state: "idle" },
+        { workerId: "w-b", batchId: "batch-a", role: { roleId: "researcher", revision: "v1" }, state: "idle" },
+      ];
+      process.on("message", (msg) => {
+        if (msg.type === "worker-remove" && msg.workerId) {
+          const index = replicas.findIndex((replica) => replica.workerId === msg.workerId);
+          if (index >= 0) replicas.splice(index, 1);
+          process.send?.({ type: "worker-status", workerId: msg.workerId, state: "draining", accepted: true });
+          process.send?.({ type: "worker-removed", workerId: msg.workerId });
+          process.send?.({ type: "status", tasks: [], replicas, ts: Date.now() });
+        }
+        if (msg.type === "shutdown") process.exit(0);
+      });
+      process.send?.({ type: "status", tasks: [], replicas, ts: Date.now() });
+    `);
+    const mgr = new BatchManager({ batchProcessPath: replicaPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 150));   // 等首条 status/replicas 到达
+    expect(await mgr.removeReplica(handle.id, "w-a")).toBe(true);
+    await new Promise((r) => setTimeout(r, 100));
+    const batch = (await mgr.listBatches()).find((x) => x.id === handle.id)!;
+    expect(batch.replicas?.map((r) => r.workerId)).toEqual(["w-b"]);
+    await mgr.killBatch(handle.id);
+  });
+
+  it("off 模式（无 workerId 回执）worker-specific 控制不可用 → removeReplica 超时 false", async () => {
+    // 旧形状 stub：只回 status（无 replicas），不认 workerId 消息（与 batch-process off 分支一致）。
+    const offPath = join(dir, "off-batch.mjs");
+    await writeFile(offPath, `
+      process.send?.({ type: "status", tasks: [], ts: Date.now() });
+      process.on("message", (msg) => { if (msg.type === "shutdown") process.exit(0); });
+    `);
+    const mgr = new BatchManager({ batchProcessPath: offPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 100));
+    const batch = (await mgr.listBatches()).find((x) => x.id === handle.id)!;
+    expect("replicas" in batch).toBe(false);   // 旧形状不新增键
+    expect(await mgr.removeReplica(handle.id, "w-none")).toBe(false);
+    await mgr.killBatch(handle.id);
+  }, 7000);
+});

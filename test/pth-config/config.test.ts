@@ -14,6 +14,8 @@ describe("PTH config 集中化（C1：schema 默认值 + ConfigCenter 权威化�
     expect(cfg.num("PTH_VERIFY_TIMEOUT_MS")).toBe(30 * 60_000);
     expect(cfg.num("PTH_MEMORY_SWEEP_SECONDS")).toBe(86_400);
     expect(cfg.str("PTH_SANDBOX_KERNEL_URL")).toBe("http://sandbox:8080");
+    expect(cfg.str("PTH_COGNITIVE_RESPONSIBILITY_MODE")).toBe("off");   // N28：off 默认
+    expect(cfg.str("PTH_BATCH_ID")).toBe("");                            // N28：空默认
     expect(cfg.enabled("PTH_OPTIMIZER")).toBe(true);      // "on" → enabled
     expect(cfg.enabled("PTH_AUTOPILOT_MODE")).toBe(false); // "off" → disabled
     expect(cfg.enabled("PTH_REFINE")).toBe(true);          // "auto" → enabled

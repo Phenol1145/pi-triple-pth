@@ -6,6 +6,7 @@
  */
 
 import { Buffer } from "node:buffer";
+import type { WorkerReplicaRef } from "./cognitive-responsibility.js";
 import {
   isTenantScopeStructurallyValid,
   isUuidLike,
@@ -117,6 +118,8 @@ export interface TaskDispatchContext {
   taskId: string;
   roleId: string;
   tenantId: string;
+  /** Runtime replica identity stamped by batch TaskLoop; absent only on legacy/test callers. */
+  worker?: WorkerReplicaRef;
   /** 当前任务 payload.delivery（无章的 legacy/内部任务为 null → 服务端按 root 兜底） */
   delivery: TaskDelivery | null;
   /** F3：当前任务 payload.domains（task-work-item-reader 解析；legacy 无章 → []） */

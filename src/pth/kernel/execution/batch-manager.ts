@@ -4,6 +4,7 @@ import { getEventBus } from "./event-bus.js";
 import { randomUUID } from "node:crypto";
 import type { BatchSuggestion } from "./stats.js";
 import { pthConfig } from "../../config/index.js";
+import type { WorkerReplicaStatus } from "./worker-replica.js";
 
 export interface BatchHandle {
   id: string;
@@ -30,6 +31,8 @@ export interface BatchStatus {
   /** 子进程自报累计 CPU（µs——user+system；增量由消费方差分） */
   cpuUserUs?: number;
   cpuSystemUs?: number;
+  /** N28 T2：feasibility 模式心跳自报的副本状态（off 模式子进程不上报 → []）。 */
+  replicas?: WorkerReplicaStatus[];
 }
 
 export interface BatchManagerDeps {
@@ -66,8 +69,12 @@ export class BatchManager {
     lastRss?: number;
     lastCpuUser?: number;
     lastCpuSystem?: number;
-    /** worker 级控制回执等待表：role → 等待 worker-status 消息的结算回调 */
+    /** worker 级控制回执等待表：role 或 worker:<workerId> → 等待 worker-status 消息的结算回调 */
     pendingCtl: Map<string, Array<(status: { state?: string; error?: string }) => void>>;
+    /** N28 T2：replica remove 的最终回执等待表（只在 worker-removed 事件后结算）。 */
+    pendingRemovalCtl: Map<string, Array<(status: { state?: string; error?: string }) => void>>;
+    /** N28 T2：feasibility 模式心跳自报的副本状态（off 模式保持 []）。 */
+    replicas: WorkerReplicaStatus[];
   }>();
 
   constructor(private deps: BatchManagerDeps) {}
@@ -85,18 +92,21 @@ export class BatchManager {
     } else {
       workers = this.deps.workers ?? ["analyst", "planner", "developer", "scout", "memory-keeper", "acceptor", "tester"];
     }
+    // N28 T2：batch ID 注入子进程（PTH_BATCH_ID）；不擅自开启 feasibility——模式由调用方显式配置。
+    envOverride = { ...envOverride, PTH_BATCH_ID: id };
     const child = fork(this.deps.batchProcessPath, [], {
       execArgv: this.deps.execArgv,
-      env: this.deps.env ? { ...process.env, ...this.deps.env, ...envOverride } : undefined,
+      env: { ...process.env, ...(this.deps.env ?? {}), ...envOverride },
       stdio: ["ignore", "inherit", "inherit", "ipc"],
     });
     getEventBus().emit("batch.spawn", { batchId: id, workers });
     const record: (typeof this.batches) extends Map<string, infer V> ? V : never = {
-      id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now(), pendingCtl: new Map(),
+      id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now(), pendingCtl: new Map(), pendingRemovalCtl: new Map(), replicas: [],
     };
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
+        record.replicas = Array.isArray(msg.replicas) ? (msg.replicas as WorkerReplicaStatus[]) : [];
         // H6（watchdog v2）：status 消息即心跳——记录最近到达时间（batch-process 每 2s 上报）
         record.lastHeartbeat = typeof msg.ts === "number" ? msg.ts : Date.now();
         // 2026-08-18 L3：资源自报随心跳落档（rss/cpu——§9 L2 内存/CPU 缺口）
@@ -129,6 +139,22 @@ export class BatchManager {
         if (waiters?.length) {
           record.pendingCtl.delete(msg.role);
           for (const w of waiters) w({ state: msg.state, error: msg.error });
+        }
+      } else if (msg?.type === "worker-status" && typeof msg.workerId === "string") {
+        // N28 T2：replica 级控制回执（feasibility 模式按 workerId 关联）。
+        const key = `worker:${msg.workerId}`;
+        const waiters = record.pendingCtl.get(key);
+        if (waiters?.length) {
+          record.pendingCtl.delete(key);
+          for (const w of waiters) w({ state: msg.state, error: msg.error });
+        }
+      } else if (msg?.type === "worker-removed" && typeof msg.workerId === "string") {
+        // N28 T2：busy-remove 的最终回执（dispose 完成后 runtime 发出，唯一 removal 结算点）。
+        const key = `worker:${msg.workerId}`;
+        const waiters = record.pendingRemovalCtl.get(key);
+        if (waiters?.length) {
+          record.pendingRemovalCtl.delete(key);
+          for (const w of waiters) w({ state: "removed" });
         }
       } else if (msg?.type === "log" && this.deps.logger) {
         // 日志体系 T3：batch 子进程日志经 IPC 转发 → 主进程统一打标（component/pid）
@@ -232,6 +258,58 @@ export class BatchManager {
   async removeWorker(batchId: string, role: string): Promise<boolean> {
     return this.workerCtl(batchId, { type: "worker-remove", role }, "removed");
   }
+
+  // ── N28 T2：replica 级控制（feasibility 模式；off 模式子进程不认这些消息）──────────────────
+  private replicaCtl(batchId: string, workerId: string, msg: { type: "worker-pause" | "worker-resume" | "worker-remove" }, expectRemoved: boolean): Promise<boolean> {
+    const rec = this.batches.get(batchId);
+    if (!rec) return Promise.resolve(false);
+    const key = `worker:${workerId}`;
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let onExit: (() => void) | undefined;
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (onExit) rec.child.off("exit", onExit);
+        resolve(ok);
+      };
+      const onAck = (status: { state?: string; error?: string }) => {
+        if (expectRemoved) {
+          if (status.state === "removed") finish(true);
+        } else {
+          finish(status.state !== "error");
+        }
+      };
+      try {
+        if (!rec.child.connected) {
+          finish(false);
+          return;
+        }
+        const waiters = (expectRemoved ? rec.pendingRemovalCtl : rec.pendingCtl).get(key);
+        if (waiters) waiters.push(onAck);
+        else (expectRemoved ? rec.pendingRemovalCtl : rec.pendingCtl).set(key, [onAck]);
+        timer = setTimeout(() => finish(false), 5000);
+        onExit = () => finish(false);
+        rec.child.once("exit", onExit);
+        rec.child.send({ ...msg, workerId });
+      } catch {
+        finish(false);
+      }
+    });
+  }
+
+  async pauseReplica(batchId: string, workerId: string): Promise<boolean> {
+    return this.replicaCtl(batchId, workerId, { type: "worker-pause" }, false);
+  }
+  async resumeReplica(batchId: string, workerId: string): Promise<boolean> {
+    return this.replicaCtl(batchId, workerId, { type: "worker-resume" }, false);
+  }
+  async removeReplica(batchId: string, workerId: string): Promise<boolean> {
+    // 仅在最终 worker-removed 事件后 resolve（dispose/移除完成），draining 中间回执不算数。
+    return this.replicaCtl(batchId, workerId, { type: "worker-remove" }, true);
+  }
   /** 性能自持（v0.8）：下发运行时调参到 batch 子进程（perf config——autopilot 用） */
   async setParam(batchId: string, key: string, value: string | number): Promise<boolean> {
     const batch = this.batches.get(batchId);
@@ -332,6 +410,8 @@ export class BatchManager {
         ...(rec.lastRss !== undefined ? { rssBytes: rec.lastRss } : {}),
         ...(rec.lastCpuUser !== undefined ? { cpuUserUs: rec.lastCpuUser } : {}),
         ...(rec.lastCpuSystem !== undefined ? { cpuSystemUs: rec.lastCpuSystem } : {}),
+        // off 模式不上报 replicas → 不新增键（legacy 形状兼容）；feasibility 才暴露。
+        ...(rec.replicas.length > 0 ? { replicas: rec.replicas } : {}),
       });
     }
     return out;

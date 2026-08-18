@@ -42,6 +42,10 @@ import { createKernelLogger } from "../kernel/logger.js";
 import { loadKernelConfig } from "../kernel/interpreter/kernel-config.js";
 import { pthConfig } from "../config/index.js";
 import { runAgentTask } from "../kernel/execution/agent-loop.js";
+import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
+import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
+import type { WorkerReplica } from "../kernel/execution/worker-replica.js";
+import type { WorkerControlMessage, WorkerSlot } from "./worker-slot-runtime.js";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -197,11 +201,20 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
 
   let paused = false;
 
+  // N28 T2：认知责任模式（默认 off=legacy 逐字节兼容）；feasibility 由确定性装配/harness 显式开启。
+  const mode = pthConfig().str("PTH_COGNITIVE_RESPONSIBILITY_MODE") === "feasibility" ? "feasibility" as const : "off" as const;
+  const batchId = pthConfig().str("PTH_BATCH_ID") || `batch:${process.pid}`;
+
   /** 退出前释放全部 worker kernel（sandbox acquire 归还——防池泄漏）——幂等 */
   let disposed = false;
   async function disposeAllKernels(): Promise<void> {
     if (disposed) return;
     disposed = true;
+    if (mode === "feasibility") {
+      // 共享 runtime 拥有唯一 slot/dispose 生命周期（包括 busy-remove 后置清理）。
+      await runtime.disposeAll();
+      return;
+    }
     for (const l of loops) {
       const k = (l as unknown as { kernel?: { dispose?: () => Promise<void> | void; abort?: () => Promise<void> } }).kernel;
       // Phase 3 条目 11：先 abort in-flight 程序（程序级制动）再 dispose 资源——DSH 对照 ③
@@ -225,7 +238,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const exitNow = (code: number) => () => process.exit(code);
   process.on("exit", (code) => { if (!disposed) void disposeAllKernels().finally(() => exitNow(code)); });
 
-  process.on("message", (msg: any) => {
+  process.on("message", async (msg: any) => {
     if (msg?.type === "set-param" && typeof msg.key === "string") {
       // 性能自持（v0.8）：主进程 autopilot 下发调参 → batch 进程内 config（perf 扩展同源）
       try {
@@ -243,31 +256,61 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     } else if (msg?.type === "resume") {
       paused = false;
     } else if (msg?.type === "worker-pause" && typeof msg.role === "string") {
-      getEventBus().emit("worker.pause", { role: msg.role, batchPid: process.pid });
-      for (const l of loops) if (l.role.id === msg.role) l.pause();
-      process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "paused" });
-    } else if (msg?.type === "worker-resume" && typeof msg.role === "string") {
-      getEventBus().emit("worker.resume", { role: msg.role, batchPid: process.pid });
-      for (const l of loops) if (l.role.id === msg.role) l.resume();
-      process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "active" });
-    } else if (msg?.type === "worker-remove" && typeof msg.role === "string") {
-      getEventBus().emit("worker.remove", { role: msg.role, batchPid: process.pid });
-
-      // 防御：tick 自驱动链与 splice 并发——map 回调可能拿到已移除的 undefined（竞态窗口）
-      const idxs = loops.map((l, i) => (l && l.role?.id === msg.role ? i : -1)).filter((i) => i >= 0);
-      for (const i of idxs.reverse()) {
-        const l = loops[i]!;
-        l.stop();
-        // Phase 3 条目 11：先 abort in-flight（角色移除时跑飞的程序立即制动）再 dispose 资源
-        const k = (l as unknown as { kernel?: { dispose?: () => void; abort?: () => Promise<void> } }).kernel;
-        try { void k?.abort?.(); } catch { /* abort 容错 */ }
-        try { k?.dispose?.(); } catch { /* dispose 容错 */ }
-        // 停复测巡检表（2026-08-14 N6——Optimizer.stop）
-        const opt = (l as unknown as { optimizer?: { stop?: () => void } }).optimizer;
-        try { opt?.stop?.(); } catch { /* 停表容错 */ }
-        loops.splice(i, 1);
+      if (mode === "feasibility") {
+        // 显式命名的 role 批量兼容操作：展开为逐 worker 控制，状态/事件仍由共享 runtime 产出。
+        for (const status of runtime.list().filter((s) => s.role.roleId === msg.role)) {
+          void runtime.handleControl({ type: "worker-pause", workerId: status.workerId });
+        }
+        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "paused" });
+      } else {
+        getEventBus().emit("worker.pause", { role: msg.role, batchPid: process.pid });
+        for (const l of loops) if (l.role.id === msg.role) l.pause();
+        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "paused" });
       }
-      process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
+    } else if (msg?.type === "worker-resume" && typeof msg.role === "string") {
+      if (mode === "feasibility") {
+        for (const status of runtime.list().filter((s) => s.role.roleId === msg.role)) {
+          void runtime.handleControl({ type: "worker-resume", workerId: status.workerId });
+        }
+        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "active" });
+      } else {
+        getEventBus().emit("worker.resume", { role: msg.role, batchPid: process.pid });
+        for (const l of loops) if (l.role.id === msg.role) l.resume();
+        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "active" });
+      }
+    } else if (msg?.type === "worker-remove" && typeof msg.role === "string") {
+      if (mode === "feasibility") {
+        for (const status of runtime.list().filter((s) => s.role.roleId === msg.role)) {
+          void runtime.handleControl({ type: "worker-remove", workerId: status.workerId });
+        }
+      } else {
+        getEventBus().emit("worker.remove", { role: msg.role, batchPid: process.pid });
+
+        // 防御：tick 自驱动链与 splice 并发——map 回调可能拿到已移除的 undefined（竞态窗口）
+        const idxs = loops.map((l, i) => (l && l.role?.id === msg.role ? i : -1)).filter((i) => i >= 0);
+        for (const i of idxs.reverse()) {
+          const l = loops[i]!;
+          l.stop();
+          // Phase 3 条目 11：先 abort in-flight（角色移除时跑飞的程序立即制动）再 dispose 资源
+          const k = (l as unknown as { kernel?: { dispose?: () => void; abort?: () => Promise<void> } }).kernel;
+          try { void k?.abort?.(); } catch { /* abort 容错 */ }
+          try { k?.dispose?.(); } catch { /* dispose 容错 */ }
+          // 停复测巡检表（2026-08-14 N6——Optimizer.stop）
+          const opt = (l as unknown as { optimizer?: { stop?: () => void } }).optimizer;
+          try { opt?.stop?.(); } catch { /* 停表容错 */ }
+          loops.splice(i, 1);
+        }
+        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
+      }
+    } else if (msg?.type === "worker-pause" && typeof msg.workerId === "string" && mode === "feasibility") {
+      const ack = await runtime.handleControl({ type: "worker-pause", workerId: msg.workerId });
+      process.send?.({ type: "worker-status", ...ack });
+    } else if (msg?.type === "worker-resume" && typeof msg.workerId === "string" && mode === "feasibility") {
+      const ack = await runtime.handleControl({ type: "worker-resume", workerId: msg.workerId });
+      process.send?.({ type: "worker-status", ...ack });
+    } else if (msg?.type === "worker-remove" && typeof msg.workerId === "string" && mode === "feasibility") {
+      const ack = await runtime.handleControl({ type: "worker-remove", workerId: msg.workerId });
+      process.send?.({ type: "worker-status", ...ack });
     } else if (msg?.type === "role-register" && msg.role && typeof msg.role === "object") {
       // 分化上线（lineage approve）：batch 内注册新角色 + 创建 worker（树生长——即刻接任务）。
       // 2026-08-13 幂等修复：fork 子进程继承主进程 extraRoles——恢复角色热上线时已在——
@@ -279,7 +322,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         }
         const roleDef = knownRoleById(roleId);
         if (roleDef) {
-          createWorker(roleDef);
+          const w = createWorker(roleDef);
+          if (mode === "feasibility") runtime.add(makeSlot(w));
           process.send?.({ type: "worker-status", batchPid: process.pid, role: roleDef.id, state: "added", copies: 1, registered: true });
         }
       } catch (e) {
@@ -290,7 +334,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       const roleDef = knownRoleById(msg.role);
       if (roleDef) {
         const copies = Number(msg.copies ?? 1);
-        for (let i = 0; i < copies; i++) createWorker(roleDef);
+        for (let i = 0; i < copies; i++) {
+          const w = createWorker(roleDef);
+          if (mode === "feasibility") runtime.add(makeSlot(w));
+        }
         process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "added", copies });
       } else {
         process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "error", error: "unknown role" });
@@ -374,7 +421,12 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   };
 
   /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
-  const createWorker = (role: import("../kernel/execution/worker-cluster.js").WorkerRole) => {
+  const createWorker = (role: import("../kernel/execution/worker-cluster.js").WorkerRole, forcedReplica?: WorkerReplica) => {
+    // N28 T2：身份装配（off=legacy 双 principal；feasibility=worker:<uuid> 双面统一）。
+    // feasibility 下经 assembleBatchRuntime 组合时传入其校验过的 replica；动态 add 用 helper 新建。
+    const identity = assembleWorkerSlotIdentity({ mode, role, batchId });
+    const replica = mode === "feasibility" ? (forcedReplica ?? identity.replica) : undefined;
+    const sandboxPrincipalId = replica ? `worker:${replica.ref.workerId}` : identity.sandboxPrincipalId;
     // W8 P1：组织权矩阵派生能力授予——有投递权的角色追加 tasks capability（缺省全量角色不受影响）
     const canDelegate = allowedDelegationTargets(role.id).length > 0;
     const effectiveRole = role.capabilities
@@ -541,7 +593,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         // P2-2 接线（Side B 补）：由 kernel-manager 按 language 签发 worker 级 grant。
         grantSecret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET"),
         grantIdentity: {
-          principalId: `worker:${role.id}`,
+          principalId: sandboxPrincipalId,
           roleId: role.id,
           capabilities: role.capabilities ?? [],
         },
@@ -633,6 +685,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const loop = new BatchTaskLoop({
       kernel, role: effectiveRole, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
       repository: taskRepository,
+      // N28 T2：仅 feasibility 模式注入副本；off 缺省 = legacy 形状不变。
+      replica,
       // F5：post-commit refine 走 durable outbox；每轮 claim 前 kick 一次 drain。
       sideEffectOutbox,
       drainSideEffects: kickSideEffectDrainer,
@@ -652,14 +706,46 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       // 运行过程保留（2026-08-09）：agent 轨迹 transcript 持久化
       transcripts: dataWorld.transcripts,
     }, archiveDeps);
-    (loop as unknown as { kernel?: unknown }).kernel = kernel;   // remove 时 dispose 用
-    (loop as unknown as { optimizer?: { stop?: () => void } }).optimizer = optimizer;   // remove 时停复测巡检表
-    (loop as unknown as { role?: import("../kernel/execution/worker-cluster.js").WorkerRole }).role = role;  // remove 寻址用
-    loops.push(loop as BatchTaskLoop & { role: import("../kernel/execution/worker-cluster.js").WorkerRole });
-    return loop;
+    if (mode !== "feasibility") {
+      (loop as unknown as { kernel?: unknown }).kernel = kernel;   // remove 时 dispose 用
+      (loop as unknown as { optimizer?: { stop?: () => void } }).optimizer = optimizer;   // remove 时停复测巡检表
+      (loop as unknown as { role?: import("../kernel/execution/worker-cluster.js").WorkerRole }).role = role;  // remove 寻址用
+      loops.push(loop as BatchTaskLoop & { role: import("../kernel/execution/worker-cluster.js").WorkerRole });
+    }
+    return { loop, kernel, optimizer, replica, role: effectiveRole };
   };
 
-  workerRoles.forEach((role) => createWorker(role));
+  // N28 T2：feasibility 模式唯一 slot 运行时（off 模式完全不实例化新控制面）。
+  const makeSlot = (w: ReturnType<typeof createWorker>): WorkerSlot => {
+    if (!w.replica) throw new Error("feasibility slot requires replica");
+    return {
+      replica: w.replica,
+      role: w.role,
+      loop: {
+        runOnce: () => w.loop.runOnce(),
+        pause: () => w.loop.pause(),
+        resume: () => w.loop.resume(),
+        stop: () => w.loop.stop(),
+      },
+      dispose: async () => {
+        try { w.optimizer?.stop?.(); } catch { /* 停表容错 */ }
+        try { await w.kernel.abort?.(); } catch { /* abort 容错 */ }
+        try { await w.kernel.dispose?.(); } catch { /* dispose 容错 */ }
+      },
+    };
+  };
+
+  const runtime = assembleBatchRuntime({
+    mode,
+    batchId,
+    workerSpecs: workerRoles.map((role) => ({ role })),
+    buildSlot: ({ role, replica }) => makeSlot(createWorker(role, replica)),
+    emit: (event) => { try { process.send?.(event); } catch { /* IPC 不可用 */ } },
+  });
+
+  if (mode !== "feasibility") {
+    workerRoles.forEach((role) => createWorker(role));
+  }
 
   // 每轮：各 worker runOnce（并发）；didWork=true（有任务执行完）→ 立即自驱动下一轮
   // （吞吐优化：串行任务零轮询等待——0.58s/任务 的轮询延迟消除）；
@@ -673,21 +759,31 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     else return;                          // 空闲：等 timer 下一轮
   };
 
-  await tick();   // 立即跑一轮
-  const timer = setInterval(tick, intervalMs);
+  if (mode === "feasibility") {
+    // N28 T2：feasibility 模式唯一轮询宿主 = 共享 runBatchHost（同一生产组合根）。
+    void runBatchHost(runtime, { continuous: true, tickMs: intervalMs });
+  } else {
+    await tick();   // 立即跑一轮
+    const timer = setInterval(tick, intervalMs);
+    void timer;
+  }
   // 每轮后发 status 给主进程（v1：tasks 占位空——BatchManager 消费 {type,tasks} 契约）
   // H6（watchdog v2）：ts 字段 = 心跳时间戳（主进程 watchdog 据此探测挂死）
   // 2026-08-18 L3：资源自报随心跳（rss/cpu——主进程 listBatches/obs.batches 健康面数据源）
+  // N28 T2：feasibility 模式心跳投影必须来自共享 runtime（不读第二份 slots 数组）；off 保持旧形状。
   const statusTimer = setInterval(() => {
     const mem = process.memoryUsage();
     const cpu = process.cpuUsage();
-    process.send?.({ type: "status", tasks: [], ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system });
+    if (mode === "feasibility") {
+      process.send?.(runtime.heartbeat({ ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system }));
+    } else {
+      process.send?.({ type: "status", tasks: [], ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system });
+    }
   }, 2000);
   // keep-alive（试运行发现修正）：pg 连接池在 Node 24 下不 hold 事件循环（socket 默认 unref），
   // 空闲且仅剩 unref 定时器时进程会立即退出——batch 必须保持存活直到主进程显式 shutdown。
   // 保持定时器引用（不 unref）：进程生命周期与 batch 运行绑定，由 killBatch 的 shutdown 消息
   // 优雅终止（或 5s SIGKILL 兜底）。
-  void timer;
   void statusTimer;
 }
 
