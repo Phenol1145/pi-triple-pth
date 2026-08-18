@@ -23,6 +23,13 @@ function passingEnvelope(overrides: Partial<N28AcceptanceEnvelope> = {}): N28Acc
   const first = evaluatorGo();
   return {
     evaluatedCommit: "head", implementationTreeClean: true,
+    contractDisposition: {
+      version: "v1.1", approved: true,
+      approvalSource: "user-selected-option-in-reacceptance-session",
+      amendmentDoc: "docs/pth/n28-task7-contract.md",
+      amendmentClause: "## 11. 人工批准修订 v1.1",
+      typecheckScope: "tsconfig.n28.json (4 scripts + vertical/evaluator/acceptance tests)",
+    },
     evaluator: { first, second: first, byteIdentical: true },
     focused: gate(),
     n28Typecheck: gate(),
@@ -44,6 +51,7 @@ describe("N28 acceptance 决策（纯函数）", () => {
     const variants: Array<Partial<N28AcceptanceEnvelope>> = [
       { evaluatedCommit: "other" },
       { implementationTreeClean: false },
+      { contractDisposition: { ...passingEnvelope().contractDisposition, approved: false as never } },
       { evaluator: { first, second: { ...first, decision: "NO-GO" }, byteIdentical: true } },
       { evaluator: { first, second: first, byteIdentical: false } },
       { focused: gate({ exitCode: 1 }) },
