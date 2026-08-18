@@ -27,6 +27,10 @@
       "sha256": "48b5f98217e5768590a9b3c47adeea888498294f11e4a55e60525d0a2e5b53f4",
       "lines": 26
     },
+    "tsconfig.n28.json": {
+      "sha256": "28394e9f6e6eaf34a6c40a3c0f5faaf6160d8c419f3d155e0c0e736240112273",
+      "lines": 25
+    },
     "vitest.config.ts": {
       "sha256": "88851893328a7b5298524a5666245a982ae36062f7b3d0526e15508d947008eb",
       "lines": 30
@@ -1535,6 +1539,14 @@
       "sha256": "639ec7af2a132e79b476b9b3a5c96e44166a406ee29bb5bffda9168adf2cd3c3",
       "lines": 377
     },
+    "test/pth-runner/n28-feasibility-acceptance.test.ts": {
+      "sha256": "875f04ba6fdd0032735b717c9bd95c01860f2c0678ecf1706992306bd4a2bfb6",
+      "lines": 82
+    },
+    "test/pth-runner/n28-feasibility-evaluator.test.ts": {
+      "sha256": "d5db883f0ed8c144f25bb1740572c5c6d809c69862fd3b73ae76115360d4a84f",
+      "lines": 78
+    },
     "test/pth-tasking/delegation-policy.test.ts": {
       "sha256": "fe924f5564318eed26bb08122d135602924468866bb0e277aeeeb2978e489234",
       "lines": 67
@@ -1933,6 +1945,10 @@
     }
   },
   "scripts": {
+    "scripts/accept-n28-feasibility.ts": {
+      "sha256": "d00bd8c56de8746c662aabb7d38dec8517acc339530a820321fc76225cac54a3",
+      "lines": 195
+    },
     "scripts/adjudicate-tensions.ts": {
       "sha256": "213a536eceb924b3e63cded8f5a4b60e73e346e4998a31ad9a94d12e84e8413a",
       "lines": 203
@@ -1953,6 +1969,10 @@
       "sha256": "cd4867b4ce67eeed583825a773e8083eb9742b99558a6d77d62729edb3b0023e",
       "lines": 214
     },
+    "scripts/eval-n28-feasibility.ts": {
+      "sha256": "6436628dcace5d0c467bae24f5a5ff8668a5d480fba08217c790032365241c9e",
+      "lines": 523
+    },
     "scripts/ext-check.ts": {
       "sha256": "17ead9fb28880f76fc4c4742d3afa3e7f94f4571e7c6d42be47fa3ad3b99581a",
       "lines": 137
@@ -1970,12 +1990,12 @@
       "lines": 202
     },
     "scripts/n28-feasibility-fixture.ts": {
-      "sha256": "f2ef978370def5cc821b63639f9a5f75ff465e7fde9028e9fd9a235a4eb5f4b5",
-      "lines": 145
+      "sha256": "64444e275638e4d4c782e182559dcf8b1089f6f69340de0b8b3c7ee2230668c5",
+      "lines": 149
     },
     "scripts/n28-feasibility-harness.ts": {
-      "sha256": "de03692610f3fb005089dd474d961e616e24973603ee27a071c249442afb370e",
-      "lines": 229
+      "sha256": "5ab721a6a20c3fb5dd04c7a3dbb81f6ac0a8a8df5ca1b0e60dc57ca7a229f0d1",
+      "lines": 233
     },
     "scripts/n28-structure-snapshot.ts": {
       "sha256": "9c3800dc79e88afa00d36b1b489e74cfdb91bd67cda7e76ca6214bba07fe23a9",
@@ -8180,11 +8200,11 @@
   ],
   "summary": {
     "srcPthFiles": 224,
-    "testFiles": 250,
-    "scriptFiles": 18,
+    "testFiles": 252,
+    "scriptFiles": 20,
     "packageFiles": 183,
-    "totalFiles": 675,
-    "totalLines": 104262,
+    "totalFiles": 679,
+    "totalLines": 105148,
     "importEdges": 899,
     "runtimeEdges": 413,
     "typeEdges": 486,
