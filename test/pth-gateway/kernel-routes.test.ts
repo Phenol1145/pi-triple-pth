@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { installDefaultRoles } from "../helpers";
+import { createInMemoryPromoteOfficial, installDefaultRoles } from "../helpers";
 import Fastify from "fastify";
 import { buildKnowledgeProvenance } from "@away_from/pth-memory";
 import { registerKernelRoutes } from "../../src/pth/gateway/routes-kernel";
@@ -457,6 +457,7 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
       write: async (entry: { id: string; status?: string; meta?: Record<string, unknown>; content?: string; kind?: string; anchors?: string[]; tenantId?: string }) => {
         rows.set(entry.id, structuredClone(entry));
       },
+      promoteOfficial: createInMemoryPromoteOfficial(rows),
     };
   }
 
@@ -468,7 +469,7 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
       anchors: ["science"],
       content,
       status: "draft",
-      tenantId: "default",
+      tenantId: "tenant-a",
       meta: {
         version: 1,
         provenance: buildKnowledgeProvenance({
