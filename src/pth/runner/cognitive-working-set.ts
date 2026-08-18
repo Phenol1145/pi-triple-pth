@@ -82,13 +82,17 @@ export function createBudgetedTaskCapabilities(
     ...((base["state"] as Record<string, unknown> | undefined) ?? {}),
     async recallFunctions(anchors: string[], opts?: { limit?: number }): Promise<Array<{ key: string; source: string; spec: unknown }>> {
       const rows = await adapters.recallFunctions(anchors, opts);
-      ledger.admitMemory(rows.map((row) => ({ id: row.id, chars: canonicalExposureChars({ key: row.key, source: row.source, spec: row.spec }) })));
-      return rows.map(({ key, source, spec }) => ({ key, source, spec }));
+      const admitted = ledger.admitMemory(rows.map((row) => ({ id: row.id, chars: canonicalExposureChars({ key: row.key, source: row.source, spec: row.spec }) })));
+      const allowed = new Set(admitted.accepted.map((item) => item.id));
+      // P0-1 修复：只暴露 ledger accepted 行；omitted 绝不返回给 agent。
+      return rows.filter((row) => allowed.has(row.id)).map(({ key, source, spec }) => ({ key, source, spec }));
     },
     async recallInsights(anchors: string[], opts?: { limit?: number }): Promise<Array<{ content: string }>> {
       const rows = await adapters.recallInsights(anchors, opts);
-      ledger.admitMemory(rows.map((row) => ({ id: row.id, chars: canonicalExposureChars({ content: row.content }) })));
-      return rows.map(({ content }) => ({ content }));
+      const admitted = ledger.admitMemory(rows.map((row) => ({ id: row.id, chars: canonicalExposureChars({ content: row.content }) })));
+      const allowed = new Set(admitted.accepted.map((item) => item.id));
+      // P0-1 修复：只暴露 ledger accepted 行；omitted 绝不返回给 agent。
+      return rows.filter((row) => allowed.has(row.id)).map(({ content }) => ({ content }));
     },
   };
 
