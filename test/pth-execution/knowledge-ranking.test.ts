@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   filterKnowledgeEntriesByQueryText,
+  knowledgeQueryTokenHits,
   rankKnowledgeEntries,
 } from "../../src/pth/execution/knowledge-ranking.js";
 
@@ -92,5 +93,18 @@ describe("filterKnowledgeEntriesByQueryText（R5 strict fail-closed）", () => {
   it("non-strict mode keeps legacy fallback for callers that opt out", () => {
     const entries: Entry[] = [{ id: "a", anchors: ["math"], content: "quadratic formula" }];
     expect(filterKnowledgeEntriesByQueryText(entries, "zzzz-no-hit")).toEqual(entries);
+  });
+
+  it("knowledgeQueryTokenHits 是 rank 的同一命中实现（N28 T4）", () => {
+    expect(knowledgeQueryTokenHits({ id: "x", anchors: ["mathematics"], content: "token:alg-01" }, "token:alg-01")).toBe(1);
+    expect(knowledgeQueryTokenHits({ id: "x", anchors: ["mathematics"], content: "other" }, "token:alg-01")).toBe(0);
+    const ranked = rankKnowledgeEntries(
+      [
+        { id: "hit", anchors: ["math"], content: "token:alg-01" },
+        { id: "miss", anchors: ["math"], content: "nothing" },
+      ],
+      { queryText: "token:alg-01", domains: [] },
+    );
+    expect(ranked[0]!.id).toBe("hit");
   });
 });

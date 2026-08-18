@@ -3,6 +3,15 @@ import { createKnowledgeBroker } from "../../src/pth/execution/knowledge-broker.
 import { createExecutionGrantService, createMemoryReplayGuard } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
 import type { ExecutionGrant } from "../../src/pth/contracts/index.js";
+import { buildMemoryDirectorySnapshot, regionEntryIds } from "../../src/pth/execution/memory-directory.js";
+import { createLayeredKnowledgeRetriever } from "../../src/pth/execution/layered-knowledge-retriever.js";
+import { createVerifiedTaskReadScopeFactory } from "../../src/pth/execution/authorization/verified-task-read-scope.js";
+import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "../../src/pth/execution/knowledge-ranking.js";
+import { isVisible, setSpaceLookup } from "@away_from/pth-memory";
+import {
+  N28_DOMAIN_IDS, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS,
+  n28AuthorizedCorpus, n28DirectoryInputs, n28TrapCorpus,
+} from "../../scripts/n28-feasibility-fixture.js";
 
 const SECRET = "knowledge-broker-secret-0123456789";
 const key = createHmacGrantKeyProvider({ secret: SECRET });
@@ -332,5 +341,100 @@ describe("KnowledgeBroker（P2-5）", () => {
     expect(hidden.ok).toBe(false);
     if (!hidden.ok) expect(hidden.status).toBe(404);
     expect(consumed).toHaveLength(1);
+  });
+});
+
+describe("KnowledgeBroker layered 路径（N28 T4）", () => {
+  setSpaceLookup({
+    get: (id) => {
+      const parent = id === "meta" ? undefined : "meta";
+      return { id, parent };
+    },
+  });
+
+  const clock = () => new Date("2030-01-01T00:00:00.000Z");
+  const layeredGrantService = createExecutionGrantService({ keyProvider: key, clock });
+  const authority = createVerifiedTaskReadScopeFactory({
+    grantService: layeredGrantService,
+    grantForTask: () => { throw new Error("not used by broker layered path"); },
+  });
+  const corpus = [...n28AuthorizedCorpus(), ...n28TrapCorpus()];
+  const directoryEntries = n28DirectoryInputs(corpus.filter((e) => e.tenantId === "tenant-a" && e.status === "official"));
+  const directory = buildMemoryDirectorySnapshot({
+    tenantId: "tenant-a", epoch: 1, knownDomainIds: N28_DOMAIN_IDS,
+    workers: Object.values(N28_WORKERS), regions: N28_REGIONS, responsibilities: N28_RESPONSIBILITIES,
+    entries: directoryEntries,
+  });
+  const retriever = createLayeredKnowledgeRetriever(directory, { knownDomainIds: N28_DOMAIN_IDS, entries: directoryEntries }, { clock });
+  let waveCalls = 0;
+  const broker = createKnowledgeBroker({
+    grantService: layeredGrantService,
+    dataWorld: {
+      queryReadOnly: async () => [],
+      memory: {
+        retrieve: async (opts) => corpus.filter((e) => e.tenantId === opts.tenantId && e.status === "official"),
+        get: async () => undefined,
+      },
+    },
+    isVisible: (meta, space) => isVisible(meta, space),
+    layeredRetriever: retriever,
+    layeredSearchWave: async ({ wave, candidateScope, regionIds, queryText, limit }) => {
+      waveCalls += 1;
+      const regionSet = new Set(regionIds.flatMap((id) => regionEntryIds(directory, id)));
+      const authorized = corpus.filter((e) => e.tenantId === "tenant-a" && e.status === "official" && isVisible(e.meta, "meta"));
+      const inWave = candidateScope === "global" ? authorized : authorized.filter((e) => regionSet.has(e.id));
+      const matching = filterKnowledgeEntriesByQueryText(inWave, queryText, { strict: true });
+      const ranked = rankKnowledgeEntries(matching, { queryText, domains: ["mathematics"] });
+      return { entries: ranked.slice(0, limit), candidateCount: authorized.length, visibleCount: authorized.length, scannedCount: authorized.length, completeForQuery: true };
+    },
+    verifiedReadScopeAuthority: authority,
+    clock,
+  });
+
+  function layeredGrant(capabilities: string[] = ["memory.read"]): ExecutionGrant {
+    return layeredGrantService.issue({
+      lease: { taskId: "task-n28", leaseId: "20000000-0000-4000-8000-000000000001", generation: 1 },
+      scope: { tenantId: "tenant-a", principalId: `worker:${N28_WORKERS.algebra.workerId}`, roles: ["researcher"], traceId: "trace-n28", space: "meta" },
+      workspace: { tenantId: "tenant-a", workspaceId: "ws-n28", taskId: "task-n28" },
+      language: "ts",
+      capabilities,
+      ttlMs: 120_000,
+    });
+  }
+
+  it("真实签名 grant + 真实 retriever：global-only 命中、globalFallback=true、无 trap 条目", async () => {
+    const result = await broker.query({
+      grant: layeredGrant(),
+      op: "search",
+      queryText: "bounded global target canonical",
+      domains: ["mathematics"],
+      limit: 8,
+      worker: N28_WORKERS.algebra,
+      leaseDeadlineAt: "2030-01-01T00:02:00.000Z",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect((result.entries as Array<{ id: string }>).some((entry) => entry.id === "global-only")).toBe(true);
+      expect(result.retrievalTrace?.globalFallback).toBe(true);
+      expect((result.entries as Array<{ id: string }>).some((entry) => String(entry.id).startsWith("trap-"))).toBe(false);
+    }
+    expect(waveCalls).toBe(4);
+  });
+
+  it("invalid signature / missing memory.read → layeredSearchWave 调用零次", async () => {
+    waveCalls = 0;
+    const bad = await broker.query({
+      grant: { ...layeredGrant(), signature: "0".repeat(64) },
+      op: "search", queryText: "x", domains: ["mathematics"], worker: N28_WORKERS.algebra,
+    });
+    expect(bad.ok).toBe(false);
+    expect(waveCalls).toBe(0);
+
+    const noCap = await broker.query({
+      grant: layeredGrant(["state"]),
+      op: "search", queryText: "x", domains: ["mathematics"], worker: N28_WORKERS.algebra,
+    });
+    expect(noCap.ok).toBe(false);
+    expect(waveCalls).toBe(0);
   });
 });

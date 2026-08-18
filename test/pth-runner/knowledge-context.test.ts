@@ -3,11 +3,25 @@ import type { KnowledgeEvidenceRef } from "@away_from/pth-memory";
 import { DisciplineCatalogBuilder } from "../../src/pth/catalog/index.js";
 import {
   computeKnowledgeQueryFingerprint,
+  contextPromptProjection,
   createKnowledgeContextProvider,
+  formatKnowledgeContextPromptRows,
   fnv1aHex,
+  type KnowledgeContextEntry,
   type KnowledgeContextInput,
   type KnowledgeMemoryEntry,
 } from "../../src/pth/runner/knowledge-context.js";
+import { buildMemoryDirectorySnapshot, regionEntryIds } from "../../src/pth/execution/memory-directory.js";
+import { createLayeredKnowledgeRetriever } from "../../src/pth/execution/layered-knowledge-retriever.js";
+import { createVerifiedTaskReadScopeFactory } from "../../src/pth/execution/authorization/verified-task-read-scope.js";
+import { createExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
+import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
+import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "../../src/pth/execution/knowledge-ranking.js";
+import { createKnowledgeBroker } from "../../src/pth/execution/knowledge-broker.js";
+import {
+  N28_DOMAIN_IDS, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS,
+  n28AuthorizedCorpus, n28DirectoryInputs,
+} from "../../scripts/n28-feasibility-fixture.js";
 
 const baseInput: KnowledgeContextInput = {
   tenantId: "tenant-a",
@@ -258,6 +272,105 @@ describe("knowledge-context（K3 Phase 3）", () => {
     expect(ctx.catalogVersion).toBe(catalog.version);
     expect(ctx.queryFingerprint).toBe(
       computeKnowledgeQueryFingerprint({ ...baseInput, domains: [], catalogVersion: catalog.version }),
+    );
+  });
+});
+
+describe("N28 T4：layered Context 与 prompt 投影", () => {
+  it("fingerprint：workerId 缺席旧值逐字节不变；存在时追加独立分量", () => {
+    const base = computeKnowledgeQueryFingerprint(baseInput);
+    expect(computeKnowledgeQueryFingerprint({ ...baseInput })).toBe(base);
+    const withWorker = computeKnowledgeQueryFingerprint({ ...baseInput, workerId: "10000000-0000-4000-8000-000000000011" });
+    expect(withWorker).not.toBe(base);
+  });
+
+  it("contextPromptProjection 只含白名单字段；evidence/meta 变化同步改变 prompt 字节与投影", () => {
+    const make = (overrides: Partial<KnowledgeContextEntry> = {}): KnowledgeContextEntry => ({
+      entryId: "e1",
+      version: 1,
+      anchor: "math",
+      summary: "quadratic formula",
+      evidence: [{ sourceId: "s1" } as KnowledgeEvidenceRef],
+      exposedMeta: { kind: "domain-fact", domains: ["math"] },
+      ...overrides,
+    });
+    const row = contextPromptProjection(make());
+    expect(Object.keys(row).sort()).toEqual(["anchor", "entryId", "evidence", "meta", "summary"]);
+    expect(row).not.toHaveProperty("version");
+    const a = formatKnowledgeContextPromptRows([row]);
+    const b = formatKnowledgeContextPromptRows([contextPromptProjection(make({ evidence: [{ sourceId: "s2" } as KnowledgeEvidenceRef] }))]);
+    const c = formatKnowledgeContextPromptRows([contextPromptProjection(make({ exposedMeta: { kind: "domain-method", domains: ["math"] } }))]);
+    expect(b).not.toBe(a);
+    expect(c).not.toBe(a);
+  });
+
+  it("同一 worker/query/snapshot 下 Context 与 Broker 的 trace 快照与 selected IDs 一致", async () => {
+    const clock = () => new Date("2030-01-01T00:00:00.000Z");
+    const grantService = createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: "n28-feasibility-test-secret-0123456789" }), clock });
+    const authority = createVerifiedTaskReadScopeFactory({
+      grantService,
+      grantForTask: () => { throw new Error("unused"); },
+    });
+    const corpus = n28AuthorizedCorpus();
+    const directoryEntries = n28DirectoryInputs(corpus);
+    const directory = buildMemoryDirectorySnapshot({
+      tenantId: "tenant-a", epoch: 1, knownDomainIds: N28_DOMAIN_IDS,
+      workers: Object.values(N28_WORKERS), regions: N28_REGIONS, responsibilities: N28_RESPONSIBILITIES,
+      entries: directoryEntries,
+    });
+    const retriever = createLayeredKnowledgeRetriever(directory, { knownDomainIds: N28_DOMAIN_IDS, entries: directoryEntries }, { clock });
+    const wavePort = async ({ authorization: waveAuth, candidateScope, regionIds, queryText, limit }: import("../../src/pth/execution/layered-knowledge-retriever.js").LayeredSearchWaveInput) => {
+      const regionSet = new Set(regionIds.flatMap((id) => regionEntryIds(directory, id)));
+      const authorized = corpus.filter((e) => e.tenantId === waveAuth.tenantId && e.status === "official");
+      const inWave = candidateScope === "global" ? authorized : authorized.filter((e) => regionSet.has(e.id));
+      const matching = filterKnowledgeEntriesByQueryText(inWave, queryText, { strict: true });
+      const ranked = rankKnowledgeEntries(matching, { queryText, domains: ["mathematics"] });
+      return { entries: ranked.slice(0, limit), candidateCount: authorized.length, visibleCount: authorized.length, scannedCount: authorized.length, completeForQuery: true };
+    };
+    const provider = createKnowledgeContextProvider({
+      memory: { retrieve: async () => corpus },
+      isVisible: () => true,
+      layeredRetriever: retriever,
+      layeredSearchWave: wavePort,
+      clock,
+    });
+    const broker = createKnowledgeBroker({
+      grantService,
+      dataWorld: { queryReadOnly: async () => [], memory: { retrieve: async () => corpus, get: async () => undefined } },
+      isVisible: () => true,
+      layeredRetriever: retriever,
+      layeredSearchWave: wavePort,
+      verifiedReadScopeAuthority: authority,
+      clock,
+    });
+
+    const worker = N28_WORKERS.algebra;
+    const grant = grantService.issue({
+      lease: { taskId: "task-n28", leaseId: "20000000-0000-4000-8000-000000000001", generation: 1 },
+      scope: { tenantId: "tenant-a", principalId: `worker:${worker.workerId}`, roles: ["researcher"], traceId: "trace-n28", space: "meta" },
+      workspace: { tenantId: "tenant-a", workspaceId: "ws-n28", taskId: "task-n28" },
+      language: "ts",
+      capabilities: ["memory.read"],
+      ttlMs: 120_000,
+    });
+    const brokerResult = await broker.query({
+      grant, op: "search", queryText: "token:alg-01", domains: ["mathematics"], limit: 8,
+      worker, leaseDeadlineAt: "2030-01-01T00:02:00.000Z",
+    });
+    expect(brokerResult.ok).toBe(true);
+    const brokerEntries = brokerResult.ok ? (brokerResult.entries as Array<{ id: string }>) : [];
+
+    const scope = authority.verifyBrokerGrant({ grant, worker, leaseDeadlineAt: "2030-01-01T00:02:00.000Z" });
+    const context = await provider.build({
+      tenantId: "tenant-a", space: "meta", roleId: "researcher", domains: ["mathematics"],
+      title: "n28", text: "token:alg-01", catalogVersion: "",
+      workerId: worker.workerId, authorization: scope,
+    });
+    expect(context.retrievalTrace?.directorySnapshotId).toBe(directory.snapshotId);
+    expect(brokerResult.ok && brokerResult.retrievalTrace?.directorySnapshotId).toBe(directory.snapshotId);
+    expect(context.entries.map((e) => e.entryId)).toEqual(brokerEntries.map((e) => e.id));
+    expect(context.retrievalTrace?.waves.map((w) => w.selectedEntryIds)).toEqual(
+      brokerResult.ok && brokerResult.retrievalTrace ? brokerResult.retrievalTrace.waves.map((w) => w.selectedEntryIds) : [],
     );
   });
 });

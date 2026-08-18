@@ -29,15 +29,18 @@ export const N28_DOMAIN_IDS = new Set(["algebra", "geometry", "mathematics"]);
 export type N28KnowledgeEntry = KnowledgeMemoryEntry & { tenantId: string };
 
 function rows(prefix: string, count: number, domains: string[], anchors: string[], contentPrefix: string): N28KnowledgeEntry[] {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `${prefix}-${String(index + 1).padStart(2, "0")}`,
-    tenantId: "tenant-a",
-    kind: index % 4 === 0 ? "domain-method" : "domain-fact",
-    anchors,
-    status: "official",
-    content: `${contentPrefix} ${index + 1}`,
-    meta: { domains, spaceScope: { space: "meta", visibility: "public" } },
-  }));
+  return Array.from({ length: count }, (_, index) => {
+    const id = `${prefix}-${String(index + 1).padStart(2, "0")}`;
+    return {
+      id,
+      tenantId: "tenant-a",
+      kind: index % 4 === 0 ? "domain-method" : "domain-fact",
+      anchors,
+      status: "official",
+      content: `${contentPrefix} token:${id}`,
+      meta: { domains, spaceScope: { space: "meta", visibility: "public" } },
+    };
+  });
 }
 
 export function n28AuthorizedCorpus(): N28KnowledgeEntry[] {
@@ -124,3 +127,18 @@ export function n28TrapCorpus(): N28KnowledgeEntry[] {
     { id: "probe-public-ancestor", tenantId: "tenant-a", kind: "domain-fact", anchors: ["algebra"], status: "official", content: "public ancestor probe", meta: { domains: ["algebra"], spaceScope: { space: "meta", visibility: "public" } } },
   ];
 }
+
+export const N28_GOLD_QUERIES = [
+  { id: "q-primary-1", workerKey: "algebra", text: "token:alg-01", expected: "alg-01", expectedWave: 0 },
+  { id: "q-primary-2", workerKey: "algebra", text: "token:alg-20", expected: "alg-20", expectedWave: 0 },
+  { id: "q-primary-3", workerKey: "geometry", text: "token:geo-01", expected: "geo-01", expectedWave: 0 },
+  { id: "q-primary-4", workerKey: "geometry", text: "token:geo-40", expected: "geo-40", expectedWave: 0 },
+  { id: "q-overlap-1", workerKey: "algebra", text: "token:num-01", expected: "num-01", expectedWave: 1 },
+  { id: "q-overlap-2", workerKey: "geometry", text: "token:num-10", expected: "num-10", expectedWave: 1 },
+  { id: "q-fallback-1", workerKey: "algebra", text: "token:shared-01", expected: "shared-01", expectedWave: 2 },
+  { id: "q-fallback-2", workerKey: "geometry", text: "token:shared-08", expected: "shared-08", expectedWave: 2 },
+  { id: "q-global-decoy", workerKey: "algebra", text: "bounded global target canonical", expected: "global-only", expectedWave: 3 },
+  { id: "q-misbound", workerKey: "algebra", text: "token:geo-39", expected: "geo-39", expectedWave: 3 },
+  { id: "q-unclassified-1", workerKey: "algebra", text: "unclassified target", expected: "unclassified-only", expectedWave: 2 },
+  { id: "q-unclassified-2", workerKey: "geometry", text: "unclassified target", expected: "unclassified-only", expectedWave: 2 },
+] as const;
