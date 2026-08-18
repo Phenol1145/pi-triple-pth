@@ -107,9 +107,9 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 
 | Lane | 任务 | 分支 / worktree | 状态 | 认领 |
 |------|------|-----------------|------|------|
-| **R1** | P0-1 revision/promotion 正确性：统一 version 语义 + expected-revision CAS + 单事务 promotion | `lane/r1-revision-promotion` / `.worktrees/r1` | claimed | 主会话·2026-08-18 |
-| **R2** | P0-2 tenant 查询面：raw SQL 数据面强制 tenant/status/space + 跨租户负向 | `lane/r2-tenant-query-plane` / `.worktrees/r2` | claimed | 主会话·2026-08-18 |
-| **R4** | P0-4/P0-5/P1-5 真事务 outbox：同事务 enqueue + claim lease/token/CAS + observer durable failure | `lane/r4-transactional-outbox` / `.worktrees/r4` | claimed | 主会话·2026-08-18 |
+| **R1** | P0-1 revision/promotion 正确性：统一 version 语义 + expected-revision CAS + 单事务 promotion | `lane/r1-revision-promotion` / `.worktrees/r1` | **merged+返修中** | 主会话·2026-08-18 |
+| **R2** | P0-2 tenant 查询面：raw SQL 数据面强制 tenant/status/space + 跨租户负向 | `lane/r2-tenant-query-plane` / `.worktrees/r2` | **done 待合并** | 主会话·2026-08-18 |
+| **R4** | P0-4/P0-5/P1-5 真事务 outbox：同事务 enqueue + claim lease/token/CAS + observer durable failure | `lane/r4-transactional-outbox` / `.worktrees/r4` | 实施中 | 主会话·2026-08-18 |
 | **R3** | P0-3/P1-1/P1-2 verification 绑定：持久 VerificationPlan + service 授权 + 严格 revision + Domain 子集 binding | `lane/r3-verification-binding` / `.worktrees/r3` | free（依赖 R1 合并） | — |
 | **R5** | P1-3/P1-4 生产评测：生产端口评测 + 全语料覆盖 + no-answer/冲突/跨版本/holdout + EvidenceRef 全链 | `lane/r5-production-evaluation` / `.worktrees/r5` | free（依赖 R3 合并） | — |
 | **R6** | 组合验收：崩溃/并发/跨租户全链重跑（claim→context→commit→outbox→candidate→verification→promotion→retrieve） | 主会话直接执行 | free（依赖 R1–R5 全合并） | — |
@@ -245,3 +245,9 @@ node_modules 起步）。任务：E1 v1.1.3 发布——盘点 main 上未发版
 注意：L2/L3 合并后可能需要重基或补发——动手前先问我「先发还是等 L2/L3」。
 验收：发布产物完整、全量测试绿。遇分叉停下来给我选择题；做完更新账本。
 ```
+
+> R 轮进展（2026-08-18 主会话合并者记录）：R1 `38128a1` 已合并（merge `a18e72a`）——全量门槛逮到
+> 3 例 fake store 缺 promoteOfficial，返修在 `fix/r1-followup`（test/helpers.ts 共享 fake + 3 测试文件）；
+> R2 `076a627`+`e423a54`（含合并者对抗评审补丁：FROM 逗号跨表 400 + SELECT 函数调用禁令 + 2 负向测试）
+> 待 R1 返修合并后按序合并；R4 实施中（首选同事务 enqueue，申报增改 task-outcome-committer/pg-task-repository）。
+> 合并顺序既定：R1 返修 → R2 → R4，每步全量 vitest + lint。
