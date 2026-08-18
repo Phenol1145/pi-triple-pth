@@ -19,7 +19,12 @@ import { CognitiveBudgetLedger } from "../src/pth/kernel/execution/cognitive-bud
 import { createWorkerReplica, roleDefinitionRevision } from "../src/pth/kernel/execution/worker-replica.js";
 import { WorkerSlotRuntime } from "../src/pth/bootstrap/worker-slot-runtime.js";
 import { assembleBatchRuntime, runBatchHost } from "../src/pth/bootstrap/batch-runtime-assembly.js";
-import { isVisible, setSpaceLookup } from "@away_from/pth-memory";
+import { isVisible, setSpaceLookup, type ToolRegSpec } from "@away_from/pth-memory";
+import { runAgentTask } from "../src/pth/kernel/execution/agent-loop.js";
+import type { LlmFn } from "../src/pth/kernel/interpreter/llm-fn.js";
+import type { WorkerKernel } from "../src/pth/kernel/interpreter/index.js";
+import type { ToolRegSnapshot } from "../src/pth/kernel/execution/tool-registry.js";
+import { createN28InMemoryBundle } from "./n28-feasibility-harness.js";
 import {
   N28_DOMAIN_IDS, N28_GOLD_QUERIES, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS,
   n28AuthorizedCorpus, n28DirectoryInputs, n28TrapCorpus,
@@ -509,12 +514,81 @@ async function probeVisibility() {
   return { visibilityProbeCases: checked >= cases ? cases : checked, authorizationLeaks: 0, unauthorizedWaveInvocations: 0, unauthorizedReadPortInvocations: 0, authorizationProbeCases: 0 };
 }
 
+async function probeH6(): Promise<{ surfaceComparisonCases: number; surfaceMismatches: number; hiddenDispatchProbeCases: number; hiddenExecutorInvocations: number }> {
+  const bundle = createN28InMemoryBundle();
+  const a = await bundle.runTask({ workerKey: "algebra", taskText: "token:alg-01" });
+  const b = await bundle.runTask({ workerKey: "algebra", taskText: "token:alg-01" });
+  let cases = 0;
+  let mismatches = 0;
+  const check = (cond: boolean) => { cases += 1; if (!cond) mismatches += 1; };
+
+  // 5 per-turn schema checks（真实 LLM 面）
+  check(a.toolsByTurn.length > 0);
+  check(a.toolsByTurn.every((tools: string[]) => tools.length <= 16));
+  check(a.toolsByTurn.every((tools: string[]) => tools.includes("done")));
+  check(a.toolsByTurn.every((tools: string[]) => tools.every((name: string) => !name.includes("."))));
+  check(JSON.stringify(a.toolsByTurn) === JSON.stringify(b.toolsByTurn));
+
+  // 5 per-turn prompt checks（真实注入面）
+  check(a.systemPrompt.includes("token:alg-01"));
+  check(!a.systemPrompt.includes("trap-"));
+  check(a.systemPrompt.includes("Knowledge Context"));
+  check(!a.systemPrompt.includes("registry.omitted"));
+  check(a.systemPrompt === b.systemPrompt);
+
+  // 1 Skill snapshot（冻结索引二态稳定）
+  check(typeof a.outcome.usage?.["cognitive.skillIndexEntries"] === "number");
+
+  // 1 final Working Set trace（start+finish 各一次，无正文）
+  check(a.traces.some((e: { type: string; phase?: string }) => e.type === "cognitive-working-set" && e.phase === "start") &&
+    a.traces.some((e: { type: string; phase?: string }) => e.type === "cognitive-working-set" && e.phase === "finish"));
+
+  // hidden dispatch：真实 runAgentTask + 冻结 allowlist，omitted program executor 必须零调用。
+  let hiddenDispatch = 0;
+  let hiddenExec = 0;
+  const omittedSpec: ToolRegSpec = {
+    name: "registry.omitted", version: 1,
+    description: { anchor: "probe", whenToUse: "probe", effect: "probe" },
+    parameters: { type: "object", properties: {}, required: [] },
+    executor: { type: "program", source: "return { executed: true };" },
+    visibility: { roles: ["researcher"], pack: "n28" },
+  };
+  const execute = { count: 0 };
+  const kernel = {
+    ts: { execute: async () => { execute.count += 1; return { ok: true, value: {}, durationMs: 1, language: "ts" }; }, reset: () => {}, dispose: () => {}, snapshot: async () => ({ variables: [], functions: [], oversized: [] }), registerResult: () => {}, injectCapability: () => {}, state: {} },
+    python: {}, bash: {}, llm: null, dataWorld: null,
+    reset: async () => {}, dispose: async () => {}, snapshot: async () => ({ variables: [], functions: [], oversized: [] }),
+  } as unknown as WorkerKernel;
+  let call = 0;
+  const llm: LlmFn = {
+    complete: async () => {
+      call += 1;
+      if (call === 1) return { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c1", name: "registry_omitted", arguments: {} }] };
+      return { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c2", name: "done", arguments: { result: { ok: true } } }] };
+    },
+  };
+  const trace: Array<{ type: string; tool?: string; resultPreview?: string }> = [];
+  const registry: ToolRegSnapshot = { version: "v1", takenAt: 1, entries: new Map([["registry.omitted", omittedSpec]]) };
+  const r = await runAgentTask({
+    llm, kernel, caps: {}, task: { title: "t", text: "x" },
+    role: { id: "researcher", tags: ["research"], prompt: "p" },
+    asp: true, maxSteps: 4, toolRegistry: registry, toolAllowlist: ["done"],
+    onTrace: (e: { type: string; tool?: string; resultPreview?: string }) => trace.push(e),
+  });
+  const denied = trace.some((e) => e.type === "tool-result" && e.tool === "registry.omitted" &&
+    (e.resultPreview ?? "").includes("outside the frozen Task Working Set"));
+  if (r.ok && denied && execute.count === 0) hiddenDispatch = 1;
+  hiddenExec = execute.count;
+  return { surfaceComparisonCases: cases, surfaceMismatches: mismatches, hiddenDispatchProbeCases: hiddenDispatch, hiddenExecutorInvocations: hiddenExec };
+}
+
 export async function evaluateN28Feasibility(): Promise<N28FeasibilityResult> {
-  const [gold, budget, lifecycle, visibility] = await Promise.all([
+  const [gold, budget, lifecycle, visibility, h6] = await Promise.all([
     probeGoldAndDirectory(),
     Promise.resolve(probeBudgetAndResponsibility()),
     probeLifecycle(),
     probeVisibility(),
+    probeH6(),
   ]);
   const metrics: N28FeasibilityMetrics = {
     ...gold,
@@ -525,10 +599,10 @@ export async function evaluateN28Feasibility(): Promise<N28FeasibilityResult> {
     unauthorizedWaveInvocations: 0,
     unauthorizedReadPortInvocations: 0,
     authorizationProbeCases: 0,
-    surfaceMismatches: 0,
-    surfaceComparisonCases: 0,
-    hiddenDispatchProbeCases: 0,
-    hiddenExecutorInvocations: 0,
+    surfaceMismatches: h6.surfaceMismatches,
+    surfaceComparisonCases: h6.surfaceComparisonCases,
+    hiddenDispatchProbeCases: h6.hiddenDispatchProbeCases,
+    hiddenExecutorInvocations: h6.hiddenExecutorInvocations,
     bodyCopiesOutsideCanonicalStore: 0,
     ownerlessRegions: 0,
     workingSetDeterminismMismatches: budget.workingSetDeterminismMismatches,
