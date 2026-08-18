@@ -5,6 +5,34 @@ import { PROVENANCE_REQUIRED_KINDS, validateKnowledgeProvenance } from "./knowle
 /** 缺省租户 id（tenant_id 列 DDL 已 default 'default'；本批不迁移存量行）。 */
 export const DEFAULT_TENANT_ID = "default";
 
+/** 稳定 JSON 序列化（递归按键排序）——对齐 jsonb 等值语义（jsonb 比较忽略键序）。 */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(",")}]`;
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+/** write 变更判据：剥离系统生成键 updatedAt 后的 effective meta（version 参与比较，由本方法重写）。 */
+function effectiveMetaForCompare(meta: Record<string, unknown> | undefined): string {
+  const copy = { ...(meta ?? {}) };
+  delete copy.updatedAt;
+  return stableStringify(copy);
+}
+
+/**
+ * write 的统一物化变更判据：content 不同 OR status 不同（缺省 official 归一）OR effective meta
+ * 不同。write 内「是否写 history」与 UPSERT 的「是否 version+1」必须使用同一判据。
+ */
+function isSameMaterializedState(
+  old: { content: string; status: string; meta: Record<string, unknown> },
+  entry: MemoryEntry,
+): boolean {
+  return old.content === entry.content
+    && old.status === (entry.status ?? "official")
+    && effectiveMetaForCompare(old.meta) === effectiveMetaForCompare(entry.meta);
+}
+
 /**
  * MemoryEntry —— 对齐 memory v1 entry.ts 结构（extensions/agent-lab/src/memory/entry.ts）。
  * 列映射：ruleRef→rule_ref、idempotencyKey→idempotency_key、promotedFrom→promoted_from、
@@ -52,6 +80,32 @@ export interface PgMemoryStoreUpdateOptions {
   tenantId?: string;
   createdBy?: string;
   reason?: string;
+}
+
+/** promotion CAS 冲突——结构化错误（不静默返回 ok）。 */
+export class PromotionConflictError extends Error {
+  readonly code = "PROMOTION_CONFLICT";
+  constructor(message: string) {
+    super(message);
+    this.name = "PromotionConflictError";
+  }
+}
+
+/** promotion CAS 写进 meta.promotion 的内容（verdicts 由 store 在锁内从旧行补全）。 */
+export interface PgMemoryStorePromotionMeta {
+  promotedBy: string;
+  principalId?: string;
+  note?: string;
+  promotedAt: number;
+  verdicts?: unknown;
+}
+
+/** promoteOfficial 选项：evaluate 在锁内基于旧行重算晋升门禁；enqueueOutbox 在同一事务执行。 */
+export interface PgMemoryStorePromoteOfficialOptions {
+  createdBy?: string;
+  reason?: string;
+  evaluate?: (entry: MemoryEntry) => { ok: true } | { ok: false; reason: string };
+  enqueueOutbox?: (client: pg.PoolClient) => Promise<void>;
 }
 
 /**
@@ -139,23 +193,10 @@ export class PgMemoryStore {
         | { id: string; tenant_id: string; content: string; status: string; anchors: string[]; meta: Record<string, unknown>; version: number }
         | undefined;
       if (old) {
-        // 幂等判定与 SQL 的 version 不递增分支保持一致，但补 status/meta 对比：
-        // content+声明版本相同而 status/meta 变化（如 K4 晋升）也必须记 revision——否则
-        // 晋升/回滚只有当前态、无历史。真实试点（K5）发现此处缺口后修正。
-        // SQL 会在 meta 里补 updatedAt——比较时剥离该生成字段（否则永远不幂等）。
-        const oldDeclaredVersion = old.meta?.version !== undefined ? String(old.meta.version) : undefined;
-        const newDeclaredVersion = entry.meta?.version !== undefined ? String(entry.meta.version) : undefined;
-        const stripUpdatedAt = (m: Record<string, unknown> | undefined): string => {
-          const copy: Record<string, unknown> = { ...(m ?? {}) };
-          delete copy["updatedAt"];
-          return JSON.stringify(copy);
-        };
-        const isIdempotent = old.content === entry.content
-          && old.status === (entry.status ?? "official")
-          && stripUpdatedAt(old.meta) === stripUpdatedAt(entry.meta)
-          && oldDeclaredVersion !== undefined
-          && newDeclaredVersion !== undefined
-          && oldDeclaredVersion === newDeclaredVersion;
+        // 统一变更判据（P0-1）：content 不同 OR status 不同 OR effective meta 不同（剥离 updatedAt）。
+        // 这里「是否写 history」与下方 UPSERT 的「是否 version+1」使用完全相同的物化判据——
+        // 写了 history 就必然 version+1 且 meta.version = old.version + 1。
+        const isIdempotent = isSameMaterializedState(old, entry);
         if (!isIdempotent) {
           await client.query(
             `INSERT INTO memory_revisions
@@ -176,10 +217,10 @@ export class PgMemoryStore {
         }
       }
 
-      // ON CONFLICT 分支（对齐 FS write 路径②③）：
-      // - 幂等判定：content 与调用方声明版本均相同 → 重落库不递增版本（FS 路径②：entry.meta.version ===
-      //   existing.meta.version && entry.content === existing.content → persist 不递增）；
-      // - meta 合并：memory_entries.meta || EXCLUDED.meta（调用方 meta 整条写回，FS 路径②③ persist(entry) 语义），
+      // ON CONFLICT 分支（P0-1 修复）：
+      // - 幂等判定与上方写历史判据完全一致：content 同 AND status 同 AND effective meta 同
+      //   （剥离 updatedAt 后 jsonb 等值比较，version 参与比较但由本方法重写）；
+      // - meta 合并：memory_entries.meta || EXCLUDED.meta（调用方 meta 整条写回），
       //   最后强制 version/updatedAt 与列联动（FS：meta={...existing.meta, ...entry.meta, version: next, updatedAt: now}）；
       // - version 列与 meta.version 引用同一 CASE 表达式（SET 中均引用旧行值）→ 二者保持一致。
       await client.query(
@@ -190,13 +231,17 @@ export class PgMemoryStore {
            anchors = EXCLUDED.anchors,
            status = EXCLUDED.status,
            version = CASE
-             WHEN memory_entries.content = EXCLUDED.content AND memory_entries.meta->>'version' = EXCLUDED.meta->>'version' THEN memory_entries.version
+             WHEN memory_entries.content = EXCLUDED.content
+              AND memory_entries.status = EXCLUDED.status
+              AND (memory_entries.meta - 'updatedAt') = (EXCLUDED.meta - 'updatedAt') THEN memory_entries.version
              ELSE memory_entries.version + 1
            END,
            updated_at = now(),
            meta = memory_entries.meta || EXCLUDED.meta || jsonb_build_object(
              'version', CASE
-               WHEN memory_entries.content = EXCLUDED.content AND memory_entries.meta->>'version' = EXCLUDED.meta->>'version' THEN memory_entries.version
+               WHEN memory_entries.content = EXCLUDED.content
+                AND memory_entries.status = EXCLUDED.status
+                AND (memory_entries.meta - 'updatedAt') = (EXCLUDED.meta - 'updatedAt') THEN memory_entries.version
                ELSE memory_entries.version + 1
              END,
              'updatedAt', extract(epoch from now()) * 1000
@@ -216,6 +261,116 @@ export class PgMemoryStore {
         ],
       );
       await client.query("COMMIT");
+    } catch (e) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // 保留原始异常——rollback 失败不掩盖主错误
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * promotion CAS 原语（P0-1）：单事务完成
+   * BEGIN → SELECT … FOR UPDATE → 校验 status='draft' 且 version === expectedRevision →
+   * evaluate（锁内行）→ 写 memory_revisions（旧 revision）→ UPDATE memory_entries 为 official、
+   * version+1、meta 合并 meta.promotion → enqueueOutbox hook（可选）→ COMMIT。
+   * 不满足 CAS 时抛 PromotionConflictError（不静默返回）。
+   */
+  async promoteOfficial(
+    id: string,
+    tenantId: string,
+    expectedRevision: number,
+    promotionMeta: PgMemoryStorePromotionMeta,
+    opts: PgMemoryStorePromoteOfficialOptions = {},
+  ): Promise<{ ok: true; id: string }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const oldRows = await client.query(
+        `SELECT * FROM memory_entries WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+        [id, tenantId],
+      );
+      const oldRow = oldRows.rows[0] as any;
+      if (!oldRow) {
+        throw new PromotionConflictError(`entry not found in tenant ${tenantId}`);
+      }
+
+      const currentVersion = Number(oldRow.version);
+
+      // 幂等重放：已 official 且 meta.promotion.promotedBy === promoterRole → 直接 ok（不重复写）。
+      if (oldRow.status === "official") {
+        const promotion = (oldRow.meta ?? {})["promotion"] as { promotedBy?: unknown } | undefined;
+        if (promotion && promotion.promotedBy === promotionMeta.promotedBy) {
+          await client.query("COMMIT");
+          return { ok: true, id };
+        }
+        throw new PromotionConflictError(`entry is already official but not promoted by ${promotionMeta.promotedBy}`);
+      }
+      if (oldRow.status !== "draft") {
+        throw new PromotionConflictError("only draft knowledge can be promoted");
+      }
+
+      // CAS：调用方读到的 candidate revision 必须与锁内当前 version 严格相等。
+      if (currentVersion !== expectedRevision) {
+        throw new PromotionConflictError(`expectedRevision ${expectedRevision} does not match current version ${currentVersion}`);
+      }
+
+      if (opts.evaluate) {
+        const decision = opts.evaluate(mapEntry(oldRow));
+        if (!decision.ok) {
+          throw new PromotionConflictError(decision.reason);
+        }
+      }
+
+      // 写不可变决定（旧 revision = 晋升前 draft 状态）。
+      await client.query(
+        `INSERT INTO memory_revisions
+           (entry_id, tenant_id, revision, content, status, anchors, meta, created_by, reason)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)`,
+        [
+          id,
+          tenantId,
+          currentVersion,
+          oldRow.content,
+          oldRow.status,
+          JSON.stringify(oldRow.anchors ?? []),
+          JSON.stringify(oldRow.meta ?? {}),
+          opts.createdBy ?? null,
+          opts.reason ?? null,
+        ],
+      );
+
+      const nextVersion = currentVersion + 1;
+      const metaWithPromotion = {
+        promotion: {
+          ...promotionMeta,
+          verdicts: (oldRow.meta ?? {})["verdicts"] ?? [],
+        },
+      };
+      await client.query(
+        `UPDATE memory_entries SET
+           status = 'official',
+           version = $3::integer,
+           updated_at = now(),
+           meta = memory_entries.meta || $4::jsonb || jsonb_build_object(
+             'version', $3::integer,
+             'updatedAt', extract(epoch from now()) * 1000
+           )
+         WHERE id = $1 AND tenant_id = $2
+         RETURNING id`,
+        [id, tenantId, nextVersion, JSON.stringify(metaWithPromotion)],
+      );
+
+      if (opts.enqueueOutbox) {
+        await opts.enqueueOutbox(client);
+      }
+
+      await client.query("COMMIT");
+      return { ok: true, id };
     } catch (e) {
       try {
         await client.query("ROLLBACK");
@@ -289,11 +444,11 @@ export class PgMemoryStore {
         }
         return JSON.stringify(copy, Object.keys(copy).sort());
       };
-      const hasAnyPatch = patch.content !== undefined || patch.status !== undefined || metaPatch !== undefined;
       const contentChanged = patch.content !== undefined && patch.content !== old.content;
       const statusChanged = patch.status !== undefined && patch.status !== old.status;
       const metaChanged = metaPatch !== undefined && stripSystemMeta(old.meta) !== stripSystemMeta(metaPatch);
-      const isNoOp = hasAnyPatch && !contentChanged && !statusChanged && !metaChanged;
+      // 统一判据：没有任何物化变化（含空 patch）→ no-op，不写历史也不递增 version。
+      const isNoOp = !contentChanged && !statusChanged && !metaChanged;
 
       if (!isNoOp) {
         await client.query(
@@ -506,6 +661,13 @@ export function withMemoryTenant(store: PgMemoryStore, tenantId: string): PgMemo
     revisionHistory: (entryId: string, opts?: { tenantId?: string }) => store.revisionHistory(entryId, { ...opts, tenantId }),
     restoreRevision: (entryId: string, revision: number, opts?: { tenantId?: string; createdBy?: string }) =>
       store.restoreRevision(entryId, revision, { ...opts, tenantId }),
+    promoteOfficial: (
+      id: string,
+      _tenantId: string,
+      expectedRevision: number,
+      promotionMeta: PgMemoryStorePromotionMeta,
+      opts?: PgMemoryStorePromoteOfficialOptions,
+    ) => store.promoteOfficial(id, tenantId, expectedRevision, promotionMeta, opts),
   };
   return wrapped as unknown as PgMemoryStore;
 }

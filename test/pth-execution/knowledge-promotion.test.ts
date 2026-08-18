@@ -1,5 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { buildKnowledgeProvenance, type MemoryEntry } from "@away_from/pth-memory";
+import { describe, expect, it, beforeAll, afterAll } from "vitest";
+import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { getContainerRuntimeClient } from "testcontainers";
+import { Pool } from "pg";
+import {
+  buildKnowledgeProvenance,
+  DEFAULT_TENANT_ID,
+  MEMORY_SCHEMA_SQL,
+  PgMemoryStore,
+  PromotionConflictError,
+  type MemoryEntry,
+} from "@away_from/pth-memory";
 import {
   canPromote,
   validateKnowledgeVerdict,
@@ -18,10 +28,16 @@ import {
 function makeStore(initial: MemoryEntry[] = []) {
   const rows = new Map<string, MemoryEntry>();
   const writeCalls: Array<{ entry: MemoryEntry; opts?: { force?: boolean; reason?: string; createdBy?: string } }> = [];
+  const promoteCalls: Array<{
+    id: string; tenantId: string; expectedRevision: number;
+    promotionMeta: { promotedBy: string; principalId?: string; note?: string; promotedAt: number; verdicts?: unknown };
+    opts?: { createdBy?: string; reason?: string; evaluate?: (entry: MemoryEntry) => { ok: true } | { ok: false; reason: string } };
+  }> = [];
   for (const e of initial) rows.set(e.id, structuredClone(e));
   return {
     rows,
     writeCalls,
+    promoteCalls,
     async get(id: string, opts?: { tenantId?: string }) {
       const e = rows.get(id);
       if (!e) return undefined;
@@ -45,6 +61,40 @@ function makeStore(initial: MemoryEntry[] = []) {
     async write(entry: MemoryEntry, opts?: { force?: boolean; reason?: string; createdBy?: string }) {
       writeCalls.push({ entry: structuredClone(entry), opts });
       rows.set(entry.id, structuredClone(entry));
+    },
+    async promoteOfficial(
+      id: string,
+      tenantId: string,
+      expectedRevision: number,
+      promotionMeta: { promotedBy: string; principalId?: string; note?: string; promotedAt: number; verdicts?: unknown },
+      opts?: { createdBy?: string; reason?: string; evaluate?: (entry: MemoryEntry) => { ok: true } | { ok: false; reason: string } },
+    ) {
+      promoteCalls.push({ id, tenantId, expectedRevision, promotionMeta: structuredClone(promotionMeta), opts });
+      const e = rows.get(id);
+      if (!e) throw new PromotionConflictError(`entry not found in tenant ${tenantId}`);
+      if (e.tenantId && e.tenantId !== tenantId) throw new PromotionConflictError(`entry not found in tenant ${tenantId}`);
+      if (e.status === "official") {
+        const promotion = e.meta?.promotion as { promotedBy?: unknown } | undefined;
+        if (promotion && promotion.promotedBy === promotionMeta.promotedBy) return { ok: true, id };
+        throw new PromotionConflictError(`entry is already official but not promoted by ${promotionMeta.promotedBy}`);
+      }
+      if (e.status !== "draft") throw new PromotionConflictError("only draft knowledge can be promoted");
+      const currentVersion = e.meta?.["version"];
+      if (currentVersion !== expectedRevision) {
+        throw new PromotionConflictError(`expectedRevision ${expectedRevision} does not match current version ${String(currentVersion)}`);
+      }
+      if (opts?.evaluate) {
+        const decision = opts.evaluate(structuredClone(e));
+        if (!decision.ok) throw new PromotionConflictError(decision.reason);
+      }
+      const nextVersion = typeof currentVersion === "number" ? currentVersion + 1 : 2;
+      e.status = "official";
+      e.meta = {
+        ...(e.meta ?? {}),
+        version: nextVersion,
+        promotion: { ...promotionMeta, verdicts: (e.meta as Record<string, unknown> | undefined)?.["verdicts"] ?? [] },
+      };
+      return { ok: true, id };
     },
   };
 }
@@ -336,11 +386,18 @@ describe("canPromote / promoteKnowledgeEntry（N22 1/2）", () => {
     });
     expect((entry.meta.promotion as { promotedAt?: unknown }).promotedAt).toEqual(expect.any(Number));
 
-    expect(store.writeCalls).toHaveLength(1);
-    expect(store.writeCalls[0].opts).toEqual({ force: true, reason: "knowledge-promotion", createdBy: "memory-keeper" });
-    expect(store.writeCalls[0].entry.status).toBe("official");
-    expect(store.writeCalls[0].entry.meta).toMatchObject({
-      promotion: { promotedBy: "memory-keeper", principalId: "worker:memory-keeper", promotedAt: expect.any(Number) },
+    expect(store.writeCalls).toHaveLength(0); // 非原子 write 路径已删除
+    expect(store.promoteCalls).toHaveLength(1);
+    expect(store.promoteCalls[0]).toMatchObject({
+      id: "cand-1",
+      tenantId: "default",
+      expectedRevision: 1,
+      opts: { createdBy: "memory-keeper", reason: "knowledge-promotion" },
+    });
+    expect(store.promoteCalls[0].promotionMeta).toMatchObject({
+      promotedBy: "memory-keeper",
+      principalId: "worker:memory-keeper",
+      promotedAt: expect.any(Number),
     });
   });
 
@@ -363,11 +420,13 @@ describe("canPromote / promoteKnowledgeEntry（N22 1/2）", () => {
 
     const first = await promoteKnowledgeEntry(store as never, "cand-1");
     expect(first).toEqual({ ok: true, id: "cand-1" });
-    expect(store.writeCalls).toHaveLength(1);
+    expect(store.writeCalls).toHaveLength(0);
+    expect(store.promoteCalls).toHaveLength(1);
 
     const second = await promoteKnowledgeEntry(store as never, "cand-1");
     expect(second).toEqual({ ok: true, id: "cand-1" });
-    expect(store.writeCalls).toHaveLength(1); // replay 不重复写
+    expect(store.writeCalls).toHaveLength(0);
+    expect(store.promoteCalls).toHaveLength(2); // replay 也走 CAS（锁内判定幂等），但不重复写
 
     const entry = store.rows.get("cand-1")!;
     expect(entry.status).toBe("official");
@@ -427,5 +486,189 @@ describe("rejectKnowledgeEntry（N22 2）", () => {
     await rejectKnowledgeEntry(store as never, "cand-1", "controller:adversarial", "pitfall missing");
     const verdicts = store.rows.get("cand-1")!.meta.verdicts as unknown[];
     expect(verdicts[0]).toMatchObject({ kind: "adversarial", verdict: "reject" });
+  });
+});
+
+// --- 真实 PG 探针（P0-1 promotion CAS；宿主无 Docker 时 skip）---
+async function hasDocker(): Promise<boolean> {
+  if (process.env.PTH_TEST_NO_DOCKER === "1") return false;
+  try {
+    await getContainerRuntimeClient();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const dockerAvailable = await hasDocker();
+const pgSuite = dockerAvailable ? describe : describe.skip;
+
+pgSuite("knowledge promotion pg (real PostgreSQL)", () => {
+  let container: PostgreSqlContainer;
+  let pool: Pool;
+  let store: PgMemoryStore;
+
+  beforeAll(async () => {
+    container = await new PostgreSqlContainer("postgres:16-alpine").start();
+    pool = new Pool({ connectionString: container.getConnectionUri() });
+    await pool.query(MEMORY_SCHEMA_SQL);
+    store = new PgMemoryStore(pool);
+  }, 120_000);
+
+  afterAll(async () => {
+    await pool.end();
+    await container.stop();
+  });
+
+  async function seedDraft(id: string, content = "The Earth orbits the Sun."): Promise<void> {
+    const provenance = buildKnowledgeProvenance({
+      content,
+      sourceTaskId: "task-1",
+      producerRole: "developer",
+      producerModel: "deepseek-v4-flash",
+      sourceRefs: ["task:task-1"],
+    });
+    await store.write({
+      id,
+      kind: "domain-fact",
+      anchors: ["science"],
+      content,
+      status: "draft",
+      meta: { provenance, verdicts: [] },
+    } as any);
+  }
+
+  async function seedVerdicts(id: string): Promise<void> {
+    expect((await recordKnowledgeVerdict(store, id, {
+      kind: "domain",
+      verdict: "pass",
+      reviewerRole: "domain:expert",
+      note: "domain evidence verified",
+      at: 1,
+      principalId: "tenant:tenant-a:platform-admin",
+      domainId: "mathematics",
+    })).ok).toBe(true);
+    expect((await recordKnowledgeVerdict(store, id, {
+      kind: "adversarial",
+      verdict: "pass",
+      reviewerRole: "controller:adversarial",
+      note: "no shortcut / pitfall covered",
+      at: 2,
+      principalId: "worker:controller:adversarial",
+    })).ok).toBe(true);
+  }
+
+  it("promoteKnowledgeEntry uses atomic CAS and rejects stale expectedRevision", async () => {
+    await seedDraft("pg-promote-cas");
+    await seedVerdicts("pg-promote-cas");
+
+    // 两条 verdict 各经 update 递增 version：draft v1 → v3；CAS 基线必须是 3。
+    expect((await store.get("pg-promote-cas"))?.meta?.version).toBe(3);
+
+    const stale = await promoteKnowledgeEntry(store, "pg-promote-cas", { expectedRevision: 1 });
+    expect(stale).toMatchObject({ ok: false, error: expect.stringContaining("expectedRevision") });
+
+    const ok = await promoteKnowledgeEntry(store, "pg-promote-cas", { expectedRevision: 3 });
+    expect(ok).toEqual({ ok: true, id: "pg-promote-cas" });
+
+    const got = await store.get("pg-promote-cas");
+    expect(got?.status).toBe("official");
+    expect(got?.meta?.version).toBe(4);
+    expect((got?.meta?.promotion as { promotedBy?: unknown })?.promotedBy).toBe("memory-keeper");
+  });
+
+  it("concurrent promotions with same expectedRevision allow exactly one winner", async () => {
+    await seedDraft("pg-promote-conc");
+    await seedVerdicts("pg-promote-conc");
+
+    const results = await Promise.all([
+      promoteKnowledgeEntry(store, "pg-promote-conc", { expectedRevision: 3 }),
+      promoteKnowledgeEntry(store, "pg-promote-conc", { expectedRevision: 3 }),
+    ]);
+
+    // 胜者晋升；另一事务在锁内看到 official + 同 promoter 的 promotion → 幂等 replay（不重复写）。
+    expect(results.filter((r) => r.ok)).toHaveLength(2);
+
+    const got = await store.get("pg-promote-conc");
+    expect(got?.status).toBe("official");
+    expect(got?.meta?.version).toBe(4); // 只晋升一次，version 不双增
+    const history = await store.revisionHistory("pg-promote-conc");
+    expect(history.map((h) => h.revision)).toEqual([1, 2, 3]);
+    expect(history.filter((h) => h.reason === "knowledge-promotion")).toHaveLength(1);
+  });
+
+  it("promotion then second status mutation does not hit revision unique violation", async () => {
+    await seedDraft("pg-promote-then-mutate");
+    await seedVerdicts("pg-promote-then-mutate");
+
+    const promoted = await promoteKnowledgeEntry(store, "pg-promote-then-mutate", { expectedRevision: 3 });
+    expect(promoted).toEqual({ ok: true, id: "pg-promote-then-mutate" });
+
+    // promotion 后第二次 status mutation（official → archived）：不得复现 23505。
+    const beforeMutation = await store.get("pg-promote-then-mutate");
+    await store.write({
+      id: "pg-promote-then-mutate",
+      kind: "domain-fact",
+      anchors: ["science"],
+      content: beforeMutation?.content ?? "The Earth orbits the Sun.",
+      status: "archived",
+      meta: {
+        ...(beforeMutation?.meta ?? {}),
+        mutation: "post-promotion",
+      },
+    } as any, { force: true, reason: "archive-after-promotion" });
+
+    const got = await store.get("pg-promote-then-mutate");
+    expect(got?.status).toBe("archived");
+    expect(got?.meta?.version).toBe(5);
+    const history = await store.revisionHistory("pg-promote-then-mutate");
+    expect(history.map((h) => h.revision)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("promotion writes meta.promotion and official revision in one transaction", async () => {
+    await seedDraft("pg-promote-tx");
+    await seedVerdicts("pg-promote-tx");
+
+    let outboxCalls = 0;
+    const promotionMeta = { promotedBy: "memory-keeper", promotedAt: Date.now() };
+
+    // 可观察 hook 注入 outbox 写入失败 → 断言事务回滚（official 未写、promotion revision 未写）。
+    await expect(
+      store.promoteOfficial("pg-promote-tx", DEFAULT_TENANT_ID, 3, promotionMeta, {
+        createdBy: "memory-keeper",
+        reason: "knowledge-promotion",
+        evaluate: canPromote,
+        enqueueOutbox: async () => {
+          outboxCalls += 1;
+          throw new Error("outbox write failed");
+        },
+      }),
+    ).rejects.toThrow("outbox write failed");
+
+    const afterRollback = await store.get("pg-promote-tx");
+    expect(afterRollback?.status).toBe("draft");
+    expect(afterRollback?.meta?.version).toBe(3);
+    expect((await store.revisionHistory("pg-promote-tx")).map((h) => h.revision)).toEqual([1, 2]);
+    expect(outboxCalls).toBe(1);
+
+    // 成功路径：official 状态、meta.promotion 与旧 revision 在同一事务提交。
+    await expect(
+      store.promoteOfficial("pg-promote-tx", DEFAULT_TENANT_ID, 3, promotionMeta, {
+        createdBy: "memory-keeper",
+        reason: "knowledge-promotion",
+        evaluate: canPromote,
+        enqueueOutbox: async () => {
+          outboxCalls += 1;
+        },
+      }),
+    ).resolves.toEqual({ ok: true, id: "pg-promote-tx" });
+
+    const got = await store.get("pg-promote-tx");
+    expect(got?.status).toBe("official");
+    expect(got?.meta?.promotion).toMatchObject({ promotedBy: "memory-keeper" });
+    const history = await store.revisionHistory("pg-promote-tx");
+    expect(history.map((h) => h.revision)).toEqual([1, 2, 3]);
+    expect(history[2]).toMatchObject({ status: "draft", reason: "knowledge-promotion" });
+    expect(outboxCalls).toBe(2);
   });
 });
