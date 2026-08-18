@@ -320,6 +320,27 @@ async function probeGoldAndDirectory() {
 
   const membershipRefs = directory.memberships.reduce((sum, m) => sum + m.regionIds.length, 0);
   const overlap = directory.memberships.filter((m) => m.regionIds.length > 1).length;
+  // P0-3/H2 修复：ownerless 与正文复制由真实扫描得出，不用常量。
+  const ownerlessRegions = directory.regions.filter((region) =>
+    !directory.responsibilities.some((r) => r.regionId === region.regionId && r.kind === "primary"),
+  ).length;
+  const countBodyFields = (root: unknown): number => {
+    if (Array.isArray(root)) return root.reduce((sum, item) => sum + countBodyFields(item), 0);
+    if (root && typeof root === "object") {
+      let count = 0;
+      for (const [key, value] of Object.entries(root as Record<string, unknown>)) {
+        if (key === "content" || key === "body") count += 1;
+        count += countBodyFields(value);
+      }
+      return count;
+    }
+    return 0;
+  };
+  const bodyCopiesOutsideCanonicalStore = countBodyFields([
+    directory.memberships,
+    directory.regions,
+    directory.responsibilities,
+  ]);
 
   return {
     goldQueries: N28_GOLD_QUERIES.length,
@@ -336,8 +357,8 @@ async function probeGoldAndDirectory() {
     canonicalBodyEntries: corpus.length,
     directoryMembershipReferences: membershipRefs,
     overlapMemberships: overlap,
-    ownerlessRegions: 0,
-    bodyCopiesOutsideCanonicalStore: 0,
+    ownerlessRegions,
+    bodyCopiesOutsideCanonicalStore,
     directoryInvariantProbeCases: invariantProbeCases,
     directoryInvariantFailures: invariantFailures,
     directoryDeterminismProbeCases: 1,
