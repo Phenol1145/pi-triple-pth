@@ -13,3 +13,4 @@ export * from "./adapters/pth-knowledge-broker.js";
 export * from "./memory-directory.js";
 export * from "./authorization/verified-task-read-scope.js";
 export * from "./layered-knowledge-retriever.js";
+export * from "./knowledge-intake/index.js";

@@ -106,6 +106,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_BATCH_TICK_MS", "number", 1000, "scaler", "batch", "batch 认领心跳 tick（空闲退避）"),
   d("PTH_BATCH_ID", "string", "", "worker", "batch", "N28：本 batch 实例 ID（BatchManager.spawnBatch 注入子进程；缺省空=未由 BatchManager 启动）"),
   d("PTH_COGNITIVE_RESPONSIBILITY_MODE", "string", "off", "mode", "batch", "N28：认知责任模式——off=legacy 逐字节兼容（默认）/ feasibility=确定性可行性切片"),
+  d("PTH_KNOWLEDGE_INTAKE_MODE", "string", "off", "mode", "both", "N29：知识摄入模式——off=关闭（默认）/ draft=仅私有草稿 / full=完整内环（MIN_INNER_LOOP_GO 前不得启用）"),
   d("PTH_BATCH_HEALTH_STALE_MS", "number", 15_000, "scaler", "main", "batch 心跳陈旧判定阈值（listBatches 健康面 healthy/stale——与 watchdog HEARTBEAT_STALE_MS 同档）", { runtime: true }),
   d("PTH_WORKER_ROLES", "string", "", "worker", "both", "batch 构成参数化（角色:副本数逗号分隔；空=默认构成）"),
   d("PTH_PG_POOL_MAX", "number", 8, "infra", "batch", "batch 子进程 PG 连接池上限"),
@@ -172,6 +173,8 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_DEBUG_IDLE_MS", "number", 30 * 60_000, "path", "sandbox", "调试会话空闲回收"),
   d("PTH_DEBUG_SESSIONS", "number", 4, "path", "sandbox", "调试会话并发上限"),
   d("PTH_DEBUG_SANDBOX", "string", "0", "path", "sandbox", "sandbox 诊断日志开关"),
+  d("PTH_TRUST_POLICY_MANIFEST", "string", "", "path", "both", "N29：人类签名 Trust Policy manifest 只读路径（JSON；PTL Human Interface 签发）"),
+  d("PTH_TRUST_POLICY_KEYRING", "string", "", "path", "both", "N29：Trust Policy 验证公钥 keyring 只读路径（JSON；stable human principal -> PEM public key）"),
 
   // ── 模式 / 开关 / 观测 ───────────────────────────────────────────
   d("PTH_ASP_MODE", "string", "on", "mode", "batch", "动作空间协议（on/off）"),
