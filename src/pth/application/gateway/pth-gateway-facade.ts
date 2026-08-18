@@ -70,6 +70,8 @@ export interface PthGatewayFacade {
   ): Promise<unknown>;
   spawnBatches(count: number, profile?: BatchProfile): Promise<SpawnBatchesResult>;
   batchWorkers(id: string, action: "pause" | "resume" | "remove" | "add", role: string, copies: number): Promise<boolean>;
+  /** N28 复核 Layer3：workerId 级副本控制（feasibility 模式）。 */
+  batchReplica(id: string, action: "pause" | "resume" | "remove", workerId: string): Promise<boolean>;
   removeBatches(count: number): Promise<number>;
   listBatchesWithAlive(): Promise<Array<Record<string, unknown>>>;
   listJobs(): Promise<Array<Record<string, unknown>>>;
@@ -270,6 +272,12 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     if (action === "resume") return this.#kernel.batchManager.resumeWorker(id, role);
     if (action === "remove") return this.#kernel.batchManager.removeWorker(id, role);
     return this.#kernel.batchManager.addWorker(id, role, copies);
+  }
+
+  async batchReplica(id: string, action: "pause" | "resume" | "remove", workerId: string): Promise<boolean> {
+    if (action === "pause") return this.#kernel.batchManager.pauseReplica(id, workerId);
+    if (action === "resume") return this.#kernel.batchManager.resumeReplica(id, workerId);
+    return this.#kernel.batchManager.removeReplica(id, workerId);
   }
 
   async removeBatches(count: number): Promise<number> {

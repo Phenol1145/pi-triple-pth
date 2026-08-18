@@ -428,6 +428,22 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     return { ok: true, batchId: id, action, role, copies: action === "add" ? copies : undefined };
   });
 
+  // N28 复核 Layer3：workerId 级副本控制（feasibility 模式）
+  // POST /api/v1/kernel/batch/:id/replicas {action: pause|resume|remove, workerId}
+  app.post("/api/v1/kernel/batch/:id/replicas", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const action = body.action as string;
+    const workerId = body.workerId as string;
+    if (!["pause", "resume", "remove"].includes(action) || typeof workerId !== "string" || workerId.length === 0) {
+      return reply.status(400).send({ error: "action ∈ pause|resume|remove, workerId required" });
+    }
+    const ok = await facade.batchReplica(id, action as "pause" | "resume" | "remove", workerId);
+    if (!ok) return reply.status(404).send({ error: `batch ${id} / replica ${workerId} not found or IPC unavailable` });
+    return { ok: true, batchId: id, action, workerId };
+  });
+
   app.post("/api/v1/kernel/batch/remove", async (req, reply) => {
     if (!facade) return unavailable(reply);
     const body = (req.body ?? {}) as Record<string, unknown>;
