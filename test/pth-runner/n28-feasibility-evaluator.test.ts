@@ -71,4 +71,23 @@ describe("N28 feasibility evaluator（纯判定）", () => {
     expect(result.metrics.generatedBudgetCases).toBe(1000);
     for (const h of Object.values(result.hypotheses)) expect(h.passed).toBe(true);
   });
+
+  it("P0-4 六条 sabotage：NO-GO 且每条只翻转其映射假设", async () => {
+    const sabotageMap: Record<string, string> = {
+      "control-target-swap": "H1",
+      "directory-body-copy": "H2",
+      "remove-global-wave": "H3",
+      "scope-guard-bypass": "H4",
+      "budget-wrapper-bypass": "H5",
+      "tool-dispatch-guard-bypass": "H6",
+    };
+    for (const [sabotage, mapped] of Object.entries(sabotageMap)) {
+      const result = await evaluateN28Feasibility({ sabotage: sabotage as Parameters<typeof evaluateN28Feasibility>[0] extends { sabotage?: infer S } ? S : never });
+      expect(result.decision, sabotage).toBe("NO-GO");
+      expect(result.hypotheses[mapped as keyof typeof result.hypotheses].passed, `${sabotage} -> ${mapped}`).toBe(false);
+      for (const [h, item] of Object.entries(result.hypotheses)) {
+        if (h !== mapped) expect(item.passed, `${sabotage} 不应翻转 ${h}`).toBe(true);
+      }
+    }
+  });
 });
