@@ -2,7 +2,7 @@
  * runner/observers/metrics-observer.ts — 性能计量 fan-out（模块化 v2 P1-7）。
  */
 
-import type { TaskOutcomeObserver } from "../../tasking/index.js";
+import type { TaskOutcomeObserverFn } from "../../tasking/index.js";
 
 export interface MetricsObserverDeps {
   metric(m: Record<string, unknown>): void;
@@ -10,7 +10,7 @@ export interface MetricsObserverDeps {
   classifyReason?(reason: string): string;
 }
 
-export function createMetricsObserver(deps: MetricsObserverDeps): TaskOutcomeObserver {
+export function createMetricsObserver(deps: MetricsObserverDeps): TaskOutcomeObserverFn {
   return async (event) => {
     const { outcome } = event;
     const execMs = Number(event.context?.["execMs"] ?? 0);

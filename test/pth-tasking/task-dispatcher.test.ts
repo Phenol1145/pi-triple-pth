@@ -144,4 +144,29 @@ describe("TaskDispatcher（P1-5）", () => {
     expect(runner.run).not.toHaveBeenCalled();
     expect(observer).not.toHaveBeenCalled();
   });
+
+  it("named observers all succeed => no 'observer failed' log", async () => {
+    const lease = leaseFor("t1");
+    const calls: string[] = [];
+    const logs: string[] = [];
+    const repository: TaskRepository = {
+      claim: vi.fn(async () => [{ lease, work: workFor("t1") }]),
+      recoverExpired: vi.fn(async () => 0),
+      commit: vi.fn(async () => ({ committed: true })),
+    };
+    const dispatcher = new TaskDispatcher({
+      repository,
+      committer: new TaskOutcomeCommitter(repository),
+      runner: { run: vi.fn(async () => okOutcome(lease)) },
+      observers: [
+        { name: "audit-observer", stage: "audit", durable: true, observe: async () => { calls.push("audit"); } },
+        { name: "transcript-observer", stage: "transcript", durable: true, observe: async () => { calls.push("transcript"); } },
+      ],
+      logger: (m) => logs.push(m),
+    });
+    const result = await dispatcher.dispatchOnce(scope, "developer", ["t1"]);
+    expect(result.committed).toBe(1);
+    expect(calls).toEqual(["audit", "transcript"]);
+    expect(logs.filter((l) => l.includes("observer failed"))).toEqual([]);
+  });
 });

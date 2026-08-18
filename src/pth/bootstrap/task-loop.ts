@@ -12,7 +12,7 @@ import { createTranscriptObserver } from "../runner/index.js";
 import { createActivityObserver } from "../runner/index.js";
 import { createMetricsObserver } from "../runner/index.js";
 import { createNotifierObserver } from "../runner/index.js";
-import { createRefineObserver } from "../runner/index.js";
+import { buildRefineSideEffects } from "../runner/index.js";
 import { createOptimizerObserver } from "../runner/index.js";
 import { buildScorecard, computeTimeReuse } from "../kernel/execution/worker-scorecard.js";
 import { translateTask } from "../kernel/execution/nl-translator.js";
@@ -21,7 +21,7 @@ import { runAgentTask } from "../kernel/execution/agent-loop.js";
 import { getEventBus } from "../kernel/execution/event-bus.js";
 import { publishDebugCaseTask } from "../kernel/execution/debug-case-dispatch.js";
 import { notifyTaskDone, classifyReason } from "./task-loop-helpers.js";
-import { readWorkItemDomainBinding, readWorkItemDomains } from "../tasking/index.js";
+import { readWorkItemDomainBinding, readWorkItemDomains, type ObserverFailureRecord } from "../tasking/index.js";
 import type { TaskLoopDeps } from "./task-loop-types.js";
 export type { TaskLoopDeps } from "./task-loop-types.js";
 import { pthConfig } from "../config/index.js";
@@ -144,44 +144,78 @@ export class TaskLoop {
       // 同样以对象方法调用 transcripts（obj.method 形态，this 绑定安全）。
       const transcripts = this.deps.transcripts;
       const sideEffectOutbox = this.deps.sideEffectOutbox;
-      const observers = [
-        ...(audit?.write ? [createAuditObserver({ write: (ev) => audit.write!(ev) })] : []),
+      const recordObserverFailure = (failure: ObserverFailureRecord): Promise<void> | void => {
+        if (!sideEffectOutbox) return;
+        const key = `observer-failure:${failure.tenantId}:${failure.taskId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+        return sideEffectOutbox.enqueue({
+          key,
+          tenantId: failure.tenantId,
+          kind: "observer-failure",
+          payload: { ...failure, at: new Date().toISOString() },
+        }).catch((e) => {
+          this.deps.logger?.child?.("taskloop", { taskId: failure.taskId })?.warn?.(
+            `observer failure enqueue failed [${failure.observerName}]: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        });
+      };
+      const observers: Array<import("../tasking/index.js").TaskOutcomeObserver> = [
+        ...(audit?.write
+          ? [{
+              name: "audit-observer",
+              stage: "audit",
+              durable: true,
+              observe: createAuditObserver({ write: (ev) => audit.write!(ev) }),
+            }]
+          : []),
         ...(transcripts
-          ? [createTranscriptObserver({ create: (input) => transcripts.create(input as never) })]
+          ? [{
+              name: "transcript-observer",
+              stage: "transcript",
+              durable: true,
+              observe: createTranscriptObserver({ create: (input) => transcripts.create(input as never) }),
+            }]
           : []),
-        createActivityObserver({ emit: (e) => this.deps.onActivity?.({ ...e, role: role.id, taskId: task.id }) }),
-        createMetricsObserver({ metric: (m) => this.deps.onTaskMetric?.(m), classifyReason }),
-        createNotifierObserver(),
-        ...(this.deps.refiner && sideEffectOutbox
-          ? [createRefineObserver({
-              enqueue: (key, kind, payload) => sideEffectOutbox.enqueue({
-                key,
-                tenantId: (payload as { tenantId?: string } | undefined)?.tenantId ?? "default",
-                kind,
-                payload,
-              }),
-              kernel: this.deps.kernel,
-              roleId: role.id,
-              logger: (m) => taskLogger?.error(m),
-            })]
-          : []),
+        {
+          name: "activity-observer",
+          stage: "activity",
+          observe: createActivityObserver({ emit: (e) => this.deps.onActivity?.({ ...e, role: role.id, taskId: task.id }) }),
+        },
+        {
+          name: "metrics-observer",
+          stage: "metrics",
+          observe: createMetricsObserver({ metric: (m) => this.deps.onTaskMetric?.(m), classifyReason }),
+        },
+        { name: "notifier-observer", stage: "notify", observe: createNotifierObserver() },
         ...(this.deps.optimizer
-          ? [createOptimizerObserver({
-              queue: slowQueue,
-              optimizer: this.deps.optimizer,
-              buildScorecard: (trace) => buildScorecard(trace as never),
-              computeTimeReuse: (subtasks) => computeTimeReuse(subtasks),
-              roleId: role.id,
-              logger: (m) => taskLogger?.error(m),
-            })]
+          ? [{
+              name: "optimizer-observer",
+              stage: "optimizer",
+              observe: createOptimizerObserver({
+                queue: slowQueue,
+                optimizer: this.deps.optimizer,
+                buildScorecard: (trace) => buildScorecard(trace as never),
+                computeTimeReuse: (subtasks) => computeTimeReuse(subtasks),
+                roleId: role.id,
+                logger: (m) => taskLogger?.error(m),
+              }),
+            }]
           : []),
-        (evt: { outcome: TaskOutcome }) => this.afterCommittedNew(task, ws, evt.outcome, chain, execStart),
+        {
+          name: "after-committed",
+          stage: "archive",
+          observe: (evt: { outcome: TaskOutcome }) => this.afterCommittedNew(task, ws, evt.outcome, chain, execStart),
+        },
       ];
       const dispatcher = new TaskDispatcher({
         repository: repository!,
         committer: new TaskOutcomeCommitter(repository!),
         runner,
         observers,
+        onObserverFailure: recordObserverFailure,
+        // R4/P0-4：refine 的持久化 enqueue 作为 side-effect 随 commit 同事务提交。
+        buildSideEffects: this.deps.refiner && sideEffectOutbox
+          ? (evt) => buildRefineSideEffects({ kernel: this.deps.kernel, roleId: role.id }, evt)
+          : undefined,
         context: { task, ws, chain, execStart, traceEvents },
         logger: (m) => taskLogger?.warn?.(m),
       });

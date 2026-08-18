@@ -2,13 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BoundedBackgroundQueue,
   notifyObservers,
+  type ObserverFailureRecord,
   type TaskOutcomeObserver,
+  type TaskOutcomeObserverEvent,
 } from "../../src/pth/tasking/task-outcome-observers.js";
 import { createAuditObserver } from "../../src/pth/runner/observers/audit-observer.js";
 import { createTranscriptObserver } from "../../src/pth/runner/observers/transcript-observer.js";
 import { createActivityObserver } from "../../src/pth/runner/observers/activity-observer.js";
 import { createMetricsObserver } from "../../src/pth/runner/observers/metrics-observer.js";
-import { createRefineObserver } from "../../src/pth/runner/observers/refine-observer.js";
+import { buildRefineSideEffects } from "../../src/pth/runner/observers/refine-observer.js";
 import type { TaskLease, TaskOutcome, TaskWorkItem } from "../../src/pth/contracts/index.js";
 
 function lease(): TaskLease {
@@ -31,7 +33,7 @@ function work(): TaskWorkItem {
   };
 }
 
-function event(overrides: Partial<TaskOutcome> = {}): Parameters<TaskOutcomeObserver>[0] {
+function event(overrides: Partial<TaskOutcome> = {}): TaskOutcomeObserverEvent {
   return {
     lease: lease(),
     work: work(),
@@ -94,18 +96,15 @@ describe("task outcome observers（P1-7）", () => {
     expect(metrics.some((m) => (m as { type: string }).type === "reject-reason")).toBe(true);
   });
 
-  it("refine observer：completed 同步 await enqueue（幂等 key + lineage payload）", async () => {
-    const enqueues: Array<{ key: string; kind: string; payload: Record<string, unknown> }> = [];
-    const observer = createRefineObserver({
-      enqueue: async (key, kind, payload) => { enqueues.push({ key, kind, payload: payload as Record<string, unknown> }); },
-      kernel: { snapshot: async () => ({ variables: [], functions: [], oversized: [] }) },
-      roleId: "developer",
-    });
-    await observer(event());
-    expect(enqueues).toHaveLength(1);
-    expect(enqueues[0]!.key).toBe("refine:tenant-a:task-1:1");
-    expect(enqueues[0]!.kind).toBe("refine");
-    expect(enqueues[0]!.payload).toMatchObject({
+  it("buildRefineSideEffects：completed 生成同事务 refine side effect（幂等 key + lineage payload）", async () => {
+    const effects = await buildRefineSideEffects(
+      { kernel: { snapshot: async () => ({ variables: [], functions: [], oversized: [] }) }, roleId: "developer" },
+      event(),
+    );
+    expect(effects).toHaveLength(1);
+    expect(effects[0]!.key).toBe("refine:tenant-a:task-1:1");
+    expect(effects[0]!.kind).toBe("refine");
+    expect(effects[0]!.payload).toMatchObject({
       taskId: "task-1",
       roleId: "developer",
       tenantId: "tenant-a",
@@ -113,53 +112,96 @@ describe("task outcome observers（P1-7）", () => {
       outcome: { status: "completed", result: { ok: true } },
       artifactRefs: [],
     });
-    expect(enqueues[0]!.payload.snapshot).toBeDefined();
+    expect((effects[0]!.payload as { snapshot: unknown }).snapshot).toBeDefined();
   });
 
-  it("refine observer：traceEvents 截断 60 条", async () => {
-    const enqueues: Array<{ payload: Record<string, unknown> }> = [];
-    const observer = createRefineObserver({
-      enqueue: async (_key, _kind, payload) => { enqueues.push({ payload: payload as Record<string, unknown> }); },
-      kernel: { snapshot: async () => ({ variables: [], functions: [], oversized: [] }) },
-      roleId: "developer",
-    });
-    const ev = event() as unknown as Parameters<TaskOutcomeObserver>[0];
-    ev.context = { ...ev.context, traceEvents: Array.from({ length: 65 }, (_, i) => ({ type: "llm-call", step: i })) };
-    await observer(ev);
-    expect((enqueues[0]!.payload.traceEvents as unknown[])).toHaveLength(60);
+  it("buildRefineSideEffects：traceEvents 截断 60 条", async () => {
+    const ev = event();
+    ev.context = {
+      ...ev.context,
+      traceEvents: Array.from({ length: 65 }, (_, i) => ({ type: "llm-call", step: i })),
+    };
+    const effects = await buildRefineSideEffects(
+      { kernel: { snapshot: async () => ({ variables: [], functions: [], oversized: [] }) }, roleId: "developer" },
+      ev,
+    );
+    expect(effects).toHaveLength(1);
+    expect((effects[0]!.payload as { traceEvents: unknown[] }).traceEvents).toHaveLength(60);
   });
 
-  it("refine observer：payload.refine=off 不 enqueue", async () => {
-    const enqueue = vi.fn(async () => {});
-    const observer = createRefineObserver({
-      enqueue,
-      kernel: { snapshot: async () => ({}) },
-      roleId: "developer",
-    });
-    const ev = event() as unknown as Parameters<TaskOutcomeObserver>[0];
+  it("buildRefineSideEffects：payload.refine=off 不生成 side effect", async () => {
+    const ev = event();
     ev.context = { ...ev.context, task: { id: "task-1", payload: { refine: "off" } } };
-    await observer(ev);
-    expect(enqueue).not.toHaveBeenCalled();
+    const effects = await buildRefineSideEffects(
+      { kernel: { snapshot: async () => ({}) }, roleId: "developer" },
+      ev,
+    );
+    expect(effects).toEqual([]);
   });
 
-  it("refine observer：snapshot 失败记日志并跳过；enqueue 失败抛出（notifyObservers 可见）", async () => {
-    const logs: string[] = [];
-    const enqueue = vi.fn(async () => { throw new Error("pg down"); });
-    const observer = createRefineObserver({
-      enqueue,
-      kernel: { snapshot: async () => { throw new Error("snapshot boom"); } },
-      roleId: "developer",
-      logger: (m) => logs.push(m),
+  it("buildRefineSideEffects：snapshot 失败入队 snapshotMissing refine + observer-failure durable record", async () => {
+    const effects = await buildRefineSideEffects(
+      { kernel: { snapshot: async () => { throw new Error("snapshot boom"); } }, roleId: "developer" },
+      event(),
+    );
+    expect(effects).toHaveLength(2);
+    expect(effects[0]!.kind).toBe("refine");
+    expect((effects[0]!.payload as { snapshotMissing: boolean }).snapshotMissing).toBe(true);
+    expect(effects[1]!.kind).toBe("observer-failure");
+    expect(effects[1]!.payload).toMatchObject({
+      observerName: "refine-observer",
+      stage: "snapshot",
+      taskId: "task-1",
+      tenantId: "tenant-a",
+      message: "snapshot boom",
     });
-    await observer(event());
-    expect(logs.some((l) => l.includes("snapshot failed"))).toBe(true);
-    expect(enqueue).not.toHaveBeenCalled();
+  });
 
-    const observer2 = createRefineObserver({
-      enqueue: async () => { throw new Error("enqueue boom"); },
-      kernel: { snapshot: async () => ({}) },
-      roleId: "developer",
+  it("observer failure is recorded as durable failure with observer name", async () => {
+    const failures: ObserverFailureRecord[] = [];
+    const logs: string[] = [];
+    const observers: TaskOutcomeObserver[] = [
+      {
+        name: "audit-observer",
+        stage: "audit",
+        durable: true,
+        observe: async () => { throw new Error("Cannot read properties of undefined (reading 'pool')"); },
+      },
+      {
+        name: "notifier-observer",
+        stage: "notify",
+        durable: false,
+        observe: async () => { throw new Error("notify down"); },
+      },
+      async () => { throw new Error("anonymous boom"); },
+    ];
+    await notifyObservers(observers, event(), {
+      logger: (m) => logs.push(m),
+      recordFailure: async (f) => { failures.push(f); },
     });
-    await expect(observer2(event())).rejects.toThrow("enqueue boom");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      observerName: "audit-observer",
+      stage: "audit",
+      taskId: "task-1",
+      tenantId: "tenant-a",
+      message: "Cannot read properties of undefined (reading 'pool')",
+    });
+    expect(logs.some((l) => l.includes("[audit-observer:audit]"))).toBe(true);
+    expect(logs.some((l) => l.includes("[notifier-observer:notify]"))).toBe(true);
+    expect(logs.some((l) => l.includes("[anonymous]"))).toBe(true);
+  });
+
+  it("full batch composition emits no 'observer failed' log line", async () => {
+    const logs: string[] = [];
+    const observers: TaskOutcomeObserver[] = [
+      { name: "audit-observer", stage: "audit", durable: true, observe: async () => {} },
+      { name: "transcript-observer", stage: "transcript", durable: true, observe: async () => {} },
+      { name: "activity-observer", stage: "activity", observe: async () => {} },
+      { name: "metrics-observer", stage: "metrics", observe: async () => {} },
+      { name: "after-committed", stage: "archive", observe: async () => {} },
+    ];
+    await notifyObservers(observers, event(), { logger: (m) => logs.push(m) });
+    expect(logs.filter((l) => l.includes("observer failed"))).toEqual([]);
   });
 });
