@@ -438,6 +438,8 @@ async function probeBudgetAndResponsibility(sabotage?: N28Sabotage) {
     const first = await runFacade(false, false);
     const second = await runFacade(true, sabotage === "budget-wrapper-bypass" && seed === 9);
     const third = await runFacade(false, false);
+    // P0-4 sentinel：budget-wrapper-bypass 必须推高 budgetViolations（facade 暴露行数 ≠ 账本已收行数）。
+    if (sabotage === "budget-wrapper-bypass" && seed === 9 && second.exposed.length !== second.usage.memoryEntries) budgetViolations += 1;
     if (JSON.stringify(first.ledger.snapshot()) !== JSON.stringify(third.ledger.snapshot())) snapshotMismatches += 1;
     // 反序输入必须产出同一冻结 working set；bypass 会绕过 facade 暴露原始行。
     if (JSON.stringify(first.policy) !== JSON.stringify(second.policy) || first.exposed.length !== second.exposed.length || JSON.stringify(first.exposed) !== JSON.stringify(second.exposed)) workingSetMismatches += 1;
