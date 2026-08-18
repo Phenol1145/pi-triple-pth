@@ -61,8 +61,42 @@ describe("memory-policy write 规则", () => {
     expect(checkWrite("tool-proposal", "official")).toEqual({ ok: true, forceStatus: "draft" });
   });
 
-  it("knowledge 层放行", () => {
-    expect(checkWrite("task-insight", "official")).toEqual({ ok: true });
+  it("knowledge 层放行（N29 P0-4：写入放行但强制 draft）", () => {
+    expect(checkWrite("task-insight", "official")).toEqual({ ok: true, forceStatus: "draft" });
+  });
+});
+
+/**
+ * N29 L1（§1.6 P0-4）：worker/service/模板都不能取得 knowledge official 写权限。
+ * 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
+ */
+describe("N29 P0-4：worker knowledge write 强制 draft", () => {
+  it("knowledge 层任意 kind/status 一律强制 draft（不再 direct official）", () => {
+    for (const kind of ["task-insight", "domain-fact", "domain-method", "research-note", "tool-function", "pth-wiki"]) {
+      expect(layerOfKind(kind), kind).toBe("knowledge");
+      expect(checkWrite(kind, "official"), kind).toEqual({ ok: true, forceStatus: "draft" });
+      expect(checkWrite(kind), kind).toEqual({ ok: true, forceStatus: "draft" });
+      expect(checkWrite(kind, "archived"), kind).toEqual({ ok: true, forceStatus: "draft" });
+      expect(checkWrite(kind, "draft"), kind).toEqual({ ok: true, forceStatus: "draft" });
+    }
+  });
+
+  it("策略不接受 principal/role 入参——service 与 platform-admin service 无法绕过", () => {
+    // checkWrite 只按 (kind, status) 判定：任何调用主体（worker / service / platform-admin service）
+    // 得到同一结论，不存在按角色放行 official 的分支。
+    const asWorker = checkWrite("domain-fact", "official");
+    const asService = checkWrite("domain-fact", "official");
+    expect(asWorker).toEqual(asService);
+    expect(asWorker.forceStatus).toBe("draft");
+    expect(checkWrite.length).toBe(2);   // (kind, status) —— 无第三个 principal 参数
+  });
+
+  it("knowledge 层 update 不能把 draft 流转为 official（补 write 强制 draft 的同款洞）", () => {
+    expect(checkUpdate("task-insight", "official").ok).toBe(false);
+    expect(checkUpdate("domain-fact", "official").ok).toBe(false);
+    // 非 official 的状态流转与纯内容修正不受影响
+    expect(checkUpdate("task-insight", "archived").ok).toBe(true);
+    expect(checkUpdate("task-insight").ok).toBe(true);
   });
 });
 

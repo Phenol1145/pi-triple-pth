@@ -43,6 +43,15 @@ suite("pg task repository（P1-2）", () => {
   let pool: Awaited<ReturnType<typeof createPgPool>>;
   let repo: PgTaskRepository;
 
+  /** N29 L1：CAS 失败必须零 side effect——按 (tenant_id, key) 计数。 */
+  async function countOutbox(tenantId: string, key: string): Promise<number> {
+    const r = await pool.query(
+      `SELECT count(*)::int AS n FROM side_effect_outbox WHERE tenant_id = $1 AND key = $2`,
+      [tenantId, key],
+    );
+    return r.rows[0].n as number;
+  }
+
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     pool = await createPgPool({ connectionString: container.getConnectionUri() });
@@ -206,6 +215,146 @@ suite("pg task repository（P1-2）", () => {
       lineageId: "root-1",
       artifactRef: { kind: "file", id: "archive://task-result-writeback/out.ts" },
     });
+  });
+
+  // ── N29 L1（§1.3 P0-1 / §1.4 P0-2）：CAS 失败零 side effect + 未过期 lease + tenant scope ──
+  // 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 1。
+
+  it("N29 P0-1：wrong generation does not enqueue side effects", async () => {
+    await insertTask(pool, "task-n29-wrong-gen");
+    const [claimed] = await repo.claim(scope, "developer", ["task-n29-wrong-gen"]);
+    const effect = { key: "probe:wrong-generation", tenantId: "tenant-a", kind: "refine", payload: { probe: 1 } };
+    const result = await repo.commit(
+      {
+        lease: { ...claimed.lease, generation: claimed.lease.generation + 1 },   // 错 generation
+        status: "completed",
+        result: { value: 1 },
+        artifacts: [],
+        traceId: scope.traceId,
+      },
+      { sideEffects: [effect], scope: { tenantId: "tenant-a" } },
+    );
+    expect(result).toEqual({ committed: false });
+    expect(await countOutbox("tenant-a", effect.key)).toBe(0);
+    const row = await pool.query("SELECT status FROM tasks WHERE id = 'task-n29-wrong-gen'");
+    expect(row.rows[0].status).toBe("claimed");
+  });
+
+  it("N29 P0-1：wrong generation 在 retryable / rejected 分支同样零 side effect", async () => {
+    await insertTask(pool, "task-n29-wrong-gen-retry");
+    const [claimed] = await repo.claim(scope, "developer", ["task-n29-wrong-gen-retry"]);
+    const wrongLease = { ...claimed.lease, generation: claimed.lease.generation + 1 };
+    const retryEffect = { key: "probe:wrong-generation-retry", tenantId: "tenant-a", kind: "refine", payload: { probe: 2 } };
+    const retry = await repo.commit(
+      { lease: wrongLease, status: "rejected", retryable: true, error: { code: "soft", message: "later" }, artifacts: [], traceId: scope.traceId },
+      { sideEffects: [retryEffect], scope: { tenantId: "tenant-a" } },
+    );
+    expect(retry).toEqual({ committed: false });
+    expect(await countOutbox("tenant-a", retryEffect.key)).toBe(0);
+
+    const rejectEffect = { key: "probe:wrong-generation-reject", tenantId: "tenant-a", kind: "refine", payload: { probe: 3 } };
+    const rejected = await repo.commit(
+      { lease: wrongLease, status: "rejected", retryable: false, error: { code: "hard", message: "boom" }, artifacts: [], traceId: scope.traceId },
+      { sideEffects: [rejectEffect], scope: { tenantId: "tenant-a" } },
+    );
+    expect(rejected).toEqual({ committed: false });
+    expect(await countOutbox("tenant-a", rejectEffect.key)).toBe(0);
+
+    const row = await pool.query("SELECT status FROM tasks WHERE id = 'task-n29-wrong-gen-retry'");
+    expect(row.rows[0].status).toBe("claimed");
+  });
+
+  it("N29 P0-2：expired lease cannot commit or enqueue", async () => {
+    await insertTask(pool, "task-n29-expired");
+    const [claimed] = await repo.claim(scope, "developer", ["task-n29-expired"]);
+    await pool.query(`UPDATE tasks SET lease_expires_at = now() - interval '1 minute' WHERE id = 'task-n29-expired'`);
+    const effect = { key: "probe:expired-lease", tenantId: "tenant-a", kind: "refine", payload: { probe: 4 } };
+    const result = await repo.commit(
+      { lease: claimed.lease, status: "completed", result: { value: 1 }, artifacts: [], traceId: scope.traceId },
+      { sideEffects: [effect], scope: { tenantId: "tenant-a" } },
+    );
+    expect(result).toEqual({ committed: false });
+    expect(await countOutbox("tenant-a", effect.key)).toBe(0);
+    const row = await pool.query("SELECT status FROM tasks WHERE id = 'task-n29-expired'");
+    expect(row.rows[0].status).toBe("claimed");
+  });
+
+  it("N29 P0-2：expired lease 在 retryable / rejected 分支同样不能提交", async () => {
+    await insertTask(pool, "task-n29-expired-retry");
+    const [claimed] = await repo.claim(scope, "developer", ["task-n29-expired-retry"]);
+    await pool.query(`UPDATE tasks SET lease_expires_at = now() - interval '1 minute' WHERE id = 'task-n29-expired-retry'`);
+    const retry = await repo.commit(
+      { lease: claimed.lease, status: "rejected", retryable: true, error: { code: "soft", message: "later" }, artifacts: [], traceId: scope.traceId },
+      { scope: { tenantId: "tenant-a" } },
+    );
+    expect(retry).toEqual({ committed: false });
+    const rejected = await repo.commit(
+      { lease: claimed.lease, status: "rejected", retryable: false, error: { code: "hard", message: "boom" }, artifacts: [], traceId: scope.traceId },
+      { scope: { tenantId: "tenant-a" } },
+    );
+    expect(rejected).toEqual({ committed: false });
+    const row = await pool.query("SELECT status FROM tasks WHERE id = 'task-n29-expired-retry'");
+    expect(row.rows[0].status).toBe("claimed");
+  });
+
+  it("N29 P0-2：lease_expires_at IS NULL（旧行/无租约）不能提交", async () => {
+    await insertTask(pool, "task-n29-null-lease");
+    const [claimed] = await repo.claim(scope, "developer", ["task-n29-null-lease"]);
+    await pool.query(`UPDATE tasks SET lease_expires_at = NULL WHERE id = 'task-n29-null-lease'`);
+    const effect = { key: "probe:null-lease", tenantId: "tenant-a", kind: "refine", payload: { probe: 5 } };
+    const result = await repo.commit(
+      { lease: claimed.lease, status: "completed", result: { value: 1 }, artifacts: [], traceId: scope.traceId },
+      { sideEffects: [effect], scope: { tenantId: "tenant-a" } },
+    );
+    expect(result).toEqual({ committed: false });
+    expect(await countOutbox("tenant-a", effect.key)).toBe(0);
+  });
+
+  it("N29 P0-2：commit 携带错误 tenant scope（跨租户）不能提交且零 side effect", async () => {
+    await insertTask(pool, "task-n29-cross-tenant");
+    const [claimed] = await repo.claim(scope, "developer", ["task-n29-cross-tenant"]);
+    const effect = { key: "probe:cross-tenant", tenantId: "tenant-b", kind: "refine", payload: { probe: 6 } };
+    const result = await repo.commit(
+      { lease: { taskId: claimed.lease.taskId, leaseId: claimed.lease.leaseId, generation: claimed.lease.generation }, status: "completed", result: { value: 1 }, artifacts: [], traceId: scope.traceId },
+      { sideEffects: [effect], scope: { tenantId: "tenant-b" } },
+    );
+    expect(result).toEqual({ committed: false });
+    expect(await countOutbox("tenant-b", effect.key)).toBe(0);
+    const row = await pool.query("SELECT status FROM tasks WHERE id = 'task-n29-cross-tenant'");
+    expect(row.rows[0].status).toBe("claimed");
+  });
+
+  it("N29 P0-2：缺少服务端盖章 tenant scope 的 outcome fail closed（零 side effect）", async () => {
+    await insertTask(pool, "task-n29-no-scope");
+    const [claimed] = await repo.claim(scope, "developer", ["task-n29-no-scope"]);
+    const effect = { key: "probe:no-tenant-scope", tenantId: "tenant-a", kind: "refine", payload: { probe: 7 } };
+    const result = await repo.commit(
+      {
+        // 裸 lease reference（无 scope）+ 无 opts.scope：服务端无法确认 tenant → fail closed
+        lease: { taskId: claimed.lease.taskId, leaseId: claimed.lease.leaseId, generation: claimed.lease.generation },
+        status: "completed",
+        result: { value: 1 },
+        artifacts: [],
+        traceId: scope.traceId,
+      },
+      { sideEffects: [effect] },
+    );
+    expect(result).toEqual({ committed: false });
+    expect(await countOutbox("tenant-a", effect.key)).toBe(0);
+    const row = await pool.query("SELECT status FROM tasks WHERE id = 'task-n29-no-scope'");
+    expect(row.rows[0].status).toBe("claimed");
+  });
+
+  it("N29 P0-1/P0-2 正向：未过期 lease + 正确 tenant scope → commit 且 side effect 同事务落库", async () => {
+    await insertTask(pool, "task-n29-happy");
+    const [claimed] = await repo.claim(scope, "developer", ["task-n29-happy"]);
+    const effect = { key: "probe:happy-path", tenantId: "tenant-a", kind: "refine", payload: { probe: 8 } };
+    const result = await repo.commit(
+      { lease: claimed.lease, status: "completed", result: { value: 1 }, artifacts: [], traceId: scope.traceId },
+      { sideEffects: [effect], scope: { tenantId: "tenant-a" } },
+    );
+    expect(result).toEqual({ committed: true });
+    expect(await countOutbox("tenant-a", effect.key)).toBe(1);
   });
 
   it("W8 P0：completed 无产物不写 artifactRef；rejected 回写错误摘要", async () => {

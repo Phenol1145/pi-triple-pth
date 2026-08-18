@@ -78,3 +78,55 @@ describe("dev-task-ts 模板", () => {
     expect(code).toContain("globalThis.g = g");
   });
 });
+
+/**
+ * N29 L1（§1.6 P0-4）：外部内容只能进 private draft——模板不得 direct official。
+ * 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
+ */
+describe("N29 P0-4：模板不得 direct official", () => {
+  const reconParams = {
+    url: "https://example.com/doc",
+    section: "Types",
+    anchors: ["go", "spec"],
+    entryId: "go-spec-x",
+    kind: "research-note",
+  };
+
+  it("recon-doc 固定 status draft + private spaceScope（不再 public official）", () => {
+    const code = renderTaskTemplate("recon-doc", reconParams)!;
+    expect(code).toContain('status: "draft"');
+    expect(code).not.toContain('status: "official"');
+    expect(code).toContain('visibility: "private"');
+    expect(code).not.toContain('visibility: "public"');
+  });
+
+  it("recon-doc 不接受 LLM 自报的 id/kind/status（服务端固定 entryId/kind）", () => {
+    const code = renderTaskTemplate("recon-doc", reconParams)!;
+    expect(code).not.toContain("entry.id ??");
+    expect(code).not.toContain("entry.kind ??");
+    expect(code).not.toContain("entry.status");
+    // 服务端参数仍然写死进代码
+    expect(code).toContain('"go-spec-x"');
+    expect(code).toContain('"research-note"');
+  });
+
+  it("memory-maintain 固定 status draft + private spaceScope", () => {
+    const code = renderTaskTemplate("memory-maintain", { anchors: ["go"], task: "去重", entryId: "mm-1" })!;
+    expect(code).toContain('status: "draft"');
+    expect(code).not.toContain('status: "official"');
+    expect(code).toContain('visibility: "private"');
+    expect(code).not.toContain('visibility: "public"');
+    expect(code).not.toContain("entry.id ??");
+    expect(code).not.toContain("entry.kind ??");
+  });
+
+  it("所有模板渲染产物都不含 official 直写", () => {
+    for (const t of TASK_TEMPLATES) {
+      const code = t.render({
+        url: "https://x.dev/a", section: "S", anchors: ["a", "b"], entryId: "t-1",
+        kind: "k", task: "整理", description: "print(1)",
+      });
+      expect(code, t.id).not.toContain('status: "official"');
+    }
+  });
+});

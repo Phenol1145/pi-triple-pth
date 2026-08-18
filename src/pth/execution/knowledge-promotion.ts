@@ -12,6 +12,10 @@
 
 import type pg from "pg";
 import { PromotionConflictError, type PgMemoryStore } from "@away_from/pth-memory";
+// N29/P0-3：outbox 身份为 (tenant_id, key) + 稳定 payload_hash——晋升索引行改用同一事务绑定
+// enqueue（不再自写 `ON CONFLICT (key) DO NOTHING`：既避免跨 tenant 撞 key 静默丢弃，
+// 也让不同 payload 的同 key 显式 conflict 并回滚整个晋升事务）。
+import { enqueueSideEffectInTx } from "../tasking/index.js";
 import {
   canPromote,
   evaluatePlanVerdicts,
@@ -227,16 +231,12 @@ async function enqueuePromotionIndexOutbox(
   client: pg.PoolClient,
   input: { entryId: string; planId: string; tenantId: string },
 ): Promise<void> {
-  await client.query(
-    `INSERT INTO side_effect_outbox (key, tenant_id, kind, payload)
-     VALUES ($1, $2, 'promotion-index', $3::jsonb)
-     ON CONFLICT (key) DO NOTHING`,
-    [
-      `promotion-index:${input.tenantId}:${input.entryId}:${input.planId}`,
-      input.tenantId,
-      JSON.stringify({ entryId: input.entryId, planId: input.planId }),
-    ],
-  );
+  await enqueueSideEffectInTx(client, {
+    key: `promotion-index:${input.tenantId}:${input.entryId}:${input.planId}`,
+    tenantId: input.tenantId,
+    kind: "promotion-index",
+    payload: { entryId: input.entryId, planId: input.planId },
+  });
 }
 
 /**

@@ -112,6 +112,9 @@ const j = (v: unknown): string => JSON.stringify(v);
 
 // ── 模板 1：recon（信息搜集）──────────────────────────────────
 // web.fetchText(url) → 定位章节（可选）→ llm.complete 转写 → memory.write
+// N29/P0-4（§1.6）：外部内容 + LLM 产物只能进 **private draft**——不再 direct public official。
+// id/kind/status/visibility 全部由服务端模板参数固定，不接受 LLM（或调用方经 LLM 回传）自报；
+// official 只能由 Promotion Service 在 Source Revision + Evidence + 双 verdict 满足后晋升。
 const RECON_DOC = (p: Record<string, unknown>): string => {
   const url = String(p.url ?? "");
   const section = p.section ? String(p.section) : undefined;
@@ -131,9 +134,9 @@ const chunk = doc.slice(start, start + 10000);`
     : `const chunk = doc.slice(0, 12000);`}
 const sys = [
   "你是信息搜集专家。将以下文本转写为结构化记忆条目，只输出 JSON：",
-  "{id, kind, anchors, content}",
-  "id 用 " + ${j(entryId)} + "；kind 用 " + ${j(kind)} + "；",
+  "{anchors, content}",
   "anchors 用英文关键词数组；content 用中文总结核心内容（300 字内），覆盖：主题、关键概念、要点。",
+  "不要输出 id/kind/status——条目身份与状态由系统固定。",
 ].join("\\n");
 const res = await llm.complete(
   [{ role: "system", content: sys }, { role: "user", content: chunk }],
@@ -144,25 +147,26 @@ try {
   const cleaned = res.content.replace(/^\`\`\`json?|\`\`\`$/g, "").trim();
   entry = JSON.parse(cleaned);
 } catch {
-  entry = { id: ${j(entryId)}, kind: ${j(kind)}, anchors: ${j(anchors)}, content: res.content };
+  entry = { anchors: ${j(anchors)}, content: res.content };
 }
 // 锚点强制并集：调用方传入锚点 + LLM 生成锚点（保证检索稳定性——deepseek 常自由发挥）
 const mergedAnchors = Array.from(new Set([...(Array.isArray(entry.anchors) ? entry.anchors : []), ...${j(anchors)}]));
 await memory.write({
-  visibility: "public",   // ASP 可见性显式声明（模板=系统资产——全局共享）
-  id: entry.id ?? ${j(entryId)},
-  kind: entry.kind ?? ${j(kind)},
+  visibility: "private",   // N29 P0-4：外部内容只进当前空间私有草稿（不共享、不进 authoritative 检索）
+  id: ${j(entryId)},       // 服务端固定（LLM 不得改写条目身份）
+  kind: ${j(kind)},        // 服务端固定
   anchors: mergedAnchors.length > 0 ? mergedAnchors : ${j(anchors)},
   content: entry.content ?? res.content,
-  status: "official",
+  status: "draft",         // N29 P0-4：外部内容不得 direct official（晋升走 Promotion Service）
   meta: { source: url, provider: "deepseek", model: res.model, template: "recon-doc", section: ${j(section ?? null)} },
 });
 const check = await memory.retrieve({ anchors: ${j(anchors.length ? [anchors[0]] : ["recon"])} });
-return { written: true, entryId: entry.id ?? ${j(entryId)}, storedCount: check.length, model: res.model, fetchedChars: doc.length };`;
+return { written: true, entryId: ${j(entryId)}, status: "draft", storedCount: check.length, model: res.model, fetchedChars: doc.length };`;
 };
 
 // ── 模板 2：memory（记忆维护）────────────────────────────────
 // memory.retrieve(anchors) → llm 整理/沉淀 → memory.write 写回
+// N29/P0-4：LLM 整理结果同样只能进 private draft（不得把 LLM 输出直接变成 official 知识）。
 const MEMORY_MAINTAIN = (p: Record<string, unknown>): string => {
   const anchors = Array.isArray(p.anchors) ? p.anchors.map(String) : [];
   const task = String(p.task ?? "整理检索到的记忆，去重并提炼要点");
@@ -174,8 +178,9 @@ const found = await memory.retrieve({ anchors, excludeDrafts: false });
 const sys = [
   "你是记忆维护专家。以下是记忆区检索结果。",
   "任务：" + ${j(task)} + "。",
-  "输出 JSON：{id, kind, anchors, content}",
+  "输出 JSON：{anchors, content}",
   "content 用中文，300 字内，提炼关键信息与去重后的要点。",
+  "不要输出 id/kind/status——条目身份与状态由系统固定。",
 ].join("\\n");
 const payload = found.map(e => ({ id: e.id, kind: e.kind, content: e.content })).slice(0, 10);
 const res = await llm.complete(
@@ -187,18 +192,18 @@ try {
   const cleaned = res.content.replace(/^\`\`\`json?|\`\`\`$/g, "").trim();
   entry = JSON.parse(cleaned);
 } catch {
-  entry = { id: ${j(entryId)}, kind: ${j(kind)}, anchors: ${j(anchors)}, content: res.content };
+  entry = { anchors: ${j(anchors)}, content: res.content };
 }
 await memory.write({
-  visibility: "public",   // ASP 可见性显式声明（模板=系统资产——全局共享）
-  id: entry.id ?? ${j(entryId)},
-  kind: entry.kind ?? ${j(kind)},
+  visibility: "private",   // N29 P0-4：整理结果先进私有草稿（晋升/共享走治理流）
+  id: ${j(entryId)},       // 服务端固定
+  kind: ${j(kind)},        // 服务端固定
   anchors: Array.isArray(entry.anchors) && entry.anchors.length > 0 ? entry.anchors : ${j(anchors)},
   content: entry.content ?? res.content,
-  status: "official",
+  status: "draft",         // N29 P0-4：LLM 整理结果不得 direct official
   meta: { provider: "deepseek", model: res.model, template: "memory-maintain", sourceCount: found.length },
 });
-return { written: true, entryId: entry.id ?? ${j(entryId)}, sourceCount: found.length, model: res.model };`;
+return { written: true, entryId: ${j(entryId)}, status: "draft", sourceCount: found.length, model: res.model };`;
 };
 
 // ── 模板 3：dev（开发类）──────────────────────────────────────

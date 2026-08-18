@@ -136,12 +136,15 @@ CREATE TABLE IF NOT EXISTS skills (
 -- 进程重启不丢；幂等 key 防重复入队；attempts≥max 置 dead-letter 留审计。
 -- R4/P0-5（2026-08-18）：原子 claim——pending→processing 携带 processing_token/owner/lease；
 -- complete/markFailed 必须匹配 token+processing（CAS）；available_at 控制重试回退。
+-- N29/P0-3（2026-08-19）：幂等身份改为 (tenant_id, key)——不再是全局 UNIQUE(key)；
+-- payload_hash 为稳定 sha256(canonical JSON)，同 tenant/key 只有 kind+payload+hash 全同才算重放。
 CREATE TABLE IF NOT EXISTS side_effect_outbox (
   id BIGSERIAL PRIMARY KEY,
-  key TEXT NOT NULL UNIQUE,
+  key TEXT NOT NULL,
   tenant_id TEXT NOT NULL DEFAULT 'default',
   kind TEXT NOT NULL,
   payload JSONB NOT NULL DEFAULT '{}',
+  payload_hash TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending','processing','done','failed','dead-letter')),
   attempts INTEGER NOT NULL DEFAULT 0,
@@ -165,6 +168,15 @@ ALTER TABLE side_effect_outbox DROP CONSTRAINT IF EXISTS side_effect_outbox_stat
 ALTER TABLE side_effect_outbox ADD CONSTRAINT side_effect_outbox_status_check
   CHECK (status IN ('pending','processing','done','failed','dead-letter'));
 CREATE INDEX IF NOT EXISTS idx_side_effect_outbox_claim ON side_effect_outbox(status, available_at, id);
+-- N29/P0-3 增量迁移：全局 UNIQUE(key) → UNIQUE(tenant_id, key)，并补 payload_hash。
+-- 存量行安全性：payload_hash 默认 '' 视为"未回填"，enqueue 的 exact 重放判据在 hash 为空时退回
+-- kind + payload jsonb 等值比较并顺带回填 hash；不同 payload 仍显式 conflict（不静默覆盖）。
+-- 若存量数据存在跨 tenant 同 key 行，DROP 全局唯一约束不会失败；新唯一索引按 (tenant_id,key) 建立。
+ALTER TABLE side_effect_outbox ADD COLUMN IF NOT EXISTS payload_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE side_effect_outbox DROP CONSTRAINT IF EXISTS side_effect_outbox_key_key;
+DROP INDEX IF EXISTS side_effect_outbox_key_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_side_effect_outbox_tenant_key
+  ON side_effect_outbox(tenant_id, key);
 
 -- R3/P1-2（2026-08-18）：持久 VerificationPlan + verdict rows（不 append entry.meta.verdicts）。
 -- candidate_revision/candidate_hash 建计划时快照；verdict 行严格绑定 plan+check+revision+hash+principal+execution。

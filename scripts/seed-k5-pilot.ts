@@ -262,7 +262,10 @@ async function runSeed(pool: pg.Pool): Promise<number> {
         skipped += 1;
         continue;
       }
-      await store.write(row);
+      // N29 P0-4：official 领域知识（domain-fact）只能由与 worker capability 分离的内部
+      // seed/migration authority 直写；worker/service/模板路径一律 draft，official 由
+      // Promotion Service 的 promoteOfficial() 晋升。
+      await store.write(row, { knowledgeOfficialAuthority: "seed-migration" });
       written += 1;
     } catch (error) {
       failed += 1;

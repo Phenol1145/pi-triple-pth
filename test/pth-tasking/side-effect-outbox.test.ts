@@ -94,14 +94,14 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
   it("complete with wrong token does nothing (CAS conflict)", async () => {
     await enqueue("k1");
     const [row] = await outbox.claimPending(1, { owner: "drainer-a", leaseMs: 60_000 });
-    const wrong = await outbox.complete("k1", "wrong-token");
+    const wrong = await outbox.complete({ tenantId: "tenant-a", key: "k1", token: "wrong-token" });
     expect(wrong).toBe(false);
 
     const db = await pool.query("SELECT status, processing_token FROM side_effect_outbox WHERE key = $1", ["k1"]);
     expect(db.rows[0].status).toBe("processing");
     expect(db.rows[0].processing_token).toBe(row!.processingToken);
 
-    const ok = await outbox.complete("k1", row!.processingToken!);
+    const ok = await outbox.complete({ tenantId: "tenant-a", key: "k1", token: row!.processingToken! });
     expect(ok).toBe(true);
     const after = await pool.query("SELECT status, done_at FROM side_effect_outbox WHERE key = $1", ["k1"]);
     expect(after.rows[0].status).toBe("done");
@@ -111,9 +111,10 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
   it("stale handler cannot move completed row back to pending", async () => {
     await enqueue("k1");
     const [row] = await outbox.claimPending(1, { owner: "drainer-a", leaseMs: 60_000 });
-    expect(await outbox.complete("k1", row!.processingToken!)).toBe(true);
+    expect(await outbox.complete({ tenantId: "tenant-a", key: "k1", token: row!.processingToken! })).toBe(true);
 
     const stale = await outbox.markFailed({
+      tenantId: "tenant-a",
       key: "k1",
       token: row!.processingToken!,
       attempts: 1,
@@ -128,6 +129,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
     await enqueue("k1");
     const [first] = await outbox.claimPending(1, { owner: "drainer-a", leaseMs: 60_000 });
     const failed1 = await outbox.markFailed({
+      tenantId: "tenant-a",
       key: "k1",
       token: first!.processingToken!,
       attempts: 1,
@@ -156,6 +158,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
     expect(second!.processingToken).not.toBe(first!.processingToken);
 
     const failed2 = await outbox.markFailed({
+      tenantId: "tenant-a",
       key: "k1",
       token: second!.processingToken!,
       attempts: 2,
@@ -169,6 +172,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
     expect(third!.attempts).toBe(3);
 
     const dead = await outbox.markFailed({
+      tenantId: "tenant-a",
       key: "k1",
       token: third!.processingToken!,
       attempts: 3,
@@ -204,7 +208,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
     expect(second!.processingToken).not.toBe(first!.processingToken);
 
     // 新 owner 拿到 lease；旧 owner 的 complete 必须 CAS 失败
-    const staleComplete = await outbox.complete("k1", first!.processingToken!);
+    const staleComplete = await outbox.complete({ tenantId: "tenant-a", key: "k1", token: first!.processingToken! });
     expect(staleComplete).toBe(false);
     const db = await pool.query("SELECT status, owner, processing_token FROM side_effect_outbox WHERE key = $1", ["k1"]);
     expect(db.rows[0].status).toBe("processing");
@@ -235,12 +239,202 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
     expect(db.rows[0].last_error).toBe("llm down");
   });
 
+  // ── N29 L1（§1.5 P0-3）：outbox 身份必须是 (tenant_id, key) + exact payload ──────
+  // 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 1。
+
+  async function countByTenantKey(tenantId: string, key: string): Promise<number> {
+    const r = await pool.query(
+      "SELECT count(*)::int AS n FROM side_effect_outbox WHERE tenant_id = $1 AND key = $2",
+      [tenantId, key],
+    );
+    return r.rows[0].n as number;
+  }
+
+  async function countByKey(key: string): Promise<number> {
+    const r = await pool.query("SELECT count(*)::int AS n FROM side_effect_outbox WHERE key = $1", [key]);
+    return r.rows[0].n as number;
+  }
+
+  it("N29 P0-3：same tenant/key with a different payload conflicts", async () => {
+    await outbox.enqueue({ key: "k-n29-conflict", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+    await expect(
+      outbox.enqueue({ key: "k-n29-conflict", tenantId: "tenant-a", kind: "refine", payload: { n: 2 } }),
+    ).rejects.toThrow(/conflict/);
+    // 首写 payload 不被覆盖，也不静默丢弃后者（显式 conflict）
+    const db = await pool.query(
+      "SELECT payload FROM side_effect_outbox WHERE tenant_id = 'tenant-a' AND key = 'k-n29-conflict'",
+    );
+    expect(db.rows).toHaveLength(1);
+    expect(db.rows[0].payload).toEqual({ n: 1 });
+  });
+
+  it("N29 P0-3：same tenant/key with a different kind conflicts", async () => {
+    await outbox.enqueue({ key: "k-n29-kind", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+    await expect(
+      outbox.enqueue({ key: "k-n29-kind", tenantId: "tenant-a", kind: "promotion-index", payload: { n: 1 } }),
+    ).rejects.toThrow(/conflict/);
+    const db = await pool.query(
+      "SELECT kind FROM side_effect_outbox WHERE tenant_id = 'tenant-a' AND key = 'k-n29-kind'",
+    );
+    expect(db.rows[0].kind).toBe("refine");
+  });
+
+  it("N29 P0-3：exact replay（同 kind + payload + payload_hash）幂等不新增行", async () => {
+    const input = { key: "k-n29-replay", tenantId: "tenant-a", kind: "refine", payload: { n: 1, nested: { a: 1, b: 2 } } };
+    await outbox.enqueue(input);
+    // 键序不同但 payload 等值：稳定 hash 必须判为同一 payload（幂等重放）
+    await outbox.enqueue({ ...input, payload: { nested: { b: 2, a: 1 }, n: 1 } });
+    expect(await countByTenantKey("tenant-a", "k-n29-replay")).toBe(1);
+    const db = await pool.query(
+      "SELECT status, attempts, payload_hash FROM side_effect_outbox WHERE tenant_id = 'tenant-a' AND key = 'k-n29-replay'",
+    );
+    expect(db.rows[0].status).toBe("pending");
+    expect(Number(db.rows[0].attempts)).toBe(0);
+    expect(db.rows[0].payload_hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("N29 P0-3：different tenants may reuse the same outbox key", async () => {
+    const effect = { key: "k-n29-shared", kind: "refine", payload: { n: 1 } };
+    await outbox.enqueue({ ...effect, tenantId: "tenant-a" });
+    await outbox.enqueue({ ...effect, tenantId: "tenant-b" });
+    expect(await countByKey("k-n29-shared")).toBe(2);
+    const db = await pool.query(
+      "SELECT tenant_id FROM side_effect_outbox WHERE key = $1 ORDER BY tenant_id",
+      ["k-n29-shared"],
+    );
+    expect(db.rows.map((r: { tenant_id: string }) => r.tenant_id)).toEqual(["tenant-a", "tenant-b"]);
+  });
+
+  it("N29 P0-3：complete/markFailed 按 tenant + key + token 匹配（跨 tenant 不可完成）", async () => {
+    await outbox.enqueue({ key: "k-n29-tenant-cas", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+    await outbox.enqueue({ key: "k-n29-tenant-cas", tenantId: "tenant-b", kind: "refine", payload: { n: 1 } });
+    const rows = await outbox.claimPending(2, { owner: "drainer-a", leaseMs: 60_000 });
+    expect(rows).toHaveLength(2);
+    const rowA = rows.find((r) => r.tenantId === "tenant-a")!;
+    const rowB = rows.find((r) => r.tenantId === "tenant-b")!;
+
+    // 错 tenant + 对 token：CAS 失败（tenant 参与 WHERE）
+    expect(await outbox.complete({ tenantId: "tenant-b", key: "k-n29-tenant-cas", token: rowA.processingToken! })).toBe(false);
+    expect(await outbox.complete({ tenantId: "tenant-a", key: "k-n29-tenant-cas", token: rowA.processingToken! })).toBe(true);
+
+    expect(await outbox.markFailed({
+      tenantId: "tenant-a", key: "k-n29-tenant-cas", token: rowB.processingToken!, attempts: 1, lastError: "cross tenant",
+    })).toBe(false);
+    expect(await outbox.markFailed({
+      tenantId: "tenant-b", key: "k-n29-tenant-cas", token: rowB.processingToken!, attempts: 1, lastError: "own tenant",
+    })).toBe(true);
+
+    const db = await pool.query(
+      "SELECT tenant_id, status FROM side_effect_outbox WHERE key = $1 ORDER BY tenant_id",
+      ["k-n29-tenant-cas"],
+    );
+    expect(db.rows).toEqual([
+      { tenant_id: "tenant-a", status: "done" },
+      { tenant_id: "tenant-b", status: "pending" },
+    ]);
+  });
+
+  it("N29 P0-3：claimPending 可按 tenant 收窄（跨 tenant 行不被领取）", async () => {
+    await outbox.enqueue({ key: "k-n29-scope-a", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+    await outbox.enqueue({ key: "k-n29-scope-b", tenantId: "tenant-b", kind: "refine", payload: { n: 1 } });
+    const rows = await outbox.claimPending(10, { owner: "drainer-a", leaseMs: 60_000, tenantId: "tenant-a" });
+    expect(rows.map((r) => r.key)).toEqual(["k-n29-scope-a"]);
+    const db = await pool.query("SELECT status FROM side_effect_outbox WHERE key = $1", ["k-n29-scope-b"]);
+    expect(db.rows[0].status).toBe("pending");
+  });
+
+  it("N29 P0-3：存量行（payload_hash 空）exact 重放 → 幂等回填而非 conflict", async () => {
+    // 迁移安全性：旧库行的 payload_hash 为 ''（未回填）。同 kind + payload 的重放必须判为幂等，
+    // 并顺带回填稳定 hash；payload 不同才 conflict。
+    await outbox.enqueue({ key: "k-n29-legacy", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+    await pool.query(
+      "UPDATE side_effect_outbox SET payload_hash = '' WHERE tenant_id = 'tenant-a' AND key = 'k-n29-legacy'",
+    );
+
+    await outbox.enqueue({ key: "k-n29-legacy", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+    expect(await countByTenantKey("tenant-a", "k-n29-legacy")).toBe(1);
+    let db = await pool.query(
+      "SELECT status, attempts, payload_hash FROM side_effect_outbox WHERE tenant_id = 'tenant-a' AND key = 'k-n29-legacy'",
+    );
+    expect(db.rows[0].payload_hash).toMatch(/^[0-9a-f]{64}$/);   // 已回填
+    expect(db.rows[0].status).toBe("pending");
+    expect(Number(db.rows[0].attempts)).toBe(0);
+
+    // 存量行 + 不同 payload 仍必须显式 conflict（不静默覆盖旧行）
+    await pool.query(
+      "UPDATE side_effect_outbox SET payload_hash = '' WHERE tenant_id = 'tenant-a' AND key = 'k-n29-legacy'",
+    );
+    await expect(
+      outbox.enqueue({ key: "k-n29-legacy", tenantId: "tenant-a", kind: "refine", payload: { n: 2 } }),
+    ).rejects.toThrow(/conflict/);
+    db = await pool.query(
+      "SELECT payload FROM side_effect_outbox WHERE tenant_id = 'tenant-a' AND key = 'k-n29-legacy'",
+    );
+    expect(db.rows[0].payload).toEqual({ n: 1 });
+  });
+
+  it("N29 P0-3：transaction-bound enqueue 复用调用方 client（回滚 → 零行）", async () => {
+    const mod = await import("../../src/pth/tasking/side-effect-outbox.js");
+    const enqueueInTx = (mod as unknown as {
+      enqueueSideEffectInTx?: (client: unknown, input: unknown) => Promise<unknown>;
+    }).enqueueSideEffectInTx;
+    expect(typeof enqueueInTx).toBe("function");
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await enqueueInTx!(client, { key: "k-n29-tx", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
+    }
+    expect(await countByTenantKey("tenant-a", "k-n29-tx")).toBe(0);
+
+    const client2 = await pool.connect();
+    try {
+      await client2.query("BEGIN");
+      await enqueueInTx!(client2, { key: "k-n29-tx", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+      await client2.query("COMMIT");
+    } finally {
+      client2.release();
+    }
+    expect(await countByTenantKey("tenant-a", "k-n29-tx")).toBe(1);
+  });
+
+  it("N29 P0-3：事务内 conflict 抛错 → 调用方事务可整体回滚（不静默丢弃）", async () => {
+    const mod = await import("../../src/pth/tasking/side-effect-outbox.js");
+    const enqueueInTx = (mod as unknown as {
+      enqueueSideEffectInTx?: (client: unknown, input: unknown) => Promise<unknown>;
+    }).enqueueSideEffectInTx!;
+    await outbox.enqueue({ key: "k-n29-tx-conflict", tenantId: "tenant-a", kind: "refine", payload: { n: 1 } });
+
+    const client = await pool.connect();
+    let thrown: unknown;
+    try {
+      await client.query("BEGIN");
+      await enqueueInTx(client, { key: "k-n29-tx-conflict", tenantId: "tenant-a", kind: "refine", payload: { n: 99 } });
+      await client.query("COMMIT");
+    } catch (e) {
+      thrown = e;
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
+    }
+    expect(String((thrown as Error)?.message ?? "")).toMatch(/conflict/);
+    const db = await pool.query(
+      "SELECT payload FROM side_effect_outbox WHERE tenant_id = 'tenant-a' AND key = 'k-n29-tx-conflict'",
+    );
+    expect(db.rows).toHaveLength(1);
+    expect(db.rows[0].payload).toEqual({ n: 1 });
+  });
+
   it("enqueue and task commit are atomic: enqueue failure rolls back commit", async () => {
     const taskId = "task-atomic";
     const leaseId = "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6";
+    // N29 P0-2：CAS 要求未过期 lease_expires_at——固定装置必须带真实租约窗口。
     await pool.query(
-      `INSERT INTO tasks (id, tenant_id, title, text, created_by, status, assigned_role, lease_id, lease_generation)
-       VALUES ($1, 'tenant-a', 't', 'x', 'test', 'claimed', 'developer', $2, 1)`,
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, status, assigned_role, lease_id, lease_generation, lease_expires_at)
+       VALUES ($1, 'tenant-a', 't', 'x', 'test', 'claimed', 'developer', $2, 1, now() + interval '5 minutes')`,
       [taskId, leaseId],
     );
     const outcome: TaskOutcome = {
@@ -251,6 +445,8 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
       traceId: "trace-1",
     };
     const repo = createPgTaskRepository(pool);
+    // N29 P0-2：commit 必须携带服务端盖章 tenant scope（生产由 dispatcher 从 claim lease 取）。
+    const commitScope = { scope: { tenantId: "tenant-a" } } as const;
 
     // side_effect_outbox.key 为 NOT NULL：故意传 null 触发 INSERT 失败 → 事务回滚。
     const badSideEffect = {
@@ -260,7 +456,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
       payload: { n: 1 },
     };
     await expect(
-      repo.commit(outcome, { sideEffects: [badSideEffect] }),
+      repo.commit(outcome, { ...commitScope, sideEffects: [badSideEffect] }),
     ).rejects.toThrow();
 
     let db = await pool.query("SELECT status FROM tasks WHERE id = $1", [taskId]);
@@ -270,6 +466,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
 
     // 正例：同事务提交 task + outbox row。
     const ok = await repo.commit(outcome, {
+      ...commitScope,
       sideEffects: [{
         key: "refine:tenant-a:task-atomic:1",
         tenantId: "tenant-a",

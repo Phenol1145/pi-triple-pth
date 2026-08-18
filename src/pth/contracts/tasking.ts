@@ -30,6 +30,11 @@ export interface TaskLease extends TaskLeaseReference {
   readonly scope: TenantScope;
   readonly workspace: WorkspaceRef;
   readonly roleId: string;
+  /**
+   * lease 到期时刻（服务端 `tasks.lease_expires_at` 的镜像）。
+   * N29 P0-2：到期即失效——过期 lease 既不能提交 outcome，也不能因此写下一阶段 outbox；
+   * 过期后只能被 `recoverExpired()` 回收并以更高 generation 重新 claim。
+   */
   readonly deadlineAt: string;
 }
 
@@ -202,8 +207,62 @@ export interface TaskRepository {
   ): Promise<ReadonlyArray<{ lease: TaskLease; work: TaskWorkItem }>>;
   /** 回收过期 claimed 行；返回回收行数。只清过期行且 generation 单调。 */
   recoverExpired(now: Date): Promise<number>;
-  /** CAS 提交：重复/过期/跨租户 outcome 一律 committed=false。 */
-  commit(outcome: TaskOutcome): Promise<{ committed: boolean }>;
+  /**
+   * CAS 提交：重复/过期/跨租户 outcome 一律 committed=false。
+   *
+   * N29 P0-1/P0-2 冻结语义（docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §1.3/§1.4）：
+   *  - CAS 谓词必须同时包含 id + lease_id + lease_generation + status='claimed' +
+   *    tenant_id + `lease_expires_at IS NOT NULL AND lease_expires_at > now()`；
+   *  - tenant 必须来自服务端盖章（claim 时签发的 lease / opts.scope），不接受 worker body 自报；
+   *    无法确定 tenant scope 时 fail closed（committed=false，零 side effect）；
+   *  - CAS 未命中（rowCount=0）时不得写任何 side effect / 下一阶段 outbox。
+   */
+  commit(outcome: TaskOutcome, opts?: TaskCommitOptions): Promise<{ committed: boolean }>;
+}
+
+// ─── N29 P0-1/P0-2：commit 的服务端 tenant scope 与同事务 side effect 契约 ────
+
+/**
+ * 服务端盖章的提交作用域。tenantId 由 claim 时签发的 `TaskLease.scope` 派生
+ * （dispatcher/committer 装配点盖章），worker outcome body 不是事实源。
+ */
+export interface TaskCommitScope {
+  readonly tenantId: string;
+}
+
+/** 与 task CAS 同事务写入的 side effect（下一阶段 outbox 行；identity = (tenantId, key)）。 */
+export interface TaskCommitSideEffect {
+  readonly key: string;
+  readonly tenantId: string;
+  readonly kind: string;
+  readonly payload: unknown;
+}
+
+export interface TaskCommitOptions {
+  /** 服务端盖章 tenant scope（缺省时退回 outcome.lease 上的服务端 lease scope；两者皆无 → fail closed）。 */
+  readonly scope?: TaskCommitScope;
+  /** CAS 命中（rowCount=1）后在同一事务内入队；CAS 未命中一律不写。 */
+  readonly sideEffects?: ReadonlyArray<TaskCommitSideEffect>;
+}
+
+/**
+ * 解析 commit 的服务端 tenant scope（N29 P0-2）。
+ *
+ * 优先级：
+ *  1. `opts.scope.tenantId`——装配点（dispatcher）从 claim 返回的 lease 盖章；
+ *  2. `outcome.lease` 为完整服务端 `TaskLease` 时取 `lease.scope.tenantId`
+ *     （claim() 的返回值本身即服务端签发对象；内部/测试调用方直接回传时可用）；
+ *  3. 都没有 → `null`：调用方必须 fail closed（不提交、不写 side effect）。
+ *
+ * 任一来源的 tenant 都只会被 AND 进 CAS 谓词（只能收窄不能放宽）：错 tenant 的结果是
+ * committed=false，不存在跨租户提交。
+ */
+export function resolveTaskCommitTenantId(outcome: TaskOutcome, opts?: TaskCommitOptions): string | null {
+  const stamped = opts?.scope?.tenantId;
+  if (NON_EMPTY_STRING(stamped)) return stamped;
+  const lease = outcome.lease as unknown as { scope?: unknown };
+  if (isTenantScopeStructurallyValid(lease.scope)) return (lease.scope as TenantScope).tenantId;
+  return null;
 }
 
 /** 任务读模型端口（tasking adapter 提供；网关/查询侧只消费此窄接口） */

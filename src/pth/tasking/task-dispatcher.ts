@@ -10,13 +10,14 @@
 
 import {
   isTaskLeaseStructurallyValid,
+  type TaskCommitOptions,
   type TaskLease,
   type TaskOutcome,
   type TaskRepository,
   type TaskRunner,
   type TenantScope,
 } from "../contracts/index.js";
-import type { TaskOutcomeCommitOptions, TaskOutcomeCommitter, TaskOutcomeSideEffect } from "./task-outcome-committer.js";
+import type { TaskOutcomeCommitter, TaskOutcomeSideEffect } from "./task-outcome-committer.js";
 import {
   notifyObservers,
   type ObserverFailureRecord,
@@ -98,7 +99,9 @@ export class TaskDispatcher {
         context: this.deps.context,
       };
       const sideEffects = await this.deps.buildSideEffects?.(event) ?? [];
-      const commitOpts: TaskOutcomeCommitOptions = { sideEffects };
+      // N29 P0-2：tenant scope 由服务端 claim 时签发的 lease 盖章（不取 worker outcome body）；
+      // 仓库据此把 tenant_id AND 进 CAS 谓词——错 tenant 只会 committed=false。
+      const commitOpts: TaskCommitOptions = { sideEffects, scope: { tenantId: lease.scope.tenantId } };
       const { committed } = await this.deps.committer.commit(outcome, commitOpts);
       if (committed) result.committed++;
 
