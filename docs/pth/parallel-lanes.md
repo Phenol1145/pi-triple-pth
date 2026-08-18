@@ -111,7 +111,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | **R2** | P0-2 tenant 查询面：raw SQL 数据面强制 tenant/status/space + 跨租户负向 | `lane/r2-tenant-query-plane` / `.worktrees/r2` | **done** | 主会话·2026-08-18 |
 | **R4** | P0-4/P0-5/P1-5 真事务 outbox：同事务 enqueue + claim lease/token/CAS + observer durable failure | `lane/r4-transactional-outbox` / `.worktrees/r4` | **done** | 主会话·2026-08-18 |
 | **R3** | P0-3/P1-1/P1-2 verification 绑定：持久 VerificationPlan + service 授权 + 严格 revision + Domain 子集 binding | `lane/r3-verification-binding` / `.worktrees/r3` | **done** | 主会话·子代理·2026-08-18 |
-| **R5** | P1-3/P1-4 生产评测：生产端口评测 + 全语料覆盖 + no-answer/冲突/跨版本/holdout + EvidenceRef 全链 | `lane/r5-production-evaluation` / `.worktrees/r5` | claimed | 主会话·子代理·2026-08-18 |
+| **R5** | P1-3/P1-4 生产评测：生产端口评测 + 全语料覆盖 + no-answer/冲突/跨版本/holdout + EvidenceRef 全链 | `lane/r5-production-evaluation` / `.worktrees/r5` | **done** | 主会话·子代理·2026-08-18 |
 | **R6** | 组合验收：崩溃/并发/跨租户全链重跑（claim→context→commit→outbox→candidate→verification→promotion→retrieve） | 主会话直接执行 | free（依赖 R1–R5 全合并） | — |
 
 > Wave 划分：wave1 = R1/R2/R4 并行；wave2 = R3；wave3 = R5；wave4 = R6。每 wave 串行合并回 main，合并前全量 vitest + lint 绿。
@@ -256,4 +256,5 @@ node_modules 起步）。任务：E1 v1.1.3 发布——盘点 main 上未发版
 > R4 已落：`c5db1a3`（同事务 enqueue + 原子 claim CTE token/lease + observer durable failure + 根修 observer failed）→ 已合并 main（merge `afc870a`）。
 > Wave-1 全部合并后门槛：268 文件 / 2298 用例绿 + 9 skip；observer failed 0；lint 全绿。
 > R3 已落：`ececb2a` + 返修 `c660c36`（capability kernel verification repo 注入缝）→ 已合并 main（merge `00be7c6`/`0fa2e44`）。合并后门槛：269 文件 / 2283 用例绿；lint 全绿。
-> Wave-3 R5 已派发（2026-08-18）；合并顺序：R5 → R6，每步全量 vitest + lint。
+> R5 已落：`e8abe1a`（生产端口评测 + 138 题/24 全覆盖/holdout 42(30.4%)/mutation 1.0 + EvidenceRef 全链 + sourceBindingsDigest 填实）→ 已合并 main（merge `763ea2a` 起）。合并后门槛：连续两轮全量 269 文件 / 2292 用例绿（首轮 1 例 flaky 未复现）；lint 全绿。
+> Wave-4 R6 组合验收为最后一棒。
