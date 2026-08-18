@@ -62,6 +62,7 @@
 |------|------|------|
 | 2026-08-18 | 原 V1–V5 批量角色生成 | **冻结**——空配置全量展开 / 32-worker 上限 / catalog 重复 id / tag 冲突 / 知识治理缺口均实证成立 |
 | 2026-08-18 | 实施路线 | **组合设计 Phase 0 → 1a → 1b → 2 → 3 → 4 → 5**：先知识正确性加固，再目录/双轴路由，最后双域试点 |
+| 2026-08-18 | R 轮复验修复 | **R1–R6 全部 done；最终复验 ACCEPTED**——P0-1..P0-5、P1-1..P1-5 全 PASS；组合验收真实 PG 8/8 + 七类故障注入负向全过；报告 `v1.2-acceptance-fix-revalidation-final.md` | R1–R6 |
 
 ### 车道表（v1.2 修订）
 
@@ -112,7 +113,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | **R4** | P0-4/P0-5/P1-5 真事务 outbox：同事务 enqueue + claim lease/token/CAS + observer durable failure | `lane/r4-transactional-outbox` / `.worktrees/r4` | **done** | 主会话·2026-08-18 |
 | **R3** | P0-3/P1-1/P1-2 verification 绑定：持久 VerificationPlan + service 授权 + 严格 revision + Domain 子集 binding | `lane/r3-verification-binding` / `.worktrees/r3` | **done** | 主会话·子代理·2026-08-18 |
 | **R5** | P1-3/P1-4 生产评测：生产端口评测 + 全语料覆盖 + no-answer/冲突/跨版本/holdout + EvidenceRef 全链 | `lane/r5-production-evaluation` / `.worktrees/r5` | **done** | 主会话·子代理·2026-08-18 |
-| **R6** | 组合验收：崩溃/并发/跨租户全链重跑（claim→context→commit→outbox→candidate→verification→promotion→retrieve） | 主会话直接执行 | free（依赖 R1–R5 全合并） | — |
+| **R6** | 组合验收：崩溃/并发/跨租户全链重跑（claim→context→commit→outbox→candidate→verification→promotion→retrieve） | 主会话直接执行 | **done** | 主会话·2026-08-18 | ✅ `test/pth-composition/r6-acceptance.test.ts`（真实 PG 8/8）+ `scripts/r6-composition-acceptance.ts` + 最终复验报告 `docs/pth/v1.2-acceptance-fix-revalidation-final.md`——**ACCEPTED（P0-1..P0-5、P1-1..P1-5 全 PASS）**；全量 270 files / 2300 绿 + 9 既有 skip；lint 绿；K5 离线/live 24/24 + mutation 1.0 |
 
 > Wave 划分：wave1 = R1/R2/R4 并行；wave2 = R3；wave3 = R5；wave4 = R6。每 wave 串行合并回 main，合并前全量 vitest + lint 绿。
 
@@ -257,4 +258,5 @@ node_modules 起步）。任务：E1 v1.1.3 发布——盘点 main 上未发版
 > Wave-1 全部合并后门槛：268 文件 / 2298 用例绿 + 9 skip；observer failed 0；lint 全绿。
 > R3 已落：`ececb2a` + 返修 `c660c36`（capability kernel verification repo 注入缝）→ 已合并 main（merge `00be7c6`/`0fa2e44`）。合并后门槛：269 文件 / 2283 用例绿；lint 全绿。
 > R5 已落：`e8abe1a`（生产端口评测 + 138 题/24 全覆盖/holdout 42(30.4%)/mutation 1.0 + EvidenceRef 全链 + sourceBindingsDigest 填实）→ 已合并 main（merge `1ee7c1b`）。合并后门槛：连续两轮全量 269 文件 / 2292 用例绿（首轮 1 例 flaky 未复现）；lint 全绿。
-> Wave-4 R6 组合验收为最后一棒。
+> Wave-4 R6 组合验收已完成（lane 分支 `lane/r6-composition-acceptance`）：真实 PG 组合套件 8/8 全绿；
+> 七类故障注入全部负向断言；最终复验报告结论 **ACCEPTED**（见 `v1.2-acceptance-fix-revalidation-final.md`）。
