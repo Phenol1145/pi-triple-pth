@@ -104,6 +104,8 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_AUTOSCALE_ROLE_THRESHOLD", "number", 5, "scaler", "main", "reinforced 单角色积压阈值", { runtime: true }),
   d("PTH_AUTOSCALE_REINFORCE_COPIES", "number", 2, "scaler", "main", "reinforced 强化副本数", { runtime: true }),
   d("PTH_BATCH_TICK_MS", "number", 1000, "scaler", "batch", "batch 认领心跳 tick（空闲退避）"),
+  d("PTH_BATCH_ID", "string", "", "worker", "batch", "N28：本 batch 实例 ID（BatchManager.spawnBatch 注入子进程；缺省空=未由 BatchManager 启动）"),
+  d("PTH_COGNITIVE_RESPONSIBILITY_MODE", "string", "off", "mode", "batch", "N28：认知责任模式——off=legacy 逐字节兼容（默认）/ feasibility=确定性可行性切片"),
   d("PTH_BATCH_HEALTH_STALE_MS", "number", 15_000, "scaler", "main", "batch 心跳陈旧判定阈值（listBatches 健康面 healthy/stale——与 watchdog HEARTBEAT_STALE_MS 同档）", { runtime: true }),
   d("PTH_WORKER_ROLES", "string", "", "worker", "both", "batch 构成参数化（角色:副本数逗号分隔；空=默认构成）"),
   d("PTH_PG_POOL_MAX", "number", 8, "infra", "batch", "batch 子进程 PG 连接池上限"),

@@ -21,22 +21,32 @@ export function createAuditObserver(deps: AuditObserverDeps): TaskOutcomeObserve
   return async (event) => {
     const { outcome, work } = event;
     const reason = outcome.error?.message ?? "unknown";
+    // N28 T2：server-stamped worker principal 与 role 分字段记录；无 replica 的 legacy principal 原样保留。
+    const principalId = work.scope.principalId;
+    const workerStamp = principalId.startsWith("worker:") ? { workerId: principalId.slice("worker:".length) } : {};
+    const roleId = work.scope.roles[0] ?? work.assignedRole;
     if (outcome.status === "completed") {
+      const payload: Record<string, unknown> = { submitAffected: 1 };
+      if (workerStamp.workerId) payload.roleId = roleId;
       await deps.write({
         eventType: "task_completed",
-        actor: work.scope.principalId,
+        actor: principalId,
         taskId: work.taskId,
         tenantId: work.scope.tenantId,
-        payload: { submitAffected: 1 },
+        ...workerStamp,
+        payload,
       });
       return;
     }
+    const payload: Record<string, unknown> = { reason: reason.slice(0, 300) };
+    if (workerStamp.workerId) payload.roleId = roleId;
     await deps.write({
       eventType: outcome.retryable === true ? "task_requeued" : "task_rejected",
-      actor: work.scope.principalId,
+      actor: principalId,
       taskId: work.taskId,
       tenantId: work.scope.tenantId,
-      payload: { reason: reason.slice(0, 300) },
+      ...workerStamp,
+      payload,
     });
   };
 }

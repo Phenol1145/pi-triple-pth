@@ -23,7 +23,7 @@ export interface TaskLoopDeps {
   /** 性能计量（SPEC L2）：任务事件 → IPC 转发主进程 */
   onTaskMetric?: (m: Record<string, unknown>) => void;
   /** 活动事件流（console --follow 数据源）：任务接取/agent step（含 token 用量）/完成——实时上报 */
-  onActivity?: (e: { kind: string; taskId?: string; role?: string; step?: number; tool?: string; ok?: boolean; usage?: { inputTokens?: number; outputTokens?: number }; detail?: string; chainDepth?: number; triggerId?: string }) => void;
+  onActivity?: (e: { kind: string; taskId?: string; role?: string; workerId?: string; step?: number; tool?: string; ok?: boolean; usage?: { inputTokens?: number; outputTokens?: number }; detail?: string; chainDepth?: number; triggerId?: string }) => void;
   /** 运行过程保留（2026-08-09）：transcript store（agent 轨迹持久化） */
   transcripts?: { create(input: { taskId?: string; agentId: string; body: unknown[]; summary?: string }): Promise<string> };
   /** 自然语言任务转译（NL→代码）；undefined = 不转译（NL 任务直接 reject） */
@@ -44,6 +44,8 @@ export interface TaskLoopDeps {
   sideEffectOutbox?: SideEffectOutboxPort;
   /** F5：每轮 claim 前 kick 一次 side-effect drain（生产注入 drainer 回调；不阻塞 claim）。 */
   drainSideEffects?: () => void;
+  /** N28 T2：运行时副本（仅在 feasibility 模式注入）；缺省 = 无副本身份（legacy 形状不变）。 */
+  replica?: import("../kernel/execution/worker-replica.js").WorkerReplica;
 }
 
 /**

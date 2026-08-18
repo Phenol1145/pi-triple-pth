@@ -32,7 +32,7 @@ npm run pth -- config export       # 输出 ptl config set pth.url/pth.token（P
 npm run check:pth-config -- --report  # schema 统计 + compose 覆盖度报告
 ```
 
-## 3. 分类速览（106 键）
+## 3. 分类速览（108 键）
 
 | group | 数量 | 说明 |
 |---|---|---|
@@ -48,14 +48,17 @@ npm run check:pth-config -- --report  # schema 统计 + compose 覆盖度报告
 | cache | 2 | cache-store 上限（runtime） |
 | model | 4 | modelRouter/NL/stub |
 | path | 14 | 源码根/工作区/通知/沙箱路径 |
-| mode | 5 | ASP/refine/skill 策略/batch 标志 |
+| mode | 6 | ASP/refine/skill 策略/batch 标志/N28 认知责任模式 |
 | observability | 4 | metrics 周期/日志 |
-| worker | 4 | workload/workspace UID/GID |
+| worker | 5 | workload/workspace UID/GID/N28 batch ID |
 | secret | 8 | grant/共享密钥/桥 token/PG/Redis/LLM key |
 | infra | 8 | DATABASE/REDIS/DATA_DIR/SANDBOX_URL 等 |
 | cli | 5 | PTH_API/TOKEN/CREATED_BY/URL/PLATFORM |
 
 `runtime=true` 的键可经 `perf.set({key,value})` 运行时调整（重启失效；ALTER SYSTEM 持久化留 v2）。
+
+N28 T2 新增两键（默认关闭/空，legacy 行为不变）：`PTH_COGNITIVE_RESPONSIBILITY_MODE=off`
+（可选 `feasibility` 确定性切片）与 `PTH_BATCH_ID=""`（BatchManager 注入的 batch 实例 ID）。
 
 ## 4. Secrets（统一文件 + 全 `:?` fail-closed）
 

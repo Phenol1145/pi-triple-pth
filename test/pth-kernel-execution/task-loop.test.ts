@@ -7,6 +7,7 @@ vi.mock("../../src/pth/kernel/execution/agent-loop.js", () => ({
 
 import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
 import { TaskLoop } from "../../src/pth/bootstrap/task-loop.js";
+import { createWorkerReplica, roleDefinitionRevision } from "../../src/pth/kernel/execution/worker-replica.js";
 
 const mockedRunAgent = vi.mocked(runAgentTask);
 
@@ -471,5 +472,89 @@ describe("复测任务透传（2026-08-14 N6 一等化）", () => {
     await loop.runOnce();
     const call = collect.mock.calls[0] as unknown as [unknown, { verifyOf?: string }];
     expect(call[1].verifyOf).toBeUndefined();
+  });
+});
+
+describe("N28 T2：replica 生命周期与身份戳记（TaskLoop）", () => {
+  const role = { id: "developer", tags: ["code"], prompt: "dev" };
+  const workerId = "10000000-0000-4000-8000-000000000051";
+  const makeReplica = () => createWorkerReplica("developer", roleDefinitionRevision(role), "batch-a", () => workerId);
+
+  async function waitUntil(cond: () => boolean): Promise<void> {
+    const start = Date.now();
+    while (!cond()) {
+      if (Date.now() - start > 2000) throw new Error("waitUntil timeout");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  }
+
+  it("claim=0：replica 保持 idle（不 startTask）", async () => {
+    const store = mockTaskStore({ candidates: vi.fn(async () => []), claimTopN: vi.fn(async () => []) });
+    const replica = makeReplica();
+    const loop = new TaskLoop({ ...agentDeps(mockKernel(), role, store), replica });
+    expect(await loop.runOnce()).toBe(false);
+    expect(replica.snapshot().state).toBe("idle");
+  });
+
+  it("completed：dispatch/grant/activity/audit 全链路 worker 与 role 分字段，finally 回 idle", async () => {
+    const task = { id: "t1", text: "do x", title: "x" };
+    const store = mockTaskStore({ candidates: vi.fn(async () => [task]), claimTopN: vi.fn(async () => [task]) });
+    const dispatch: unknown[] = [];
+    const grants: unknown[] = [];
+    const activities: unknown[] = [];
+    const auditWrite = vi.fn(async () => {});
+    const kernel = {
+      ...mockKernel(),
+      setTaskDispatchContext: (ctx: unknown) => { dispatch.push(ctx); },
+      setExecutionGrantContext: (ctx: unknown) => { grants.push(ctx); },
+      dataWorld: { audit: { write: auditWrite } },
+    };
+    const replica = makeReplica();
+    const loop = new TaskLoop({
+      ...agentDeps(kernel as never, role, store),
+      replica,
+      onActivity: (e) => activities.push(e),
+    });
+    expect(await loop.runOnce()).toBe(true);
+    expect(replica.snapshot()).toMatchObject({ state: "idle", currentTaskId: undefined });
+    expect(dispatch[0]).toMatchObject({ taskId: "t1", roleId: "developer", worker: replica.ref });
+    expect(grants[0]).toMatchObject({ taskId: "t1", principalId: `worker:${workerId}` });
+    expect(activities.some((e) => (e as { kind: string }).kind === "task.claim" && (e as { workerId?: string }).workerId === workerId)).toBe(true);
+    const auditCall = auditWrite.mock.calls.at(-1)?.[0] as { actor?: string; workerId?: string; payload?: { roleId?: string } };
+    expect(auditCall).toMatchObject({ actor: `worker:${workerId}`, workerId, payload: { roleId: "developer" } });
+  });
+
+  it("throw / ok:false 都经同一 finally 回 idle", async () => {
+    const task = { id: "t2", text: "boom", title: "b" };
+    const store = mockTaskStore({ candidates: vi.fn(async () => [task]), claimTopN: vi.fn(async () => [task]) });
+    const replica = makeReplica();
+    mockedRunAgent.mockRejectedValue(new Error("boom"));
+    const loop = new TaskLoop({ ...agentDeps(mockKernel(), role, store), replica });
+    await loop.runOnce();
+    expect(replica.snapshot().state).toBe("idle");
+
+    mockedRunAgent.mockResolvedValue({ ok: false, error: "agent-rejected" } as never);
+    const task2 = { id: "t3", text: "reject", title: "r" };
+    const store2 = mockTaskStore({ candidates: vi.fn(async () => [task2]), claimTopN: vi.fn(async () => [task2]) });
+    const replica2 = makeReplica();
+    const loop2 = new TaskLoop({ ...agentDeps(mockKernel(), role, store2), replica: replica2 });
+    await loop2.runOnce();
+    expect(replica2.snapshot().state).toBe("idle");
+  });
+
+  it("busy 任务中 pause → draining，任务完成后 paused", async () => {
+    const task = { id: "t4", text: "slow", title: "s" };
+    const store = mockTaskStore({ candidates: vi.fn(async () => [task]), claimTopN: vi.fn(async () => [task]) });
+    let release!: (v: unknown) => void;
+    mockedRunAgent.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    const replica = makeReplica();
+    const loop = new TaskLoop({ ...agentDeps(mockKernel(), role, store), replica });
+    const run = loop.runOnce();
+    await waitUntil(() => replica.snapshot().state === "busy");
+    replica.pause();
+    expect(replica.snapshot()).toMatchObject({ state: "draining", currentTaskId: "t4" });
+    release({ ok: true, value: "done", summary: "s", steps: 1 });
+    await run;
+    expect(replica.snapshot()).toMatchObject({ state: "paused", currentTaskId: undefined });
   });
 });

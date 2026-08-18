@@ -43,6 +43,11 @@ export class TaskLoop {
   get isPaused(): boolean { return this.paused; }
   get isStopped(): boolean { return this.stopped; }
 
+  /** N28 T2：有 replica 时给活动/审计事件补 workerId；无 replica 时返回空对象（旧形状逐字节不变）。 */
+  private workerStamp(): { workerId?: string } {
+    return this.deps.replica ? { workerId: this.deps.replica.ref.workerId } : {};
+  }
+
   /** W8 P1/P2：任务身份盖章——tasks.delegate/await/resume 的调用者上下文（每任务执行前由本循环设置） */
   private stampTaskDispatchContext(task: Task): void {
     const kernel = this.deps.kernel as unknown as {
@@ -59,6 +64,7 @@ export class TaskLoop {
       taskId: task.id,
       roleId: this.deps.role.id,
       tenantId: task.tenantId ?? "default",
+      ...(this.deps.replica ? { worker: this.deps.replica.ref } : {}),
       delivery: payload?.delivery ?? null,
       domains,
       ...(domainBinding ? { domainBinding } : {}),
@@ -69,6 +75,8 @@ export class TaskLoop {
 
   async runOnce(): Promise<boolean> {
     if (this.paused || this.stopped) return false;
+    // N28 T2：replica 存在时采用严格 per-candidate cycle——先查副本状态，busy/stopped 不认领。
+    if (this.deps.replica && this.deps.replica.snapshot().state !== "idle") return false;
     // F5 实现点：每轮 claim 前 kick 一次 durable side-effect drain。
     // 不 await——drainer 的慢 handler（refine LLM）不能在 claim 路径上阻塞；
     // 可靠兜底由 drainer 的 unref timer 承担，drainOnce 内部并发串行防重复领取。
@@ -85,9 +93,11 @@ export class TaskLoop {
     // P1-6：注入 repository → tasking dispatcher 路径（claim→run→commit）；缺省 legacy 兼容路径。
     if (this.deps.repository) return this.runOnceDispatched(candidates);
 
-    // 2. claim（claim 即承诺）：机械认领全部候选；单条认领为空（竞态/不可认领）不中断
+    // 2. claim（claim 即承诺）：机械认领全部候选；单条认领为空（竞态/不可认领）不中断。
+    // N28 T2：replica 存在时不得预领 batch——每次 runOnce 只处理一个候选（per-candidate cycle）。
+    const toClaim = this.deps.replica ? candidates.slice(0, 1) : candidates;
     const claimed: Task[] = [];
-    for (const task of candidates) {
+    for (const task of toClaim) {
       const got = await taskStore.claimTopN(role.id, [task.id]);
       if (got.length > 0) claimed.push(got[0]);
     }
@@ -98,8 +108,15 @@ export class TaskLoop {
 
     // 4. 执行已认领任务；认领竞态丢失者跳过——竞态为正常，不 reject
     for (const task of claimed) {
-      this.bus.emit("task.claim", { taskId: task.id, role: role.id, tags: task.tags });
-      await this.execute(task);
+      // N28 T2：每个候选执行前再查一次状态（busy remove 后不得在同轮预领/执行第二候选）。
+      if (this.deps.replica && this.deps.replica.snapshot().state !== "idle") break;
+      this.deps.replica?.startTask(task.id);
+      this.bus.emit("task.claim", { taskId: task.id, role: role.id, tags: task.tags, ...this.workerStamp() });
+      try {
+        await this.execute(task);
+      } finally {
+        this.deps.replica?.finishTask(task.id);
+      }
     }
     return true;
   }
@@ -111,6 +128,10 @@ export class TaskLoop {
     let did = false;
     for (const task of candidates) {
       if (this.paused || this.stopped) break;
+      // N28 T2：per-candidate cycle——每候选执行前查状态；busy/stopped 不认领下一候选。
+      if (this.deps.replica && this.deps.replica.snapshot().state !== "idle") break;
+      this.deps.replica?.startTask(task.id);
+      try {
       const ws = await workspaceMgr.allocate(task.id, task.tenantId ?? "default");
       this.stampTaskDispatchContext(task);
       const execStart = Date.now();
@@ -131,12 +152,12 @@ export class TaskLoop {
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {
           traceEvents.push(e);
-          if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）` });
-          else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80) });
-          else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...chain });
+          if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
+          else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
+          else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
         },
       });
-      this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags });
+      this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags, ...this.workerStamp() });
       const slowQueue = new BoundedBackgroundQueue({ maxConcurrency: 2, logger: (m) => taskLogger?.warn?.(m) });
       // F5 audit binding（6.7）：先捕获 audit store 对象，再 `(ev) => audit.write(ev)`——
       // 不先解引用方法，否则 PgAuditStore.write 内的 this.pool 丢失绑定。
@@ -221,16 +242,19 @@ export class TaskLoop {
       });
       const scope: TenantScope = {
         tenantId: task.tenantId ?? "default",
-        principalId: role.id,
+        principalId: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id,
         roles: [role.id],
         traceId: `task:${task.id}`,
       };
       const res = await dispatcher.dispatchOnce(scope, role.id, [task.id]);
       if (res.claimed > 0) {
-        this.bus.emit("task.claim", { taskId: task.id, role: role.id, tags: task.tags });
-        this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...chain });
+        this.bus.emit("task.claim", { taskId: task.id, role: role.id, tags: task.tags, ...this.workerStamp() });
+        this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...this.workerStamp(), ...chain });
       }
       did = did || res.ran > 0;
+      } finally {
+        this.deps.replica?.finishTask(task.id);
+      }
     }
     return did;
   }
@@ -289,9 +313,9 @@ export class TaskLoop {
     // 会话面事件（tool_call/self_modify）留 Redis Stream；审计失败不阻断任务流
     const audit = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit;
     if (audit?.write) {
-      try { await audit.write({ eventType: "task_rejected", actor: role.id, taskId: task.id, payload: { reason: reason.slice(0, 300) } }); } catch { /* 审计容错 */ }
+      try { await audit.write({ eventType: "task_rejected", actor: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id, taskId: task.id, ...this.workerStamp(), payload: { reason: reason.slice(0, 300), ...(this.deps.replica ? { roleId: role.id } : {}) } }); } catch { /* 审计容错 */ }
     }
-    this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
+    this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...this.workerStamp(), ...chain });
     this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: metricReason ?? classifyReason(reason) });
   }
@@ -308,9 +332,9 @@ export class TaskLoop {
     }
     const audit = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit;
     if (audit?.write) {
-      try { await audit.write({ eventType: "task_requeued", actor: role.id, taskId: task.id, payload: { reason: reason.slice(0, 300) } }); } catch { /* 审计容错 */ }
+      try { await audit.write({ eventType: "task_requeued", actor: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id, taskId: task.id, ...this.workerStamp(), payload: { reason: reason.slice(0, 300), ...(this.deps.replica ? { roleId: role.id } : {}) } }); } catch { /* 审计容错 */ }
     }
-    this.deps.onActivity?.({ kind: "task.requeued", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...chain });
+    this.deps.onActivity?.({ kind: "task.requeued", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...this.workerStamp(), ...chain });
     this.deps.onTaskMetric?.({ type: "status", status: "requeued" });
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: "soft-terminated" });
   }
@@ -346,11 +370,11 @@ export class TaskLoop {
     const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
     const ws = await workspaceMgr.allocate(task.id, (task as { tenantId?: string }).tenantId ?? "default");
     const execStart = Date.now();
-    this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags });
+    this.bus.emit("task.execute.start", { taskId: task.id, role: role.id, tags: task.tags, ...this.workerStamp() });
     // trigger 链信息（payload.triggeredBy——防链式爆炸的链深/自触发追踪）
     const trig = (task.payload as { triggeredBy?: { depth?: number; triggerId?: string } } | undefined)?.triggeredBy;
     const chain = { chainDepth: Number(trig?.depth ?? 0), ...(trig?.triggerId ? { triggerId: trig.triggerId } : {}) };
-    this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...chain });
+    this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...this.workerStamp(), ...chain });
     kernel.reset();                          // 任务级状态隔离
     this.stampTaskDispatchContext(task);
     try {
@@ -388,7 +412,11 @@ export class TaskLoop {
           };
           // sandbox grant 动态绑定：本任务 taskId/tenantId 下发给 kernel 工厂（worker 级兜底 → 任务级）
           (kernel as { setExecutionGrantContext?(ctx: { taskId: string; tenantId: string; principalId?: string }): void })
-            .setExecutionGrantContext?.({ taskId: task.id, tenantId: task.tenantId ?? "system", principalId: role.id });
+            .setExecutionGrantContext?.({
+              taskId: task.id,
+              tenantId: task.tenantId ?? "system",
+              principalId: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id,
+            });
           // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
           const toolRegistry = this.deps.toolRegStore
             ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: task.tenantId ?? "default" })
@@ -412,9 +440,9 @@ export class TaskLoop {
             onTrace: (e) => {
               traceEvents.push(e);
               // 活动事件流（实时——console --follow）：llm step（token 用量）/工具调用/完成
-              if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）` });
-              else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80) });
-              else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...chain });
+              if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
+              else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
+              else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
             },
           });
           // 完成后持久化轨迹（transcript——task_id 关联）
@@ -491,12 +519,12 @@ export class TaskLoop {
       if (affected === 0) {
         // 审计 H5：认领已不属于本 worker（任务被回收重领）——结果静默丢失，告警审计
         taskLogger?.warn(`submit 0 rows（认领已被回收重领？task=${task.id}）——结果未落库`);
-        this.deps.onActivity?.({ kind: "task.submit-conflict", taskId: task.id, role: role.id, ok: false, detail: "submit 0 rows——claim 已被回收/重领" });
+        this.deps.onActivity?.({ kind: "task.submit-conflict", taskId: task.id, role: role.id, ok: false, detail: "submit 0 rows——claim 已被回收/重领", ...this.workerStamp() });
       }
       // 审计两平面接线（2026-08-14 A2 Phase 3）：任务终态写 PG audit_log（会话面事件留 Redis Stream）
       const auditDone = (this.deps.kernel.dataWorld as unknown as { audit?: { write?: (ev: { eventType: string; actor?: string; taskId?: string; workerId?: string; payload?: unknown }) => Promise<void> } } | undefined)?.audit;
       if (auditDone?.write) {
-        try { await auditDone.write({ eventType: "task_completed", actor: role.id, taskId: task.id, payload: { submitAffected: affected } }); } catch { /* 审计容错 */ }
+        try { await auditDone.write({ eventType: "task_completed", actor: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id, taskId: task.id, ...this.workerStamp(), payload: { submitAffected: affected, ...(this.deps.replica ? { roleId: role.id } : {}) } }); } catch { /* 审计容错 */ }
       }
       this.bus.emit("task.submit", { taskId: task.id, role: role.id });
       await this.invokeArchive(task, ws, result);

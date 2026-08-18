@@ -302,7 +302,7 @@ export function buildCapabilities(deps: {
               }
               const scope: TenantScope = {
                 tenantId: ctx.tenantId,
-                principalId: `worker:${ctx.roleId}`,
+                principalId: ctx.worker ? `worker:${ctx.worker.workerId}` : `worker:${ctx.roleId}`,
                 roles: [ctx.roleId],
                 traceId: `task:${ctx.taskId}`,
               };
@@ -315,7 +315,7 @@ export function buildCapabilities(deps: {
               }
               const scope: TenantScope = {
                 tenantId: ctx.tenantId,
-                principalId: `worker:${ctx.roleId}`,
+                principalId: ctx.worker ? `worker:${ctx.worker.workerId}` : `worker:${ctx.roleId}`,
                 roles: [ctx.roleId],
                 traceId: `task:${ctx.taskId}`,
               };
@@ -339,7 +339,7 @@ export function buildCapabilities(deps: {
                     }
                     const scope: TenantScope = {
                       tenantId: ctx.tenantId,
-                      principalId: `worker:${ctx.roleId}`,
+                      principalId: ctx.worker ? `worker:${ctx.worker.workerId}` : `worker:${ctx.roleId}`,
                       roles: [ctx.roleId],
                       traceId: `task:${ctx.taskId}`,
                     };
