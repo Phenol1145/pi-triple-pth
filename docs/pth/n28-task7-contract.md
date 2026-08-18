@@ -53,7 +53,7 @@
 - **Step 2**：实现 `eval-n28-feasibility.ts`，只调用真实 harness exports。Expected：`METRIC_KEYS` 覆盖全部接口键；`validateN28FeasibilityMetrics` 仅做结构校验；H1–H6 按计划表从 metrics 机械推导；非空分母精确冻结；CLI 入口有 `import.meta.url` guard；evaluator 与 Vitest 互不 import；sabotage 分支与 evaluator import 不得进入 `src/pth/**`。
 - **Step 3**：让直接 No-Go 条件覆盖汇总 metrics。Expected：`decideN28Feasibility(metrics)` 是唯一决策函数，GO 当且仅当每个 hypothesis 与每条直接不变量通过；调用方不能传入独立 hypothesis booleans；evaluator 从不硬编码期望成功。
 - **Step 4**：定义最终 acceptance envelope 及其决策测试。Expected：`N28AcceptanceEnvelope` 字段冻结；skip manifest 冻结 `N28_ACCEPTED_BASELINE_SKIPS`（9 条 sandbox-security skip）；`parseVitestSkipManifest` 归一化路径、聚合重复行、拒绝未知 JSON shape；`decideN28Acceptance` 的全部 GO 条件与 EVALUATION-INCOMPLETE/NO-GO 规则冻结；environment unavailable 只能来自 preflight 四类探针；driver 也有 `import.meta.url` guard；决策测试变异每个字段/gate 均不返回 GO。
-- **Step 5**：先提交 evaluator、acceptance driver 与共享 harness，再收集证据。Expected：创建 `tsconfig.n28.json`（文件清单与计划逐字一致；source paths 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明）；记录实现 commit SHA 作为 evaluated implementation commit，不得 amend。
+- **Step 5**：先提交 evaluator、acceptance driver 与共享 harness，再收集证据。Expected：创建 `tsconfig.n28.json`（裁决 C7 收窄后的 N28 专有文件清单——4 scripts + vertical/evaluator/acceptance 三测试；source paths 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明）；记录实现 commit SHA 作为 evaluated implementation commit，不得 amend。
 - **Step 6**：evaluator 运行两次并验证 byte-stable 语义输出。Expected：两次运行退出码相同（0=provisional GO，1=provisional NO-GO）且 `diff` 无输出；JSON 不含时间戳、随机 ID 或机器路径。
 - **Step 7**：运行完整 N28 focused gate。Expected：`npx tsc -p tsconfig.n28.json --noEmit` 通过并记录为独立 `n28Typecheck` gate；随后 `npx vitest run`（Step 7 文件清单）全部 PASS 且无 PG/Redis skip（该 slice 刻意 in-memory）；unsabotaged 集成测试只验证 evidence/decision 一致性，不要求 GO。
 - **Step 8**：运行既有回归与架构门禁。Expected：`npm test` 与 `npm run lint` 在 N27 认可的同一环境 PASS 且无新 skip；`check:pth-boundaries` 与 `check:pth-config` 零违规；PG/Redis 不可用或 sandbox 受限基线只记「evaluation not completed」，不得记为 GO 或 N28 功能失败。
@@ -72,7 +72,7 @@
 7. **Skip manifest 冻结**：`N28_ACCEPTED_BASELINE_SKIPS = [{ file: "test/pth-execution/sandbox-security.integration.test.ts", tests: 9 }] as const`；解析只认 Vitest JSON `testResults[].assertionResults[]` 中 `pending`/`skipped`/`todo`/`disabled`，路径相对化并统一 `/`，聚合重复文件、去零计数、按仓库相对路径排序；拒绝未知 JSON shape，不回退 stdout 或 `numPendingTests`。
 8. **环境不可用只来自 preflight 四类探针**：`postgres`/`redis`/`sandbox`/`toolchain`，且必须在命令执行前运行；gate 一旦 `started=true`，非零退出永远是 NO-GO，不得把已执行失败测试改标为环境问题。
 9. **实验预算照抄设计/计划**：`maxRegions=3`、`maxPrimaryWeight=80`、`maxSecondaryWeight=40`（overlap + fallback）、`maxMemoryEntries=8`、`maxMemoryChars=4096`、`maxSkillIndexEntries=8`、`maxActiveSkills=4`、`maxSkillChars=8192`、`maxTools=16`；static 与 ToolReg 共享同一 `maxTools` 上限；不得宣布为生产默认值。
-10. **可复现与边界**：两次 evaluator 输出 byte-identical；JSON 不含时间戳/随机 ID/机器路径；Vitest 与 CLI 都从 `scripts/n28-feasibility-fixture.ts` 取冻结 corpus 等输入且互不 import；evaluator import 与 sabotage 分支不得进入 `src/pth/**`；`tsconfig.n28.json` 文件清单与计划逐字一致，source path overrides 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明。
+10. **可复现与边界**：两次 evaluator 输出 byte-identical；JSON 不含时间戳/随机 ID/机器路径；Vitest 与 CLI 都从 `scripts/n28-feasibility-fixture.ts` 取冻结 corpus 等输入且互不 import；evaluator import 与 sabotage 分支不得进入 `src/pth/**`；`tsconfig.n28.json` 文件清单按裁决 C7 收窄（N28 专有文件），source path overrides 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明。
 
 ## 7. 非目标
 
@@ -254,7 +254,7 @@ TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept-n28-feasibi
 | 报告必须含免责句：「This result validates the reversible in-memory orchestration model; it does not validate PG durability, automatic partitioning, autoscaling, real-LLM retrieval quality, or production default thresholds.」 | `docs/pth/n28-feasibility-report.md` 内容对账 |
 | GO 只授权写生产化计划，禁止 ADR/schema | 计划 Step 9 原文 + report/commit 内容 review |
 | 合并者额外 review：CLI 入口有 `import.meta.url` guard | `scripts/eval-n28-feasibility.ts` 与 `scripts/accept-n28-feasibility.ts` 均含 `import.meta.url === pathToFileURL(process.argv[1]).href` guard；acceptance 测试导入纯决策函数不得递归启动 driver |
-| 合并者额外 review：`tsconfig.n28.json` 文件清单与计划逐字一致 | 人工比对计划 Step 5 `files` 数组（4 个 scripts + Step 7 冻结的 31 个测试文件）；source paths 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明 |
+| 合并者额外 review：`tsconfig.n28.json` 文件清单与裁决 C7 收窄后清单一致 | 人工比对（4 个 scripts + vertical/evaluator/acceptance 三测试）；source paths 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明 |
 | 合并者额外 review：评估两次运行 byte-identical | Step 6 `diff -u` 无输出 + envelope `evaluator.byteIdentical === true` |
 | 合并者额外 review：env unavailable 只能来自 preflight 四类探针 | `CommandGateEvidence.unavailableReason` 仅含 `postgres`/`redis`/`sandbox`/`toolchain`；代码 review `probeAcceptedN27Environment()` |
 

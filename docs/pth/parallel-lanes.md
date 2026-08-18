@@ -151,7 +151,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | **T4** | 分层检索共享给 Broker/Context + verified scope（H3/H4） | `lane/n28-t4-layered-retrieval` / `.worktrees/n28-t4` | **done** | 主会话·2026-08-19 ✅ lane `b4964c0` → merge `df3e737`（全量 2348 绿 + lint 绿；结构漂移 28 项全部落 T4 契约 §3） |
 | **T5** | 单任务统一 Cognitive Budget（H5） | `lane/n28-t5-cognitive-budget` / `.worktrees/n28-t5` | **done** | 主会话·2026-08-19 ✅ lane `22ffdc3` → merge `ab7ceaa`（全量 2362 绿 + lint 绿；结构漂移 24 项全部落 T5 契约 §3） |
 | **T6** | 真实 agent 面服从 Working Set（H6）+ vertical harness | `lane/n28-t6-agent-working-set` / `.worktrees/n28-t6` | **done** | 主会话·2026-08-19 ✅ lane `db4efce` → merge `ed5ddf6`（全量 2366 绿 + lint 绿；结构漂移 23 项全部落 T6 域 + C6） |
-| **T7** | Go/No-Go evaluator + acceptance + 报告（H1–H6 终审） | `lane/n28-t7-evaluator-acceptance` / `.worktrees/n28-t7` | **done** | 主会话·2026-08-19 ✅ lane `5b76957`+`5e6a588`+`dcf8d62` → merge `3bbbfd3`——**最终 NO-GO（四门禁全绿；H2/H3/H5 PASS，H1/H4/H6 探针分母未满）**；报告 `n28-feasibility-report.md` |
+| **T7** | Go/No-Go evaluator + acceptance + 报告（H1–H6 终审） | `lane/n28-t7-evaluator-acceptance` / `.worktrees/n28-t7` | **done** | 主会话·2026-08-19 ✅ 修复轮后权威 envelope：**GO**（`62bb8b2`，evaluator byte-identical GO + focused/typecheck/full/lint 全绿）；外部复核修复 Layers 1–4 已合并；报告 `n28-feasibility-report.md` |
 
 > Wave 划分：**T1→T2→T3→T4→T5→T6→T7 严格串行**（每 lane 合并回 main 后下一 lane 从新 main 出发）。
 > T7 例外允许计划规定的两次提交（evaluator 实现提交 + 报告提交）。契约逐条见

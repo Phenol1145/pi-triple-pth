@@ -74,4 +74,17 @@
   接受 `allowlist?: readonly string[]`（过滤前先 canonicalize 下划线→点）。
 - 落账：T6 实现 `db4efce` 已落地；账本决策栏 C6 已登记。
 
+## 7. 裁决 C7：n28Typecheck 门禁范围正式收窄（计划 Task 7 / P1-5）
+
+- 问题：计划 Task 7 的 `tsconfig.n28.json` files 清单要求 4 scripts + 31 个 focused
+  测试文件；但仓库 root `tsconfig.json` 历来排除 `test/`，存量测试并非 Node16 严格
+  类型洁癖（无扩展名 import、vitest globals、既有类型假设）。把 31 个存量测试整体
+  纳入 Node16 严格检查需要改写大量与 N28 无关的测试代码。
+- 裁决：**n28Typecheck 门禁正式收窄为 N28 专有文件**（4 scripts + vertical +
+  evaluator/acceptance 三测试，共 7 文件）；其余测试的“能跑”证据由 focused 31 文件
+  与 `npm test` 全量回归承担，源码类型正确性由 `npm run lint` 的根 `tsc --noEmit`
+  承担。未来清理存量测试类型洁癖后可再扩回 31 文件。
+- 落账：`tsconfig.n28.json` 已按此提交；T7 契约 §8.2 类型门禁条目同步修订。
+
+
 
