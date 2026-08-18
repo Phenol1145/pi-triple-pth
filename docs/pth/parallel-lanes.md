@@ -138,13 +138,14 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | 2026-08-18 | **C3 legacy fail-closed** | 未注入 layered=旧路径不变；已注入但无 worker 绑定/Directory-envelope 不匹配 → 零 wave 调用 | T4 |
 | 2026-08-18 | **C4 ASP 模式取法** | 计划不改；实现按现状 `pthConfig().str("PTH_ASP_MODE")==="on"` 适配 | T6 |
 | 2026-08-18 | **结构快照工具** | `scripts/n28-structure-snapshot.ts` + 基线 `n28-structure-baseline.json/.md`（645 文件 / 1275 导入边）；每 lane 合并后 `--check` 对照契约 §3 复核漂移 → 确认后以单独 docs commit `--update` 刷新 | T1–T7 |
+| 2026-08-19 | **C5 snapshot 键** | 实现改为恒定输出 `currentTaskId`（无任务=undefined）；计划 Step 3 代码已同步 | T2 |
 
 ### 车道表（N28）
 
 | Lane | 任务 | 分支 / worktree | 状态 | 认领 |
 |------|------|-----------------|------|------|
 | **T1** | 冻结认知责任契约 + RoleDefinition 兼容别名（H1–H6 公共地基） | `lane/n28-t1-contracts` / `.worktrees/n28-t1` | **done** | 主会话·2026-08-19 ✅ lane `910c088` → merge `9b5d554`（全量 2305 绿 + lint 绿；结构漂移 13 项全部落 T1 契约 §3） |
-| **T2** | WorkerReplica 独立运行时身份/控制（H1；off 逐字节兼容） | `lane/n28-t2-worker-replica-identity` / `.worktrees/n28-t2` | **claimed** | 主会话·2026-08-19 |
+| **T2** | WorkerReplica 独立运行时身份/控制（H1；off 逐字节兼容） | `lane/n28-t2-worker-replica-identity` / `.worktrees/n28-t2` | **done** | 主会话·2026-08-19 ✅ lane `c0f09fa` → merge `837c3ea`（全量 2324 绿 + lint 绿；结构漂移 37 项全部落 T2 契约 §3） |
 | **T3** | 确定性内存 MemoryDirectory + 重叠/unclassified（H2） | `lane/n28-t3-memory-directory` / `.worktrees/n28-t3` | **free** | — |
 | **T4** | 分层检索共享给 Broker/Context + verified scope（H3/H4） | `lane/n28-t4-layered-retrieval` / `.worktrees/n28-t4` | **free** | — |
 | **T5** | 单任务统一 Cognitive Budget（H5） | `lane/n28-t5-cognitive-budget` / `.worktrees/n28-t5` | **free** | — |

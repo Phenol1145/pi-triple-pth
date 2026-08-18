@@ -56,3 +56,13 @@
 - 裁决：不改计划正文；T6 实现按仓库现状（`pthConfig` 字符串比较）适配
   `aspMode` 表述。
 - 落账：T6 契约 §8.2/§9 已注明。
+
+## 5. 裁决 C5：WorkerReplica.snapshot 空闲态 currentTaskId 键（计划 Task 2）
+
+- 问题：计划 Step 1 冻结测试断言空闲/完成后
+  `toMatchObject({ state, currentTaskId: undefined })`，但计划 Step 3 实现片段
+  只在有任务时展开 `currentTaskId` 键 → `toMatchObject` 失败（T2 实测 2/4 红）。
+- 裁决（用户选项 1）：**snapshot 恒定输出 `currentTaskId` 键**（无任务时为
+  `undefined`；JSON/IPC 序列化时自然省略）。测试与契约不动。
+- 落账：计划 Task 2 Step 3 代码已修订；T2 实现 `c0f09fa` 已按此落地。
+

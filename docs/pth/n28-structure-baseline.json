@@ -38,8 +38,12 @@
       "lines": 370
     },
     "src/pth/bootstrap/batch-process.ts": {
-      "sha256": "73d94ef09b6daa5a51765d8cc198319db9f38f95eb056ec4dc182ec62ea78792",
-      "lines": 714
+      "sha256": "0d4eaa065cc61c4859cf81a06eec3784999985f1c9e04c187bfaa66204d52df3",
+      "lines": 810
+    },
+    "src/pth/bootstrap/batch-runtime-assembly.ts": {
+      "sha256": "13639d9a36dbae67515556fe6c4e0bda58d352639cfd51a4db581d3a3d892237",
+      "lines": 106
     },
     "src/pth/bootstrap/bootstrap-config.ts": {
       "sha256": "b31b5083772590750e6141cd1b9631bb28164aa8bad17beda7d0c4832d5c732e",
@@ -58,12 +62,20 @@
       "lines": 34
     },
     "src/pth/bootstrap/task-loop-types.ts": {
-      "sha256": "68ba6348e8bab6eeba9141e3f34f09854d9f541d6c284a609d7b792ae7aadf44",
-      "lines": 60
+      "sha256": "6687a9973b0bc9c067c00c2f7573ab11b805141c323bf0f5876caa853181196b",
+      "lines": 62
     },
     "src/pth/bootstrap/task-loop.ts": {
-      "sha256": "c106991c85b883ec96e95a271ed8a89f7d6f483169a17e495a8da3a808b970d3",
-      "lines": 578
+      "sha256": "1c5808bead92107038bc1d20f357df4680ae9545a8c928ad261cff798fa7d3df",
+      "lines": 606
+    },
+    "src/pth/bootstrap/worker-slot-assembly.ts": {
+      "sha256": "c3dd481558e110c8000bc1cf8066d9ac4455a8ca14f712bf0000b01c43dd461c",
+      "lines": 44
+    },
+    "src/pth/bootstrap/worker-slot-runtime.ts": {
+      "sha256": "27bbc74a017e2d6ab3a56806d42f76e3802507b8aa22fd3c217380456bf3e6a9",
+      "lines": 154
     },
     "src/pth/catalog/adapters/builtin-catalog-contributions.ts": {
       "sha256": "b11ac8b13eb6b5b5349f721d1d1abecfa283b65e438f5fb9d3f634d317f0af31",
@@ -174,8 +186,8 @@
       "lines": 17
     },
     "src/pth/config/schema.ts": {
-      "sha256": "0c65e729f957b3eb4e825b668511d82a074de94d605f69a5cd1b765c75a66fa5",
-      "lines": 222
+      "sha256": "3436123d85b8e2ef6c84b94186347ac3cadb6aee25b25cb470b28a61d3acd034",
+      "lines": 224
     },
     "src/pth/contracts/catalog-contribution-schema.ts": {
       "sha256": "62c2b1637148fea281a9c9e3d8d7a11d2183391a35bbc02279ccab06f1f722dc",
@@ -210,8 +222,8 @@
       "lines": 13
     },
     "src/pth/contracts/tasking.ts": {
-      "sha256": "4d05dafcb69419b2b6440fbd7801ecf651b9c232d0d3bf4b465699e426f1a2d8",
-      "lines": 534
+      "sha256": "c3a9571bc1dac2b88e7d67368de306ca1fd9fd4ef155d06db1f24a0843886c3c",
+      "lines": 537
     },
     "src/pth/core/agent-engine-assets.ts": {
       "sha256": "6e20a84792edc3a721c5f51aa1c7d8ec61378d3f63ee1065ccaa8b932518f0da",
@@ -350,7 +362,7 @@
       "lines": 28
     },
     "src/pth/impls/kernels/capability.ts": {
-      "sha256": "3cf9d7135de385388b4ba47aa0a677d01e7bb42162ae065fa655c59b27b12069",
+      "sha256": "d695b617bf118b4ca22b41a726fbfa3241dac992d2fe6046540618f8d2e1391b",
       "lines": 637
     },
     "src/pth/impls/kernels/index.ts": {
@@ -422,8 +434,8 @@
       "lines": 53
     },
     "src/pth/kernel/execution/batch-manager.ts": {
-      "sha256": "b8a8ac406dc4a5510c07429046fa04c669635c0061628f5f291c1ff359808f5b",
-      "lines": 358
+      "sha256": "8b3293a2dfd3e3ac1827c26441468d74ac8fa268620ac5d814ab5c71e2cf3be7",
+      "lines": 438
     },
     "src/pth/kernel/execution/batch-scaler.ts": {
       "sha256": "e5496c3534d5a670c3ae2d8748a694dbf8f73f1c76b04671460fc06973cd56af",
@@ -556,6 +568,10 @@
     "src/pth/kernel/execution/worker-cluster.ts": {
       "sha256": "f6ab9c5914f2e21c0504bbb558c73b34bb87db5a5fa4438a897d6efae50ece6b",
       "lines": 370
+    },
+    "src/pth/kernel/execution/worker-replica.ts": {
+      "sha256": "82aa7df7c4fc7602a8d63d9aefe52ae2ed5215616b53fdd7f070f17a80aa634a",
+      "lines": 76
     },
     "src/pth/kernel/execution/worker-scorecard.ts": {
       "sha256": "51de99eba55775bf41fd63fd7a15348bdd6fe7621e01bb42467a4146a4bea747",
@@ -754,8 +770,8 @@
       "lines": 37
     },
     "src/pth/runner/observers/audit-observer.ts": {
-      "sha256": "c1de4b7539bfa6c8348cc5acbe0976c533657e0d7bfbcc2f8e5340bc332b6501",
-      "lines": 43
+      "sha256": "c023db1a440ae424c634d3c6f6215aeabaaa30e780893448bc8446a54775a70a",
+      "lines": 53
     },
     "src/pth/runner/observers/metrics-observer.ts": {
       "sha256": "7e7d6ae1d3a62260dca9975bc9995a8ec327a1d9a8e93f67bf8373640da8d84a",
@@ -984,8 +1000,8 @@
       "lines": 1079
     },
     "test/pth-config/config.test.ts": {
-      "sha256": "2e592cce948f6f68397a79e077ecb2bd92f57ff3ae01314e98b8a8baf6adf96a",
-      "lines": 86
+      "sha256": "eeef83b52b3cbcf284644eff71f533422b59385eb650db0cb3fe0579825b5a4e",
+      "lines": 88
     },
     "test/pth-contracts/cognitive-responsibility.test.ts": {
       "sha256": "e55afd3e02705f4ffa4e9d9f212cf0250c2feb2c6326027c10ee0fb0d01085c1",
@@ -1088,12 +1104,16 @@
       "lines": 333
     },
     "test/pth-kernel-execution/batch-manager.test.ts": {
-      "sha256": "d1019b504b2b1cbde0c9338b79e6b063a45b61d0a4550d833aa688f87fed58e3",
-      "lines": 171
+      "sha256": "073079dea7bffc63ed607c188d914c96c72d6880c05dbcfe21cee06cbc618785",
+      "lines": 227
     },
     "test/pth-kernel-execution/batch-process.integration.test.ts": {
       "sha256": "c635dee7b7f33311f239840d368d3b3ae31f18c28b03b3e25d30f6cabc511c25",
       "lines": 133
+    },
+    "test/pth-kernel-execution/batch-runtime-assembly.test.ts": {
+      "sha256": "6377be49f5af90e3af5ee439b77a78d2154461da170711430b08319f33f55b35",
+      "lines": 113
     },
     "test/pth-kernel-execution/batch-scaler.test.ts": {
       "sha256": "c75e07cbd3a3e235add535dcd88e1f1198916af894cec754aeaa313fb4baf8c8",
@@ -1272,8 +1292,8 @@
       "lines": 104
     },
     "test/pth-kernel-execution/task-loop.test.ts": {
-      "sha256": "9fea73c8f8e11d8c5e28a85fc371c2d76360263043f4ca0fc8d80999cfb609e9",
-      "lines": 476
+      "sha256": "e930ad394be9739a6c21a1276ff64fbb59a94c7b24113b50e3db59926133756d",
+      "lines": 561
     },
     "test/pth-kernel-execution/task-resolver.test.ts": {
       "sha256": "c4960c099488fd05033add5f61eddd9723ef691d5deaf2d9136f4b7e7ffb7c6a",
@@ -1298,6 +1318,18 @@
     "test/pth-kernel-execution/worker-cluster.test.ts": {
       "sha256": "bef79b38a5afbe8be97b8c2f3d957ccd4a995852bc811d1746e9d14e3f56105a",
       "lines": 101
+    },
+    "test/pth-kernel-execution/worker-replica.test.ts": {
+      "sha256": "5ef16eb269de2a4d9ee22017d36457e909fe2f08a5f320a737a37dec6bd6e69e",
+      "lines": 41
+    },
+    "test/pth-kernel-execution/worker-slot-assembly.test.ts": {
+      "sha256": "1896e6df8f32075ab97d91afc5f610bb46a6fcb1faf12dff932a4ae8f94965f0",
+      "lines": 50
+    },
+    "test/pth-kernel-execution/worker-slot-runtime.test.ts": {
+      "sha256": "40627f63330791fb306e55fe0fb0f34aa90cf975f5e90fe87b2ee98eb1c6d52c",
+      "lines": 135
     },
     "test/pth-kernel-execution/workspace.test.ts": {
       "sha256": "1c010b42f5827772afcda3d5dc974a632c763166e8b0fa078f7d6e1c073b7967",
@@ -2830,6 +2862,18 @@
     {
       "from": "src/pth/bootstrap/batch-process.ts",
       "kind": "runtime",
+      "specifier": "./batch-runtime-assembly.js",
+      "target": "src/pth/bootstrap/batch-runtime-assembly.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-process.ts",
+      "kind": "runtime",
+      "specifier": "./worker-slot-assembly.js",
+      "target": "src/pth/bootstrap/worker-slot-assembly.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-process.ts",
+      "kind": "runtime",
       "specifier": "@away_from/pth-memory",
       "target": null
     },
@@ -2880,6 +2924,12 @@
       "kind": "type",
       "specifier": "../kernel/execution/worker-cluster.js",
       "target": "src/pth/kernel/execution/worker-cluster.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-process.ts",
+      "kind": "type",
+      "specifier": "../kernel/execution/worker-replica.js",
+      "target": "src/pth/kernel/execution/worker-replica.ts"
     },
     {
       "from": "src/pth/bootstrap/batch-process.ts",
@@ -2940,6 +2990,36 @@
       "kind": "type",
       "specifier": "./task-loop.js",
       "target": "src/pth/bootstrap/task-loop.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-process.ts",
+      "kind": "type",
+      "specifier": "./worker-slot-runtime.js",
+      "target": "src/pth/bootstrap/worker-slot-runtime.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-runtime-assembly.ts",
+      "kind": "runtime",
+      "specifier": "../kernel/execution/worker-replica.js",
+      "target": "src/pth/kernel/execution/worker-replica.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-runtime-assembly.ts",
+      "kind": "type",
+      "specifier": "../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-runtime-assembly.ts",
+      "kind": "type",
+      "specifier": "../kernel/execution/worker-cluster.js",
+      "target": "src/pth/kernel/execution/worker-cluster.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/batch-runtime-assembly.ts",
+      "kind": "type",
+      "specifier": "./worker-slot-runtime.js",
+      "target": "src/pth/bootstrap/worker-slot-runtime.ts"
     },
     {
       "from": "src/pth/bootstrap/bootstrap-config.ts",
@@ -3006,6 +3086,12 @@
       "kind": "type",
       "specifier": "../kernel/execution/worker-cluster.js",
       "target": "src/pth/kernel/execution/worker-cluster.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/task-loop-types.ts",
+      "kind": "type",
+      "specifier": "../kernel/execution/worker-replica.js",
+      "target": "src/pth/kernel/execution/worker-replica.ts"
     },
     {
       "from": "src/pth/bootstrap/task-loop-types.ts",
@@ -3186,6 +3272,30 @@
       "kind": "type",
       "specifier": "./task-loop-types.js",
       "target": "src/pth/bootstrap/task-loop-types.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/worker-slot-assembly.ts",
+      "kind": "type",
+      "specifier": "../kernel/execution/worker-cluster.js",
+      "target": "src/pth/kernel/execution/worker-cluster.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/worker-slot-assembly.ts",
+      "kind": "type",
+      "specifier": "../kernel/execution/worker-replica.js",
+      "target": "src/pth/kernel/execution/worker-replica.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/worker-slot-runtime.ts",
+      "kind": "type",
+      "specifier": "../kernel/execution/worker-cluster.js",
+      "target": "src/pth/kernel/execution/worker-cluster.ts"
+    },
+    {
+      "from": "src/pth/bootstrap/worker-slot-runtime.ts",
+      "kind": "type",
+      "specifier": "../kernel/execution/worker-replica.js",
+      "target": "src/pth/kernel/execution/worker-replica.ts"
     },
     {
       "from": "src/pth/catalog/adapters/builtin-catalog-contributions.ts",
@@ -3654,6 +3764,12 @@
       "kind": "runtime",
       "specifier": "node:buffer",
       "target": null
+    },
+    {
+      "from": "src/pth/contracts/tasking.ts",
+      "kind": "type",
+      "specifier": "./cognitive-responsibility.js",
+      "target": "src/pth/contracts/cognitive-responsibility.ts"
     },
     {
       "from": "src/pth/contracts/tasking.ts",
@@ -5620,6 +5736,12 @@
     {
       "from": "src/pth/kernel/execution/batch-manager.ts",
       "kind": "type",
+      "specifier": "./worker-replica.js",
+      "target": "src/pth/kernel/execution/worker-replica.ts"
+    },
+    {
+      "from": "src/pth/kernel/execution/batch-manager.ts",
+      "kind": "type",
       "specifier": "node:child_process",
       "target": null
     },
@@ -5988,6 +6110,24 @@
       "kind": "type",
       "specifier": "../interpreter/index.js",
       "target": "src/pth/kernel/interpreter/index.ts"
+    },
+    {
+      "from": "src/pth/kernel/execution/worker-replica.ts",
+      "kind": "runtime",
+      "specifier": "node:crypto",
+      "target": null
+    },
+    {
+      "from": "src/pth/kernel/execution/worker-replica.ts",
+      "kind": "type",
+      "specifier": "../../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/kernel/execution/worker-replica.ts",
+      "kind": "type",
+      "specifier": "./worker-cluster.js",
+      "target": "src/pth/kernel/execution/worker-cluster.ts"
     },
     {
       "from": "src/pth/kernel/execution/worker-scorecard.ts",
@@ -7689,15 +7829,15 @@
     }
   ],
   "summary": {
-    "srcPthFiles": 212,
-    "testFiles": 236,
+    "srcPthFiles": 216,
+    "testFiles": 240,
     "scriptFiles": 16,
     "packageFiles": 183,
-    "totalFiles": 647,
-    "totalLines": 99737,
-    "importEdges": 836,
-    "runtimeEdges": 392,
-    "typeEdges": 444,
-    "packageSpecifierEdges": 193
+    "totalFiles": 655,
+    "totalLines": 100820,
+    "importEdges": 854,
+    "runtimeEdges": 396,
+    "typeEdges": 458,
+    "packageSpecifierEdges": 194
   }
 }

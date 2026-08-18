@@ -366,7 +366,8 @@ export class WorkerReplica {
   }
 
   snapshot(): WorkerReplicaStatus {
-    return { ...this.ref, state: this.state, ...(this.currentTaskId ? { currentTaskId: this.currentTaskId } : {}) };
+    // 裁决 C5：恒定输出 currentTaskId 键（无任务时为 undefined），与 Step 1 冻结测试对齐。
+    return { ...this.ref, state: this.state, currentTaskId: this.currentTaskId };
   }
 }
 
