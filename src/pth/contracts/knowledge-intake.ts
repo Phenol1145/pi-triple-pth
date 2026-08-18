@@ -83,6 +83,7 @@ export interface IntakeRun {
   readonly sourceRevisionId?: string;
   readonly candidateId?: string;
   readonly verificationPlanId?: string;
+  readonly lastError?: string;
   readonly rowVersion: number;
 }
 
@@ -114,6 +115,7 @@ export interface SourceRevision {
   readonly id: string;
   readonly tenantId: string;
   readonly subscriptionId: string;
+  readonly runId?: string;
   readonly previousRevisionId?: string;
   readonly derivedFromRevisionId?: string;
   readonly requestedUri: string;
@@ -131,6 +133,31 @@ export interface SourceRevision {
   readonly disposition: "raw-quarantine" | "admitted" | "unchanged" | "rejected";
   readonly fetchPolicyDecision: PolicyDecisionRef;
   readonly usePolicyDecision?: PolicyDecisionRef;
+}
+
+// ─── 冻结联合别名（L3 PG 语义按名引用） ──────────────────────────────
+
+export type SubscriptionStatus = SourceSubscription["status"];
+export type IntakeRunStage = IntakeRun["stage"];
+export type IntakeRunStatus = IntakeRun["status"];
+export type IntakeRunReason = IntakeRun["reason"];
+export type IntakeAttemptDisposition = IntakeAttempt["disposition"];
+export type SourceRevisionDisposition = SourceRevision["disposition"];
+
+/** 依赖边 append-only 行（tenant+subscription 作用域；只有 stale 状态可迁移）。 */
+export interface SourceDependency {
+  readonly tenantId: string;
+  readonly subscriptionId: string;
+  readonly sourceRevisionId: string;
+  readonly dependentKind: "knowledge-entry" | "candidate";
+  readonly dependentId: string;
+  readonly dependentRevision?: number;
+  readonly space: string;
+  readonly evidenceDigest: string;
+  readonly stale: boolean;
+  readonly staleAt?: string;
+  readonly staleReason?: string;
+  readonly rowVersion: number;
 }
 
 export interface IntakeEvidenceReference {
@@ -177,6 +204,14 @@ export interface UsePolicyDecision extends PolicyDecisionRef {
 
 export interface VerifiedTrustPolicy {
   readonly manifest: TrustPolicyManifest;
+  /** 已验签摘要（PG 审计镜像）；缺省取 manifest.digest。 */
+  readonly digest?: string;
+  /** 验签时间（PG 审计镜像）。 */
+  readonly verifiedAt?: string;
+  /** 验签者（PG 审计镜像）。 */
+  readonly verifiedBy?: HumanPrincipalRef;
+  /** 审计镜像安装者；缺省取 manifest.approvedBy.principalId。 */
+  readonly installedBy?: string;
   authorizeFetch(input: FetchAuthorizationInput): FetchPolicyDecision;
   authorizeUse(input: UseAuthorizationInput): UsePolicyDecision;
 }
@@ -199,16 +234,24 @@ export interface CreateSubscriptionInput {
   readonly policyDigest: string;
   readonly policyRuleId: string;
   readonly recrawlIntervalMs: number;
+  /** 首次 next_crawl_at；缺省 now()（PG 创建语义）。 */
+  readonly nextCrawlAt?: Date | string;
+  /** 确定性 subscription id；缺省 uuid（PG 创建语义）。 */
+  readonly id?: string;
 }
 
 export interface ClaimIntakeRunInput {
   readonly tenantId: string;
   readonly runId: string;
-  readonly leaseToken: string;
-  readonly leaseGeneration: number;
-  readonly lockedUntil: string;
   readonly principalId: string;
   readonly executionId: string;
+  /** attempt 审计 input_hash；缺省空串（PG 审计语义）。 */
+  readonly inputHash?: string;
+  /** 可选 CAS 收窄：不符 → 零行。 */
+  readonly expectedRowVersion?: number;
+  readonly expectedLeaseGeneration?: number;
+  /** lease TTL 覆盖（毫秒）；缺省仓库默认。 */
+  readonly leaseMs?: number;
 }
 
 export interface TransitionIntakeRunInput {
@@ -217,12 +260,23 @@ export interface TransitionIntakeRunInput {
   readonly fromStage: IntakeRun["stage"];
   readonly toStage: IntakeRun["stage"];
   readonly status: IntakeRun["status"];
+  /** claim 时仓库签发的 lease token；CAS 必匹配。 */
   readonly leaseToken: string;
+  /** CAS 必匹配 lease_generation。 */
   readonly leaseGeneration: number;
   readonly expectedRowVersion: number;
+  /** attempt 审计行必填主体/执行。 */
+  readonly principalId: string;
+  readonly executionId: string;
+  readonly disposition?: IntakeAttemptDisposition;
+  readonly inputHash?: string;
+  readonly outputHash?: string;
   readonly sourceRevisionId?: string;
   readonly candidateId?: string;
   readonly verificationPlanId?: string;
+  readonly lastError?: string;
+  /** 与状态迁移同事务入队的下一阶段 outbox。 */
+  readonly sideEffects?: readonly IntakeSideEffect[];
 }
 
 export interface SourceAcquisitionEnvelope {
@@ -248,26 +302,59 @@ export interface AcquireSourceInput {
   readonly ifModifiedSince?: string;
 }
 
+/**
+ * 落一次 acquisition：artifact（tenant 内按 raw_hash 去重复用）+ 一条 append-only revision。
+ * raw-quarantine / admitted / unchanged 各自独立成行；admitted 必须带 use policy decision；
+ * unchanged 用 derivedFromRevisionId/previousRevisionId 关联前一 revision。
+ */
 export interface StoreAcquisitionInput {
   readonly tenantId: string;
   readonly subscriptionId: string;
-  readonly envelope: SourceAcquisitionEnvelope;
-  readonly fetchPolicyDecision: FetchPolicyDecision;
-  readonly usePolicyDecision?: UsePolicyDecision;
-  readonly previousRevisionId?: string;
+  readonly runId?: string;
+  /** 确定性 revision id；缺省 uuid（PG 创建语义）。 */
+  readonly revisionId?: string;
+  readonly artifact: {
+    readonly rawHash: string;
+    readonly byteLength: number;
+    readonly rawBytes: Uint8Array;
+    readonly contentType?: string;
+  };
+  readonly revision: {
+    readonly requestedUri: string;
+    readonly finalUri: string;
+    readonly redirectChain?: readonly string[];
+    readonly acquiredAt: Date | string;
+    readonly responseStatus: number;
+    readonly contentType: string;
+    readonly etag?: string;
+    readonly lastModified?: string;
+    readonly normalizedText: string;
+    readonly normalizedTextHash: string;
+    readonly disposition: SourceRevisionDisposition;
+    readonly fetchPolicyDecision: PolicyDecisionRef;
+    readonly usePolicyDecision?: PolicyDecisionRef;
+    readonly previousRevisionId?: string;
+    readonly derivedFromRevisionId?: string;
+  };
 }
 
 export interface SourceDependencyInput {
   readonly tenantId: string;
-  readonly dependentRevisionId: string;
-  readonly dependencyRevisionId: string;
-  readonly dependencyKind: "derived-from" | "unchanged-of" | "supersedes";
+  readonly subscriptionId: string;
+  readonly sourceRevisionId: string;
+  readonly dependentId: string;
+  readonly dependentKind?: "knowledge-entry" | "candidate";
+  readonly dependentRevision?: number;
+  readonly space?: string;
+  readonly evidenceDigest?: string;
 }
 
 export interface MarkDependentsStaleInput {
   readonly tenantId: string;
-  readonly sourceRevisionId: string;
+  readonly subscriptionId: string;
   readonly reason: "source-changed" | "policy-revoked" | "subscription-revoked";
+  /** 当前 revision 自身的 dependent 不标 stale（unchanged 重爬语义）。 */
+  readonly exceptSourceRevisionId?: string;
 }
 
 export interface IntakeClaimInput {
@@ -281,15 +368,48 @@ export interface IngestSourceRevisionInput {
   readonly claims: readonly IntakeClaimInput[];
 }
 
+/** subscription 状态迁移 / 重排程：rowVersion CAS + 合法迁移矩阵。 */
+export interface TransitionSubscriptionInput {
+  readonly tenantId: string;
+  readonly subscriptionId: string;
+  readonly expectedRowVersion: number;
+  readonly toStatus: SourceSubscription["status"];
+  readonly nextCrawlAt?: Date | string;
+  readonly lastSuccessfulRevisionId?: string;
+}
+
+/** 与 run 状态迁移同事务入队的下一阶段 side effect（identity=(tenantId,key)）。 */
+export interface IntakeSideEffect {
+  readonly key: string;
+  readonly kind: string;
+  readonly payload: unknown;
+  /** 缺省取迁移的 tenantId；跨 tenant 入队不允许。 */
+  readonly tenantId?: string;
+}
+
+export interface DueScanOptions {
+  /** 只扫单一 tenant（缺省 = 系统级跨 tenant 扫描）。 */
+  readonly tenantId?: string;
+  /** 下一阶段 outbox kind（缺省 "intake.fetch"）。 */
+  readonly outboxKind?: string;
+}
+
 export interface KnowledgeIntakeRepository {
   installVerifiedPolicy(input: VerifiedTrustPolicy): Promise<void>;
   createSubscription(input: CreateSubscriptionInput): Promise<SourceSubscription>;
-  createDueRuns(now: Date, limit: number): Promise<readonly IntakeRun[]>;
+  transitionSubscription(input: TransitionSubscriptionInput): Promise<SourceSubscription | null>;
+  createDueRuns(now: Date, limit: number, opts?: DueScanOptions): Promise<readonly IntakeRun[]>;
   claimRun(input: ClaimIntakeRunInput): Promise<IntakeRun | null>;
   transitionRun(input: TransitionIntakeRunInput): Promise<IntakeRun | null>;
   storeAcquisition(input: StoreAcquisitionInput): Promise<SourceRevision>;
   recordDependency(input: SourceDependencyInput): Promise<void>;
   markDependentsStale(input: MarkDependentsStaleInput): Promise<readonly string[]>;
+  getSubscription(tenantId: string, subscriptionId: string): Promise<SourceSubscription | null>;
+  getRun(tenantId: string, runId: string): Promise<IntakeRun | null>;
+  getRevision(tenantId: string, revisionId: string): Promise<SourceRevision | null>;
+  listRevisions(tenantId: string, subscriptionId: string): Promise<readonly SourceRevision[]>;
+  listAttempts(tenantId: string, runId: string): Promise<readonly IntakeAttempt[]>;
+  listDependencies(tenantId: string, subscriptionId: string): Promise<readonly SourceDependency[]>;
 }
 
 export interface SourceFetchBroker {
