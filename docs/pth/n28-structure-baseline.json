@@ -181,6 +181,10 @@
       "sha256": "62c2b1637148fea281a9c9e3d8d7a11d2183391a35bbc02279ccab06f1f722dc",
       "lines": 68
     },
+    "src/pth/contracts/cognitive-responsibility.ts": {
+      "sha256": "20e68b52f74fb1d4957ef6487f87d7dcdc2b3aa11877adb2524a3d6546a5c703",
+      "lines": 180
+    },
     "src/pth/contracts/domains.ts": {
       "sha256": "2e81d70cd3ca54f5cfc55b3561f935236d3b1ac4e1dcf31d53859fcf15155a29",
       "lines": 144
@@ -194,8 +198,8 @@
       "lines": 62
     },
     "src/pth/contracts/index.ts": {
-      "sha256": "4e6a2a31d40523bd95197d23b1ac8729cb870493359d4ef53ac212e8a5e042fc",
-      "lines": 15
+      "sha256": "2c6ed5d2961d6d5c3b4b074210b30122664d68a6e3e8d237ae2da3bcd311941b",
+      "lines": 16
     },
     "src/pth/contracts/program.ts": {
       "sha256": "07026605f0e2b4af7e378cf7991b681a0041532f7b36c1ab319b9f53b60e4cae",
@@ -550,8 +554,8 @@
       "lines": 395
     },
     "src/pth/kernel/execution/worker-cluster.ts": {
-      "sha256": "8bc57ec0a1ea967a6cb601c05170c4272c6d1eef9876acb693bcb07138fb18da",
-      "lines": 365
+      "sha256": "f6ab9c5914f2e21c0504bbb558c73b34bb87db5a5fa4438a897d6efae50ece6b",
+      "lines": 370
     },
     "src/pth/kernel/execution/worker-scorecard.ts": {
       "sha256": "51de99eba55775bf41fd63fd7a15348bdd6fe7621e01bb42467a4146a4bea747",
@@ -983,6 +987,10 @@
       "sha256": "2e592cce948f6f68397a79e077ecb2bd92f57ff3ae01314e98b8a8baf6adf96a",
       "lines": 86
     },
+    "test/pth-contracts/cognitive-responsibility.test.ts": {
+      "sha256": "e55afd3e02705f4ffa4e9d9f212cf0250c2feb2c6326027c10ee0fb0d01085c1",
+      "lines": 62
+    },
     "test/pth-contracts/contracts.test.ts": {
       "sha256": "fa7f1db091e17ee2973c05ad89fec8c52e633481ae5647a38a937b63f78ea418",
       "lines": 133
@@ -1288,8 +1296,8 @@
       "lines": 441
     },
     "test/pth-kernel-execution/worker-cluster.test.ts": {
-      "sha256": "263c7830ca7ce3e07cd89801acdbb76481a905293c739c218c31938ad5f122bd",
-      "lines": 89
+      "sha256": "bef79b38a5afbe8be97b8c2f3d957ccd4a995852bc811d1746e9d14e3f56105a",
+      "lines": 101
     },
     "test/pth-kernel-execution/workspace.test.ts": {
       "sha256": "1c010b42f5827772afcda3d5dc974a632c763166e8b0fa078f7d6e1c073b7967",
@@ -1858,8 +1866,8 @@
       "lines": 202
     },
     "scripts/n28-structure-snapshot.ts": {
-      "sha256": "4ca9d74ef88b61b62af80d7eaa18a182546e7e85d794837a84e5bfc04894e4d3",
-      "lines": 384
+      "sha256": "9c3800dc79e88afa00d36b1b489e74cfdb91bd67cda7e76ca6214bba07fe23a9",
+      "lines": 433
     },
     "scripts/pth-boundaries-core.ts": {
       "sha256": "8a4241abf49361848f5b9f1726cbc3199d578c3f28cdbb4811c863f2dc953e44",
@@ -2641,12 +2649,6 @@
     },
     {
       "from": "src/pth/application/gateway/pth-gateway-facade.ts",
-      "kind": "runtime",
-      "specifier": "bridgeQuery: tenantId required（fail-closed）",
-      "target": null
-    },
-    {
-      "from": "src/pth/application/gateway/pth-gateway-facade.ts",
       "kind": "type",
       "specifier": "../../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
@@ -2697,12 +2699,6 @@
       "from": "src/pth/application/gateway/pth-gateway-facade.ts",
       "kind": "type",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/application/gateway/pth-gateway-facade.ts",
-      "kind": "type",
-      "specifier": "stateless",
       "target": null
     },
     {
@@ -2834,12 +2830,6 @@
     {
       "from": "src/pth/bootstrap/batch-process.ts",
       "kind": "runtime",
-      "specifier": "./bootstrap-config.js",
-      "target": "src/pth/bootstrap/bootstrap-config.ts"
-    },
-    {
-      "from": "src/pth/bootstrap/batch-process.ts",
-      "kind": "runtime",
       "specifier": "@away_from/pth-memory",
       "target": null
     },
@@ -2853,18 +2843,6 @@
       "from": "src/pth/bootstrap/batch-process.ts",
       "kind": "runtime",
       "specifier": "node:path",
-      "target": null
-    },
-    {
-      "from": "src/pth/bootstrap/batch-process.ts",
-      "kind": "runtime",
-      "specifier": "PTH_TEST_DATABASE_URL",
-      "target": null
-    },
-    {
-      "from": "src/pth/bootstrap/batch-process.ts",
-      "kind": "runtime",
-      "specifier": "task",
       "target": null
     },
     {
@@ -2970,30 +2948,6 @@
       "target": "src/pth/bootstrap/module-manifest.ts"
     },
     {
-      "from": "src/pth/bootstrap/module-manifest.ts",
-      "kind": "runtime",
-      "specifier": "builtin",
-      "target": null
-    },
-    {
-      "from": "src/pth/bootstrap/module-manifest.ts",
-      "kind": "runtime",
-      "specifier": "kernel",
-      "target": null
-    },
-    {
-      "from": "src/pth/bootstrap/module-manifest.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/bootstrap/module-manifest.ts",
-      "kind": "type",
-      "specifier": "kernel",
-      "target": null
-    },
-    {
       "from": "src/pth/bootstrap/pth-host.ts",
       "kind": "runtime",
       "specifier": "../catalog/adapters/index.js",
@@ -3022,24 +2976,6 @@
       "kind": "runtime",
       "specifier": "../config/index.js",
       "target": "src/pth/config/index.ts"
-    },
-    {
-      "from": "src/pth/bootstrap/task-loop-helpers.ts",
-      "kind": "runtime",
-      "specifier": "completed",
-      "target": null
-    },
-    {
-      "from": "src/pth/bootstrap/task-loop-helpers.ts",
-      "kind": "runtime",
-      "specifier": "execution-failed",
-      "target": null
-    },
-    {
-      "from": "src/pth/bootstrap/task-loop-types.ts",
-      "kind": "runtime",
-      "specifier": "../kernel/execution/refiner.js",
-      "target": "src/pth/kernel/execution/refiner.ts"
     },
     {
       "from": "src/pth/bootstrap/task-loop-types.ts",
@@ -3175,12 +3111,6 @@
     },
     {
       "from": "src/pth/bootstrap/task-loop.ts",
-      "kind": "runtime",
-      "specifier": "delivery",
-      "target": null
-    },
-    {
-      "from": "src/pth/bootstrap/task-loop.ts",
       "kind": "type",
       "specifier": "../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
@@ -3288,24 +3218,6 @@
       "target": "src/pth/catalog/adapters/builtin-catalog-contributions.ts"
     },
     {
-      "from": "src/pth/catalog/capability-policy.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/capability-policy.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/catalog-builder.ts",
-      "kind": "runtime",
-      "specifier": "catalog builder sealed after build()",
-      "target": null
-    },
-    {
       "from": "src/pth/catalog/catalog-builder.ts",
       "kind": "type",
       "specifier": "./capability-policy.js",
@@ -3319,57 +3231,15 @@
     },
     {
       "from": "src/pth/catalog/data/discipline-alias-overrides.ts",
-      "kind": "runtime",
-      "specifier": "programming-languages",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/data/discipline-alias-overrides.ts",
       "kind": "type",
       "specifier": "../../contracts/domains.js",
       "target": "src/pth/contracts/domains.ts"
     },
     {
       "from": "src/pth/catalog/data/discipline-catalog-data.ts",
-      "kind": "runtime",
-      "specifier": "id",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/data/discipline-catalog-data.ts",
       "kind": "type",
       "specifier": "../../contracts/domains.js",
       "target": "src/pth/contracts/domains.ts"
-    },
-    {
-      "from": "src/pth/catalog/data/pilot-eval-queries.ts",
-      "kind": "runtime",
-      "specifier": "pl-01",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/data/pilot-eval-queries.ts",
-      "kind": "type",
-      "specifier": "old",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/data/pilot-eval-queries.ts",
-      "kind": "type",
-      "specifier": "standard",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/data/pilot-knowledge.ts",
-      "kind": "runtime",
-      "specifier": "domain-fact",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/data/pilot-knowledge.ts",
-      "kind": "runtime",
-      "specifier": "pl-fact-type-checking",
-      "target": null
     },
     {
       "from": "src/pth/catalog/data/pilot-source-registry.ts",
@@ -3384,39 +3254,9 @@
       "target": null
     },
     {
-      "from": "src/pth/catalog/data/pilot-source-registry.ts",
-      "kind": "runtime",
-      "specifier": "pl-jls",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/data/pilot-source-registry.ts",
-      "kind": "runtime",
-      "specifier": "sha256",
-      "target": null
-    },
-    {
       "from": "src/pth/catalog/data/pilot-source-snapshots.ts",
       "kind": "runtime",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/data/pilot-source-snapshots.ts",
-      "kind": "runtime",
-      "specifier": "pl-jls",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/discipline-catalog.ts",
-      "kind": "runtime",
-      "specifier": ", ",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/discipline-catalog.ts",
-      "kind": "runtime",
-      "specifier": "discipline catalog builder sealed after build()",
       "target": null
     },
     {
@@ -3424,12 +3264,6 @@
       "kind": "type",
       "specifier": "../contracts/domains.js",
       "target": "src/pth/contracts/domains.ts"
-    },
-    {
-      "from": "src/pth/catalog/discipline-resolver.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
     },
     {
       "from": "src/pth/catalog/discipline-resolver.ts",
@@ -3444,22 +3278,10 @@
       "target": "src/pth/catalog/discipline-catalog.ts"
     },
     {
-      "from": "src/pth/catalog/discipline-resolver.ts",
-      "kind": "type",
-      "specifier": "v1-explicit-alias",
-      "target": null
-    },
-    {
       "from": "src/pth/catalog/extensions/contribution-schema.ts",
       "kind": "runtime",
       "specifier": "../../contracts/catalog-contribution-schema.js",
       "target": "src/pth/contracts/catalog-contribution-schema.ts"
-    },
-    {
-      "from": "src/pth/catalog/extensions/extension-loader.ts",
-      "kind": "runtime",
-      "specifier": ", ",
-      "target": null
     },
     {
       "from": "src/pth/catalog/extensions/extension-loader.ts",
@@ -3478,18 +3300,6 @@
       "kind": "runtime",
       "specifier": "../../contracts/catalog-contribution-schema.js",
       "target": "src/pth/contracts/catalog-contribution-schema.ts"
-    },
-    {
-      "from": "src/pth/catalog/extensions/extension-policy.ts",
-      "kind": "runtime",
-      "specifier": "external-dir",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/extensions/extension-policy.ts",
-      "kind": "type",
-      "specifier": "pth-plugin",
-      "target": null
     },
     {
       "from": "src/pth/catalog/index.ts",
@@ -3590,43 +3400,7 @@
     {
       "from": "src/pth/catalog/pilot-evaluator.ts",
       "kind": "runtime",
-      "specifier": "\\n",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/pilot-evaluator.ts",
-      "kind": "runtime",
-      "specifier": "default",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/pilot-evaluator.ts",
-      "kind": "runtime",
-      "specifier": "entries",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/pilot-evaluator.ts",
-      "kind": "runtime",
-      "specifier": "no-answer-same-domain",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/pilot-evaluator.ts",
-      "kind": "runtime",
       "specifier": "node:crypto",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/pilot-evaluator.ts",
-      "kind": "runtime",
-      "specifier": "pilot-eval-r5-offline-secret-0123456789",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/pilot-evaluator.ts",
-      "kind": "runtime",
-      "specifier": "rows",
       "target": null
     },
     {
@@ -3678,12 +3452,6 @@
       "target": null
     },
     {
-      "from": "src/pth/catalog/pilot-evaluator.ts",
-      "kind": "type",
-      "specifier": "hard-negative",
-      "target": null
-    },
-    {
       "from": "src/pth/catalog/role-routing-policy.ts",
       "kind": "runtime",
       "specifier": "../kernel/execution/role-router.js",
@@ -3700,24 +3468,6 @@
       "kind": "type",
       "specifier": "./runtime-catalog.js",
       "target": "src/pth/catalog/runtime-catalog.ts"
-    },
-    {
-      "from": "src/pth/catalog/role-routing-policy.ts",
-      "kind": "type",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/runtime-catalog.ts",
-      "kind": "runtime",
-      "specifier": "high",
-      "target": null
-    },
-    {
-      "from": "src/pth/catalog/runtime-catalog.ts",
-      "kind": "runtime",
-      "specifier": "meta",
-      "target": null
     },
     {
       "from": "src/pth/catalog/runtime-catalog.ts",
@@ -3746,19 +3496,7 @@
     {
       "from": "src/pth/components/slot-binding.ts",
       "kind": "type",
-      "specifier": "${slotId}",
-      "target": null
-    },
-    {
-      "from": "src/pth/components/slot-binding.ts",
-      "kind": "type",
       "specifier": "ioredis",
-      "target": null
-    },
-    {
-      "from": "src/pth/components/slot-binding.ts",
-      "kind": "type",
-      "specifier": "string",
       "target": null
     },
     {
@@ -3772,12 +3510,6 @@
       "kind": "runtime",
       "specifier": "./tar-utils.js",
       "target": "src/pth/components/tar-utils.ts"
-    },
-    {
-      "from": "src/pth/components/store.ts",
-      "kind": "runtime",
-      "specifier": "components",
-      "target": null
     },
     {
       "from": "src/pth/components/store.ts",
@@ -3823,51 +3555,15 @@
     },
     {
       "from": "src/pth/components/tar-utils.ts",
-      "kind": "runtime",
-      "specifier": "utf-8",
-      "target": null
-    },
-    {
-      "from": "src/pth/components/tar-utils.ts",
       "kind": "type",
       "specifier": "../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
     },
     {
-      "from": "src/pth/components/types.ts",
-      "kind": "runtime",
-      "specifier": "agent-program",
-      "target": null
-    },
-    {
       "from": "src/pth/config/config-center.ts",
       "kind": "runtime",
       "specifier": "./schema.js",
       "target": "src/pth/config/schema.ts"
-    },
-    {
-      "from": "src/pth/config/config-center.ts",
-      "kind": "runtime",
-      "specifier": "***",
-      "target": null
-    },
-    {
-      "from": "src/pth/config/config-center.ts",
-      "kind": "runtime",
-      "specifier": "1",
-      "target": null
-    },
-    {
-      "from": "src/pth/config/config-center.ts",
-      "kind": "runtime",
-      "specifier": "error",
-      "target": null
-    },
-    {
-      "from": "src/pth/config/config-center.ts",
-      "kind": "runtime",
-      "specifier": "PTH_URL",
-      "target": null
     },
     {
       "from": "src/pth/config/index.ts",
@@ -3892,90 +3588,6 @@
       "kind": "type",
       "specifier": "./schema.js",
       "target": "src/pth/config/schema.ts"
-    },
-    {
-      "from": "src/pth/config/schema.ts",
-      "kind": "type",
-      "specifier": "DATABASE_URL",
-      "target": null
-    },
-    {
-      "from": "src/pth/config/schema.ts",
-      "kind": "type",
-      "specifier": "infra",
-      "target": null
-    },
-    {
-      "from": "src/pth/config/schema.ts",
-      "kind": "type",
-      "specifier": "main",
-      "target": null
-    },
-    {
-      "from": "src/pth/config/schema.ts",
-      "kind": "type",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/catalog-contribution-schema.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/catalog-contribution-schema.ts",
-      "kind": "runtime",
-      "specifier": "roles",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/catalog-contribution-schema.ts",
-      "kind": "runtime",
-      "specifier": "tools",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/domains.ts",
-      "kind": "runtime",
-      "specifier": "category",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/domains.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/domains.ts",
-      "kind": "type",
-      "specifier": "category",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/domains.ts",
-      "kind": "type",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/execution.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/execution.ts",
-      "kind": "runtime",
-      "specifier": "stdout",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/execution.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
     },
     {
       "from": "src/pth/contracts/execution.ts",
@@ -3990,28 +3602,16 @@
       "target": "src/pth/contracts/tasking.ts"
     },
     {
-      "from": "src/pth/contracts/execution.ts",
-      "kind": "type",
-      "specifier": "ts",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/identity.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/identity.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
-    },
-    {
       "from": "src/pth/contracts/index.ts",
       "kind": "runtime",
       "specifier": "./catalog-contribution-schema.js",
       "target": "src/pth/contracts/catalog-contribution-schema.ts"
+    },
+    {
+      "from": "src/pth/contracts/index.ts",
+      "kind": "runtime",
+      "specifier": "./cognitive-responsibility.js",
+      "target": "src/pth/contracts/cognitive-responsibility.ts"
     },
     {
       "from": "src/pth/contracts/index.ts",
@@ -4052,67 +3652,7 @@
     {
       "from": "src/pth/contracts/tasking.ts",
       "kind": "runtime",
-      "specifier": "任务被拒绝",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "completed",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "delivery",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
       "specifier": "node:buffer",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "origin",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "result",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "task-await-suspended",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "runtime",
-      "specifier": "utf8",
       "target": null
     },
     {
@@ -4126,24 +3666,6 @@
       "kind": "type",
       "specifier": "./identity.js",
       "target": "src/pth/contracts/identity.ts"
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "type",
-      "specifier": "completed",
-      "target": null
-    },
-    {
-      "from": "src/pth/contracts/tasking.ts",
-      "kind": "type",
-      "specifier": "parent",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-assets.ts",
-      "kind": "runtime",
-      "specifier": "/",
-      "target": null
     },
     {
       "from": "src/pth/core/agent-engine-assets.ts",
@@ -4161,24 +3683,6 @@
       "from": "src/pth/core/agent-engine-assets.ts",
       "kind": "runtime",
       "specifier": "node:path",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-assets.ts",
-      "kind": "runtime",
-      "specifier": "skills",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-assets.ts",
-      "kind": "runtime",
-      "specifier": "unknown",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-assets.ts",
-      "kind": "runtime",
-      "specifier": "utf-8",
       "target": null
     },
     {
@@ -4208,19 +3712,7 @@
     {
       "from": "src/pth/core/agent-engine-recovery.ts",
       "kind": "runtime",
-      "specifier": ".jsonl",
-      "target": "src/pth/core/.jsonl"
-    },
-    {
-      "from": "src/pth/core/agent-engine-recovery.ts",
-      "kind": "runtime",
       "specifier": "node:fs",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-recovery.ts",
-      "kind": "runtime",
-      "specifier": "recovery_start",
       "target": null
     },
     {
@@ -4256,12 +3748,6 @@
     {
       "from": "src/pth/core/agent-engine-session.ts",
       "kind": "runtime",
-      "specifier": "destroy_skipped_reserved",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-session.ts",
-      "kind": "runtime",
       "specifier": "node:crypto",
       "target": null
     },
@@ -4275,12 +3761,6 @@
       "from": "src/pth/core/agent-engine-session.ts",
       "kind": "runtime",
       "specifier": "node:path",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-session.ts",
-      "kind": "runtime",
-      "specifier": "utf-8",
       "target": null
     },
     {
@@ -4334,31 +3814,19 @@
     {
       "from": "src/pth/core/agent-engine-system.ts",
       "kind": "runtime",
-      "specifier": "agent-lab",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-system.ts",
-      "kind": "runtime",
       "specifier": "node:crypto",
       "target": null
     },
     {
       "from": "src/pth/core/agent-engine-system.ts",
       "kind": "runtime",
+      "specifier": "node:fs",
+      "target": null
+    },
+    {
+      "from": "src/pth/core/agent-engine-system.ts",
+      "kind": "runtime",
       "specifier": "node:path",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-system.ts",
-      "kind": "runtime",
-      "specifier": "receivedAt",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-system.ts",
-      "kind": "runtime",
-      "specifier": "system",
       "target": null
     },
     {
@@ -4398,34 +3866,10 @@
       "target": null
     },
     {
-      "from": "src/pth/core/agent-engine-system.ts",
-      "kind": "type",
-      "specifier": "node:fs",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine-system.ts",
-      "kind": "type",
-      "specifier": "system session unavailable",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/agent-engine.ts",
-      "kind": "runtime",
-      "specifier": "./.pi-platform-data",
-      "target": "src/pth/core/.pi-platform-data"
-    },
-    {
       "from": "src/pth/core/agent-engine.ts",
       "kind": "runtime",
       "specifier": "./async-iterable-bridge.js",
       "target": "src/pth/core/async-iterable-bridge.ts"
-    },
-    {
-      "from": "src/pth/core/agent-engine.ts",
-      "kind": "runtime",
-      "specifier": "Forbidden: tenant mismatch",
-      "target": null
     },
     {
       "from": "src/pth/core/agent-engine.ts",
@@ -4525,12 +3969,6 @@
     },
     {
       "from": "src/pth/core/session-pool.ts",
-      "kind": "runtime",
-      "specifier": "idle",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/session-pool.ts",
       "kind": "type",
       "specifier": "../kernel/storage/session/interfaces.js",
       "target": "src/pth/kernel/storage/session/interfaces.ts"
@@ -4561,44 +3999,8 @@
     },
     {
       "from": "src/pth/core/system-event-bus.ts",
-      "kind": "runtime",
-      "specifier": "platform:component-bound",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/system-event-bus.ts",
-      "kind": "runtime",
-      "specifier": "platform:external-event",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/system-event-bus.ts",
-      "kind": "runtime",
-      "specifier": "platform:observe-events:request",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/system-event-bus.ts",
-      "kind": "runtime",
-      "specifier": "platform:observe-events:response",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/system-event-bus.ts",
-      "kind": "runtime",
-      "specifier": "webhook",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/system-event-bus.ts",
       "kind": "type",
       "specifier": "@away_from/infra",
-      "target": null
-    },
-    {
-      "from": "src/pth/core/types.ts",
-      "kind": "type",
-      "specifier": "idle",
       "target": null
     },
     {
@@ -4634,19 +4036,7 @@
     {
       "from": "src/pth/execution/authorization/execution-grant-service.ts",
       "kind": "runtime",
-      "specifier": "grant ttlMs must be positive",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/authorization/execution-grant-service.ts",
-      "kind": "runtime",
       "specifier": "node:crypto",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/authorization/execution-grant-service.ts",
-      "kind": "runtime",
-      "specifier": "object",
       "target": null
     },
     {
@@ -4660,12 +4050,6 @@
       "kind": "type",
       "specifier": "./grant-key-provider.js",
       "target": "src/pth/execution/authorization/grant-key-provider.ts"
-    },
-    {
-      "from": "src/pth/execution/authorization/grant-key-provider.ts",
-      "kind": "runtime",
-      "specifier": "grant signing secret must be at least 16 chars（bootstrap 注入，无默认值）",
-      "target": null
     },
     {
       "from": "src/pth/execution/authorization/grant-key-provider.ts",
@@ -4759,30 +4143,6 @@
     },
     {
       "from": "src/pth/execution/knowledge-broker.ts",
-      "kind": "runtime",
-      "specifier": "${value.replace(/",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-broker.ts",
-      "kind": "runtime",
-      "specifier": "dataWorld",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-broker.ts",
-      "kind": "runtime",
-      "specifier": "knowledge query: SQL required",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-broker.ts",
-      "kind": "runtime",
-      "specifier": "memory.read",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-broker.ts",
       "kind": "type",
       "specifier": "../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
@@ -4792,36 +4152,6 @@
       "kind": "type",
       "specifier": "./authorization/execution-grant-service.js",
       "target": "src/pth/execution/authorization/execution-grant-service.ts"
-    },
-    {
-      "from": "src/pth/execution/knowledge-broker.ts",
-      "kind": "type",
-      "specifier": "domain-fact",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-broker.ts",
-      "kind": "type",
-      "specifier": "official",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-broker.ts",
-      "kind": "type",
-      "specifier": "query",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-promotion.ts",
-      "kind": "runtime",
-      "specifier": "get",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-promotion.ts",
-      "kind": "runtime",
-      "specifier": "verdict conflict: same plan/check/principal with different payload",
-      "target": null
     },
     {
       "from": "src/pth/execution/knowledge-promotion.ts",
@@ -4838,25 +4168,7 @@
     {
       "from": "src/pth/execution/knowledge-promotion.ts",
       "kind": "type",
-      "specifier": "id",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-promotion.ts",
-      "kind": "type",
       "specifier": "pg",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-verdicts.ts",
-      "kind": "runtime",
-      "specifier": "draft",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-verdicts.ts",
-      "kind": "runtime",
-      "specifier": "evidence",
       "target": null
     },
     {
@@ -4867,56 +4179,8 @@
     },
     {
       "from": "src/pth/execution/knowledge-verdicts.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-verdicts.ts",
-      "kind": "runtime",
-      "specifier": "pass",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-verdicts.ts",
-      "kind": "runtime",
-      "specifier": "plan must contain at least one check",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-verdicts.ts",
-      "kind": "runtime",
-      "specifier": "sha256",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-verdicts.ts",
       "kind": "type",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-verdicts.ts",
-      "kind": "type",
-      "specifier": "domain",
-      "target": null
-    },
-    {
-      "from": "src/pth/execution/knowledge-verdicts.ts",
-      "kind": "type",
-      "specifier": "open",
-      "target": null
-    },
-    {
-      "from": "src/pth/fallback/requests.ts",
-      "kind": "runtime",
-      "specifier": "fallback_requests",
-      "target": null
-    },
-    {
-      "from": "src/pth/fallback/requests.ts",
-      "kind": "runtime",
-      "specifier": "low",
       "target": null
     },
     {
@@ -4944,24 +4208,6 @@
       "target": null
     },
     {
-      "from": "src/pth/fallback/requests.ts",
-      "kind": "type",
-      "specifier": "open",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/auth.ts",
-      "kind": "runtime",
-      "specifier": "/health",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/auth.ts",
-      "kind": "runtime",
-      "specifier": "platform-admin",
-      "target": null
-    },
-    {
       "from": "src/pth/gateway/auth.ts",
       "kind": "type",
       "specifier": "fastify",
@@ -4981,12 +4227,6 @@
     },
     {
       "from": "src/pth/gateway/routes-debug.ts",
-      "kind": "runtime",
-      "specifier": "platform-admin",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-debug.ts",
       "kind": "type",
       "specifier": "../observability/audit.js",
       "target": "src/pth/observability/audit.ts"
@@ -5000,25 +4240,7 @@
     {
       "from": "src/pth/gateway/routes-debug.ts",
       "kind": "type",
-      "specifier": "/data/workspaces",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-debug.ts",
-      "kind": "type",
       "specifier": "fastify",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-debug.ts",
-      "kind": "type",
-      "specifier": "output",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-events.ts",
-      "kind": "runtime",
-      "specifier": "/api/v1/events",
       "target": null
     },
     {
@@ -5047,12 +4269,6 @@
     },
     {
       "from": "src/pth/gateway/routes-fallback.ts",
-      "kind": "runtime",
-      "specifier": "/api/v1/fallback-requests",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-fallback.ts",
       "kind": "type",
       "specifier": "../fallback/requests.js",
       "target": "src/pth/fallback/requests.ts"
@@ -5061,12 +4277,6 @@
       "from": "src/pth/gateway/routes-fallback.ts",
       "kind": "type",
       "specifier": "fastify",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-jobs.ts",
-      "kind": "runtime",
-      "specifier": "kernel 未装配",
       "target": null
     },
     {
@@ -5098,12 +4308,6 @@
       "kind": "runtime",
       "specifier": "../kernel/templates.js",
       "target": "src/pth/kernel/templates.ts"
-    },
-    {
-      "from": "src/pth/gateway/routes-kernel.ts",
-      "kind": "runtime",
-      "specifier": "autopilot",
-      "target": null
     },
     {
       "from": "src/pth/gateway/routes-kernel.ts",
@@ -5167,12 +4371,6 @@
     },
     {
       "from": "src/pth/gateway/routes-lineage.ts",
-      "kind": "runtime",
-      "specifier": "/api/v1/kernel/lineage",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-lineage.ts",
       "kind": "type",
       "specifier": "../application/gateway/pth-gateway-facade.js",
       "target": "src/pth/application/gateway/pth-gateway-facade.ts"
@@ -5187,12 +4385,6 @@
       "from": "src/pth/gateway/routes-lineage.ts",
       "kind": "type",
       "specifier": "fastify",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-observe.ts",
-      "kind": "runtime",
-      "specifier": "/api/v1/observe/sessions",
       "target": null
     },
     {
@@ -5264,12 +4456,6 @@
     {
       "from": "src/pth/gateway/routes-programs.ts",
       "kind": "type",
-      "specifier": "/api/v1/components",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-programs.ts",
-      "kind": "type",
       "specifier": "fastify",
       "target": null
     },
@@ -5277,12 +4463,6 @@
       "from": "src/pth/gateway/routes-programs.ts",
       "kind": "type",
       "specifier": "node:zlib",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-self.ts",
-      "kind": "runtime",
-      "specifier": "/api/v1/self/tools",
       "target": null
     },
     {
@@ -5311,12 +4491,6 @@
     },
     {
       "from": "src/pth/gateway/routes-sessions.ts",
-      "kind": "runtime",
-      "specifier": "/api/v1/sessions",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/routes-sessions.ts",
       "kind": "type",
       "specifier": "../core/agent-engine.js",
       "target": "src/pth/core/agent-engine.ts"
@@ -5332,12 +4506,6 @@
       "kind": "runtime",
       "specifier": "../kernel/execution/role-router.js",
       "target": "src/pth/kernel/execution/role-router.ts"
-    },
-    {
-      "from": "src/pth/gateway/routes-trigger.ts",
-      "kind": "runtime",
-      "specifier": "/api/v1/kernel/triggers",
-      "target": null
     },
     {
       "from": "src/pth/gateway/routes-trigger.ts",
@@ -5437,12 +4605,6 @@
     },
     {
       "from": "src/pth/gateway/server.ts",
-      "kind": "runtime",
-      "specifier": "onRequest",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/server.ts",
       "kind": "type",
       "specifier": "../application/gateway/pth-gateway-facade.js",
       "target": "src/pth/application/gateway/pth-gateway-facade.ts"
@@ -5521,20 +4683,8 @@
     },
     {
       "from": "src/pth/gateway/sse.ts",
-      "kind": "runtime",
-      "specifier": "Content-Type",
-      "target": null
-    },
-    {
-      "from": "src/pth/gateway/sse.ts",
       "kind": "type",
       "specifier": "fastify",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/capability.ts",
-      "kind": "runtime",
-      "specifier": " ",
       "target": null
     },
     {
@@ -5576,24 +4726,6 @@
     {
       "from": "src/pth/impls/kernels/capability.ts",
       "kind": "runtime",
-      "specifier": "https:",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/capability.ts",
-      "kind": "runtime",
-      "specifier": "location",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/capability.ts",
-      "kind": "runtime",
-      "specifier": "memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/capability.ts",
-      "kind": "runtime",
       "specifier": "node:dns",
       "target": null
     },
@@ -5613,12 +4745,6 @@
       "from": "src/pth/impls/kernels/capability.ts",
       "kind": "runtime",
       "specifier": "node:net",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/capability.ts",
-      "kind": "runtime",
-      "specifier": "retrieve",
       "target": null
     },
     {
@@ -5762,12 +4888,6 @@
     {
       "from": "src/pth/impls/kernels/kernel-manager.ts",
       "kind": "runtime",
-      "specifier": "../../kernel/interpreter/toolstore.js",
-      "target": "src/pth/kernel/interpreter/toolstore.ts"
-    },
-    {
-      "from": "src/pth/impls/kernels/kernel-manager.ts",
-      "kind": "runtime",
       "specifier": "./python-interpreter.js",
       "target": "src/pth/impls/kernels/python-interpreter.ts"
     },
@@ -5781,18 +4901,6 @@
       "from": "src/pth/impls/kernels/kernel-manager.ts",
       "kind": "runtime",
       "specifier": "@away_from/pth-sandbox",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/kernel-manager.ts",
-      "kind": "runtime",
-      "specifier": "kernel",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/kernel-manager.ts",
-      "kind": "runtime",
-      "specifier": "memory",
       "target": null
     },
     {
@@ -5857,12 +4965,6 @@
     },
     {
       "from": "src/pth/impls/kernels/python-interpreter.ts",
-      "kind": "runtime",
-      "specifier": "python",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/python-interpreter.ts",
       "kind": "type",
       "specifier": "@away_from/pth-sandbox",
       "target": null
@@ -5882,25 +4984,7 @@
     {
       "from": "src/pth/impls/kernels/ts-interpreter.ts",
       "kind": "runtime",
-      "specifier": "Identifier ",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/ts-interpreter.ts",
-      "kind": "runtime",
-      "specifier": "import is not allowed in kernel programs — use injected globals (llm/memory/skills/tasks/bash/python)",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/ts-interpreter.ts",
-      "kind": "runtime",
       "specifier": "node:module",
-      "target": null
-    },
-    {
-      "from": "src/pth/impls/kernels/ts-interpreter.ts",
-      "kind": "runtime",
-      "specifier": "ts",
       "target": null
     },
     {
@@ -5944,12 +5028,6 @@
       "kind": "runtime",
       "specifier": "../tasking/penetration-discovery.js",
       "target": "src/pth/tasking/penetration-discovery.ts"
-    },
-    {
-      "from": "src/pth/kernel/assembly.ts",
-      "kind": "runtime",
-      "specifier": "./execution/activity-hub.js",
-      "target": "src/pth/kernel/execution/activity-hub.ts"
     },
     {
       "from": "src/pth/kernel/assembly.ts",
@@ -6027,12 +5105,6 @@
       "from": "src/pth/kernel/assembly.ts",
       "kind": "runtime",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/assembly.ts",
-      "kind": "runtime",
-      "specifier": "hung-restarted",
       "target": null
     },
     {
@@ -6120,18 +5192,6 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/concept-design.ts",
-      "kind": "runtime",
-      "specifier": "【目标】",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/concept-design.ts",
-      "kind": "type",
-      "specifier": ", ",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/exec-channel.ts",
       "kind": "runtime",
       "specifier": "../config/index.js",
@@ -6153,18 +5213,6 @@
       "from": "src/pth/kernel/exec-channel.ts",
       "kind": "runtime",
       "specifier": "node:crypto",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/exec-channel.ts",
-      "kind": "runtime",
-      "specifier": "PTH_EXEC_SESSION_TTL_MS",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/exec-channel.ts",
-      "kind": "runtime",
-      "specifier": "stateless",
       "target": null
     },
     {
@@ -6200,50 +5248,8 @@
     {
       "from": "src/pth/kernel/execution/activity-hub.ts",
       "kind": "runtime",
-      "specifier": "activity",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/activity-hub.ts",
-      "kind": "runtime",
       "specifier": "node:events",
       "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-guards.ts",
-      "kind": "runtime",
-      "specifier": ".",
-      "target": "src/pth/kernel/execution"
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-guards.ts",
-      "kind": "runtime",
-      "specifier": "/",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-guards.ts",
-      "kind": "runtime",
-      "specifier": "fs",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-guards.ts",
-      "kind": "runtime",
-      "specifier": "none",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-guards.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-prompt.ts",
-      "kind": "runtime",
-      "specifier": ".",
-      "target": "src/pth/kernel/execution"
     },
     {
       "from": "src/pth/kernel/execution/agent-loop-prompt.ts",
@@ -6265,36 +5271,6 @@
     },
     {
       "from": "src/pth/kernel/execution/agent-loop-prompt.ts",
-      "kind": "runtime",
-      "specifier": "【动作空间协议（ASP）】\\n你在【元空间】开始——元空间无执行核，语言代码不可在此解析。\\n- 探索：asp_index() 查看你可进入的空间（语言执行基板 ts/python/bash/dev/write 全角色共享；绑定空间仅绑定 worker 类型可进入——索引会标注）\\n- 执行：asp_cd 切换——asp_cd(\\",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-prompt.ts",
-      "kind": "runtime",
-      "specifier": "@earendil-works/pi-ai",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-prompt.ts",
-      "kind": "runtime",
-      "specifier": "eager",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-prompt.ts",
-      "kind": "runtime",
-      "specifier": "python",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-prompt.ts",
-      "kind": "runtime",
-      "specifier": "SELECT content, meta FROM memory_entries WHERE id=",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-prompt.ts",
       "kind": "type",
       "specifier": "./worker-cluster.js",
       "target": "src/pth/kernel/execution/worker-cluster.ts"
@@ -6304,18 +5280,6 @@
       "kind": "type",
       "specifier": "@earendil-works/pi-ai",
       "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-types.ts",
-      "kind": "runtime",
-      "specifier": "../interpreter/toolstore.js",
-      "target": "src/pth/kernel/interpreter/toolstore.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop-types.ts",
-      "kind": "runtime",
-      "specifier": "./cache-store.js",
-      "target": "src/pth/kernel/execution/cache-store.ts"
     },
     {
       "from": "src/pth/kernel/execution/agent-loop-types.ts",
@@ -6372,12 +5336,6 @@
       "target": "src/pth/kernel/execution/worker-cluster.ts"
     },
     {
-      "from": "src/pth/kernel/execution/agent-loop-types.ts",
-      "kind": "type",
-      "specifier": "llm-call",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/agent-loop.ts",
       "kind": "runtime",
       "specifier": "../../config/index.js",
@@ -6412,12 +5370,6 @@
       "kind": "runtime",
       "specifier": "./agent-loop-prompt.js",
       "target": "src/pth/kernel/execution/agent-loop-prompt.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-loop.ts",
-      "kind": "runtime",
-      "specifier": "./context-compaction.js",
-      "target": "src/pth/kernel/execution/context-compaction.ts"
     },
     {
       "from": "src/pth/kernel/execution/agent-loop.ts",
@@ -6524,12 +5476,6 @@
     {
       "from": "src/pth/kernel/execution/agent-tools-registry.ts",
       "kind": "runtime",
-      "specifier": "../interpreter/toolstore.js",
-      "target": "src/pth/kernel/interpreter/toolstore.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-tools-registry.ts",
-      "kind": "runtime",
       "specifier": "../ptc/runner.js",
       "target": "src/pth/kernel/ptc/runner.ts"
     },
@@ -6538,12 +5484,6 @@
       "kind": "runtime",
       "specifier": "../ptc/tools.js",
       "target": "src/pth/kernel/ptc/tools.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-tools-registry.ts",
-      "kind": "runtime",
-      "specifier": "python.run",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/agent-tools-registry.ts",
@@ -6582,12 +5522,6 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/execution/agent-tools-registry.ts",
-      "kind": "type",
-      "specifier": "string",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/agent-tools.ts",
       "kind": "runtime",
       "specifier": "../extensions/index.js",
@@ -6607,30 +5541,6 @@
     },
     {
       "from": "src/pth/kernel/execution/agent-tools.ts",
-      "kind": "runtime",
-      "specifier": "@earendil-works/pi-ai",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-tools.ts",
-      "kind": "runtime",
-      "specifier": "asp.cd",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-tools.ts",
-      "kind": "runtime",
-      "specifier": "thought",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-tools.ts",
-      "kind": "runtime",
-      "specifier": "ts.run",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/agent-tools.ts",
       "kind": "type",
       "specifier": "./agent-tools-registry.js",
       "target": "src/pth/kernel/execution/agent-tools-registry.ts"
@@ -6645,12 +5555,6 @@
       "from": "src/pth/kernel/execution/agent-tools.ts",
       "kind": "type",
       "specifier": "@earendil-works/pi-ai",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/archive.ts",
-      "kind": "runtime",
-      "specifier": "create",
       "target": null
     },
     {
@@ -6680,26 +5584,8 @@
     {
       "from": "src/pth/kernel/execution/batch-manager.ts",
       "kind": "runtime",
-      "specifier": "../logger.js",
-      "target": "src/pth/kernel/logger.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/batch-manager.ts",
-      "kind": "runtime",
       "specifier": "./event-bus.js",
       "target": "src/pth/kernel/execution/event-bus.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/batch-manager.ts",
-      "kind": "runtime",
-      "specifier": "analyst",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/batch-manager.ts",
-      "kind": "runtime",
-      "specifier": "healthy",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/batch-manager.ts",
@@ -6739,87 +5625,15 @@
     },
     {
       "from": "src/pth/kernel/execution/batch-scaler.ts",
-      "kind": "runtime",
-      "specifier": "balanced",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/batch-scaler.ts",
-      "kind": "runtime",
-      "specifier": "keep",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/batch-scaler.ts",
-      "kind": "runtime",
-      "specifier": "on",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/batch-scaler.ts",
-      "kind": "runtime",
-      "specifier": "pendingCount",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/batch-scaler.ts",
-      "kind": "runtime",
-      "specifier": "scale-up",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/batch-scaler.ts",
       "kind": "type",
       "specifier": "./stats.js",
       "target": "src/pth/kernel/execution/stats.ts"
     },
     {
       "from": "src/pth/kernel/execution/builtin-roles.ts",
-      "kind": "runtime",
-      "specifier": "actuator",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/builtin-roles.ts",
-      "kind": "runtime",
-      "specifier": "analyst",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/builtin-roles.ts",
-      "kind": "runtime",
-      "specifier": "origin",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/builtin-roles.ts",
-      "kind": "runtime",
-      "specifier": "sensor:worker-opt",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/builtin-roles.ts",
       "kind": "type",
       "specifier": "./worker-cluster.js",
       "target": "src/pth/kernel/execution/worker-cluster.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/builtin-spaces.ts",
-      "kind": "runtime",
-      "specifier": ", description: ",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/builtin-spaces.ts",
-      "kind": "runtime",
-      "specifier": "无内置空间",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/builtin-spaces.ts",
-      "kind": "runtime",
-      "specifier": "meta",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/builtin-spaces.ts",
@@ -6834,33 +5648,9 @@
       "target": "src/pth/kernel/extensions/perf-params.ts"
     },
     {
-      "from": "src/pth/kernel/execution/cache-store.ts",
-      "kind": "runtime",
-      "specifier": "PTH_CACHE_MAX_CHARS",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/context-compaction.ts",
-      "kind": "runtime",
-      "specifier": "（未命名）",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/context-compaction.ts",
       "kind": "runtime",
       "specifier": "@earendil-works/pi-coding-agent",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/context-compaction.ts",
-      "kind": "runtime",
-      "specifier": "cot",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/context-compaction.ts",
-      "kind": "runtime",
-      "specifier": "system",
       "target": null
     },
     {
@@ -6871,63 +5661,9 @@
     },
     {
       "from": "src/pth/kernel/execution/debug-case-dispatch.ts",
-      "kind": "runtime",
-      "specifier": "\\n",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/debug-case-dispatch.ts",
-      "kind": "runtime",
-      "specifier": "## 修复产物摘要\\n（未提供——可从 bug 报告与代码库现状自行调查）",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/debug-case-dispatch.ts",
       "kind": "type",
       "specifier": "../storage/task-store-pg.js",
       "target": "src/pth/kernel/storage/task-store-pg.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/event-bus.ts",
-      "kind": "type",
-      "specifier": ".",
-      "target": "src/pth/kernel/execution"
-    },
-    {
-      "from": "src/pth/kernel/execution/guardrails.ts",
-      "kind": "runtime",
-      "specifier": "guardrails: 未注册的护栏 ",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/guardrails.ts",
-      "kind": "runtime",
-      "specifier": "negative-loop",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/guardrails.ts",
-      "kind": "runtime",
-      "specifier": "none",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/guardrails.ts",
-      "kind": "runtime",
-      "specifier": "repeat-action",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/guardrails.ts",
-      "kind": "runtime",
-      "specifier": "soft",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/kernel-event-bridge.ts",
-      "kind": "runtime",
-      "specifier": "task.execute.start",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/kernel-event-bridge.ts",
@@ -6940,36 +5676,6 @@
       "kind": "type",
       "specifier": "./event-bus.js",
       "target": "src/pth/kernel/execution/event-bus.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/kernel-event-bridge.ts",
-      "kind": "type",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/kernel-factories.ts",
-      "kind": "runtime",
-      "specifier": "kernel exec factory 未注入——装配层必须先 import impls/kernels/index.js（setKernelExecFactory）",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/memory-scope.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/memory-sweep-trigger.ts",
-      "kind": "runtime",
-      "specifier": "memory-maintenance-sweep",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/memory-sweep-trigger.ts",
-      "kind": "runtime",
-      "specifier": "memory-sweep",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/memory-sweep-trigger.ts",
@@ -6996,18 +5702,6 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/execution/model-router.ts",
-      "kind": "runtime",
-      "specifier": "getModel",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/model-router.ts",
-      "kind": "runtime",
-      "specifier": "PTH_MODEL_PROVIDER",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/nl-translator.ts",
       "kind": "runtime",
       "specifier": "../../config/index.js",
@@ -7015,27 +5709,9 @@
     },
     {
       "from": "src/pth/kernel/execution/nl-translator.ts",
-      "kind": "runtime",
-      "specifier": "无法自动执行：<原因>",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/nl-translator.ts",
-      "kind": "runtime",
-      "specifier": "system",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/nl-translator.ts",
       "kind": "type",
       "specifier": "../interpreter/llm-fn.js",
       "target": "src/pth/kernel/interpreter/llm-fn.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/nl-translator.ts",
-      "kind": "type",
-      "specifier": "python 代码",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/optimizer-apply.ts",
@@ -7057,30 +5733,6 @@
     },
     {
       "from": "src/pth/kernel/execution/optimizer-apply.ts",
-      "kind": "runtime",
-      "specifier": "\\n",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-apply.ts",
-      "kind": "runtime",
-      "specifier": "建议规则:",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-apply.ts",
-      "kind": "runtime",
-      "specifier": "capability-index",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-apply.ts",
-      "kind": "runtime",
-      "specifier": "optimizer-suggestion",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-apply.ts",
       "kind": "type",
       "specifier": "./optimizer-loop.js",
       "target": "src/pth/kernel/execution/optimizer-loop.ts"
@@ -7096,30 +5748,6 @@
       "kind": "runtime",
       "specifier": "./guardrails.js",
       "target": "src/pth/kernel/execution/guardrails.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-hotspots.ts",
-      "kind": "runtime",
-      "specifier": "调用占比 + 失败率",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-hotspots.ts",
-      "kind": "runtime",
-      "specifier": "反模式",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-hotspots.ts",
-      "kind": "runtime",
-      "specifier": "dev_read",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-hotspots.ts",
-      "kind": "runtime",
-      "specifier": "rule",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/optimizer-hotspots.ts",
@@ -7143,24 +5771,6 @@
       "from": "src/pth/kernel/execution/optimizer-loop.ts",
       "kind": "runtime",
       "specifier": "node:crypto",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-loop.ts",
-      "kind": "runtime",
-      "specifier": "rule",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-loop.ts",
-      "kind": "runtime",
-      "specifier": "taskCount",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/optimizer-loop.ts",
-      "kind": "runtime",
-      "specifier": "verify-aggregate",
       "target": null
     },
     {
@@ -7182,93 +5792,15 @@
       "target": "src/pth/kernel/ptc/contract.ts"
     },
     {
-      "from": "src/pth/kernel/execution/parse-agent-action.ts",
-      "kind": "runtime",
-      "specifier": "action-parse-failed: 输出中无有效 JSON 对象",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/parse-agent-action.ts",
-      "kind": "runtime",
-      "specifier": "ts.eval",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/parse-agent-action.ts",
-      "kind": "type",
-      "specifier": "{",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/perf-autopilot.ts",
-      "kind": "runtime",
-      "specifier": "info",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/perf-autopilot.ts",
-      "kind": "runtime",
-      "specifier": "on",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/perf-autopilot.ts",
       "kind": "type",
       "specifier": "prom-client",
       "target": null
     },
     {
-      "from": "src/pth/kernel/execution/recovery-validation.ts",
-      "kind": "runtime",
-      "specifier": "content 不是合法 JSON",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/recovery-validation.ts",
-      "kind": "runtime",
-      "specifier": "lineage-approve",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/recovery-validation.ts",
-      "kind": "type",
-      "specifier": "source",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/refiner.ts",
-      "kind": "runtime",
-      "specifier": "functions",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/refiner.ts",
-      "kind": "runtime",
-      "specifier": "id",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/refiner.ts",
       "kind": "runtime",
       "specifier": "node:crypto",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/refiner.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/refiner.ts",
-      "kind": "runtime",
-      "specifier": "typescript",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/refiner.ts",
-      "kind": "runtime",
-      "specifier": "write",
       "target": null
     },
     {
@@ -7302,40 +5834,10 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/execution/refiner.ts",
-      "kind": "type",
-      "specifier": "high",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/resolver-core.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/resolver-core.ts",
-      "kind": "runtime",
-      "specifier": "payload",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/resolver-core.ts",
-      "kind": "runtime",
-      "specifier": "status",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/resolver-core.ts",
       "kind": "type",
       "specifier": "../storage/task-store-pg.js",
       "target": "src/pth/kernel/storage/task-store-pg.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/resolver-core.ts",
-      "kind": "type",
-      "specifier": "id",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/role-router.ts",
@@ -7351,12 +5853,6 @@
     },
     {
       "from": "src/pth/kernel/execution/role-router.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/role-router.ts",
       "kind": "type",
       "specifier": "../../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
@@ -7368,12 +5864,6 @@
       "target": "src/pth/kernel/execution/worker-cluster.ts"
     },
     {
-      "from": "src/pth/kernel/execution/role-router.ts",
-      "kind": "type",
-      "specifier": "role",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/space-index.ts",
       "kind": "runtime",
       "specifier": "./space-registry.js",
@@ -7381,45 +5871,9 @@
     },
     {
       "from": "src/pth/kernel/execution/space-index.ts",
-      "kind": "runtime",
-      "specifier": "by-type",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/space-index.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/space-index.ts",
       "kind": "type",
       "specifier": "../interpreter/index.js",
       "target": "src/pth/kernel/interpreter/index.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/space-registry.ts",
-      "kind": "runtime",
-      "specifier": "${def.id}",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/space-registry.ts",
-      "kind": "type",
-      "specifier": "meta",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/stats.ts",
-      "kind": "runtime",
-      "specifier": "add",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/stats.ts",
-      "kind": "runtime",
-      "specifier": "countPending",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/stats.ts",
@@ -7435,51 +5889,15 @@
     },
     {
       "from": "src/pth/kernel/execution/system-triggers.ts",
-      "kind": "runtime",
-      "specifier": "claim.reap",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/system-triggers.ts",
-      "kind": "runtime",
-      "specifier": "origin-escalation",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/system-triggers.ts",
       "kind": "type",
       "specifier": "./trigger-engine.js",
       "target": "src/pth/kernel/execution/trigger-engine.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/tag-registry.ts",
-      "kind": "type",
-      "specifier": "role",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/task-resolver.ts",
-      "kind": "runtime",
-      "specifier": "../logger.js",
-      "target": "src/pth/kernel/logger.ts"
     },
     {
       "from": "src/pth/kernel/execution/task-resolver.ts",
       "kind": "runtime",
       "specifier": "./tag-registry.js",
       "target": "src/pth/kernel/execution/tag-registry.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/task-resolver.ts",
-      "kind": "runtime",
-      "specifier": "flow",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/task-resolver.ts",
-      "kind": "runtime",
-      "specifier": "upstream.title",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/task-resolver.ts",
@@ -7501,45 +5919,9 @@
     },
     {
       "from": "src/pth/kernel/execution/thinking-path.ts",
-      "kind": "runtime",
-      "specifier": "memory.query",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/thinking-path.ts",
       "kind": "type",
       "specifier": "./agent-loop.js",
       "target": "src/pth/kernel/execution/agent-loop.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/thinking-path.ts",
-      "kind": "type",
-      "specifier": "explore",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/thinking-path.ts",
-      "kind": "type",
-      "specifier": "tool-result",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/tool-registry.ts",
-      "kind": "runtime",
-      "specifier": "./worker-cluster.js",
-      "target": "src/pth/kernel/execution/worker-cluster.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/tool-registry.ts",
-      "kind": "runtime",
-      "specifier": "【场景锚点：",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/tool-registry.ts",
-      "kind": "runtime",
-      "specifier": "tool:",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/tool-registry.ts",
@@ -7563,18 +5945,6 @@
       "from": "src/pth/kernel/execution/tool-registry.ts",
       "kind": "type",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/tool-registry.ts",
-      "kind": "type",
-      "specifier": "0",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/tool-registry.ts",
-      "kind": "type",
-      "specifier": "object",
       "target": null
     },
     {
@@ -7608,94 +5978,10 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/execution/trigger-engine.ts",
-      "kind": "type",
-      "specifier": "event",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/trigger-engine.ts",
-      "kind": "type",
-      "specifier": "official",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/trigger-engine.ts",
-      "kind": "type",
-      "specifier": "trigger",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": ",",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/worker-cluster.ts",
       "kind": "runtime",
       "specifier": "./tag-registry.js",
       "target": "src/pth/kernel/execution/tag-registry.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "/",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "${role.id}",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "${role}",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "工具白名单",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "balanced",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "buildRoleLineage: 角色集为空（未注入内置角色——先 setDefaultRoles）",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "governance",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "planner",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "runtime",
-      "specifier": "reinforced",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/worker-cluster.ts",
@@ -7704,28 +5990,10 @@
       "target": "src/pth/kernel/interpreter/index.ts"
     },
     {
-      "from": "src/pth/kernel/execution/worker-cluster.ts",
-      "kind": "type",
-      "specifier": "balanced",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/execution/worker-scorecard.ts",
       "kind": "type",
       "specifier": "./agent-loop.js",
       "target": "src/pth/kernel/execution/agent-loop.ts"
-    },
-    {
-      "from": "src/pth/kernel/execution/worker-scorecard.ts",
-      "kind": "type",
-      "specifier": "llm-call",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/execution/workspace.ts",
-      "kind": "runtime",
-      "specifier": "default",
-      "target": null
     },
     {
       "from": "src/pth/kernel/execution/workspace.ts",
@@ -7741,12 +6009,6 @@
     },
     {
       "from": "src/pth/kernel/extensions/context.ts",
-      "kind": "runtime",
-      "specifier": "context",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/context.ts",
       "kind": "type",
       "specifier": "./types.js",
       "target": "src/pth/kernel/extensions/types.ts"
@@ -7754,25 +6016,7 @@
     {
       "from": "src/pth/kernel/extensions/ext-manifest.ts",
       "kind": "runtime",
-      "specifier": "own",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/ext-manifest.ts",
-      "kind": "runtime",
-      "specifier": "repl",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/ext-manifest.ts",
-      "kind": "runtime",
       "specifier": "zod",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/ext-manifest.ts",
-      "kind": "type",
-      "specifier": "0.7.0",
       "target": null
     },
     {
@@ -7784,18 +6028,6 @@
     {
       "from": "src/pth/kernel/extensions/ext-registry.ts",
       "kind": "runtime",
-      "specifier": "exec",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/ext-registry.ts",
-      "kind": "runtime",
-      "specifier": "extensions",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/ext-registry.ts",
-      "kind": "runtime",
       "specifier": "node:fs",
       "target": null
     },
@@ -7803,12 +6035,6 @@
       "from": "src/pth/kernel/extensions/ext-registry.ts",
       "kind": "runtime",
       "specifier": "node:path",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/ext-registry.ts",
-      "kind": "runtime",
-      "specifier": "use strict",
       "target": null
     },
     {
@@ -7873,12 +6099,6 @@
     },
     {
       "from": "src/pth/kernel/extensions/index.ts",
-      "kind": "runtime",
-      "specifier": "\\n",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/index.ts",
       "kind": "type",
       "specifier": "./types.js",
       "target": "src/pth/kernel/extensions/types.ts"
@@ -7905,12 +6125,6 @@
       "from": "src/pth/kernel/extensions/manage.ts",
       "kind": "runtime",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/manage.ts",
-      "kind": "runtime",
-      "specifier": "manage",
       "target": null
     },
     {
@@ -7969,21 +6183,9 @@
     },
     {
       "from": "src/pth/kernel/extensions/memory.ts",
-      "kind": "runtime",
-      "specifier": "memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/memory.ts",
       "kind": "type",
       "specifier": "./types.js",
       "target": "src/pth/kernel/extensions/types.ts"
-    },
-    {
-      "from": "src/pth/kernel/extensions/model.ts",
-      "kind": "runtime",
-      "specifier": "model",
-      "target": null
     },
     {
       "from": "src/pth/kernel/extensions/model.ts",
@@ -7996,24 +6198,6 @@
       "kind": "runtime",
       "specifier": "../../config/index.js",
       "target": "src/pth/config/index.ts"
-    },
-    {
-      "from": "src/pth/kernel/extensions/obs-ipc.ts",
-      "kind": "runtime",
-      "specifier": "obs-req",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/obs-ipc.ts",
-      "kind": "runtime",
-      "specifier": "obs-resp",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/obs-ipc.ts",
-      "kind": "runtime",
-      "specifier": "PTH_BATCH_PROCESS",
-      "target": null
     },
     {
       "from": "src/pth/kernel/extensions/obs.ts",
@@ -8026,12 +6210,6 @@
       "kind": "runtime",
       "specifier": "./obs-ipc.js",
       "target": "src/pth/kernel/extensions/obs-ipc.ts"
-    },
-    {
-      "from": "src/pth/kernel/extensions/obs.ts",
-      "kind": "runtime",
-      "specifier": "obs",
-      "target": null
     },
     {
       "from": "src/pth/kernel/extensions/obs.ts",
@@ -8084,12 +6262,6 @@
     {
       "from": "src/pth/kernel/extensions/perf.ts",
       "kind": "runtime",
-      "specifier": ".json",
-      "target": "src/pth/kernel/extensions/.json"
-    },
-    {
-      "from": "src/pth/kernel/extensions/perf.ts",
-      "kind": "runtime",
       "specifier": "node:fs/promises",
       "target": null
     },
@@ -8101,21 +6273,9 @@
     },
     {
       "from": "src/pth/kernel/extensions/perf.ts",
-      "kind": "runtime",
-      "specifier": "perf",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/extensions/perf.ts",
       "kind": "type",
       "specifier": "./types.js",
       "target": "src/pth/kernel/extensions/types.ts"
-    },
-    {
-      "from": "src/pth/kernel/extensions/perf.ts",
-      "kind": "type",
-      "specifier": "task",
-      "target": null
     },
     {
       "from": "src/pth/kernel/extensions/types.ts",
@@ -8134,24 +6294,6 @@
       "kind": "runtime",
       "specifier": "../extensions/ext-registry.js",
       "target": "src/pth/kernel/extensions/ext-registry.ts"
-    },
-    {
-      "from": "src/pth/kernel/interpreter/ext-capability.ts",
-      "kind": "runtime",
-      "specifier": "extension-index",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/interpreter/ext-capability.ts",
-      "kind": "runtime",
-      "specifier": "extensions",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/interpreter/ext-capability.ts",
-      "kind": "runtime",
-      "specifier": "use strict",
-      "target": null
     },
     {
       "from": "src/pth/kernel/interpreter/ext-capability.ts",
@@ -8214,40 +6356,10 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/interpreter/kernel-config.ts",
-      "kind": "runtime",
-      "specifier": "0",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/interpreter/kernel-config.ts",
-      "kind": "runtime",
-      "specifier": "ns",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/interpreter/llm-fn.ts",
       "kind": "runtime",
       "specifier": "../../config/index.js",
       "target": "src/pth/config/index.ts"
-    },
-    {
-      "from": "src/pth/kernel/interpreter/llm-fn.ts",
-      "kind": "runtime",
-      "specifier": "off",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/interpreter/llm-fn.ts",
-      "kind": "runtime",
-      "specifier": "PTH_LLM_STUB",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/interpreter/llm-fn.ts",
-      "kind": "runtime",
-      "specifier": "system",
-      "target": null
     },
     {
       "from": "src/pth/kernel/interpreter/llm-fn.ts",
@@ -8262,12 +6374,6 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/interpreter/llm-fn.ts",
-      "kind": "type",
-      "specifier": "text",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/interpreter/read-source.ts",
       "kind": "runtime",
       "specifier": "../../config/index.js",
@@ -8286,24 +6392,6 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/interpreter/read-source.ts",
-      "kind": "runtime",
-      "specifier": "PTH_SOURCE_ROOT",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/interpreter/read-source.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/interpreter/toolstore.ts",
-      "kind": "runtime",
-      "specifier": "..",
-      "target": "src/pth/kernel"
-    },
-    {
       "from": "src/pth/kernel/interpreter/toolstore.ts",
       "kind": "runtime",
       "specifier": "node:fs/promises",
@@ -8313,30 +6401,6 @@
       "from": "src/pth/kernel/interpreter/toolstore.ts",
       "kind": "runtime",
       "specifier": "node:path",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/interpreter/toolstore.ts",
-      "kind": "runtime",
-      "specifier": "utf8",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/logger.ts",
-      "kind": "runtime",
-      "specifier": "gateway",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/logger.ts",
-      "kind": "runtime",
-      "specifier": "pretty",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/logger.ts",
-      "kind": "type",
-      "specifier": "debug",
       "target": null
     },
     {
@@ -8366,19 +6430,7 @@
     {
       "from": "src/pth/kernel/prompt-docs.ts",
       "kind": "runtime",
-      "specifier": "（谱系之根）",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/prompt-docs.ts",
-      "kind": "runtime",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/prompt-docs.ts",
-      "kind": "runtime",
-      "specifier": "dev",
       "target": null
     },
     {
@@ -8395,68 +6447,8 @@
     },
     {
       "from": "src/pth/kernel/prompt-docs.ts",
-      "kind": "runtime",
-      "specifier": "role-doc",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/prompt-docs.ts",
-      "kind": "runtime",
-      "specifier": "src",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/prompt-docs.ts",
-      "kind": "runtime",
-      "specifier": "src/pth/gateway",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/prompt-docs.ts",
-      "kind": "runtime",
-      "specifier": "src/pth/kernel/execution/agent-loop.ts",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/prompt-docs.ts",
-      "kind": "runtime",
-      "specifier": "src/pth/kernel/interpreter/capability.ts",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/prompt-docs.ts",
       "kind": "type",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/ptc/contract.ts",
-      "kind": "runtime",
-      "specifier": "[",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/ptc/contract.ts",
-      "kind": "runtime",
-      "specifier": "memory.query",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/ptc/contract.ts",
-      "kind": "type",
-      "specifier": "ts-local",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/ptc/docs.ts",
-      "kind": "runtime",
-      "specifier": " → ",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/ptc/docs.ts",
-      "kind": "runtime",
-      "specifier": "## ",
       "target": null
     },
     {
@@ -8473,27 +6465,9 @@
     },
     {
       "from": "src/pth/kernel/ptc/runner.ts",
-      "kind": "runtime",
-      "specifier": "/tmp",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/ptc/runner.ts",
-      "kind": "runtime",
-      "specifier": "ts",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/ptc/runner.ts",
       "kind": "type",
       "specifier": "../interpreter/index.js",
       "target": "src/pth/kernel/interpreter/index.ts"
-    },
-    {
-      "from": "src/pth/kernel/ptc/surface.ts",
-      "kind": "runtime",
-      "specifier": ".",
-      "target": "src/pth/kernel/ptc"
     },
     {
       "from": "src/pth/kernel/ptc/surface.ts",
@@ -8502,33 +6476,9 @@
       "target": "src/pth/kernel/ptc/contract.ts"
     },
     {
-      "from": "src/pth/kernel/ptc/tools.ts",
-      "kind": "runtime",
-      "specifier": "【场景锚点：",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/ptc/tools.ts",
-      "kind": "runtime",
-      "specifier": "python.run",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/self-modify.ts",
-      "kind": "runtime",
-      "specifier": "self-modify-guide",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/self-modify.ts",
       "kind": "type",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/audit-store.ts",
-      "kind": "runtime",
-      "specifier": "default",
       "target": null
     },
     {
@@ -8575,12 +6525,6 @@
     },
     {
       "from": "src/pth/kernel/storage/index.ts",
-      "kind": "runtime",
-      "specifier": "activity",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/index.ts",
       "kind": "type",
       "specifier": "./session/interfaces.js",
       "target": "src/pth/kernel/storage/session/interfaces.ts"
@@ -8612,18 +6556,6 @@
     {
       "from": "src/pth/kernel/storage/pg.ts",
       "kind": "runtime",
-      "specifier": "BEGIN",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/pg.ts",
-      "kind": "runtime",
-      "specifier": "error",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/pg.ts",
-      "kind": "runtime",
       "specifier": "pg",
       "target": null
     },
@@ -8631,12 +6563,6 @@
       "from": "src/pth/kernel/storage/schema.ts",
       "kind": "runtime",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/schema.ts",
-      "kind": "runtime",
-      "specifier": "default",
       "target": null
     },
     {
@@ -8670,18 +6596,6 @@
       "target": null
     },
     {
-      "from": "src/pth/kernel/storage/session/types.ts",
-      "kind": "runtime",
-      "specifier": "active",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/session/types.ts",
-      "kind": "runtime",
-      "specifier": "user",
-      "target": null
-    },
-    {
       "from": "src/pth/kernel/storage/task-store-pg.ts",
       "kind": "runtime",
       "specifier": "../../contracts/tasking.js",
@@ -8696,31 +6610,7 @@
     {
       "from": "src/pth/kernel/storage/task-store-pg.ts",
       "kind": "runtime",
-      "specifier": "default",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/task-store-pg.ts",
-      "kind": "runtime",
-      "specifier": "delegate",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/task-store-pg.ts",
-      "kind": "runtime",
-      "specifier": "entry",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/task-store-pg.ts",
-      "kind": "runtime",
       "specifier": "node:crypto",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/task-store-pg.ts",
-      "kind": "runtime",
-      "specifier": "object",
       "target": null
     },
     {
@@ -8738,12 +6628,6 @@
     {
       "from": "src/pth/kernel/storage/transcript-store.ts",
       "kind": "runtime",
-      "specifier": "default",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/storage/transcript-store.ts",
-      "kind": "runtime",
       "specifier": "node:crypto",
       "target": null
     },
@@ -8751,36 +6635,6 @@
       "from": "src/pth/kernel/storage/transcript-store.ts",
       "kind": "type",
       "specifier": "pg",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/templates.ts",
-      "kind": "runtime",
-      "specifier": "recon-doc",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/templates.ts",
-      "kind": "runtime",
-      "specifier": "string",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/templates.ts",
-      "kind": "runtime",
-      "specifier": "ts-code",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/templates.ts",
-      "kind": "runtime",
-      "specifier": "unknown-template",
-      "target": null
-    },
-    {
-      "from": "src/pth/kernel/templates.ts",
-      "kind": "type",
-      "specifier": "unknown-template",
       "target": null
     },
     {
@@ -8948,12 +6802,6 @@
     {
       "from": "src/pth/main.ts",
       "kind": "type",
-      "specifier": "../../extensions/agent-lab/index.ts",
-      "target": "extensions/agent-lab/index.ts"
-    },
-    {
-      "from": "src/pth/main.ts",
-      "kind": "type",
       "specifier": "./kernel/execution/perf-autopilot.js",
       "target": "src/pth/kernel/execution/perf-autopilot.ts"
     },
@@ -8973,12 +6821,6 @@
       "from": "src/pth/main.ts",
       "kind": "type",
       "specifier": "node:fs/promises",
-      "target": null
-    },
-    {
-      "from": "src/pth/observability/audit.ts",
-      "kind": "runtime",
-      "specifier": "audit:log",
       "target": null
     },
     {
@@ -9006,18 +6848,6 @@
       "target": null
     },
     {
-      "from": "src/pth/observability/kernel-metrics.ts",
-      "kind": "runtime",
-      "specifier": "PTH_METRICS_INTERVAL_MS",
-      "target": null
-    },
-    {
-      "from": "src/pth/observability/metrics.ts",
-      "kind": "runtime",
-      "specifier": "pi_sessions_active",
-      "target": null
-    },
-    {
       "from": "src/pth/observability/metrics.ts",
       "kind": "runtime",
       "specifier": "prom-client",
@@ -9030,12 +6860,6 @@
       "target": null
     },
     {
-      "from": "src/pth/observability/metrics.ts",
-      "kind": "type",
-      "specifier": "memory",
-      "target": null
-    },
-    {
       "from": "src/pth/observability/resource-provider.ts",
       "kind": "runtime",
       "specifier": "../config/index.js",
@@ -9045,18 +6869,6 @@
       "from": "src/pth/observability/resource-provider.ts",
       "kind": "runtime",
       "specifier": "node:os",
-      "target": null
-    },
-    {
-      "from": "src/pth/observability/resource-provider.ts",
-      "kind": "runtime",
-      "specifier": "pg",
-      "target": null
-    },
-    {
-      "from": "src/pth/observability/resource-provider.ts",
-      "kind": "runtime",
-      "specifier": "PTH_PLATFORM",
       "target": null
     },
     {
@@ -9110,20 +6922,8 @@
     {
       "from": "src/pth/runner/agent-task-runner.ts",
       "kind": "runtime",
-      "specifier": "../kernel/execution/tool-registry.js",
-      "target": "src/pth/kernel/execution/tool-registry.ts"
-    },
-    {
-      "from": "src/pth/runner/agent-task-runner.ts",
-      "kind": "runtime",
       "specifier": "../kernel/ptc/runner.js",
       "target": "src/pth/kernel/ptc/runner.ts"
-    },
-    {
-      "from": "src/pth/runner/agent-task-runner.ts",
-      "kind": "runtime",
-      "specifier": "cancelled",
-      "target": null
     },
     {
       "from": "src/pth/runner/agent-task-runner.ts",
@@ -9271,30 +7071,6 @@
     },
     {
       "from": "src/pth/runner/knowledge-context.ts",
-      "kind": "runtime",
-      "specifier": "\\n",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/knowledge-context.ts",
-      "kind": "runtime",
-      "specifier": "0",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/knowledge-context.ts",
-      "kind": "runtime",
-      "specifier": "budget",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/knowledge-context.ts",
-      "kind": "runtime",
-      "specifier": "domain-fact",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/knowledge-context.ts",
       "kind": "type",
       "specifier": "../catalog/index.js",
       "target": "src/pth/catalog/index.ts"
@@ -9313,33 +7089,15 @@
     },
     {
       "from": "src/pth/runner/observers/activity-observer.ts",
-      "kind": "runtime",
-      "specifier": "chain",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/observers/activity-observer.ts",
       "kind": "type",
       "specifier": "../../tasking/index.js",
       "target": "src/pth/tasking/index.ts"
     },
     {
       "from": "src/pth/runner/observers/audit-observer.ts",
-      "kind": "runtime",
-      "specifier": "unknown",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/observers/audit-observer.ts",
       "kind": "type",
       "specifier": "../../tasking/index.js",
       "target": "src/pth/tasking/index.ts"
-    },
-    {
-      "from": "src/pth/runner/observers/metrics-observer.ts",
-      "kind": "runtime",
-      "specifier": "execMs",
-      "target": null
     },
     {
       "from": "src/pth/runner/observers/metrics-observer.ts",
@@ -9355,21 +7113,9 @@
     },
     {
       "from": "src/pth/runner/observers/notifier-observer.ts",
-      "kind": "runtime",
-      "specifier": "completed",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/observers/notifier-observer.ts",
       "kind": "type",
       "specifier": "../../tasking/index.js",
       "target": "src/pth/tasking/index.ts"
-    },
-    {
-      "from": "src/pth/runner/observers/optimizer-observer.ts",
-      "kind": "runtime",
-      "specifier": "completed",
-      "target": null
     },
     {
       "from": "src/pth/runner/observers/optimizer-observer.ts",
@@ -9379,33 +7125,15 @@
     },
     {
       "from": "src/pth/runner/observers/refine-observer.ts",
-      "kind": "runtime",
-      "specifier": "completed",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/observers/refine-observer.ts",
       "kind": "type",
       "specifier": "../../tasking/index.js",
       "target": "src/pth/tasking/index.ts"
     },
     {
       "from": "src/pth/runner/observers/transcript-observer.ts",
-      "kind": "runtime",
-      "specifier": "traceEvents",
-      "target": null
-    },
-    {
-      "from": "src/pth/runner/observers/transcript-observer.ts",
       "kind": "type",
       "specifier": "../../tasking/index.js",
       "target": "src/pth/tasking/index.ts"
-    },
-    {
-      "from": "src/pth/runner/runner-config.ts",
-      "kind": "runtime",
-      "specifier": "off",
-      "target": null
     },
     {
       "from": "src/pth/self-modify/hot-reloader.ts",
@@ -9427,12 +7155,6 @@
     },
     {
       "from": "src/pth/self-modify/hot-reloader.ts",
-      "kind": "runtime",
-      "specifier": "skills",
-      "target": null
-    },
-    {
-      "from": "src/pth/self-modify/hot-reloader.ts",
       "kind": "type",
       "specifier": "../observability/metrics.js",
       "target": "src/pth/observability/metrics.ts"
@@ -9447,12 +7169,6 @@
       "from": "src/pth/self-modify/hot-reloader.ts",
       "kind": "type",
       "specifier": "chokidar",
-      "target": null
-    },
-    {
-      "from": "src/pth/self-modify/hot-reloader.ts",
-      "kind": "type",
-      "specifier": "skills",
       "target": null
     },
     {
@@ -9494,31 +7210,7 @@
     {
       "from": "src/pth/tasking/adapters/pg-task-repository.ts",
       "kind": "type",
-      "specifier": "pending",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/adapters/pg-task-repository.ts",
-      "kind": "type",
       "specifier": "pg",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/delegation-policy.ts",
-      "kind": "runtime",
-      "specifier": "executor",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/delegation-policy.ts",
-      "kind": "runtime",
-      "specifier": "origin",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/delegation-policy.ts",
-      "kind": "runtime",
-      "specifier": "sensor",
       "target": null
     },
     {
@@ -9625,38 +7317,8 @@
     },
     {
       "from": "src/pth/tasking/mcp-decompose.ts",
-      "kind": "runtime",
-      "specifier": "bundle 必须是对象",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/mcp-decompose.ts",
-      "kind": "runtime",
-      "specifier": "imported",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/mcp-decompose.ts",
-      "kind": "runtime",
-      "specifier": "mcp-tool-bundle-v1",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/mcp-decompose.ts",
-      "kind": "runtime",
-      "specifier": "tool.name 必填且非空",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/mcp-decompose.ts",
       "kind": "type",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/mcp-decompose.ts",
-      "kind": "type",
-      "specifier": "object",
       "target": null
     },
     {
@@ -9686,79 +7348,7 @@
     {
       "from": "src/pth/tasking/penetration-discovery.ts",
       "kind": "runtime",
-      "specifier": "/",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "${PENETRATION_EDGE_KIND}",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "draft",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
       "specifier": "node:crypto",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "official",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "penetration 提案不存在或类型不符",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "penetration-edge",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "penetration-proposal",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "PTH_PENETRATION_DISCOVERY_MIN_CALLS",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "queryReadOnly",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "register",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "runtime",
-      "specifier": "string",
       "target": null
     },
     {
@@ -9766,12 +7356,6 @@
       "kind": "type",
       "specifier": "./penetration-skill.js",
       "target": "src/pth/tasking/penetration-skill.ts"
-    },
-    {
-      "from": "src/pth/tasking/penetration-discovery.ts",
-      "kind": "type",
-      "specifier": "evidence",
-      "target": null
     },
     {
       "from": "src/pth/tasking/penetration-runner.ts",
@@ -9804,12 +7388,6 @@
       "target": "src/pth/contracts/index.ts"
     },
     {
-      "from": "src/pth/tasking/penetration-runner.ts",
-      "kind": "type",
-      "specifier": "tasks.penetrate",
-      "target": null
-    },
-    {
       "from": "src/pth/tasking/penetration-skill.ts",
       "kind": "runtime",
       "specifier": "../kernel/execution/worker-cluster.js",
@@ -9820,54 +7398,6 @@
       "kind": "runtime",
       "specifier": "./delegation-policy.js",
       "target": "src/pth/tasking/delegation-policy.ts"
-    },
-    {
-      "from": "src/pth/tasking/penetration-skill.ts",
-      "kind": "runtime",
-      "specifier": "official",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-skill.ts",
-      "kind": "runtime",
-      "specifier": "penetrate:",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-skill.ts",
-      "kind": "runtime",
-      "specifier": "skill-penetration-v1",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-skill.ts",
-      "kind": "runtime",
-      "specifier": "skill:penetrate:",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-skill.ts",
-      "kind": "type",
-      "specifier": "__penetration_edge__",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/penetration-skill.ts",
-      "kind": "type",
-      "specifier": "/",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/side-effect-outbox.ts",
-      "kind": "runtime",
-      "specifier": "default",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/side-effect-outbox.ts",
-      "kind": "type",
-      "specifier": "pending",
-      "target": null
     },
     {
       "from": "src/pth/tasking/side-effect-outbox.ts",
@@ -9907,24 +7437,6 @@
     },
     {
       "from": "src/pth/tasking/task-control-service.ts",
-      "kind": "runtime",
-      "specifier": "createdBy",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-control-service.ts",
-      "kind": "runtime",
-      "specifier": "publish",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-control-service.ts",
-      "kind": "runtime",
-      "specifier": "tasks.await",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-control-service.ts",
       "kind": "type",
       "specifier": "../contracts/domains.js",
       "target": "src/pth/contracts/domains.ts"
@@ -9949,12 +7461,6 @@
     },
     {
       "from": "src/pth/tasking/task-dispatch-notifier.ts",
-      "kind": "runtime",
-      "specifier": "task.submit",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-dispatch-notifier.ts",
       "kind": "type",
       "specifier": "../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
@@ -9963,12 +7469,6 @@
       "from": "src/pth/tasking/task-dispatch-notifier.ts",
       "kind": "type",
       "specifier": "pg",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-dispatcher.ts",
-      "kind": "runtime",
-      "specifier": "rejected",
       "target": null
     },
     {
@@ -9997,27 +7497,9 @@
     },
     {
       "from": "src/pth/tasking/task-outcome-observers.ts",
-      "kind": "runtime",
-      "specifier": "function",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-outcome-observers.ts",
       "kind": "type",
       "specifier": "../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
-    },
-    {
-      "from": "src/pth/tasking/task-outcome-observers.ts",
-      "kind": "type",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-queries.ts",
-      "kind": "runtime",
-      "specifier": "status = ",
-      "target": null
     },
     {
       "from": "src/pth/tasking/task-queries.ts",
@@ -10035,24 +7517,6 @@
       "from": "src/pth/tasking/task-queries.ts",
       "kind": "type",
       "specifier": "pg",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-work-item-reader.ts",
-      "kind": "runtime",
-      "specifier": "domainBinding",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-work-item-reader.ts",
-      "kind": "runtime",
-      "specifier": "object",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/task-work-item-reader.ts",
-      "kind": "runtime",
-      "specifier": "unknown",
       "target": null
     },
     {
@@ -10093,44 +7557,8 @@
     },
     {
       "from": "src/pth/tasking/tool-reg-builtin.ts",
-      "kind": "runtime",
-      "specifier": "${name}",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/tool-reg-builtin.ts",
-      "kind": "runtime",
-      "specifier": "core",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/tool-reg-builtin.ts",
-      "kind": "runtime",
-      "specifier": "done",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/tool-reg-builtin.ts",
-      "kind": "runtime",
-      "specifier": "tool-reg",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/tool-reg-builtin.ts",
       "kind": "type",
       "specifier": "@away_from/pth-memory",
-      "target": null
-    },
-    {
-      "from": "src/pth/tasking/tool-reg-builtin.ts",
-      "kind": "type",
-      "specifier": "builtin",
-      "target": null
-    },
-    {
-      "from": "src/pth/tools/platform.ts",
-      "kind": "runtime",
-      "specifier": "tool_execution_start",
       "target": null
     },
     {
@@ -10165,39 +7593,9 @@
     },
     {
       "from": "src/pth/tools/registry.ts",
-      "kind": "runtime",
-      "specifier": "t know how to execute it.\n   */\n  registerCustomTool(tenantId: string, def: PlatformToolDefinition, sdkDef?: any): void {\n    if (BUILTIN_TOOLS.includes(def.name)) {\n      throw new Error(`Tool name ",
-      "target": null
-    },
-    {
-      "from": "src/pth/tools/registry.ts",
       "kind": "type",
       "specifier": "./types.js",
       "target": "src/pth/tools/types.ts"
-    },
-    {
-      "from": "src/pth/tools/types.ts",
-      "kind": "runtime",
-      "specifier": "local",
-      "target": null
-    },
-    {
-      "from": "src/pth/tools/types.ts",
-      "kind": "type",
-      "specifier": "output_delta",
-      "target": null
-    },
-    {
-      "from": "src/pth/tools/types.ts",
-      "kind": "type",
-      "specifier": "text",
-      "target": null
-    },
-    {
-      "from": "src/pth/workflow/bullmq-worker.ts",
-      "kind": "runtime",
-      "specifier": "intents",
-      "target": null
     },
     {
       "from": "src/pth/workflow/bullmq-worker.ts",
@@ -10209,12 +7607,6 @@
       "from": "src/pth/workflow/bullmq-worker.ts",
       "kind": "type",
       "specifier": "bullmq",
-      "target": null
-    },
-    {
-      "from": "src/pth/workflow/orchestrator.ts",
-      "kind": "runtime",
-      "specifier": "PX",
       "target": null
     },
     {
@@ -10251,24 +7643,6 @@
       "from": "src/pth/workflow/orchestrator.ts",
       "kind": "type",
       "specifier": "ioredis",
-      "target": null
-    },
-    {
-      "from": "src/pth/workflow/types.ts",
-      "kind": "runtime",
-      "specifier": "running",
-      "target": null
-    },
-    {
-      "from": "src/pth/workflow/types.ts",
-      "kind": "type",
-      "specifier": "agent",
-      "target": null
-    },
-    {
-      "from": "src/pth/workflow/types.ts",
-      "kind": "type",
-      "specifier": "run-agent",
       "target": null
     }
   ],
@@ -10315,15 +7689,15 @@
     }
   ],
   "summary": {
-    "srcPthFiles": 211,
-    "testFiles": 235,
+    "srcPthFiles": 212,
+    "testFiles": 236,
     "scriptFiles": 16,
     "packageFiles": 183,
-    "totalFiles": 645,
-    "totalLines": 99428,
-    "importEdges": 1275,
-    "runtimeEdges": 755,
-    "typeEdges": 520,
-    "packageSpecifierEdges": 612
+    "totalFiles": 647,
+    "totalLines": 99737,
+    "importEdges": 836,
+    "runtimeEdges": 392,
+    "typeEdges": 444,
+    "packageSpecifierEdges": 193
   }
 }

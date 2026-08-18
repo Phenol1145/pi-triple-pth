@@ -27,7 +27,7 @@
 import { createHash } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { resolveImportTarget, scanImports, type ScannedImport } from "./pth-boundaries-core.js";
+import { resolveImportTarget } from "./pth-boundaries-core.js";
 
 const repoRoot = process.cwd();
 const baselineJsonPath = path.join(repoRoot, "docs", "pth", "n28-structure-baseline.json");
@@ -119,19 +119,68 @@ async function hashFiles(files: readonly string[]): Promise<Record<string, FileH
   return out;
 }
 
+/** 去掉行注释与块注释，避免注释里的示例代码被误判成模块边。 */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
+interface ScannedModuleImport {
+  kind: "type" | "runtime";
+  specifier: string;
+}
+
+/**
+ * 只认真实模块边：`import ... from "..."`、`export ... from "..."`、side-effect
+ * `import "..."` 与 `import("...")`。与 pth-boundaries-core 的宽正则不同，本函数
+ * 不把 `export type X = "..."` 或注释/模板串内容误判为导入边。
+ */
+function scanModuleImports(source: string): ScannedModuleImport[] {
+  const stripped = stripComments(source);
+  const out: ScannedModuleImport[] = [];
+  const seen = new Set<string>();
+
+  const staticRe = /(?:import|export)\s+([^;]*?)\s+from\s*['"]([^'"]+)['"]/g;
+  for (let m = staticRe.exec(stripped); m; m = staticRe.exec(stripped)) {
+    const kind = /\btype\b/.test(m[1] ?? "") ? "type" : "runtime";
+    const key = `${kind}\u0000${m[2]}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ kind, specifier: m[2] });
+    }
+  }
+
+  const sideEffectRe = /^\s*import\s+['"]([^'"]+)['"]/gm;
+  for (let m = sideEffectRe.exec(stripped); m; m = sideEffectRe.exec(stripped)) {
+    const key = `runtime\u0000${m[1]}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ kind: "runtime", specifier: m[1] });
+    }
+  }
+
+  const dynamicRe = /import\(\s*['"]([^'"]+)['"]\s*\)/g;
+  for (let m = dynamicRe.exec(stripped); m; m = dynamicRe.exec(stripped)) {
+    // 与 pth-boundaries-core 同口径：dynamic import 按 type 记录（不据此判运行时适配器）。
+    const key = `type\u0000${m[1]}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ kind: "type", specifier: m[1] });
+    }
+  }
+
+  return out;
+}
+
 async function collectImports(srcFiles: readonly string[]): Promise<ImportEdge[]> {
   const out: ImportEdge[] = [];
   for (const from of srcFiles) {
     const source = await readFile(path.join(repoRoot, from), "utf8");
-    const scanned: ScannedImport[] = scanImports(source);
-    const seen = new Set<string>();
-    for (const imp of scanned) {
+    for (const imp of scanModuleImports(source)) {
       const target = imp.specifier.startsWith(".")
         ? resolveImportTarget(from, imp.specifier)
         : null;
-      const key = `${imp.kind}\u0000${imp.specifier}\u0000${target ?? ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
       out.push({ from, kind: imp.kind, specifier: imp.specifier, target });
     }
   }
