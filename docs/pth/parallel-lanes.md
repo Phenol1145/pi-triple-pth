@@ -137,6 +137,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | 2026-08-18 | **C2 授权探针分母** | 32 = 8 面 × 4 失效；第 8 面 = KnowledgeContext build | T4/T5/T7 |
 | 2026-08-18 | **C3 legacy fail-closed** | 未注入 layered=旧路径不变；已注入但无 worker 绑定/Directory-envelope 不匹配 → 零 wave 调用 | T4 |
 | 2026-08-18 | **C4 ASP 模式取法** | 计划不改；实现按现状 `pthConfig().str("PTH_ASP_MODE")==="on"` 适配 | T6 |
+| 2026-08-18 | **结构快照工具** | `scripts/n28-structure-snapshot.ts` + 基线 `n28-structure-baseline.json/.md`（645 文件 / 1275 导入边）；每 lane 合并后 `--check` 对照契约 §3 复核漂移 → 确认后以单独 docs commit `--update` 刷新 | T1–T7 |
 
 ### 车道表（N28）
 

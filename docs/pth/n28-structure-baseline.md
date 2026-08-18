@@ -1,0 +1,56 @@
+# N28 项目结构基线
+
+> 由 `scripts/n28-structure-snapshot.ts --update` 生成；JSON 事实源：
+> `docs/pth/n28-structure-baseline.json`。
+> 每次 lane 合并回 main 后，合并者先 `--check` 对照 lane 契约 §3 文件域复核漂移，
+> 再以单独 docs commit `--update` 刷新本基线。
+
+## 摘要
+
+| 项 | 值 |
+|---|---|
+| src/pth 文件 | 211 |
+| test 文件 | 235 |
+| scripts 文件 | 16 |
+| packages 文件（.ts + package.json） | 183 |
+| 合计 | 645（99428 行） |
+| src/pth 导入边 | 1275（runtime 755 / type 520 / 包 specifier 612） |
+| 根一级目录 | archive、config、deploy、docs、examples、extensions、packages、scripts、src、test、tools、toolstore |
+
+## src/pth 分层
+
+| 层 | 文件数 |
+|---|---|
+| application/ | 1 |
+| bootstrap/ | 7 |
+| catalog/ | 21 |
+| components/ | 4 |
+| config/ | 3 |
+| contracts/ | 8 |
+| core/ | 9 |
+| execution/ | 10 |
+| fallback/ | 1 |
+| gateway/ | 14 |
+| impls/ | 7 |
+| kernel/ | 83 |
+| main.ts | 1 |
+| observability/ | 4 |
+| programs/ | 2 |
+| runner/ | 12 |
+| self-modify/ | 1 |
+| tasking/ | 17 |
+| tools/ | 3 |
+| workflow/ | 3 |
+
+## 包清单
+
+| 位置 | name | version |
+|---|---|---|
+| package.json | @away_from/pi-triple | 1.1.3 |
+| packages/dev-container/package.json | @away_from/dev-container | 1.1.3 |
+| packages/framework/package.json | @away_from/framework | 1.1.3 |
+| packages/infra/package.json | @away_from/infra | 1.1.3 |
+| packages/mailbox/package.json | @away_from/mailbox | 1.1.3 |
+| packages/pth-memory/package.json | @away_from/pth-memory | 1.1.3 |
+| packages/pth-sandbox/package.json | @away_from/pth-sandbox | 1.1.3 |
+| packages/shared/package.json | @away_from/shared | 1.1.3 |
