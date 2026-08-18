@@ -38,12 +38,12 @@
   },
   "srcPth": {
     "src/pth/application/gateway/pth-gateway-facade.ts": {
-      "sha256": "8db1ab643cd42451eb03015174c9e45af49b3e2879cb11a3a709e2617cfbdaea",
-      "lines": 370
+      "sha256": "7c458d7f64c920b2377c98b9dbf0fe661fe629fe2d7b4b86e151efa0272521b1",
+      "lines": 378
     },
     "src/pth/bootstrap/batch-process.ts": {
-      "sha256": "6946004883cdcf6adba70b2b53eecad191ede91e3da92042f01a91c420a9b5b0",
-      "lines": 945
+      "sha256": "b66242c28af99c5d4c1db17dffe2231750cc5d84984abc7d56d2042f8a17beee",
+      "lines": 968
     },
     "src/pth/bootstrap/batch-runtime-assembly.ts": {
       "sha256": "13639d9a36dbae67515556fe6c4e0bda58d352639cfd51a4db581d3a3d892237",
@@ -346,8 +346,8 @@
       "lines": 74
     },
     "src/pth/gateway/routes-kernel.ts": {
-      "sha256": "dbc2c852d745a541374ce9965b848e6943ec33884296a3212389dc59ca1b68e9",
-      "lines": 523
+      "sha256": "1c0371af3c9c7516a032ffb56a670f988ea330eff4bb7ca59edb964242adacee",
+      "lines": 539
     },
     "src/pth/gateway/routes-lineage.ts": {
       "sha256": "b7ffa24c26333af08a50c9237d95d4af0061851fe269b2940e317f52721ea066",
@@ -8210,7 +8210,7 @@
     "scriptFiles": 20,
     "packageFiles": 183,
     "totalFiles": 679,
-    "totalLines": 105267,
+    "totalLines": 105314,
     "importEdges": 900,
     "runtimeEdges": 413,
     "typeEdges": 487,
