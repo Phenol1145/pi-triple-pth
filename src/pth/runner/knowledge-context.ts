@@ -11,9 +11,11 @@
  *    超 maxEntries 记 omitted={count, reason:"budget"}。
  */
 
+import type { KnowledgeEvidenceRef } from "@away_from/pth-memory";
+import { knowledgeEvidenceRefsFromMeta } from "@away_from/pth-memory";
 import type { DomainId } from "../contracts/index.js";
 import type { DisciplineCatalogSnapshot } from "../catalog/index.js";
-import { rankKnowledgeEntries } from "../execution/index.js";
+import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "../execution/index.js";
 
 export interface KnowledgeContextEntry {
   entryId: string;
@@ -23,8 +25,8 @@ export interface KnowledgeContextEntry {
   anchor: string;
   /** content 前 summaryChars 字符（单行化） */
   summary: string;
-  /** meta.provenance ?? null */
-  evidence: unknown;
+  /** 结构化 KnowledgeEvidenceRef[]（从 meta.evidence 读取；无 evidence 时为空数组，不伪装 provenance） */
+  evidence: KnowledgeEvidenceRef[];
 }
 
 export interface KnowledgeContext {
@@ -160,7 +162,10 @@ export function createKnowledgeContextProvider(deps: KnowledgeContextProviderDep
         }
       }
 
-      const sorted = rankKnowledgeEntries(visible, {
+      // R5/P1-3：生产 Context 与评测同走 strict——零命中 fail-closed 返回空，不回退任意 top-5。
+      const relevant = filterKnowledgeEntriesByQueryText(visible, input.text, { strict: true });
+
+      const sorted = rankKnowledgeEntries(relevant, {
         queryText: input.text,
         domains,
         domainAncestors,
@@ -172,7 +177,7 @@ export function createKnowledgeContextProvider(deps: KnowledgeContextProviderDep
         version: toVersion(e.meta),
         anchor: e.anchors[0] ?? "",
         summary: singleLine(e.content.slice(0, summaryChars)),
-        evidence: e.meta?.["provenance"] ?? null,
+        evidence: knowledgeEvidenceRefsFromMeta(e.meta),
       }));
 
       return {

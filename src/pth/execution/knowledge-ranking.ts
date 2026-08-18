@@ -36,27 +36,53 @@ function containsToken(content: string, anchors: readonly string[] | undefined, 
   return (anchors ?? []).some((anchor) => anchor.toLowerCase().includes(token));
 }
 
+function normalizeQueryText(queryText: string | undefined): string {
+  return (queryText ?? "").trim().toLocaleLowerCase();
+}
+
 /**
- * queryText 大小写不敏感子串过滤：content 或 anchors 命中任一空白分词；
- * 无 queryText / 无词命中 → 返回全部（保守不误杀——中文整句无空白分词时不能误杀）。
+ * 归一化查询-条目相关性（R5 fail-closed）：
+ *  - ASCII/数字词（如 Java、LLVM、2026-08）按 content+anchors 子串匹配；
+ *  - CJK 锚点（如「类型检查」「离子电导率」）按「anchor 出现在 query 中」匹配——
+ *    中文无空白分词时不会把整句当一个 token 导致误杀。
+ * 不命中任何 anchor/content 的条目视为无关条目。
+ */
+function entryMatchesQuery(entry: RankableKnowledgeEntry, query: string): boolean {
+  const content = entry.content.toLocaleLowerCase();
+  const anchors = (entry.anchors ?? []).map((a) => a.toLocaleLowerCase());
+
+  const asciiWords = query.match(/[a-z0-9][a-z0-9_+#.-]*/g) ?? [];
+  if (asciiWords.some((word) => content.includes(word) || anchors.some((a) => a.includes(word)))) {
+    return true;
+  }
+
+  return anchors.some((anchor) => {
+    const trimmed = anchor.trim();
+    return /[\u3400-\u9fff]/.test(trimmed) && trimmed.length >= 2 && query.includes(trimmed);
+  });
+}
+
+export interface FilterKnowledgeEntriesOptions {
+  /** strict=true：零命中 fail-closed 返回空（生产 Context 与评测同走）；缺省 false 保持旧回退。 */
+  strict?: boolean;
+}
+
+/**
+ * queryText 相关性过滤。query 为空 → 返回全部（无 queryText 不误杀）；
+ * 无任何条目命中 → strict=true 返回空，strict=false 回退全部（旧语义）。
  */
 export function filterKnowledgeEntriesByQueryText<T extends RankableKnowledgeEntry>(
   entries: readonly T[],
   queryText: string | undefined,
+  options: FilterKnowledgeEntriesOptions = {},
 ): T[] {
-  const query = queryText?.trim() ?? "";
+  const query = normalizeQueryText(queryText);
   if (query === "") return [...entries];
 
-  const tokens = query.split(/\s+/).map((t) => t.toLowerCase());
-  if (tokens.length === 0) return [...entries];
+  const matched = entries.filter((entry) => entryMatchesQuery(entry, query));
 
-  const matched = entries.filter((entry) => {
-    const content = entry.content.toLowerCase();
-    const anchors = (entry.anchors ?? []).map((a) => a.toLowerCase());
-    return tokens.some((token) => content.includes(token) || anchors.some((a) => a.includes(token)));
-  });
-
-  return matched.length > 0 ? matched : [...entries];
+  if (matched.length > 0) return matched;
+  return options.strict ? [] : [...entries];
 }
 
 export function rankKnowledgeEntries<T extends RankableKnowledgeEntry>(

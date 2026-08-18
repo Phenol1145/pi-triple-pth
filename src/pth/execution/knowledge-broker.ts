@@ -263,7 +263,8 @@ export async function searchKnowledgeEntries(
     status: opts.status ?? ["official"],
     tenantId: opts.tenantId,
   });
-  const filtered = filterKnowledgeEntriesByQueryText(entries, opts.queryText);
+  // R5/P1-3：生产 search 与 Context 同走 strict——queryText 零命中 fail-closed 返回空。
+  const filtered = filterKnowledgeEntriesByQueryText(entries, opts.queryText, { strict: true });
   const ranked = rankKnowledgeEntries(filtered, {
     queryText: opts.queryText,
     domains: opts.anchors ?? [],

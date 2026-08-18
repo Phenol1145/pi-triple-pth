@@ -173,7 +173,7 @@ describe("KnowledgeBroker（P2-5）", () => {
     }
   });
 
-  it("search：queryText 无词命中时保守返回全部锚点结果（不误杀）", async () => {
+  it("search：queryText 零命中时 strict fail-closed 返回空（R5/P1-3）", async () => {
     const broker = createKnowledgeBroker({
       grantService,
       dataWorld: {
@@ -193,7 +193,7 @@ describe("KnowledgeBroker（P2-5）", () => {
     const r = await broker.query({ grant: makeGrant({ space: "meta" }), op: "search", domains: ["math"], queryText: "zzzz-no-hit" });
 
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.entries?.map((e) => (e as { id: string }).id)).toEqual(["a1", "b2", "c3"]);
+    if (r.ok) expect(r.entries).toEqual([]);
   });
 
   it("search：limit 缺省 8、显式上限 20", async () => {
