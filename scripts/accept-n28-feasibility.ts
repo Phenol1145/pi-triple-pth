@@ -182,9 +182,23 @@ async function collect(repoRoot: string, currentHead: string, output?: string): 
     decision: "EVALUATION-INCOMPLETE",
     reasons: [],
   };
-  // P1-4 修复：只有“未启动/预检不可用”才是 EVALUATION-INCOMPLETE；
-  // 已启动 gate 的非零退出由 decideN28Acceptance 判 NO-GO，不得洗白。
-  if ([focused, n28Typecheck, fullRegression, lint].some((g) => g.environmentStatus === "unavailable" || !g.started)) {
+  // P1-4 再次修复：任何 started gate 非零优先判 NO-GO；只有全部 started gate 成功且
+  // 存在 unavailable/not-started 的 gate 时，剩余证据不足才判 EVALUATION-INCOMPLETE。
+  const gates = [focused, n28Typecheck, fullRegression, lint];
+  const startedFailure = gates.some((g) => g.started && g.exitCode !== 0);
+  const missingGate = gates.some((g) => g.environmentStatus === "unavailable" || !g.started);
+  if (startedFailure) {
+    envelope.decision = decideN28Acceptance(envelope, { currentHead });
+    envelope.reasons = [
+      `evaluator provisional: ${first.decision}`,
+      `byteIdentical: ${byteIdentical}`,
+      `focused exit=${focused.exitCode}`,
+      `typecheck exit=${n28Typecheck.exitCode}`,
+      `full exit=${fullRegression.exitCode} skips=${JSON.stringify(fullRegression.skipped)}`,
+      `lint exit=${lint.exitCode}`,
+      "direct No-Go conditions: see evaluator JSON hypotheses/direct invariants",
+    ];
+  } else if (missingGate) {
     envelope.decision = "EVALUATION-INCOMPLETE";
     envelope.reasons = preflights.filter((p) => !p.ok).map((p) => `${p.kind}: ${p.detail}`);
   } else {

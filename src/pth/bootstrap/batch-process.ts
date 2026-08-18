@@ -262,7 +262,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
           const ranked = rankKnowledgeEntries(matching, { queryText: input.queryText, domains: [] });
           return {
             entries: ranked.slice(0, input.limit),
-            candidateCount: inWave.length,
+            candidateCount: all.length,
             visibleCount: inWave.length,
             scannedCount: all.length,
             completeForQuery: true,
