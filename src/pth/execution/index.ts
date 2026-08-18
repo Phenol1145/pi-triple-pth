@@ -10,3 +10,4 @@ export * from "./knowledge-ranking.js";
 export * from "./knowledge-verdicts.js";
 export * from "./knowledge-promotion.js";
 export * from "./adapters/pth-knowledge-broker.js";
+export * from "./memory-directory.js";

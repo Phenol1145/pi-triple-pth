@@ -40,6 +40,8 @@ export interface KnowledgeMemoryEntry {
   status: string;
   content: string;
   meta?: Record<string, unknown>;
+  /** N28 T3：repository 顶层租户字段（可选；Directory 输入会收紧为必填）。不镜像进 meta。 */
+  tenantId?: string;
 }
 
 export interface KnowledgeSearchOpts {
