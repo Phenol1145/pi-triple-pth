@@ -177,6 +177,16 @@ export function validatePthConfig(env: NodeJS.ProcessEnv = process.env): ConfigI
   const issues: ConfigIssue[] = [];
   const cfg = new PthConfig(new Center(env));
 
+  // N29：知识摄入模式只允许 off|draft|full；非法值 fail-fast（与 strict 无关）。
+  const intakeMode = cfg.str("PTH_KNOWLEDGE_INTAKE_MODE").trim().toLowerCase();
+  if (!["off", "draft", "full"].includes(intakeMode)) {
+    issues.push({
+      key: "PTH_KNOWLEDGE_INTAKE_MODE",
+      level: "error",
+      message: `PTH_KNOWLEDGE_INTAKE_MODE 只能是 off|draft|full（当前: ${cfg.str("PTH_KNOWLEDGE_INTAKE_MODE")}）`,
+    });
+  }
+
   const secretLen = (key: string, min = 16) => {
     const v = cfg.str(key);
     if (strict && v !== "" && v.length < min) {

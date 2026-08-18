@@ -1,0 +1,36 @@
+{
+  "$comment": "EXAMPLE ONLY — the signature and digest below are deliberately fake, and no private key exists in this repository, container image, or runtime. This file cannot verify as-is; replace it with a manifest produced and signed by the PTL Human Interface (Ed25519 detached signature over canonicalPolicySigningBytes, digest = sha256 base64url of the same bytes).",
+  "policyId": "policy-example-l2",
+  "version": "1",
+  "tenantId": "tenant-example",
+  "spaces": ["space-example"],
+  "validFrom": "2026-08-19T00:00:00.000Z",
+  "validUntil": "2099-08-19T00:00:00.000Z",
+  "approvedBy": {
+    "kind": "human",
+    "principalId": "human-example",
+    "tenantId": "tenant-example",
+    "issuer": "ptl-human-interface"
+  },
+  "approvalProof": {
+    "method": "signed-manifest",
+    "keyId": "human-example",
+    "signature": "EXAMPLE_ONLY_NOT_A_REAL_SIGNATURE"
+  },
+  "rules": [
+    {
+      "ruleId": "rule-example-invalid-docs",
+      "effect": "allow",
+      "httpsOrigin": "https://example.invalid",
+      "pathPrefix": "/knowledge/",
+      "spaces": ["space-example"],
+      "domains": ["example.invalid"],
+      "sourceTypes": ["bounded-html"],
+      "contentTypes": ["text/html"],
+      "licenses": ["public-domain"],
+      "maxBytes": 65536,
+      "redirectOrigins": ["https://example.invalid"]
+    }
+  ],
+  "digest": "EXAMPLE_ONLY_NOT_A_REAL_DIGEST"
+}

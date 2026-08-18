@@ -13,3 +13,4 @@ export * from "./catalog-contribution-schema.js";
 export * from "./role-routing-policy.js";
 export * from "./program.js";
 export * from "./cognitive-responsibility.js";
+export * from "./knowledge-intake.js";
