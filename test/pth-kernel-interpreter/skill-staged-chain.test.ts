@@ -4,6 +4,12 @@ import { TriggerEngine } from "../../src/pth/kernel/execution/trigger-engine.js"
 import { registerSystemTriggers } from "../../src/pth/kernel/execution/system-triggers.js";
 import { resetPthConfig } from "../../src/pth/config/config-center.js";
 import { approveSkillProposal, buildKnowledgeProvenance, executeApprovedSkillProposal } from "@away_from/pth-memory";
+import {
+  computeCandidateHash,
+  type KnowledgeVerdictRowRecord,
+  type VerificationPlanRecord,
+} from "../../src/pth/execution/knowledge-verdicts.js";
+import type { KnowledgeVerificationRepo } from "../../src/pth/execution/knowledge-promotion.js";
 import { createInMemoryPromoteOfficial } from "../helpers";
 
 /**
@@ -54,6 +60,79 @@ function fakeDataWorld(store: ReturnType<typeof makeStore>) {
 }
 
 const fakeToolstore = { readText: async () => "", list: async () => [], listDirs: async () => [] };
+
+/** R3/P1-2：capability 注入缝使用的内存 verification repo（与 facade 可选注入同构）。 */
+function makeVerificationRepo() {
+  const plans = new Map<string, VerificationPlanRecord>();
+  const rows = new Map<string, KnowledgeVerdictRowRecord>();
+  let nextId = 1;
+  const repo: KnowledgeVerificationRepo = {
+    async getPlan(planId, tenantId) {
+      const p = plans.get(planId);
+      if (!p || p.tenantId !== tenantId) return undefined;
+      return structuredClone(p);
+    },
+    async listVerdictRows(planId, tenantId) {
+      return [...rows.values()]
+        .filter((r) => r.planId === planId && r.tenantId === tenantId)
+        .sort((a, b) => Number(a.id) - Number(b.id))
+        .map((r) => structuredClone(r));
+    },
+    async insertVerdictRow(row) {
+      const key = `${row.planId}::${row.checkId}::${row.principalId}`;
+      const existing = rows.get(key);
+      if (existing) {
+        const same = existing.candidateId === row.candidateId
+          && existing.candidateRevision === row.candidateRevision
+          && existing.candidateHash === row.candidateHash
+          && existing.executionId === row.executionId
+          && existing.kind === row.kind
+          && existing.verdict === row.verdict
+          && existing.reviewerRole === row.reviewerRole
+          && existing.note === row.note
+          && (existing.domainId ?? null) === (row.domainId ?? null)
+          && JSON.stringify(existing.evidence) === JSON.stringify(row.evidence)
+          && existing.at === row.at;
+        return same
+          ? { ok: true, idempotent: true }
+          : { ok: false, error: "verdict conflict: same plan/check/principal with different payload" };
+      }
+      rows.set(key, { ...row, id: nextId++, rowVersion: 1, createdAt: new Date().toISOString() });
+      return { ok: true, idempotent: false };
+    },
+    async setPlanStatus(planId, tenantId, status) {
+      const p = plans.get(planId);
+      if (p && p.tenantId === tenantId) {
+        p.status = status;
+        p.rowVersion += 1;
+        p.updatedAt = new Date().toISOString();
+      }
+    },
+  };
+  return { repo, plans, rows };
+}
+
+function makePlanFor(entryId: string, overrides: Partial<VerificationPlanRecord> = {}): VerificationPlanRecord {
+  const content = "Earth orbits the Sun.";
+  return {
+    id: `plan-${entryId}`,
+    tenantId: "default",
+    candidateId: entryId,
+    candidateRevision: 1,
+    candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+    requiredDomains: ["mathematics"],
+    checks: [
+      { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:platform-admin"], separationFrom: ["producer", "other-verifier"] },
+      { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer", "other-verifier"] },
+    ],
+    sourceBindingsDigest: "",
+    status: "open",
+    rowVersion: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
 
 function keeperCaps(store: ReturnType<typeof makeStore>, events: Array<{ kind: string; detail?: string }>) {
   return buildCapabilities({
@@ -207,38 +286,84 @@ describe("K4 Phase 4：knowledge 写能力按角色注入（N22 3）", () => {
   it("controller:adversarial 有 knowledge.review，且落 verdict 为 adversarial", async () => {
     const store = makeStore();
     const entryId = seedCandidate(store);
+    const { repo, plans, rows: verdictRows } = makeVerificationRepo();
+    const plan = makePlanFor(entryId, { status: "open" });
+    plans.set(plan.id, plan);
     const caps = buildCapabilities({
       llm: async () => ({ text: "" }) as never,
       dataWorld: fakeDataWorld(store) as never,
       toolstore: fakeToolstore as never,
       roleId: "controller:adversarial",
+      verificationRepo: repo,
     });
     const review = (caps["knowledge"] as {
-      review: (i: { entryId: string; verdict: "pass" | "reject"; note: string }) => Promise<{ ok: boolean; error?: string }>;
+      review: (i: { planId: string; checkId: string; expectedCandidateRevision: number; verdict: "pass" | "reject"; note: string }) => Promise<{ ok: boolean; error?: string }>;
     }).review;
-    const r = await review({ entryId, verdict: "pass", note: "no shortcut" });
-    expect(r.ok).toBe(true);
-    const verdicts = (store.rows.get(entryId)!.meta as { verdicts?: unknown[] }).verdicts ?? [];
-    expect(verdicts).toHaveLength(1);
-    expect(verdicts[0]).toMatchObject({ kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial" });
+    const r = await review({ planId: plan.id, checkId: "adv-1", expectedCandidateRevision: 1, verdict: "pass", note: "no shortcut" });
+    expect(r).toEqual({ ok: true });
+    // 新模型：verdict 落 plan 行，不 append entry.meta.verdicts。
+    expect((store.rows.get(entryId)!.meta as { verdicts?: unknown[] }).verdicts ?? []).toHaveLength(0);
+    expect([...verdictRows.values()]).toHaveLength(1);
+    expect([...verdictRows.values()][0]).toMatchObject({
+      planId: plan.id,
+      checkId: "adv-1",
+      kind: "adversarial",
+      verdict: "pass",
+      reviewerRole: "controller:adversarial",
+      candidateRevision: 1,
+    });
   });
 
   it("memory-keeper 有 knowledge.promote，可把合规候选晋升 official", async () => {
     const store = makeStore();
     const entryId = seedCandidate(store);
-    // 直接铺好两条合规 verdict（不同 reviewer 且非 producer）——capability 测试聚焦注入面
-    (store.rows.get(entryId)!.meta as { verdicts?: unknown[] }).verdicts = [
-      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1, principalId: "tenant:tenant-a:platform-admin", domainId: "mathematics", candidateRevision: 1 },
-      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut", at: 2, principalId: "worker:controller:adversarial", candidateRevision: 1 },
-    ];
+    const { repo, plans } = makeVerificationRepo();
+    const plan = makePlanFor(entryId, { status: "satisfied" });
+    plans.set(plan.id, plan);
+    await repo.insertVerdictRow({
+      planId: plan.id,
+      tenantId: plan.tenantId,
+      checkId: "domain-1",
+      candidateId: entryId,
+      candidateRevision: 1,
+      candidateHash: plan.candidateHash,
+      principalId: "tenant:tenant-a:platform-admin",
+      executionId: "task-d",
+      kind: "domain",
+      verdict: "pass",
+      reviewerRole: "domain:expert",
+      note: "verified",
+      domainId: "mathematics",
+      evidence: [],
+      at: 1,
+    });
+    await repo.insertVerdictRow({
+      planId: plan.id,
+      tenantId: plan.tenantId,
+      checkId: "adv-1",
+      candidateId: entryId,
+      candidateRevision: 1,
+      candidateHash: plan.candidateHash,
+      principalId: "worker:controller:adversarial",
+      executionId: "task-a",
+      kind: "adversarial",
+      verdict: "pass",
+      reviewerRole: "controller:adversarial",
+      note: "no shortcut",
+      evidence: [],
+      at: 2,
+    });
     const caps = buildCapabilities({
       llm: async () => ({ text: "" }) as never,
       dataWorld: fakeDataWorld(store) as never,
       toolstore: fakeToolstore as never,
       roleId: "memory-keeper",
+      verificationRepo: repo,
     });
-    const promote = (caps["knowledge"] as { promote: (id: string) => Promise<{ ok: boolean; id?: string; error?: string }> }).promote;
-    const r = await promote(entryId);
+    const promote = (caps["knowledge"] as {
+      promote: (i: { entryId: string; planId: string; expectedCandidateRevision: number }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+    }).promote;
+    const r = await promote({ entryId, planId: plan.id, expectedCandidateRevision: 1 });
     expect(r).toEqual({ ok: true, id: entryId });
     expect(store.rows.get(entryId)!.status).toBe("official");
     expect(store.rows.get(entryId)!.meta).toMatchObject({

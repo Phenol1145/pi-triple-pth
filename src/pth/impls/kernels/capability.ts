@@ -19,7 +19,12 @@ import type {
 } from "../../contracts/index.js";
 import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, reviewToolProposal } from "@away_from/pth-memory";
 import { validatePenetrationSkillRegistration, PENETRATION_SKILL_NAME_PREFIX } from "../../tasking/index.js";
-import { createPgKnowledgeVerificationRepo, promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../execution/knowledge-promotion.js";
+import {
+  createPgKnowledgeVerificationRepo,
+  promoteKnowledgeEntry,
+  recordKnowledgeVerdict,
+  type KnowledgeVerificationRepo,
+} from "../../execution/knowledge-promotion.js";
 import { isIP } from "node:net";
 import { pthConfig } from "../../config/index.js";
 import http from "node:http";
@@ -99,6 +104,8 @@ export function buildCapabilities(deps: {
   onActivity?: (e: { kind: string; role?: string; detail?: string; at: number }) => void;
   /** W8 P1：当前任务身份（task-loop 每任务盖章——delegate/await 的调用者上下文） */
   taskContext?: { current: TaskDispatchContext | null };
+  /** R3/P1-2：verification repo 注入缝（测试/非 PG 装配传内存 repo；缺省从 PgMemoryStore 派生） */
+  verificationRepo?: KnowledgeVerificationRepo;
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   // N14 P3：onActivity 透传 ExtContext（manage.tool.register 的 tool.proposal.created 事件源）
@@ -126,10 +133,12 @@ export function buildCapabilities(deps: {
   if (modelFull) extCaps["model"] = { get: modelFull["get"], usage: modelFull["usage"] };
   // F2（AB-01）：pth-memory 治理函数只接收 store 形参——按当前任务 tenant 包装 requireTenant store。
   const memoryStore = () => withMemoryTenant(deps.dataWorld.memory, deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID);
-  // R3/P1-2：worker 路径同样走 service 层强制授权。verdict 落持久 plan/verdict rows，
-  // 需要 pg 访问——PgMemoryStore 持有一个 pg.Pool（构造装配注入；worker 生产形态恒有）。
+  // R3/P1-2：worker 路径同样走 service 层强制授权。verdict 落持久 plan/verdict rows。
+  // 注入缝：deps.verificationRepo 优先（测试/非 PG 装配传内存 repo）；
+  // 缺省从 PgMemoryStore 的 pg.Pool 派生（生产 worker 恒有）；两者皆无 → fail-closed 清晰报错。
   const verificationPool = (deps.dataWorld.memory as unknown as { pool?: pg.Pool }).pool;
-  const verificationRepo = verificationPool ? createPgKnowledgeVerificationRepo(verificationPool) : null;
+  const verificationRepo = deps.verificationRepo
+    ?? (verificationPool ? createPgKnowledgeVerificationRepo(verificationPool) : null);
   return {
     ...extCaps,
     // 扩展编排面（2026-08-09 用户裁决：代码库式扩展 + 公共记忆区索引——无注册装载）
@@ -242,7 +251,7 @@ export function buildCapabilities(deps: {
             review: async ({ planId, checkId, expectedCandidateRevision, verdict, note }: {
               planId: string; checkId: string; expectedCandidateRevision: number; verdict: "pass" | "reject"; note: string;
             }) => {
-              if (!verificationRepo) return { ok: false, error: "verification backend unavailable（pg pool 缺失）" };
+              if (!verificationRepo) return { ok: false, error: "verification backend unavailable（缺少 verificationRepo 注入且 memory store 无 pg pool）" };
               const tenantId = deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID;
               const taskId = deps.taskContext?.current?.taskId;
               return recordKnowledgeVerdict(memoryStore(), verificationRepo, planId, checkId, expectedCandidateRevision, {
@@ -266,7 +275,7 @@ export function buildCapabilities(deps: {
             promote: async ({ entryId, planId, expectedCandidateRevision }: {
               entryId: string; planId: string; expectedCandidateRevision: number;
             }) => {
-              if (!verificationRepo) return { ok: false, error: "verification backend unavailable（pg pool 缺失）" };
+              if (!verificationRepo) return { ok: false, error: "verification backend unavailable（缺少 verificationRepo 注入且 memory store 无 pg pool）" };
               const tenantId = deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID;
               const taskId = deps.taskContext?.current?.taskId;
               return promoteKnowledgeEntry(memoryStore(), verificationRepo, entryId, planId, expectedCandidateRevision, {
