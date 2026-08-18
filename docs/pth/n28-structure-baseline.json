@@ -277,29 +277,37 @@
       "sha256": "5b90fdce003b74f9b3004b3d1c24d52ed7666c9e18bd5187127d6f668e3427b9",
       "lines": 31
     },
+    "src/pth/execution/authorization/verified-task-read-scope.ts": {
+      "sha256": "049ba739d891f0428d9c007cea6f588465bbef13a957722ad0335f1e41a6e747",
+      "lines": 134
+    },
     "src/pth/execution/execution-service.ts": {
       "sha256": "b3794efc0e4c7fbb7721bd7d60a4548a9dc68b740e0ca8b5281cf756500675bf",
       "lines": 34
     },
     "src/pth/execution/index.ts": {
-      "sha256": "e6fc3b1caaacd4c208bab53bae4fa33e1eae6ccc32104b196f3c2b6b0ed870ef",
-      "lines": 14
+      "sha256": "175ab6e70c7c2a0abbe42210c61824483b04d6a9cb2a484ab0f001a2c12dae4f",
+      "lines": 16
     },
     "src/pth/execution/knowledge-broker.ts": {
-      "sha256": "5305375f4380b6df1172f2af698e576efa1c263bbd7f1da5abe5c19edfe43fe9",
-      "lines": 379
+      "sha256": "875f51c10da19f46f27794e79e3a9fcb889ec0aea8dda4bcaff2e312e7775d01",
+      "lines": 499
     },
     "src/pth/execution/knowledge-promotion.ts": {
       "sha256": "776f65da152eb188b2ee9be284a9f70962b9b8db647076f43ff5a8af0a0a0710",
       "lines": 476
     },
     "src/pth/execution/knowledge-ranking.ts": {
-      "sha256": "9db45438d0f7430de50e4b990f3dd3bd1489ab0a202571fdc96e54f211ba7c23",
-      "lines": 111
+      "sha256": "5dc17d8b916707bd6652bc78fbde548b90932dd05856dff18c5cf67b5c32047e",
+      "lines": 115
     },
     "src/pth/execution/knowledge-verdicts.ts": {
       "sha256": "a946e3428032406892cd6453748eff67ab00d36056b4c7e1b9eb0c622c904f9a",
       "lines": 355
+    },
+    "src/pth/execution/layered-knowledge-retriever.ts": {
+      "sha256": "ef402326586e1a1fcf726a6cf3971381ebd7b82d24f9b876d077b7cefebd6b90",
+      "lines": 252
     },
     "src/pth/execution/memory-directory.ts": {
       "sha256": "4c2fac459e943cfc643be4c363e3e5036b10805f4624ab0c4907412379e445bc",
@@ -762,16 +770,16 @@
       "lines": 20
     },
     "src/pth/runner/agent-task-runner.ts": {
-      "sha256": "9699b0731d1a5ab21c22911d0046027b38c97fb56a073585131aac403df407f8",
-      "lines": 242
+      "sha256": "15caa2854738900c049cfe39c9c7034036ca7b0d66fc451b1ed61b2eb4cab4da",
+      "lines": 253
     },
     "src/pth/runner/index.ts": {
       "sha256": "31cd487ce4414a0a4fd6835140bb4aece333ddd173bdebf2a777708615bb587d",
       "lines": 16
     },
     "src/pth/runner/knowledge-context.ts": {
-      "sha256": "7ec3875484977ba499cbcc03633caad81728ba40ea4dc48597b4e1d1c5bdb5a4",
-      "lines": 194
+      "sha256": "5458ffd2792d74d3995ef6e94ff9fcaf5f546656320b713aea8e82781dbd1013",
+      "lines": 316
     },
     "src/pth/runner/observers/activity-observer.ts": {
       "sha256": "9487d0c28db9a9e8b948fe5a08a5ffb489f45fbfc8856d6b4e3b21832a047923",
@@ -1032,20 +1040,24 @@
       "lines": 215
     },
     "test/pth-execution/knowledge-broker.test.ts": {
-      "sha256": "697e3b3003382d7440687bd80fd8d0ac3eb9ba71f8e3979982b05c6cec7d59aa",
-      "lines": 337
+      "sha256": "d63278e0bfd36f3ce9c53b227ae7b172e3da8c427a104d76257dff95ec0e06b3",
+      "lines": 441
     },
     "test/pth-execution/knowledge-promotion.test.ts": {
       "sha256": "bf1019997c136d64cfa3f64289dcf6af4ee22cac24cbb1082db216b2fa4bfd22",
       "lines": 523
     },
     "test/pth-execution/knowledge-ranking.test.ts": {
-      "sha256": "c753f9dbc4316d90b9bff90e0bf15577d287d5b3ab6442645ada39d5f2a5da76",
-      "lines": 97
+      "sha256": "f60f50f568402b368d4eb2e4f2d726afada1a315275dc16d043ac3950a467147",
+      "lines": 111
     },
     "test/pth-execution/knowledge-verdicts.test.ts": {
       "sha256": "53e659594c01974c24767b043cde600260d6c15bb6cddfaa107ff159fa09467d",
       "lines": 428
+    },
+    "test/pth-execution/layered-knowledge-retriever.test.ts": {
+      "sha256": "c7f89f14388f6acac26bfd2d7b5daa0ee206763685945a3207c25becc77d9f6c",
+      "lines": 109
     },
     "test/pth-execution/memory-directory.test.ts": {
       "sha256": "ff22c476ae91e9a81db5d97ef6709bb7a6079c7221f4c2af92bf66e720de3a50",
@@ -1062,6 +1074,10 @@
     "test/pth-execution/sandbox-security.integration.test.ts": {
       "sha256": "c873851294fd9ccfb6917631900d1a28e676fd643dd0350a1d7686783f194caa",
       "lines": 193
+    },
+    "test/pth-execution/verified-task-read-scope.test.ts": {
+      "sha256": "34b481e4733c8abbff89a5d088581a40b61b95b10b720df55277cd885a34cd5e",
+      "lines": 150
     },
     "test/pth-gateway/auth.test.ts": {
       "sha256": "ed0101a59eb55b9b695af55412199b1ee0576972791083b5f37f216b885ab3e8",
@@ -1476,8 +1492,8 @@
       "lines": 304
     },
     "test/pth-runner/knowledge-context.test.ts": {
-      "sha256": "0b303cec8a6b3f56490018552e8b25c98df4e1bc917f77d26b5f6c110eaa7314",
-      "lines": 264
+      "sha256": "639ec7af2a132e79b476b9b3a5c96e44166a406ee29bb5bffda9168adf2cd3c3",
+      "lines": 377
     },
     "test/pth-tasking/delegation-policy.test.ts": {
       "sha256": "fe924f5564318eed26bb08122d135602924468866bb0e277aeeeb2978e489234",
@@ -1914,8 +1930,8 @@
       "lines": 202
     },
     "scripts/n28-feasibility-fixture.ts": {
-      "sha256": "d48bd0e11d1e66773ee748d7ef7b7dddc8efe7abe65037641ad3447ed8e28e83",
-      "lines": 127
+      "sha256": "f2ef978370def5cc821b63639f9a5f75ff465e7fde9028e9fd9a235a4eb5f4b5",
+      "lines": 145
     },
     "scripts/n28-structure-snapshot.ts": {
       "sha256": "9c3800dc79e88afa00d36b1b489e74cfdb91bd67cda7e76ca6214bba07fe23a9",
@@ -4194,6 +4210,24 @@
       "target": null
     },
     {
+      "from": "src/pth/execution/authorization/verified-task-read-scope.ts",
+      "kind": "runtime",
+      "specifier": "node:crypto",
+      "target": null
+    },
+    {
+      "from": "src/pth/execution/authorization/verified-task-read-scope.ts",
+      "kind": "type",
+      "specifier": "../../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/execution/authorization/verified-task-read-scope.ts",
+      "kind": "type",
+      "specifier": "./execution-grant-service.js",
+      "target": "src/pth/execution/authorization/execution-grant-service.ts"
+    },
+    {
       "from": "src/pth/execution/execution-service.ts",
       "kind": "type",
       "specifier": "../contracts/index.js",
@@ -4232,6 +4266,12 @@
     {
       "from": "src/pth/execution/index.ts",
       "kind": "runtime",
+      "specifier": "./authorization/verified-task-read-scope.js",
+      "target": "src/pth/execution/authorization/verified-task-read-scope.ts"
+    },
+    {
+      "from": "src/pth/execution/index.ts",
+      "kind": "runtime",
       "specifier": "./execution-service.js",
       "target": "src/pth/execution/execution-service.ts"
     },
@@ -4258,6 +4298,12 @@
       "kind": "runtime",
       "specifier": "./knowledge-verdicts.js",
       "target": "src/pth/execution/knowledge-verdicts.ts"
+    },
+    {
+      "from": "src/pth/execution/index.ts",
+      "kind": "runtime",
+      "specifier": "./layered-knowledge-retriever.js",
+      "target": "src/pth/execution/layered-knowledge-retriever.ts"
     },
     {
       "from": "src/pth/execution/index.ts",
@@ -4296,6 +4342,18 @@
       "target": "src/pth/execution/authorization/execution-grant-service.ts"
     },
     {
+      "from": "src/pth/execution/knowledge-broker.ts",
+      "kind": "type",
+      "specifier": "./authorization/verified-task-read-scope.js",
+      "target": "src/pth/execution/authorization/verified-task-read-scope.ts"
+    },
+    {
+      "from": "src/pth/execution/knowledge-broker.ts",
+      "kind": "type",
+      "specifier": "./layered-knowledge-retriever.js",
+      "target": "src/pth/execution/layered-knowledge-retriever.ts"
+    },
+    {
       "from": "src/pth/execution/knowledge-promotion.ts",
       "kind": "type",
       "specifier": "./knowledge-verdicts.js",
@@ -4324,6 +4382,36 @@
       "kind": "type",
       "specifier": "@away_from/pth-memory",
       "target": null
+    },
+    {
+      "from": "src/pth/execution/layered-knowledge-retriever.ts",
+      "kind": "runtime",
+      "specifier": "node:crypto",
+      "target": null
+    },
+    {
+      "from": "src/pth/execution/layered-knowledge-retriever.ts",
+      "kind": "type",
+      "specifier": "../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/execution/layered-knowledge-retriever.ts",
+      "kind": "type",
+      "specifier": "./authorization/verified-task-read-scope.js",
+      "target": "src/pth/execution/authorization/verified-task-read-scope.ts"
+    },
+    {
+      "from": "src/pth/execution/layered-knowledge-retriever.ts",
+      "kind": "type",
+      "specifier": "./knowledge-ranking.js",
+      "target": "src/pth/execution/knowledge-ranking.ts"
+    },
+    {
+      "from": "src/pth/execution/layered-knowledge-retriever.ts",
+      "kind": "type",
+      "specifier": "./memory-directory.js",
+      "target": "src/pth/execution/memory-directory.ts"
     },
     {
       "from": "src/pth/execution/memory-directory.ts",
@@ -7136,6 +7224,12 @@
     {
       "from": "src/pth/runner/agent-task-runner.ts",
       "kind": "type",
+      "specifier": "../execution/index.js",
+      "target": "src/pth/execution/index.ts"
+    },
+    {
+      "from": "src/pth/runner/agent-task-runner.ts",
+      "kind": "type",
       "specifier": "../kernel/execution/agent-loop.js",
       "target": "src/pth/kernel/execution/agent-loop.ts"
     },
@@ -7262,12 +7356,6 @@
     {
       "from": "src/pth/runner/knowledge-context.ts",
       "kind": "runtime",
-      "specifier": "../execution/index.js",
-      "target": "src/pth/execution/index.ts"
-    },
-    {
-      "from": "src/pth/runner/knowledge-context.ts",
-      "kind": "runtime",
       "specifier": "@away_from/pth-memory",
       "target": null
     },
@@ -7282,6 +7370,12 @@
       "kind": "type",
       "specifier": "../contracts/index.js",
       "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/runner/knowledge-context.ts",
+      "kind": "type",
+      "specifier": "../execution/index.js",
+      "target": "src/pth/execution/index.ts"
     },
     {
       "from": "src/pth/runner/knowledge-context.ts",
@@ -7891,15 +7985,15 @@
     }
   ],
   "summary": {
-    "srcPthFiles": 218,
-    "testFiles": 242,
+    "srcPthFiles": 220,
+    "testFiles": 244,
     "scriptFiles": 17,
     "packageFiles": 183,
-    "totalFiles": 660,
-    "totalLines": 101303,
-    "importEdges": 861,
-    "runtimeEdges": 399,
-    "typeEdges": 462,
-    "packageSpecifierEdges": 195
+    "totalFiles": 664,
+    "totalLines": 102456,
+    "importEdges": 874,
+    "runtimeEdges": 402,
+    "typeEdges": 472,
+    "packageSpecifierEdges": 197
   }
 }
