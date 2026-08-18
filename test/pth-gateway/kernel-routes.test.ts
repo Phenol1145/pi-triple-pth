@@ -4,14 +4,16 @@ import Fastify from "fastify";
 import { buildKnowledgeProvenance } from "@away_from/pth-memory";
 import { registerKernelRoutes } from "../../src/pth/gateway/routes-kernel";
 import { createPthGatewayFacade, type PthGatewayFacade } from "../../src/pth/application/gateway/pth-gateway-facade.js";
+import type { KnowledgeVerificationRepo } from "../../src/pth/execution/knowledge-promotion.js";
+import { computeCandidateHash, type VerificationPlanRecord } from "../../src/pth/execution/knowledge-verdicts.js";
 import type { KernelRuntime } from "../../src/pth/kernel/assembly";
 
 // 简化 auth：路由测试直接构造 app 并注册 kernel 路由（不含全局 auth hook——auth 已由
 // server.ts 的 createAuthHook 统一覆盖，本测试聚焦路由逻辑本身）。
 beforeEach(() => installDefaultRoles());
 
-function wrap(kernel: unknown): PthGatewayFacade {
-  return createPthGatewayFacade(kernel as KernelRuntime);
+function wrap(kernel: unknown, verificationRepo?: KnowledgeVerificationRepo): PthGatewayFacade {
+  return createPthGatewayFacade(kernel as KernelRuntime, verificationRepo);
 }
 
 function buildApp(kernel: KernelRuntime | null) {
@@ -437,7 +439,7 @@ describe("memory-bridge（P0-1：Bearer 鉴权 + token 声明 space）", () => {
   });
 });
 
-describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => {
+describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4 / R3）", () => {
   function makeMemoryStore() {
     const rows = new Map<string, any>();
     const getCalls: Array<{ id: string; opts?: { tenantId?: string } }> = [];
@@ -485,9 +487,81 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     return id;
   }
 
+  function makeVerificationRepo() {
+    const plans = new Map<string, VerificationPlanRecord>();
+    const rows = new Map<string, any>();
+    let nextId = 1;
+    const repo: KnowledgeVerificationRepo = {
+      async getPlan(planId, tenantId) {
+        const p = plans.get(planId);
+        if (!p || p.tenantId !== tenantId) return undefined;
+        return structuredClone(p);
+      },
+      async listVerdictRows(planId, tenantId) {
+        return [...rows.values()]
+          .filter((r) => r.planId === planId && r.tenantId === tenantId)
+          .sort((a, b) => Number(a.id) - Number(b.id))
+          .map((r) => structuredClone(r));
+      },
+      async insertVerdictRow(row) {
+        const key = `${row.planId}::${row.checkId}::${row.principalId}`;
+        const existing = rows.get(key);
+        if (existing) {
+          const same = existing.candidateId === row.candidateId
+            && existing.candidateRevision === row.candidateRevision
+            && existing.candidateHash === row.candidateHash
+            && existing.executionId === row.executionId
+            && existing.kind === row.kind
+            && existing.verdict === row.verdict
+            && existing.reviewerRole === row.reviewerRole
+            && existing.note === row.note
+            && (existing.domainId ?? null) === (row.domainId ?? null)
+            && JSON.stringify(existing.evidence) === JSON.stringify(row.evidence)
+            && existing.at === row.at;
+          return same
+            ? { ok: true, idempotent: true }
+            : { ok: false, error: "verdict conflict: same plan/check/principal with different payload" };
+        }
+        rows.set(key, { ...row, id: nextId++, rowVersion: 1, createdAt: new Date().toISOString() });
+        return { ok: true, idempotent: false };
+      },
+      async setPlanStatus(planId, tenantId, status) {
+        const p = plans.get(planId);
+        if (p && p.tenantId === tenantId) {
+          p.status = status;
+          p.rowVersion += 1;
+          p.updatedAt = new Date().toISOString();
+        }
+      },
+    };
+    return { repo, plans, rows };
+  }
+
+  function makePlanFor(id: string, overrides: Partial<VerificationPlanRecord> = {}): VerificationPlanRecord {
+    const content = "Earth orbits the Sun.";
+    return {
+      id: `plan-${id}`,
+      tenantId: "tenant-a",
+      candidateId: id,
+      candidateRevision: 1,
+      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+      requiredDomains: ["mathematics"],
+      checks: [
+        { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:platform-admin", "tenant:tenant-a:domain-expert"], separationFrom: ["producer", "other-verifier"] },
+        { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer", "other-verifier"] },
+      ],
+      sourceBindingsDigest: "",
+      status: "open",
+      rowVersion: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
   const ADMIN_AUTH = { tenantId: "tenant-a", role: "platform-admin", principalId: "tenant:tenant-a:platform-admin" };
 
-  function knowledgeApp(store = makeMemoryStore(), auth?: { tenantId?: string; role?: string; principalId?: string }) {
+  function knowledgeApp(store = makeMemoryStore(), auth?: { tenantId?: string; role?: string; principalId?: string }, verificationRepo?: KnowledgeVerificationRepo) {
     const app = Fastify();
     if (auth) {
       app.addHook("onRequest", async (req) => {
@@ -505,7 +579,7 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
         transcripts: {} as any,
         audit: {} as any,
       } as any,
-    })));
+    }), verificationRepo));
     return { app, store };
   }
 
@@ -515,7 +589,7 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/verify",
-      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "evidence verified", domainId: "mathematics" },
+      payload: { planId: "plan-cand-1", checkId: "domain-1", expectedCandidateRevision: 1, kind: "domain", verdict: "pass", note: "evidence verified", domainId: "mathematics" },
     });
     expect(res.statusCode).toBe(403);
     await app.close();
@@ -527,43 +601,20 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/promote",
-      payload: { entryId: "cand-1" },
+      payload: { entryId: "cand-1", planId: "plan-cand-1", expectedCandidateRevision: 1 },
     });
     expect(res.statusCode).toBe(403);
     await app.close();
   });
 
-  it("verify：合法 domain pass（platform-admin）→ 200 且落 verdict（principalId/domainId/tenantId 透传）", async () => {
-    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
-    seedDraft(store);
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/v1/kernel/knowledge/verify",
-      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "evidence verified", domainId: "mathematics" },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true });
-    const verdicts = (store.rows.get("cand-1").meta as { verdicts?: unknown[] }).verdicts!;
-    expect(verdicts).toHaveLength(1);
-    expect(verdicts[0]).toMatchObject({
-      kind: "domain",
-      verdict: "pass",
-      principalId: "tenant:tenant-a:platform-admin",
-      domainId: "mathematics",
-      candidateRevision: 1,
-    });
-    expect(store.getCalls[0].opts).toEqual({ tenantId: "tenant-a" });
-    await app.close();
-  });
-
-  it("verify：body 形状非法 → 400（kind/verdict/note/entryId）", async () => {
+  it("verify：body 形状非法（缺 planId/checkId/expectedCandidateRevision）→ 400", async () => {
     const { app } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
-    const base = { entryId: "cand-1", kind: "domain", verdict: "pass", note: "ok", domainId: "mathematics" };
     for (const payload of [
-      { ...base, kind: "bad" },
-      { ...base, verdict: "maybe" },
-      { ...base, note: "" },
-      { ...base, entryId: "" },
+      { checkId: "domain-1", expectedCandidateRevision: 1, kind: "domain", verdict: "pass", note: "ok", domainId: "mathematics" },
+      { planId: "plan-1", expectedCandidateRevision: 1, kind: "domain", verdict: "pass", note: "ok", domainId: "mathematics" },
+      { planId: "plan-1", checkId: "domain-1", kind: "domain", verdict: "pass", note: "ok", domainId: "mathematics" },
+      { planId: "plan-1", checkId: "domain-1", expectedCandidateRevision: 1, kind: "bad", verdict: "pass", note: "ok", domainId: "mathematics" },
+      { planId: "plan-1", checkId: "domain-1", expectedCandidateRevision: 1, kind: "domain", verdict: "maybe", note: "ok", domainId: "mathematics" },
     ]) {
       const res = await app.inject({ method: "POST", url: "/api/v1/kernel/knowledge/verify", payload });
       expect(res.statusCode).toBe(400);
@@ -576,7 +627,7 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     const noDomain = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/verify",
-      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "ok" },
+      payload: { planId: "plan-1", checkId: "domain-1", expectedCandidateRevision: 1, kind: "domain", verdict: "pass", note: "ok" },
     });
     expect(noDomain.statusCode).toBe(400);
     expect(noDomain.json().error).toContain("domainId");
@@ -584,80 +635,118 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4）", () => 
     const advWithDomain = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/verify",
-      payload: { entryId: "cand-1", kind: "adversarial", verdict: "pass", note: "ok", domainId: "mathematics" },
+      payload: { planId: "plan-1", checkId: "adv-1", expectedCandidateRevision: 1, kind: "adversarial", verdict: "pass", note: "ok", domainId: "mathematics" },
     });
     expect(advWithDomain.statusCode).toBe(400);
     expect(advWithDomain.json().error).toContain("domainId");
     await app.close();
   });
 
-  it("F3：verify executionId 可选 body 透传", async () => {
-    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
-    seedDraft(store);
+  it("verify：合法 domain pass（platform-admin）→ 200 且 verdict 落 plan 表（不 append meta.verdicts）", async () => {
+    const store = makeMemoryStore();
+    const { repo, plans, rows: verdictRows } = makeVerificationRepo();
+    seedDraft(store, "cand-1");
+    const plan = makePlanFor("cand-1", { status: "open" });
+    plans.set(plan.id, plan);
+    const { app } = knowledgeApp(store, ADMIN_AUTH, repo);
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/verify",
-      payload: { entryId: "cand-1", kind: "domain", verdict: "pass", note: "ok", domainId: "mathematics", executionId: "task-42" },
+      payload: { planId: plan.id, checkId: "domain-1", expectedCandidateRevision: 1, kind: "domain", verdict: "pass", note: "evidence verified", domainId: "mathematics" },
     });
     expect(res.statusCode).toBe(200);
-    const verdicts = (store.rows.get("cand-1").meta as { verdicts?: unknown[] }).verdicts!;
-    expect(verdicts[0]).toMatchObject({ executionId: "task-42" });
+    expect(res.json()).toEqual({ ok: true });
+    expect((store.rows.get("cand-1").meta as { verdicts?: unknown[] }).verdicts).toHaveLength(0);
+    expect([...verdictRows.values()]).toHaveLength(1);
+    expect(store.getCalls[0].opts).toEqual({ tenantId: "tenant-a" });
     await app.close();
   });
 
   it("verify：recordKnowledgeVerdict 拒绝（非 draft）→ 400", async () => {
-    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
+    const store = makeMemoryStore();
+    const { repo, plans } = makeVerificationRepo();
     const id = seedDraft(store);
+    const plan = makePlanFor(id, { status: "open" });
+    plans.set(plan.id, plan);
     store.rows.get(id).status = "official";
+    const { app } = knowledgeApp(store, ADMIN_AUTH, repo);
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/verify",
-      payload: { entryId: id, kind: "domain", verdict: "pass", note: "too late", domainId: "mathematics" },
+      payload: { planId: plan.id, checkId: "domain-1", expectedCandidateRevision: 1, kind: "domain", verdict: "pass", note: "too late", domainId: "mathematics" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().ok).toBe(false);
     await app.close();
   });
 
-  it("promote：合规候选（platform-admin）→ 200 且写 official + promotion.principalId", async () => {
-    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
+  it("promote：合规候选（platform-admin）→ 200 且写 official + promotion.principalId + planId", async () => {
+    const store = makeMemoryStore();
+    const { repo, plans } = makeVerificationRepo();
     const id = seedDraft(store);
-    (store.rows.get(id).meta as { verdicts?: unknown[] }).verdicts = [
-      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1, principalId: "tenant:tenant-a:platform-admin", domainId: "mathematics", candidateRevision: 1 },
-      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut", at: 2, principalId: "worker:controller:adversarial", candidateRevision: 1 },
-    ];
+    const plan = makePlanFor(id, { status: "satisfied" });
+    plans.set(plan.id, plan);
+    repo.insertVerdictRow({
+      planId: plan.id, tenantId: "tenant-a", checkId: "domain-1", candidateId: id,
+      candidateRevision: 1, candidateHash: plan.candidateHash,
+      principalId: "tenant:tenant-a:domain-expert", executionId: "task-d",
+      kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified",
+      domainId: "mathematics", evidence: [], at: 1,
+    });
+    repo.insertVerdictRow({
+      planId: plan.id, tenantId: "tenant-a", checkId: "adv-1", candidateId: id,
+      candidateRevision: 1, candidateHash: plan.candidateHash,
+      principalId: "worker:controller:adversarial", executionId: "task-a",
+      kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no shortcut",
+      evidence: [], at: 2,
+    });
+    const { app } = knowledgeApp(store, ADMIN_AUTH, repo);
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/promote",
-      payload: { entryId: id },
+      payload: { entryId: id, planId: plan.id, expectedCandidateRevision: 1 },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true, id });
     expect(store.rows.get(id).status).toBe("official");
     expect(store.rows.get(id).meta).toMatchObject({
-      promotion: { promotedBy: "memory-keeper", principalId: "tenant:tenant-a:platform-admin" },
+      promotion: { promotedBy: "memory-keeper", principalId: "tenant:tenant-a:platform-admin", planId: plan.id },
     });
-    expect(store.getCalls[0].opts).toEqual({ tenantId: "tenant-a" });
     await app.close();
   });
 
-  it("promote：entryId 缺失 → 400（platform-admin）", async () => {
+  it("promote：entryId/planId/expectedCandidateRevision 缺失 → 400（platform-admin）", async () => {
     const { app } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
-    const res = await app.inject({ method: "POST", url: "/api/v1/kernel/knowledge/promote", payload: {} });
-    expect(res.statusCode).toBe(400);
+    for (const payload of [
+      {},
+      { planId: "plan-1", expectedCandidateRevision: 1 },
+      { entryId: "cand-1", expectedCandidateRevision: 1 },
+      { entryId: "cand-1", planId: "plan-1" },
+    ]) {
+      const res = await app.inject({ method: "POST", url: "/api/v1/kernel/knowledge/promote", payload });
+      expect(res.statusCode).toBe(400);
+    }
     await app.close();
   });
 
   it("promote：canPromote 拒绝（缺 adversarial pass）→ 400", async () => {
-    const { app, store } = knowledgeApp(makeMemoryStore(), ADMIN_AUTH);
+    const store = makeMemoryStore();
+    const { repo, plans } = makeVerificationRepo();
     const id = seedDraft(store);
-    (store.rows.get(id).meta as { verdicts?: unknown[] }).verdicts = [
-      { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified", at: 1, principalId: "tenant:tenant-a:platform-admin", domainId: "mathematics", candidateRevision: 1 },
-    ];
+    const plan = makePlanFor(id, { status: "satisfied" });
+    plans.set(plan.id, plan);
+    repo.insertVerdictRow({
+      planId: plan.id, tenantId: "tenant-a", checkId: "domain-1", candidateId: id,
+      candidateRevision: 1, candidateHash: plan.candidateHash,
+      principalId: "tenant:tenant-a:domain-expert", executionId: "task-d",
+      kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "verified",
+      domainId: "mathematics", evidence: [], at: 1,
+    });
+    const { app } = knowledgeApp(store, ADMIN_AUTH, repo);
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/kernel/knowledge/promote",
-      payload: { entryId: id },
+      payload: { entryId: id, planId: plan.id, expectedCandidateRevision: 1 },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().ok).toBe(false);

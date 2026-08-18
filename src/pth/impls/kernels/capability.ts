@@ -1,3 +1,4 @@
+import type pg from "pg";
 import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
 import type { Interpreter } from "@away_from/pth-sandbox";
 import type { DataWorldAccess } from "../../kernel/storage/index.js";
@@ -18,7 +19,7 @@ import type {
 } from "../../contracts/index.js";
 import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, reviewToolProposal } from "@away_from/pth-memory";
 import { validatePenetrationSkillRegistration, PENETRATION_SKILL_NAME_PREFIX } from "../../tasking/index.js";
-import { promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../execution/knowledge-promotion.js";
+import { createPgKnowledgeVerificationRepo, promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../execution/knowledge-promotion.js";
 import { isIP } from "node:net";
 import { pthConfig } from "../../config/index.js";
 import http from "node:http";
@@ -125,6 +126,10 @@ export function buildCapabilities(deps: {
   if (modelFull) extCaps["model"] = { get: modelFull["get"], usage: modelFull["usage"] };
   // F2（AB-01）：pth-memory 治理函数只接收 store 形参——按当前任务 tenant 包装 requireTenant store。
   const memoryStore = () => withMemoryTenant(deps.dataWorld.memory, deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID);
+  // R3/P1-2：worker 路径同样走 service 层强制授权。verdict 落持久 plan/verdict rows，
+  // 需要 pg 访问——PgMemoryStore 持有一个 pg.Pool（构造装配注入；worker 生产形态恒有）。
+  const verificationPool = (deps.dataWorld.memory as unknown as { pool?: pg.Pool }).pool;
+  const verificationRepo = verificationPool ? createPgKnowledgeVerificationRepo(verificationPool) : null;
   return {
     ...extCaps,
     // 扩展编排面（2026-08-09 用户裁决：代码库式扩展 + 公共记忆区索引——无注册装载）
@@ -234,29 +239,45 @@ export function buildCapabilities(deps: {
     ...(deps.roleId === "controller:adversarial"
       ? {
           knowledge: {
-            review: async ({ entryId, verdict, note }: { entryId: string; verdict: "pass" | "reject"; note: string }) =>
-              recordKnowledgeVerdict(memoryStore(), entryId, {
+            review: async ({ planId, checkId, expectedCandidateRevision, verdict, note }: {
+              planId: string; checkId: string; expectedCandidateRevision: number; verdict: "pass" | "reject"; note: string;
+            }) => {
+              if (!verificationRepo) return { ok: false, error: "verification backend unavailable（pg pool 缺失）" };
+              const tenantId = deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID;
+              const taskId = deps.taskContext?.current?.taskId;
+              return recordKnowledgeVerdict(memoryStore(), verificationRepo, planId, checkId, expectedCandidateRevision, {
                 kind: "adversarial",
                 verdict,
                 reviewerRole: "controller:adversarial",
                 note,
                 at: Date.now(),
               }, {
-                tenantId: deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID,
                 principalId: "worker:controller:adversarial",
-              }),
+                executionId: taskId ?? `worker:controller:adversarial:${process.pid}`,
+                roleId: "controller:adversarial",
+              }, { tenantId });
+            },
           },
         }
       : {}),
     ...(deps.roleId === "memory-keeper"
       ? {
           knowledge: {
-            promote: async (entryId: string) =>
-              promoteKnowledgeEntry(memoryStore(), entryId, {
-                promoterRole: "memory-keeper",
-                tenantId: deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID,
+            promote: async ({ entryId, planId, expectedCandidateRevision }: {
+              entryId: string; planId: string; expectedCandidateRevision: number;
+            }) => {
+              if (!verificationRepo) return { ok: false, error: "verification backend unavailable（pg pool 缺失）" };
+              const tenantId = deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID;
+              const taskId = deps.taskContext?.current?.taskId;
+              return promoteKnowledgeEntry(memoryStore(), verificationRepo, entryId, planId, expectedCandidateRevision, {
                 principalId: "worker:memory-keeper",
-              }),
+                executionId: taskId ?? `worker:memory-keeper:${process.pid}`,
+                roleId: "memory-keeper",
+              }, {
+                tenantId,
+                promoterRole: "memory-keeper",
+              });
+            },
           },
         }
       : {}),

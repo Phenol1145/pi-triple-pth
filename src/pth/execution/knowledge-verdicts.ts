@@ -1,10 +1,13 @@
 /**
  * knowledge-verdicts.ts — K4 Phase 4（N22 1）：候选验证 verdict 契约与纯函数。
  *
- * draft 知识候选必须取得领域 verdict + 对抗 verdict 后，由 memory-keeper 受控晋升 official；
- * 生产者不能核验自己的候选；每次晋升留痕可反查。
+ * R3/P0-3：verdict 严格绑定不可变 candidate revision。candidate content revision
+ * （memory_entries.meta.version）与 review-row version（knowledge_verdict_rows.row_version）
+ * 分离；canPromote 不再读取 entry.meta.verdicts，改由 service 在锁内重读持久
+ * plan + verdict rows 后调用本文件的纯函数。
  */
 
+import { createHash } from "node:crypto";
 import { validateKnowledgeProvenance, type MemoryEntry } from "@away_from/pth-memory";
 
 export type KnowledgeVerdictKind = "domain" | "adversarial";
@@ -21,7 +24,7 @@ export interface KnowledgeVerdict {
   principalId?: string;
   /** F3：执行上下文（task/run id，HTTP 可缺省） */
   executionId?: string;
-  /** F3：审核时 entry.meta.version（服务端自动补——调用方不可覆盖） */
+  /** R3：绑定 plan 的 candidateRevision——由 service 盖章，调用方不可覆盖 */
   candidateRevision?: number;
   /** F3：domain 类 verdict 必填；adversarial 不填 */
   domainId?: string;
@@ -89,17 +92,195 @@ export function validateKnowledgeVerdict(
   };
 }
 
+/** 持久 VerificationPlan 的最小形状（R3/P1-2）。 */
+export type VerificationPlanStatus = "open" | "satisfied" | "rejected" | "invalidated";
+
+export interface VerificationCheckRecord {
+  checkId: string;
+  kind: KnowledgeVerdictKind;
+  domainId?: string;
+  quorum: number;
+  eligiblePrincipals: string[];
+  separationFrom: string[];
+}
+
+export interface VerificationPlanRecord {
+  id: string;
+  tenantId: string;
+  candidateId: string;
+  candidateRevision: number;
+  candidateHash: string;
+  requiredDomains: string[];
+  checks: VerificationCheckRecord[];
+  sourceBindingsDigest: string;
+  status: VerificationPlanStatus;
+  rowVersion: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 持久 verdict row（R3/P0-3）：与 candidate content revision 分离的 review-row。 */
+export interface KnowledgeVerdictRowRecord {
+  id: string | number;
+  planId: string;
+  tenantId: string;
+  checkId: string;
+  candidateId: string;
+  candidateRevision: number;
+  candidateHash: string;
+  principalId: string;
+  executionId: string;
+  kind: KnowledgeVerdictKind;
+  verdict: "pass" | "reject";
+  reviewerRole: string;
+  note: string;
+  domainId?: string;
+  evidence: string[];
+  at: number;
+  rowVersion: number;
+  createdAt: string;
+}
+
+/** 稳定 JSON 序列化（递归按键排序）——与 jsonb 等值语义对齐。 */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(",")}]`;
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  const obj = value as Record<string, unknown>;
+  return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+function toNonEmptyStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out = v.filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim());
+  return out;
+}
+
 /**
- * 晋升门禁（fail-closed）：
+ * candidateHash：覆盖 content + domains + evidence（+ effect，fail-closed——effect 变化也失活）。
+ * 建计划时由调用方用同一函数快照；canPromote 用 entry 当前值重算比对。
+ */
+export function computeCandidateHash(input: {
+  content: string;
+  domains: readonly string[];
+  evidence: readonly string[];
+  effect?: unknown;
+}): string {
+  const domains = [...new Set(input.domains.map((d) => String(d).trim()).filter((d) => d !== ""))].sort();
+  const evidence = input.evidence.map((e) => String(e).trim()).filter((e) => e !== "");
+  const payload = {
+    content: input.content,
+    domains,
+    evidence,
+    effect: input.effect ?? null,
+  };
+  return createHash("sha256").update(stableStringify(payload)).digest("hex");
+}
+
+/** 从 entry + 计划 requiredDomains 计算当前 candidate hash（evidence/effect 取自 meta）。 */
+export function candidateHashForEntry(entry: MemoryEntry, requiredDomains: readonly string[]): string {
+  const meta = entry.meta ?? {};
+  return computeCandidateHash({
+    content: entry.content,
+    domains: requiredDomains,
+    evidence: toNonEmptyStringArray(meta["evidence"]),
+    effect: meta["effect"] ?? null,
+  });
+}
+
+/**
+ * 评估 plan + verdict rows 是否满足（不含 plan.status 门禁，供 recordKnowledgeVerdict 刷新
+ * plan.status 与 canPromote 共用）。所有 verdict 必须与 plan 的 candidateRevision/candidateHash
+ * 严格一致；stale/future/hash 不一致的行直接拒绝（不忽略）。
+ */
+export function evaluatePlanVerdicts(
+  plan: VerificationPlanRecord,
+  verdictRows: KnowledgeVerdictRowRecord[],
+  producerRole: string | undefined,
+): { ok: true } | { ok: false; reason: string } {
+  if (plan.checks.length === 0) {
+    return { ok: false, reason: "plan must contain at least one check" };
+  }
+
+  const passByCheck = new Map<string, KnowledgeVerdictRowRecord[]>();
+  const domainPrincipals = new Set<string>();
+  const adversarialPrincipals = new Set<string>();
+
+  for (const row of verdictRows) {
+    if (row.planId !== plan.id) {
+      return { ok: false, reason: `verdict row planId ${row.planId} does not match plan ${plan.id}` };
+    }
+    if (row.candidateRevision !== plan.candidateRevision) {
+      return { ok: false, reason: `verdict row candidateRevision ${row.candidateRevision} does not match plan candidate_revision ${plan.candidateRevision}` };
+    }
+    if (row.candidateHash !== plan.candidateHash) {
+      return { ok: false, reason: "verdict row candidateHash differs from plan" };
+    }
+    const check = plan.checks.find((c) => c.checkId === row.checkId);
+    if (!check) {
+      return { ok: false, reason: `verdict row check ${row.checkId} not in plan` };
+    }
+    if (check.kind !== row.kind) {
+      return { ok: false, reason: `verdict row kind ${row.kind} does not match check ${check.checkId} kind ${check.kind}` };
+    }
+    if (!check.eligiblePrincipals.includes(row.principalId)) {
+      return { ok: false, reason: `principal ${row.principalId} not eligible for check ${check.checkId}` };
+    }
+    if (check.kind === "domain" && row.domainId !== check.domainId) {
+      return { ok: false, reason: `domain verdict row domainId ${row.domainId ?? ""} does not match check ${check.checkId}` };
+    }
+
+    if (row.verdict === "reject") {
+      return { ok: false, reason: "verdict rows must not contain reject" };
+    }
+
+    // producer 不能核验自己的候选；domain 与 adversarial principal 必须不同。
+    if (typeof producerRole === "string" && row.principalId === producerRole) {
+      return { ok: false, reason: "producer cannot review own knowledge" };
+    }
+    if (row.kind === "domain") {
+      if (typeof row.domainId !== "string" || row.domainId.trim() === "") {
+        return { ok: false, reason: "domain pass verdict requires domainId" };
+      }
+      domainPrincipals.add(row.principalId);
+    } else {
+      adversarialPrincipals.add(row.principalId);
+    }
+
+    const list = passByCheck.get(row.checkId) ?? [];
+    list.push(row);
+    passByCheck.set(row.checkId, list);
+  }
+
+  for (const domainPrincipal of domainPrincipals) {
+    if (adversarialPrincipals.has(domainPrincipal)) {
+      return { ok: false, reason: "domain and adversarial principals must differ" };
+    }
+  }
+
+  for (const check of plan.checks) {
+    const passes = passByCheck.get(check.checkId) ?? [];
+    if (passes.length < check.quorum) {
+      return { ok: false, reason: `check ${check.checkId} quorum not satisfied (${passes.length}/${check.quorum})` };
+    }
+  }
+
+  return { ok: true };
+}
+
+/**
+ * 晋升门禁（fail-closed，R3/P0-3）：
  * - status === draft；
  * - meta.provenance 存在且 validateKnowledgeProvenance(meta.provenance, content) ok；
- * - meta.verdicts 含至少一条 domain pass 与一条 adversarial pass，且无 reject；
- * - pass domain verdict 必须有 principalId 与 domainId；adversarial 必须有 principalId；
- * - 任一 pass principalId === provenance.producerRole → 拒；
- * - domain/adversarial principal 相同 → 拒；
- * - 每条 pass 必须携带 candidateRevision，且不得晚于 entry.meta.version。
+ * - meta.version（candidate content revision）与 plan.candidateRevision 严格相等；
+ * - candidateHashForEntry(entry, plan.requiredDomains) 与 plan.candidateHash 严格相等；
+ * - plan.status === satisfied；
+ * - evaluatePlanVerdicts 逐 check quorum / separation / 无 reject / revision+hash 全一致。
  */
-export function canPromote(entry: MemoryEntry): { ok: true } | { ok: false; reason: string } {
+export function canPromote(
+  entry: MemoryEntry,
+  plan: VerificationPlanRecord,
+  verdictRows: KnowledgeVerdictRowRecord[],
+): { ok: true } | { ok: false; reason: string } {
   if (entry.status !== "draft") {
     return { ok: false, reason: "status must be draft" };
   }
@@ -109,81 +290,36 @@ export function canPromote(entry: MemoryEntry): { ok: true } | { ok: false; reas
     return { ok: false, reason: "meta must be an object" };
   }
 
+  if (plan.candidateId !== entry.id) {
+    return { ok: false, reason: `plan candidate ${plan.candidateId} does not match entry ${entry.id}` };
+  }
+
   const provenance = validateKnowledgeProvenance(meta["provenance"], entry.content);
   if (!provenance.ok) {
     return { ok: false, reason: `provenance invalid: ${provenance.error}` };
   }
 
-  const verdicts = meta["verdicts"];
-  if (!Array.isArray(verdicts)) {
-    return { ok: false, reason: "meta.verdicts must be an array" };
-  }
-
-  const passVerdicts: KnowledgeVerdict[] = [];
-  for (const raw of verdicts) {
-    const checked = validateKnowledgeVerdict(raw);
-    if (!checked.ok) {
-      return { ok: false, reason: `invalid verdict: ${checked.error}` };
-    }
-    if (checked.verdict.verdict === "reject") {
-      return { ok: false, reason: "verdicts must not contain reject" };
-    }
-    passVerdicts.push(checked.verdict);
-  }
-
-  const domainPasses = passVerdicts.filter((v) => v.kind === "domain");
-  const adversarialPasses = passVerdicts.filter((v) => v.kind === "adversarial");
-
-  if (domainPasses.length === 0) {
-    return { ok: false, reason: "missing domain pass verdict" };
-  }
-  if (adversarialPasses.length === 0) {
-    return { ok: false, reason: "missing adversarial pass verdict" };
-  }
-
-  // F3：签发主体必填（validate 已保证 domain pass 有 domainId，但 principalId 仍是 optional）
-  for (const pass of domainPasses) {
-    if (typeof pass.principalId !== "string" || pass.principalId.trim() === "") {
-      return { ok: false, reason: "domain pass verdict requires principalId" };
-    }
-  }
-  for (const pass of adversarialPasses) {
-    if (typeof pass.principalId !== "string" || pass.principalId.trim() === "") {
-      return { ok: false, reason: "adversarial pass verdict requires principalId" };
-    }
-  }
-
-  const producerRole = provenance.provenance.producerRole;
-  for (const pass of passVerdicts) {
-    if (pass.principalId === producerRole) {
-      return { ok: false, reason: "producer cannot review own knowledge" };
-    }
-  }
-
-  const domainPrincipals = new Set(domainPasses.map((v) => v.principalId as string));
-  const adversarialPrincipals = new Set(adversarialPasses.map((v) => v.principalId as string));
-  for (const domainPrincipal of domainPrincipals) {
-    if (adversarialPrincipals.has(domainPrincipal)) {
-      return { ok: false, reason: "domain and adversarial principals must differ" };
-    }
-  }
-
-  // F3：每条 pass 必须携带 candidateRevision，且不得晚于当前 entry.meta.version。
-  // 说明：recordKnowledgeVerdict 在写入时已把 candidateRevision 盖成当时的 entry.meta.version；
-  // PgMemoryStore.update 每追加一条 verdict 会 version+1（F1 revision 语义），因此多条 verdict
-  // 的 candidateRevision 可能小于晋升时的当前 version——纯函数这里只能 fail-closed 拒绝
-  // “未来版本/缺失值”，相等性由 service 盖章保证。
   const version = meta["version"];
   if (typeof version !== "number" || !Number.isFinite(version)) {
     return { ok: false, reason: "meta.version must be a finite number" };
   }
-  for (const pass of passVerdicts) {
-    if (typeof pass.candidateRevision !== "number" || !Number.isFinite(pass.candidateRevision)) {
-      return { ok: false, reason: "pass verdict requires candidateRevision" };
-    }
-    if (pass.candidateRevision > version) {
-      return { ok: false, reason: "candidateRevision must not exceed entry.meta.version" };
-    }
+  if (version !== plan.candidateRevision) {
+    return { ok: false, reason: `entry.meta.version ${version} does not match plan candidate_revision ${plan.candidateRevision}` };
+  }
+
+  const currentHash = candidateHashForEntry(entry, plan.requiredDomains);
+  if (currentHash !== plan.candidateHash) {
+    return { ok: false, reason: `candidateHash mismatch: entry ${currentHash} != plan ${plan.candidateHash}` };
+  }
+
+  if (plan.status !== "satisfied") {
+    return { ok: false, reason: `plan.status must be satisfied (current: ${plan.status})` };
+  }
+
+  const producerRole = (provenance.provenance.producerRole) as string | undefined;
+  const decision = evaluatePlanVerdicts(plan, verdictRows, producerRole);
+  if (!decision.ok) {
+    return decision;
   }
 
   return { ok: true };

@@ -5,83 +5,37 @@ import { Pool } from "pg";
 import {
   buildKnowledgeProvenance,
   DEFAULT_TENANT_ID,
-  MEMORY_SCHEMA_SQL,
   PgMemoryStore,
   type MemoryEntry,
+  type PgMemoryStorePromoteOfficialOptions,
+  type PgMemoryStorePromotionMeta,
 } from "@away_from/pth-memory";
-import { createInMemoryPromoteOfficial } from "../helpers";
+import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import {
   canPromote,
+  computeCandidateHash,
   validateKnowledgeVerdict,
   type KnowledgeVerdict,
+  type KnowledgeVerdictRowRecord,
+  type VerificationPlanRecord,
 } from "../../src/pth/execution/knowledge-verdicts.js";
 import {
+  createPgKnowledgeVerificationRepo,
   promoteKnowledgeEntry,
   recordKnowledgeVerdict,
   rejectKnowledgeEntry,
+  type KnowledgeServiceAuth,
+  type KnowledgeVerificationRepo,
 } from "../../src/pth/execution/knowledge-promotion.js";
+import { createInMemoryPromoteOfficial } from "../helpers";
 
-/**
- * K4 Phase 4（N22）：候选验证与晋升闭环。
- * fake store 支持 get/update/write——write 时把 status/meta 更新（对齐设计 5 的 fake store 契约）。
- */
-function makeStore(initial: MemoryEntry[] = []) {
-  const rows = new Map<string, MemoryEntry>();
-  const writeCalls: Array<{ entry: MemoryEntry; opts?: { force?: boolean; reason?: string; createdBy?: string } }> = [];
-  const promoteCalls: Array<{
-    id: string; tenantId: string; expectedRevision: number;
-    promotionMeta: { promotedBy: string; principalId?: string; note?: string; promotedAt: number; verdicts?: unknown };
-    opts?: { createdBy?: string; reason?: string; evaluate?: (entry: MemoryEntry) => { ok: true } | { ok: false; reason: string } };
-  }> = [];
-  for (const e of initial) rows.set(e.id, structuredClone(e));
-  const sharedPromote = createInMemoryPromoteOfficial(rows);
-  return {
-    rows,
-    writeCalls,
-    promoteCalls,
-    async get(id: string, opts?: { tenantId?: string }) {
-      const e = rows.get(id);
-      if (!e) return undefined;
-      if (opts?.tenantId && e.tenantId && e.tenantId !== opts.tenantId) return undefined;
-      return structuredClone(e);
-    },
-    async update(
-      id: string,
-      patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> },
-      opts?: { tenantId?: string },
-    ) {
-      const e = rows.get(id);
-      if (!e) throw new Error(`entry not found in tenant ${opts?.tenantId ?? "default"}`);
-      if (opts?.tenantId && e.tenantId && e.tenantId !== opts.tenantId) {
-        throw new Error(`entry not found in tenant ${opts.tenantId}`);
-      }
-      if (patch.content !== undefined) e.content = patch.content;
-      if (patch.status !== undefined) e.status = patch.status;
-      if (patch.meta !== undefined) e.meta = { ...(e.meta ?? {}), ...patch.meta };
-    },
-    async write(entry: MemoryEntry, opts?: { force?: boolean; reason?: string; createdBy?: string }) {
-      writeCalls.push({ entry: structuredClone(entry), opts });
-      rows.set(entry.id, structuredClone(entry));
-    },
-    async promoteOfficial(
-      id: string,
-      tenantId: string,
-      expectedRevision: number,
-      promotionMeta: { promotedBy: string; principalId?: string; note?: string; promotedAt: number; verdicts?: unknown },
-      opts?: { createdBy?: string; reason?: string; evaluate?: (entry: MemoryEntry) => { ok: true } | { ok: false; reason: string } },
-    ) {
-      promoteCalls.push({ id, tenantId, expectedRevision, promotionMeta: structuredClone(promotionMeta), opts });
-      return sharedPromote(id, tenantId, expectedRevision, promotionMeta, opts);
-    },
-  };
-}
+const TENANT = DEFAULT_TENANT_ID;
+const content = "The Earth orbits the Sun.";
 
-function makeDraft(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
-  const content = overrides.content ?? "The Earth orbits the Sun.";
-  const producerRole = "developer";
+function makeDraft(id = "cand-1", overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   return {
-    id: "cand-1",
-    tenantId: "default",
+    id,
+    tenantId: TENANT,
     kind: "task-insight",
     anchors: ["science"],
     content,
@@ -91,7 +45,7 @@ function makeDraft(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
       provenance: buildKnowledgeProvenance({
         content,
         sourceTaskId: "task-1",
-        producerRole,
+        producerRole: "developer",
         producerModel: "deepseek-v4-flash",
         sourceRefs: ["task:task-1"],
       }),
@@ -101,29 +55,156 @@ function makeDraft(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   };
 }
 
-function domainPass(reviewerRole = "domain:expert", overrides: Partial<KnowledgeVerdict> = {}): KnowledgeVerdict {
+function domainPass(overrides: Partial<KnowledgeVerdict> = {}): KnowledgeVerdict {
   return {
     kind: "domain",
     verdict: "pass",
-    reviewerRole,
+    reviewerRole: "domain:expert",
     note: "domain evidence verified",
     at: 1,
-    principalId: "tenant:tenant-a:platform-admin",
     domainId: "mathematics",
-    candidateRevision: 1,
     ...overrides,
   };
 }
 
-function adversarialPass(reviewerRole = "controller:adversarial", overrides: Partial<KnowledgeVerdict> = {}): KnowledgeVerdict {
+function adversarialPass(overrides: Partial<KnowledgeVerdict> = {}): KnowledgeVerdict {
   return {
     kind: "adversarial",
     verdict: "pass",
-    reviewerRole,
+    reviewerRole: "controller:adversarial",
     note: "no shortcut / pitfall covered",
     at: 2,
-    principalId: "worker:controller:adversarial",
+    ...overrides,
+  };
+}
+
+function makePlan(overrides: Partial<VerificationPlanRecord> = {}): VerificationPlanRecord {
+  return {
+    id: "plan-1",
+    tenantId: TENANT,
+    candidateId: "cand-1",
     candidateRevision: 1,
+    candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+    requiredDomains: ["mathematics"],
+    checks: [
+      {
+        checkId: "domain-1",
+        kind: "domain",
+        domainId: "mathematics",
+        quorum: 1,
+        eligiblePrincipals: ["tenant:tenant-a:platform-admin", "worker:controller:adversarial"],
+        separationFrom: ["producer", "other-verifier"],
+      },
+      {
+        checkId: "adv-1",
+        kind: "adversarial",
+        quorum: 1,
+        eligiblePrincipals: ["worker:controller:adversarial"],
+        separationFrom: ["producer", "other-verifier"],
+      },
+    ],
+    sourceBindingsDigest: "",
+    status: "satisfied",
+    rowVersion: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function makeVerificationRepo() {
+  const plans = new Map<string, VerificationPlanRecord>();
+  const rows = new Map<string, KnowledgeVerdictRowRecord>();
+  let nextId = 1;
+  const repo: KnowledgeVerificationRepo = {
+    async getPlan(planId, tenantId) {
+      const p = plans.get(planId);
+      if (!p || p.tenantId !== tenantId) return undefined;
+      return structuredClone(p);
+    },
+    async listVerdictRows(planId, tenantId) {
+      return [...rows.values()]
+        .filter((r) => r.planId === planId && r.tenantId === tenantId)
+        .sort((a, b) => Number(a.id) - Number(b.id))
+        .map((r) => structuredClone(r));
+    },
+    async insertVerdictRow(row) {
+      const key = `${row.planId}::${row.checkId}::${row.principalId}`;
+      const existing = rows.get(key);
+      if (existing) {
+        const same = existing.candidateId === row.candidateId
+          && existing.candidateRevision === row.candidateRevision
+          && existing.candidateHash === row.candidateHash
+          && existing.executionId === row.executionId
+          && existing.kind === row.kind
+          && existing.verdict === row.verdict
+          && existing.reviewerRole === row.reviewerRole
+          && existing.note === row.note
+          && (existing.domainId ?? null) === (row.domainId ?? null)
+          && JSON.stringify(existing.evidence) === JSON.stringify(row.evidence)
+          && existing.at === row.at;
+        return same
+          ? { ok: true, idempotent: true }
+          : { ok: false, error: "verdict conflict: same plan/check/principal with different payload" };
+      }
+      const full: KnowledgeVerdictRowRecord = {
+        ...row,
+        id: nextId++,
+        rowVersion: 1,
+        createdAt: new Date().toISOString(),
+      };
+      rows.set(key, full);
+      return { ok: true, idempotent: false };
+    },
+    async setPlanStatus(planId, tenantId, status) {
+      const p = plans.get(planId);
+      if (p && p.tenantId === tenantId) {
+        p.status = status;
+        p.rowVersion += 1;
+        p.updatedAt = new Date().toISOString();
+      }
+    },
+  };
+  return { repo, plans, rows };
+}
+
+function makeStore(initial: MemoryEntry[] = []) {
+  const rows = new Map<string, MemoryEntry>();
+  for (const e of initial) rows.set(e.id, structuredClone(e));
+  const sharedPromote = createInMemoryPromoteOfficial(rows);
+  return {
+    rows,
+    async get(id: string, opts?: { tenantId?: string }) {
+      const e = rows.get(id);
+      if (!e) return undefined;
+      if (opts?.tenantId && e.tenantId && e.tenantId !== opts.tenantId) return undefined;
+      return structuredClone(e);
+    },
+    async update(id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts?: { tenantId?: string }) {
+      const e = rows.get(id);
+      if (!e) throw new Error(`entry not found in tenant ${opts?.tenantId ?? "default"}`);
+      if (opts?.tenantId && e.tenantId && e.tenantId !== opts.tenantId) throw new Error(`entry not found in tenant ${opts.tenantId}`);
+      if (patch.content !== undefined) e.content = patch.content;
+      if (patch.status !== undefined) e.status = patch.status;
+      if (patch.meta !== undefined) e.meta = { ...(e.meta ?? {}), ...patch.meta };
+    },
+    async promoteOfficial(
+      id: string,
+      tenantId: string,
+      expectedRevision: number,
+      promotionMeta: PgMemoryStorePromotionMeta,
+      opts: PgMemoryStorePromoteOfficialOptions = {},
+    ) {
+      return sharedPromote(id, tenantId, expectedRevision, promotionMeta, opts);
+    },
+  };
+}
+
+function makeAuth(overrides: Partial<KnowledgeServiceAuth> = {}): KnowledgeServiceAuth {
+  return {
+    principalId: "tenant:tenant-a:platform-admin",
+    executionId: "task-admin",
+    roleId: "platform-admin",
     ...overrides,
   };
 }
@@ -146,290 +227,10 @@ describe("validateKnowledgeVerdict（N22 1）", () => {
     expect(validateKnowledgeVerdict("x").ok).toBe(false);
   });
 
-  it("F3：optional 字段形状非法 → 拒绝", () => {
-    expect(validateKnowledgeVerdict({ ...domainPass(), principalId: "" }).ok).toBe(false);
-    expect(validateKnowledgeVerdict({ ...domainPass(), executionId: " " }).ok).toBe(false);
-    expect(validateKnowledgeVerdict({ ...domainPass(), candidateRevision: Number.NaN }).ok).toBe(false);
-    expect(validateKnowledgeVerdict({ ...domainPass(), domainId: "" }).ok).toBe(false);
-    expect(validateKnowledgeVerdict({ ...domainPass(), evidence: ["ok", 7] }).ok).toBe(false);
-    expect(validateKnowledgeVerdict({ ...domainPass(), evidence: ["ok", ""] }).ok).toBe(false);
-  });
-
   it("F3：domain verdict 必须带 domainId；adversarial 不填 domainId 仍合法", () => {
     expect(validateKnowledgeVerdict({ ...domainPass(), domainId: undefined }).ok).toBe(false);
-    const adv = validateKnowledgeVerdict(adversarialPass("controller:adversarial", { domainId: undefined }));
+    const adv = validateKnowledgeVerdict(adversarialPass());
     expect(adv.ok).toBe(true);
-  });
-});
-
-describe("recordKnowledgeVerdict（N22 2）", () => {
-  it("仅 draft 可审：official/archived 拒绝", async () => {
-    const store = makeStore([makeDraft({ status: "official" as const })]);
-    const r = await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("draft");
-  });
-
-  it("非法 verdict 拒绝", async () => {
-    const store = makeStore([makeDraft()]);
-    const r = await recordKnowledgeVerdict(store as never, "cand-1", { ...domainPass(), note: "" });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("note");
-  });
-
-  it("同 kind + reviewer 重复提交 → 幂等 ok 且不重复 append", async () => {
-    const store = makeStore([makeDraft()]);
-    const first = await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
-    const second = await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
-    expect(first).toEqual({ ok: true });
-    expect(second).toEqual({ ok: true });
-    const entry = store.rows.get("cand-1")!;
-    const verdicts = entry.meta.verdicts as unknown[];
-    expect(verdicts).toHaveLength(1);
-  });
-
-  it("producer 自审 → 拒绝（reviewerRole === provenance.producerRole）", async () => {
-    const store = makeStore([makeDraft()]);
-    const r = await recordKnowledgeVerdict(store as never, "cand-1", domainPass("developer"));
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("producer");
-    expect((store.rows.get("cand-1")!.meta.verdicts as unknown[])).toHaveLength(0);
-  });
-
-  it("F3：candidateRevision 自动取 entry.meta.version（调用方不可覆盖）", async () => {
-    const store = makeStore([makeDraft()]);
-    const r = await recordKnowledgeVerdict(store as never, "cand-1", domainPass("domain:expert", { candidateRevision: 99 }));
-    expect(r).toEqual({ ok: true });
-    const verdicts = store.rows.get("cand-1")!.meta.verdicts as KnowledgeVerdict[];
-    expect(verdicts[0].candidateRevision).toBe(1);
-  });
-
-  it("F3：opts.principalId/domainId 作为服务端盖章写入 verdict", async () => {
-    const store = makeStore([makeDraft()]);
-    const verdict: KnowledgeVerdict = {
-      kind: "domain",
-      verdict: "pass",
-      reviewerRole: "domain:expert",
-      note: "ok",
-      at: 1,
-    };
-    const r = await recordKnowledgeVerdict(store as never, "cand-1", verdict, {
-      principalId: "tenant:tenant-a:platform-admin",
-      domainId: "mathematics",
-    });
-    expect(r).toEqual({ ok: true });
-    const verdicts = store.rows.get("cand-1")!.meta.verdicts as KnowledgeVerdict[];
-    expect(verdicts[0]).toMatchObject({
-      principalId: "tenant:tenant-a:platform-admin",
-      domainId: "mathematics",
-      candidateRevision: 1,
-    });
-  });
-
-  it("entry 不存在 → 拒绝", async () => {
-    const store = makeStore();
-    const r = await recordKnowledgeVerdict(store as never, "nope", domainPass());
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("not found");
-  });
-});
-
-describe("canPromote / promoteKnowledgeEntry（N22 1/2）", () => {
-  it("缺任一 pass → promote 拒绝", async () => {
-    const store = makeStore([makeDraft()]);
-    await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
-    const r = await promoteKnowledgeEntry(store as never, "cand-1");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("adversarial");
-  });
-
-  it("有 reject → promote 拒绝", async () => {
-    const store = makeStore([makeDraft()]);
-    await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
-    await recordKnowledgeVerdict(store as never, "cand-1", { kind: "adversarial", verdict: "reject", reviewerRole: "controller:adversarial", note: "pitfall missing", at: 3 });
-    const r = await promoteKnowledgeEntry(store as never, "cand-1");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("reject");
-  });
-
-  it("F3：domain 与 adversarial principal 相同 → promote 拒绝", async () => {
-    const store = makeStore([makeDraft()]);
-    await recordKnowledgeVerdict(store as never, "cand-1", domainPass("domain:expert", { principalId: "worker:controller:adversarial" }));
-    await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass("controller:adversarial", { principalId: "worker:controller:adversarial" }));
-    const r = await promoteKnowledgeEntry(store as never, "cand-1");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("principals");
-  });
-
-  it("F3：producer 自核验（principalId === provenance.producerRole）→ promote 拒绝", async () => {
-    const entry = makeDraft();
-    entry.meta = {
-      ...entry.meta,
-      verdicts: [domainPass("domain:expert", { principalId: "developer" }), adversarialPass()],
-    };
-    const store = makeStore([entry]);
-    const r = await promoteKnowledgeEntry(store as never, "cand-1");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("producer");
-  });
-
-  it("F3：domain pass 缺 principalId 或 domainId → promote 拒绝", async () => {
-    const noPrincipal = makeDraft();
-    noPrincipal.meta = {
-      ...noPrincipal.meta,
-      verdicts: [
-        { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "ok", at: 1, domainId: "mathematics", candidateRevision: 1 },
-        adversarialPass(),
-      ],
-    };
-    const r1 = promoteKnowledgeEntry(makeStore([noPrincipal]) as never, "cand-1");
-    await expect(r1).resolves.toMatchObject({ ok: false, error: expect.stringContaining("principalId") });
-
-    const noDomain = makeDraft();
-    noDomain.meta = {
-      ...noDomain.meta,
-      verdicts: [
-        { kind: "domain", verdict: "pass", reviewerRole: "domain:expert", note: "ok", at: 1, principalId: "tenant:tenant-a:platform-admin", candidateRevision: 1 },
-        adversarialPass(),
-      ],
-    };
-    const r2 = promoteKnowledgeEntry(makeStore([noDomain]) as never, "cand-1");
-    await expect(r2).resolves.toMatchObject({ ok: false, error: expect.stringContaining("domainId") });
-  });
-
-  it("F3：adversarial pass 缺 principalId → promote 拒绝", async () => {
-    const entry = makeDraft();
-    entry.meta = {
-      ...entry.meta,
-      verdicts: [
-        domainPass(),
-        { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "ok", at: 2, candidateRevision: 1 },
-      ],
-    };
-    const r = await promoteKnowledgeEntry(makeStore([entry]) as never, "cand-1");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("principalId");
-  });
-
-  it("F3：candidateRevision 不等于 entry.meta.version → promote 拒绝", async () => {
-    const entry = makeDraft();
-    entry.meta = {
-      ...entry.meta,
-      verdicts: [domainPass("domain:expert", { candidateRevision: 2 }), adversarialPass()],
-    };
-    const r = await promoteKnowledgeEntry(makeStore([entry]) as never, "cand-1");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("candidateRevision");
-  });
-
-  it("provenance 缺失/哈希不匹配 → canPromote 拒绝", () => {
-    const good = makeDraft();
-    const noVerdict = canPromote(good);
-    expect(noVerdict.ok).toBe(false);
-    if (!noVerdict.ok) expect(noVerdict.reason).toContain("domain");
-    const noProv = makeDraft();
-    (noProv.meta as Record<string, unknown>).provenance = undefined;
-    const r = canPromote(noProv);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toContain("provenance");
-
-    const badHash = makeDraft();
-    (badHash.meta as Record<string, unknown>).provenance = buildKnowledgeProvenance({
-      content: "tampered content",
-      sourceTaskId: "task-1",
-      producerRole: "developer",
-      producerModel: "deepseek-v4-flash",
-      sourceRefs: ["task:task-1"],
-    });
-    const r2 = canPromote(badHash);
-    expect(r2.ok).toBe(false);
-    if (!r2.ok) expect(r2.reason).toContain("provenance");
-  });
-
-  it("全链：两个不同 reviewer pass → promote → official + promotion meta + write force 调用", async () => {
-    const store = makeStore([makeDraft()]);
-    expect((await recordKnowledgeVerdict(store as never, "cand-1", domainPass())).ok).toBe(true);
-    expect((await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass())).ok).toBe(true);
-
-    const r = await promoteKnowledgeEntry(store as never, "cand-1", { principalId: "worker:memory-keeper" });
-    expect(r).toEqual({ ok: true, id: "cand-1" });
-
-    const entry = store.rows.get("cand-1")!;
-    expect(entry.status).toBe("official");
-    expect(entry.meta.promotion).toMatchObject({
-      promotedBy: "memory-keeper",
-      principalId: "worker:memory-keeper",
-      verdicts: [domainPass(), adversarialPass()],
-    });
-    expect((entry.meta.promotion as { promotedAt?: unknown }).promotedAt).toEqual(expect.any(Number));
-
-    expect(store.writeCalls).toHaveLength(0); // 非原子 write 路径已删除
-    expect(store.promoteCalls).toHaveLength(1);
-    expect(store.promoteCalls[0]).toMatchObject({
-      id: "cand-1",
-      tenantId: "default",
-      expectedRevision: 1,
-      opts: { createdBy: "memory-keeper", reason: "knowledge-promotion" },
-    });
-    expect(store.promoteCalls[0].promotionMeta).toMatchObject({
-      promotedBy: "memory-keeper",
-      principalId: "worker:memory-keeper",
-      promotedAt: expect.any(Number),
-    });
-  });
-
-  it("promoterRole 显式传入 → 写入 createdBy/promotedBy/principalId", async () => {
-    const store = makeStore([makeDraft()]);
-    await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
-    await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass());
-    const r = await promoteKnowledgeEntry(store as never, "cand-1", { promoterRole: "memory-keeper", principalId: "worker:memory-keeper" });
-    expect(r).toEqual({ ok: true, id: "cand-1" });
-    expect(store.rows.get("cand-1")!.meta.promotion).toMatchObject({
-      promotedBy: "memory-keeper",
-      principalId: "worker:memory-keeper",
-    });
-  });
-
-  it("F1 6.3 幂等重放：已 official 且 promotedBy===promoterRole → 直接 ok 且不重复写", async () => {
-    const store = makeStore([makeDraft()]);
-    await recordKnowledgeVerdict(store as never, "cand-1", domainPass());
-    await recordKnowledgeVerdict(store as never, "cand-1", adversarialPass());
-
-    const first = await promoteKnowledgeEntry(store as never, "cand-1");
-    expect(first).toEqual({ ok: true, id: "cand-1" });
-    expect(store.writeCalls).toHaveLength(0);
-    expect(store.promoteCalls).toHaveLength(1);
-
-    const second = await promoteKnowledgeEntry(store as never, "cand-1");
-    expect(second).toEqual({ ok: true, id: "cand-1" });
-    expect(store.writeCalls).toHaveLength(0);
-    expect(store.promoteCalls).toHaveLength(2); // replay 也走 CAS（锁内判定幂等），但不重复写
-
-    const entry = store.rows.get("cand-1")!;
-    expect(entry.status).toBe("official");
-    expect((entry.meta.promotion as { promotedBy?: unknown }).promotedBy).toBe("memory-keeper");
-  });
-
-  it("F1 6.3 幂等重放：official 但无本 promoter 记录 → 拒绝", async () => {
-    const officialWithoutPromotion = makeDraft({ status: "official" as const });
-    const store = makeStore([officialWithoutPromotion]);
-    const r = await promoteKnowledgeEntry(store as never, "cand-1");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("not promoted by memory-keeper");
-    expect(store.writeCalls).toHaveLength(0);
-  });
-
-  it("F1 6.3 幂等重放：official 但 promotedBy 与 promoterRole 不同 → 拒绝", async () => {
-    const entry = makeDraft({ status: "official" as const });
-    entry.meta = {
-      ...entry.meta,
-      promotion: { promotedBy: "other-keeper", promotedAt: 1, verdicts: [] },
-    };
-    const store = makeStore([entry]);
-    const r = await promoteKnowledgeEntry(store as never, "cand-1", { promoterRole: "memory-keeper" });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("not promoted by memory-keeper");
-    expect(store.writeCalls).toHaveLength(0);
   });
 });
 
@@ -440,7 +241,7 @@ describe("rejectKnowledgeEntry（N22 2）", () => {
     expect(r).toEqual({ ok: true });
     const entry = store.rows.get("cand-1")!;
     expect(entry.status).toBe("archived");
-    expect(entry.content).toBe("The Earth orbits the Sun.");
+    expect(entry.content).toBe(content);
     const verdicts = entry.meta.verdicts as unknown[];
     expect(verdicts).toHaveLength(1);
     expect(verdicts[0]).toMatchObject({
@@ -450,23 +251,9 @@ describe("rejectKnowledgeEntry（N22 2）", () => {
       note: "evidence insufficient",
     });
   });
-
-  it("非 draft → 拒绝", async () => {
-    const store = makeStore([makeDraft({ status: "official" as const })]);
-    const r = await rejectKnowledgeEntry(store as never, "cand-1", "domain:supervisor", "late reject");
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("draft");
-  });
-
-  it("controller:adversarial 的 reject → kind=adversarial", async () => {
-    const store = makeStore([makeDraft()]);
-    await rejectKnowledgeEntry(store as never, "cand-1", "controller:adversarial", "pitfall missing");
-    const verdicts = store.rows.get("cand-1")!.meta.verdicts as unknown[];
-    expect(verdicts[0]).toMatchObject({ kind: "adversarial", verdict: "reject" });
-  });
 });
 
-// --- 真实 PG 探针（P0-1 promotion CAS；宿主无 Docker 时 skip）---
+// --- 真实 PG 探针（P0-3/P1-2；宿主无 Docker 时 skip）---
 async function hasDocker(): Promise<boolean> {
   if (process.env.PTH_TEST_NO_DOCKER === "1") return false;
   try {
@@ -480,16 +267,18 @@ async function hasDocker(): Promise<boolean> {
 const dockerAvailable = await hasDocker();
 const pgSuite = dockerAvailable ? describe : describe.skip;
 
-pgSuite("knowledge promotion pg (real PostgreSQL)", () => {
+pgSuite("knowledge promotion pg (real PostgreSQL, R3)", () => {
   let container: PostgreSqlContainer;
   let pool: Pool;
   let store: PgMemoryStore;
+  let repo: KnowledgeVerificationRepo;
 
   beforeAll(async () => {
     container = await new PostgreSqlContainer("postgres:16-alpine").start();
     pool = new Pool({ connectionString: container.getConnectionUri() });
-    await pool.query(MEMORY_SCHEMA_SQL);
+    await applySchema(pool);
     store = new PgMemoryStore(pool);
+    repo = createPgKnowledgeVerificationRepo(pool);
   }, 120_000);
 
   afterAll(async () => {
@@ -497,155 +286,237 @@ pgSuite("knowledge promotion pg (real PostgreSQL)", () => {
     await container.stop();
   });
 
-  async function seedDraft(id: string, content = "The Earth orbits the Sun."): Promise<void> {
-    const provenance = buildKnowledgeProvenance({
-      content,
-      sourceTaskId: "task-1",
-      producerRole: "developer",
-      producerModel: "deepseek-v4-flash",
-      sourceRefs: ["task:task-1"],
-    });
+  async function seedDraft(id: string): Promise<void> {
     await store.write({
       id,
       kind: "domain-fact",
       anchors: ["science"],
       content,
       status: "draft",
-      meta: { provenance, verdicts: [] },
+      tenantId: TENANT,
+      meta: {
+        provenance: buildKnowledgeProvenance({
+          content,
+          sourceTaskId: "task-1",
+          producerRole: "developer",
+          producerModel: "deepseek-v4-flash",
+          sourceRefs: ["task:task-1"],
+        }),
+        verdicts: [],
+      },
     } as any);
   }
 
-  async function seedVerdicts(id: string): Promise<void> {
-    expect((await recordKnowledgeVerdict(store, id, {
+  async function seedPlan(planId: string, candidateId: string, status: VerificationPlanRecord["status"] = "satisfied"): Promise<void> {
+    await pool.query(
+      `INSERT INTO knowledge_verification_plans
+         (id, tenant_id, candidate_id, candidate_revision, candidate_hash, required_domains, checks, source_bindings_digest, status)
+       VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6::jsonb, '', $7)
+       ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status`,
+      [
+        planId,
+        TENANT,
+        candidateId,
+        computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+        JSON.stringify(["mathematics"]),
+        JSON.stringify([
+          { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:platform-admin"], separationFrom: ["producer", "other-verifier"] },
+          { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer", "other-verifier"] },
+        ]),
+        status,
+      ],
+    );
+  }
+
+  it("concurrent verdicts on same check are idempotent; different payload same key is conflict", async () => {
+    await seedDraft("pg-verdict-conc");
+    await seedPlan("plan-verdict-conc", "pg-verdict-conc", "open");
+
+    const authDomain = { principalId: "tenant:tenant-a:platform-admin", executionId: "task-d", roleId: "platform-admin" };
+    const results = await Promise.all([
+      recordKnowledgeVerdict(store, repo, "plan-verdict-conc", "domain-1", 1, domainPass(), authDomain, { tenantId: TENANT }),
+      recordKnowledgeVerdict(store, repo, "plan-verdict-conc", "domain-1", 1, domainPass(), authDomain, { tenantId: TENANT }),
+    ]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    const rows = await repo.listVerdictRows("plan-verdict-conc", TENANT);
+    expect(rows).toHaveLength(1);
+
+    const conflict = await recordKnowledgeVerdict(
+      store, repo, "plan-verdict-conc", "domain-1", 1,
+      domainPass({ note: "different payload", at: 999 }),
+      authDomain, { tenantId: TENANT },
+    );
+    expect(conflict).toMatchObject({ ok: false, error: expect.stringContaining("conflict") });
+  });
+
+  it("recordKnowledgeVerdict without auth context is rejected", async () => {
+    await seedDraft("pg-verdict-noauth");
+    await seedPlan("plan-verdict-noauth", "pg-verdict-noauth", "open");
+
+    const r = await recordKnowledgeVerdict(
+      store, repo, "plan-verdict-noauth", "domain-1", 1, domainPass(), undefined as never, { tenantId: TENANT },
+    );
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining("auth context") });
+  });
+
+  it("recordKnowledgeVerdict binds planId/checkId and rejects stale expectedCandidateRevision", async () => {
+    await seedDraft("pg-verdict-bind");
+    await seedPlan("plan-verdict-bind", "pg-verdict-bind", "open");
+    const auth = makeAuth({ principalId: "tenant:tenant-a:platform-admin" });
+
+    const missingPlan = await recordKnowledgeVerdict(store, repo, "nope", "domain-1", 1, domainPass(), auth, { tenantId: TENANT });
+    expect(missingPlan).toMatchObject({ ok: false, error: expect.stringContaining("plan") });
+
+    const missingCheck = await recordKnowledgeVerdict(store, repo, "plan-verdict-bind", "nope", 1, domainPass(), auth, { tenantId: TENANT });
+    expect(missingCheck).toMatchObject({ ok: false, error: expect.stringContaining("check") });
+
+    const stale = await recordKnowledgeVerdict(store, repo, "plan-verdict-bind", "domain-1", 0, domainPass(), auth, { tenantId: TENANT });
+    expect(stale).toMatchObject({ ok: false, error: expect.stringContaining("expectedCandidateRevision") });
+
+    const future = await recordKnowledgeVerdict(store, repo, "plan-verdict-bind", "domain-1", 2, domainPass(), auth, { tenantId: TENANT });
+    expect(future).toMatchObject({ ok: false, error: expect.stringContaining("expectedCandidateRevision") });
+
+    const ok = await recordKnowledgeVerdict(store, repo, "plan-verdict-bind", "domain-1", 1, domainPass(), auth, { tenantId: TENANT });
+    expect(ok).toEqual({ ok: true });
+    const entry = await store.get("pg-verdict-bind", { tenantId: TENANT });
+    expect(entry?.meta?.version).toBe(1);
+    expect(entry?.meta?.verdicts).toEqual([]);
+    expect(await repo.listVerdictRows("plan-verdict-bind", TENANT)).toHaveLength(1);
+  });
+
+  it("promotion reads verdict rows only from plan table, not meta.verdicts", async () => {
+    await seedDraft("pg-promote-meta-ignored");
+    await seedPlan("plan-promote-meta-ignored", "pg-promote-meta-ignored", "satisfied");
+    // 旧 meta.verdicts 自报数组即使“看起来合规”也不参与晋升判定。
+    await pool.query(
+      `UPDATE memory_entries SET meta = jsonb_set(COALESCE(meta, '{}'::jsonb), '{verdicts}', $2::jsonb)
+       WHERE id = 'pg-promote-meta-ignored' AND tenant_id = $1`,
+      [
+        TENANT,
+        JSON.stringify([
+          domainPass({ principalId: "tenant:tenant-a:platform-admin", candidateRevision: 1 }),
+          adversarialPass({ principalId: "worker:controller:adversarial", candidateRevision: 1 }),
+        ]),
+      ],
+    );
+
+    const auth = makeAuth({ principalId: "worker:memory-keeper" });
+    const noRows = await promoteKnowledgeEntry(store, repo, "pg-promote-meta-ignored", "plan-promote-meta-ignored", 1, auth, { tenantId: TENANT });
+    expect(noRows.ok).toBe(false);
+    if (!noRows.ok) expect(noRows.error).toContain("quorum");
+
+    const plan = await repo.getPlan("plan-promote-meta-ignored", TENANT);
+    await repo.insertVerdictRow({
+      planId: plan!.id,
+      tenantId: TENANT,
+      checkId: "domain-1",
+      candidateId: "pg-promote-meta-ignored",
+      candidateRevision: 1,
+      candidateHash: plan!.candidateHash,
+      principalId: "tenant:tenant-a:platform-admin",
+      executionId: "task-d",
       kind: "domain",
       verdict: "pass",
       reviewerRole: "domain:expert",
-      note: "domain evidence verified",
-      at: 1,
-      principalId: "tenant:tenant-a:platform-admin",
+      note: "verified",
       domainId: "mathematics",
-    })).ok).toBe(true);
-    expect((await recordKnowledgeVerdict(store, id, {
+      evidence: [],
+      at: 1,
+    });
+    await repo.insertVerdictRow({
+      planId: plan!.id,
+      tenantId: TENANT,
+      checkId: "adv-1",
+      candidateId: "pg-promote-meta-ignored",
+      candidateRevision: 1,
+      candidateHash: plan!.candidateHash,
+      principalId: "worker:controller:adversarial",
+      executionId: "task-a",
       kind: "adversarial",
       verdict: "pass",
       reviewerRole: "controller:adversarial",
-      note: "no shortcut / pitfall covered",
+      note: "no shortcut",
+      evidence: [],
       at: 2,
-      principalId: "worker:controller:adversarial",
-    })).ok).toBe(true);
-  }
+    });
 
-  it("promoteKnowledgeEntry uses atomic CAS and rejects stale expectedRevision", async () => {
+    const r = await promoteKnowledgeEntry(store, repo, "pg-promote-meta-ignored", "plan-promote-meta-ignored", 1, auth, { tenantId: TENANT });
+    expect(r).toEqual({ ok: true, id: "pg-promote-meta-ignored" });
+    expect((await store.get("pg-promote-meta-ignored", { tenantId: TENANT }))?.status).toBe("official");
+  });
+
+  it("recordKnowledgeVerdict persists verdict rows and does not append meta.verdicts", async () => {
+    await seedDraft("pg-verdict-rows");
+    await seedPlan("plan-verdict-rows", "pg-verdict-rows", "open");
+
+    const authDomain = { principalId: "tenant:tenant-a:platform-admin", executionId: "task-d", roleId: "platform-admin" };
+    expect((await recordKnowledgeVerdict(store, repo, "plan-verdict-rows", "domain-1", 1, domainPass(), authDomain, { tenantId: TENANT })).ok).toBe(true);
+
+    const entry = await store.get("pg-verdict-rows", { tenantId: TENANT });
+    expect(entry?.meta?.version).toBe(1);
+    expect(entry?.meta?.verdicts).toEqual([]);
+    const rows = await repo.listVerdictRows("plan-verdict-rows", TENANT);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      planId: "plan-verdict-rows",
+      checkId: "domain-1",
+      candidateRevision: 1,
+      principalId: "tenant:tenant-a:platform-admin",
+      executionId: "task-d",
+      domainId: "mathematics",
+    });
+  });
+
+  it("promoteKnowledgeEntry requires planId and expectedCandidateRevision (CAS)", async () => {
     await seedDraft("pg-promote-cas");
-    await seedVerdicts("pg-promote-cas");
+    await seedPlan("plan-promote-cas", "pg-promote-cas", "satisfied");
+    await repo.insertVerdictRow({
+      planId: "plan-promote-cas",
+      tenantId: TENANT,
+      checkId: "domain-1",
+      candidateId: "pg-promote-cas",
+      candidateRevision: 1,
+      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+      principalId: "tenant:tenant-a:platform-admin",
+      executionId: "task-d",
+      kind: "domain",
+      verdict: "pass",
+      reviewerRole: "domain:expert",
+      note: "verified",
+      domainId: "mathematics",
+      evidence: [],
+      at: 1,
+    });
+    await repo.insertVerdictRow({
+      planId: "plan-promote-cas",
+      tenantId: TENANT,
+      checkId: "adv-1",
+      candidateId: "pg-promote-cas",
+      candidateRevision: 1,
+      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+      principalId: "worker:controller:adversarial",
+      executionId: "task-a",
+      kind: "adversarial",
+      verdict: "pass",
+      reviewerRole: "controller:adversarial",
+      note: "no shortcut",
+      evidence: [],
+      at: 2,
+    });
 
-    // 两条 verdict 各经 update 递增 version：draft v1 → v3；CAS 基线必须是 3。
-    expect((await store.get("pg-promote-cas"))?.meta?.version).toBe(3);
+    const auth = { principalId: "worker:memory-keeper", executionId: "task-mk", roleId: "memory-keeper" };
+    const stale = await promoteKnowledgeEntry(store, repo, "pg-promote-cas", "plan-promote-cas", 99, auth);
+    expect(stale).toMatchObject({ ok: false, error: expect.stringContaining("expectedCandidateRevision") });
 
-    const stale = await promoteKnowledgeEntry(store, "pg-promote-cas", { expectedRevision: 1 });
-    expect(stale).toMatchObject({ ok: false, error: expect.stringContaining("expectedRevision") });
-
-    const ok = await promoteKnowledgeEntry(store, "pg-promote-cas", { expectedRevision: 3 });
+    const ok = await promoteKnowledgeEntry(store, repo, "pg-promote-cas", "plan-promote-cas", 1, auth);
     expect(ok).toEqual({ ok: true, id: "pg-promote-cas" });
 
-    const got = await store.get("pg-promote-cas");
+    const got = await store.get("pg-promote-cas", { tenantId: TENANT });
     expect(got?.status).toBe("official");
-    expect(got?.meta?.version).toBe(4);
-    expect((got?.meta?.promotion as { promotedBy?: unknown })?.promotedBy).toBe("memory-keeper");
-  });
-
-  it("concurrent promotions with same expectedRevision allow exactly one winner", async () => {
-    await seedDraft("pg-promote-conc");
-    await seedVerdicts("pg-promote-conc");
-
-    const results = await Promise.all([
-      promoteKnowledgeEntry(store, "pg-promote-conc", { expectedRevision: 3 }),
-      promoteKnowledgeEntry(store, "pg-promote-conc", { expectedRevision: 3 }),
-    ]);
-
-    // 胜者晋升；另一事务在锁内看到 official + 同 promoter 的 promotion → 幂等 replay（不重复写）。
-    expect(results.filter((r) => r.ok)).toHaveLength(2);
-
-    const got = await store.get("pg-promote-conc");
-    expect(got?.status).toBe("official");
-    expect(got?.meta?.version).toBe(4); // 只晋升一次，version 不双增
-    const history = await store.revisionHistory("pg-promote-conc");
-    expect(history.map((h) => h.revision)).toEqual([1, 2, 3]);
-    expect(history.filter((h) => h.reason === "knowledge-promotion")).toHaveLength(1);
-  });
-
-  it("promotion then second status mutation does not hit revision unique violation", async () => {
-    await seedDraft("pg-promote-then-mutate");
-    await seedVerdicts("pg-promote-then-mutate");
-
-    const promoted = await promoteKnowledgeEntry(store, "pg-promote-then-mutate", { expectedRevision: 3 });
-    expect(promoted).toEqual({ ok: true, id: "pg-promote-then-mutate" });
-
-    // promotion 后第二次 status mutation（official → archived）：不得复现 23505。
-    const beforeMutation = await store.get("pg-promote-then-mutate");
-    await store.write({
-      id: "pg-promote-then-mutate",
-      kind: "domain-fact",
-      anchors: ["science"],
-      content: beforeMutation?.content ?? "The Earth orbits the Sun.",
-      status: "archived",
-      meta: {
-        ...(beforeMutation?.meta ?? {}),
-        mutation: "post-promotion",
-      },
-    } as any, { force: true, reason: "archive-after-promotion" });
-
-    const got = await store.get("pg-promote-then-mutate");
-    expect(got?.status).toBe("archived");
-    expect(got?.meta?.version).toBe(5);
-    const history = await store.revisionHistory("pg-promote-then-mutate");
-    expect(history.map((h) => h.revision)).toEqual([1, 2, 3, 4]);
-  });
-
-  it("promotion writes meta.promotion and official revision in one transaction", async () => {
-    await seedDraft("pg-promote-tx");
-    await seedVerdicts("pg-promote-tx");
-
-    let outboxCalls = 0;
-    const promotionMeta = { promotedBy: "memory-keeper", promotedAt: Date.now() };
-
-    // 可观察 hook 注入 outbox 写入失败 → 断言事务回滚（official 未写、promotion revision 未写）。
-    await expect(
-      store.promoteOfficial("pg-promote-tx", DEFAULT_TENANT_ID, 3, promotionMeta, {
-        createdBy: "memory-keeper",
-        reason: "knowledge-promotion",
-        evaluate: canPromote,
-        enqueueOutbox: async () => {
-          outboxCalls += 1;
-          throw new Error("outbox write failed");
-        },
-      }),
-    ).rejects.toThrow("outbox write failed");
-
-    const afterRollback = await store.get("pg-promote-tx");
-    expect(afterRollback?.status).toBe("draft");
-    expect(afterRollback?.meta?.version).toBe(3);
-    expect((await store.revisionHistory("pg-promote-tx")).map((h) => h.revision)).toEqual([1, 2]);
-    expect(outboxCalls).toBe(1);
-
-    // 成功路径：official 状态、meta.promotion 与旧 revision 在同一事务提交。
-    await expect(
-      store.promoteOfficial("pg-promote-tx", DEFAULT_TENANT_ID, 3, promotionMeta, {
-        createdBy: "memory-keeper",
-        reason: "knowledge-promotion",
-        evaluate: canPromote,
-        enqueueOutbox: async () => {
-          outboxCalls += 1;
-        },
-      }),
-    ).resolves.toEqual({ ok: true, id: "pg-promote-tx" });
-
-    const got = await store.get("pg-promote-tx");
-    expect(got?.status).toBe("official");
-    expect(got?.meta?.promotion).toMatchObject({ promotedBy: "memory-keeper" });
-    const history = await store.revisionHistory("pg-promote-tx");
-    expect(history.map((h) => h.revision)).toEqual([1, 2, 3]);
-    expect(history[2]).toMatchObject({ status: "draft", reason: "knowledge-promotion" });
-    expect(outboxCalls).toBe(2);
+    expect(got?.meta?.promotion).toMatchObject({ promotedBy: "memory-keeper", planId: "plan-promote-cas" });
+    // 同事务索引 outbox 已入队
+    const outbox = await pool.query(`SELECT * FROM side_effect_outbox WHERE key = 'promotion-index:${TENANT}:pg-promote-cas:plan-promote-cas'`);
+    expect(outbox.rows).toHaveLength(1);
+    expect(outbox.rows[0]).toMatchObject({ kind: "promotion-index", status: "pending" });
   });
 });

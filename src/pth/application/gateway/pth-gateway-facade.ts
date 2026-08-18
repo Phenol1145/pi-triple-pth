@@ -13,7 +13,13 @@ import { DEFAULT_TENANT_ID, withMemoryTenant, type MemoryEntry } from "@away_fro
 import type { TaskCancelResult, TenantScope } from "../../contracts/index.js";
 import { TaskControlService } from "../../tasking/task-control-service.js";
 import { PgTaskQueries } from "../../tasking/task-queries.js";
-import { promoteKnowledgeEntry, recordKnowledgeVerdict } from "../../execution/knowledge-promotion.js";
+import {
+  createPgKnowledgeVerificationRepo,
+  promoteKnowledgeEntry,
+  recordKnowledgeVerdict,
+  type KnowledgeServiceAuth,
+  type KnowledgeVerificationRepo,
+} from "../../execution/knowledge-promotion.js";
 import { buildRestrictedKnowledgeQuery } from "../../execution/knowledge-broker.js";
 import type { KnowledgeVerdict } from "../../execution/knowledge-verdicts.js";
 
@@ -50,10 +56,18 @@ export interface PthGatewayFacade {
   optimizerSuggestions(): Promise<unknown[]>;
   applyOptimizer(id: string): Promise<unknown>;
   approveMemoryAdmin(id: string): Promise<unknown>;
-  /** K4 Phase 4（N22 4）：候选验证（监督通道——domain verdict 或 adversarial verdict）。F3：tenantId/principalId/executionId/domainId 透传。 */
-  verifyKnowledge(entryId: string, verdict: KnowledgeVerdict, opts?: { tenantId?: string; principalId?: string; executionId?: string; domainId?: string }): Promise<unknown>;
-  /** K4 Phase 4（N22 4）：候选晋升 official（监督通道）。F3：tenantId/principalId 透传，promoterRole 缺省 memory-keeper。 */
-  promoteKnowledge(entryId: string, opts?: { tenantId?: string; promoterRole?: string; principalId?: string }): Promise<unknown>;
+  /** K4 Phase 4（N22 4）/R3：候选验证（监督通道）。auth 必填；verdict 绑定 planId+checkId+expectedCandidateRevision。 */
+  verifyKnowledge(
+    input: { planId: string; checkId: string; expectedCandidateRevision: number; verdict: KnowledgeVerdict },
+    auth: KnowledgeServiceAuth,
+    opts?: { tenantId?: string },
+  ): Promise<unknown>;
+  /** K4 Phase 4（N22 4）/R3：候选晋升 official（监督通道）。auth 必填；只接受 planId + expectedCandidateRevision。 */
+  promoteKnowledge(
+    input: { entryId: string; planId: string; expectedCandidateRevision: number },
+    auth: KnowledgeServiceAuth,
+    opts?: { tenantId?: string; promoterRole?: string; note?: string },
+  ): Promise<unknown>;
   spawnBatches(count: number, profile?: BatchProfile): Promise<SpawnBatchesResult>;
   batchWorkers(id: string, action: "pause" | "resume" | "remove" | "add", role: string, copies: number): Promise<boolean>;
   removeBatches(count: number): Promise<number>;
@@ -71,14 +85,16 @@ export interface PthGatewayFacade {
 export class PthGatewayFacadeImpl implements PthGatewayFacade {
   #kernel: KernelRuntime;
   #control: TaskControlService;
+  #verificationRepo: KnowledgeVerificationRepo;
 
-  constructor(kernel: PthGatewayFacadeInput) {
+  constructor(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo) {
     this.#kernel = kernel;
     this.#control = new TaskControlService({
       store: kernel.dataWorld.tasks,
       pool: kernel.pool,
       queries: new PgTaskQueries(kernel.pool),
     });
+    this.#verificationRepo = verificationRepo ?? createPgKnowledgeVerificationRepo(kernel.pool);
   }
 
   bridgeQuery(sql: string, tenantId: string, space: string): Promise<Array<Record<string, unknown> | null>> {
@@ -204,24 +220,40 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   }
 
   verifyKnowledge(
-    entryId: string,
-    verdict: KnowledgeVerdict,
-    opts?: { tenantId?: string; principalId?: string; executionId?: string; domainId?: string },
+    input: { planId: string; checkId: string; expectedCandidateRevision: number; verdict: KnowledgeVerdict },
+    auth: KnowledgeServiceAuth,
+    opts?: { tenantId?: string },
   ): Promise<unknown> {
-    return recordKnowledgeVerdict(this.#kernel.dataWorld.memory, entryId, verdict, {
-      tenantId: opts?.tenantId ?? DEFAULT_TENANT_ID,
-      ...(opts?.principalId !== undefined ? { principalId: opts.principalId } : {}),
-      ...(opts?.executionId !== undefined ? { executionId: opts.executionId } : {}),
-      ...(opts?.domainId !== undefined ? { domainId: opts.domainId } : {}),
-    });
+    return recordKnowledgeVerdict(
+      this.#kernel.dataWorld.memory,
+      this.#verificationRepo,
+      input.planId,
+      input.checkId,
+      input.expectedCandidateRevision,
+      input.verdict,
+      auth,
+      { tenantId: opts?.tenantId ?? DEFAULT_TENANT_ID },
+    );
   }
 
-  promoteKnowledge(entryId: string, opts?: { tenantId?: string; promoterRole?: string; principalId?: string }): Promise<unknown> {
-    return promoteKnowledgeEntry(this.#kernel.dataWorld.memory, entryId, {
-      tenantId: opts?.tenantId ?? DEFAULT_TENANT_ID,
-      ...(opts?.promoterRole !== undefined ? { promoterRole: opts.promoterRole } : {}),
-      ...(opts?.principalId !== undefined ? { principalId: opts.principalId } : {}),
-    });
+  promoteKnowledge(
+    input: { entryId: string; planId: string; expectedCandidateRevision: number },
+    auth: KnowledgeServiceAuth,
+    opts?: { tenantId?: string; promoterRole?: string; note?: string },
+  ): Promise<unknown> {
+    return promoteKnowledgeEntry(
+      this.#kernel.dataWorld.memory,
+      this.#verificationRepo,
+      input.entryId,
+      input.planId,
+      input.expectedCandidateRevision,
+      auth,
+      {
+        tenantId: opts?.tenantId ?? DEFAULT_TENANT_ID,
+        ...(opts?.promoterRole !== undefined ? { promoterRole: opts.promoterRole } : {}),
+        ...(opts?.note !== undefined ? { note: opts.note } : {}),
+      },
+    );
   }
 
   async spawnBatches(count: number, profile?: BatchProfile): Promise<SpawnBatchesResult> {
@@ -332,6 +364,6 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   }
 }
 
-export function createPthGatewayFacade(kernel: PthGatewayFacadeInput): PthGatewayFacade {
-  return new PthGatewayFacadeImpl(kernel);
+export function createPthGatewayFacade(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo): PthGatewayFacade {
+  return new PthGatewayFacadeImpl(kernel, verificationRepo);
 }
