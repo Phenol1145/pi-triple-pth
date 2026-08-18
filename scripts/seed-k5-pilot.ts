@@ -19,6 +19,8 @@ import {
   buildKnowledgeProvenance,
   contentHashOf,
   PgMemoryStore,
+  validateKnowledgeEvidenceRefs,
+  type KnowledgeEvidenceRef,
 } from "@away_from/pth-memory";
 import type { PilotKnowledgeEntry } from "../src/pth/catalog/data/pilot-knowledge.ts";
 import { PILOT_KNOWLEDGE } from "../src/pth/catalog/data/pilot-knowledge.ts";
@@ -61,11 +63,22 @@ function sourceEntry(source: PilotKnowledgeSource) {
   };
 }
 
-function structuredEvidence(entry: PilotKnowledgeEntry): Array<{ sourceId: string; locator: string }> {
-  return entry.evidence.map((evidence) => ({
-    sourceId: `pilot-source:${evidence.sourceId}`,
-    locator: evidence.locator,
-  }));
+function structuredEvidence(entry: PilotKnowledgeEntry): KnowledgeEvidenceRef[] {
+  const byId = new Map(PILOT_SOURCES.map((source) => [source.id, source]));
+  const refs: KnowledgeEvidenceRef[] = entry.evidence.map((evidence) => {
+    const source = byId.get(evidence.sourceId);
+    return {
+      sourceId: `pilot-source:${evidence.sourceId}`,
+      locator: evidence.locator,
+      ...(source?.version !== undefined ? { sourceVersion: source.version } : {}),
+      ...(source?.artifactHash !== undefined ? { artifactHash: source.artifactHash } : {}),
+    };
+  });
+  const checked = validateKnowledgeEvidenceRefs(refs);
+  if (!checked.ok) {
+    throw new Error(`seed-k5-pilot: invalid structured evidence for ${entry.id}: ${checked.error}`);
+  }
+  return checked.refs;
 }
 
 function knowledgeEntryMeta(entry: PilotKnowledgeEntry): Record<string, unknown> {
@@ -77,8 +90,8 @@ function knowledgeEntryMeta(entry: PilotKnowledgeEntry): Record<string, unknown>
     sourceRefs: entry.evidence.map((evidence) => evidence.locator),
     createdAt: SEED_CREATED_AT,
   });
-  // AB-02 canonical：meta.provenance 是唯一契约位置；F4 AB-08 额外写结构化 meta.evidence
-  // （sourceId 为 DB source row id，即 "pilot-source:" + id）。
+  // AB-02 canonical：meta.provenance 是唯一契约位置；R5/P1-4 写结构化 meta.evidence
+  // （sourceId 为 DB source row id，即 "pilot-source:" + id；含 sourceVersion + artifactHash）。
   return { provenance, evidence: structuredEvidence(entry) };
 }
 
@@ -107,7 +120,11 @@ function evidenceMatches(a: unknown, b: unknown): boolean {
     if (typeof value !== "object" || value === null || typeof other !== "object" || other === null) return false;
     const v = value as Record<string, unknown>;
     const o = other as Record<string, unknown>;
-    return v["sourceId"] === o["sourceId"] && v["locator"] === o["locator"];
+    return v["sourceId"] === o["sourceId"]
+      && v["locator"] === o["locator"]
+      && (v["sourceVersion"] ?? undefined) === (o["sourceVersion"] ?? undefined)
+      && (v["artifactHash"] ?? undefined) === (o["artifactHash"] ?? undefined)
+      && (v["quoteHash"] ?? undefined) === (o["quoteHash"] ?? undefined);
   });
 }
 

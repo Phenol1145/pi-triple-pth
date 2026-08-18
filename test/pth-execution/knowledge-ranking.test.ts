@@ -3,7 +3,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { rankKnowledgeEntries } from "../../src/pth/execution/knowledge-ranking.js";
+import {
+  filterKnowledgeEntriesByQueryText,
+  rankKnowledgeEntries,
+} from "../../src/pth/execution/knowledge-ranking.js";
 
 interface Entry {
   id: string;
@@ -62,5 +65,32 @@ describe("rankKnowledgeEntries（query-sensitive ranking）", () => {
     const ranked = rankKnowledgeEntries(entries, { domains: ["math"] });
     expect(ranked).not.toBe(entries);
     expect(entries).toHaveLength(1);
+  });
+});
+
+describe("filterKnowledgeEntriesByQueryText（R5 strict fail-closed）", () => {
+  it("zero token match returns empty in strict mode", () => {
+    const entries: Entry[] = [
+      { id: "a", anchors: ["math"], content: "quadratic formula" },
+      { id: "b", anchors: ["math"], content: "completing the square" },
+    ];
+
+    expect(filterKnowledgeEntriesByQueryText(entries, "zzzz-no-hit", { strict: true })).toEqual([]);
+  });
+
+  it("irrelevant query yields empty top5", () => {
+    const entries: Entry[] = [
+      { id: "a", anchors: ["math"], content: "quadratic formula" },
+      { id: "b", anchors: ["math"], content: "completing the square" },
+    ];
+
+    // 无关查询不命中任何 anchor/content 时，strict 语义必须返回空（不回退全部）。
+    const filtered = filterKnowledgeEntriesByQueryText(entries, "量子烹饪的调味技巧", { strict: true });
+    expect(filtered).toEqual([]);
+  });
+
+  it("non-strict mode keeps legacy fallback for callers that opt out", () => {
+    const entries: Entry[] = [{ id: "a", anchors: ["math"], content: "quadratic formula" }];
+    expect(filterKnowledgeEntriesByQueryText(entries, "zzzz-no-hit")).toEqual(entries);
   });
 });

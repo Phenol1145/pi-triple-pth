@@ -15,6 +15,65 @@ export interface KnowledgeProvenance {
   createdAt: number;
 }
 
+/**
+ * 结构化来源工件引用（R5/P1-4）：从 DB meta.evidence → Broker → Context → Candidate →
+ * VerificationPlan → promotion 全链保持同一形状。provenance 管来源任务，evidence 管来源工件。
+ */
+export interface KnowledgeEvidenceRef {
+  sourceId: string;
+  locator: string;
+  sourceVersion?: string;
+  artifactHash?: string;
+  quoteHash?: string;
+}
+
+/** 校验 meta.evidence 是否为合法 KnowledgeEvidenceRef 数组（写侧 seed/refiner draft 共用）。 */
+export function validateKnowledgeEvidenceRefs(
+  value: unknown,
+): { ok: true; refs: KnowledgeEvidenceRef[] } | { ok: false; error: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, error: "evidence must be an array" };
+  }
+  const refs: KnowledgeEvidenceRef[] = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const item = value[i];
+    if (typeof item !== "object" || item === null) {
+      return { ok: false, error: `evidence[${i}] must be an object` };
+    }
+    const r = item as Record<string, unknown>;
+    if (typeof r["sourceId"] !== "string" || r["sourceId"].trim() === "") {
+      return { ok: false, error: `evidence[${i}].sourceId must be a non-empty string` };
+    }
+    if (typeof r["locator"] !== "string" || r["locator"].trim() === "") {
+      return { ok: false, error: `evidence[${i}].locator must be a non-empty string` };
+    }
+    const optionalStrings: Array<keyof KnowledgeEvidenceRef> = ["sourceVersion", "artifactHash", "quoteHash"];
+    for (const key of optionalStrings) {
+      if (r[key] !== undefined && (typeof r[key] !== "string" || r[key].trim() === "")) {
+        return { ok: false, error: `evidence[${i}].${key} must be a non-empty string when provided` };
+      }
+    }
+    const sourceVersion = r["sourceVersion"] as string | undefined;
+    const artifactHash = r["artifactHash"] as string | undefined;
+    const quoteHash = r["quoteHash"] as string | undefined;
+    refs.push({
+      sourceId: r["sourceId"] as string,
+      locator: r["locator"] as string,
+      ...(sourceVersion !== undefined ? { sourceVersion } : {}),
+      ...(artifactHash !== undefined ? { artifactHash } : {}),
+      ...(quoteHash !== undefined ? { quoteHash } : {}),
+    });
+  }
+  return { ok: true, refs };
+}
+
+/** 读侧（Context/Broker）：从 meta 读取结构化 evidence；缺失/非法一律空数组（不伪装 provenance）。 */
+export function knowledgeEvidenceRefsFromMeta(meta: unknown): KnowledgeEvidenceRef[] {
+  if (typeof meta !== "object" || meta === null) return [];
+  const checked = validateKnowledgeEvidenceRefs((meta as Record<string, unknown>)["evidence"]);
+  return checked.ok ? checked.refs : [];
+}
+
 /** node:crypto sha256 hex（64 位小写）。 */
 export function contentHashOf(content: string): string {
   return createHash("sha256").update(content).digest("hex");

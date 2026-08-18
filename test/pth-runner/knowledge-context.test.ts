@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { KnowledgeEvidenceRef } from "@away_from/pth-memory";
 import { DisciplineCatalogBuilder } from "../../src/pth/catalog/index.js";
 import {
   computeKnowledgeQueryFingerprint,
@@ -173,7 +174,7 @@ describe("knowledge-context（K3 Phase 3）", () => {
           entry({
             id: "e1",
             anchors: ["math", "algebra"],
-            content: "line1\nline2   rest",
+            content: "quadratic formula",
             meta: { version: 3, provenance: { source: "s1" } },
           }),
         ],
@@ -188,7 +189,60 @@ describe("knowledge-context（K3 Phase 3）", () => {
     expect(item.version).toBe(3);
     expect(item.summary).not.toContain("\n");
     expect(item.summary.length).toBeLessThanOrEqual(12);
-    expect(item.evidence).toEqual({ source: "s1" });
+    expect(item.evidence).toEqual([]);
+  });
+
+  it("context entries carry structured KnowledgeEvidenceRef[]", async () => {
+    const evidence: KnowledgeEvidenceRef[] = [
+      { sourceId: "pilot-source:pl-jls", locator: "JLS SE23 §4.12.2", sourceVersion: "Java SE 23", artifactHash: "a".repeat(64) },
+      { sourceId: "pilot-source:pl-rust-reference", locator: "Rust Reference: type system" },
+    ];
+    const provider = createKnowledgeContextProvider({
+      memory: {
+        retrieve: async () => [
+          entry({
+            id: "e1",
+            anchors: ["math", "quadratic"],
+            content: "quadratic formula solves quadratic equations",
+            meta: { version: 2, evidence },
+          }),
+        ],
+      },
+      isVisible: () => true,
+    });
+
+    const ctx = await provider.build({ ...baseInput, text: "quadratic formula" });
+    const item = ctx.entries[0]!;
+
+    expect(item.evidence).toEqual(evidence);
+    expect(item.evidence[0]).toMatchObject({
+      sourceId: "pilot-source:pl-jls",
+      locator: "JLS SE23 §4.12.2",
+      sourceVersion: "Java SE 23",
+      artifactHash: "a".repeat(64),
+    });
+  });
+
+  it("entry without meta.evidence yields evidence: [] (not provenance)", async () => {
+    const provider = createKnowledgeContextProvider({
+      memory: {
+        retrieve: async () => [
+          entry({
+            id: "e1",
+            anchors: ["math", "quadratic"],
+            content: "quadratic formula solves quadratic equations",
+            meta: { version: 1, provenance: { sourceTaskId: "task-1", producerRole: "developer" } },
+          }),
+        ],
+      },
+      isVisible: () => true,
+    });
+
+    const ctx = await provider.build({ ...baseInput, text: "quadratic formula" });
+    const item = ctx.entries[0]!;
+
+    expect(item.evidence).toEqual([]);
+    expect(item.evidence).not.toEqual([{ sourceTaskId: "task-1", producerRole: "developer" }]);
   });
 
   it("catalog 存在时 catalogVersion 以快照版本为准", async () => {

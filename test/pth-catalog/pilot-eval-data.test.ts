@@ -86,16 +86,26 @@ describe("pilot-eval-data：数据形状与引用完整性", () => {
     }
   });
 
-  it("PILOT_EVAL_QUERIES = 84 条（每域 42：30 标准 + 6 hard negative + 4 多域 + 2 混淆）", () => {
-    expect(PILOT_EVAL_QUERIES).toHaveLength(84);
+  it("PILOT_EVAL_QUERIES = 138 条（R5 全语料覆盖 + 七类新题型）", () => {
+    expect(PILOT_EVAL_QUERIES).toHaveLength(138);
 
     for (const domain of DOMAINS) {
       const rows = PILOT_EVAL_QUERIES.filter((query) => query.domain === domain);
-      expect(rows, `${domain} queries`).toHaveLength(42);
-      expect(rows.filter((q) => q.expectNoKnowledge), `${domain} hard negative`).toHaveLength(6);
+      expect(rows, `${domain} queries`).toHaveLength(domain === "programming-languages" ? 70 : 68);
+      expect(rows.filter((q) => q.expectNoKnowledge), `${domain} hard negative/no-answer/tenant-space`).toHaveLength(10);
       expect(rows.filter((q) => q.expectedDomains && q.expectedDomains.length > 0), `${domain} multi-domain`).toHaveLength(4);
       expect(rows.filter((q) => q.distractorDomain), `${domain} distractor`).toHaveLength(2);
+      expect(rows.filter((q) => q.type === "no-answer-same-domain"), `${domain} no-answer-same-domain`).toHaveLength(2);
+      expect(rows.filter((q) => q.type === "irrelevant"), `${domain} irrelevant`).toHaveLength(2);
+      expect(rows.filter((q) => q.type === "order-perturbation"), `${domain} order-perturbation`).toHaveLength(2);
+      expect(rows.filter((q) => q.type === "conflict"), `${domain} conflict`).toHaveLength(2);
+      expect(rows.filter((q) => q.type === "tenant-space"), `${domain} tenant-space`).toHaveLength(2);
     }
+    expect(PILOT_EVAL_QUERIES.filter((q) => q.type === "version")).toHaveLength(6);
+    expect(PILOT_EVAL_QUERIES.filter((q) => q.type === "version" && q.versionExpectation === "old")).toHaveLength(2);
+    expect(PILOT_EVAL_QUERIES.filter((q) => q.type === "version" && q.versionExpectation === "latest")).toHaveLength(2);
+    expect(PILOT_EVAL_QUERIES.filter((q) => q.type === "version" && q.versionExpectation === "changed")).toHaveLength(2);
+    expect(PILOT_EVAL_QUERIES.filter((q) => q.holdout).length).toBeGreaterThanOrEqual(Math.ceil(PILOT_EVAL_QUERIES.length * 0.3));
 
     const knowledgeByDomain = new Map<string, Set<string>>();
     for (const entry of PILOT_KNOWLEDGE) {
@@ -104,9 +114,11 @@ describe("pilot-eval-data：数据形状与引用完整性", () => {
       knowledgeByDomain.set(entry.domain, set);
     }
 
+    const sourceIds = new Set(PILOT_SOURCES.map((source) => source.id));
     const ids = new Set<string>();
+    const covered = new Set<string>();
     for (const query of PILOT_EVAL_QUERIES) {
-      expect(query.id).toMatch(/^(pl|ms)-(\d{2}|hn-\d{2}|md-\d{2}|ds-\d{2})$/);
+      expect(query.id).toMatch(/^(pl|ms)-(\d{2}|hn-\d{2}|na-\d{2}|ir-\d{2}|op-\d{2}|cf-\d{2}|ve-\d{2}|ts-\d{2}|md-\d{2}|ds-\d{2})$/);
       expect(ids.has(query.id), `duplicate query id ${query.id}`).toBe(false);
       ids.add(query.id);
       expect(DOMAINS).toContain(query.domain as (typeof DOMAINS)[number]);
@@ -127,13 +139,36 @@ describe("pilot-eval-data：数据形状与引用完整性", () => {
         expect(query.expectedEntryIds).toEqual([]);
         expect(query.expectedDomains).toBeUndefined();
       } else {
-        // 标准 60 题：期望 top-5 命中且 entry 属于同域
+        // 标准/irrelevant/order/conflict/version：期望 top-5 命中且 entry 属于同域
         expect(query.expectedEntryIds.length).toBeGreaterThan(0);
         for (const entryId of query.expectedEntryIds) {
           expect(knowledgeByDomain.get(query.domain)?.has(entryId), `${query.id} 的 ${entryId} 不存在或不属于 ${query.domain}`).toBe(true);
+          covered.add(entryId);
+        }
+      }
+
+      if (query.irrelevantEntryIds) {
+        for (const entryId of query.irrelevantEntryIds) {
+          expect(knowledgeByDomain.get(query.domain)?.has(entryId), `${query.id} 的 irrelevant ${entryId} 不存在或不属于 ${query.domain}`).toBe(true);
+          expect(query.expectedEntryIds).not.toContain(entryId);
+        }
+      }
+      if (query.conflictSourceIds) {
+        expect(query.conflictSourceIds.length).toBeGreaterThanOrEqual(2);
+        for (const sourceId of query.conflictSourceIds) {
+          expect(sourceIds.has(sourceId), `${query.id} 的 sourceId ${sourceId} 不存在`).toBe(true);
+        }
+      }
+      if (query.expectedSourceVersions) {
+        for (const expected of query.expectedSourceVersions) {
+          expect(sourceIds.has(expected.sourceId), `${query.id} 的 sourceId ${expected.sourceId} 不存在`).toBe(true);
+          expect(expected.sourceVersion?.trim() ?? "").not.toBe("");
         }
       }
     }
+
+    // 全语料覆盖：24/24 知识条目都有题集断言
+    expect(covered.size).toBe(24);
   });
 
   it("标准查询文本基本可被生产 catalog alias 扫描命中（每域 ≥90%）", () => {

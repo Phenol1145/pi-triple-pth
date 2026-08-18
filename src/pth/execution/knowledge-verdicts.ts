@@ -155,6 +155,16 @@ function toNonEmptyStringArray(v: unknown): string[] {
   return out;
 }
 
+/** R5/P1-4：candidateHash 的 evidence 归一化——字符串保持旧语义；结构化 EvidenceRef 递归稳定序列化。 */
+function normalizeEvidenceForHash(evidence: readonly unknown[]): unknown[] {
+  return evidence
+    .map((e) => {
+      if (typeof e === "string") return e.trim();
+      return e;
+    })
+    .filter((e) => typeof e !== "string" || e !== "");
+}
+
 /**
  * candidateHash：覆盖 content + domains + evidence（+ effect，fail-closed——effect 变化也失活）。
  * 建计划时由调用方用同一函数快照；canPromote 用 entry 当前值重算比对。
@@ -162,11 +172,11 @@ function toNonEmptyStringArray(v: unknown): string[] {
 export function computeCandidateHash(input: {
   content: string;
   domains: readonly string[];
-  evidence: readonly string[];
+  evidence: readonly unknown[];
   effect?: unknown;
 }): string {
   const domains = [...new Set(input.domains.map((d) => String(d).trim()).filter((d) => d !== ""))].sort();
-  const evidence = input.evidence.map((e) => String(e).trim()).filter((e) => e !== "");
+  const evidence = normalizeEvidenceForHash(input.evidence);
   const payload = {
     content: input.content,
     domains,
@@ -176,13 +186,21 @@ export function computeCandidateHash(input: {
   return createHash("sha256").update(stableStringify(payload)).digest("hex");
 }
 
+/** R5/P1-4：sourceBindingsDigest = sha256(stableStringify(meta.evidence 归一化))。 */
+export function sourceBindingsDigestOf(evidence: readonly unknown[]): string {
+  return createHash("sha256")
+    .update(stableStringify(normalizeEvidenceForHash(evidence)))
+    .digest("hex");
+}
+
 /** 从 entry + 计划 requiredDomains 计算当前 candidate hash（evidence/effect 取自 meta）。 */
 export function candidateHashForEntry(entry: MemoryEntry, requiredDomains: readonly string[]): string {
   const meta = entry.meta ?? {};
+  const rawEvidence = Array.isArray(meta["evidence"]) ? (meta["evidence"] as unknown[]) : [];
   return computeCandidateHash({
     content: entry.content,
     domains: requiredDomains,
-    evidence: toNonEmptyStringArray(meta["evidence"]),
+    evidence: rawEvidence,
     effect: meta["effect"] ?? null,
   });
 }
@@ -310,6 +328,16 @@ export function canPromote(
   const currentHash = candidateHashForEntry(entry, plan.requiredDomains);
   if (currentHash !== plan.candidateHash) {
     return { ok: false, reason: `candidateHash mismatch: entry ${currentHash} != plan ${plan.candidateHash}` };
+  }
+
+  // R5/P1-4：promotion CAS 校验 evidence 未变（R3 已留 sourceBindingsDigest 位置，本 lane 填实）。
+  // 空 digest 为 R3 旧计划兼容；非空必须与当前 meta.evidence 严格一致。
+  if (plan.sourceBindingsDigest !== "") {
+    const rawEvidence = Array.isArray(meta["evidence"]) ? (meta["evidence"] as unknown[]) : [];
+    const currentDigest = sourceBindingsDigestOf(rawEvidence);
+    if (currentDigest !== plan.sourceBindingsDigest) {
+      return { ok: false, reason: `sourceBindingsDigest mismatch: entry ${currentDigest} != plan ${plan.sourceBindingsDigest}` };
+    }
   }
 
   if (plan.status !== "satisfied") {

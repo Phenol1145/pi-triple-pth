@@ -12,6 +12,7 @@ import {
   canPromote,
   candidateHashForEntry,
   computeCandidateHash,
+  sourceBindingsDigestOf,
   type KnowledgeVerdictRowRecord,
   type VerificationPlanRecord,
 } from "../../src/pth/execution/knowledge-verdicts.js";
@@ -33,6 +34,112 @@ async function hasDocker(): Promise<boolean> {
 
 const dockerAvailable = await hasDocker();
 const suite = dockerAvailable ? describe : describe.skip;
+
+describe("knowledge verdicts pure（R5 sourceBindingsDigest fill-in）", () => {
+  const content = "The Earth orbits the Sun.";
+  const evidence = [
+    { sourceId: "pilot-source:pl-jls", locator: "JLS SE23 §4.12.2", sourceVersion: "Java SE 23", artifactHash: "a".repeat(64) },
+    { sourceId: "pilot-source:pl-rust-reference", locator: "Rust Reference: type system" },
+  ];
+
+  it("sourceBindingsDigestOf is sha256 hex and covers structured evidence array", () => {
+    const digest = sourceBindingsDigestOf(evidence);
+    expect(digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(digest).not.toBe(sourceBindingsDigestOf([evidence[0]]));
+  });
+
+  it("candidateHashForEntry covers structured meta.evidence objects", () => {
+    const base = {
+      id: "cand-1",
+      tenantId: TENANT,
+      kind: "domain-fact",
+      anchors: ["science"],
+      content,
+      status: "draft" as const,
+      meta: {
+        version: 1,
+        provenance: buildKnowledgeProvenance({
+          content,
+          sourceTaskId: "task-1",
+          producerRole: "developer",
+          producerModel: "deepseek-v4-flash",
+          sourceRefs: ["task:task-1"],
+        }),
+        evidence,
+      },
+    };
+    const withEvidence = candidateHashForEntry(base, ["mathematics"]);
+    const withoutEvidence = candidateHashForEntry({ ...base, meta: { ...base.meta, evidence: [] } }, ["mathematics"]);
+    expect(withEvidence).not.toBe(withoutEvidence);
+  });
+
+  it("canPromote rejects when sourceBindingsDigest does not match current meta.evidence", () => {
+    const entry = {
+      id: "cand-1",
+      tenantId: TENANT,
+      kind: "domain-fact",
+      anchors: ["science"],
+      content,
+      status: "draft" as const,
+      meta: {
+        version: 1,
+        provenance: buildKnowledgeProvenance({
+          content,
+          sourceTaskId: "task-1",
+          producerRole: "developer",
+          producerModel: "deepseek-v4-flash",
+          sourceRefs: ["task:task-1"],
+        }),
+        evidence,
+      },
+    };
+    const plan: VerificationPlanRecord = {
+      id: "plan-1",
+      tenantId: TENANT,
+      candidateId: "cand-1",
+      candidateRevision: 1,
+      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence, effect: null }),
+      requiredDomains: ["mathematics"],
+      checks: [{
+        checkId: "domain-1",
+        kind: "domain",
+        domainId: "mathematics",
+        quorum: 1,
+        eligiblePrincipals: ["tenant:tenant-a:platform-admin"],
+        separationFrom: ["producer"],
+      }],
+      sourceBindingsDigest: sourceBindingsDigestOf([{ sourceId: "pilot-source:other", locator: "other" }]),
+      status: "satisfied",
+      rowVersion: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const rows: KnowledgeVerdictRowRecord[] = [{
+      id: 1,
+      planId: "plan-1",
+      tenantId: TENANT,
+      checkId: "domain-1",
+      candidateId: "cand-1",
+      candidateRevision: 1,
+      candidateHash: plan.candidateHash,
+      principalId: "tenant:tenant-a:platform-admin",
+      executionId: "task-1",
+      kind: "domain",
+      verdict: "pass",
+      reviewerRole: "domain:expert",
+      note: "verified",
+      domainId: "mathematics",
+      evidence: [],
+      at: 1,
+      rowVersion: 1,
+      createdAt: new Date().toISOString(),
+    }];
+
+    const decision = canPromote(entry, plan, rows);
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain("sourceBindingsDigest mismatch");
+  });
+});
 
 const TENANT = DEFAULT_TENANT_ID;
 
