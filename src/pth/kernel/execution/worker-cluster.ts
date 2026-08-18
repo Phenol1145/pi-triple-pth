@@ -3,7 +3,7 @@ import { tagRegistry } from "./tag-registry.js";
 // 内置角色谱系（具体实现层——2026-08-12 分层：核心机制与本文件消费 impls 数据）
 // 内置角色数据由装配层注入（2026-08-13 审计 P2——核心不再 import 实现层——见 setDefaultRoles）
 
-export interface WorkerRole {
+export interface RoleDefinition {
   id: string;
   /** 角色固定标签（tag-registry 路由唯一标准——精确匹配——分选器只认它） */
   tags: string[];
@@ -44,7 +44,12 @@ export interface WorkerRole {
    *  2026-08-14 N8：spaceMaint 族退役——空间生成走治理通道（spaceRegistry.createChild/unregister），
    *  worker 工具面不再有 asp.create/destroy。 */
   actionTools?: string[];
+  /** Optional immutable policy reference; absence means the host system ceiling. */
+  loadPolicyRef?: string;
 }
+
+/** @deprecated Use RoleDefinition. Kept while runtime call sites migrate by layer. */
+export type WorkerRole = RoleDefinition;
 
 /**
  * Origin —— 角色谱系的根（全能角色——用户设计：最开始只有 Origin，任务分化诱导逐渐形成更多角色）。

@@ -86,3 +86,15 @@ describe("worker-index 渲染（2026-08-13——planner 的 worker 类型获取�
     resetExtraRoles();
   });
 });
+
+describe("RoleDefinition 兼容名（N28 T1）", () => {
+  it("keeps WorkerRole as a compatibility alias for RoleDefinition", () => {
+    const role: import("../../src/pth/kernel/execution/worker-cluster.js").RoleDefinition = {
+      id: "compat-role",
+      tags: ["compat"],
+      prompt: "compat",
+    };
+    const legacy: import("../../src/pth/kernel/execution/worker-cluster.js").WorkerRole = role;
+    expect(legacy.id).toBe("compat-role");
+  });
+});
