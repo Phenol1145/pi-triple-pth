@@ -130,7 +130,7 @@ Expected: FAIL because `src/pth/contracts/cognitive-responsibility.ts` does not 
 
 - [ ] **Step 3: Create the executable contract and exact experiment budget**
 
-Create the interfaces exactly as written in N28 §§2.2, 4.1, 5.3 and 6.2, then add this executable validation:
+Create the interfaces exactly as written in N28 §§2.2, 5.3 and 6.2 (including the supporting `RetrievalWaveTrace` type; the §4.1 Directory types `RegionMembership`/`DirectoryEntryInput`/`MemoryDirectorySnapshot` are owned exclusively by Task 3's `memory-directory.ts` and must not be duplicated here), then add this executable validation:
 
 ```typescript
 export const N28_FEASIBILITY_BUDGET: WorkerLoadEnvelope = Object.freeze({
@@ -887,6 +887,9 @@ Expected: FAIL because `memory-directory.ts` does not exist.
 
 - [ ] **Step 4: Implement selector matching, overlap membership and stable snapshot hashing**
 
+This file is the sole owner of the design §4.1 types (`RegionMembership`, `DirectoryEntryInput`,
+`MemoryDirectorySnapshot`); Task 1's contracts module must not duplicate them.
+
 ```typescript
 import { createHash } from "node:crypto";
 import { checkResponsibilityCapacity } from "../contracts/index.js";
@@ -1475,7 +1478,9 @@ path only when both are injected and the Directory tenant/worker equal that enve
 exact same verified envelope—not caller tenant/space strings—plus Region entry IDs, query and limit. It rechecks the
 branded scope's deadline and lease generation without replaying HMAC verification, then applies tenant +
 `status=official` + `deps.isVisible` + Region IDs + strict query filtering/ranking before returning at most the requested limit
-and a `completeForQuery` flag.
+and a `completeForQuery` flag. Fail-closed legacy rule: when no layered retriever is injected the old path stays byte-for-byte
+unchanged; when it is injected but the caller cannot provide a replica/worker binding (or the Directory tenant/worker does not
+equal the verified envelope), the layered path must not fire any wave and `layeredSearchWave` invocation count must be 0.
 
 Refactor `KnowledgeBroker` so public `query({grant,...})` asks the injected verified-scope authority to verify exactly once and delegates to a narrow
 `queryVerified(authorization, requestWithoutGrant)` method. `queryVerified` first calls
@@ -2506,7 +2511,9 @@ still derives the individual hypotheses so the responsible H remains observable.
 Also require exact non-vacuous probe denominators: `workerLifecycleProbeCases===6` (pause/resume/idle remove/busy remove/
 no-preclaim/peer continues), `directoryInvariantProbeCases===8` (tenant/revision/content hash/index hash/epoch/owner/
 unknown worker/duplicate binding), `authorizationProbeCases===32` (eight read surfaces × invalid signature,
-missing capability, already expired, and lease-expired-after-creation), and `surfaceComparisonCases===12` (five per-turn
+missing capability, already expired, and lease-expired-after-creation; the eight surfaces are: KnowledgeContext build,
+`memory.retrieve`, `memory.get`, `memory.query`, `state.recallFunctions`, `state.recallInsights`, `skills.list`,
+`skills.get`), and `surfaceComparisonCases===12` (five per-turn
 schema checks, five per-turn prompt checks, one Skill snapshot and one final Working Set trace). These counts increment only
 after the named public probe actually returns an observation. H1 additionally requires
 `batchRuntimeProbeCases===1`, `stoppedSlotCleanupProbeCases===2` (idle and busy),
