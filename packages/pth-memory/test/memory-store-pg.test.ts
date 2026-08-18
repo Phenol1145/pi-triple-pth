@@ -110,13 +110,14 @@ suite("memory store pg", () => {
   });
 
   it("write idempotent rewrite: same id + same content + same version keeps version (FS 路径②)", async () => {
-    // 对齐 FS write 路径②：entry.meta.version === existing.meta.version && content 相同 → 重落库不递增版本
+    // 对齐 FS write 路径②：content/status/effective meta 全同 → 重落库不递增版本、不写历史。
     await store.write({ id: "e6", kind: "fact", anchors: ["theta"], content: "idem", meta: { version: 1, sourceTraces: ["t1"] } } as any);
-    await store.write({ id: "e6", kind: "fact", anchors: ["theta"], content: "idem", meta: { version: 1, sourceTraces: ["t1", "t2"] } } as any);
+    await store.write({ id: "e6", kind: "fact", anchors: ["theta"], content: "idem", meta: { version: 1, sourceTraces: ["t1"] } } as any);
     const got = await store.get("e6");
     expect(got?.content).toBe("idem");
     expect(got?.meta?.version).toBe(1); // 幂等重落库不递增
-    expect(got?.meta?.sourceTraces).toEqual(["t1", "t2"]); // 调用方 meta 整条写回
+    expect(got?.meta?.sourceTraces).toEqual(["t1"]);
+    expect(await store.revisionHistory("e6")).toEqual([]);
   });
 
   it("write conflict merges caller meta (FS persist 整条写回)", async () => {
@@ -126,6 +127,85 @@ suite("memory store pg", () => {
     expect(got?.content).toBe("c2");
     expect(got?.meta?.version).toBe(2);                    // 新状态 → version+1
     expect(got?.meta?.sourceTraces).toEqual(["t1", "t2"]); // 调用方 meta 保留（旧+新）
+  });
+
+  it("write status/meta-only mutation increments version and writes old revision", async () => {
+    await store.write({
+      id: "r1-status-meta", kind: "fact", anchors: ["r1"], content: "same-content",
+      status: "draft", meta: { version: 1, custom: "before" },
+    } as any);
+    const v1 = await store.get("r1-status-meta");
+    expect(v1?.meta?.version).toBe(1);
+
+    await store.write({
+      id: "r1-status-meta", kind: "fact", anchors: ["r1"], content: "same-content",
+      status: "official", meta: { version: 1, custom: "after" },
+    } as any, { force: true, reason: "knowledge-promotion" });
+
+    const v2 = await store.get("r1-status-meta");
+    expect(v2?.status).toBe("official");
+    expect(v2?.meta?.version).toBe(2);
+    const history = await store.revisionHistory("r1-status-meta");
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ revision: 1, content: "same-content", status: "draft" });
+  });
+
+  it("write three consecutive mutations produce distinct revisions without 23505", async () => {
+    await store.write({
+      id: "r1-three", kind: "fact", anchors: ["r1"], content: "same-content",
+      status: "draft", meta: { version: 1 },
+    } as any);
+    const v1 = (await store.get("r1-three"))?.meta?.version;
+
+    await store.write({
+      id: "r1-three", kind: "fact", anchors: ["r1"], content: "same-content",
+      status: "official", meta: { version: 1, mutation: "first" },
+    } as any, { force: true, reason: "knowledge-promotion" });
+    const v2 = (await store.get("r1-three"))?.meta?.version;
+
+    await store.write({
+      id: "r1-three", kind: "fact", anchors: ["r1"], content: "same-content",
+      status: "archived", meta: { version: 2, mutation: "second" },
+    } as any, { force: true, reason: "archive" });
+    const v3 = (await store.get("r1-three"))?.meta?.version;
+
+    // 复验原探针序列改为断言：{v1:1, v2:2, v3:3, revisions:[1,2]} 且无 23505。
+    expect({ v1, v2, v3 }).toEqual({ v1: 1, v2: 2, v3: 3 });
+    const history = await store.revisionHistory("r1-three");
+    expect(history.map((h) => h.revision)).toEqual([1, 2]);
+    expect(history[0].status).toBe("draft");
+    expect(history[1].status).toBe("official");
+  });
+
+  it("write idempotent replay does not write history nor increment version", async () => {
+    await store.write({
+      id: "r1-idem", kind: "fact", anchors: ["r1"], content: "idem",
+      status: "draft", meta: { version: 1, custom: "same" },
+    } as any);
+    await store.write({
+      id: "r1-idem", kind: "fact", anchors: ["r1"], content: "idem",
+      status: "draft", meta: { version: 1, custom: "same" },
+    } as any);
+    const got = await store.get("r1-idem");
+    expect(got?.meta?.version).toBe(1);
+    expect(await store.revisionHistory("r1-idem")).toEqual([]);
+  });
+
+  it("write then update then archive preserves monotonic versions and revisions", async () => {
+    await store.write({
+      id: "r1-wua", kind: "fact", anchors: ["r1"], content: "v1", meta: { version: 1 },
+    } as any);
+    await store.update("r1-wua", { content: "v2" });
+    await store.update("r1-wua", { status: "archived" });
+
+    const got = await store.get("r1-wua");
+    expect(got?.content).toBe("v2");
+    expect(got?.status).toBe("archived");
+    expect(got?.meta?.version).toBe(3);
+    const history = await store.revisionHistory("r1-wua");
+    expect(history.map((h) => h.revision)).toEqual([1, 2]);
+    expect(history[0].content).toBe("v1");
+    expect(history[1].content).toBe("v2");
   });
 
   it("write with empty anchors is rejected by DB CHECK", async () => {

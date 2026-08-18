@@ -8,7 +8,7 @@
  * - rejectKnowledgeEntry：draft → verdicts 追加 reject + status archived via update（不删内容）。
  */
 
-import type { PgMemoryStore } from "@away_from/pth-memory";
+import { PromotionConflictError, type PgMemoryStore } from "@away_from/pth-memory";
 import { canPromote, validateKnowledgeVerdict, type KnowledgeVerdict, type KnowledgeVerdictKind } from "./knowledge-verdicts.js";
 
 function tenantOpts(opts?: { tenantId?: string }): { tenantId?: string } | undefined {
@@ -77,58 +77,56 @@ export async function recordKnowledgeVerdict(
 
 /**
  * 晋升 draft → official。canPromote fail-closed；promoterRole 缺省 "memory-keeper"。
- * F3：写入 meta.promotion = { promotedBy, principalId, promotedAt, verdicts }（留痕可反查）；
- * 幂等重放保持 F1 语义（official + promotedBy 匹配 → 直接 ok，不重复写）。
- * write 走 force 系统通道（official 后 K1b provenance 门禁自然再次校验）。
+ * P0-1：改用 PgMemoryStore.promoteOfficial 单事务 CAS 路径——canPromote 在锁内基于锁内行重算，
+ * 删除原先 get → canPromote → write 的非原子窗口。expectedRevision 取自调用方读到的 candidate
+ * revision（未显式传入时从 store.get 读取一次作为 CAS 基线，CAS 不匹配仍会拒绝）。
  */
 export async function promoteKnowledgeEntry(
-  store: Pick<PgMemoryStore, "get" | "write">,
+  store: Pick<PgMemoryStore, "get" | "promoteOfficial">,
   entryId: string,
-  opts?: { tenantId?: string; promoterRole?: string; note?: string; principalId?: string },
+  opts?: { tenantId?: string; promoterRole?: string; note?: string; principalId?: string; expectedRevision?: number },
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (opts?.principalId !== undefined && (typeof opts.principalId !== "string" || opts.principalId.trim() === "")) {
     return { ok: false, error: "principalId must be a non-empty string when provided" };
   }
 
-  const entry = await store.get(entryId, tenantOpts(opts));
-  if (!entry) {
-    return { ok: false, error: `entry not found in tenant ${opts?.tenantId ?? "default"}` };
-  }
-
+  const tenantId = opts?.tenantId ?? "default";
   const promoterRole = opts?.promoterRole ?? "memory-keeper";
 
-  // F1 6.3 幂等重放：已 official 且 meta.promotion.promotedBy === promoterRole → 直接 ok（不重复写）；
-  // official 但无本 promoter 的 promotion 记录 → 拒绝（防绕过治理流改判）。
-  if (entry.status === "official") {
-    const promotion = entry.meta?.promotion as { promotedBy?: unknown } | undefined;
-    if (promotion && promotion.promotedBy === promoterRole) {
-      return { ok: true, id: entryId };
+  let expectedRevision = opts?.expectedRevision;
+  if (expectedRevision === undefined) {
+    // CAS 基线：未显式传入时读取当前版本作为 expectedRevision；真正的门禁在事务锁内重算。
+    const entry = await store.get(entryId, tenantOpts(opts));
+    if (!entry) {
+      return { ok: false, error: `entry not found in tenant ${opts?.tenantId ?? "default"}` };
     }
-    return { ok: false, error: `entry is already official but not promoted by ${promoterRole}` };
+    const version = entry.meta?.["version"];
+    if (typeof version !== "number" || !Number.isFinite(version)) {
+      return { ok: false, error: "entry meta.version missing for promotion CAS" };
+    }
+    expectedRevision = version;
   }
 
-  const decision = canPromote(entry);
-  if (!decision.ok) return { ok: false, error: decision.reason };
+  const promotionMeta = {
+    promotedBy: promoterRole,
+    ...(opts?.principalId !== undefined ? { principalId: opts.principalId } : {}),
+    ...(opts?.note !== undefined ? { note: opts.note } : {}),
+    promotedAt: Date.now(),
+  };
 
-  const verdicts = entry.meta?.verdicts;
-  await store.write(
-    {
-      ...entry,
-      status: "official",
-      tenantId: opts?.tenantId ?? entry.tenantId,
-      meta: {
-        ...entry.meta,
-        promotion: {
-          promotedBy: promoterRole,
-          ...(opts?.principalId !== undefined ? { principalId: opts.principalId } : {}),
-          promotedAt: Date.now(),
-          verdicts,
-        },
-      },
-    },
-    { force: true, reason: "knowledge-promotion", createdBy: promoterRole },
-  );
-  return { ok: true, id: entryId };
+  try {
+    await store.promoteOfficial(entryId, tenantId, expectedRevision, promotionMeta, {
+      createdBy: promoterRole,
+      reason: "knowledge-promotion",
+      evaluate: canPromote,
+    });
+    return { ok: true, id: entryId };
+  } catch (e) {
+    if (e instanceof PromotionConflictError) {
+      return { ok: false, error: e.message };
+    }
+    throw e;
+  }
 }
 
 /**
