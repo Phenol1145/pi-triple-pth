@@ -4,7 +4,7 @@
  * PTH → PTL 完成通知（pth-notify 扩展），fire-and-forget（超时 2s，失败仅告警）。
  */
 
-import type { TaskOutcomeObserver } from "../../tasking/index.js";
+import type { TaskOutcomeObserverFn } from "../../tasking/index.js";
 import { pthConfig } from "../../config/index.js";
 
 export function notifyTaskDone(ev: { taskId: string; role: string; status: "completed" | "rejected"; summary?: string; error?: string }): void {
@@ -20,7 +20,7 @@ export function notifyTaskDone(ev: { taskId: string; role: string; status: "comp
     .finally(() => clearTimeout(timer));
 }
 
-export function createNotifierObserver(): TaskOutcomeObserver {
+export function createNotifierObserver(): TaskOutcomeObserverFn {
   return async (event) => {
     const { outcome, work } = event;
     if (outcome.status === "completed") {

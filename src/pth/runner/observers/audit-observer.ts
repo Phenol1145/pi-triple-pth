@@ -4,7 +4,7 @@
  * committed 后才写 PG audit_log；写入必须带 work.scope.tenantId（多租户审计边界）。
  */
 
-import type { TaskOutcomeObserver } from "../../tasking/index.js";
+import type { TaskOutcomeObserverFn } from "../../tasking/index.js";
 
 export interface AuditObserverDeps {
   write(ev: {
@@ -17,7 +17,7 @@ export interface AuditObserverDeps {
   }): Promise<void>;
 }
 
-export function createAuditObserver(deps: AuditObserverDeps): TaskOutcomeObserver {
+export function createAuditObserver(deps: AuditObserverDeps): TaskOutcomeObserverFn {
   return async (event) => {
     const { outcome, work } = event;
     const reason = outcome.error?.message ?? "unknown";

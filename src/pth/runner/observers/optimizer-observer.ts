@@ -4,7 +4,7 @@
  * 慢路径：scorecard 聚合 + collect 入有界后台队列，不阻塞下一轮 claim。
  */
 
-import type { TaskOutcomeObserver } from "../../tasking/index.js";
+import type { TaskOutcomeObserverFn } from "../../tasking/index.js";
 import type { BoundedBackgroundQueue } from "../../tasking/index.js";
 
 export interface OptimizerObserverDeps {
@@ -18,7 +18,7 @@ export interface OptimizerObserverDeps {
   logger?: (msg: string) => void;
 }
 
-export function createOptimizerObserver(deps: OptimizerObserverDeps): TaskOutcomeObserver {
+export function createOptimizerObserver(deps: OptimizerObserverDeps): TaskOutcomeObserverFn {
   return async (event) => {
     if (event.outcome.status !== "completed") return;
     const trace = event.context?.["traceEvents"];

@@ -1,8 +1,9 @@
 /**
- * tasking/task-dispatcher.ts — 固定 claim → load → run → commit 序列（模块化 v2 P1-5）。
+ * tasking/task-dispatcher.ts — 固定 claim → load → run → commit 序列（模块化 v2 P1-5 / R4）。
  *
  * - claim 空则零执行；
  * - runner 抛错 → 生成 terminal outcome（runner-crashed）并照常走一次 commit；
+ * - R4/P0-4：commit 前调用 buildSideEffects 生成同事务 side-effect enqueue；
  * - commit 返回 committed:false → runner 结果不触发任何 observer；
  * - pause/stop 为 worker 级控制；stale lease（generation 非法）跳过且不执行。
  */
@@ -15,14 +16,25 @@ import {
   type TaskRunner,
   type TenantScope,
 } from "../contracts/index.js";
-import type { TaskOutcomeCommitter } from "./task-outcome-committer.js";
-import { notifyObservers, type TaskOutcomeObserver } from "./task-outcome-observers.js";
+import type { TaskOutcomeCommitOptions, TaskOutcomeCommitter, TaskOutcomeSideEffect } from "./task-outcome-committer.js";
+import {
+  notifyObservers,
+  type ObserverFailureRecord,
+  type TaskOutcomeObserver,
+  type TaskOutcomeObserverEvent,
+} from "./task-outcome-observers.js";
 
 export interface TaskDispatcherDeps {
   repository: TaskRepository;
   committer: TaskOutcomeCommitter;
   runner: TaskRunner;
   observers?: readonly TaskOutcomeObserver[];
+  /** durable observer failure 记录器（如写入 side_effect_outbox kind=observer-failure）。 */
+  onObserverFailure?: (failure: ObserverFailureRecord) => void | Promise<void>;
+  /** 同事务 side-effect enqueue 的生成器（如 refine payload）；在 commit 前调用。 */
+  buildSideEffects?: (
+    event: TaskOutcomeObserverEvent,
+  ) => Promise<ReadonlyArray<TaskOutcomeSideEffect>> | ReadonlyArray<TaskOutcomeSideEffect>;
   /** observer 事件的附加上下文（task/workspace/trace 等——runner 不感知，调用方装配） */
   context?: Record<string, unknown>;
   logger?: (msg: string) => void;
@@ -78,11 +90,23 @@ export class TaskDispatcher {
       }
 
       result.ran++;
-      const { committed } = await this.deps.committer.commit(outcome);
+      const event: TaskOutcomeObserverEvent = {
+        outcome,
+        committed: true,
+        lease,
+        work,
+        context: this.deps.context,
+      };
+      const sideEffects = await this.deps.buildSideEffects?.(event) ?? [];
+      const commitOpts: TaskOutcomeCommitOptions = { sideEffects };
+      const { committed } = await this.deps.committer.commit(outcome, commitOpts);
       if (committed) result.committed++;
 
       if (committed) {
-        await notifyObservers(this.deps.observers ?? [], { outcome, committed, lease, work, context: this.deps.context }, this.deps.logger);
+        await notifyObservers(this.deps.observers ?? [], event, {
+          logger: this.deps.logger,
+          recordFailure: this.deps.onObserverFailure,
+        });
       }
     }
 

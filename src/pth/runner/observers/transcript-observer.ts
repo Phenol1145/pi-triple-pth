@@ -5,7 +5,7 @@
  * tenantId 随 work.scope 持久化。
  */
 
-import type { TaskOutcomeObserver } from "../../tasking/index.js";
+import type { TaskOutcomeObserverFn } from "../../tasking/index.js";
 
 export interface TranscriptObserverDeps {
   create(input: {
@@ -17,7 +17,7 @@ export interface TranscriptObserverDeps {
   }): Promise<unknown>;
 }
 
-export function createTranscriptObserver(deps: TranscriptObserverDeps): TaskOutcomeObserver {
+export function createTranscriptObserver(deps: TranscriptObserverDeps): TaskOutcomeObserverFn {
   return async (event) => {
     const trace = event.context?.["traceEvents"];
     if (!Array.isArray(trace) || trace.length === 0) return;

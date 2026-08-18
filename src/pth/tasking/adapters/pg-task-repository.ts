@@ -26,6 +26,7 @@ import type {
   TenantScope,
 } from "../../contracts/index.js";
 import { readWorkItemDomainBinding, readWorkItemDomains } from "../task-work-item-reader.js";
+import type { TaskOutcomeCommitOptions, TaskOutcomeSideEffect } from "../task-outcome-committer.js";
 
 export interface PgTaskRepositoryOptions {
   /** 新 lease 有效期（默认 10 分钟——与旧 claim 超时余量一致，可由调度器覆盖） */
@@ -45,6 +46,22 @@ interface ClaimRow {
   payload: unknown;
   assigned_role: string;
   lease_generation: string | number | null;
+}
+
+/** R4/P0-4：在同一 PG 事务内写入 side_effect_outbox（key 幂等，首写生效）。 */
+async function insertSideEffects(
+  client: pg.PoolClient,
+  sideEffects?: ReadonlyArray<TaskOutcomeSideEffect>,
+): Promise<void> {
+  if (!sideEffects || sideEffects.length === 0) return;
+  for (const se of sideEffects) {
+    await client.query(
+      `INSERT INTO side_effect_outbox (key, tenant_id, kind, payload)
+       VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (key) DO NOTHING`,
+      [se.key, se.tenantId, se.kind, JSON.stringify(se.payload ?? {})],
+    );
+  }
 }
 
 function toWorkItem(row: ClaimRow, scope: TenantScope): TaskWorkItem {
@@ -138,12 +155,13 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
       return res.rowCount ?? 0;
     },
 
-    async commit(outcome: TaskOutcome) {
+    async commit(outcome: TaskOutcome, opts?: TaskOutcomeCommitOptions) {
       const { taskId, leaseId, generation } = outcome.lease;
       let res: pg.QueryResult;
       if (outcome.status === "completed") {
         // W8 P0 终态回写：payload.result = JSON-safe 编码结果（≤64KiB/截断标记）；
         // done 声明产物时同步写 payload.delivery.artifactRef（不覆盖 path/lineageId 已有章）。
+        // R4/P0-4：side-effect enqueue 与 task CAS commit 同一事务。
         const { result, artifactRef } = buildCompletedResultWriteback(outcome.result, outcome.artifacts);
         res = await withTx(pool, async (client) => {
           const upd = await client.query(
@@ -169,35 +187,70 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
               [taskId, leaseId, generation, JSON.stringify(artifactRef)],
             );
           }
+          await insertSideEffects(client, opts?.sideEffects);
           return upd;
         });
       } else if (outcome.retryable === true) {
-        res = await pool.query(
-          `UPDATE tasks SET
-             status = 'pending',
-             claimed_by = NULL,
-             claimed_at = NULL,
-             lease_id = NULL,
-             lease_expires_at = NULL,
-             updated_at = now()
-           WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-          [taskId, leaseId, generation],
-        );
+        if (opts?.sideEffects?.length) {
+          res = await withTx(pool, async (client) => {
+            const upd = await client.query(
+              `UPDATE tasks SET
+                 status = 'pending',
+                 claimed_by = NULL,
+                 claimed_at = NULL,
+                 lease_id = NULL,
+                 lease_expires_at = NULL,
+                 updated_at = now()
+               WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
+              [taskId, leaseId, generation],
+            );
+            await insertSideEffects(client, opts.sideEffects);
+            return upd;
+          });
+        } else {
+          res = await pool.query(
+            `UPDATE tasks SET
+               status = 'pending',
+               claimed_by = NULL,
+               claimed_at = NULL,
+               lease_id = NULL,
+               lease_expires_at = NULL,
+               updated_at = now()
+             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
+            [taskId, leaseId, generation],
+          );
+        }
       } else {
         // W8 P0：终态失败回写——payload.result = { error: {code,message} }（父 await 的错误摘要）
         const { result } = buildErrorResultWriteback(
           outcome.error,
           outcome.status === "cancelled" ? "任务已取消" : "任务被拒绝",
         );
-        res = await pool.query(
-          `UPDATE tasks SET
-             status = 'rejected',
-             escalated_at = CASE WHEN $4::text = 'cancelled' THEN now() ELSE escalated_at END,
-             payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $5::jsonb, true),
-             updated_at = now()
-           WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
-          [taskId, leaseId, generation, outcome.status, JSON.stringify(result)],
-        );
+        if (opts?.sideEffects?.length) {
+          res = await withTx(pool, async (client) => {
+            const upd = await client.query(
+              `UPDATE tasks SET
+                 status = 'rejected',
+                 escalated_at = CASE WHEN $4::text = 'cancelled' THEN now() ELSE escalated_at END,
+                 payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $5::jsonb, true),
+                 updated_at = now()
+               WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
+              [taskId, leaseId, generation, outcome.status, JSON.stringify(result)],
+            );
+            await insertSideEffects(client, opts.sideEffects);
+            return upd;
+          });
+        } else {
+          res = await pool.query(
+            `UPDATE tasks SET
+               status = 'rejected',
+               escalated_at = CASE WHEN $4::text = 'cancelled' THEN now() ELSE escalated_at END,
+               payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $5::jsonb, true),
+               updated_at = now()
+             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
+            [taskId, leaseId, generation, outcome.status, JSON.stringify(result)],
+          );
+        }
       }
       return { committed: (res.rowCount ?? 0) > 0 };
     },

@@ -1,10 +1,12 @@
 /**
- * tasking/task-outcome-observers.ts — post-commit observer 契约与隔离工具（模块化 v2 P1-7）。
+ * tasking/task-outcome-observers.ts — post-commit observer 契约与隔离工具（模块化 v2 P1-7 / R4）。
  *
  * 规则：
  *  - observer 只在 committed=true 时 fan-out；
+ *  - observer 可带 name/stage（R4/P1-5），错误日志与 durable failure 都携带该上下文；
+ *  - 关键持久化 observer（durable=true）失败会写入 observer-failure durable record；
  *  - 单个 observer 失败不影响其他 observer 与已持久化 outcome；
- *  - 慢 observer（refine/optimizer）走有界后台队列，不阻塞下一轮 claim。
+ *  - 慢 observer（optimizer）走有界后台队列，不阻塞下一轮 claim。
  */
 
 import type { TaskLease, TaskOutcome, TaskWorkItem } from "../contracts/index.js";
@@ -18,18 +20,70 @@ export interface TaskOutcomeObserverEvent {
   context?: Record<string, unknown>;
 }
 
-export type TaskOutcomeObserver = (event: TaskOutcomeObserverEvent) => void | Promise<void>;
+export type TaskOutcomeObserverFn = (event: TaskOutcomeObserverEvent) => void | Promise<void>;
+
+/** 命名 observer（R4/P1-5）：name/stage 进入失败日志与 durable failure 记录。 */
+export interface NamedTaskOutcomeObserver {
+  name: string;
+  stage?: string;
+  /** 关键持久化 observer 失败需写 durable failure（默认 false）。 */
+  durable?: boolean;
+  observe: TaskOutcomeObserverFn;
+}
+
+export type TaskOutcomeObserver = TaskOutcomeObserverFn | NamedTaskOutcomeObserver;
+
+export interface ObserverFailureRecord {
+  observerName: string;
+  stage?: string;
+  message: string;
+  stack?: string;
+  taskId: string;
+  tenantId: string;
+}
+
+export interface NotifyObserversOptions {
+  logger?: (msg: string) => void;
+  recordFailure?: (failure: ObserverFailureRecord) => void | Promise<void>;
+}
+
+function isNamed(observer: TaskOutcomeObserver): observer is NamedTaskOutcomeObserver {
+  return typeof observer === "object" && observer !== null && "observe" in observer;
+}
 
 export async function notifyObservers(
   observers: readonly TaskOutcomeObserver[],
   event: TaskOutcomeObserverEvent,
-  logger?: (msg: string) => void,
+  loggerOrOpts?: NotifyObserversOptions | ((msg: string) => void),
 ): Promise<void> {
+  const opts: NotifyObserversOptions =
+    typeof loggerOrOpts === "function" ? { logger: loggerOrOpts } : (loggerOrOpts ?? {});
+  const { logger, recordFailure } = opts;
+
   for (const observer of observers) {
+    const named = isNamed(observer);
+    const name = named ? observer.name : (observer.name || "anonymous");
+    const stage = named ? observer.stage : undefined;
     try {
-      await observer(event);
+      await (named ? observer.observe(event) : observer(event));
     } catch (e) {
-      logger?.(`observer failed: ${e instanceof Error ? e.message : String(e)}`);
+      const message = e instanceof Error ? e.message : String(e);
+      const context = stage ? `[${name}:${stage}]` : `[${name}]`;
+      logger?.(`observer failed ${context}: ${message}`);
+      if (named && observer.durable) {
+        try {
+          await recordFailure?.({
+            observerName: name,
+            stage,
+            message,
+            stack: e instanceof Error ? e.stack : undefined,
+            taskId: event.work.taskId,
+            tenantId: event.work.scope.tenantId,
+          });
+        } catch (recordErr) {
+          logger?.(`observer failure recording failed ${context}: ${recordErr instanceof Error ? recordErr.message : String(recordErr)}`);
+        }
+      }
     }
   }
 }

@@ -133,18 +133,38 @@ CREATE TABLE IF NOT EXISTS skills (
 );
 
 -- F5（2026-08-18）：durable side-effect outbox——post-commit 副作用（refine 等）先落库再异步消费，
--- 进程重启不丢；幂等 key 防重复入队；attempts≥3 置 failed 留审计。
+-- 进程重启不丢；幂等 key 防重复入队；attempts≥max 置 dead-letter 留审计。
+-- R4/P0-5（2026-08-18）：原子 claim——pending→processing 携带 processing_token/owner/lease；
+-- complete/markFailed 必须匹配 token+processing（CAS）；available_at 控制重试回退。
 CREATE TABLE IF NOT EXISTS side_effect_outbox (
   id BIGSERIAL PRIMARY KEY,
   key TEXT NOT NULL UNIQUE,
   tenant_id TEXT NOT NULL DEFAULT 'default',
   kind TEXT NOT NULL,
   payload JSONB NOT NULL DEFAULT '{}',
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','done','failed')),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','processing','done','failed','dead-letter')),
   attempts INTEGER NOT NULL DEFAULT 0,
+  processing_token TEXT,
+  locked_until TIMESTAMPTZ,
+  available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_error TEXT,
+  owner TEXT,
+  dead_letter_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now(),
   done_at TIMESTAMPTZ
 );
+-- R4/P0-5：旧库增量迁移——补充 claim 列并放宽 status CHECK（processing/dead-letter）。
+ALTER TABLE side_effect_outbox ADD COLUMN IF NOT EXISTS processing_token TEXT;
+ALTER TABLE side_effect_outbox ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+ALTER TABLE side_effect_outbox ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE side_effect_outbox ADD COLUMN IF NOT EXISTS last_error TEXT;
+ALTER TABLE side_effect_outbox ADD COLUMN IF NOT EXISTS owner TEXT;
+ALTER TABLE side_effect_outbox ADD COLUMN IF NOT EXISTS dead_letter_at TIMESTAMPTZ;
+ALTER TABLE side_effect_outbox DROP CONSTRAINT IF EXISTS side_effect_outbox_status_check;
+ALTER TABLE side_effect_outbox ADD CONSTRAINT side_effect_outbox_status_check
+  CHECK (status IN ('pending','processing','done','failed','dead-letter'));
+CREATE INDEX IF NOT EXISTS idx_side_effect_outbox_claim ON side_effect_outbox(status, available_at, id);
 `;
 
 export async function applySchema(pool: pg.Pool): Promise<void> {

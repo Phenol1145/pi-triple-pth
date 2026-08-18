@@ -4,7 +4,7 @@
  * 只处理 committed 后的事件面；agent step/tool/finish 仍由 runner onTrace 直发。
  */
 
-import type { TaskOutcomeObserver } from "../../tasking/index.js";
+import type { TaskOutcomeObserverFn } from "../../tasking/index.js";
 
 export interface ActivityObserverDeps {
   emit(e: {
@@ -18,7 +18,7 @@ export interface ActivityObserverDeps {
   }): void;
 }
 
-export function createActivityObserver(deps: ActivityObserverDeps): TaskOutcomeObserver {
+export function createActivityObserver(deps: ActivityObserverDeps): TaskOutcomeObserverFn {
   return async (event) => {
     const { outcome, work } = event;
     const chain = (event.context?.["chain"] ?? {}) as { chainDepth?: number; triggerId?: string };
