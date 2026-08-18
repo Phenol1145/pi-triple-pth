@@ -13,9 +13,27 @@
 
 import type { KnowledgeEvidenceRef } from "@away_from/pth-memory";
 import { knowledgeEvidenceRefsFromMeta } from "@away_from/pth-memory";
-import type { DomainId } from "../contracts/index.js";
+import type { DomainId, PendingRetrievalTrace, RetrievalWaveTrace } from "../contracts/index.js";
 import type { DisciplineCatalogSnapshot } from "../catalog/index.js";
-import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "../execution/index.js";
+import {
+  assertVerifiedTaskReadScope,
+  computeRetrievalQueryFingerprint,
+  filterKnowledgeEntriesByQueryText,
+  rankKnowledgeEntries,
+  type LayeredKnowledgeRetriever,
+  type LayeredSearchWaveInput,
+  type LayeredSearchWaveResult,
+  type RetrievalStatus,
+  type VerifiedTaskReadScope,
+} from "../execution/index.js";
+
+export interface KnowledgeContextPromptRow {
+  entryId: string;
+  anchor: string;
+  summary: string;
+  evidence: readonly { sourceId: string; locator?: string }[];
+  meta: Readonly<{ kind: string; domains: readonly string[] }>;
+}
 
 export interface KnowledgeContextEntry {
   entryId: string;
@@ -27,6 +45,8 @@ export interface KnowledgeContextEntry {
   summary: string;
   /** 结构化 KnowledgeEvidenceRef[]（从 meta.evidence 读取；无 evidence 时为空数组，不伪装 provenance） */
   evidence: KnowledgeEvidenceRef[];
+  /** 白名单暴露元数据（只用于 prompt/billing 投影，绝不透传任意存储 meta）。 */
+  exposedMeta: Readonly<{ kind: string; domains: readonly DomainId[] }>;
 }
 
 export interface KnowledgeContext {
@@ -37,6 +57,9 @@ export interface KnowledgeContext {
   domains: DomainId[];
   entries: KnowledgeContextEntry[];
   omitted: { count: number; reason: string };
+  /** N28 T4：layered 路径的不可变 trace（无 trace = legacy 路径）。 */
+  retrievalTrace?: PendingRetrievalTrace & { waves: Array<RetrievalWaveTrace & { selectedEntryIds: string[] }> };
+  retrievalStatus?: RetrievalStatus;
 }
 
 export interface KnowledgeContextInput {
@@ -47,6 +70,10 @@ export interface KnowledgeContextInput {
   title: string;
   text: string;
   catalogVersion: string;
+  /** N28 T4：layered 路径 worker 绑定（指纹的独立分量；缺席=旧指纹逐字节不变）。 */
+  workerId?: string;
+  /** N28 T4：已验证任务读取 envelope（layered 路径强制要求）。 */
+  authorization?: VerifiedTaskReadScope;
 }
 
 export interface KnowledgeContextProvider {
@@ -73,6 +100,10 @@ export interface KnowledgeContextProviderDeps {
   isVisible(meta: Record<string, unknown> | undefined, space: string): boolean;
   maxEntries?: number;
   summaryChars?: number;
+  /** N28 T4：layered 路径组件（与 Broker 共用同一 retriever/clock）。 */
+  layeredRetriever?: LayeredKnowledgeRetriever<KnowledgeMemoryEntry>;
+  layeredSearchWave?: (input: LayeredSearchWaveInput) => Promise<LayeredSearchWaveResult<KnowledgeMemoryEntry>>;
+  clock?: () => Date;
 }
 
 export const KNOWLEDGE_CONTEXT_KINDS = ["domain-fact", "domain-method", "skill", "task-insight"] as const;
@@ -89,10 +120,11 @@ export function fnv1aHex(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-/** §1 指纹函数：tenantId|space|roleId|domains(排序)|title|text|catalogVersion 的 \n join。 */
+/** §1 指纹函数：tenantId|space|roleId|domains(排序)|title|text|catalogVersion 的 \n join。
+ *  N28 T4：workerId 存在时作为独立分量追加在 roleId 后；缺席时旧指纹逐字节不变。 */
 export function computeKnowledgeQueryFingerprint(input: KnowledgeContextInput): string {
   const domains = [...input.domains].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return fnv1aHex([
+  const base = [
     input.tenantId,
     input.space,
     input.roleId,
@@ -100,7 +132,26 @@ export function computeKnowledgeQueryFingerprint(input: KnowledgeContextInput): 
     input.title,
     input.text,
     input.catalogVersion,
-  ].join("\n"));
+  ].join("\n");
+  return fnv1aHex(input.workerId !== undefined ? `${base}\nworker:${input.workerId}` : base);
+}
+
+/** N28 T4：冻结 prompt/billing 投影——只含白名单字段，绝不透传任意存储 meta。 */
+export function contextPromptProjection(entry: KnowledgeContextEntry): KnowledgeContextPromptRow {
+  return {
+    entryId: entry.entryId,
+    anchor: entry.anchor,
+    summary: entry.summary,
+    evidence: entry.evidence.map((e) => ({ sourceId: e.sourceId, ...(e.locator ? { locator: e.locator } : {}) })),
+    meta: { kind: entry.exposedMeta.kind, domains: [...entry.exposedMeta.domains] },
+  };
+}
+
+export function formatKnowledgeContextPromptRows(rows: readonly KnowledgeContextPromptRow[]): string {
+  return rows.map((row) =>
+    `- [${row.entryId}] ${row.anchor}: ${row.summary}` +
+    ` evidence=${JSON.stringify(row.evidence)} meta=${JSON.stringify(row.meta)}`
+  ).join("\n");
 }
 
 function singleLine(value: string): string {
@@ -119,6 +170,7 @@ function toVersion(meta: Record<string, unknown> | undefined): number {
 export function createKnowledgeContextProvider(deps: KnowledgeContextProviderDeps): KnowledgeContextProvider {
   const maxEntries = deps.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const summaryChars = deps.summaryChars ?? DEFAULT_SUMMARY_CHARS;
+  const clock = deps.clock ?? (() => new Date());
 
   return {
     async build(input) {
@@ -136,6 +188,72 @@ export function createKnowledgeContextProvider(deps: KnowledgeContextProviderDep
           domains,
           entries: [],
           omitted: { count: 0, reason: "budget" },
+        };
+      }
+
+      // N28 T4：layered 路径——与 Broker 共用同一 retriever/授权 envelope；dep 缺失时走 legacy 原路径。
+      if (deps.layeredRetriever && deps.layeredSearchWave && input.authorization) {
+        assertVerifiedTaskReadScope(input.authorization, {
+          tenantId: input.tenantId,
+          ...(input.workerId !== undefined ? { workerId: input.workerId } : {}),
+        }, { clock });
+        const layeredFingerprint = computeRetrievalQueryFingerprint({
+          authorization: input.authorization,
+          queryText: input.text,
+          domains,
+          directorySnapshotId: deps.layeredRetriever.directory.snapshotId,
+        });
+        const result = await deps.layeredRetriever.search({
+          authorization: input.authorization,
+          workerId: input.workerId ?? input.authorization.worker.workerId,
+          queryText: input.text,
+          queryFingerprint: layeredFingerprint,
+          domains,
+          limit: maxEntries,
+          searchWave: async (wave) => {
+            assertVerifiedTaskReadScope(wave.authorization, { tenantId: input.tenantId }, { clock });
+            const all = await deps.memory.retrieve({
+              anchors: domains,
+              kinds: [...KNOWLEDGE_CONTEXT_KINDS],
+              status: ["official"],
+              tenantId: wave.authorization.tenantId,
+            });
+            const authorized = all.filter((e) => deps.isVisible(e.meta, wave.authorization.space));
+            const regionSet = deps.layeredRetriever!.entryIdsForRegions(wave.regionIds);
+            const inWave = wave.candidateScope === "global" ? authorized : authorized.filter((e) => regionSet.has(e.id));
+            const matching = filterKnowledgeEntriesByQueryText(inWave, input.text, { strict: true });
+            const ranked = rankKnowledgeEntries(matching, { queryText: input.text, domains });
+            return {
+              entries: ranked.slice(0, wave.limit),
+              candidateCount: all.length,
+              visibleCount: authorized.length,
+              scannedCount: all.length,
+              completeForQuery: true,
+            };
+          },
+        });
+        const contextEntries: KnowledgeContextEntry[] = result.status === "found"
+          ? result.entries.map((e) => ({
+              entryId: e.id,
+              version: toVersion(e.meta),
+              anchor: e.anchors[0] ?? "",
+              summary: singleLine(e.content.slice(0, summaryChars)),
+              evidence: knowledgeEvidenceRefsFromMeta(e.meta),
+              exposedMeta: {
+                kind: e.kind,
+                domains: (Array.isArray(e.meta?.["domains"]) ? (e.meta!["domains"] as string[]) : []).filter((d): d is DomainId => domains.includes(d as DomainId)),
+              },
+            }))
+          : [];
+        return {
+          id: `kc-${layeredFingerprint}`,
+          catalogVersion,
+          queryFingerprint: layeredFingerprint,
+          domains,
+          entries: contextEntries,
+          omitted: { count: result.status === "found" ? 0 : result.entries.length, reason: result.status },
+          retrievalTrace: result.trace,
+          retrievalStatus: result.status,
         };
       }
 
@@ -178,6 +296,10 @@ export function createKnowledgeContextProvider(deps: KnowledgeContextProviderDep
         anchor: e.anchors[0] ?? "",
         summary: singleLine(e.content.slice(0, summaryChars)),
         evidence: knowledgeEvidenceRefsFromMeta(e.meta),
+        exposedMeta: {
+          kind: e.kind,
+          domains: (Array.isArray(e.meta?.["domains"]) ? (e.meta!["domains"] as string[]) : []).filter((d): d is DomainId => domains.includes(d as DomainId)),
+        },
       }));
 
       return {

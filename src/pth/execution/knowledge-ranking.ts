@@ -36,6 +36,14 @@ function containsToken(content: string, anchors: readonly string[] | undefined, 
   return (anchors ?? []).some((anchor) => anchor.toLowerCase().includes(token));
 }
 
+/** N28 T4：查询词命中数公共实现（rankKnowledgeEntries 复用同一实现，不维护第二套）。 */
+export function knowledgeQueryTokenHits(entry: RankableKnowledgeEntry, queryText: string | undefined): number {
+  return tokenize(queryText).reduce(
+    (count, token) => count + (containsToken(entry.content, entry.anchors, token) ? 1 : 0),
+    0,
+  );
+}
+
 function normalizeQueryText(queryText: string | undefined): string {
   return (queryText ?? "").trim().toLocaleLowerCase();
 }
@@ -90,7 +98,6 @@ export function rankKnowledgeEntries<T extends RankableKnowledgeEntry>(
   opts: RankKnowledgeEntriesOptions,
 ): T[] {
   const hitSet = new Set<string>([...(opts.domains ?? []), ...(opts.domainAncestors ?? [])]);
-  const tokens = tokenize(opts.queryText);
 
   return entries
     .map((entry) => {
@@ -98,10 +105,7 @@ export function rankKnowledgeEntries<T extends RankableKnowledgeEntry>(
         (n, anchor) => n + (hitSet.has(anchor) ? 1 : 0),
         0,
       );
-      const queryTokenHits = tokens.reduce(
-        (n, token) => n + (containsToken(entry.content, entry.anchors, token) ? 1 : 0),
-        0,
-      );
+      const queryTokenHits = knowledgeQueryTokenHits(entry, opts.queryText);
       const score = domainRelevance * 1000 + queryTokenHits;
       return { entry, score };
     })

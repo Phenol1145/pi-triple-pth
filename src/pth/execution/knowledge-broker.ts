@@ -8,11 +8,13 @@
  *  - query 必须返回 meta 列，否则 400（H3 可见性过滤依据）。
  */
 
-import type { ExecutionGrant } from "../contracts/index.js";
+import type { ExecutionGrant, WorkerReplicaRef, PendingRetrievalTrace, RetrievalWaveTrace } from "../contracts/index.js";
 import type { ExecutionGrantService } from "./authorization/execution-grant-service.js";
+import { assertVerifiedTaskReadScope, type VerifiedTaskReadScope, type VerifiedTaskReadScopeFactory } from "./authorization/verified-task-read-scope.js";
 import { ancestorChain } from "@away_from/pth-memory";
 import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "./knowledge-ranking.js";
 import { computeKnowledgeQueryFingerprint } from "../runner/index.js";
+import { computeRetrievalQueryFingerprint, type LayeredKnowledgeRetriever, type LayeredSearchWaveInput, type LayeredSearchWaveResult } from "./layered-knowledge-retriever.js";
 
 export type KnowledgeOp = "query" | "retrieve" | "get" | "search";
 
@@ -31,6 +33,10 @@ export interface KnowledgeRequest {
   limit?: number;
   /** 调用方自报 space——本层一律忽略（不可授权） */
   space?: string;
+  /** N28 T4：layered 路径的 worker 绑定（缺失且未注入 layered 时走 legacy 路径）。 */
+  worker?: WorkerReplicaRef;
+  /** N28 T4：live task 的 lease deadline（与 grant deadline 取更早者）。 */
+  leaseDeadlineAt?: string;
 }
 
 export interface KnowledgeMemoryEntry {
@@ -67,10 +73,25 @@ export interface KnowledgeBrokerDeps {
   isVisible(meta: Record<string, unknown> | undefined, space: string): boolean;
   /** K1a：全文 consumption 计数（get 命中后回调）——列表 exposure（retrieve）不计数。 */
   recordConsumption?(id: string, tenantId?: string): Promise<void>;
+  /** N28 T4：分层检索器（注入且 Directory/envelope 匹配时 search 走四波路径）。 */
+  layeredRetriever?: LayeredKnowledgeRetriever<KnowledgeMemoryEntry>;
+  /** N28 T4：同一 envelope 消费的 wave port（先授权过滤后 limit）。 */
+  layeredSearchWave?: (input: LayeredSearchWaveInput) => Promise<LayeredSearchWaveResult<KnowledgeMemoryEntry>>;
+  /** N28 T4：一次性真实 verify 的 verified-scope authority。 */
+  verifiedReadScopeAuthority?: VerifiedTaskReadScopeFactory;
+  /** N28 T4：时钟（测试注入共享 fake clock；缺省系统时钟）。 */
+  clock?: () => Date;
 }
 
 export type KnowledgeResult =
-  | { ok: true; rows?: unknown; entries?: unknown[]; entry?: unknown; queryFingerprint?: string }
+  | {
+      ok: true;
+      rows?: unknown;
+      entries?: unknown[];
+      entry?: unknown;
+      queryFingerprint?: string;
+      retrievalTrace?: PendingRetrievalTrace & { waves: Array<RetrievalWaveTrace & { selectedEntryIds: string[] }> };
+    }
   | { ok: false; status: 401 | 403 | 404 | 400; error: string };
 
 export const KNOWLEDGE_SEARCH_KINDS = ["domain-fact", "domain-method", "skill", "task-insight"] as const;
@@ -276,6 +297,8 @@ export async function searchKnowledgeEntries(
 
 export interface KnowledgeBroker {
   query(request: KnowledgeRequest): Promise<KnowledgeResult>;
+  /** N28 T4：任务适配器专用窄入口（consumes 已验证 envelope，不再重放签名 verify）。 */
+  queryVerified(authorization: VerifiedTaskReadScope, request: Omit<KnowledgeRequest, "grant">): Promise<KnowledgeResult>;
 }
 
 export function createKnowledgeBroker(deps: KnowledgeBrokerDeps): KnowledgeBroker {
@@ -297,8 +320,104 @@ export function createKnowledgeBroker(deps: KnowledgeBrokerDeps): KnowledgeBroke
     return { grant, space, tenantId };
   }
 
+  const clock = deps.clock ?? (() => new Date());
+
+  /** N28 T4：narrow verified 入口——只做廉价 brand/binding/deadline 断言，绝不重放签名 verify。 */
+  async function queryVerified(authorization: VerifiedTaskReadScope, request: Omit<KnowledgeRequest, "grant">): Promise<KnowledgeResult> {
+    assertVerifiedTaskReadScope(authorization, { capabilities: ["memory.read"] }, { clock });
+    const tenantId = authorization.tenantId;
+    const space = authorization.space;
+
+    if (request.op === "query") {
+      if (!authorization.capabilities.includes("memory.query")) return { ok: false, status: 403, error: "grant missing capability: memory.query" };
+      const restricted = buildRestrictedKnowledgeQuery(String(request.sql ?? ""), tenantId, space);
+      if (!restricted.ok) return { ok: false, status: restricted.status, error: restricted.error };
+      let rows: Array<Record<string, unknown> | null>;
+      try {
+        rows = (await deps.dataWorld.queryReadOnly(restricted.sql)) as Array<Record<string, unknown> | null>;
+      } catch (err) {
+        return { ok: false, status: 400, error: err instanceof Error ? err.message : String(err) };
+      }
+      if (rows.some((r) => !r || typeof r !== "object" || !("meta" in r))) {
+        return { ok: false, status: 400, error: "knowledge query: 必须包含 meta 列（可见性过滤依据）" };
+      }
+      return { ok: true, rows: rows.filter((r) => deps.isVisible(r!["meta"] as Record<string, unknown>, space)) };
+    }
+    if (request.op === "retrieve") {
+      const entries = await deps.dataWorld.memory.retrieve({ anchors: request.anchors ?? [], kinds: request.kinds ?? [], status: ["official"], tenantId });
+      return { ok: true, entries: entries.filter((e) => deps.isVisible(e.meta, space)) };
+    }
+    if (request.op === "get") {
+      const entry = await deps.dataWorld.memory.get(String(request.id ?? ""), { tenantId });
+      if (!entry) return { ok: false, status: 404, error: "entry not found" };
+      if (entry.status !== "official") return { ok: false, status: 404, error: "entry not found" };
+      if (!deps.isVisible(entry.meta, space)) return { ok: false, status: 404, error: "entry not visible from space" };
+      await deps.recordConsumption?.(entry.id, tenantId);
+      return { ok: true, entry };
+    }
+    if (request.op === "search") {
+      const domains = Array.isArray(request.domains)
+        ? request.domains.filter((d): d is string => typeof d === "string")
+        : [];
+      const kinds = request.kinds ?? [...KNOWLEDGE_SEARCH_KINDS];
+      const limit = normalizeKnowledgeSearchLimit(request.limit);
+      const queryText = request.queryText ?? "";
+      if (deps.layeredRetriever && deps.layeredSearchWave) {
+        const queryFingerprint = computeRetrievalQueryFingerprint({
+          authorization,
+          queryText,
+          domains,
+          directorySnapshotId: deps.layeredRetriever.directory.snapshotId,
+        });
+        const layered = await deps.layeredRetriever.search({
+          authorization,
+          workerId: authorization.worker.workerId,
+          queryText,
+          queryFingerprint,
+          domains,
+          limit,
+          searchWave: deps.layeredSearchWave,
+        });
+        return { ok: true, entries: layered.entries, retrievalTrace: layered.trace, queryFingerprint };
+      }
+      const opts: KnowledgeSearchOpts = { anchors: domains, kinds, status: ["official"], tenantId, queryText, limit };
+      const entries = deps.dataWorld.memory.search
+        ? await deps.dataWorld.memory.search(opts)
+        : await searchKnowledgeEntries(deps.dataWorld.memory, opts);
+      const visible = entries.filter((e) => deps.isVisible(e.meta, space));
+      return {
+        ok: true,
+        entries: visible,
+        queryFingerprint: computeKnowledgeQueryFingerprint({
+          tenantId,
+          space,
+          roleId: authorization.principalId,
+          domains,
+          title: queryText,
+          text: [...kinds].sort().join("\n"),
+          catalogVersion: "",
+        }),
+      };
+    }
+    return { ok: false, status: 400, error: "op required: query|retrieve|get|search" };
+  }
+
   return {
     async query(request) {
+      // N28 T4：search + 全套 layered 注入 + worker 绑定时，走一次性 verified-scope authority；
+      // verify 失败 fail-closed（零 wave）；未注入/无 worker 时保留 legacy 路径逐字节不变（C3）。
+      if (request.op === "search" && deps.layeredRetriever && deps.layeredSearchWave && deps.verifiedReadScopeAuthority && request.worker) {
+        try {
+          const scope = deps.verifiedReadScopeAuthority.verifyBrokerGrant({
+            grant: request.grant,
+            worker: request.worker,
+            leaseDeadlineAt: request.leaseDeadlineAt,
+          });
+          return await queryVerified(scope, request);
+        } catch (error) {
+          return { ok: false, status: 401, error: `layered search scope verification failed: ${error instanceof Error ? error.message : String(error)}` };
+        }
+      }
       const auth = await authorize(request);
       if (!("grant" in auth)) return auth as KnowledgeResult;
       const { grant, space, tenantId } = auth;
@@ -374,5 +493,6 @@ export function createKnowledgeBroker(deps: KnowledgeBrokerDeps): KnowledgeBroke
       }
       return { ok: false, status: 400, error: "op required: query|retrieve|get|search" };
     },
+    queryVerified,
   };
 }

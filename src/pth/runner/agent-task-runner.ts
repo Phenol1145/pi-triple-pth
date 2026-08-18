@@ -23,6 +23,8 @@ import { runPtcProgram } from "../kernel/ptc/runner.js";
 import { defaultRunnerConfig, type RunnerConfig } from "./runner-config.js";
 import type { TaskWorkspace } from "./task-workspace.js";
 import type { KnowledgeContext, KnowledgeContextProvider } from "./knowledge-context.js";
+import type { WorkerReplicaRef } from "../contracts/index.js";
+import type { VerifiedTaskReadScopeFactory } from "../execution/index.js";
 
 export interface AgentTaskRunnerDeps {
   kernel: WorkerKernel;
@@ -43,6 +45,10 @@ export interface AgentTaskRunnerDeps {
   toolRegRunChild?: import("../kernel/execution/tool-registry.js").ToolRegRunChild;
   /** K3：任务知识上下文 provider（claim 后一次性快照；抛错 → logger warn + 原文执行，降级不阻塞） */
   knowledgeContextProvider?: KnowledgeContextProvider;
+  /** N28 T4：本任务副本身份（feasibility 模式注入）。 */
+  replica?: WorkerReplicaRef;
+  /** N28 T4：每任务 mint 一次 verified scope 的 authority（缺失=legacy 路径）。 */
+  verifiedReadScopeFactory?: VerifiedTaskReadScopeFactory;
 }
 
 function leaseRef(lease: TaskLease): TaskOutcome["lease"] {
@@ -104,6 +110,9 @@ export class AgentTaskRunner implements TaskRunner {
       let taskText = work.text;
       if (this.deps.knowledgeContextProvider) {
         try {
+          const authorization = this.deps.replica && this.deps.verifiedReadScopeFactory
+            ? this.deps.verifiedReadScopeFactory.forTask({ lease, work, space, worker: this.deps.replica })
+            : undefined;
           knowledgeContext = await this.deps.knowledgeContextProvider.build({
             tenantId: work.scope.tenantId,
             space,
@@ -112,6 +121,8 @@ export class AgentTaskRunner implements TaskRunner {
             title: work.title,
             text: work.text,
             catalogVersion: work.domainBinding?.catalogVersion ?? "",
+            ...(this.deps.replica ? { workerId: this.deps.replica.workerId } : {}),
+            ...(authorization ? { authorization } : {}),
           });
           const header = `\n\n【Knowledge Context（catalog ${knowledgeContext.catalogVersion}）】\n`;
           const body = knowledgeContext.entries.length > 0
