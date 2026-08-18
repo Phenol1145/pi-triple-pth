@@ -3,6 +3,271 @@ import { MEMORY_SCHEMA_SQL } from "@away_from/pth-memory";
 
 export const SCHEMA_VERSION = 1;
 
+/**
+ * N29 Task 3（2026-08-19）：知识摄入内环 PG 真相源——Subscription / Run / Attempt /
+ * Artifact / Revision / Dependency，以及已验签 Trust Policy 的**不可变审计镜像**。
+ *
+ * 不变量（plan §3.2 / §5 Task 3 Step 3）：
+ *  - 所有主查询键以 `tenant_id` 起头（复合 PK `(tenant_id, id)`；surrogate BIGSERIAL 表由
+ *    tenant-first 唯一/普通索引承担查询键），跨 tenant 一律零可见；
+ *  - 可变聚合（subscription / run / dependency）带 `row_version`，状态迁移必须 CAS；
+ *  - `knowledge_trust_policies` 只是已验签 manifest 的审计镜像：manifest 正文与 digest/签名
+ *    append-only，DB 行不能创建、扩大或替换 policy（授权事实仍是签名 manifest + PTL human proof）；
+ *  - artifact / revision / attempt 正文 append-only：raw-quarantine → admitted 必须**新插一行**
+ *    并用 `derived_from_revision_id` 关联，不得把 quarantined 行原地 UPDATE 成 admitted；
+ *    正文列由 BEFORE UPDATE 触发器守卫（改正文 → `restrict_violation`）；
+ *  - `raw_hash` 在 tenant 内唯一：同 tenant 重复字节复用既有 artifact，跨 tenant 各存一份；
+ *  - 外键全部 tenant-qualified（复合 FK）；可空自引用列按 MATCH SIMPLE 语义在 NULL 时不约束；
+ *  - 迁移风格与本文件既有约定一致：`CREATE TABLE/INDEX IF NOT EXISTS` +
+ *    `DROP TRIGGER IF EXISTS` → `CREATE TRIGGER`，可重复执行。
+ */
+export const KNOWLEDGE_INTAKE_SCHEMA_SQL = `
+-- append-only 守卫：TG_ARGV 列出的列一旦被 UPDATE 修改即抛 restrict_violation。
+-- 只守卫"正文"列——后续任务新增的状态列（如 stale/withdrawn 标记）默认可变。
+CREATE OR REPLACE FUNCTION knowledge_intake_guard_immutable() RETURNS trigger AS $guard$
+DECLARE
+  col text;
+BEGIN
+  FOREACH col IN ARRAY TG_ARGV LOOP
+    IF (to_jsonb(OLD) -> col) IS DISTINCT FROM (to_jsonb(NEW) -> col) THEN
+      RAISE EXCEPTION 'append-only violation: %.% is immutable', TG_TABLE_NAME, col
+        USING ERRCODE = 'restrict_violation';
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END;
+$guard$ LANGUAGE plpgsql;
+
+-- 1/7 已验签 Trust Policy 的不可变审计镜像（identity=(tenant_id, policy_id, policy_version)）。
+CREATE TABLE IF NOT EXISTS knowledge_trust_policies (
+  tenant_id TEXT NOT NULL,
+  policy_id TEXT NOT NULL,
+  policy_version TEXT NOT NULL,
+  policy_digest TEXT NOT NULL,
+  spaces JSONB NOT NULL DEFAULT '[]',
+  valid_from TIMESTAMPTZ NOT NULL,
+  valid_until TIMESTAMPTZ NOT NULL,
+  approved_by_principal_id TEXT NOT NULL,
+  approved_by_issuer TEXT NOT NULL,
+  approval_method TEXT NOT NULL,
+  approval_key_id TEXT NOT NULL,
+  approval_signature TEXT NOT NULL,
+  manifest JSONB NOT NULL,
+  verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  installed_by TEXT NOT NULL DEFAULT '',
+  last_verified_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, policy_id, policy_version)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_trust_policies_digest
+  ON knowledge_trust_policies(tenant_id, policy_digest);
+DROP TRIGGER IF EXISTS trg_knowledge_trust_policies_append_only ON knowledge_trust_policies;
+CREATE TRIGGER trg_knowledge_trust_policies_append_only
+  BEFORE UPDATE ON knowledge_trust_policies FOR EACH ROW
+  EXECUTE FUNCTION knowledge_intake_guard_immutable(
+    'tenant_id','policy_id','policy_version','policy_digest','manifest','spaces',
+    'valid_from','valid_until','approved_by_principal_id','approved_by_issuer',
+    'approval_method','approval_key_id','approval_signature','verified_at','created_at');
+
+-- 2/7 Source Subscription（可变聚合：status / next_crawl_at / row_version）。
+-- policy 绑定是 tenant-qualified FK → 未安装（或版本不符）的 policy 无法产生 subscription。
+CREATE TABLE IF NOT EXISTS knowledge_source_subscriptions (
+  tenant_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  space TEXT NOT NULL,
+  canonical_uri TEXT NOT NULL,
+  domain_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'probing'
+    CHECK (status IN ('probing','active','paused','revoked','retired')),
+  policy_id TEXT NOT NULL,
+  policy_version TEXT NOT NULL,
+  policy_digest TEXT NOT NULL,
+  policy_rule_id TEXT NOT NULL,
+  recrawl_interval_ms BIGINT NOT NULL CHECK (recrawl_interval_ms > 0),
+  next_crawl_at TIMESTAMPTZ NOT NULL,
+  last_successful_revision_id TEXT,
+  row_version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, policy_id, policy_version)
+    REFERENCES knowledge_trust_policies(tenant_id, policy_id, policy_version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_source_subscriptions_uri
+  ON knowledge_source_subscriptions(tenant_id, space, canonical_uri);
+CREATE INDEX IF NOT EXISTS idx_knowledge_source_subscriptions_due
+  ON knowledge_source_subscriptions(tenant_id, status, next_crawl_at);
+-- 系统级 due scanner（跨 tenant 单次扫描）的扫描路径；tenant-first 索引仍是主查询键。
+CREATE INDEX IF NOT EXISTS idx_knowledge_source_subscriptions_scan
+  ON knowledge_source_subscriptions(status, next_crawl_at, tenant_id);
+
+-- 3/7 Intake Run（可变聚合：stage/status/lease/row_version）。
+-- 同一 subscription 同时最多一个未终结 run —— due scanner 双跑不产生重复 run。
+CREATE TABLE IF NOT EXISTS knowledge_intake_runs (
+  tenant_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  subscription_id TEXT NOT NULL,
+  reason TEXT NOT NULL CHECK (reason IN ('initial','scheduled','manual-retry')),
+  stage TEXT NOT NULL DEFAULT 'fetch'
+    CHECK (stage IN ('fetch','admit','extract','verify','promote','complete')),
+  status TEXT NOT NULL DEFAULT 'queued'
+    CHECK (status IN ('queued','leased','waiting','completed','failed','dead-letter')),
+  attempt INTEGER NOT NULL DEFAULT 0,
+  lease_token TEXT,
+  lease_generation BIGINT NOT NULL DEFAULT 0,
+  locked_until TIMESTAMPTZ,
+  source_revision_id TEXT,
+  candidate_id TEXT,
+  verification_plan_id TEXT,
+  last_error TEXT,
+  row_version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, id),
+  FOREIGN KEY (tenant_id, subscription_id)
+    REFERENCES knowledge_source_subscriptions(tenant_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_intake_runs_open_subscription
+  ON knowledge_intake_runs(tenant_id, subscription_id)
+  WHERE status IN ('queued','leased','waiting');
+CREATE INDEX IF NOT EXISTS idx_knowledge_intake_runs_status
+  ON knowledge_intake_runs(tenant_id, status, stage);
+CREATE INDEX IF NOT EXISTS idx_knowledge_intake_runs_lease
+  ON knowledge_intake_runs(tenant_id, locked_until) WHERE status = 'leased';
+
+-- 4/7 Intake Attempt（append-only 审计：每次 lease / 每次结果各一行，旧 attempt 永不覆盖）。
+CREATE TABLE IF NOT EXISTS knowledge_intake_attempts (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  stage TEXT NOT NULL
+    CHECK (stage IN ('fetch','admit','extract','verify','promote','complete')),
+  attempt INTEGER NOT NULL,
+  lease_generation BIGINT NOT NULL,
+  lease_token_hash TEXT NOT NULL,
+  input_hash TEXT NOT NULL DEFAULT '',
+  output_hash TEXT,
+  disposition TEXT NOT NULL
+    CHECK (disposition IN ('leased','succeeded','retryable-failed','terminal-failed','expired')),
+  principal_id TEXT NOT NULL,
+  execution_id TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (tenant_id, run_id) REFERENCES knowledge_intake_runs(tenant_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_intake_attempts_identity
+  ON knowledge_intake_attempts(tenant_id, run_id, stage, attempt, lease_generation, disposition);
+CREATE INDEX IF NOT EXISTS idx_knowledge_intake_attempts_run
+  ON knowledge_intake_attempts(tenant_id, run_id, id);
+DROP TRIGGER IF EXISTS trg_knowledge_intake_attempts_append_only ON knowledge_intake_attempts;
+CREATE TRIGGER trg_knowledge_intake_attempts_append_only
+  BEFORE UPDATE ON knowledge_intake_attempts FOR EACH ROW
+  EXECUTE FUNCTION knowledge_intake_guard_immutable(
+    'id','tenant_id','run_id','stage','attempt','lease_generation','lease_token_hash',
+    'input_hash','output_hash','disposition','principal_id','execution_id','created_at');
+
+-- 5/7 Source Artifact（不可变原始字节；raw_hash 在 tenant 内去重）。
+CREATE TABLE IF NOT EXISTS knowledge_source_artifacts (
+  tenant_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  raw_hash TEXT NOT NULL,
+  byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
+  content_type TEXT NOT NULL DEFAULT '',
+  raw_bytes BYTEA NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_source_artifacts_raw_hash
+  ON knowledge_source_artifacts(tenant_id, raw_hash);
+DROP TRIGGER IF EXISTS trg_knowledge_source_artifacts_append_only ON knowledge_source_artifacts;
+CREATE TRIGGER trg_knowledge_source_artifacts_append_only
+  BEFORE UPDATE ON knowledge_source_artifacts FOR EACH ROW
+  EXECUTE FUNCTION knowledge_intake_guard_immutable(
+    'tenant_id','id','raw_hash','byte_length','content_type','raw_bytes','created_at');
+
+-- 6/7 Source Revision（append-only；raw-quarantine / admitted / unchanged 各自独立成行）。
+-- admitted 必须携带 use policy decision（DB 级 fail closed）。
+CREATE TABLE IF NOT EXISTS knowledge_source_revisions (
+  tenant_id TEXT NOT NULL,
+  id TEXT NOT NULL,
+  subscription_id TEXT NOT NULL,
+  run_id TEXT,
+  previous_revision_id TEXT,
+  derived_from_revision_id TEXT,
+  requested_uri TEXT NOT NULL,
+  final_uri TEXT NOT NULL,
+  redirect_chain JSONB NOT NULL DEFAULT '[]',
+  acquired_at TIMESTAMPTZ NOT NULL,
+  response_status INTEGER NOT NULL,
+  content_type TEXT NOT NULL DEFAULT '',
+  etag TEXT,
+  last_modified TEXT,
+  artifact_id TEXT NOT NULL,
+  raw_hash TEXT NOT NULL,
+  normalized_text_hash TEXT NOT NULL,
+  normalized_text TEXT NOT NULL,
+  disposition TEXT NOT NULL
+    CHECK (disposition IN ('raw-quarantine','admitted','unchanged','rejected')),
+  fetch_policy_decision JSONB NOT NULL,
+  use_policy_decision JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, id),
+  CONSTRAINT knowledge_source_revisions_admitted_needs_use_decision
+    CHECK (disposition <> 'admitted' OR use_policy_decision IS NOT NULL),
+  FOREIGN KEY (tenant_id, subscription_id)
+    REFERENCES knowledge_source_subscriptions(tenant_id, id),
+  FOREIGN KEY (tenant_id, artifact_id)
+    REFERENCES knowledge_source_artifacts(tenant_id, id),
+  FOREIGN KEY (tenant_id, run_id) REFERENCES knowledge_intake_runs(tenant_id, id),
+  FOREIGN KEY (tenant_id, previous_revision_id) REFERENCES knowledge_source_revisions(tenant_id, id),
+  FOREIGN KEY (tenant_id, derived_from_revision_id) REFERENCES knowledge_source_revisions(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_source_revisions_subscription
+  ON knowledge_source_revisions(tenant_id, subscription_id, acquired_at DESC);
+CREATE INDEX IF NOT EXISTS idx_knowledge_source_revisions_raw_hash
+  ON knowledge_source_revisions(tenant_id, raw_hash);
+DROP TRIGGER IF EXISTS trg_knowledge_source_revisions_append_only ON knowledge_source_revisions;
+CREATE TRIGGER trg_knowledge_source_revisions_append_only
+  BEFORE UPDATE ON knowledge_source_revisions FOR EACH ROW
+  EXECUTE FUNCTION knowledge_intake_guard_immutable(
+    'tenant_id','id','subscription_id','run_id','previous_revision_id','derived_from_revision_id',
+    'requested_uri','final_uri','redirect_chain','acquired_at','response_status','content_type',
+    'etag','last_modified','artifact_id','raw_hash','normalized_text_hash','normalized_text',
+    'disposition','fetch_policy_decision','use_policy_decision','created_at');
+
+-- 7/7 Source Dependency（边 append-only；只有 stale 状态可迁移，带 row_version）。
+CREATE TABLE IF NOT EXISTS knowledge_source_dependencies (
+  id BIGSERIAL PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  subscription_id TEXT NOT NULL,
+  source_revision_id TEXT NOT NULL,
+  dependent_kind TEXT NOT NULL DEFAULT 'knowledge-entry'
+    CHECK (dependent_kind IN ('knowledge-entry','candidate')),
+  dependent_id TEXT NOT NULL,
+  dependent_revision INTEGER,
+  space TEXT NOT NULL DEFAULT '',
+  evidence_digest TEXT NOT NULL DEFAULT '',
+  stale BOOLEAN NOT NULL DEFAULT false,
+  stale_at TIMESTAMPTZ,
+  stale_reason TEXT,
+  row_version INTEGER NOT NULL DEFAULT 1,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  FOREIGN KEY (tenant_id, subscription_id)
+    REFERENCES knowledge_source_subscriptions(tenant_id, id),
+  FOREIGN KEY (tenant_id, source_revision_id)
+    REFERENCES knowledge_source_revisions(tenant_id, id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_source_dependencies_edge
+  ON knowledge_source_dependencies(tenant_id, dependent_kind, dependent_id, source_revision_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_source_dependencies_subscription
+  ON knowledge_source_dependencies(tenant_id, subscription_id, stale);
+DROP TRIGGER IF EXISTS trg_knowledge_source_dependencies_append_only ON knowledge_source_dependencies;
+CREATE TRIGGER trg_knowledge_source_dependencies_append_only
+  BEFORE UPDATE ON knowledge_source_dependencies FOR EACH ROW
+  EXECUTE FUNCTION knowledge_intake_guard_immutable(
+    'id','tenant_id','subscription_id','source_revision_id','dependent_kind','dependent_id',
+    'dependent_revision','space','evidence_digest','created_at');
+`;
+
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,
@@ -223,6 +488,8 @@ CREATE TABLE IF NOT EXISTS knowledge_verdict_rows (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_verdict_rows_plan_check_principal
   ON knowledge_verdict_rows(plan_id, check_id, principal_id);
 CREATE INDEX IF NOT EXISTS idx_verdict_rows_plan ON knowledge_verdict_rows(plan_id, tenant_id);
+
+${KNOWLEDGE_INTAKE_SCHEMA_SQL}
 `;
 
 export async function applySchema(pool: pg.Pool): Promise<void> {
