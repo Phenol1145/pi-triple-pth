@@ -32,7 +32,7 @@ export interface N28VerticalObservation {
   outcome: import("../src/pth/contracts/index.js").TaskOutcome;
   toolsByTurn: string[][];
   systemPrompt: string;
-  traces: Array<{ type: string; toolNames?: string[]; directorySnapshotId?: string; retrievalTraceIds?: string[] }>;
+  traces: Array<{ type: string; phase?: string; toolNames?: string[]; directorySnapshotId?: string; retrievalTraceIds?: string[] }>;
   usage: Readonly<Record<string, number>> | undefined;
 }
 
@@ -183,7 +183,11 @@ export function createN28InMemoryBundle(): N28InMemoryBundle {
       const llm: LlmFn = {
         complete: async (messages, options) => {
           call += 1;
-          toolsByTurn.push((options.tools ?? []).map((tool) => tool.name));
+          // 只记录真实 agent 轮次（含 tools 面）；runAgentTask 完成后的 context compaction
+          // 是一次无 tools 的压缩调用，不属于 LLM 工具面回合。
+          if (Array.isArray(options?.tools)) {
+            toolsByTurn.push(options.tools.map((tool) => tool.name));
+          }
           const system = messages.filter((m) => m.role === "system" || m.role === "user").map((m) => m.content).join("\n");
           if (call === 1) promptParts.push(system);
           return {
