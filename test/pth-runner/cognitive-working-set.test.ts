@@ -83,6 +83,37 @@ describe("cognitive working set（policy + budgeted facade）", () => {
     expect(fake.assertCurrentScope).toHaveBeenCalled();
   });
 
+  it("state recall 只暴露 ledger accepted 行（P0-1 红→绿）：超条目时 omitted 不返回", async () => {
+    const { policy, ledger } = createTaskWorkingSetPolicy({
+      taskId: "task-n28", worker: N28_WORKERS.algebra, directorySnapshotId: "md-1",
+      budget: { ...N28_FEASIBILITY_BUDGET.task, maxMemoryEntries: 1 },
+      skillIndexItems: [],
+      pinnedToolNames: ["done"],
+      candidateToolNames: [],
+    });
+    const fake = adapters({
+      recallFunctions: async () => [
+        { id: "state:function:f1", key: "f1", source: "tool-function", spec: { a: 1 } },
+        { id: "state:function:f2", key: "f2", source: "tool-function", spec: { b: 2 } },
+      ],
+      recallInsights: async () => [
+        { id: "state:insight:i1", content: "one" },
+        { id: "state:insight:i2", content: "two" },
+      ],
+    });
+    const caps = createBudgetedTaskCapabilities({}, policy, ledger, fake, { skillSummaries: Object.freeze([]) });
+    const state = caps["state"] as { recallFunctions(a: string[]): Promise<unknown[]>; recallInsights(a: string[]): Promise<unknown[]> };
+    const functions = await state.recallFunctions(["a"]);
+    expect(functions).toHaveLength(1);   // 第二条被 omit 不得暴露
+    const insights = await state.recallInsights(["a"]);
+    expect(insights).toHaveLength(0);    // 同一账本条目轴已满——两条 insight 都 omit，不得暴露
+    const snapshot = ledger.snapshot();
+    expect(snapshot.usage.memoryEntries).toBe(1);
+    expect(snapshot.omitted["state:function:f2"]).toBe(1);
+    expect(snapshot.omitted["state:insight:i1"]).toBe(1);
+    expect(snapshot.omitted["state:insight:i2"]).toBe(1);
+  });
+
   it("超预算展开：memory.get / skills.get 抛 CognitiveBudgetExceededError 且不暴露", async () => {
     const { policy, ledger } = createTaskWorkingSetPolicy({
       taskId: "task-n28", worker: N28_WORKERS.algebra, directorySnapshotId: "md-1", budget: { ...N28_FEASIBILITY_BUDGET.task, maxMemoryChars: 10, maxSkillChars: 10 },

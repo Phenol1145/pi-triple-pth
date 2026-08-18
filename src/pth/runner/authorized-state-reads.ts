@@ -39,6 +39,8 @@ export function createAuthorizedStateReadPort(deps: {
 
       async function load(kind: "tool-function" | "task-insight", anchors: string[], opts?: { limit?: number }): Promise<Array<{ id: string; content: string }>> {
         assertVerifiedTaskReadScope(authorization, {}, { clock: deps.clock });
+        // 服务器端统一硬上限（P0-1 修复）：调用方 limit 只可收敛在 [1,20]。
+        const limit = Math.max(1, Math.min(20, Math.floor(typeof opts?.limit === "number" && Number.isFinite(opts.limit) ? opts.limit : 20)));
         const entries = await deps.memory.retrieve({
           anchors: anchors ?? [],
           kinds: [kind],
@@ -52,7 +54,7 @@ export function createAuthorizedStateReadPort(deps: {
             entry.tenantId === authorization.tenantId &&
             deps.isVisible(entry.meta, authorization.space))
           .sort((a, b) => a.id.localeCompare(b.id))
-          .slice(0, opts?.limit ?? 20)
+          .slice(0, limit)
           .map((entry) => ({ id: entry.id, content: entry.content }));
       }
 

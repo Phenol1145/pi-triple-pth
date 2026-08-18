@@ -210,27 +210,9 @@ export function createKnowledgeContextProvider(deps: KnowledgeContextProviderDep
           queryFingerprint: layeredFingerprint,
           domains,
           limit: maxEntries,
-          searchWave: async (wave) => {
-            assertVerifiedTaskReadScope(wave.authorization, { tenantId: input.tenantId }, { clock });
-            const all = await deps.memory.retrieve({
-              anchors: domains,
-              kinds: [...KNOWLEDGE_CONTEXT_KINDS],
-              status: ["official"],
-              tenantId: wave.authorization.tenantId,
-            });
-            const authorized = all.filter((e) => deps.isVisible(e.meta, wave.authorization.space));
-            const regionSet = deps.layeredRetriever!.entryIdsForRegions(wave.regionIds);
-            const inWave = wave.candidateScope === "global" ? authorized : authorized.filter((e) => regionSet.has(e.id));
-            const matching = filterKnowledgeEntriesByQueryText(inWave, input.text, { strict: true });
-            const ranked = rankKnowledgeEntries(matching, { queryText: input.text, domains });
-            return {
-              entries: ranked.slice(0, wave.limit),
-              candidateCount: all.length,
-              visibleCount: authorized.length,
-              scannedCount: all.length,
-              completeForQuery: true,
-            };
-          },
+          // P1-1 修复：Context 与 Broker 共用同一注入 wave port，不再内联第二套
+          // 授权/过滤/排序逻辑（trace 的 candidate/visible/scanned 由同一端口诚实声明）。
+          searchWave: deps.layeredSearchWave,
         });
         const contextEntries: KnowledgeContextEntry[] = result.status === "found"
           ? result.entries.map((e) => ({
