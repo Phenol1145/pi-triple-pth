@@ -474,8 +474,8 @@
       "lines": 119
     },
     "src/pth/kernel/execution/cognitive-budget.ts": {
-      "sha256": "74d86d71ee0a5b0e9686cad62efb1c8e7a94338018322af6f31d2ec0c95dc39b",
-      "lines": 248
+      "sha256": "d0fd23a434c756ba5c8910ce58f3008a0d95a63148707321cbf7f57061857e42",
+      "lines": 249
     },
     "src/pth/kernel/execution/context-compaction.ts": {
       "sha256": "d947fb4021fb444307619014919a94745f10a2b43d4854336ab9371ab482d0b8",
@@ -1180,8 +1180,8 @@
       "lines": 90
     },
     "test/pth-kernel-execution/cognitive-budget.test.ts": {
-      "sha256": "eac06883ab27b619293cc02055b799f52c20d6fcf74b6d6d53e3d8eea8d0d4f6",
-      "lines": 108
+      "sha256": "b4e2b8fd420bbf74b203b29e06baef9c0ce349d0441c08afffb3b9a68cfe9494",
+      "lines": 109
     },
     "test/pth-kernel-execution/config-center.test.ts": {
       "sha256": "10134945a5a8a81fd01958d113e62c679ba64f3caf25c19f29fcb412533cbef5",
@@ -1970,8 +1970,8 @@
       "lines": 214
     },
     "scripts/eval-n28-feasibility.ts": {
-      "sha256": "a7c2c9824175ce85cdbb78a3bb87d188af8540a1238b740e5f8fb2ac5c7545c1",
-      "lines": 952
+      "sha256": "4a047c19d3d15157a38d99cf86f793af23c79f968c6743b5b5c8d9870eae135d",
+      "lines": 1015
     },
     "scripts/ext-check.ts": {
       "sha256": "17ead9fb28880f76fc4c4742d3afa3e7f94f4571e7c6d42be47fa3ad3b99581a",
@@ -8210,7 +8210,7 @@
     "scriptFiles": 20,
     "packageFiles": 183,
     "totalFiles": 679,
-    "totalLines": 105821,
+    "totalLines": 105886,
     "importEdges": 900,
     "runtimeEdges": 413,
     "typeEdges": 487,

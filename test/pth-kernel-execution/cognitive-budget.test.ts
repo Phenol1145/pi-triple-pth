@@ -59,7 +59,8 @@ describe("CognitiveBudgetLedger", () => {
         ledger.admitMemory(memory);
         const generatedSkills = Array.from({ length: 20 }, (_, index) => ({ id: `skill:${(seed + index * 7) % 31}`, chars: 20 + index }));
         const skillSource = reverse ? [...generatedSkills].reverse() : generatedSkills;
-        ledger.freezeSkillIndex([...skillSource].sort((a, b) => a.id.localeCompare(b.id)));
+        // P1-1/H5：freezeSkillIndex 自身必须对输入顺序确定性——反序输入不得产生不同冻结索引。
+        ledger.freezeSkillIndex(skillSource);
         for (let index = 0; index < 12; index += 1) {
           const id = ledger.snapshot().skillIndexIds[index];
           if (id) ledger.activateSkill(id, 100 + ((seed + index) % 900));

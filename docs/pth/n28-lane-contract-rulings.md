@@ -98,3 +98,21 @@
   `npm run lint` 根 `tsc --noEmit` 继续覆盖源码类型正确性。
 - 落账：`docs/pth/n28-task7-contract.md` §11 v1.1 人工批准修订；envelope 的
   `contractDisposition` 引用本裁决。
+
+## 9. 裁决 P1-1：H1/H4/H5/H6 正向探针补成真实观察（第二轮复核 §7 线 3）
+
+- 问题：H1 无 pause/resume 且 heartbeat 只查 envelope；H4 的 32 格多数停在 scope factory；
+  H5 未经过 capability facade 且 working-set 反序输入未验证；H6 未做 Working Set 与
+  LLM schema/prompt/facade 暴露面的精确集合相等。
+- 裁决：探针全部补成真实观察，分母冻结值不变（workerLifecycle=6、authorization=32、
+  visibility=14、surfaceComparison=12、budget=1000）：
+  - H1：6 格 = busy remove / no-preclaim / peer continues / pause / resume / idle remove；
+    heartbeat 4 格含逐 replica 与逐 task 的 worker identity 比对。
+  - H4：invalid-signature、missing-capability、already-expired、lease-expired 四类全部穿过
+    同一 surface 入口（入口内先 verifyBrokerGrant 再执行真实 read）；visibility 14 格改为
+    正反双向断言——allowed 行必须命中、denied 行必须为空。
+  - H5：1000 cases 经 `createBudgetedTaskCapabilities` facade；`workingSetDeterminismMismatches`
+    由反序 skill/candidate 输入独立构造。暴露的生产缺陷：`freezeSkillIndex` 对输入顺序敏感，
+    已改为按 id 字典序冻结（`cognitive-budget.ts`），并有反序回归测试锁住。
+  - H6：final Working Set trace 的 Tool/Memory/Skill 集合与最后一回合 LLM tools 面、
+    prompt Knowledge Context 行、facade skill 暴露做精确相等比较。
