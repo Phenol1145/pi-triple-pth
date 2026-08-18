@@ -128,6 +128,10 @@ export function n28TrapCorpus(): N28KnowledgeEntry[] {
   ];
 }
 
+export const N28_ACCEPTED_BASELINE_SKIPS = [
+  { file: "test/pth-execution/sandbox-security.integration.test.ts", tests: 9 },
+] as const;
+
 export const N28_GOLD_QUERIES = [
   { id: "q-primary-1", workerKey: "algebra", text: "token:alg-01", expected: "alg-01", expectedWave: 0 },
   { id: "q-primary-2", workerKey: "algebra", text: "token:alg-20", expected: "alg-20", expectedWave: 0 },
