@@ -38,6 +38,8 @@ export interface AgentLoopOptions {
   capabilityInject?: Record<string, unknown>;
   /** N14 P2：tool-reg 注册表快照（任务开始冻结——T3 防线；缺省 = 注册面关闭） */
   toolRegistry?: import("./tool-registry.js").ToolRegSnapshot;
+  /** N28 T6：Frozen task tool face；schema 暴露与执行授权使用同一 canonicalize 集合。 */
+  toolAllowlist?: readonly string[];
   /** N14 P2：注册工具 agent 态执行缝 + 调用方上下文（穿透 runChild 同款——深度限 1） */
   toolRegExec?: {
     runChild?: import("./tool-registry.js").ToolRegRunChild;
@@ -51,7 +53,8 @@ export type AgentTraceEvent =
   | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
   | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string }
   | { type: "guard"; step: number; guard: "repeat-action" | "empty-done" | "empty-reply" | "unknown-tool" | "negative-loop"; kind: "hit" | "guide" | "soft" | "hard"; count: number; limit: number }
-  | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string };
+  | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string }
+  | { type: "cognitive-working-set"; phase: "start" | "finish"; taskId: string; directorySnapshotId: string; workerId: string; toolNames: string[]; memoryEntryIds: string[]; skillIndexIds: string[]; activeSkillIds: string[]; usage: { memoryEntries: number; memoryChars: number; skillIndexEntries: number; activeSkills: number; skillChars: number; tools: number }; omitted: Record<string, number>; retrievalTraceIds: string[] };
 
 export type AgentTaskResult =
   | { ok: true; value: unknown; summary?: string; steps: number; warning?: string; compression?: import("./context-compaction.js").CompactionResult | null }

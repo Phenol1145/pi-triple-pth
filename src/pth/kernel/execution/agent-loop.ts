@@ -10,7 +10,7 @@
 import type { LlmFn } from "../interpreter/llm-fn.js";
 import type { WorkerKernel } from "../interpreter/index.js";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, toolsToSchema, type AgentToolResult } from "./agent-tools.js";
+import { AGENT_TOOLS, toolsToSchema, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
 import { EXEC_TOOL_CAP, normalizeToolName, toolsForSpace, ASP_BLOCK, buildAgentSystemPrompt } from "./agent-loop-prompt.js";
 import type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
 export type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
@@ -46,6 +46,10 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   const currentSpace = () => aspSession.currentSpace;
   // 随身缓存（任务级行李——task-loop 注入或本函数自建）
   const cache: import("./cache-store.js").CacheStore = input.cache ?? new (await import("./cache-store.js")).CacheStore();
+  // N28 T6：冻结任务工具面（schema/prompt/执行器同源；normalizeToolName 后比较）。
+  const allowlist = input.toolAllowlist && input.toolAllowlist.length > 0
+    ? new Set(input.toolAllowlist.map((name) => normalizeToolName(name)))
+    : undefined;
   let system = await buildAgentSystemPrompt(input.role, input.task.title, {
     // 2026-08-14 T2：仅显式 env 覆盖才传入——缺省交由角色类策略（规划系 eager/其余 lazy）
     mode: (() => {
@@ -54,6 +58,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     })(),
     // 2026-08-15 审计 MEDIUM：非 ASP 模式 prompt 工具面与 schema 同源（剔除 ASP-only）
     asp: aspMode,
+    ...(allowlist ? { allowlist: [...allowlist] } : {}),
     memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
   });
   if (aspMode) system = `${system}\n\n${ASP_BLOCK}`;
@@ -108,7 +113,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       ? toolsForSpace(aspCurrent, input.role?.actionTools)
       : [...staticTools];
     // 同名工具去重（OpenAI 对重复工具名 400）；N14 P2：注册表可见集并入（空间无关）
-    return [...new Map([...base, ...registrySchemas].map((t) => [t.name, t])).values()];
+    const all = [...new Map([...base, ...registrySchemas].map((t) => [t.name, t])).values()];
+    // N28 T6：非 ASP 面不含 done（仅 ASP meta 面有）——冻结 union 恒含 pinned done，schema 需同步暴露。
+    if (allowlist?.has("done") && !all.some((t) => normalizeToolName(t.name) === "done")) {
+      const done = toolSchemaFor("done");
+      if (done) all.push(done);
+    }
+    // N28 T6：schema 暴露与执行授权同源——冻结 union ∩ 当前 space face。
+    return allowlist ? all.filter((t) => allowlist.has(normalizeToolName(t.name))) : all;
   }
 
   const start = Date.now();
@@ -208,6 +220,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     // 2026-08-15 审计 MEDIUM-4：provider 可能给 null/数组/字符串 arguments——统一对象化再分发
     const args: Record<string, unknown> =
       action.args && typeof action.args === "object" && !Array.isArray(action.args) ? action.args : {};
+    // N28 T6：allowlist 检查必须早于一切 executor 查找；不依赖模型尊重广告 schema。
+    if (allowlist && !allowlist.has(tool)) {
+      const denied = `tool ${tool} is outside the frozen Task Working Set`;
+      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: denied });
+      input.onStep?.({ n: steps + 1, tool, durationMs: 0, ok: false, args: JSON.stringify(args).slice(0, 300) });
+      input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: denied });
+      return undefined;
+    }
     // 重复检测（收敛 agent 行为 v1——轨迹分析 2026-08-09）：
     // 语义指纹（关键参数）连续相同 → 重复。≥3 次回填引导（不终止——模型修正策略）；
     // ≥5 次强制终止（防失控）。

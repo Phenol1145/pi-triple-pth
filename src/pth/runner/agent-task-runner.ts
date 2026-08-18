@@ -23,8 +23,14 @@ import { runPtcProgram } from "../kernel/ptc/runner.js";
 import { defaultRunnerConfig, type RunnerConfig } from "./runner-config.js";
 import type { TaskWorkspace } from "./task-workspace.js";
 import type { KnowledgeContext, KnowledgeContextProvider } from "./knowledge-context.js";
+import { contextPromptProjection, formatKnowledgeContextPromptRows } from "./knowledge-context.js";
 import type { WorkerReplicaRef } from "../contracts/index.js";
-import type { VerifiedTaskReadScopeFactory } from "../execution/index.js";
+import type { MemoryDirectorySnapshot, VerifiedTaskReadScopeFactory } from "../execution/index.js";
+import type { CognitiveWorkingSetProvider } from "./cognitive-working-set.js";
+import type { AuthorizedTaskReadFactory } from "./authorized-task-reads.js";
+import { canonicalExposureChars } from "../kernel/execution/cognitive-budget.js";
+import { taskToolUnion, normalizeToolName } from "../kernel/execution/agent-loop-prompt.js";
+import { visibleRegistryTools } from "../kernel/execution/tool-registry.js";
 
 export interface AgentTaskRunnerDeps {
   kernel: WorkerKernel;
@@ -49,6 +55,14 @@ export interface AgentTaskRunnerDeps {
   replica?: WorkerReplicaRef;
   /** N28 T4：每任务 mint 一次 verified scope 的 authority（缺失=legacy 路径）。 */
   verifiedReadScopeFactory?: VerifiedTaskReadScopeFactory;
+  /** N28 T6：冻结 MemoryDirectory（feasibility 模式必填）。 */
+  memoryDirectory?: MemoryDirectorySnapshot;
+  /** N28 T6：working-set provider（feasibility 模式必填）。 */
+  cognitiveWorkingSetProvider?: CognitiveWorkingSetProvider;
+  /** N28 T6：认知责任模式（off=legacy 默认；feasibility=切片）。 */
+  cognitiveResponsibilityMode?: "off" | "feasibility";
+  /** N28 T6：grant-bound 任务读取工厂（feasibility 模式必填）。 */
+  authorizedReads?: AuthorizedTaskReadFactory;
 }
 
 function leaseRef(lease: TaskLease): TaskOutcome["lease"] {
@@ -103,16 +117,51 @@ export class AgentTaskRunner implements TaskRunner {
       const { CacheStore } = await import("../kernel/execution/cache-store.js");
       const cacheStore = new CacheStore();
       const cs = cacheStore;
+      const feasibility = this.deps.cognitiveResponsibilityMode === "feasibility";
       const sessionRef = (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef;
       // K3：空间从 kernel sessionRef.currentSpace 取（显式传参）；取不到用 "meta"。
       const space = sessionRef?.current?.currentSpace ?? "meta";
+      if (feasibility && (
+        !this.deps.replica ||
+        !this.deps.memoryDirectory ||
+        !this.deps.cognitiveWorkingSetProvider ||
+        !this.deps.authorizedReads ||
+        !this.deps.verifiedReadScopeFactory ||
+        !this.deps.knowledgeContextProvider
+      )) {
+        return {
+          lease: ref, status: "rejected", retryable: false,
+          error: { code: "cognitive-feasibility-deps-missing", message: "feasibility mode requires replica/memoryDirectory/provider/authorizedReads/verifiedReadScopeFactory/knowledgeContextProvider" },
+          artifacts: [], traceId,
+        };
+      }
+
+      // N28 T6：ToolReg 快照 hoist——provider 与 agent-loop 共用同一份冻结快照（不得二次加载）。
+      const toolRegistry = this.deps.toolRegStore
+        ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: work.scope.tenantId })
+        : undefined;
+
+      // N28 T4/T6：verified scope 每任务恰好 mint 一次。
+      let authorization: import("../execution/index.js").VerifiedTaskReadScope | undefined;
+      if (this.deps.replica && this.deps.verifiedReadScopeFactory) {
+        try {
+          authorization = this.deps.verifiedReadScopeFactory.forTask({ lease, work, space, worker: this.deps.replica });
+        } catch (e) {
+          if (feasibility) {
+            return {
+              lease: ref, status: "rejected", retryable: false,
+              error: { code: "cognitive-scope-rejected", message: (e as Error).message },
+              artifacts: [], traceId,
+            };
+          }
+          this.deps.logger?.(`[verified-scope] forTask failed: ${(e as Error).message}`);
+        }
+      }
+
       let knowledgeContext: KnowledgeContext | undefined;
-      let taskText = work.text;
+      let contextTrace: KnowledgeContext["retrievalTrace"];
       if (this.deps.knowledgeContextProvider) {
         try {
-          const authorization = this.deps.replica && this.deps.verifiedReadScopeFactory
-            ? this.deps.verifiedReadScopeFactory.forTask({ lease, work, space, worker: this.deps.replica })
-            : undefined;
           knowledgeContext = await this.deps.knowledgeContextProvider.build({
             tenantId: work.scope.tenantId,
             space,
@@ -124,17 +173,94 @@ export class AgentTaskRunner implements TaskRunner {
             ...(this.deps.replica ? { workerId: this.deps.replica.workerId } : {}),
             ...(authorization ? { authorization } : {}),
           });
-          const header = `\n\n【Knowledge Context（catalog ${knowledgeContext.catalogVersion}）】\n`;
-          const body = knowledgeContext.entries.length > 0
-            ? knowledgeContext.entries.map((e) => `- [${e.entryId}] ${e.anchor}: ${e.summary}`).join("\n")
-            : "无相关 official 知识条目";
-          taskText = `${work.text}${header}${body}`;
+          contextTrace = knowledgeContext.retrievalTrace;
+          if (feasibility && knowledgeContext.retrievalStatus === "retrieval-failed") {
+            return {
+              lease: ref, status: "rejected", retryable: false,
+              error: { code: "cognitive-context-retrieval-failed", message: "knowledge context retrieval failed" },
+              artifacts: [], traceId,
+            };
+          }
+          if (feasibility && knowledgeContext.retrievalStatus === "retrieval-incomplete") {
+            return {
+              lease: ref, status: "rejected", retryable: false,
+              error: { code: "cognitive-context-retrieval-incomplete", message: "knowledge context retrieval incomplete" },
+              artifacts: [], traceId,
+            };
+          }
         } catch (e) {
-          // 组合设计 §4.5 裁决：知识降级不阻塞任务——provider 抛错 → warn + 原文执行。
+          if (feasibility) {
+            return {
+              lease: ref, status: "rejected", retryable: false,
+              error: { code: "cognitive-context-failed", message: (e as Error).message },
+              artifacts: [], traceId,
+            };
+          }
+          // 组合设计 §4.5 裁决：知识降级不阻塞任务——provider 抛错 → warn + 原文执行（仅 off）。
           this.deps.logger?.(`[knowledge-context] build failed: ${(e as Error).message}（降级原文执行）`);
           knowledgeContext = undefined;
         }
       }
+
+      if (feasibility && (!contextTrace || contextTrace.directorySnapshotId !== this.deps.memoryDirectory?.snapshotId)) {
+        return {
+          lease: ref,
+          status: "rejected",
+          retryable: false,
+          error: { code: "cognitive-directory-trace-mismatch", message: "Knowledge Context is missing or bound to another MemoryDirectory snapshot" },
+          artifacts: [],
+          traceId,
+        };
+      }
+
+      const cognitive = this.deps.replica && this.deps.cognitiveWorkingSetProvider && this.deps.authorizedReads && contextTrace
+        ? await this.deps.cognitiveWorkingSetProvider.build({
+            taskId: lease.taskId,
+            worker: this.deps.replica,
+            directorySnapshotId: contextTrace.directorySnapshotId,
+            roleId: role.id,
+            loadPolicyRef: (role as { loadPolicyRef?: string }).loadPolicyRef,
+            tenantId: work.scope.tenantId,
+            space,
+            domains: work.domains ?? [],
+            title: work.title,
+            text: work.text,
+            catalogVersion: work.domainBinding?.catalogVersion ?? "",
+            baseCaps: caps,
+            staticToolNames: ["done", ...taskToolUnion(role.actionTools, { asp: config.aspMode }).map((tool) => tool.name)],
+            registryToolNames: toolRegistry ? visibleRegistryTools(toolRegistry, role.id).map((tool) => tool.name.replace(/\./g, "_")) : [],
+            authorizedReads: this.deps.authorizedReads.forTask({ lease, work, space, worker: this.deps.replica, authorization: authorization! }),
+          })
+        : undefined;
+      const taskCaps = cognitive?.capabilities ?? caps;
+      const completedContextTrace = cognitive && contextTrace
+        ? cognitive.ledger.recordRetrievalTrace(contextTrace)
+        : undefined;
+
+      if (cognitive && knowledgeContext) {
+        const admitted = cognitive.ledger.admitMemory(
+          (knowledgeContext.entries ?? []).map((entry) => ({ id: entry.entryId, chars: canonicalExposureChars(contextPromptProjection(entry)) })),
+        );
+        const allowed = new Set(admitted.accepted.map((entry) => entry.id));
+        knowledgeContext = {
+          ...knowledgeContext,
+          entries: knowledgeContext.entries.filter((entry) => allowed.has(entry.entryId)),
+          omitted: {
+            count: knowledgeContext.omitted.count + admitted.omitted.length,
+            reason: admitted.omitted.length > 0 ? "cognitive-budget" : knowledgeContext.omitted.reason,
+          },
+        };
+      }
+
+      let taskText = work.text;
+      if (knowledgeContext) {
+        const header = `\n\n【Knowledge Context（catalog ${knowledgeContext.catalogVersion}）】\n`;
+        const body = knowledgeContext.entries.length > 0
+          ? formatKnowledgeContextPromptRows(knowledgeContext.entries.map(contextPromptProjection))
+          : "无相关 official 知识条目";
+        taskText = `${work.text}${header}${body}`;
+      }
+
       const capabilityInject: Record<string, unknown> = {
         cache: {
           get: (k: string) => cs.get(k),
@@ -148,16 +274,37 @@ export class AgentTaskRunner implements TaskRunner {
       if (knowledgeContext) {
         // AB-03：与角色既有 capability（如 adversarial 的 knowledge.review / memory-keeper 的
         // knowledge.promote）合并，只注入/刷新 context，不覆盖同键能力。
-        const existingKnowledge = caps["knowledge"];
+        const existingKnowledge = taskCaps["knowledge"];
         const knowledgeCap = typeof existingKnowledge === "object" && existingKnowledge !== null && !Array.isArray(existingKnowledge)
           ? existingKnowledge as Record<string, unknown>
           : {};
         capabilityInject["knowledge"] = { ...knowledgeCap, context: knowledgeContext };
       }
+
+      if (cognitive) {
+        const snapshot = cognitive.ledger.snapshot();
+        const event = {
+          type: "cognitive-working-set" as const,
+          phase: "start" as const,
+          taskId: lease.taskId,
+          directorySnapshotId: cognitive.policy.directorySnapshotId,
+          workerId: this.deps.replica!.workerId,
+          toolNames: snapshot.toolNames,
+          memoryEntryIds: snapshot.memoryEntryIds,
+          skillIndexIds: snapshot.skillIndexIds,
+          activeSkillIds: snapshot.activeSkillIds,
+          usage: snapshot.usage,
+          omitted: snapshot.omitted,
+          retrievalTraceIds: snapshot.retrievalTraces.map((trace) => trace.traceId),
+        };
+        traceEvents.push(event);
+        this.deps.onTrace?.(event);
+      }
+
       const r = await runAgentTask({
         llm,
         kernel,
-        caps,
+        caps: taskCaps,
         task: { title: work.title, text: taskText },
         taskWorkspace: this.deps.workspace.dir,
         toolstore: (kernel as unknown as { toolstore?: import("../kernel/interpreter/toolstore.js").Toolstore }).toolstore,
@@ -166,10 +313,8 @@ export class AgentTaskRunner implements TaskRunner {
         sessionRef,
         cache: cs,
         capabilityInject,
-        // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
-        toolRegistry: this.deps.toolRegStore
-          ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: work.scope.tenantId })
-          : undefined,
+        toolRegistry,
+        ...(cognitive ? { toolAllowlist: cognitive.policy.toolNames } : {}),
         toolRegExec: this.deps.toolRegRunChild
           ? { runChild: this.deps.toolRegRunChild, caller: { taskId: lease.taskId, roleId: role.id, tenantId: work.scope.tenantId, delivery: null } }
           : undefined,
@@ -180,6 +325,26 @@ export class AgentTaskRunner implements TaskRunner {
           this.deps.onTrace?.(e);
         },
       });
+
+      if (cognitive) {
+        const snapshot = cognitive.ledger.snapshot();
+        const event = {
+          type: "cognitive-working-set" as const,
+          phase: "finish" as const,
+          taskId: lease.taskId,
+          directorySnapshotId: cognitive.policy.directorySnapshotId,
+          workerId: this.deps.replica!.workerId,
+          toolNames: snapshot.toolNames,
+          memoryEntryIds: snapshot.memoryEntryIds,
+          skillIndexIds: snapshot.skillIndexIds,
+          activeSkillIds: snapshot.activeSkillIds,
+          usage: snapshot.usage,
+          omitted: snapshot.omitted,
+          retrievalTraceIds: snapshot.retrievalTraces.map((trace) => trace.traceId),
+        };
+        traceEvents.push(event);
+        this.deps.onTrace?.(event);
+      }
 
       if (aborted()) {
         return { lease: ref, status: "cancelled", retryable: true, error: { code: "cancelled", message: "cancelled during agent execution" }, artifacts: [], traceId };
@@ -199,6 +364,18 @@ export class AgentTaskRunner implements TaskRunner {
         result: { value: r.value, summary: r.summary ?? "", steps: r.steps },
         artifacts: [],
         traceId,
+        ...(cognitive
+          ? {
+              usage: {
+                "cognitive.memoryEntries": cognitive.ledger.snapshot().usage.memoryEntries,
+                "cognitive.memoryChars": cognitive.ledger.snapshot().usage.memoryChars,
+                "cognitive.skillIndexEntries": cognitive.ledger.snapshot().usage.skillIndexEntries,
+                "cognitive.activeSkills": cognitive.ledger.snapshot().usage.activeSkills,
+                "cognitive.skillChars": cognitive.ledger.snapshot().usage.skillChars,
+                "cognitive.tools": cognitive.ledger.snapshot().usage.tools,
+              },
+            }
+          : {}),
       };
     }
 

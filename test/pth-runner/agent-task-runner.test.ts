@@ -183,7 +183,7 @@ describe("AgentTaskRunner（P1-4）", () => {
       catalogVersion: "cat-1",
       queryFingerprint: "abc12345",
       domains: ["math"],
-      entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: null }],
+      entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: [], exposedMeta: { kind: "domain-fact", domains: ["math"] } }],
       omitted: { count: 0, reason: "budget" },
     }));
 
@@ -221,7 +221,7 @@ describe("AgentTaskRunner（P1-4）", () => {
         catalogVersion: "cat-1",
         queryFingerprint: "abc12345",
         domains: ["math"],
-        entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: null }],
+        entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: [], exposedMeta: { kind: "domain-fact", domains: ["math"] } }],
         omitted: { count: 0, reason: "budget" },
       },
     });
@@ -236,7 +236,7 @@ describe("AgentTaskRunner（P1-4）", () => {
       catalogVersion: "cat-1",
       queryFingerprint: "abc12345",
       domains: ["math"],
-      entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: null }],
+      entries: [{ entryId: "e1", version: 1, anchor: "math", summary: "summary-1", evidence: [], exposedMeta: { kind: "domain-fact", domains: ["math"] } }],
       omitted: { count: 0, reason: "budget" },
     };
     const build = vi.fn(async () => knowledgeContext);

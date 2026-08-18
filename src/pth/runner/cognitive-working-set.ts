@@ -7,7 +7,8 @@
  */
 
 import type { MemoryEntry, SkillSummary } from "@away_from/pth-memory";
-import type { CognitiveBudget, TaskWorkingSetPolicy, WorkerReplicaRef } from "../contracts/index.js";
+import type { CognitiveBudget, TaskWorkingSetPolicy, WorkerLoadEnvelope, WorkerReplicaRef } from "../contracts/index.js";
+import { knowledgeQueryTokenHits } from "../execution/index.js";
 import { canonicalExposureChars, CognitiveBudgetExceededError, CognitiveBudgetLedger } from "../kernel/execution/cognitive-budget.js";
 import type { AuthorizedTaskReads } from "./authorized-task-reads.js";
 
@@ -111,4 +112,84 @@ export function createBudgetedTaskCapabilities(
   };
 
   return out;
+}
+
+/** N28 T6：feasibility provider——真实 Skill 快照 + 冻结工具面 + 预算化 capability。 */
+export interface CognitiveWorkingSetProvider {
+  build(input: {
+    taskId: string;
+    worker: WorkerReplicaRef;
+    directorySnapshotId: string;
+    roleId: string;
+    loadPolicyRef?: string;
+    tenantId: string;
+    space: string;
+    domains: readonly string[];
+    title: string;
+    text: string;
+    catalogVersion: string;
+    baseCaps: Record<string, unknown>;
+    staticToolNames: readonly string[];
+    registryToolNames: readonly string[];
+    authorizedReads: AuthorizedTaskReads;
+  }): Promise<{
+    policy: TaskWorkingSetPolicy;
+    ledger: CognitiveBudgetLedger;
+    capabilities: Record<string, unknown>;
+  }>;
+}
+
+export function createCognitiveWorkingSetProvider(deps: {
+  budget: WorkerLoadEnvelope;
+  resolveRoleBudget?: (loadPolicyRef: string) => Partial<CognitiveBudget> | undefined;
+}): CognitiveWorkingSetProvider {
+  return {
+    async build(input) {
+      let budget: CognitiveBudget = { ...deps.budget.task };
+      if (input.loadPolicyRef) {
+        const rolePolicy = deps.resolveRoleBudget?.(input.loadPolicyRef);
+        if (!rolePolicy) throw new Error(`cognitive working set: unknown role load policy ref ${input.loadPolicyRef}`);
+        for (const axis of Object.keys(budget) as Array<keyof CognitiveBudget>) {
+          const declared = rolePolicy[axis];
+          if (typeof declared === "number" && Number.isFinite(declared)) {
+            budget[axis] = Math.min(budget[axis], declared);
+          }
+        }
+      }
+
+      const summaries = await input.authorizedReads.listSkills();   // 恰好一次真实读取
+      const canonical = (id: string): string => (id.startsWith("skill:") ? id : `skill:${id}`);
+      const scored = summaries.map((summary) => {
+        const id = canonical(summary.id);
+        const scoringText = `${id}\n${summary.anchor}\n${summary.whenToUse}\n${summary.effect}`;
+        const hits = knowledgeQueryTokenHits({ id, content: scoringText }, `${input.title}\n${input.text}`);
+        return { summary, id, hits };
+      }).sort((a, b) => (b.hits - a.hits) || a.id.localeCompare(b.id));
+
+      const { policy, ledger } = createTaskWorkingSetPolicy({
+        taskId: input.taskId,
+        worker: input.worker,
+        directorySnapshotId: input.directorySnapshotId,
+        budget,
+        skillIndexItems: scored.map((item) => ({ id: item.id, chars: canonicalExposureChars(item.summary) })),
+        pinnedToolNames: input.staticToolNames,
+        candidateToolNames: input.registryToolNames,
+      });
+
+      const admittedSet = new Set(policy.skillIndexIds);
+      const admittedSummaries: SkillSummary[] = scored
+        .filter((item) => admittedSet.has(item.id))
+        .map((item) => Object.freeze({ ...item.summary, id: item.id }));
+      Object.freeze(admittedSummaries);
+
+      const capabilities = createBudgetedTaskCapabilities(
+        input.baseCaps,
+        policy,
+        ledger,
+        input.authorizedReads,
+        { skillSummaries: admittedSummaries },
+      );
+      return { policy, ledger, capabilities };
+    },
+  };
 }

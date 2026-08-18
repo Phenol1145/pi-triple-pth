@@ -148,6 +148,12 @@ export class TaskLoop {
         toolRegStore: this.deps.toolRegStore,   // N14 P2：注册表快照读取口
         toolRegRunChild: this.deps.toolRegRunChild,   // N14 P2：agent 态执行缝
         knowledgeContextProvider: this.deps.knowledgeContextProvider,   // K3：任务知识上下文（claim 后一次性快照）
+        replica: this.deps.replica?.ref,
+        verifiedReadScopeFactory: this.deps.verifiedReadScopeFactory,
+        memoryDirectory: this.deps.memoryDirectory,
+        cognitiveWorkingSetProvider: this.deps.cognitiveWorkingSetProvider,
+        cognitiveResponsibilityMode: this.deps.cognitiveResponsibilityMode,
+        authorizedReads: this.deps.authorizedReads,
         onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {
