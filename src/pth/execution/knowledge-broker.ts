@@ -203,9 +203,6 @@ export function buildRestrictedKnowledgeQuery(sql: string, tenantId: string, spa
   if (RESTRICTED_QUERY_FORBIDDEN_RE.test(masked)) {
     return { ok: false, status: 400, error: "knowledge query: 不开放 JOIN/子查询/写操作（仅单表 SELECT FROM memory_entries）" };
   }
-  const selectCount = (masked.match(/\bselect\b/gi) ?? []).length;
-  if (selectCount !== 1) return { ok: false, status: 400, error: "knowledge query: 子查询不开放（仅单层 SELECT FROM memory_entries）" };
-
   const from = /\bfrom\s+([a-zA-Z_][\w]*)/i.exec(masked);
   if (!from) return { ok: false, status: 400, error: "knowledge query: 仅支持单表 FROM memory_entries" };
   if (from[1]!.toLowerCase() !== "memory_entries") {
@@ -213,14 +210,30 @@ export function buildRestrictedKnowledgeQuery(sql: string, tenantId: string, spa
   }
   const fromEnd = from.index + from[0].length;
 
+  // FROM 区域（FROM 表名之后、WHERE/第一个尾部子句之前）只允许空白或 [AS] alias——
+  // 逗号、第二张表、TABLESAMPLE/LATERAL/子查询等复杂表表达式一律 400（逗号跨表数据面漏洞）。
+  const where = /\bwhere\b/i.exec(masked);
+  const fromRegionEnd = where ? where.index : firstClauseIndex(masked, fromEnd);
+  const fromRegion = masked.slice(fromEnd, fromRegionEnd);
+  if (!/^\s*(?:AS\s+[A-Za-z_][A-Za-z0-9_$]*|[A-Za-z_][A-Za-z0-9_$]*)?\s*$/i.test(fromRegion)) {
+    return { ok: false, status: 400, error: "knowledge query: FROM 仅支持单表 memory_entries（可带表别名），逗号/额外表/表表达式一律 400" };
+  }
+
+  const selectCount = (masked.match(/\bselect\b/gi) ?? []).length;
+  if (selectCount !== 1) return { ok: false, status: 400, error: "knowledge query: 子查询不开放（仅单层 SELECT FROM memory_entries）" };
+
   // 可见性判定依据：SELECT * 或显式 meta 列。
   const selectBody = masked.match(/^select\b([\s\S]*?)\bfrom\b/i)?.[1] ?? "";
   if (!/^\s*\*/.test(selectBody) && !/\bmeta\b/i.test(selectBody)) {
     return { ok: false, status: 400, error: "knowledge query: 必须包含 meta 列（可见性谓词依据）" };
   }
+  // 列白名单的工程化取舍：全列白名单会严重削弱诊断价值（COUNT/聚合/left() 预览等全部不可用），
+  // 故至少禁止 SELECT 列表中的函数调用/表达式——掩码后出现 "(" 即拒（fail-closed）。
+  if (selectBody.includes("(")) {
+    return { ok: false, status: 400, error: "knowledge query: SELECT 列表禁止函数调用/表达式（仅列名/别名，可用 DISTINCT）" };
+  }
 
   const preds = `(tenant_id = ${sqlLiteral(tenantId)} AND status = 'official' AND ${buildSpacePredicate(space)})`;
-  const where = /\bwhere\b/i.exec(masked);
   let built: string;
   if (where) {
     const whereEnd = where.index + where[0].length;

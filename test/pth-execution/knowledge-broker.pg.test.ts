@@ -154,6 +154,36 @@ suite("KnowledgeBroker raw query 数据面隔离（真实 PG）", () => {
     if (!nonSelect.ok) expect(nonSelect.status).toBe(400);
   });
 
+  it("raw query rejects comma-join with second table", async () => {
+    const broker = makePgBroker();
+    for (const sql of [
+      "SELECT meta FROM memory_entries, (SELECT 1) AS x",
+      "SELECT meta FROM memory_entries, pg_roles",
+    ]) {
+      const r = await broker.query({
+        grant: makeGrant({ tenantId: "tenant-a", space: "meta" }),
+        op: "query",
+        sql,
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.status).toBe(400);
+    }
+  });
+
+  it("raw query rejects function calls in select list", async () => {
+    const broker = makePgBroker();
+    const r = await broker.query({
+      grant: makeGrant({ tenantId: "tenant-a", space: "meta" }),
+      op: "query",
+      sql: "SELECT pg_read_file('/etc/passwd'), meta FROM memory_entries",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(400);
+      expect(r.error).toContain("函数调用");
+    }
+  });
+
   it("raw query without memory.query capability is 403（F2 门禁回归）", async () => {
     const broker = makePgBroker();
     const r = await broker.query({
