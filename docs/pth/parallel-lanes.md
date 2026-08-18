@@ -143,7 +143,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 
 | Lane | 任务 | 分支 / worktree | 状态 | 认领 |
 |------|------|-----------------|------|------|
-| **T1** | 冻结认知责任契约 + RoleDefinition 兼容别名（H1–H6 公共地基） | `lane/n28-t1-contracts` / `.worktrees/n28-t1` | **free** | — |
+| **T1** | 冻结认知责任契约 + RoleDefinition 兼容别名（H1–H6 公共地基） | `lane/n28-t1-contracts` / `.worktrees/n28-t1` | **claimed** | 主会话·2026-08-19 |
 | **T2** | WorkerReplica 独立运行时身份/控制（H1；off 逐字节兼容） | `lane/n28-t2-worker-replica-identity` / `.worktrees/n28-t2` | **free** | — |
 | **T3** | 确定性内存 MemoryDirectory + 重叠/unclassified（H2） | `lane/n28-t3-memory-directory` / `.worktrees/n28-t3` | **free** | — |
 | **T4** | 分层检索共享给 Broker/Context + verified scope（H3/H4） | `lane/n28-t4-layered-retrieval` / `.worktrees/n28-t4` | **free** | — |
