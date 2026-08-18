@@ -469,6 +469,10 @@
       "sha256": "554f167f10b4ca78034ac8717fe9303f6d6e9f9704064da9863ebb7a8c86db9f",
       "lines": 119
     },
+    "src/pth/kernel/execution/cognitive-budget.ts": {
+      "sha256": "74d86d71ee0a5b0e9686cad62efb1c8e7a94338018322af6f31d2ec0c95dc39b",
+      "lines": 248
+    },
     "src/pth/kernel/execution/context-compaction.ts": {
       "sha256": "d947fb4021fb444307619014919a94745f10a2b43d4854336ab9371ab482d0b8",
       "lines": 132
@@ -773,9 +777,21 @@
       "sha256": "15caa2854738900c049cfe39c9c7034036ca7b0d66fc451b1ed61b2eb4cab4da",
       "lines": 253
     },
+    "src/pth/runner/authorized-state-reads.ts": {
+      "sha256": "4fc374db9a463bb566315c73e8848b7af0795df326b3728050252fb9628b0411",
+      "lines": 77
+    },
+    "src/pth/runner/authorized-task-reads.ts": {
+      "sha256": "9d38c58e459bba1c04ba1c632f3fe8bd26055b0d5d68d648467642f6a71c041c",
+      "lines": 228
+    },
+    "src/pth/runner/cognitive-working-set.ts": {
+      "sha256": "f9a23469d9580600b25ebd6f641dd8e491a8ba1c2f14d9497cc2fcf5f4a8d85a",
+      "lines": 115
+    },
     "src/pth/runner/index.ts": {
-      "sha256": "31cd487ce4414a0a4fd6835140bb4aece333ddd173bdebf2a777708615bb587d",
-      "lines": 16
+      "sha256": "908572765a25a300e5d6caf9bb5cc92b383eaab37f7a4f8d0ce2499d2bc31377",
+      "lines": 19
     },
     "src/pth/runner/knowledge-context.ts": {
       "sha256": "5458ffd2792d74d3995ef6e94ff9fcaf5f546656320b713aea8e82781dbd1013",
@@ -1155,6 +1171,10 @@
       "sha256": "279a3c918dbf7047e0707ed4dcbbc0470fbcd171798c74b06dff37a12ab67948",
       "lines": 90
     },
+    "test/pth-kernel-execution/cognitive-budget.test.ts": {
+      "sha256": "eac06883ab27b619293cc02055b799f52c20d6fcf74b6d6d53e3d8eea8d0d4f6",
+      "lines": 108
+    },
     "test/pth-kernel-execution/config-center.test.ts": {
       "sha256": "10134945a5a8a81fd01958d113e62c679ba64f3caf25c19f29fcb412533cbef5",
       "lines": 68
@@ -1490,6 +1510,18 @@
     "test/pth-runner/agent-task-runner.test.ts": {
       "sha256": "052e08cf4880121bd88984c493c22d8628348ccda888ba2545f6aed84aacde33",
       "lines": 304
+    },
+    "test/pth-runner/authorized-state-reads.test.ts": {
+      "sha256": "9debe04437102fb609214cd9ed052317bb766f0170664b232e98ecc4fb25f251",
+      "lines": 81
+    },
+    "test/pth-runner/authorized-task-reads.test.ts": {
+      "sha256": "3c0685c7075ca88613749ddcae85d9d976f9ad2ff3473c5f1459f33f81983759",
+      "lines": 97
+    },
+    "test/pth-runner/cognitive-working-set.test.ts": {
+      "sha256": "5095ad49c8504a9a5d1cd7a1a3eff20830967810099fedcd528b56561859b1fc",
+      "lines": 126
     },
     "test/pth-runner/knowledge-context.test.ts": {
       "sha256": "639ec7af2a132e79b476b9b3a5c96e44166a406ee29bb5bffda9168adf2cd3c3",
@@ -5920,6 +5952,18 @@
       "target": "src/pth/kernel/extensions/perf-params.ts"
     },
     {
+      "from": "src/pth/kernel/execution/cognitive-budget.ts",
+      "kind": "runtime",
+      "specifier": "node:crypto",
+      "target": null
+    },
+    {
+      "from": "src/pth/kernel/execution/cognitive-budget.ts",
+      "kind": "type",
+      "specifier": "../../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
       "from": "src/pth/kernel/execution/context-compaction.ts",
       "kind": "runtime",
       "specifier": "@earendil-works/pi-coding-agent",
@@ -7288,10 +7332,88 @@
       "target": "src/pth/runner/task-workspace.ts"
     },
     {
+      "from": "src/pth/runner/authorized-state-reads.ts",
+      "kind": "type",
+      "specifier": "../execution/index.js",
+      "target": "src/pth/execution/index.ts"
+    },
+    {
+      "from": "src/pth/runner/authorized-task-reads.ts",
+      "kind": "runtime",
+      "specifier": "@away_from/pth-memory",
+      "target": null
+    },
+    {
+      "from": "src/pth/runner/authorized-task-reads.ts",
+      "kind": "type",
+      "specifier": "../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/runner/authorized-task-reads.ts",
+      "kind": "type",
+      "specifier": "../execution/index.js",
+      "target": "src/pth/execution/index.ts"
+    },
+    {
+      "from": "src/pth/runner/authorized-task-reads.ts",
+      "kind": "type",
+      "specifier": "./authorized-state-reads.js",
+      "target": "src/pth/runner/authorized-state-reads.ts"
+    },
+    {
+      "from": "src/pth/runner/authorized-task-reads.ts",
+      "kind": "type",
+      "specifier": "@away_from/pth-memory",
+      "target": null
+    },
+    {
+      "from": "src/pth/runner/cognitive-working-set.ts",
+      "kind": "runtime",
+      "specifier": "../kernel/execution/cognitive-budget.js",
+      "target": "src/pth/kernel/execution/cognitive-budget.ts"
+    },
+    {
+      "from": "src/pth/runner/cognitive-working-set.ts",
+      "kind": "type",
+      "specifier": "../contracts/index.js",
+      "target": "src/pth/contracts/index.ts"
+    },
+    {
+      "from": "src/pth/runner/cognitive-working-set.ts",
+      "kind": "type",
+      "specifier": "./authorized-task-reads.js",
+      "target": "src/pth/runner/authorized-task-reads.ts"
+    },
+    {
+      "from": "src/pth/runner/cognitive-working-set.ts",
+      "kind": "type",
+      "specifier": "@away_from/pth-memory",
+      "target": null
+    },
+    {
       "from": "src/pth/runner/index.ts",
       "kind": "runtime",
       "specifier": "./agent-task-runner.js",
       "target": "src/pth/runner/agent-task-runner.ts"
+    },
+    {
+      "from": "src/pth/runner/index.ts",
+      "kind": "runtime",
+      "specifier": "./authorized-state-reads.js",
+      "target": "src/pth/runner/authorized-state-reads.ts"
+    },
+    {
+      "from": "src/pth/runner/index.ts",
+      "kind": "runtime",
+      "specifier": "./authorized-task-reads.js",
+      "target": "src/pth/runner/authorized-task-reads.ts"
+    },
+    {
+      "from": "src/pth/runner/index.ts",
+      "kind": "runtime",
+      "specifier": "./cognitive-working-set.js",
+      "target": "src/pth/runner/cognitive-working-set.ts"
     },
     {
       "from": "src/pth/runner/index.ts",
@@ -7985,15 +8107,15 @@
     }
   ],
   "summary": {
-    "srcPthFiles": 220,
-    "testFiles": 244,
+    "srcPthFiles": 224,
+    "testFiles": 248,
     "scriptFiles": 17,
     "packageFiles": 183,
-    "totalFiles": 664,
-    "totalLines": 102456,
-    "importEdges": 874,
-    "runtimeEdges": 402,
-    "typeEdges": 472,
-    "packageSpecifierEdges": 197
+    "totalFiles": 672,
+    "totalLines": 103539,
+    "importEdges": 889,
+    "runtimeEdges": 408,
+    "typeEdges": 481,
+    "packageSpecifierEdges": 201
   }
 }
