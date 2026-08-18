@@ -228,6 +228,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // N28 T2：认知责任模式（默认 off=legacy 逐字节兼容）；feasibility 由确定性装配/harness 显式开启。
   const mode = pthConfig().str("PTH_COGNITIVE_RESPONSIBILITY_MODE") === "feasibility" ? "feasibility" as const : "off" as const;
   const batchId = pthConfig().str("PTH_BATCH_ID") || `batch:${process.pid}`;
+  // N28 复核 Layer3：role 批量 remove 的最终回执聚合（全部 worker-removed 后发唯一 role removed）。
+  const pendingRoleRemovals = new Map<string, Set<string>>();
 
   // N28 T6 + 复核 Layer2：feasibility 模式 provider + 启动前责任容量硬闸（缺依赖=启动错误，绝不省略）。
   let authorizedTaskReadFactory = deps.authorizedTaskReadFactory;
@@ -385,8 +387,14 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       }
     } else if (msg?.type === "worker-remove" && typeof msg.role === "string") {
       if (mode === "feasibility") {
-        for (const status of runtime.list().filter((s) => s.role.roleId === msg.role)) {
-          void runtime.handleControl({ type: "worker-remove", workerId: status.workerId });
+        const targets = runtime.list().filter((s) => s.role.roleId === msg.role).map((s) => s.workerId);
+        if (targets.length === 0) {
+          process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
+        } else {
+          pendingRoleRemovals.set(msg.role, new Set(targets));
+          for (const workerId of targets) {
+            void runtime.handleControl({ type: "worker-remove", workerId });
+          }
         }
       } else {
         getEventBus().emit("worker.remove", { role: msg.role, batchPid: process.pid });
@@ -573,7 +581,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
                 secret: pthConfig().str("SANDBOX_SHARED_SECRET"),
                 grantSecret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET"),
                 grantIdentity: {
-                  principalId: `worker:${childRole.id}`,
+                  principalId: replica ? `worker:${replica.ref.workerId}` : `worker:${childRole.id}`,
                   roleId: childRole.id,
                   capabilities: childRole.capabilities ?? [],
                 },
@@ -635,6 +643,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
                         kind: "activity",
                         activity: {
                           kind: "task.penetrate", taskId: req.caller.taskId, role: req.caller.roleId,
+                          ...(replica ? { workerId: replica.ref.workerId } : {}),
                           ok: e.ok, step: e.steps,
                           // N15 B2：软限命中标记（累计耗尽走预算闸失败路径，不进这里）
                           budgetUsed: e.steps,
@@ -850,7 +859,21 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     batchId,
     workerSpecs: workerRoles.map((role) => ({ role })),
     buildSlot: ({ role, replica }) => makeSlot(createWorker(role, replica)),
-    emit: (event) => { try { process.send?.(event); } catch { /* IPC 不可用 */ } },
+    emit: (event) => {
+      try {
+        process.send?.(event);
+        // 聚合 role remove 最终回执：最后一个 worker-removed 到达时发 role removed。
+        if (event.type === "worker-removed") {
+          for (const [role, remaining] of pendingRoleRemovals) {
+            remaining.delete(event.workerId);
+            if (remaining.size === 0) {
+              pendingRoleRemovals.delete(role);
+              process.send?.({ type: "worker-status", batchPid: process.pid, role, state: "removed" });
+            }
+          }
+        }
+      } catch { /* IPC 不可用 */ }
+    },
   });
 
   if (mode !== "feasibility") {
