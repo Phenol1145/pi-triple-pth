@@ -36,6 +36,7 @@ import type {
   IntakeRunStage,
   IntakeRunStatus,
   KnowledgeIntakeRepository,
+  SourceRevision,
   SourceSubscription,
   StoreAcquisitionInput,
   TrustPolicyManifest,
@@ -46,6 +47,8 @@ import type {
 type SqlRow = Record<string, any>;
 
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
+/** P0-4：从落库字节重算 artifact hash（断言"服务端可重算"而不是相信自报值）。 */
+const sha256OfBuffer = (b: Buffer): string => createHash("sha256").update(b).digest("hex");
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const SIGNER = "human:alice";
@@ -236,30 +239,51 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     return r.rows[0].n as number;
   }
 
+  /**
+   * storeAcquisition 的**合法**输入（N29 再验收 P0-4 的正向基线）：
+   *  - `rawHash === sha256(rawBytes)`、`normalizedTextHash === sha256(normalizedText)`
+   *    —— 两者都必须能由仓库服务端重算；
+   *  - fetch/use decision 的 policy id/version/digest/rule 取自 Subscription 的策略绑定
+   *    （= 已装策略审计镜像），因此 decision 与 Subscription/Policy 三方一致；
+   *  - `admitted` 必须由调用方显式给出同 tenant/subscription 的 raw-quarantine 父 revision。
+   *
+   * `extra` 的每个字段都是一类**对抗输入**（错 hash / deny / 错父 / 错策略绑定），
+   * 供 P0-4 负测逐项破坏单一不变量。
+   */
   const acquisitionInput = (
-    tenantId: string,
-    subscriptionId: string,
+    sub: SourceSubscription,
     runId: string,
     body: string,
     disposition: "raw-quarantine" | "admitted" | "unchanged",
-    extra: { derivedFromRevisionId?: string; withUseDecision?: boolean } = {},
+    extra: {
+      derivedFromRevisionId?: string;
+      withUseDecision?: boolean;
+      useDecision?: "allow" | "deny";
+      rawHash?: string;
+      byteLength?: number;
+      normalizedTextHash?: string;
+      policyId?: string;
+      policyVersion?: string;
+      policyDigest?: string;
+      ruleId?: string;
+      subscriptionId?: string;
+    } = {},
   ): StoreAcquisitionInput => {
-    const manifestDigest = sha(`${tenantId}:policy-intake:v1`);
-    const decision = {
-      policyId: "policy-intake",
-      policyVersion: "v1",
-      policyDigest: manifestDigest,
-      ruleId: "rule-1",
-      decision: "allow" as const,
+    const decisionOf = (decision: "allow" | "deny") => ({
+      policyId: extra.policyId ?? sub.policyId,
+      policyVersion: extra.policyVersion ?? sub.policyVersion,
+      policyDigest: extra.policyDigest ?? sub.policyDigest,
+      ruleId: extra.ruleId ?? sub.policyRuleId,
+      decision,
       decidedAt: "2026-08-19T00:00:00.000Z",
-    };
+    });
     return {
-      tenantId,
-      subscriptionId,
+      tenantId: sub.tenantId,
+      subscriptionId: extra.subscriptionId ?? sub.id,
       runId,
       artifact: {
-        rawHash: sha(body),
-        byteLength: Buffer.byteLength(body),
+        rawHash: extra.rawHash ?? sha(body),
+        byteLength: extra.byteLength ?? Buffer.byteLength(body),
         rawBytes: new Uint8Array(Buffer.from(body)),
         contentType: "text/html",
       },
@@ -272,14 +296,29 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
         contentType: "text/html",
         etag: 'W/"v1"',
         normalizedText: body,
-        normalizedTextHash: sha(`norm:${body}`),
+        normalizedTextHash: extra.normalizedTextHash ?? sha(body),
         disposition,
-        fetchPolicyDecision: decision,
-        ...((extra.withUseDecision ?? disposition !== "raw-quarantine") ? { usePolicyDecision: decision } : {}),
+        fetchPolicyDecision: decisionOf("allow"),
+        ...((extra.withUseDecision ?? disposition !== "raw-quarantine")
+          ? { usePolicyDecision: decisionOf(extra.useDecision ?? "allow") }
+          : {}),
         ...(extra.derivedFromRevisionId ? { derivedFromRevisionId: extra.derivedFromRevisionId } : {}),
       },
     };
   };
+
+  /** 合法 admitted 只能派生自同 tenant/subscription 的 raw-quarantine 行（两条独立 append-only 行）。 */
+  async function storeQuarantineThenAdmitted(
+    sub: SourceSubscription,
+    runId: string,
+    body: string,
+  ): Promise<{ quarantine: SourceRevision; admitted: SourceRevision }> {
+    const quarantine = await repo.storeAcquisition(acquisitionInput(sub, runId, body, "raw-quarantine"));
+    const admitted = await repo.storeAcquisition(
+      acquisitionInput(sub, runId, body, "admitted", { derivedFromRevisionId: quarantine.id }),
+    );
+    return { quarantine, admitted };
+  }
 
   // ---------------------------------------------------------------- schema 面
 
@@ -1298,12 +1337,12 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
     const body = "<html><body>Fermat</body></html>";
 
-    const raw = await repo.storeAcquisition(acquisitionInput(tenantId, sub.id, run.id, body, "raw-quarantine"));
+    const raw = await repo.storeAcquisition(acquisitionInput(sub, run.id, body, "raw-quarantine"));
     expect(raw.disposition).toBe("raw-quarantine");
     expect(raw.usePolicyDecision).toBeUndefined();
 
     const admitted = await repo.storeAcquisition(
-      acquisitionInput(tenantId, sub.id, run.id, body, "admitted", { derivedFromRevisionId: raw.id }),
+      acquisitionInput(sub, run.id, body, "admitted", { derivedFromRevisionId: raw.id }),
     );
     expect(admitted.id).not.toBe(raw.id);
     expect(admitted.artifactId).toBe(raw.artifactId); // rawHash 去重复用既有 artifact
@@ -1328,7 +1367,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const tenantId = nextTenant("rev-immutable");
     const sub = await seedSubscription(tenantId, { status: "active" });
     const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
-    const raw = await repo.storeAcquisition(acquisitionInput(tenantId, sub.id, run.id, "body-x", "raw-quarantine"));
+    const raw = await repo.storeAcquisition(acquisitionInput(sub, run.id, "body-x", "raw-quarantine"));
 
     await expect(
       pool.query<SqlRow>(`UPDATE knowledge_source_revisions SET disposition = 'admitted' WHERE tenant_id = $1 AND id = $2`, [
@@ -1351,9 +1390,231 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const tenantId = nextTenant("rev-usedecision");
     const sub = await seedSubscription(tenantId, { status: "active" });
     const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
-    const input = acquisitionInput(tenantId, sub.id, run.id, "body-y", "admitted", { withUseDecision: false });
+    const input = acquisitionInput(sub, run.id, "body-y", "admitted", { withUseDecision: false });
     await expect(repo.storeAcquisition(input)).rejects.toThrow();
     expect(await repo.listRevisions(tenantId, sub.id)).toHaveLength(0);
+  });
+
+  // ------------------------------ P0-4：SourceRevision / Artifact 不变量必须在写口守住
+  // 反例来源：docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-4 / §8 条件 4。
+  // 这些用例**直接调用**仓库公共写口（模拟"被错误内部调用者直接调用"），不经 service happy path。
+
+  /** 每个 P0-4 负测的公共前置：真实 policy + subscription + run + 一条合法 raw-quarantine 父行。 */
+  async function quarantinedFixture(label: string, body = `<html><body>${label}</body></html>`): Promise<{
+    tenantId: string;
+    sub: SourceSubscription;
+    runId: string;
+    body: string;
+    quarantine: SourceRevision;
+  }> {
+    const tenantId = nextTenant(label);
+    const sub = await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const quarantine = await repo.storeAcquisition(acquisitionInput(sub, run.id, body, "raw-quarantine"));
+    return { tenantId, sub, runId: run.id, body, quarantine };
+  }
+
+  /** 断言：抛出带指定 code 的 KnowledgeIntakeValidationError，且 revision 行数不变（零写）。 */
+  async function expectAdmittedRejected(
+    fixture: { tenantId: string; sub: SourceSubscription },
+    input: StoreAcquisitionInput,
+    code: string,
+  ): Promise<void> {
+    const before = (await repo.listRevisions(fixture.tenantId, fixture.sub.id)).map((r) => r.id).sort();
+    const error = await repo.storeAcquisition(input).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error, `storeAcquisition 必须拒绝（期望 code=${code}）`).toBeInstanceOf(KnowledgeIntakeValidationError);
+    expect((error as KnowledgeIntakeValidationError).code).toBe(code);
+    // 零写：revision 行集合（id 集合）完全不变
+    const after = (await repo.listRevisions(fixture.tenantId, fixture.sub.id)).map((r) => r.id).sort();
+    expect(after).toEqual(before);
+  }
+
+  it("P0-4：usePolicyDecision=deny 的 admitted revision 零行", async () => {
+    const f = await quarantinedFixture("p04-deny");
+    await expectAdmittedRejected(
+      f,
+      acquisitionInput(f.sub, f.runId, f.body, "admitted", {
+        derivedFromRevisionId: f.quarantine.id,
+        useDecision: "deny",
+      }),
+      "ADMITTED_USE_DECISION_NOT_ALLOW",
+    );
+  });
+
+  it("P0-4：rawHash 与 rawBytes 不符（自报 hash）零行——服务端必须重算", async () => {
+    const f = await quarantinedFixture("p04-rawhash");
+    await expectAdmittedRejected(
+      f,
+      acquisitionInput(f.sub, f.runId, f.body, "admitted", {
+        derivedFromRevisionId: f.quarantine.id,
+        rawHash: sha("totally-different-bytes"),
+      }),
+      "ARTIFACT_RAW_HASH_MISMATCH",
+    );
+  });
+
+  it("P0-4：normalizedTextHash 与 normalizedText 不符零行——服务端必须重算", async () => {
+    const f = await quarantinedFixture("p04-normhash");
+    await expectAdmittedRejected(
+      f,
+      acquisitionInput(f.sub, f.runId, f.body, "admitted", {
+        derivedFromRevisionId: f.quarantine.id,
+        normalizedTextHash: "not-a-hash",
+      }),
+      "REVISION_NORMALIZED_TEXT_HASH_MISMATCH",
+    );
+  });
+
+  it("P0-4：admitted 缺少 derivedFromRevisionId（无 raw→admitted 关联）零行", async () => {
+    const f = await quarantinedFixture("p04-noparent");
+    await expectAdmittedRejected(
+      f,
+      acquisitionInput(f.sub, f.runId, f.body, "admitted"),
+      "ADMITTED_PARENT_REQUIRED",
+    );
+  });
+
+  it("P0-4：derivedFromRevisionId 指向另一 tenant 的 revision 零行", async () => {
+    const foreign = await quarantinedFixture("p04-foreign-parent", "<html><body>foreign</body></html>");
+    const f = await quarantinedFixture("p04-crosstenant");
+    await expectAdmittedRejected(
+      f,
+      acquisitionInput(f.sub, f.runId, f.body, "admitted", { derivedFromRevisionId: foreign.quarantine.id }),
+      "ADMITTED_PARENT_NOT_FOUND",
+    );
+    // 另一 tenant 的 quarantine 行本身不受影响（零跨租户副作用）
+    expect((await repo.getRevision(foreign.tenantId, foreign.quarantine.id))!.disposition).toBe("raw-quarantine");
+  });
+
+  it("P0-4：derivedFromRevisionId 指向非 raw-quarantine 行零行", async () => {
+    const f = await quarantinedFixture("p04-parent-kind");
+    const admitted = await repo.storeAcquisition(
+      acquisitionInput(f.sub, f.runId, f.body, "admitted", { derivedFromRevisionId: f.quarantine.id }),
+    );
+    // 拿一条 admitted 行当"父"——raw→admitted 关联语义被破坏，必须拒绝。
+    await expectAdmittedRejected(
+      { tenantId: f.tenantId, sub: f.sub },
+      acquisitionInput(f.sub, f.runId, f.body, "admitted", { derivedFromRevisionId: admitted.id }),
+      "ADMITTED_PARENT_NOT_QUARANTINE",
+    );
+  });
+
+  it("P0-4：derivedFromRevisionId 指向另一 subscription 的 quarantine 零行", async () => {
+    const f = await quarantinedFixture("p04-parent-sub");
+    // 同 tenant 第二个 subscription（不同 canonicalUri）的 quarantine 不能当父行。
+    const otherSub = await seedSubscription(f.tenantId, {
+      status: "active",
+      canonicalUri: "https://docs.example.org/guide/other",
+    });
+    const otherQuarantine = await repo.storeAcquisition(
+      acquisitionInput(otherSub, f.runId, "<html><body>other-sub</body></html>", "raw-quarantine"),
+    );
+    await expectAdmittedRejected(
+      f,
+      acquisitionInput(f.sub, f.runId, f.body, "admitted", { derivedFromRevisionId: otherQuarantine.id }),
+      "ADMITTED_PARENT_SUBSCRIPTION_MISMATCH",
+    );
+  });
+
+  it("P0-4：use decision 的 policy 绑定与 Subscription 不一致零行（digest / ruleId / policyId）", async () => {
+    const f = await quarantinedFixture("p04-policybind");
+    for (const [over, code] of [
+      [{ policyDigest: sha("forged-policy-digest") }, "POLICY_DECISION_BINDING_MISMATCH"],
+      [{ ruleId: "rule-does-not-exist" }, "POLICY_DECISION_BINDING_MISMATCH"],
+      [{ policyId: "policy-other" }, "POLICY_DECISION_BINDING_MISMATCH"],
+      [{ policyVersion: "v9" }, "POLICY_DECISION_BINDING_MISMATCH"],
+    ] as const) {
+      await expectAdmittedRejected(
+        f,
+        acquisitionInput(f.sub, f.runId, f.body, "admitted", {
+          derivedFromRevisionId: f.quarantine.id,
+          ...over,
+        }),
+        code,
+      );
+    }
+  });
+
+  it("P0-4：Subscription 不存在（或跨 tenant）零行", async () => {
+    const f = await quarantinedFixture("p04-nosub");
+    const before = await repo.listRevisions(f.tenantId, f.sub.id);
+    await expect(
+      repo.storeAcquisition(
+        acquisitionInput(f.sub, f.runId, f.body, "raw-quarantine", { subscriptionId: "sub-does-not-exist" }),
+      ),
+    ).rejects.toThrow(KnowledgeIntakeValidationError);
+    expect(await repo.listRevisions(f.tenantId, f.sub.id)).toHaveLength(before.length);
+  });
+
+  it("P0-4：recordDependency 不得把依赖边绑到 raw-quarantine / 跨 subscription 的 revision", async () => {
+    const f = await quarantinedFixture("p04-dep");
+    const { admitted } = await storeQuarantineThenAdmitted(f.sub, f.runId, "<html><body>dep</body></html>");
+
+    // ① 绑到未准入字节（raw-quarantine）→ 拒绝，零依赖边
+    const quarantineEdge = await repo.recordDependency({
+      tenantId: f.tenantId,
+      subscriptionId: f.sub.id,
+      sourceRevisionId: f.quarantine.id,
+      dependentId: "entry-p04-dep",
+      evidenceDigest: sha("ev"),
+      space: "space-a",
+    }).then(() => null, (e: unknown) => e);
+    expect(quarantineEdge).toBeInstanceOf(KnowledgeIntakeValidationError);
+    expect(await repo.listDependencies(f.tenantId, f.sub.id)).toHaveLength(0);
+
+    // ② 跨 subscription 引用 → 拒绝
+    const otherSub = await seedSubscription(f.tenantId, {
+      status: "active",
+      canonicalUri: "https://docs.example.org/guide/dep-other",
+    });
+    const crossEdge = await repo.recordDependency({
+      tenantId: f.tenantId,
+      subscriptionId: otherSub.id,
+      sourceRevisionId: admitted.id,
+      dependentId: "entry-p04-dep",
+      evidenceDigest: sha("ev"),
+      space: "space-a",
+    }).then(() => null, (e: unknown) => e);
+    expect(crossEdge).toBeInstanceOf(KnowledgeIntakeValidationError);
+    expect(await repo.listDependencies(f.tenantId, otherSub.id)).toHaveLength(0);
+
+    // ③ 绑到 admitted revision → 成功（正向基线）
+    await repo.recordDependency({
+      tenantId: f.tenantId,
+      subscriptionId: f.sub.id,
+      sourceRevisionId: admitted.id,
+      dependentId: "entry-p04-dep",
+      evidenceDigest: sha("ev"),
+      space: "space-a",
+    });
+    expect(await repo.listDependencies(f.tenantId, f.sub.id)).toHaveLength(1);
+  });
+
+  it("P0-4：全部不变量满足的 admitted revision 成功落库（hash 可重算 + raw 父 + allow + 策略一致）", async () => {
+    const tenantId = nextTenant("p04-happy");
+    const sub = await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const body = "<html><body>P0-4 happy path</body></html>";
+    const { quarantine, admitted } = await storeQuarantineThenAdmitted(sub, run.id, body);
+
+    expect(admitted.disposition).toBe("admitted");
+    expect(admitted.derivedFromRevisionId).toBe(quarantine.id);
+    expect(admitted.usePolicyDecision!.decision).toBe("allow");
+    // 落库 hash 与服务端重算值逐字段一致
+    expect(admitted.rawHash).toBe(sha(body));
+    expect(admitted.normalizedTextHash).toBe(sha(admitted.normalizedText));
+    const stored = await pool.query<SqlRow>(
+      `SELECT r.raw_hash, r.normalized_text_hash, a.raw_bytes, a.byte_length
+         FROM knowledge_source_revisions r
+         JOIN knowledge_source_artifacts a ON a.tenant_id = r.tenant_id AND a.id = r.artifact_id
+        WHERE r.tenant_id = $1 AND r.id = $2`,
+      [tenantId, admitted.id],
+    );
+    expect(sha256OfBuffer(stored.rows[0].raw_bytes as Buffer)).toBe(stored.rows[0].raw_hash);
+    expect(Number(stored.rows[0].byte_length)).toBe(Buffer.byteLength(body));
   });
 
   it("artifact raw_hash 去重是 tenant 作用域：跨 tenant 各存一份，互不可见", async () => {
@@ -1365,13 +1626,13 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const [runA] = await repo.createDueRuns(new Date(), 10, { tenantId: tenantA });
     const [runB] = await repo.createDueRuns(new Date(), 10, { tenantId: tenantB });
 
-    const revA = await repo.storeAcquisition(acquisitionInput(tenantA, subA.id, runA.id, body, "raw-quarantine"));
-    const revB = await repo.storeAcquisition(acquisitionInput(tenantB, subB.id, runB.id, body, "raw-quarantine"));
+    const revA = await repo.storeAcquisition(acquisitionInput(subA, runA.id, body, "raw-quarantine"));
+    const revB = await repo.storeAcquisition(acquisitionInput(subB, runB.id, body, "raw-quarantine"));
     expect(revA.rawHash).toBe(revB.rawHash);
     expect(revA.artifactId).not.toBe(revB.artifactId);
 
     // 同 tenant 内重复 rawHash → 复用同一 artifact id
-    const revA2 = await repo.storeAcquisition(acquisitionInput(tenantA, subA.id, runA.id, body, "unchanged"));
+    const revA2 = await repo.storeAcquisition(acquisitionInput(subA, runA.id, body, "unchanged"));
     expect(revA2.artifactId).toBe(revA.artifactId);
 
     const counts = await pool.query<SqlRow>(
@@ -1392,9 +1653,9 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const subB = await seedSubscription(tenantB, { status: "active" });
     const [runA] = await repo.createDueRuns(new Date(), 10, { tenantId: tenantA });
     const [runB] = await repo.createDueRuns(new Date(), 10, { tenantId: tenantB });
-    const revA1 = await repo.storeAcquisition(acquisitionInput(tenantA, subA.id, runA.id, "v1", "admitted"));
-    const revA2 = await repo.storeAcquisition(acquisitionInput(tenantA, subA.id, runA.id, "v2", "admitted"));
-    const revB1 = await repo.storeAcquisition(acquisitionInput(tenantB, subB.id, runB.id, "v1", "admitted"));
+    const { admitted: revA1 } = await storeQuarantineThenAdmitted(subA, runA.id, "v1");
+    const { admitted: revA2 } = await storeQuarantineThenAdmitted(subA, runA.id, "v2");
+    const { admitted: revB1 } = await storeQuarantineThenAdmitted(subB, runB.id, "v1");
 
     await repo.recordDependency({
       tenantId: tenantA,

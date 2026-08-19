@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import {
+  OFFICIAL_KNOWLEDGE_GATED_KINDS,
   PROVENANCE_REQUIRED_KINDS,
   buildKnowledgeProvenance,
   contentHashOf,
@@ -31,6 +32,18 @@ function validMeta(content: string): Record<string, unknown> {
 describe("knowledge-provenance", () => {
   it("PROVENANCE_REQUIRED_KINDS = domain-fact / domain-method", () => {
     expect(PROVENANCE_REQUIRED_KINDS).toEqual(new Set(["domain-fact", "domain-method"]));
+  });
+
+  it("N29 再验收 P0-5：OFFICIAL_KNOWLEDGE_GATED_KINDS 覆盖全部权威知识消费面（含 task-insight / tool-function）", () => {
+    expect(OFFICIAL_KNOWLEDGE_GATED_KINDS).toEqual(
+      new Set(["domain-fact", "domain-method", "task-insight", "tool-function"]),
+    );
+    // 报告 §2.3 的 rawStoreOfficial 反例 kind 必须在集合内（否则 official 直写旁路仍然开着）
+    expect(OFFICIAL_KNOWLEDGE_GATED_KINDS.has("task-insight")).toBe(true);
+    // provenance 集合是 official 授权集合的子集（两道门叠加，不互相掩盖）
+    for (const kind of PROVENANCE_REQUIRED_KINDS) {
+      expect(OFFICIAL_KNOWLEDGE_GATED_KINDS.has(kind)).toBe(true);
+    }
   });
 
   it("contentHashOf 返回 node:crypto sha256 hex（64 位）", () => {

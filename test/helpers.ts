@@ -3,6 +3,7 @@ import { setDefaultRoles } from "../src/pth/kernel/execution/worker-cluster";
 import { registerBuiltinSpaces } from "../src/pth/impls/spaces/builtin-spaces";
 import { spaceRegistry } from "../src/pth/kernel/execution/space-registry";
 import {
+  PROMOTION_EVALUATOR_REQUIRED,
   PromotionConflictError,
   setSpaceLookup,
   type MemoryEntry,
@@ -24,6 +25,9 @@ export function installDefaultRoles(): void {
  * 置 official / version+1 / meta.promotion（verdicts 从旧 meta 取）→ 返回 { ok:true, id }；
  * 不匹配时抛 PromotionConflictError。供 kernel-routes、skill-staged-chain、knowledge-promotion
  * 三处 fake store 复用，避免重复实现。
+ *
+ * N29 再验收 P0-5：与生产 `PgMemoryStore.promoteOfficial()` 对齐——evaluator 不可省略
+ * （evaluate/evaluateAsync 皆缺 → 写前抛 PROMOTION_EVALUATOR_REQUIRED，零写）。
  */
 export function createInMemoryPromoteOfficial(rows: Map<string, any>) {
   return async function promoteOfficial(
@@ -33,6 +37,9 @@ export function createInMemoryPromoteOfficial(rows: Map<string, any>) {
     promotionMeta: PgMemoryStorePromotionMeta,
     opts: PgMemoryStorePromoteOfficialOptions = {},
   ): Promise<{ ok: true; id: string }> {
+    if (!opts.evaluateAsync && !opts.evaluate) {
+      throw new Error(PROMOTION_EVALUATOR_REQUIRED);
+    }
     const row = rows.get(id);
     if (!row) {
       throw new PromotionConflictError(`entry not found in tenant ${tenantId}`);

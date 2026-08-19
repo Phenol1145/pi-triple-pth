@@ -166,6 +166,18 @@ suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
   });
 
   const content = "The Earth orbits the Sun.";
+  /**
+   * N29 再验收 P0-5（feedback §3 P0-5 / §8 条件 6）：`canPromote()` 的 legacy 兼容路径
+   * （空 sourceBindingsDigest + 空 evidence）已删除——内部 candidate 也必须显式声明来源绑定，
+   * 因此本套件的 candidate/plan 固定携带一组内部 evidence 引用。
+   */
+  const internalEvidence = [{ sourceId: "task:task-1", locator: "task-output#1" }];
+  const boundCandidateHash = computeCandidateHash({
+    content,
+    domains: ["mathematics"],
+    evidence: internalEvidence,
+    effect: null,
+  });
 
   async function seedDraft(id = "cand-1"): Promise<void> {
     await store.write({
@@ -183,6 +195,7 @@ suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
           producerModel: "deepseek-v4-flash",
           sourceRefs: ["task:task-1"],
         }),
+        evidence: internalEvidence,
       },
     } as any);
   }
@@ -193,7 +206,7 @@ suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
       tenantId: TENANT,
       candidateId: "cand-1",
       candidateRevision: 1,
-      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+      candidateHash: boundCandidateHash,
       requiredDomains: ["mathematics"],
       checks: [
         {
@@ -212,7 +225,7 @@ suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
           separationFrom: ["producer", "other-verifier"],
         },
       ],
-      sourceBindingsDigest: "",
+      sourceBindingsDigest: sourceBindingsDigestOf(internalEvidence),
       status: "satisfied",
       rowVersion: 1,
       createdAt: new Date().toISOString(),
@@ -256,7 +269,7 @@ suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
       tenantId: TENANT,
       candidateId: "cand-1",
       candidateRevision: 1,
-      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+      candidateHash: boundCandidateHash,
       kind: "domain",
       verdict: "pass",
       reviewerRole: "domain:expert",

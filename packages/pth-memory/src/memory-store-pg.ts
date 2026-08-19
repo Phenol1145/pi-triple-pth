@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import { PROVENANCE_REQUIRED_KINDS, validateKnowledgeProvenance } from "./knowledge-provenance.js";
+import {
+  OFFICIAL_KNOWLEDGE_GATED_KINDS,
+  PROVENANCE_REQUIRED_KINDS,
+  validateKnowledgeProvenance,
+} from "./knowledge-provenance.js";
 
 /** 缺省租户 id（tenant_id 列 DDL 已 default 'default'；本批不迁移存量行）。 */
 export const DEFAULT_TENANT_ID = "default";
@@ -96,16 +100,25 @@ export interface PgMemoryStoreUpdateOptions {
 }
 
 /**
- * N29/P0-4（§1.6 / §2.4 G0）：official 领域知识的内部写授权。
+ * N29/P0-4（§1.6 / §2.4 G0）+ N29 再验收 P0-5：official 知识的内部写授权。
  *
- * 只有两类持有者：
+ * 只有三类持有者：
  *  - `"promotion-service"`：Promotion Service 的窄 CAS 路径（`promoteOfficial()`）；
- *  - `"seed-migration"`：bootstrap seed / 数据迁移脚本（与 worker capability 分离的内部通道）。
+ *  - `"seed-migration"`：bootstrap seed / 数据迁移脚本（与 worker capability 分离的内部通道）；
+ *  - `"internal-reasoning"`：**无外部 SourceRevision** 的内部推理产物（如 optimizer deopt 洞察）。
+ *    再验收反馈 §3 P0-5 关闭条件 3 要求："内部推理知识若无需外部 SourceRevision，也必须使用
+ *    显式 `origin=internal` 的独立 verification contract，不能以空 digest 兼容路径表示可信"——
+ *    因此该 authority **额外**要求 `meta.origin === "internal"` 且带有效 `meta.provenance`
+ *    （见 `INTERNAL_ORIGIN`）。它不能用于外部信源知识（那必须走 Promotion Service）。
  *
  * 普通 `memory.write` / store write（含 service 与 platform-admin service 调用）不出示 authority
- * → 一律拒绝写 official 领域知识；`force: true`（系统文档通道）不是 authority，不构成旁路。
+ * → 一律拒绝写 official 知识；`force: true`（系统文档通道）不是 authority，不构成旁路。
+ * capability facade（`withMemoryTenant`）会剥离本字段，worker/service 面永远拿不到。
  */
-export type KnowledgeOfficialAuthority = "promotion-service" | "seed-migration";
+export type KnowledgeOfficialAuthority = "promotion-service" | "seed-migration" | "internal-reasoning";
+
+/** N29 再验收 P0-5：`internal-reasoning` 授权要求的显式来源标记（`meta.origin`）。 */
+export const INTERNAL_ORIGIN = "internal";
 
 /** official 领域知识直写被拒的统一错误前缀（测试与调用方据此断言）。 */
 export const KNOWLEDGE_OFFICIAL_WRITE_DENIED = "memory: knowledge official 直写被拒绝";
@@ -140,9 +153,13 @@ export interface PgMemoryStoreMarkStaleResult {
   status: MemoryEntry["status"] | undefined;
 }
 
-/** N29/P0-4：判定"是否受 official 知识写授权约束"的唯一事实源。 */
+/**
+ * N29/P0-4 + 再验收 P0-5：判定"是否受 official 知识写授权约束"的唯一事实源。
+ * 集合从 `PROVENANCE_REQUIRED_KINDS` 扩到 `OFFICIAL_KNOWLEDGE_GATED_KINDS`
+ * （补 task-insight / tool-function——报告 §2.3 的 rawStoreOfficial 反例）。
+ */
 function requiresKnowledgeOfficialAuthority(kind: string, status: string | undefined): boolean {
-  return (status ?? "official") === "official" && PROVENANCE_REQUIRED_KINDS.has(kind);
+  return (status ?? "official") === "official" && OFFICIAL_KNOWLEDGE_GATED_KINDS.has(kind);
 }
 
 function denyKnowledgeOfficialWrite(kind: string, op: "write" | "update" | "incrementAggregate" | "markStale"): never {
@@ -172,8 +189,15 @@ export interface PgMemoryStorePromotionMeta {
   verdicts?: unknown;
 }
 
+/** N29 再验收 P0-5：promoteOfficial 缺少 evaluator 时的统一错误文案（测试与调用方据此断言）。 */
+export const PROMOTION_EVALUATOR_REQUIRED =
+  "memory.promoteOfficial: evaluator required（evaluate 或 evaluateAsync 必填）——"
+  + "official 晋升门禁不可省略：无 evaluator 的晋升等于无核验直写 official"
+  + "（N29 再验收 P0-5 / §8 条件 6）";
+
 /** promoteOfficial 选项：evaluate 在锁内基于旧行重算晋升门禁；enqueueOutbox 在同一事务执行。
- *  R3/P0-3：evaluateAsync 接收同一事务 client，供 service 在锁内重读持久 plan/verdict rows 后再判定。 */
+ *  R3/P0-3：evaluateAsync 接收同一事务 client，供 service 在锁内重读持久 plan/verdict rows 后再判定。
+ *  N29 再验收 P0-5：`evaluate` / `evaluateAsync` **至少必须提供一个**（二者皆缺 → 写前抛错）。 */
 export interface PgMemoryStorePromoteOfficialOptions {
   createdBy?: string;
   reason?: string;
@@ -287,6 +311,27 @@ export class PgMemoryStore {
     if (requiresKnowledgeOfficialAuthority(entry.kind, status) && !opts?.knowledgeOfficialAuthority) {
       denyKnowledgeOfficialWrite(entry.kind, "write");
     }
+    // N29 再验收 P0-5（关闭条件 3）：内部推理知识（无外部 SourceRevision）必须使用**显式**
+    // origin=internal 合同——不得以"没有 digest/证据"隐式表示可信。
+    if (
+      status === "official"
+      && opts?.knowledgeOfficialAuthority === "internal-reasoning"
+      && OFFICIAL_KNOWLEDGE_GATED_KINDS.has(entry.kind)
+    ) {
+      if (entry.meta?.["origin"] !== INTERNAL_ORIGIN) {
+        throw new Error(
+          `${KNOWLEDGE_OFFICIAL_WRITE_DENIED}（write kind="${entry.kind}"）——`
+          + `internal-reasoning authority 必须携带显式 meta.origin="${INTERNAL_ORIGIN}"`
+          + `（内部推理知识的独立来源合同；外部信源知识只能由 Promotion Service 晋升）`,
+        );
+      }
+      const checkedInternal = validateKnowledgeProvenance(entry.meta?.provenance, entry.content);
+      if (!checkedInternal.ok) {
+        throw new Error(
+          `memory.write: provenance invalid for internal official ${entry.kind}: ${checkedInternal.error}`,
+        );
+      }
+    }
     if (status === "official" && PROVENANCE_REQUIRED_KINDS.has(entry.kind)) {
       const checked = validateKnowledgeProvenance(entry.meta?.provenance, entry.content);
       if (!checked.ok) {
@@ -395,6 +440,12 @@ export class PgMemoryStore {
     promotionMeta: PgMemoryStorePromotionMeta,
     opts: PgMemoryStorePromoteOfficialOptions = {},
   ): Promise<{ ok: true; id: string }> {
+    // N29 再验收 P0-5（feedback §3 P0-5 关闭条件 1）：evaluator **不可省略**。
+    // 旧实现把 evaluate/evaluateAsync 设为可选，未提供时仍然写 official——那是一条无门禁
+    // 晋升旁路。这里在**连接/开事务之前** fail closed：零连接、零事务、零写。
+    if (!opts.evaluateAsync && !opts.evaluate) {
+      throw new Error(PROMOTION_EVALUATOR_REQUIRED);
+    }
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -559,7 +610,7 @@ export class PgMemoryStore {
     if (old.status === STALE_KNOWLEDGE_STATUS) return { disposition: "already-stale", id, status: STALE_KNOWLEDGE_STATUS };
     if (old.status !== "official") return { disposition: "not-official", id, status: old.status as MemoryEntry["status"] };
     // stale 与 official 同属"权威面状态流转"——受同一内部 authority 约束（缺省 fail closed）。
-    if (PROVENANCE_REQUIRED_KINDS.has(old.kind) && !opts.knowledgeOfficialAuthority) {
+    if (OFFICIAL_KNOWLEDGE_GATED_KINDS.has(old.kind) && !opts.knowledgeOfficialAuthority) {
       denyKnowledgeOfficialWrite(old.kind, "markStale");
     }
 
@@ -696,7 +747,7 @@ export class PgMemoryStore {
       // 目标 kind 从锁内旧行读取（调用方不能靠不传 kind 绕过）。
       // 注意：update 的 `status === undefined` 表示"不改状态"——只有显式 official 才受门禁约束。
       const existingKind = (oldRows.rows[0] as { kind?: string }).kind ?? patch.kind ?? "";
-      if (patch.status === "official" && PROVENANCE_REQUIRED_KINDS.has(existingKind) && !opts.knowledgeOfficialAuthority) {
+      if (patch.status === "official" && OFFICIAL_KNOWLEDGE_GATED_KINDS.has(existingKind) && !opts.knowledgeOfficialAuthority) {
         denyKnowledgeOfficialWrite(existingKind, "update");
       }
 
@@ -919,6 +970,9 @@ export class PgMemoryStore {
  * N29/P0-4：本包装器是 worker/service 面的 capability facade——**剥离**
  * `knowledgeOfficialAuthority`。official 领域知识只能由内部路径（promoteOfficial 的窄 CAS，
  * 或 seed/migration 直接持有 raw store）写入，经 capability facade 一律拿不到该 authority。
+ *
+ * N29 再验收 P0-5（feedback §3 P0-5 关闭条件 2）：facade **不再暴露 `promoteOfficial`**。
+ * 只剥离 authority 不够——晋升原语本身就不该出现在 worker/service 能力面上。
  */
 export function withMemoryTenant(store: PgMemoryStore, tenantId: string): PgMemoryStore {
   /** 去掉内部 authority（capability 面不得携带）。 */
@@ -952,13 +1006,9 @@ export function withMemoryTenant(store: PgMemoryStore, tenantId: string): PgMemo
     revisionHistory: (entryId: string, opts?: { tenantId?: string }) => store.revisionHistory(entryId, { ...opts, tenantId }),
     restoreRevision: (entryId: string, revision: number, opts?: { tenantId?: string; createdBy?: string }) =>
       store.restoreRevision(entryId, revision, { ...stripAuthority(opts), tenantId }),
-    promoteOfficial: (
-      id: string,
-      _tenantId: string,
-      expectedRevision: number,
-      promotionMeta: PgMemoryStorePromotionMeta,
-      opts?: PgMemoryStorePromoteOfficialOptions,
-    ) => store.promoteOfficial(id, tenantId, expectedRevision, promotionMeta, opts),
+    // N29 再验收 P0-5（关闭条件 2）：**不再**公开 promoteOfficial。
+    // capability facade 是 worker/service 面；晋升入口只保留给持有 raw store 的
+    // Promotion Service（`promoteKnowledgeEntry()`），facade 上连原语都拿不到。
   };
   return wrapped as unknown as PgMemoryStore;
 }
