@@ -1,8 +1,8 @@
 {
   "schema": "n29-minimal-intake-acceptance/1",
-  "generatedAt": "2026-08-19T02:01:39.616Z",
+  "generatedAt": "2026-08-19T09:53:48.997Z",
   "plan": "docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md",
-  "evaluatedCommit": "8198a6c52606f18a314fc3e7cdfd523a333b59ea",
+  "evaluatedCommit": "c49fbef63b1a1acfaf8fa2e6523ae47ba5d31c29",
   "implementationTreeClean": true,
   "trustPolicy": {
     "policyId": "policy-n29-l6",
@@ -14,7 +14,7 @@
   },
   "evaluator": {
     "decision": "PASS",
-    "evaluatedCommit": "8198a6c52606f18a314fc3e7cdfd523a333b59ea",
+    "evaluatedCommit": "c49fbef63b1a1acfaf8fa2e6523ae47ba5d31c29",
     "ledgerBoundToCommit": true,
     "policyDigest": "g3tsitUoDggL1pgr21SRwdmS8MSX7g_y2a7NcvpCBv4",
     "positives": [
@@ -269,11 +269,12 @@
     },
     "crossTenant": {
       "matchers": 5,
-      "passed": 10,
+      "passed": 11,
       "failed": 0,
       "missing": [],
       "tests": [
         "test/pth-knowledge-intake/knowledge-ingestor.test.ts::isolates tenants: a revision from tenant A is invisible to a tenant B ingestion",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：Subscription 不存在（或跨 tenant）零行",
         "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::artifact raw_hash 去重是 tenant 作用域：跨 tenant 各存一份，互不可见",
         "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::policy 审计镜像不跨 tenant 授权：B 安装的 policy 不能让 A 建 subscription",
         "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::policy 审计镜像不跨 tenant 授权：B 安装的 policy 不能让 A 建 subscription",
@@ -398,21 +399,179 @@
         "test/pth-runner/intake-processors.test.ts::rejects a reviewer principal that is not eligible for the plan check",
         "test/pth-runner/intake-processors.test.ts::requires four distinct principals; any two roles sharing one principal is rejected"
       ]
+    },
+    "crossTenantOutbox": {
+      "matchers": 3,
+      "passed": 3,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::N29 refix P0-1：tenant-a 的 run 声明 tenantId=tenant-b 的 side effect → fail closed，零迁移零 outbox",
+        "test/pth-tasking/pg-task-repository.test.ts::N29 refix P0-1：retryable / rejected 分支的跨 tenant side effect 同样 fail closed",
+        "test/pth-tasking/pg-task-repository.test.ts::N29 refix P0-1：tenant-a 的 task 声明 tenantId=tenant-b 的 side effect → fail closed，两个 tenant 都零 outbox"
+      ]
+    },
+    "sideEffectTenantStamping": {
+      "matchers": 2,
+      "passed": 2,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::N29 refix P0-1：省略 tenantId 的 run side effect 由 run 的 tenant_id 盖章",
+        "test/pth-tasking/pg-task-repository.test.ts::N29 refix P0-1：省略 tenantId 的 side effect 由通过 CAS 的 task 行盖章为 tenant-a"
+      ]
+    },
+    "wrongFromStage": {
+      "matchers": 4,
+      "passed": 4,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::N29 refix P0-2：fromStage 与真实 stage 不符（正确后继但错来源）零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::N29 refix P0-2：合法边逐条通过——fetch→admit→verify→(verify 自边 domain→adversarial)→promote→complete",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::N29 refix P0-2：真实 stage=fetch 时伪报 fromStage=promote→complete 零行零 outbox；随后 fetch→admit 成功",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::N29 refix P0-2：跳阶段/回退/终态出边等非法边全部零行零 outbox"
+      ]
+    },
+    "fakePolicyInstall": {
+      "matchers": 7,
+      "passed": 7,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-3（approach A）：注入 verifier 后连手工盖章的伪造 policy 也会被重新验签拒绝",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-3（approach A）：注入 verifier 的仓库自行验签 raw manifest；伪签名仍零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-3：attestation 与 manifest 身份不一致（验签后换 manifest）安装为零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-3：service 签名的 policy（principal kind != human）安装为零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-3：即使手工盖 attestation，service principal/错 issuer 仍被仓库拒（纵深防御）",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-3：真实 verifier 产出的 policy 安装成功，其结构拷贝（丢失 attestation）被拒",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-3：结构同形但伪造 signature/digest 的 VerifiedTrustPolicy 安装为零行"
+      ]
+    },
+    "invalidAdmittedRevision": {
+      "matchers": 10,
+      "passed": 10,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：Subscription 不存在（或跨 tenant）零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：admitted 缺少 derivedFromRevisionId（无 raw→admitted 关联）零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：derivedFromRevisionId 指向另一 subscription 的 quarantine 零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：derivedFromRevisionId 指向另一 tenant 的 revision 零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：derivedFromRevisionId 指向非 raw-quarantine 行零行",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：normalizedTextHash 与 normalizedText 不符零行——服务端必须重算",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：rawHash 与 rawBytes 不符（自报 hash）零行——服务端必须重算",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：recordDependency 不得把依赖边绑到 raw-quarantine / 跨 subscription 的 revision",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：use decision 的 policy 绑定与 Subscription 不一致零行（digest / ruleId / policyId）",
+        "test/pth-knowledge-intake/knowledge-intake-pg.test.ts::P0-4：usePolicyDecision=deny 的 admitted revision 零行"
+      ]
+    },
+    "rawStoreOfficial": {
+      "matchers": 3,
+      "passed": 3,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "packages/pth-memory/test/memory-store-pg.test.ts::N29 P0-4：official domain 知识直写被拒（普通 store write / service 均无 authority）",
+        "packages/pth-memory/test/memory-store-pg.test.ts::N29 P0-5：capability facade（withMemoryTenant）不再公开 promoteOfficial",
+        "packages/pth-memory/test/memory-store-pg.test.ts::N29 P0-5：task-insight / tool-function official 直写被拒（raw store 旁路关闭）"
+      ]
+    },
+    "promoteOfficialWithoutEvaluator": {
+      "matchers": 1,
+      "passed": 1,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "packages/pth-memory/test/memory-store-pg.test.ts::N29 P0-5：promoteOfficial 不提供 evaluator 时抛错（门禁不可省略，零写）"
+      ]
+    },
+    "legacyEmptyBindingPromotion": {
+      "matchers": 5,
+      "passed": 5,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-execution/knowledge-promotion.test.ts::meta.evidence 缺失（undefined）的 legacy candidate 拒绝",
+        "test/pth-execution/knowledge-promotion.test.ts::空 evidence（digest 为空数组摘要）的 legacy candidate 同样拒绝",
+        "test/pth-execution/knowledge-promotion.test.ts::空 sourceBindingsDigest + 空 evidence 的 legacy candidate 一律拒绝（旧兼容路径已删除）",
+        "test/pth-execution/knowledge-verdicts.test.ts::N29 candidate 不得使用空 sourceBindingsDigest",
+        "test/pth-execution/knowledge-verdicts.test.ts::N29 candidate 拒绝空 evidence"
+      ]
+    },
+    "unchangedUsePolicyDeny": {
+      "matchers": 1,
+      "passed": 1,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-knowledge-intake/minimal-loop.integration.test.ts::负向矩阵：unchanged 重爬遇到当前 use-policy deny → dead-letter + 依赖 official 撤出（P0-6）"
+      ]
+    },
+    "realByteLengthRecheck": {
+      "matchers": 1,
+      "passed": 1,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-knowledge-intake/knowledge-ingestor.test.ts::promotion recheck uses the real artifact byteLength：策略收紧 maxBytes 后必须拒绝（P0-7）"
+      ]
+    },
+    "privateIpSpecialRanges": {
+      "matchers": 4,
+      "passed": 4,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-kernel-interpreter/web-transport-ip.test.ts::IPv4 组播/保留/benchmark/documentation 拒绝",
+        "test/pth-kernel-interpreter/web-transport-ip.test.ts::IPv4-mapped 全展开形式（点分与十六进制）按映射前缀拒绝",
+        "test/pth-kernel-interpreter/web-transport-ip.test.ts::IPv6 loopback/unspecified/ULA/link-local/multicast 拒绝",
+        "test/pth-kernel-interpreter/web-transport-ip.test.ts::documentation IPv6（2001:db8::/32）拒绝"
+      ]
+    },
+    "executionSeparation": {
+      "matchers": 1,
+      "passed": 1,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-execution/knowledge-verdicts.test.ts::canPromote requires domain/adversarial execution separation（P1-2：同 executionId 拒绝）"
+      ]
+    },
+    "draftModeNoPromoteHandler": {
+      "matchers": 2,
+      "passed": 2,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-kernel-assembly/intake-mode-gates.test.ts::draft 模式剔除 promote handler（只到 private draft + open plan）",
+        "test/pth-kernel-assembly/intake-mode-gates.test.ts::off 模式零 handler"
+      ]
+    },
+    "fullModeAcceptanceGate": {
+      "matchers": 2,
+      "passed": 2,
+      "failed": 0,
+      "missing": [],
+      "tests": [
+        "test/pth-kernel-assembly/intake-mode-gates.test.ts::full 启动门：合法 envelope 通过",
+        "test/pth-kernel-assembly/intake-mode-gates.test.ts::full 启动门：非 MIN_INNER_LOOP_GO / 缺 commit / 脏树 / commit 不符全部拒绝"
+      ]
     }
   },
   "focused": {
-    "command": "npx vitest run test/pth-knowledge-intake/trust-policy.test.ts test/pth-knowledge-intake/knowledge-intake-pg.test.ts test/pth-knowledge-intake/fetch-broker.test.ts test/pth-knowledge-intake/knowledge-ingestor.test.ts test/pth-knowledge-intake/minimal-loop.integration.test.ts test/pth-runner/intake-processors.test.ts test/pth-tasking/pg-task-repository.test.ts test/pth-tasking/side-effect-outbox.test.ts test/pth-execution/knowledge-promotion.test.ts test/pth-execution/knowledge-verdicts.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts test/pth-kernel-assembly/templates.test.ts packages/pth-memory/test/memory-policy.test.ts test/pth-runner/n29-minimal-intake-acceptance.test.ts --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-po7YFw/focused.json",
+    "command": "npx vitest run test/pth-knowledge-intake/trust-policy.test.ts test/pth-knowledge-intake/knowledge-intake-pg.test.ts test/pth-knowledge-intake/fetch-broker.test.ts test/pth-knowledge-intake/knowledge-ingestor.test.ts test/pth-knowledge-intake/minimal-loop.integration.test.ts test/pth-runner/intake-processors.test.ts test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts test/pth-knowledge-intake/g8-dual-process.test.ts test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts test/pth-tasking/pg-task-repository.test.ts test/pth-tasking/side-effect-outbox.test.ts test/pth-execution/knowledge-promotion.test.ts test/pth-execution/knowledge-verdicts.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts test/pth-kernel-assembly/templates.test.ts packages/pth-memory/test/memory-policy.test.ts packages/pth-memory/test/memory-store-pg.test.ts test/pth-kernel-interpreter/web-transport-ip.test.ts test/pth-kernel-assembly/intake-mode-gates.test.ts test/pth-runner/n29-minimal-intake-acceptance.test.ts --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/focused.json",
     "started": true,
     "exitCode": 0,
-    "durationMs": 21636,
+    "durationMs": 49522,
     "skipped": [],
     "environmentStatus": "available",
-    "stdoutTail": "JSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-po7YFw/focused.json\n",
-    "stderrTail": "(node:42815) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+    "stdoutTail": "JSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/focused.json\n",
+    "stderrTail": "(node:52169) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
     "totals": {
-      "files": 15,
-      "tests": 250,
-      "passed": 250,
+      "files": 21,
+      "tests": 355,
+      "passed": 355,
       "failed": 0,
       "skipped": 0
     }
@@ -421,7 +580,7 @@
     "command": "npx tsc -p tsconfig.n29.json --noEmit",
     "started": true,
     "exitCode": 0,
-    "durationMs": 2058,
+    "durationMs": 2318,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "",
@@ -431,7 +590,7 @@
     "command": "npx tsc --noEmit",
     "started": true,
     "exitCode": 0,
-    "durationMs": 1671,
+    "durationMs": 1770,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "",
@@ -441,7 +600,7 @@
     "command": "npx tsc -p tsconfig.n28.json --noEmit",
     "started": true,
     "exitCode": 0,
-    "durationMs": 1784,
+    "durationMs": 1946,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "",
@@ -451,27 +610,27 @@
     "command": "npm run lint",
     "started": true,
     "exitCode": 0,
-    "durationMs": 5697,
+    "durationMs": 6305,
     "skipped": [],
     "environmentStatus": "available",
-    "stdoutTail": "\n> @away_from/pi-triple@1.1.3 lint\n> tsc -p packages/shared && tsc -p packages/infra && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc --noEmit && tsc -p packages/shared --noEmit && tsc -p packages/framework --noEmit && npm run check:pth-boundaries && npm run check:pth-config\n\n\n> @away_from/pi-triple@1.1.3 check:pth-boundaries\n> tsx scripts/check-pth-boundaries.ts\n\n── pth-boundaries：当前违规 0 条 ──\n✅ 无新增边界违规\n\n> @away_from/pi-triple@1.1.3 check:pth-config\n> tsx scripts/check-pth-config.ts\n\n── pth-config：schema 122 键 · 直读 0（pth + pth-sandbox src）· compose 未声明 84 键 ──\n✅ pth-config 检查通过\n",
+    "stdoutTail": "\n> @away_from/pi-triple@1.1.3 lint\n> tsc -p packages/shared && tsc -p packages/infra && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc --noEmit && tsc -p packages/shared --noEmit && tsc -p packages/framework --noEmit && npm run check:pth-boundaries && npm run check:pth-config\n\n\n> @away_from/pi-triple@1.1.3 check:pth-boundaries\n> tsx scripts/check-pth-boundaries.ts\n\n── pth-boundaries：当前违规 0 条 ──\n✅ 无新增边界违规\n\n> @away_from/pi-triple@1.1.3 check:pth-config\n> tsx scripts/check-pth-config.ts\n\n── pth-config：schema 123 键 · 直读 0（pth + pth-sandbox src）· compose 未声明 85 键 ──\n✅ pth-config 检查通过\n",
     "stderrTail": ""
   },
   "build": {
     "command": "npm run build",
     "started": true,
     "exitCode": 0,
-    "durationMs": 6699,
+    "durationMs": 8036,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "\n> @away_from/pi-triple@1.1.3 build\n> tsc -p packages/shared && tsc -p packages/infra && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc -p packages/framework && tsc -p packages/mailbox && tsc -p packages/dev-container && tsc -p tsconfig.json\n\n",
     "stderrTail": ""
   },
   "fullRegression": {
-    "command": "npm test -- --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-po7YFw/full.json",
+    "command": "npm test -- --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/full.json",
     "started": true,
-    "exitCode": 0,
-    "durationMs": 88202,
+    "exitCode": 1,
+    "durationMs": 175639,
     "skipped": [
       {
         "file": "test/pth-execution/sandbox-security.integration.test.ts",
@@ -479,13 +638,13 @@
       }
     ],
     "environmentStatus": "available",
-    "stdoutTail": "\n> @away_from/pi-triple@1.1.3 test\n> vitest run --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-po7YFw/full.json\n\n{\"ts\":\"2026-08-19T02:00:31.367Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[assembly] 默认 batch 已启动（pid=43652 workers=15）\"}\nJSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-po7YFw/full.json\n",
-    "stderrTail": " \"@away_from/pth-memory\";\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: The requested module '@away_from/pth-memory' does not provide an export named 'isIntakeEvidenceReferenceShape'\n    at #asyncInstantiate (node:internal/modules/esm/module_job:319:21)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async ModuleJob.run (node:internal/modules/esm/module_job:422:5)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:661:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\n\nNode.js v24.14.1\nfile:///Users/anzhize/pi-platform/.worktrees/n29-l7/dist/pth/execution/knowledge-verdicts.js:10\nimport { isIntakeEvidenceReferenceShape, validateIntakeEvidenceReferences, validateKnowledgeProvenance, } from \"@away_from/pth-memory\";\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: The requested module '@away_from/pth-memory' does not provide an export named 'isIntakeEvidenceReferenceShape'\n    at #asyncInstantiate (node:internal/modules/esm/module_job:319:21)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async ModuleJob.run (node:internal/modules/esm/module_job:422:5)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:661:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\n\nNode.js v24.14.1\n(node:43852) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\nnode:internal/modules/cjs/loader:1459\n  throw err;\n  ^\n\nError: Cannot find module '/var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/pth-batch-oR5bvZ/does-not-exist.mjs'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1456:15)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1066:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1071:22)\n    at Module._load (node:internal/modules/cjs/loader:1242:25)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: []\n}\n\nNode.js v24.14.1\n(node:46347) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:46512) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:46745) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:46755) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:46754) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:46946) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47094) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47228) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47234) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47236) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47237) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47235) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47230) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47881) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47876) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:47887) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:48059) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:48195) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:48274) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:48288) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:48529) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+    "stdoutTail": "\n> @away_from/pi-triple@1.1.3 test\n> vitest run --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/full.json\n\n{\"ts\":\"2026-08-19T09:53:11.690Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[assembly] 默认 batch 已启动（pid=55650 workers=15）\"}\n{\"ts\":\"2026-08-19T09:53:14.737Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] memory-maintenance-sweep 触发任务 624d4c92-2d19-4946-932d-164104fd0128（定时源——间隔 86400s——第 1 次）\"}\n{\"ts\":\"2026-08-19T09:53:15.665Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] origin-escalation 升级任务 624d4c92-2d19-4946-932d-164104fd0128（memory-keeper 失败）→ 7be7ec1d-42e6-45bb-bb13-bac92edc91b1（tags: origin）\"}\nJSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/full.json\n",
+    "stderrTail": "Readable.push (node:internal/streams/readable:394:5)\n    at TCP.onStreamRead (node:internal/stream_base_commons:189:23) {\n  length: 116,\n  severity: 'FATAL',\n  code: '57P01',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postgres.c',\n  line: '3286',\n  routine: 'ProcessInterrupts',\n  client: Client {\n    _events: [Object: null prototype] { error: [Function (anonymous)] },\n    _eventsCount: 1,\n    _maxListeners: undefined,\n    connectionParameters: ConnectionParameters {\n      user: 'test',\n      database: 'test',\n      port: 40255,\n      host: 'localhost',\n      binary: false,\n      options: undefined,\n      ssl: false,\n      sslnegotiation: undefined,\n      client_encoding: '',\n      replication: undefined,\n      isDomainSocket: false,\n      application_name: undefined,\n      fallback_application_name: undefined,\n      statement_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'test',\n    database: 'test',\n    port: 40255,\n    host: 'localhost',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides { _types: [Object], text: {}, binary: {} },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    _activeQuery: null,\n    _txStatus: 'I',\n    enableChannelBinding: false,\n    scramMaxIterations: 100000,\n    connection: Connection {\n      _events: [Object: null prototype],\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: [Socket],\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      parsedStatements: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 733,\n    secretKey: 39489699,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 9,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\n(node:56529) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:56821) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:56932) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:56965) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57164) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57162) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57250) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57256) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57257) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57255) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57254) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57247) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57296) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57576) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57853) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58003) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58166) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58300) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58313) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58455) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
     "totals": {
-      "files": 295,
-      "tests": 2559,
-      "passed": 2550,
-      "failed": 0,
+      "files": 300,
+      "tests": 2618,
+      "passed": 2607,
+      "failed": 2,
       "skipped": 9
     }
   },
@@ -493,48 +652,46 @@
     {
       "gate": "G9-a 受控 TLS 来源（生产 transport）",
       "requirement": "生产 transport（defaultWebRequest）经真实 TLS socket 完成抓取/重定向/条件请求",
-      "status": "partial",
-      "evidence": "test/pth-knowledge-intake/fetch-broker.test.ts::defaultWebRequest 走真实 TLS：redirect/hash/条件请求全链路 = passed（仅覆盖 fetch/admission 层；最小内环集成套件仍替换 HTTP transport 缝）"
+      "status": "satisfied",
+      "evidence": "test/pth-knowledge-intake/fetch-broker.test.ts::defaultWebRequest 走真实 TLS：redirect/hash/条件请求全链路 = passed"
     },
     {
       "gate": "G9-b 受控 TLS 来源跑完整生产组合",
       "requirement": "minimal-loop 全链路（scanner→fetch→admit→extract→verify→promote→Broker）跑在受控 TLS server 上",
-      "status": "not-executed",
-      "evidence": "minimal-loop.integration.test.ts 仍替换 WebRequest 与 LlmFn 两条外部缝；TLS 全链路组合未在本 lane 实现"
+      "status": "satisfied",
+      "evidence": "minimal-loop-tls.integration.test.ts::initial crawl 经真实 TLS → official；unchanged 304 重爬；changed 重爬 stale+supersede = passed（真实 TLS socket + 生产 transport + 全内环组件；仅 LlmFn 后端替换）"
     },
     {
       "gate": "G9-c release canary（真实 HTTPS 来源）",
       "requirement": "对一个人类策略已批准的真实公网 HTTPS 来源完成 initial fetch → official 并回放 evidence",
       "status": "not-executed",
-      "evidence": "本验收环境没有针对真实公网来源的人类签名 Trust Policy，也没有获批的出网通道；按计划 §5 Task 7 Step 4 记 EVALUATION-INCOMPLETE，未放宽 matcher 或改用 direct-store 让它通过"
+      "evidence": "本轮用户裁决不做真实公网 canary（需 PTL Human Interface 的真实签发流程与获批出网通道）；按计划 §5 Task 7 Step 4 记 EVALUATION-INCOMPLETE，未放宽 matcher 或改用 direct-store 让它通过"
     },
     {
       "gate": "G8-a 双 OS 进程 drainer",
       "requirement": "两个独立操作系统进程同时 drain 同一 PG outbox，无重复晋升",
-      "status": "not-executed",
-      "evidence": "同进程双 drainer / 双 scanner 竞争已取证（dualDrainer=true, dualScanner=true），但两个独立 OS 进程的组合未执行"
+      "status": "satisfied",
+      "evidence": "g8-dual-process.test.ts::dual OS-process drainers = passed（两个独立 tsx 子进程并发消费同一 outbox，(tenant,key) 唯一约束 + 处理计数证明恰好一次）"
     },
     {
       "gate": "G8-b SIGKILL 重启恢复",
       "requirement": "在 artifact 写入前 / aggregate+outbox commit 后 / handler 写结果后三个故障点 SIGKILL 真实子进程并由新进程读 PG 恢复",
-      "status": "not-executed",
-      "evidence": "进程内 lease 过期回收与 outbox 重放已取证（leaseRecovery=true），但真实 SIGKILL/重启故障注入未执行"
+      "status": "partial",
+      "evidence": "g8-dual-process.test.ts::SIGKILL 恢复 = passed（handler 进行中 kill -9 → lease 过期 → 新进程回收完成，attempts=2、结果行唯一）。覆盖 outbox claim/处理/complete 故障模型；三个 intake 阶段级故障点的进程级注入未逐点执行，阶段不变量由 L1/L3 的 CAS + lease recovery 回归覆盖"
     },
     {
       "gate": "G10 敏感度（sabotage）",
       "requirement": "移除 trust/evidence/digest/lease/stale 任一门禁后至少一个 sentinel 必须翻红",
-      "status": "not-executed",
-      "evidence": "本 lane 未实现 sabotage 注入 harness（N28 的 six-sabotage 等价物），因此 sentinel 的敏感度未被证明"
+      "status": "partial",
+      "evidence": "g10-sabotage-sensitivity.test.ts：trust-policy-attestation-bypass（伪造 policy 在无 verifier 注入时可安装/有 verifier 被拒）、digest-binding-skip（naive evaluator 恒 ok 可晋升空绑定 candidate/真门禁拒绝）、stale-gate-skip（use-policy 恒 allow 时 unchanged 成功/deny 时 verdict=deny）全部 passed。lease/evidence 门禁是 SQL/纯代码不可注入——其敏感度由 L3 的 mutation 探针（临时移除门禁 → 7 断言翻红 → 恢复）取证"
     }
   ],
-  "decision": "EVALUATION-INCOMPLETE",
+  "decision": "NO-GO",
   "reasons": [
-    "realism G9-a 受控 TLS 来源（生产 transport） (partial): test/pth-knowledge-intake/fetch-broker.test.ts::defaultWebRequest 走真实 TLS：redirect/hash/条件请求全链路 = passed（仅覆盖 fetch/admission 层；最小内环集成套件仍替换 HTTP transport 缝）",
-    "realism G9-b 受控 TLS 来源跑完整生产组合 (not-executed): minimal-loop.integration.test.ts 仍替换 WebRequest 与 LlmFn 两条外部缝；TLS 全链路组合未在本 lane 实现",
-    "realism G9-c release canary（真实 HTTPS 来源） (not-executed): 本验收环境没有针对真实公网来源的人类签名 Trust Policy，也没有获批的出网通道；按计划 §5 Task 7 Step 4 记 EVALUATION-INCOMPLETE，未放宽 matcher 或改用 direct-store 让它通过",
-    "realism G8-a 双 OS 进程 drainer (not-executed): 同进程双 drainer / 双 scanner 竞争已取证（dualDrainer=true, dualScanner=true），但两个独立 OS 进程的组合未执行",
-    "realism G8-b SIGKILL 重启恢复 (not-executed): 进程内 lease 过期回收与 outbox 重放已取证（leaseRecovery=true），但真实 SIGKILL/重启故障注入未执行",
-    "realism G10 敏感度（sabotage） (not-executed): 本 lane 未实现 sabotage 注入 harness（N28 的 six-sabotage 等价物），因此 sentinel 的敏感度未被证明"
+    "fullRegression: exit=1",
+    "realism G9-c release canary（真实 HTTPS 来源） (not-executed): 本轮用户裁决不做真实公网 canary（需 PTL Human Interface 的真实签发流程与获批出网通道）；按计划 §5 Task 7 Step 4 记 EVALUATION-INCOMPLETE，未放宽 matcher 或改用 direct-store 让它通过",
+    "realism G8-b SIGKILL 重启恢复 (partial): g8-dual-process.test.ts::SIGKILL 恢复 = passed（handler 进行中 kill -9 → lease 过期 → 新进程回收完成，attempts=2、结果行唯一）。覆盖 outbox claim/处理/complete 故障模型；三个 intake 阶段级故障点的进程级注入未逐点执行，阶段不变量由 L1/L3 的 CAS + lease recovery 回归覆盖",
+    "realism G10 敏感度（sabotage） (partial): g10-sabotage-sensitivity.test.ts：trust-policy-attestation-bypass（伪造 policy 在无 verifier 注入时可安装/有 verifier 被拒）、digest-binding-skip（naive evaluator 恒 ok 可晋升空绑定 candidate/真门禁拒绝）、stale-gate-skip（use-policy 恒 allow 时 unchanged 成功/deny 时 verdict=deny）全部 passed。lease/evidence 门禁是 SQL/纯代码不可注入——其敏感度由 L3 的 mutation 探针（临时移除门禁 → 7 断言翻红 → 恢复）取证"
   ],
   "disclaimer": "This result validates the minimal single-source trusted intake inner loop only (one human-signed Trust Policy, one tenant/space/domain/subscription, one bounded HTTPS/HTML connector, initial + unchanged + changed recrawl). It does not validate source discovery/expansion, multi-source conflict resolution, multi-domain or ten-domain breadth, automatic partitioning/rebalancing/autoscaling, external object storage or vector indexing, browser-rendered or authenticated connectors, or real-LLM extraction quality."
 }
