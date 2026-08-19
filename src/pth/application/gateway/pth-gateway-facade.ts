@@ -22,6 +22,13 @@ import {
 } from "../../execution/knowledge-promotion.js";
 import { buildRestrictedKnowledgeQuery } from "../../execution/knowledge-broker.js";
 import type { KnowledgeVerdict } from "../../execution/knowledge-verdicts.js";
+import {
+  RuntimeObservationFacade,
+  type RuntimeObservationScope,
+  type RuntimeObservationWindow,
+  type RuntimeTimelinePage,
+  type RuntimeTimelineQuery,
+} from "../observation/runtime-observation-facade.js";
 
 export type PthGatewayFacadeInput = KernelRuntime;
 
@@ -50,6 +57,12 @@ export interface PthGatewayFacade {
   publishTask(input: PublishInput, scope?: TenantScope): Promise<Task>;
   listTasks(limit: number, scope?: TenantScope): Promise<Array<Record<string, unknown>>>;
   getTask(id: string, scope?: TenantScope): Promise<Record<string, unknown> | null>;
+  /** N30 Task 3：tenant-scoped durable PTH 时间线只读投影。 */
+  queryTimeline(
+    scope: RuntimeObservationScope,
+    window: RuntimeObservationWindow,
+    cursorOrQuery?: string | RuntimeTimelineQuery | null,
+  ): Promise<RuntimeTimelinePage>;
   /** W8 P2：取消任务（recursive=true 沿 delivery.parent 链传播到全部未终态子任务） */
   cancelTask(id: string, opts: { recursive?: boolean }, scope?: TenantScope): Promise<TaskCancelResult>;
   taskCounts(): Promise<TaskCounts>;
@@ -88,6 +101,7 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   #kernel: KernelRuntime;
   #control: TaskControlService;
   #verificationRepo: KnowledgeVerificationRepo;
+  #observation: RuntimeObservationFacade;
 
   constructor(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo) {
     this.#kernel = kernel;
@@ -97,6 +111,7 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
       queries: new PgTaskQueries(kernel.pool),
     });
     this.#verificationRepo = verificationRepo ?? createPgKnowledgeVerificationRepo(kernel.pool);
+    this.#observation = new RuntimeObservationFacade(kernel.pool);
   }
 
   bridgeQuery(sql: string, tenantId: string, space: string): Promise<Array<Record<string, unknown> | null>> {
@@ -145,6 +160,14 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     if (scope) return this.#control.get(scope, id);
     const res = await this.#kernel.pool.query("SELECT * FROM tasks WHERE id = $1", [id]);
     return (res.rows[0] as Record<string, unknown> | undefined) ?? null;
+  }
+
+  queryTimeline(
+    scope: RuntimeObservationScope,
+    window: RuntimeObservationWindow,
+    cursorOrQuery?: string | RuntimeTimelineQuery | null,
+  ): Promise<RuntimeTimelinePage> {
+    return this.#observation.queryTimeline(scope, window, cursorOrQuery);
   }
 
   cancelTask(id: string, opts: { recursive?: boolean }, scope?: TenantScope): Promise<TaskCancelResult> {

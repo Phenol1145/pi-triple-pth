@@ -12,7 +12,7 @@ import { registerSessionRoutes } from "./routes-sessions.js";
 import { registerSelfRoutes } from "./routes-self.js";
 import { registerProgramRoutes } from "./routes-programs.js";
 import { registerFallbackRoutes } from "./routes-fallback.js";
-import { registerObserveRoutes } from "./routes-observe.js";
+import { registerObserveRoutes, registerRuntimeObservationRoutes } from "./routes-observe.js";
 import { registerEventsRoutes } from "./routes-events.js";
 import { registerDebugRoutes, type DebugGatewayFactory } from "./routes-debug.js";
 import { registerKernelRoutes } from "./routes-kernel.js";
@@ -82,10 +82,12 @@ export async function createServer(deps: {
     registerLineageRoutes(app, facade);
     registerTriggerRoutes(app, facade);
     registerJobRoutes(app, facade);
+    registerRuntimeObservationRoutes(app, facade);
   } else {
     registerKernelRoutes(app, null, deps.autopilot, deps.knowledgeBroker);
     registerLineageRoutes(app, null);
     registerTriggerRoutes(app, null);
+    registerRuntimeObservationRoutes(app, null);
   }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 
