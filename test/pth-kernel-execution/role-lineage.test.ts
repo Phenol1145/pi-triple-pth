@@ -4,6 +4,7 @@ import {
   registerWorkerRole, resetExtraRoles,
 } from "../../src/pth/kernel/execution/worker-cluster.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES } from "../../src/pth/impls/roles/default-roles";
+import { PROFESSIONAL_ROLES } from "../../src/pth/kernel/execution/professional-roles.js";
 import { installDefaultRoles } from "../helpers";
 
 beforeEach(() => installDefaultRoles());
@@ -71,7 +72,8 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     // 2026-08-12 体系自制：+10 governance（谱系可见默认不派发）；
     // 2026-08-14 类型树修理：中间层 3 → 7（+actuator/+researcher/+sensor/+controller）
     // 2026-08-18 N14：+6 sensor/controller 点位（13 → 16）
-    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 7 + 16);
+    // v1.3 Task 3：+5 专业角色（谱系可见默认不派发）
+    expect(lineage.length).toBe(DEFAULT_ROLES.length + 1 + 7 + 16 + PROFESSIONAL_ROLES.length);
     const gov = lineage.filter((r) => r.id.startsWith("sensor:") || r.id.startsWith("controller:"));
     expect(gov.length).toBe(16);
   });
@@ -95,11 +97,15 @@ describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导�
     expect(researcher?.children.map((c) => c.role.id).sort()).toEqual(["analyst", "memory-keeper"]);   // memory-keeper 迁入 researcher（2026-08-14）
     expect(governor?.children.map((c) => c.role.id).sort()).toEqual(["acceptor", "planner"]);   // memory-keeper 迁出（2026-08-14）
     const developer = executor?.children.find((c) => c.role.id === "developer");
-    expect(developer?.children.map((c) => c.role.id).sort()).toEqual(["coder", "tester"]);   // coder/tester 子类型（2026-08-14）
+    expect(developer?.children.map((c) => c.role.id).sort()).toEqual(["assembly-engineer", "coder", "tester"]);   // coder/tester 子类型（2026-08-14）+ assembly-engineer（v1.3 Task 3）
     const tester = developer?.children.find((c) => c.role.id === "tester");
     expect(tester?.children.map((c) => c.role.id)).toEqual(["debug-case-writer"]);   // P3.6 调试用例专精（2026-08-15）
+    const writer = executor?.children.find((c) => c.role.id === "writer");
+    expect(writer?.children.map((c) => c.role.id)).toEqual(["technical-educator"]);   // v1.3 Task 3：Jupyter 教学专精
     const analyst = researcher?.children.find((c) => c.role.id === "analyst");
     expect(analyst?.children.map((c) => c.role.id).sort()).toEqual(["prospector", "solver"]);   // 问题类型二分：开放探索/封闭限制（2026-08-14）
+    const solver = analyst?.children.find((c) => c.role.id === "solver");
+    expect(solver?.children.map((c) => c.role.id).sort()).toEqual(["computational-chemist", "lean4-prover", "symbolic-mathematician"]);   // v1.3 Task 3：三个 solver 专业叶子
     const prospector = analyst?.children.find((c) => c.role.id === "prospector");
     expect(prospector?.children.map((c) => c.role.id).sort()).toEqual(["predictor"]);   // 开放探索下的预测专精（2026-08-14）
   });

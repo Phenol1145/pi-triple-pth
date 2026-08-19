@@ -8,11 +8,12 @@
 import { CatalogBuilder } from "../catalog-builder.js";
 import type { RuntimeCatalogSnapshot } from "../runtime-catalog.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
+import { PROFESSIONAL_ROLES } from "../../kernel/execution/professional-roles.js";
 import { BUILTIN_SPACE_DEFS } from "../../impls/spaces/builtin-spaces.js";
 
 export function buildBuiltinCatalog(): RuntimeCatalogSnapshot {
   const builder = new CatalogBuilder();
-  const roles = [ORIGIN_ROLE, ...DEFAULT_ROLES, ...MID_ROLES, ...GOVERNANCE_ROLES];
+  const roles = [ORIGIN_ROLE, ...DEFAULT_ROLES, ...MID_ROLES, ...GOVERNANCE_ROLES, ...PROFESSIONAL_ROLES];
   for (const role of roles) {
     builder.addRole({
       id: role.id,

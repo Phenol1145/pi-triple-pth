@@ -7,12 +7,13 @@ import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResol
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../impls/kernels/index.js";
 import type { InterpreterResult } from "../kernel/interpreter/index.js";
 import type { Task } from "../kernel/storage/task-store-pg.js";
-import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles } from "../kernel/execution/worker-cluster.js";
+import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles, setProfessionalRoles } from "../kernel/execution/worker-cluster.js";
 import { DEFAULT_TENANT_ID, isVisible, setSpaceLookup } from "@away_from/pth-memory";
 import { spaceRegistry } from "../kernel/execution/space-registry.js";
 import { registerBuiltinSpaces } from "../kernel/execution/builtin-spaces.js";
 import { checkTaskRouting, routeTaskRole } from "../kernel/execution/role-router.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../kernel/execution/builtin-roles.js";
+import { PROFESSIONAL_ROLES } from "../kernel/execution/professional-roles.js";
 import { getEventBus } from "../kernel/execution/event-bus.js";
 import { isForwardableKernelEvent, toKernelActivityEvent } from "../kernel/execution/kernel-event-bridge.js";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
@@ -1104,6 +1105,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
 if (pthConfig().str("PTH_BATCH_PROCESS") === "1" || process.argv[1]?.endsWith("batch-process.ts")) {
   // 2026-08-13 审计 P2：fork 子进程独立入口——自注入内置角色（父进程注入不跨进程）
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  // Task 3：专业角色进入 known lineage/显式权重解析（不进缺省单副本循环）
+  setProfessionalRoles(PROFESSIONAL_ROLES);
   // 2026-08-15 拆分：fork 子进程同样注册内置空间 + 注入空间查询（记忆包不 import core）
   registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
