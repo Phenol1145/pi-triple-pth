@@ -25,6 +25,8 @@ import {
   KnowledgeIntakeConflictError,
 } from "../../src/pth/kernel/storage/knowledge-intake-pg.js";
 import type {
+  IntakeRunStage,
+  IntakeRunStatus,
   KnowledgeIntakeRepository,
   SourceSubscription,
   StoreAcquisitionInput,
@@ -586,7 +588,9 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
       leaseToken: claimed!.leaseToken!,
       leaseGeneration: claimed!.leaseGeneration,
       expectedRowVersion: claimed!.rowVersion,
-      toStage: "extract" as const,
+      // N29 refix P0-2：toStage 必须是 fromStage 的合法后继（fetch→admit）；
+      // 旧用例用 fetch→extract 做正向断言，会被合法迁移矩阵拒绝，从而掩盖本用例要钉的 4 个 CAS 字段。
+      toStage: "admit" as const,
       status: "queued" as const,
       principalId: "worker:a",
       executionId: "exec-a",
@@ -605,9 +609,305 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     expect(still!.status).toBe("leased");
 
     const ok = await repo.transitionRun(base);
-    expect(ok!.stage).toBe("extract");
+    expect(ok!.stage).toBe("admit");
     expect(ok!.rowVersion).toBe(claimed!.rowVersion + 1);
     expect(await countOutbox(tenantId)).toBe(2);
+  });
+
+  // ── N29 再验收 P0-2：Run CAS 必须比较 fromStage 与真实 stage，并只允许冻结矩阵内的边 ──
+  // 反例来源：docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-2 / §8 条件 2。
+
+  it("N29 refix P0-2：真实 stage=fetch 时伪报 fromStage=promote→complete 零行零 outbox；随后 fetch→admit 成功", async () => {
+    const tenantId = nextTenant("refix-fromstage");
+    await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const claimed = await repo.claimRun({ tenantId, runId: run.id, principalId: "worker:a", executionId: "exec-a" });
+    expect(claimed!.stage).toBe("fetch");
+
+    // 本轮反例（旧实现 exit 0 通过）：fromStage 谎报为 promote，直接跳到 complete。
+    const forged = await repo.transitionRun({
+      tenantId,
+      runId: run.id,
+      fromStage: "promote",
+      toStage: "complete",
+      status: "completed",
+      leaseToken: claimed!.leaseToken!,
+      leaseGeneration: claimed!.leaseGeneration,
+      expectedRowVersion: claimed!.rowVersion,
+      principalId: "worker:a",
+      executionId: "exec-a",
+      sideEffects: [{ key: `forged:${run.id}`, kind: "intake.promote", payload: { runId: run.id } }],
+    });
+    expect(forged).toBeNull();
+
+    // 零领域写：stage/status/rowVersion 完全不动；零 outbox（只有 due scanner 的 intake.fetch）。
+    const untouched = await repo.getRun(tenantId, run.id);
+    expect(untouched).toMatchObject({ stage: "fetch", status: "leased", rowVersion: claimed!.rowVersion });
+    expect(await countOutbox(tenantId)).toBe(1);
+    // 零 attempt 审计行增量（claim 的 leased 行之外没有任何结果行）。
+    expect((await repo.listAttempts(tenantId, run.id)).map((a) => a.disposition)).toEqual(["leased"]);
+
+    // 同一 lease 走合法边仍然成功（证明拒绝来自 fromStage/矩阵，而不是 lease 被打坏）。
+    const ok = await repo.transitionRun({
+      tenantId,
+      runId: run.id,
+      fromStage: "fetch",
+      toStage: "admit",
+      status: "queued",
+      leaseToken: claimed!.leaseToken!,
+      leaseGeneration: claimed!.leaseGeneration,
+      expectedRowVersion: claimed!.rowVersion,
+      principalId: "worker:a",
+      executionId: "exec-a",
+      sideEffects: [{ key: `intake.extract:${run.id}`, kind: "intake.extract", payload: { runId: run.id } }],
+    });
+    expect(ok).toMatchObject({ stage: "admit", status: "queued", rowVersion: claimed!.rowVersion + 1 });
+    expect(await countOutbox(tenantId)).toBe(2);
+  });
+
+  it("N29 refix P0-2：fromStage 与真实 stage 不符（正确后继但错来源）零行", async () => {
+    const tenantId = nextTenant("refix-wrong-from");
+    await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const claimed = await repo.claimRun({ tenantId, runId: run.id, principalId: "worker:a", executionId: "exec-a" });
+
+    // admit→verify 是矩阵内的合法边，但真实 stage 是 fetch → SQL 的 `stage = fromStage` 必须挡住。
+    expect(
+      await repo.transitionRun({
+        tenantId,
+        runId: run.id,
+        fromStage: "admit",
+        toStage: "verify",
+        status: "queued",
+        leaseToken: claimed!.leaseToken!,
+        leaseGeneration: claimed!.leaseGeneration,
+        expectedRowVersion: claimed!.rowVersion,
+        principalId: "worker:a",
+        executionId: "exec-a",
+        sideEffects: [{ key: `wrong-from:${run.id}`, kind: "intake.review.domain", payload: { runId: run.id } }],
+      }),
+    ).toBeNull();
+
+    expect(await repo.getRun(tenantId, run.id)).toMatchObject({
+      stage: "fetch",
+      status: "leased",
+      rowVersion: claimed!.rowVersion,
+    });
+    expect(await countOutbox(tenantId)).toBe(1);
+  });
+
+  it("N29 refix P0-2：跳阶段/回退/终态出边等非法边全部零行零 outbox", async () => {
+    const tenantId = nextTenant("refix-illegal-edges");
+    await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const claimed = await repo.claimRun({ tenantId, runId: run.id, principalId: "worker:a", executionId: "exec-a" });
+    const base = {
+      tenantId,
+      runId: run.id,
+      leaseToken: claimed!.leaseToken!,
+      leaseGeneration: claimed!.leaseGeneration,
+      expectedRowVersion: claimed!.rowVersion,
+      principalId: "worker:a",
+      executionId: "exec-a",
+    };
+
+    // 真实 stage = fetch：所有非法 toStage（跳阶段）都必须零行。
+    const illegalFromFetch: ReadonlyArray<[IntakeRunStage, IntakeRunStatus]> = [
+      ["extract", "queued"],
+      ["verify", "queued"],
+      ["promote", "queued"],
+    ];
+    for (const [toStage, status] of illegalFromFetch) {
+      expect(
+        await repo.transitionRun({
+          ...base,
+          fromStage: "fetch",
+          toStage,
+          status,
+          sideEffects: [{ key: `skip:${toStage}:${run.id}`, kind: `intake.${toStage}`, payload: { runId: run.id } }],
+        }),
+      ).toBeNull();
+    }
+
+    // status 也在矩阵内：completed 只能配 toStage=complete；非终点 stage 的 completed 必须零行。
+    expect(await repo.transitionRun({ ...base, fromStage: "fetch", toStage: "admit", status: "completed" })).toBeNull();
+    // dead-letter / failed 只能停在原地（自边），不得同时跨阶段推进。
+    expect(await repo.transitionRun({ ...base, fromStage: "fetch", toStage: "admit", status: "dead-letter" })).toBeNull();
+    expect(await repo.transitionRun({ ...base, fromStage: "fetch", toStage: "complete", status: "failed" })).toBeNull();
+    // lease 只能由 claimRun() 签发：transitionRun 不得把 run 置回 leased/waiting。
+    expect(await repo.transitionRun({ ...base, fromStage: "fetch", toStage: "fetch", status: "leased" })).toBeNull();
+    expect(await repo.transitionRun({ ...base, fromStage: "fetch", toStage: "fetch", status: "waiting" })).toBeNull();
+
+    expect(await repo.getRun(tenantId, run.id)).toMatchObject({
+      stage: "fetch",
+      status: "leased",
+      rowVersion: claimed!.rowVersion,
+    });
+    expect(await countOutbox(tenantId)).toBe(1);
+    expect((await repo.listAttempts(tenantId, run.id)).map((a) => a.disposition)).toEqual(["leased"]);
+
+    // 推进到真实 stage = admit，继续钉 admit 的非法出边（含"当前不可达"的 extract 节点）。
+    const admitted = await repo.transitionRun({
+      ...base,
+      fromStage: "fetch",
+      toStage: "admit",
+      status: "queued",
+      sideEffects: [{ key: `intake.extract:${run.id}`, kind: "intake.extract", payload: { runId: run.id } }],
+    });
+    expect(admitted!.stage).toBe("admit");
+    const reclaimed = await repo.claimRun({ tenantId, runId: run.id, principalId: "worker:b", executionId: "exec-b" });
+    const admitBase = {
+      tenantId,
+      runId: run.id,
+      leaseToken: reclaimed!.leaseToken!,
+      leaseGeneration: reclaimed!.leaseGeneration,
+      expectedRowVersion: reclaimed!.rowVersion,
+      principalId: "worker:b",
+      executionId: "exec-b",
+      status: "queued" as const,
+    };
+    // extract 是不可达节点（抽取发生在 admit 阶段）：admit→extract 非法。
+    expect(await repo.transitionRun({ ...admitBase, fromStage: "admit", toStage: "extract" })).toBeNull();
+    // 回退（admit→fetch）与跳阶段（admit→promote）非法。
+    expect(await repo.transitionRun({ ...admitBase, fromStage: "admit", toStage: "fetch" })).toBeNull();
+    expect(await repo.transitionRun({ ...admitBase, fromStage: "admit", toStage: "promote" })).toBeNull();
+    // admit 不是成功终点：admit→complete 非法（unchanged 完成只在 fetch 阶段）。
+    expect(
+      await repo.transitionRun({ ...admitBase, fromStage: "admit", toStage: "complete", status: "completed" }),
+    ).toBeNull();
+
+    expect(await repo.getRun(tenantId, run.id)).toMatchObject({
+      stage: "admit",
+      status: "leased",
+      rowVersion: reclaimed!.rowVersion,
+    });
+    expect(await countOutbox(tenantId)).toBe(2); // intake.fetch + 上面那条合法 intake.extract
+  });
+
+  it("N29 refix P0-2：合法边逐条通过——fetch→admit→verify→(verify 自边 domain→adversarial)→promote→complete", async () => {
+    const tenantId = nextTenant("refix-legal-path");
+    await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+
+    // 生产链路的每一条边都必须在矩阵内（fetch→admit / admit→verify / verify→verify / verify→promote / promote→complete）。
+    const edges: ReadonlyArray<[IntakeRunStage, IntakeRunStage, IntakeRunStatus]> = [
+      ["fetch", "admit", "queued"],
+      ["admit", "verify", "queued"],
+      ["verify", "verify", "queued"], // domain → adversarial 的同 stage 特例
+      ["verify", "promote", "queued"],
+      ["promote", "complete", "completed"],
+    ];
+    let step = 0;
+    for (const [fromStage, toStage, status] of edges) {
+      const claimed = await repo.claimRun({
+        tenantId,
+        runId: run.id,
+        principalId: "worker:a",
+        executionId: `exec-${++step}`,
+      });
+      expect(claimed!.stage).toBe(fromStage);
+      const moved = await repo.transitionRun({
+        tenantId,
+        runId: run.id,
+        fromStage,
+        toStage,
+        status,
+        leaseToken: claimed!.leaseToken!,
+        leaseGeneration: claimed!.leaseGeneration,
+        expectedRowVersion: claimed!.rowVersion,
+        principalId: "worker:a",
+        executionId: `exec-${step}`,
+      });
+      expect(moved).toMatchObject({ stage: toStage, status });
+    }
+
+    // complete 是终态：任何出边（含自边）都零行。
+    const done = await repo.getRun(tenantId, run.id);
+    expect(done).toMatchObject({ stage: "complete", status: "completed" });
+    for (const toStage of ["complete", "fetch", "promote", "verify"] as const) {
+      expect(
+        await repo.transitionRun({
+          tenantId,
+          runId: run.id,
+          fromStage: "complete",
+          toStage,
+          status: toStage === "complete" ? "completed" : "queued",
+          leaseToken: "tok:whatever",
+          leaseGeneration: done!.leaseGeneration,
+          expectedRowVersion: done!.rowVersion,
+          principalId: "worker:a",
+          executionId: "exec-replay",
+          sideEffects: [{ key: `terminal:${toStage}:${run.id}`, kind: "intake.promote", payload: { runId: run.id } }],
+        }),
+      ).toBeNull();
+    }
+    expect((await repo.getRun(tenantId, run.id))!.rowVersion).toBe(done!.rowVersion);
+    expect(await countOutbox(tenantId)).toBe(1); // 只有 due scanner 的 intake.fetch
+  });
+
+  // ── N29 再验收 P0-1：Run side effect 的 tenant 由 run 自身 tenant_id 盖章 ──
+
+  it("N29 refix P0-1：tenant-a 的 run 声明 tenantId=tenant-b 的 side effect → fail closed，零迁移零 outbox", async () => {
+    const tenantId = nextTenant("refix-run-cross-tenant");
+    const otherTenant = `${tenantId}-b`;
+    await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const claimed = await repo.claimRun({ tenantId, runId: run.id, principalId: "worker:a", executionId: "exec-a" });
+
+    // 本轮反例（旧实现写出 tenant_id=tenant-b 的 outbox 行）。
+    await expect(
+      repo.transitionRun({
+        tenantId,
+        runId: run.id,
+        fromStage: "fetch",
+        toStage: "admit",
+        status: "queued",
+        leaseToken: claimed!.leaseToken!,
+        leaseGeneration: claimed!.leaseGeneration,
+        expectedRowVersion: claimed!.rowVersion,
+        principalId: "worker:a",
+        executionId: "exec-a",
+        sideEffects: [
+          { key: "cross-intake", tenantId: otherTenant, kind: "intake.extract", payload: { runId: run.id } },
+        ],
+      }),
+    ).rejects.toThrow(/tenant/i);
+
+    // 跨 tenant outbox 零行；本 tenant 也零新增（fail closed → 整个事务回滚）。
+    expect(await countOutbox(otherTenant)).toBe(0);
+    expect(await countOutbox(tenantId)).toBe(1);
+    expect(await repo.getRun(tenantId, run.id)).toMatchObject({
+      stage: "fetch",
+      status: "leased",
+      rowVersion: claimed!.rowVersion,
+    });
+  });
+
+  it("N29 refix P0-1：省略 tenantId 的 run side effect 由 run 的 tenant_id 盖章", async () => {
+    const tenantId = nextTenant("refix-run-stamped");
+    await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const claimed = await repo.claimRun({ tenantId, runId: run.id, principalId: "worker:a", executionId: "exec-a" });
+
+    const moved = await repo.transitionRun({
+      tenantId,
+      runId: run.id,
+      fromStage: "fetch",
+      toStage: "admit",
+      status: "queued",
+      leaseToken: claimed!.leaseToken!,
+      leaseGeneration: claimed!.leaseGeneration,
+      expectedRowVersion: claimed!.rowVersion,
+      principalId: "worker:a",
+      executionId: "exec-a",
+      sideEffects: [{ key: `stamped:${run.id}`, kind: "intake.extract", payload: { runId: run.id } }],
+    });
+    expect(moved).not.toBeNull();
+
+    const stamped = await pool.query<SqlRow>(`SELECT tenant_id FROM side_effect_outbox WHERE key = $1`, [
+      `stamped:${run.id}`,
+    ]);
+    expect(stamped.rows.map((r) => r.tenant_id as string)).toEqual([tenantId]);
   });
 
   it("outbox conflict 回滚整个 transition（run 不变、outbox 不增行）", async () => {

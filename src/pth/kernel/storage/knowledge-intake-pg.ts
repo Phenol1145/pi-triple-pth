@@ -8,8 +8,11 @@
  * 关键不变量（plan §2 Global Constraints / §3.2 / §5 Task 3）：
  *  - 所有查询与 CAS 一律 tenant-scoped；跨 tenant 读零可见、写零行。
  *  - subscription / run / dependency 是可变聚合：迁移必须携带 expected `rowVersion`（CAS）。
- *  - run 迁移必须同时满足：`tenant + id + lease_token + lease_generation + rowVersion`
- *    且 lease 未过期；任一不符 → 零行、零 side effect。
+ *  - run 迁移必须同时满足：`tenant + id + stage(= fromStage) + lease_token + lease_generation + rowVersion`
+ *    且 lease 未过期，并命中冻结迁移矩阵 `RUN_STAGE_TRANSITIONS`；任一不符 → 零行、零 side effect
+ *    （N29 再验收 P0-2：docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-2）。
+ *  - side effect 的 outbox tenant 由聚合上下文盖章（CAS RETURNING 的 run.tenant_id），
+ *    调用方自报不同 tenant → 写前 fail closed 抛错并整体回滚（N29 再验收 P0-1）。
  *  - 状态迁移与下一阶段 outbox 必须同一事务：`enqueueSideEffectInTx()`（L1，identity=(tenant_id,key)）
  *    只在 CAS `rowCount === 1` 之后调用；outbox conflict 抛错 → 整个事务回滚。
  *  - due scanner：`FOR UPDATE SKIP LOCKED` 选 due subscription，同事务建 run + 推进
@@ -26,6 +29,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "./pg.js";
 import { enqueueSideEffectInTx } from "../../tasking/side-effect-outbox.js";
+import { isLegalRunTransition } from "../../contracts/knowledge-intake.js";
 import type {
   ClaimIntakeRunInput,
   CreateSubscriptionInput,
@@ -35,6 +39,7 @@ import type {
   IntakeRun,
   IntakeRunReason,
   IntakeRunStage,
+  IntakeSideEffect,
   KnowledgeIntakeRepository,
   MarkDependentsStaleInput,
   SourceDependency,
@@ -103,6 +108,24 @@ function allowedFromStatuses(to: SubscriptionStatus): string[] {
   return (Object.keys(SUBSCRIPTION_TRANSITIONS) as SubscriptionStatus[]).filter((from) =>
     SUBSCRIPTION_TRANSITIONS[from].includes(to),
   );
+}
+
+/**
+ * N29 再验收 P0-1：side effect 的 tenant 必须等于聚合 tenant（或缺省由仓库盖章）。
+ * 任何不相等值都是编排缺陷/跨租户越权——fail closed 抛错，绝不静默改写成聚合 tenant。
+ */
+function assertSideEffectTenants(
+  aggregateTenantId: string,
+  sideEffects?: readonly IntakeSideEffect[],
+): void {
+  for (const se of sideEffects ?? []) {
+    if (se.tenantId !== undefined && se.tenantId !== aggregateTenantId) {
+      throw new KnowledgeIntakeValidationError(
+        `transitionRun: side effect "${se.key}" 自报 tenant "${se.tenantId}" 与 run 聚合 tenant `
+        + `"${aggregateTenantId}" 不一致——跨 tenant 入队不允许（tenant 由仓库按聚合上下文盖章）`,
+      );
+    }
+  }
 }
 
 function iso(value: Date | string | null | undefined): string | undefined {
@@ -625,11 +648,25 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
   }
 
   /**
-   * 阶段迁移：CAS 于 `tenant + id + lease_token + lease_generation + row_version` 且 lease 未过期。
+   * 阶段迁移：CAS 于 `tenant + id + stage + lease_token + lease_generation + row_version` 且 lease 未过期。
    * 命中（rowCount===1）后才在**同一事务**内写 attempt 审计行与下一阶段 outbox；
    * 未命中直接返回 null（零写、零 outbox）；outbox conflict 抛错 → 事务整体回滚。
+   *
+   * N29 再验收 P0-2（feedback §3 P0-2 / §8 条件 2）：
+   *  - `fromStage → toStage/status` 先过冻结矩阵 `isLegalRunTransition()`；非法边**不开事务**直接 null；
+   *  - SQL 的 `AND stage = $12::text` 让"声明的 fromStage"与 DB 真实 stage 在同一原子谓词内对账，
+   *    因此 `fetch` 阶段伪报 `fromStage=promote → complete` 一定零行。
+   *
+   * N29 再验收 P0-1：outbox 行的 tenant 由 **CAS RETURNING 的 run.tenant_id** 盖章；
+   * 输入自报不同 tenant → 开事务前抛 `KnowledgeIntakeValidationError`（零迁移、零 attempt、零 outbox），
+   * 事务内对 `run.tenantId` 再断言一次作为深度防御。
    */
   async transitionRun(input: TransitionIntakeRunInput): Promise<IntakeRun | null> {
+    // ① 冻结矩阵（服务端事实源）：非法边零行——连事务都不开，绝无领域写/attempt/outbox。
+    if (!isLegalRunTransition(input.fromStage, input.toStage, input.status)) return null;
+    // ② 跨 tenant 入队在事务写入前 fail closed。CAS 谓词是 `tenant_id = input.tenantId`，
+    //    所以能通过 CAS 的行必然属于 input.tenantId——此处比较等价于比较聚合 tenant，但更早。
+    assertSideEffectTenants(input.tenantId, input.sideEffects);
     return withTx(this.pool, async (client) => {
       const res = await client.query(
         // prev CTE 在 UPDATE 前的快照读出旧 stage —— attempt 审计行记录"刚完成的阶段"。
@@ -648,6 +685,7 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
                 row_version = row_version + 1,
                 updated_at = now()
           WHERE tenant_id = $1 AND id = $2
+            AND stage = $12::text
             AND lease_token = $3
             AND lease_generation = $4::bigint
             AND row_version = $5::int
@@ -666,6 +704,7 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
           input.candidateId ?? null,
           input.verificationPlanId ?? null,
           input.lastError ?? null,
+          input.fromStage,
         ],
       );
       if ((res.rowCount ?? 0) !== 1) return null;
@@ -692,10 +731,14 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
         executionId: input.executionId,
       });
 
+      // N29 再验收 P0-1：outbox tenant 只由聚合上下文盖章——`run.tenantId` 是刚通过 CAS 的那一行。
+      // 输入自报不同 tenant 已在开事务前被 `assertSideEffectTenants()` 拒绝；这里对聚合行再断言一次
+      // （深度防御：若未来 CAS 谓词变化导致 input.tenantId 与聚合 tenant 脱钩，也必须整体回滚）。
+      assertSideEffectTenants(run.tenantId, input.sideEffects);
       for (const se of input.sideEffects ?? []) {
         await enqueueSideEffectInTx(client, {
           key: se.key,
-          tenantId: se.tenantId ?? input.tenantId,
+          tenantId: run.tenantId,
           kind: se.kind,
           payload: se.payload,
         });

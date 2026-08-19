@@ -216,6 +216,10 @@ export interface TaskRepository {
    *  - tenant 必须来自服务端盖章（claim 时签发的 lease / opts.scope），不接受 worker body 自报；
    *    无法确定 tenant scope 时 fail closed（committed=false，零 side effect）；
    *  - CAS 未命中（rowCount=0）时不得写任何 side effect / 下一阶段 outbox。
+   *
+   * N29 再验收 P0-1（n29-minimal-intake-reacceptance-feedback.md §3 P0-1）：
+   *  - side effect 的 outbox tenant 由仓库从通过 CAS 的 `tasks.tenant_id` 盖章；
+   *  - 输入自报不同 tenant → 开事务前 fail closed（committed=false，零领域写、零 outbox）。
    */
   commit(outcome: TaskOutcome, opts?: TaskCommitOptions): Promise<{ committed: boolean }>;
 }
@@ -230,10 +234,20 @@ export interface TaskCommitScope {
   readonly tenantId: string;
 }
 
-/** 与 task CAS 同事务写入的 side effect（下一阶段 outbox 行；identity = (tenantId, key)）。 */
+/**
+ * 与 task CAS 同事务写入的 side effect（下一阶段 outbox 行；identity = (tenantId, key)）。
+ *
+ * N29 再验收 P0-1（docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
+ * **outbox 行的 tenant 由仓库从聚合上下文盖章**——即通过 Task CAS 的那一行 `tasks.tenant_id`。
+ * 调用方不再是 tenant 的事实源：
+ *  - 缺省（推荐）：仓库盖章为聚合 tenant；
+ *  - 提供且等于聚合 tenant：允许（向后兼容既有装配点），仍以仓库盖章值落库；
+ *  - 提供且不等于聚合 tenant：`commit()` 在开事务前 fail closed（committed=false，零领域写、零 outbox）。
+ */
 export interface TaskCommitSideEffect {
   readonly key: string;
-  readonly tenantId: string;
+  /** @deprecated 由仓库从通过 CAS 的 `tasks.tenant_id` 盖章；提供不相等值 → fail closed。 */
+  readonly tenantId?: string;
   readonly kind: string;
   readonly payload: unknown;
 }
@@ -241,8 +255,25 @@ export interface TaskCommitSideEffect {
 export interface TaskCommitOptions {
   /** 服务端盖章 tenant scope（缺省时退回 outcome.lease 上的服务端 lease scope；两者皆无 → fail closed）。 */
   readonly scope?: TaskCommitScope;
-  /** CAS 命中（rowCount=1）后在同一事务内入队；CAS 未命中一律不写。 */
+  /**
+   * CAS 命中（rowCount=1）后在同一事务内入队；CAS 未命中一律不写。
+   * tenant 由仓库按聚合上下文盖章（见 `TaskCommitSideEffect`）；自报不同 tenant → 整个 commit fail closed。
+   */
   readonly sideEffects?: ReadonlyArray<TaskCommitSideEffect>;
+}
+
+/**
+ * N29 再验收 P0-1：side effect 自报 tenant 与服务端盖章 tenant 是否冲突。
+ *
+ * 冲突判据只有一条——**提供了非空 tenantId 且不等于聚合 tenant**。缺省不算冲突（由仓库盖章）。
+ * 仓库必须在开启事务前调用本判据，冲突时 fail closed（不提交、零 side effect）。
+ */
+export function hasForeignTenantSideEffect(
+  stampedTenantId: string,
+  sideEffects?: ReadonlyArray<TaskCommitSideEffect>,
+): boolean {
+  if (!sideEffects || sideEffects.length === 0) return false;
+  return sideEffects.some((se) => NON_EMPTY_STRING(se.tenantId) && se.tenantId !== stampedTenantId);
 }
 
 /**

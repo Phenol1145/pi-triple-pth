@@ -357,6 +357,90 @@ suite("pg task repository（P1-2）", () => {
     expect(await countOutbox("tenant-a", effect.key)).toBe(1);
   });
 
+  // ── N29 再验收 P0-1：side effect 的 tenant 只能由聚合上下文（通过 CAS 的 task 行）盖章 ──
+  // 反例来源：docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1。
+
+  it("N29 refix P0-1：tenant-a 的 task 声明 tenantId=tenant-b 的 side effect → fail closed，两个 tenant 都零 outbox", async () => {
+    await insertTask(pool, "task-refix-cross-tenant-se");
+    const [claimed] = await repo.claim(scope, "developer", ["task-refix-cross-tenant-se"]);
+    // 恶意/缺陷调用方：task 与 lease 都在 tenant-a，但 side effect 自报 tenant-b。
+    const effect = { key: "probe:refix-cross-tenant-se", tenantId: "tenant-b", kind: "refine", payload: { probe: 101 } };
+    const result = await repo.commit(
+      { lease: claimed.lease, status: "completed", result: { value: 1 }, artifacts: [], traceId: scope.traceId },
+      { sideEffects: [effect], scope: { tenantId: "tenant-a" } },
+    );
+
+    expect(result).toEqual({ committed: false });
+    // 关键反例：tenant-b 的 outbox 必须零行（旧实现会在此写入一条 tenant-b 行）。
+    expect(await countOutbox("tenant-b", effect.key)).toBe(0);
+    // fail closed：连 tenant-a 也不落 side effect，且 task 终态未推进。
+    expect(await countOutbox("tenant-a", effect.key)).toBe(0);
+    const row = await pool.query("SELECT status FROM tasks WHERE id = 'task-refix-cross-tenant-se'");
+    expect(row.rows[0].status).toBe("claimed");
+  });
+
+  it("N29 refix P0-1：retryable / rejected 分支的跨 tenant side effect 同样 fail closed", async () => {
+    await insertTask(pool, "task-refix-cross-tenant-se-retry");
+    const [claimedRetry] = await repo.claim(scope, "developer", ["task-refix-cross-tenant-se-retry"]);
+    const retryEffect = { key: "probe:refix-cross-tenant-retry", tenantId: "tenant-b", kind: "refine", payload: { probe: 102 } };
+    const retry = await repo.commit(
+      {
+        lease: claimedRetry.lease,
+        status: "rejected",
+        retryable: true,
+        error: { code: "soft", message: "later" },
+        artifacts: [],
+        traceId: scope.traceId,
+      },
+      { sideEffects: [retryEffect], scope: { tenantId: "tenant-a" } },
+    );
+    expect(retry).toEqual({ committed: false });
+    expect(await countOutbox("tenant-b", retryEffect.key)).toBe(0);
+    expect((await pool.query("SELECT status FROM tasks WHERE id = 'task-refix-cross-tenant-se-retry'")).rows[0].status).toBe(
+      "claimed",
+    );
+
+    await insertTask(pool, "task-refix-cross-tenant-se-reject");
+    const [claimedReject] = await repo.claim(scope, "developer", ["task-refix-cross-tenant-se-reject"]);
+    const rejectEffect = { key: "probe:refix-cross-tenant-reject", tenantId: "tenant-b", kind: "refine", payload: { probe: 103 } };
+    const rejected = await repo.commit(
+      {
+        lease: claimedReject.lease,
+        status: "rejected",
+        retryable: false,
+        error: { code: "hard", message: "boom" },
+        artifacts: [],
+        traceId: scope.traceId,
+      },
+      { sideEffects: [rejectEffect], scope: { tenantId: "tenant-a" } },
+    );
+    expect(rejected).toEqual({ committed: false });
+    expect(await countOutbox("tenant-b", rejectEffect.key)).toBe(0);
+    expect((await pool.query("SELECT status FROM tasks WHERE id = 'task-refix-cross-tenant-se-reject'")).rows[0].status).toBe(
+      "claimed",
+    );
+  });
+
+  it("N29 refix P0-1：省略 tenantId 的 side effect 由通过 CAS 的 task 行盖章为 tenant-a", async () => {
+    await insertTask(pool, "task-refix-stamped-se");
+    const [claimed] = await repo.claim(scope, "developer", ["task-refix-stamped-se"]);
+    // 服务端盖章：调用方完全不声明 tenant，仓库从 CAS RETURNING 的 tasks.tenant_id 盖章。
+    const result = await repo.commit(
+      { lease: claimed.lease, status: "completed", result: { value: 1 }, artifacts: [], traceId: scope.traceId },
+      {
+        sideEffects: [{ key: "probe:refix-stamped-se", kind: "refine", payload: { probe: 104 } }],
+        scope: { tenantId: "tenant-a" },
+      },
+    );
+    expect(result).toEqual({ committed: true });
+    expect(await countOutbox("tenant-a", "probe:refix-stamped-se")).toBe(1);
+    expect(await countOutbox("tenant-b", "probe:refix-stamped-se")).toBe(0);
+    const stamped = await pool.query(
+      `SELECT tenant_id FROM side_effect_outbox WHERE key = 'probe:refix-stamped-se'`,
+    );
+    expect(stamped.rows.map((r) => r.tenant_id)).toEqual(["tenant-a"]);
+  });
+
   it("W8 P0：completed 无产物不写 artifactRef；rejected 回写错误摘要", async () => {
     await insertTask(pool, "task-no-artifact", "tenant-a", "coder", {
       delivery: { path: ["origin", "developer", "coder"], lineageId: "root-2" },
