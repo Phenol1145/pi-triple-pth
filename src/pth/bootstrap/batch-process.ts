@@ -50,6 +50,25 @@ import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type WorkerReplicaRef } f
 import { assertMemoryDirectoryResponsibilityCapacity, buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createKnowledgeBroker, createLayeredKnowledgeRetriever, createVerifiedTaskReadScopeFactory, filterKnowledgeEntriesByQueryText, rankKnowledgeEntries, regionEntryIds, type DirectoryEntryInput, type KnowledgeMemoryEntry, type LayeredSearchWaveInput, type LayeredSearchWaveResult, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
 import { KNOWLEDGE_CONTEXT_KINDS } from "../runner/index.js";
 import { createAuthorizedStateReadPort, createAuthorizedTaskReadFactory, createCognitiveWorkingSetProvider, createScopedSkillPort, expandTaskReadGrantCapabilities, type AuthorizedTaskReadFactory } from "../runner/index.js";
+// N29 Task 6：intake 内环装配（PTH_KNOWLEDGE_INTAKE_MODE=off 时完全不实例化）。
+import {
+  createAdversarialReviewProcessor,
+  createDomainReviewProcessor,
+  createIntakeExtractProcessor,
+} from "../runner/index.js";
+import {
+  createKnowledgeIngestor,
+  createKnowledgeIntakeDueScanner,
+  createKnowledgeIntakeService,
+  createPolicyBoundSourceFetchBroker,
+  INTAKE_STAGE_OUTBOX_KINDS,
+  loadVerifiedTrustPolicy,
+  type KnowledgeIntakeDueScanner,
+  type TrustPolicyKeyring,
+} from "../execution/index.js";
+import { createKnowledgeIntakeRepository } from "../kernel/storage/index.js";
+import type { SideEffectDrainerHandlers } from "../tasking/index.js";
+import type { TrustPolicyManifest } from "../contracts/index.js";
 import type { SkillStoreLike } from "@away_from/pth-memory";
 import type { RoleDefinition } from "../kernel/execution/worker-cluster.js";
 
@@ -224,6 +243,13 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   }
 
   let paused = false;
+
+  /**
+   * N29 Task 6：due scanner 的 IPC trigger 句柄。装配在下方（drainer 之前）完成后写入；
+   * `PTH_KNOWLEDGE_INTAKE_MODE=off` 时永远为 undefined —— trigger 收到消息也只回 ran:false。
+   * 提前声明是为了让 `process.on("message")`（注册于装配之前）安全闭包引用，避免 TDZ。
+   */
+  const intakeTrigger: { run?: () => Promise<number> } = {};
 
   // N28 T2：认知责任模式（默认 off=legacy 逐字节兼容）；feasibility 由确定性装配/harness 显式开启。
   const mode = pthConfig().str("PTH_COGNITIVE_RESPONSIBILITY_MODE") === "feasibility" ? "feasibility" as const : "off" as const;
@@ -464,6 +490,21 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         batchLogger?.warn?.(`[optimizer-sweep] 巡检失败: ${e.message}`);
       });
       process.send?.({ type: "optimizer-sweep-status", batchPid: process.pid, ran: Boolean(opt) });
+    } else if (msg?.type === "intake-due-scan") {
+      // N29 Task 6：trigger 只唤醒 due scanner（`Subscription.nextCrawlAt` 是唯一调度真相）。
+      // scanner 只建 run + `intake.fetch` outbox 行；阶段推进由生产 drainer 的 intake handler 完成。
+      const run = intakeTrigger.run;
+      if (!run) {
+        process.send?.({ type: "intake-due-scan-status", batchPid: process.pid, ran: false, reason: "intake mode off" });
+      } else {
+        try {
+          const created = await run();
+          process.send?.({ type: "intake-due-scan-status", batchPid: process.pid, ran: true, created });
+        } catch (e) {
+          batchLogger?.warn?.(`[intake] due scan 失败: ${(e as Error).message}`);
+          process.send?.({ type: "intake-due-scan-status", batchPid: process.pid, ran: true, error: (e as Error).message });
+        }
+      }
     }
   });
   // 父进程退出（IPC 通道关闭）→ 自杀：不留孤儿 batch 继续轮询 DB（先释放 kernel）
@@ -484,6 +525,83 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     emitCleanup: (info) => process.send?.({ type: "cleanup", taskId: info.taskId, artifactPath: info.artifactPath }),
   };
 
+  // ── N29 Task 6：Knowledge Intake 内环装配 ────────────────────────────────
+  // `PTH_KNOWLEDGE_INTAKE_MODE=off`（默认）时完全不装配：零 handler、零 scanner、零 LLM 客户端，
+  // 生产 drainer 的 handler 集合逐字节保持 N28 形状。draft/full 才装配，且任一前置缺失即
+  // **启动期 fail closed**（宁可起不来，不要半个不可信内环在跑）。
+  //
+  // 首轮（M0）连接器与申报属性固定为一个 bounded HTTPS/HTML source
+  // （plan §2 Global Constraints：一个 tenant / space / domain / subscription）。
+  const intakeMode = pthConfig().str("PTH_KNOWLEDGE_INTAKE_MODE").trim().toLowerCase();
+  const intakeStageHandlers: SideEffectDrainerHandlers = {};
+  let intakeDueScanner: KnowledgeIntakeDueScanner | undefined;
+  if (intakeMode === "draft" || intakeMode === "full") {
+    const manifestPath = pthConfig().str("PTH_TRUST_POLICY_MANIFEST");
+    const keyringPath = pthConfig().str("PTH_TRUST_POLICY_KEYRING");
+    if (!manifestPath || !keyringPath) {
+      throw new Error(
+        `PTH_KNOWLEDGE_INTAKE_MODE=${intakeMode} 需要 PTH_TRUST_POLICY_MANIFEST 与 PTH_TRUST_POLICY_KEYRING`
+        + "（人类签名 Trust Policy 是来源抓取与使用授权的唯一事实源）",
+      );
+    }
+    // 已验签 policy 在进程启动时加载一次；轮换需重启 batch（manifest 是不可变签名事实）。
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as TrustPolicyManifest;
+    const keyring = JSON.parse(await readFile(keyringPath, "utf8")) as TrustPolicyKeyring;
+    const verifiedPolicy = await loadVerifiedTrustPolicy(manifest, keyring);
+
+    const intakeRepository = createKnowledgeIntakeRepository(pool);
+    const intakeStore = dataWorld.memory as unknown as Parameters<typeof createKnowledgeIngestor>[0]["store"];
+    const intakeLlm = createLlmFn({
+      modelRouter,
+      onMetric: (m) => {
+        try { process.send?.({ kind: "metric", metric: { ...m, kind: "llm", domain: "intake" } }); } catch { /* IPC 不可用 */ }
+      },
+    });
+    const declaredSource = { sourceType: "bounded-html", contentType: "text/html", license: "public-domain" } as const;
+    const intakeService = createKnowledgeIntakeService({
+      pool,
+      repository: intakeRepository,
+      store: dataWorld.memory as never,
+      policy: verifiedPolicy,
+      broker: createPolicyBoundSourceFetchBroker({ policy: verifiedPolicy, declaredSource }),
+      ingestor: createKnowledgeIngestor({ pool, store: intakeStore, intake: intakeRepository }),
+      extractor: createIntakeExtractProcessor({ llm: intakeLlm }),
+      domainReview: createDomainReviewProcessor({ llm: intakeLlm }),
+      adversarialReview: createAdversarialReviewProcessor({ llm: intakeLlm }),
+      // 四个职责分离的 principal（producer/domain/adversarial/promoter 必须互不相同）。
+      principals: {
+        producer: "intake:extractor",
+        domainReviewer: "intake:domain-reviewer",
+        adversarialReviewer: "intake:adversarial-reviewer",
+        promoter: "intake:promoter",
+      },
+      declared: declaredSource,
+    });
+    // 生产 drainer 注册的阶段 handler：intake.fetch / extract / review-domain /
+    // review-adversarial / promote —— 每个 handler 只处理一个 stage 并用 run CAS 提交下一步。
+    Object.assign(intakeStageHandlers, intakeService.stageHandlers());
+    // 变化重爬/撤销的依赖刷新 fan-out：**权威撤出已在 PG 事务内完成**（依赖边 stale +
+    // 旧 official → stale），本 outbox 行只是通知。L7 组合真正的下游刷新消费者之前，
+    // 这里注册一个结构化日志 sink：既不让行进 dead-letter 制造噪声，也不静默丢弃事实。
+    intakeStageHandlers[INTAKE_STAGE_OUTBOX_KINDS.dependencyRefresh] = async (payload) => {
+      const p = (payload ?? {}) as Record<string, unknown>;
+      const ids = Array.isArray(p.staleDependentIds) ? (p.staleDependentIds as unknown[]) : [];
+      batchLogger.info(
+        `[intake] dependency refresh：subscription=${String(p.subscriptionId)} reason=${String(p.reason)}`
+        + ` staleDependents=${ids.length}（${ids.slice(0, 8).join(",")}）`
+        + "——L7 将以真实刷新消费者替换本 sink",
+      );
+    };
+    intakeDueScanner = createKnowledgeIntakeDueScanner({
+      repository: intakeRepository,
+      logger: (m) => batchLogger.warn(m),
+    });
+    batchLogger.info(
+      `[intake] mode=${intakeMode} 已注册阶段 handler：${Object.keys(intakeStageHandlers).sort().join(", ")}`
+      + `；policy=${verifiedPolicy.manifest.policyId}@${verifiedPolicy.manifest.version}`,
+    );
+  }
+
   // F5（6.1）：durable side-effect outbox + drainer。refine observer 只 enqueue 到 outbox；
   // drainer 轮询消费（unref timer + task-loop claim 前 kick）。refineRefiners 在 createWorker
   // 里按 roleId 注册各 worker 的 refiner，handler 按 payload.roleId 选取。
@@ -499,6 +617,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         if (!refiner) throw new Error("refiner not available for outbox refine");
         await refiner.refine(refineInputFromPayload(p));
       },
+      // N29 Task 6：intake 阶段 handler（mode=off 时该展开为空——handler 集合不变）。
+      ...intakeStageHandlers,
     },
     logger: (m) => batchLogger.warn(m),
     tickMs: pthConfig().num("PTH_OUTBOX_TICK_MS") || 2000,
@@ -509,6 +629,19 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       batchLogger.warn(`side-effect drain kick failed: ${e instanceof Error ? e.message : String(e)}`);
     });
   };
+
+  /**
+   * N29 Task 6：due scanner 唤醒（trigger 统一化——主进程 `intake.due-scan` 经 IPC 下行）。
+   * Trigger **只**唤醒 scanner；`Subscription.nextCrawlAt` 是唯一调度真相。scanner 只建 run
+   * 与 `intake.fetch` outbox 行，随后由上面的 drainer 接管阶段推进。
+   */
+  const runIntakeDueScan = async (): Promise<number> => {
+    if (!intakeDueScanner) return 0;
+    const created = await intakeDueScanner.scanOnce();
+    if (created.length > 0) kickSideEffectDrainer();
+    return created.length;
+  };
+  if (intakeDueScanner) intakeTrigger.run = runIntakeDueScan;
 
   const intervalMs = deps.intervalMs ?? pthConfig().num("PTH_BATCH_TICK_MS");
   // 多语言持久 REPL（T1-T3）：KernelManager 路由——python/bash 用持久 kernel

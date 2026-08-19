@@ -140,6 +140,44 @@ async function insertDependency(executor: SqlExecutor, input: SourceDependencyIn
   );
 }
 
+/**
+ * N29 Task 6：被标记 stale 的依赖边（`markDependentsStale*` 的富返回行）。
+ * service 只对 `dependentKind === "knowledge-entry"` 的行去撤出对应 official 知识条目。
+ */
+export interface StaleDependentRow {
+  readonly dependentId: string;
+  readonly dependentKind: "knowledge-entry" | "candidate";
+  readonly sourceRevisionId: string;
+  readonly space: string;
+}
+
+/**
+ * stale 标记的唯一实现（pool 与事务 client 共用同一条 SQL——语义不分叉）。
+ * `exceptSourceRevisionId` 用于变化重爬：**新** revision 自己的依赖边不得被标 stale。
+ */
+async function markDependentsStaleRows(
+  executor: SqlExecutor,
+  input: MarkDependentsStaleInput,
+): Promise<readonly StaleDependentRow[]> {
+  const res = await executor.query(
+    `UPDATE knowledge_source_dependencies
+        SET stale = true,
+            stale_at = now(),
+            stale_reason = $3,
+            row_version = row_version + 1
+      WHERE tenant_id = $1 AND subscription_id = $2 AND stale = false
+        AND ($4::text IS NULL OR source_revision_id <> $4::text)
+      RETURNING dependent_id, dependent_kind, source_revision_id, space`,
+    [input.tenantId, input.subscriptionId, input.reason, input.exceptSourceRevisionId ?? null],
+  );
+  return (res.rows as Row[]).map((r) => ({
+    dependentId: r.dependent_id as string,
+    dependentKind: r.dependent_kind as StaleDependentRow["dependentKind"],
+    sourceRevisionId: r.source_revision_id as string,
+    space: (r.space as string) ?? "",
+  }));
+}
+
 function mapSubscription(r: any): SourceSubscription {
   return {
     id: r.id,
@@ -772,18 +810,45 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
 
   /** stale 标记：tenant + subscription 作用域；可排除当前 revision；返回被标记的 dependent id。 */
   async markDependentsStale(input: MarkDependentsStaleInput): Promise<readonly string[]> {
+    const rows = await markDependentsStaleRows(this.pool, input);
+    return rows.map((r) => r.dependentId).sort();
+  }
+
+  /**
+   * N29 Task 6：事务绑定 stale 标记。变化重爬必须在**同一事务**内完成
+   *  ① 依赖边 stale → ② 旧 official 知识条目 stale → ③ dependency refresh outbox，
+   * 因此本变体返回富行（dependentKind + dependentId + sourceRevisionId），供 service
+   * 只对 `knowledge-entry` 依赖调用 `PgMemoryStore.markKnowledgeStaleInTx()`。
+   */
+  async markDependentsStaleInTx(
+    client: pg.PoolClient,
+    input: MarkDependentsStaleInput,
+  ): Promise<readonly StaleDependentRow[]> {
+    return markDependentsStaleRows(client, input);
+  }
+
+  /**
+   * N29 Task 6：artifact 元数据只读面（不返回正文字节）。
+   * 条件重爬命中 304 时 envelope 的 rawBytes 为空、byteLength=0，而 `storeAcquisition()`
+   * 的 artifact 去重要求 byteLength 与既有行严格一致，因此 unchanged 路径必须先读回真实长度。
+   */
+  async getArtifactMeta(
+    tenantId: string,
+    rawHash: string,
+  ): Promise<{ id: string; rawHash: string; byteLength: number; contentType: string } | null> {
     const res = await this.pool.query(
-      `UPDATE knowledge_source_dependencies
-          SET stale = true,
-              stale_at = now(),
-              stale_reason = $3,
-              row_version = row_version + 1
-        WHERE tenant_id = $1 AND subscription_id = $2 AND stale = false
-          AND ($4::text IS NULL OR source_revision_id <> $4::text)
-        RETURNING dependent_id`,
-      [input.tenantId, input.subscriptionId, input.reason, input.exceptSourceRevisionId ?? null],
+      `SELECT id, raw_hash, byte_length, content_type FROM knowledge_source_artifacts
+        WHERE tenant_id = $1 AND raw_hash = $2`,
+      [tenantId, rawHash],
     );
-    return (res.rows as Row[]).map((r) => r.dependent_id as string).sort();
+    if ((res.rowCount ?? 0) === 0) return null;
+    const r = res.rows[0] as Row;
+    return {
+      id: r.id as string,
+      rawHash: r.raw_hash as string,
+      byteLength: Number(r.byte_length),
+      contentType: (r.content_type as string) ?? "",
+    };
   }
 
   // ------------------------------------------------------------ 读侧（tenant-scoped）
@@ -844,9 +909,20 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
 /**
  * N29 Task 5：事务绑定写入面。M0 冻结合同（contracts）不得出现 `pg` 类型，
  * 因此事务面在 PG 适配器层声明；消费方（KnowledgeIngestor）按结构消费。
+ *
+ * N29 Task 6 追加：变化重爬的 stale 标记必须与旧 official 撤出、dependency refresh outbox
+ * 落在同一事务；unchanged（304）路径需要 artifact 真实长度才能复用既有 artifact 行。
  */
 export interface TransactionBoundIntakeWrites {
   recordDependencyInTx(client: pg.PoolClient, input: SourceDependencyInput): Promise<void>;
+  markDependentsStaleInTx(
+    client: pg.PoolClient,
+    input: MarkDependentsStaleInput,
+  ): Promise<readonly StaleDependentRow[]>;
+  getArtifactMeta(
+    tenantId: string,
+    rawHash: string,
+  ): Promise<{ id: string; rawHash: string; byteLength: number; contentType: string } | null>;
 }
 
 /** PG 仓库的完整对外面（冻结合同 + 事务绑定写入）。 */

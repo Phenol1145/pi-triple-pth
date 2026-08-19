@@ -69,7 +69,12 @@ export interface PenetrationDiscoveryMemoryEntry {
   kind: string;
   anchors: string[];
   content: string;
-  status: "draft" | "official" | "archived";
+  /**
+   * N29 Task 6：`stale` 只出现在**读**侧（store 可能返回任何 MemoryEntry 状态）。
+   * discovery 自身只写 draft/archived 提案，从不写 official，更不写 stale
+   * （stale 只能由 `PgMemoryStore.markKnowledgeStale*()` 的内部 authority 产生）。
+   */
+  status: "draft" | "official" | "archived" | "stale";
   meta: Record<string, unknown>;
 }
 
