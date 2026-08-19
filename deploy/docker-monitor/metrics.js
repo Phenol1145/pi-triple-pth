@@ -47,3 +47,64 @@ export function computeMetrics(raw, _id, prev) {
 
   return { cpuPct, memUsage, memLimit, memPct, netRx, netTx };
 }
+
+/**
+ * 解析 Docker inspect 的 RFC3339 时间戳（UTC epoch ms）。
+ * Docker 未启动/未结束字段是零值 "0001-01-01T00:00:00Z"——按 null 处理。
+ * @param {string | undefined | null} value
+ * @returns {number | null}
+ */
+export function parseDockerTime(value) {
+  if (typeof value !== "string" || value.length === 0) return null;
+  if (value.startsWith("0001-01-01")) return null;
+  const t = Date.parse(value);
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * 容器 inspect + 列表条目 → service RuntimeInterval（Docker 侧）。
+ *
+ * 区间身份 = Docker ID + startAt：同一容器重启后 startAt 变化，形成新 revision。
+ * 运行中 endAt=null；已退出 endAt=FinishedAt（无 FinishedAt 则 null）。
+ *
+ * @param {Record<string, unknown>} container  /containers/json 条目
+ * @param {Record<string, unknown> | null} inspect /containers/:id/json 结果
+ * @param {{now: number, expectedIntervalMs: number}} ctx
+ */
+export function buildContainerInterval(container, inspect, { now, expectedIntervalMs }) {
+  const id = inspect?.Id ?? container?.Id ?? "?";
+  const name = (inspect?.Name ?? container?.Names?.[0] ?? "").replace(/^\//, "");
+  const image = (inspect?.Config?.Image ?? container?.Image ?? "").split("@")[0];
+
+  const createdMs = parseDockerTime(inspect?.Created);
+  const startedMs = parseDockerTime(inspect?.State?.StartedAt);
+  const finishedMs = parseDockerTime(inspect?.State?.FinishedAt);
+  const running = inspect?.State?.Running ?? container?.State === "running";
+
+  // 未启动的容器没有 StartedAt：用 Created 作为服务区间起点
+  const startAt = startedMs ?? createdMs ?? now;
+  const endAt = running ? null : finishedMs;
+
+  let status = "unknown";
+  if (running) status = "running";
+  else if (endAt !== null) status = inspect?.State?.ExitCode === 0 ? "completed" : "failed";
+
+  const staleAfterMs = Math.max(3 * expectedIntervalMs, 6000);
+
+  return {
+    id: `service:${id}:${startAt}`,
+    kind: "service",
+    label: name || id.slice(0, 12),
+    image,
+    status,
+    sourceVersion: `${startAt}`,
+    startAt,
+    endAt,
+    freshness: {
+      sourceObservedAt: now,
+      collectedAt: now,
+      expectedIntervalMs,
+      staleAfterMs,
+    },
+  };
+}
