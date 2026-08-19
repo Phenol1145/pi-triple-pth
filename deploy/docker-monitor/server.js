@@ -16,6 +16,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { defaultDockerClient } from "./docker-api.js";
 import { computeMetrics, buildContainerInterval } from "./metrics.js";
 import { createTimeSeriesRing } from "./ring-buffer.js";
+import { createPthClient } from "./pth-client.js";
+import { createRuntimeAggregator } from "./runtime-aggregator.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MAX_AGE_MS = 3_600_000;
@@ -34,6 +36,8 @@ function getHtml() {
  * @param {number} [options.maxSamples]
  * @param {{getContainers: Function, inspectContainer: Function, getContainerStats: Function}} [options.docker]
  * @param {() => number} [options.clock]
+ * @param {object|{start: Function, stop: Function, pollOnce: Function, connectEvents?: Function}|null} [options.pth]
+ *   PTH 只读客户端（prebuilt）或 createPthClient 选项（endpoint/token/...）；不传则纯 Docker 模式。
  */
 export function createMonitorServer({
   host = "127.0.0.1",
@@ -42,6 +46,7 @@ export function createMonitorServer({
   maxSamples = 1800,
   docker = defaultDockerClient,
   clock = () => Date.now(),
+  pth = null,
 } = {}) {
   const maxAgeMs = DEFAULT_MAX_AGE_MS;
   const expectedIntervalMs = intervalMs;
@@ -67,24 +72,118 @@ export function createMonitorServer({
     consecutiveFailures: 0,
   };
 
+  const aggregator = createRuntimeAggregator({ clock, maxAgeMs });
+  const sseClients = new Set();
   let seq = 0;
+  let pthClient = null;
+  let pthClientStarted = false;
+  let pthScope = null;
+
+  function sseSend(res, event, data) {
+    seq += 1;
+    res.write(`id: ${seq}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  }
+
+  function broadcast(event, data) {
+    for (const res of sseClients) {
+      sseSend(res, event, data);
+    }
+  }
+
+  function buildSourceStates() {
+    const sources = [{ ...source }];
+    if (pthClient) {
+      for (const pthSource of aggregator.getSources()) {
+        sources.push(pthSource);
+      }
+    }
+    return sources;
+  }
+
+  function broadcastFreshness() {
+    broadcast("freshness", { sources: buildSourceStates(), observedAt: clock() });
+  }
+
+  function handleAggregatorEvents() {
+    for (const ev of aggregator.drainEvents()) {
+      broadcast(ev.type, ev.payload);
+    }
+    broadcastFreshness();
+  }
+
+  // PTH 只读客户端装配：prebuilt 客户端直接使用；选项对象则由本工厂创建并接线。
+  // 接线只调用 GET timeline/events；任何写路由都不会被本模块调用。
+  if (pth) {
+    if (typeof pth.start === "function") {
+      pthClient = pth;
+    } else {
+      pthClient = createPthClient({
+        ...pth,
+        clock,
+        onSnapshot: (snapshot) => {
+          if (snapshot?.scope) pthScope = snapshot.scope;
+          aggregator.reconcileSnapshot(snapshot);
+          handleAggregatorEvents();
+        },
+        onDelta: (delta) => {
+          aggregator.applyDelta(delta);
+          handleAggregatorEvents();
+        },
+        onError: (pthSource) => {
+          aggregator.markSourceFailure(pthSource);
+          handleAggregatorEvents();
+        },
+      });
+    }
+  }
+
+  function computeSummary(rows) {
+    const summary = {
+      activeTasks: 0,
+      queuedTasks: 0,
+      workers: 0,
+      idleWorkers: 0,
+      activeIntakeRuns: 0,
+      activeOptimizeWorks: 0,
+      activeRunWorks: 0,
+      alerts: 0,
+    };
+    for (const iv of rows) {
+      if (iv.kind === "task") {
+        if (iv.status === "running" || iv.status === "waiting" || iv.status === "retrying") summary.activeTasks += 1;
+        else if (iv.status === "queued") summary.queuedTasks += 1;
+      } else if (iv.kind === "intake-run" && (iv.status === "running" || iv.status === "waiting" || iv.status === "retrying")) {
+        summary.activeIntakeRuns += 1;
+      } else if (iv.kind === "optimizer-work" && (iv.status === "running" || iv.status === "waiting")) {
+        summary.activeOptimizeWorks += 1;
+      } else if (iv.kind === "professional-job" && (iv.status === "running" || iv.status === "waiting")) {
+        summary.activeRunWorks += 1;
+      }
+    }
+    return summary;
+  }
 
   function buildSnapshot() {
     const collectedAt = clock();
     const from = collectedAt - maxAgeMs;
-    const currentIntervals = [...intervals.values()].filter((iv) => {
+    const dockerIntervals = [...intervals.values()].filter((iv) => {
       if (iv.endAt === null) return true;
       return iv.endAt >= from;
     });
-    return {
-      snapshotId: `docker-${collectedAt}-${currentIntervals.length}-${ring.size}`,
+    const pthIntervals = pthClient ? aggregator.getIntervals() : [];
+    const allIntervals = [...dockerIntervals, ...pthIntervals];
+    const snapshot = {
+      snapshotId: `local-${collectedAt}-${allIntervals.length}-${ring.size}`,
       collectedAt,
       window: { from, to: collectedAt },
-      intervals: currentIntervals,
+      scope: pthScope ?? { mode: "local-admin", tenantId: "local" },
+      summary: computeSummary(allIntervals),
+      intervals: allIntervals,
       samples: ring.range(from, collectedAt),
-      sources: [{ ...source }],
+      sources: buildSourceStates(),
       warnings: [],
     };
+    return snapshot;
   }
 
   function makeFreshness(observedAt) {
@@ -102,17 +201,21 @@ export function createMonitorServer({
 
     /** @type {Array<Record<string, unknown>>} */
     let list;
+    let dockerOk = true;
     try {
       list = await docker.getContainers();
     } catch {
       source.state = "disconnected";
       source.consecutiveFailures += 1;
-      return buildSnapshot();
+      dockerOk = false;
+      list = [];
     }
 
-    source.state = "fresh";
-    source.lastSuccessAt = collectedAt;
-    source.consecutiveFailures = 0;
+    if (dockerOk) {
+      source.state = "fresh";
+      source.lastSuccessAt = collectedAt;
+      source.consecutiveFailures = 0;
+    }
 
     const seenContainerIds = new Set();
     for (const c of list ?? []) {
@@ -145,13 +248,15 @@ export function createMonitorServer({
       }
       intervals.set(interval.id, interval);
       intervalsByContainer.set(cid, interval.id);
+      broadcast("service-interval", interval);
+      broadcast("interval.upsert", interval);
 
       if (interval.status === "running") {
         try {
           const raw = await docker.getContainerStats(cid);
           const m = computeMetrics(raw, cid, prevStats.get(cid));
           prevStats.set(cid, raw);
-          ring.push({
+          const sample = {
             ts: collectedAt,
             targetKind: "container",
             targetId: cid,
@@ -164,10 +269,12 @@ export function createMonitorServer({
             health: c?.Health?.Status ?? "unknown",
             source: "docker",
             freshness: makeFreshness(collectedAt),
-          });
+          };
+          ring.push(sample);
+          broadcast("resource-sample", sample);
         } catch {
           // stats 拉取失败（瞬时）——保留 null，绝不合成 0。
-          ring.push({
+          const sample = {
             ts: collectedAt,
             targetKind: "container",
             targetId: cid,
@@ -180,7 +287,9 @@ export function createMonitorServer({
             health: null,
             source: "docker",
             freshness: makeFreshness(collectedAt),
-          });
+          };
+          ring.push(sample);
+          broadcast("resource-sample", sample);
         }
       } else {
         prevStats.delete(cid);
@@ -229,6 +338,16 @@ export function createMonitorServer({
       }
     }
 
+    // PTH 轮询由 pth-client 自己的 5s timer 驱动；若尚未启动（例如测试直接调
+    // collectOnce），这里同步补一次 durable snapshot，保证 /snapshot 能看到 PTH。
+    if (pthClient && !pthClientStarted && typeof pthClient.pollOnce === "function") {
+      try {
+        await pthClient.pollOnce();
+      } catch {
+        // onError 已把来源标记为 failure；Docker 采样结果不受影响。
+      }
+    }
+
     return buildSnapshot();
   }
 
@@ -258,35 +377,43 @@ export function createMonitorServer({
         "cache-control": "no-cache",
         connection: "keep-alive",
       });
-      const send = (event, data) => {
-        seq += 1;
-        res.write(`id: ${seq}\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-      };
+      sseClients.add(res);
 
-      // 连接即补发当前快照内的 service interval 与 resource sample，再发 heartbeat。
-      const snap = buildSnapshot();
-      for (const iv of snap.intervals) send("service-interval", iv);
-      for (const s of snap.samples) send("resource-sample", s);
+      // 先发 heartbeat / legacy resource-sample / service-interval 保证 O1 兼容；
+      // 再发统一 snapshot / freshness。之后所有实时事件都广播同一个全局 seq。
       const observedAt = clock();
-      send("heartbeat", {
+      sseSend(res, "heartbeat", {
         source: "aggregator",
         freshness: makeFreshness(observedAt),
       });
+      const snap = buildSnapshot();
+      const dockerIntervals = [...intervals.values()].filter((iv) => {
+        if (iv.endAt === null) return true;
+        return iv.endAt >= snap.window.from;
+      });
+      for (const iv of dockerIntervals) sseSend(res, "service-interval", iv);
+      for (const s of snap.samples) sseSend(res, "resource-sample", s);
+      sseSend(res, "snapshot", snap);
+      sseSend(res, "freshness", { sources: buildSourceStates(), observedAt });
 
       const timer = setInterval(() => {
         const now = clock();
-        send("heartbeat", {
+        sseSend(res, "heartbeat", {
           source: "aggregator",
           freshness: makeFreshness(now),
         });
+        sseSend(res, "freshness", { sources: buildSourceStates(), observedAt: now });
       }, expectedIntervalMs);
-      req.on("close", () => clearInterval(timer));
+      req.on("close", () => {
+        clearInterval(timer);
+        sseClients.delete(res);
+      });
       return;
     }
 
     if (url === "/health") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-      res.end(JSON.stringify({ sources: [{ ...source }] }));
+      res.end(JSON.stringify({ sources: buildSourceStates() }));
       return;
     }
 
@@ -299,12 +426,23 @@ export function createMonitorServer({
       server.once("error", reject);
       server.listen(port, host, () => {
         server.removeListener("error", reject);
+        if (pthClient && typeof pthClient.start === "function") {
+          pthClient.start();
+          pthClientStarted = true;
+        }
+        if (pthClient && typeof pthClient.connectEvents === "function") {
+          void pthClient.connectEvents();
+        }
         resolve();
       });
     });
   }
 
   function close() {
+    if (pthClient && typeof pthClient.stop === "function") {
+      pthClient.stop();
+      pthClientStarted = false;
+    }
     return new Promise((resolve) => {
       if (!server.listening) {
         resolve();
@@ -314,7 +452,17 @@ export function createMonitorServer({
     });
   }
 
-  return { server, start, collectOnce, close, snapshot: buildSnapshot };
+  return {
+    server,
+    start,
+    collectOnce,
+    close,
+    snapshot: buildSnapshot,
+    /** 供测试/集成读取：当前聚合的 PTH 区间（浏览器可用，无凭据）。 */
+    getPthIntervals: () => (pthClient ? aggregator.getIntervals() : []),
+    /** 供测试/集成读取：当前来源状态（含 docker/pth-timeline/pth-events）。 */
+    getSources: buildSourceStates,
+  };
 }
 
 // 仅当作为主模块直接执行时启动；import 到测试或其他模块时零副作用。
@@ -324,13 +472,27 @@ if (isMain) {
   const monitorPort = Number(process.env.MONITOR_PORT ?? 9090);
   const monitorIntervalMs = Number(process.env.MONITOR_INTERVAL_MS ?? 2000);
 
+  // PTH token 只从服务端 token 文件读取；绝不进入 HTML/SSE/日志。
+  let pth = null;
+  const pthUrl = process.env.MONITOR_PTH_URL;
+  const pthTokenFile = process.env.MONITOR_PTH_TOKEN_FILE;
+  if (pthUrl && pthTokenFile) {
+    const pthToken = readFileSync(pthTokenFile, "utf8").trim();
+    pth = {
+      endpoint: pthUrl,
+      token: pthToken,
+      reconcileMs: Number(process.env.MONITOR_PTH_RECONCILE_MS ?? 5000),
+    };
+  }
+
   const monitor = createMonitorServer({
     host: monitorHost,
     port: monitorPort,
     intervalMs: monitorIntervalMs,
+    pth,
   });
   await monitor.collectOnce();
   await monitor.start();
   setInterval(() => void monitor.collectOnce(), monitorIntervalMs);
-  console.log(`docker-monitor: http://${monitorHost}:${monitorPort}  (interval ${monitorIntervalMs}ms)`);
+  console.log(`docker-monitor: http://${monitorHost}:${monitorPort}  (interval ${monitorIntervalMs}ms${pth ? ", pth enabled" : ""})`);
 }
