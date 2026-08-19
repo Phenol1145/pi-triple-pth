@@ -4,10 +4,11 @@ import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResol
 import { BatchManager } from "./execution/batch-manager.js";
 import { getEventBus } from "./execution/event-bus.js";
 import { toKernelActivityEvent } from "./execution/kernel-event-bridge.js";
-import { parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles } from "./execution/worker-cluster.js";
+import { parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles } from "./execution/worker-cluster.js";
 import { checkTaskRouting, routeTaskRole } from "./execution/role-router.js";
 import { parseWorkerRoleRecovery, parseSpaceRecovery } from "./execution/recovery-validation.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "./execution/builtin-roles.js";
+import { PROFESSIONAL_ROLES } from "./execution/professional-roles.js";
 import { TaskResolver } from "./execution/task-resolver.js";
 import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
 import { registerSystemTriggers } from "./execution/system-triggers.js";
@@ -168,6 +169,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   // 2026-08-13 审计 P2：内置角色在装配层注入（核心 worker-cluster 不再 import 实现层）
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  // Task 3：五个专业角色进入 known lineage/显式权重解析（不进缺省单副本循环）
+  setProfessionalRoles(PROFESSIONAL_ROLES);
   // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入；
   // 内置空间注册移出 space-registry 模块（断 core 实现层环）
   const { setSpaceLookup } = await import("@away_from/pth-memory");

@@ -72,19 +72,22 @@ export const MAX_TOTAL_WORKERS = 32;
 /** 解析角色权重串 → Map（校验：角色合法/副本范围/总数上限）。空/undefined → 默认 7×1 */
 export function parseRoleWeights(spec: string | undefined | null | Record<string, number>): Map<string, number> {
   const out = new Map<string, number>();
-  // 对象输入（profile.weights 面——未列出默认 1）
+  // 对象输入（profile.weights 面——未列出默认 1；专业角色未列出默认 0）
   if (spec && typeof spec === "object") {
     for (const [role, copies] of Object.entries(spec)) out.set(role, copies);
     for (const r of allWorkerRoles()) if (!out.has(r.id)) out.set(r.id, 1);
+    for (const r of professionalRoles) if (!out.has(r.id)) out.set(r.id, 0);
     validateWeights(out);
     return out;
   }
   if (!spec || (spec as string).trim() === "") {
     for (const r of allWorkerRoles()) out.set(r.id, 1);
+    for (const r of professionalRoles) out.set(r.id, 0);
     return out;
   }
   // known 集合含 governance（sensor/controller 系——显式可列；默认展开不含——MID 同款）
-  const known = new Set([...allWorkerRoles(), ...midRoles, ...governanceRoles].map((r) => r.id));
+  // + 专业角色（explicit-only 叶子——显式可列；默认展开不含——Task 3）
+  const known = new Set([...allWorkerRoles(), ...midRoles, ...governanceRoles, ...professionalRoles].map((r) => r.id));
   const specStr = spec as string;
   for (const part of specStr.split(",")) {
     // 角色 id 可含冒号（sensor:worker-opt）——copies 是末尾数字段——从右找数字段拆分
@@ -98,8 +101,10 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
     const copies = copiesRaw === undefined || copiesRaw.trim() === "" ? 1 : Number(copiesRaw.trim());
     out.set(roleId, copies);
   }
-  // 未列出的角色默认 1（保持全角色覆盖语义——含扩展角色）
+  // 未列出的角色默认 1（保持全角色覆盖语义——含扩展角色）；
+  // 专业角色 explicit-only：未显式列出 → 0（不进隐式单副本循环）
   for (const r of allWorkerRoles()) if (!out.has(r.id)) out.set(r.id, 1);
+  for (const r of professionalRoles) if (!out.has(r.id)) out.set(r.id, 0);
   validateWeights(out);
   return out;
 }
@@ -108,7 +113,7 @@ export function parseRoleWeights(spec: string | undefined | null | Record<string
  * 2026-08-12 修复：按 weights 键展开（含显式启用的 governance/MID 角色——
  * 旧实现只遍历 allWorkerRoles——PTH_WORKER_ROLES 显式列出的 governance 被静默丢弃）。 */
 export function expandRoleWeights(weights: Map<string, number>): WorkerRole[] {
-  const byId = new Map([...allWorkerRoles(), ...midRoles, ...governanceRoles].map((r) => [r.id, r]));
+  const byId = new Map([...allWorkerRoles(), ...midRoles, ...governanceRoles, ...professionalRoles].map((r) => [r.id, r]));
   const out: WorkerRole[] = [];
   for (const [id, n] of weights) {
     const r = byId.get(id);
@@ -169,9 +174,9 @@ export function profileToWeights(profile: BatchProfile): Map<string, number> {
     if (profile.weights) return parseRoleWeights(profile.weights);
     return parseRoleWeights(undefined);   // 默认 7×1
   }
-  // reinforced：单角色 × copies，其余 0（禁用——含扩展角色）
+  // reinforced：单角色 × copies，其余 0（禁用——含扩展角色与显式专业角色）
   const weights = new Map<string, number>();
-  for (const r of allWorkerRoles()) weights.set(r.id, r.id === profile.role ? profile.copies : 0);
+  for (const r of [...allWorkerRoles(), ...professionalRoles]) weights.set(r.id, r.id === profile.role ? profile.copies : 0);
   validateWeights(weights);
   return weights;
 }
@@ -180,7 +185,7 @@ export function profileToWeights(profile: BatchProfile): Map<string, number> {
 export function validateWeights(weights: Map<string, number>): void {
   let total = 0;
   for (const [role, copies] of weights) {
-    const knownSet = new Set([...allWorkerRoles(), ...midRoles, ...governanceRoles].map((r) => r.id));
+    const knownSet = new Set([...allWorkerRoles(), ...midRoles, ...governanceRoles, ...professionalRoles].map((r) => r.id));
     if (!knownSet.has(role)) throw new Error(`parseRoleWeights: 未知角色 "${role}"`);
     if (!Number.isInteger(copies) || copies < 0 || copies > MAX_WORKER_COPIES) {
       throw new Error(`parseRoleWeights: ${role} 副本数须为 0-${MAX_WORKER_COPIES}`);
@@ -202,7 +207,7 @@ let extraRoles: WorkerRole[] = [];
 
 /** 注册扩展角色（id 冲突拒绝——防覆盖内置/已有扩展角色） */
 export function registerWorkerRole(role: WorkerRole): void {
-  if (defaultRoles.some((r) => r.id === role.id) || extraRoles.some((r) => r.id === role.id)) {
+  if (defaultRoles.some((r) => r.id === role.id) || extraRoles.some((r) => r.id === role.id) || professionalRoles.some((r) => r.id === role.id)) {
     throw new Error(`registerWorkerRole: 角色 "${role.id}" 已存在（id 冲突）`);
   }
   extraRoles.push(role);
@@ -223,6 +228,7 @@ let originRole: WorkerRole | undefined;
 let defaultRoles: WorkerRole[] = [];
 let midRoles: WorkerRole[] = [];
 let governanceRoles: WorkerRole[] = [];
+let professionalRoles: WorkerRole[] = [];
 
 /** 装配期注入：内置角色数据 + 标签注册（原模块顶层副作用随注入解除 TDZ 约束） */
 export function setDefaultRoles(origin: WorkerRole, defaults: WorkerRole[], mid: WorkerRole[], governance: WorkerRole[]): void {
@@ -241,7 +247,20 @@ export function setDefaultRoles(origin: WorkerRole, defaults: WorkerRole[], mid:
   }
 }
 
-/** 全部角色（Origin 根 + 内置 + 扩展——routeTaskRole/worker 构成统一谱系） */
+/** 装配期注入：五个显式专业角色（explicit-only 叶子——不进 allWorkerRoles 隐式单副本循环）。
+ *  幂等：同一批角色重复注入时标签注册由 tagRegistry 幂等跳过。 */
+export function setProfessionalRoles(roles: readonly WorkerRole[]): void {
+  professionalRoles = [...roles];
+  for (const r of professionalRoles) registerRoleTags(r);
+}
+
+/** 显式专业角色（lineage/catalog/显式权重展开可见；默认 batch 不展开） */
+export function allProfessionalRoles(): WorkerRole[] {
+  return [...professionalRoles];
+}
+
+/** 全部角色（Origin 根 + 内置 + 扩展——routeTaskRole/worker 构成统一谱系）
+ *  注意：专业角色 explicit-only，不在此列（缺省 PTH_WORKER_ROLES 零副本）。 */
 export function allWorkerRoles(): WorkerRole[] {
   return [...(originRole ? [originRole] : []), ...defaultRoles, ...extraRoles];
 }
@@ -261,7 +280,7 @@ export function isPlanningRole(roleId: string | undefined): boolean {
  * ② kind=worker-index 记忆条目（ts 程序内 memory.query 可查——lazy/自助）。
  */
 export function renderWorkerIndex(): string {
-  const lines = allWorkerRoles().map((r) => {
+  const lines = [...allWorkerRoles(), ...professionalRoles].map((r) => {
     const tags = (r.tags ?? []).join("/") || "-";
     const desc = (r.description ?? r.prompt ?? "").replace(/\s+/g, " ").slice(0, 40);
     return `- ${r.id} [${tags}] gen${r.generation ?? 0}（父 ${r.parent ?? "-"}）：${desc}`;
@@ -273,7 +292,7 @@ ${lines.join("\n")}`;
 /** 全部可派发角色（worker + 中间层 + governance——router/batch/expand 统一查找面；
  *  MID/governance 须显式 PTH_WORKER_ROLES 启用才会进 batch——但路由校验/查找不因未启用而拒绝） */
 export function allKnownRoles(): WorkerRole[] {
-  return [...allWorkerRoles(), ...midRoles, ...governanceRoles];
+  return [...allWorkerRoles(), ...midRoles, ...governanceRoles, ...professionalRoles];
 }
 
 /** 按 id 查找（全已知面——含 governance/MID） */
@@ -298,6 +317,7 @@ export function allLineageRoles(): WorkerRole[] {
   const withMid = [...base];
   for (const mid of midRoles) if (!withMid.some((r) => r.id === mid.id)) withMid.push(mid);
   for (const g of governanceRoles) if (!withMid.some((r) => r.id === g.id)) withMid.push(g);
+  for (const p of professionalRoles) if (!withMid.some((r) => r.id === p.id)) withMid.push(p);
   return withMid;
 }
 

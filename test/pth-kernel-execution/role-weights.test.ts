@@ -9,9 +9,9 @@ import {
 beforeEach(() => installDefaultRoles());
 
 describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
-  it("不设置 → 默认 15 角色 ×1（origin+14——Origin 常驻升级链终点）", () => {
+  it("不设置 → 默认 15 角色 ×1（origin+14——Origin 常驻升级链终点；专业角色 explicit-only=0）", () => {
     const w = parseRoleWeights(undefined);
-    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]);
     expect(expandRoleWeights(w).length).toBe(15);
   });
 
@@ -63,9 +63,9 @@ describe("batch 构成参数化（PTH_WORKER_ROLES）", () => {
 });
 
 describe("资源分配策略抽象（BatchCompositionStrategy）", () => {
-  it("profileToWeights：balanced 默认 → 15×1（origin+14）", () => {
+  it("profileToWeights：balanced 默认 → 15×1（origin+14）+ 专业角色 0", () => {
     const w = profileToWeights({ mode: "balanced" });
-    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect([...w.values()]).toEqual([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]);
   });
 
   it("profileToWeights：balanced 自定义权重", () => {
@@ -172,6 +172,24 @@ describe("正交角色谱系整理（2026-08-09：扩展角色完整融入 batch
     registerWorkerRole({ id: "greeting-agent", tags: ["greeting"], prompt: "p" });
     const w = parseRoleWeights(undefined);
     expect(w.get("greeting-agent")).toBe(1);
+  });
+});
+
+describe("专业角色 explicit-only（v1.3 Task 3——不进缺省单副本循环）", () => {
+  it("PTH_WORKER_ROLES 缺省 → 五个专业角色零副本", () => {
+    const w = parseRoleWeights(undefined);
+    const ids = ["assembly-engineer", "computational-chemist", "lean4-prover", "symbolic-mathematician", "technical-educator"];
+    for (const id of ids) expect(w.get(id)).toBe(0);
+    expect(expandRoleWeights(w).some((r) => ids.includes(r.id))).toBe(false);
+  });
+
+  it("PTH_WORKER_ROLES 显式列出专业角色 → 可解析并展开", () => {
+    const w = parseRoleWeights("assembly-engineer:2,lean4-prover:1");
+    expect(w.get("assembly-engineer")).toBe(2);
+    expect(w.get("lean4-prover")).toBe(1);
+    const expanded = expandRoleWeights(w);
+    expect(expanded.filter((r) => r.id === "assembly-engineer")).toHaveLength(2);
+    expect(expanded.filter((r) => r.id === "lean4-prover")).toHaveLength(1);
   });
 });
 
