@@ -344,6 +344,11 @@ export interface KnowledgeIntakeServiceDeps {
   readonly clock?: TrustPolicyClock;
   /** run lease TTL 覆盖（毫秒）。 */
   readonly leaseMs?: number;
+  /**
+   * evidence quote 复算器（缺省 = 服务端严格复算）。仅 G10 sabotage 敏感度测试注入
+   * 恒接受实现以证明 `evidenceQuoteRecheck` sentinel 会翻红；生产组合必须省略。
+   */
+  readonly evidenceQuoteVerifier?: EvidenceQuoteVerifier;
 }
 
 export type IntakeStageDisposition =
@@ -417,8 +422,22 @@ function parsePayload(payload: unknown): IntakeStagePayload {
   };
 }
 
-/** 服务端 quote 复算：evidence 只能指向已落库 revision 的 `[start,end)`。 */
-function recomputeEvidenceQuotes(revision: SourceRevision, evidence: readonly unknown[]): string[] {
+/**
+ * 服务端 quote 复算：evidence 只能指向已落库 revision 的 `[start,end)`，且
+ * `sha256(quote)` 必须等于证据自带的 `quoteHash`。任何不符 → 该阶段 fail closed，
+ * 证据不能进入 domain/adversarial review。
+ */
+export interface EvidenceQuoteRecheckInput {
+  readonly revision: Pick<SourceRevision, "id" | "normalizedText">;
+  readonly evidence: readonly unknown[];
+}
+
+export type EvidenceQuoteVerifier = (
+  input: EvidenceQuoteRecheckInput,
+) => readonly string[] | Promise<readonly string[]>;
+
+export function verifyIntakeEvidenceQuotes(input: EvidenceQuoteRecheckInput): string[] {
+  const { revision, evidence } = input;
   const quotes: string[] = [];
   for (const [index, raw] of evidence.entries()) {
     const ref = raw as { locator?: { start?: number; end?: number }; quoteHash?: string; sourceRevisionId?: string };
@@ -439,6 +458,15 @@ function recomputeEvidenceQuotes(revision: SourceRevision, evidence: readonly un
   return quotes;
 }
 
+/**
+ * 选择 evidence quote 复算器：缺省永远是服务端严格复算 `verifyIntakeEvidenceQuotes`。
+ * `override` 只用于 G10 sabotage 敏感度证明（通过依赖缝注入恒接受复算器，证明
+ * `evidenceQuoteRecheck` sentinel 会翻红）；生产组合不得注入。
+ */
+export function selectEvidenceQuoteVerifier(override?: EvidenceQuoteVerifier): EvidenceQuoteVerifier {
+  return override ?? verifyIntakeEvidenceQuotes;
+}
+
 export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): KnowledgeIntakeService {
   const verification = deps.verification ?? createPgKnowledgeVerificationRepo(deps.pool);
   const producerRole = deps.producerRole ?? DEFAULT_PRODUCER_ROLE;
@@ -452,6 +480,7 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
     policy: () => resolvePolicy(deps.policy),
     declared: { sourceType: deps.declared.sourceType, license: deps.declared.license },
   });
+  const evidenceQuoteVerifier = selectEvidenceQuoteVerifier(deps.evidenceQuoteVerifier);
 
   /** 阶段 executionId 稳定派生（同 run 同阶段跨重试一致——verdict 行可幂等重放）。 */
   const executionIdOf = (stage: string, runId: string): string => `intake:${stage}:${runId}`;
@@ -1006,7 +1035,7 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
       const evidence = Array.isArray(entry.meta?.["evidence"]) ? (entry.meta["evidence"] as unknown[]) : [];
       let quotes: string[];
       try {
-        quotes = recomputeEvidenceQuotes(revision, evidence);
+        quotes = [...(await evidenceQuoteVerifier({ revision, evidence }))];
       } catch (error) {
         return deadLetter(run, error instanceof Error ? error.message : String(error));
       }

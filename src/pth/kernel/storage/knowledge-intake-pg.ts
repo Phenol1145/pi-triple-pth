@@ -146,6 +146,27 @@ export class KnowledgeIntakeValidationError extends Error {
  */
 export type VerifiedTrustPolicyVerifier = (manifest: TrustPolicyManifest) => Promise<VerifiedTrustPolicy>;
 
+/**
+ * 阶段提交的 lease 门禁（§8 条件 7 / G10 lease sabotage 注入缝）。
+ * `transitionRun()` 在**同一事务内 FOR UPDATE 锁定 run 行后**调用 `canCommit()` 判定
+ * `locked_until` 是否仍有效；stage/token/generation/rowVersion/status 的 CAS 谓词仍留在
+ * UPDATE 语句里，不因注入而放宽。缺省严格实现：lease 必须存在且未过期，否则零行、零 attempt、
+ * 零 outbox。仅 G10 sabotage 测试注入恒 true 实现以证明 `expiredLease` sentinel 会翻红。
+ */
+export interface IntakeRunLeaseCommitInput {
+  readonly lockedUntil: Date | null;
+  readonly now: Date;
+}
+
+export interface IntakeRunLeaseGuard {
+  canCommit(input: IntakeRunLeaseCommitInput): boolean;
+}
+
+export const STRICT_INTAKE_RUN_LEASE_GUARD: Readonly<IntakeRunLeaseGuard> = Object.freeze({
+  canCommit: (input: IntakeRunLeaseCommitInput) =>
+    input.lockedUntil !== null && input.lockedUntil.getTime() > input.now.getTime(),
+});
+
 export interface KnowledgeIntakeRepositoryOptions {
   /** run lease 默认有效期（毫秒，默认 5 分钟）。 */
   leaseTtlMs?: number;
@@ -157,6 +178,11 @@ export interface KnowledgeIntakeRepositoryOptions {
    * attestation。两种配置下伪造 signature/digest 都不可能被写成"已验证"。
    */
   policyVerifier?: VerifiedTrustPolicyVerifier;
+  /**
+   * 可选注入的阶段提交 lease 门禁（缺省 = `STRICT_INTAKE_RUN_LEASE_GUARD`）。生产组合必须省略；
+   * 仅 G10 sabotage 敏感度测试注入恒 true 门禁，证明移除 lease 门禁后 `expiredLease` sentinel 翻红。
+   */
+  leaseGuard?: IntakeRunLeaseGuard;
 }
 
 // ---------------------------------------------------------------- 内部工具
@@ -526,11 +552,13 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
   private readonly leaseTtlMs: number;
   private readonly fetchOutboxKind: string;
   private readonly policyVerifier?: VerifiedTrustPolicyVerifier;
+  private readonly leaseGuard: Readonly<IntakeRunLeaseGuard>;
 
   constructor(private readonly pool: pg.Pool, opts: KnowledgeIntakeRepositoryOptions = {}) {
     this.leaseTtlMs = opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
     this.fetchOutboxKind = opts.fetchOutboxKind ?? DEFAULT_FETCH_OUTBOX_KIND;
     if (opts.policyVerifier) this.policyVerifier = opts.policyVerifier;
+    this.leaseGuard = opts.leaseGuard ?? STRICT_INTAKE_RUN_LEASE_GUARD;
   }
 
   /**
@@ -917,6 +945,10 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
    * N29 再验收 P0-1：outbox 行的 tenant 由 **CAS RETURNING 的 run.tenant_id** 盖章；
    * 输入自报不同 tenant → 开事务前抛 `KnowledgeIntakeValidationError`（零迁移、零 attempt、零 outbox），
    * 事务内对 `run.tenantId` 再断言一次作为深度防御。
+   *
+   * N29 再验收 G10（lease sabotage 注入缝）：lease 未过期的判定由 `leaseGuard.canCommit()` 完成——
+   * 缺省严格实现 + FOR UPDATE 锁等价于旧 SQL 的 `locked_until > now()`；测试注入恒 true 门禁时
+   * `expiredLease` sentinel 必须翻红，因此本方法不能再把该判定写成不可注入的 SQL 字面量。
    */
   async transitionRun(input: TransitionIntakeRunInput): Promise<IntakeRun | null> {
     // ① 冻结矩阵（服务端事实源）：非法边零行——连事务都不开，绝无领域写/attempt/outbox。
@@ -925,12 +957,25 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
     //    所以能通过 CAS 的行必然属于 input.tenantId——此处比较等价于比较聚合 tenant，但更早。
     assertSideEffectTenants(input.tenantId, input.sideEffects);
     return withTx(this.pool, async (client) => {
+      // G10 lease sabotage 注入缝：先在同一事务内 FOR UPDATE 锁定 run 行并读取
+      // locked_until / db now，交给（缺省严格的）lease guard 判定。锁保证本判定与下方
+      // UPDATE 之间不会有其他 writer 改行；stage/token/generation/rowVersion/status 的
+      // CAS 谓词仍留在 UPDATE 里，任何不符依然零行、零 attempt、零 outbox。
+      const locked = await client.query<{ prior_stage: IntakeRunStage; locked_until: Date | null; db_now: Date }>(
+        `SELECT stage AS prior_stage, locked_until, now() AS db_now
+           FROM knowledge_intake_runs
+          WHERE tenant_id = $1 AND id = $2
+          FOR UPDATE`,
+        [input.tenantId, input.runId],
+      );
+      if ((locked.rowCount ?? 0) !== 1) return null;
+      const priorStage = locked.rows[0]!.prior_stage;
+      if (!this.leaseGuard.canCommit({ lockedUntil: locked.rows[0]!.locked_until, now: locked.rows[0]!.db_now })) {
+        return null;
+      }
+
       const res = await client.query(
-        // prev CTE 在 UPDATE 前的快照读出旧 stage —— attempt 审计行记录"刚完成的阶段"。
-        `WITH prev AS (
-           SELECT stage AS prior_stage FROM knowledge_intake_runs WHERE tenant_id = $1 AND id = $2
-         )
-         UPDATE knowledge_intake_runs
+        `UPDATE knowledge_intake_runs
             SET stage = $6,
                 status = $7,
                 source_revision_id = COALESCE($8::text, source_revision_id),
@@ -947,8 +992,7 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
             AND lease_generation = $4::bigint
             AND row_version = $5::int
             AND status = 'leased'
-            AND locked_until IS NOT NULL AND locked_until > now()
-          RETURNING ${RUN_COLUMNS}, (SELECT prior_stage FROM prev) AS prior_stage`,
+          RETURNING ${RUN_COLUMNS}`,
         [
           input.tenantId,
           input.runId,
@@ -977,7 +1021,7 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
       await insertAttempt(client, {
         tenantId: run.tenantId,
         runId: run.id,
-        stage: ((res.rows[0] as Row).prior_stage as IntakeRunStage) ?? run.stage,
+        stage: priorStage,
         attempt: run.attempt,
         leaseGeneration: run.leaseGeneration,
         leaseToken: input.leaseToken,

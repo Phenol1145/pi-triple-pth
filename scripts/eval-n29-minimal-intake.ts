@@ -90,6 +90,7 @@ export const N29_FOCUSED_INTAKE_TESTS = [
   // 再验收 L6/L7：G10 sabotage 敏感度、G8 双进程/SIGKILL、G9 受控 TLS 全组合。
   "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
   "test/pth-knowledge-intake/g8-dual-process.test.ts",
+  "test/pth-knowledge-intake/g8-stage-sigkill.test.ts",
   "test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts",
 ] as const;
 
@@ -148,6 +149,7 @@ export const N29_NEGATIVE_SENTINEL_MATRIX: Readonly<Record<string, readonly Sent
     { file: "test/pth-tasking/pg-task-repository.test.ts", pattern: /expired lease 在 retryable/ },
     { file: "test/pth-tasking/pg-task-repository.test.ts", pattern: /lease_expires_at IS NULL/ },
     { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /lease 过期可由新 claim 回收/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /transitionRun：expired lease 零行、零 attempt、零 outbox/ },
   ],
   duplicateHandler: [
     { file: "test/pth-tasking/side-effect-outbox.test.ts", pattern: /two concurrent drainers never claim the same row/ },
@@ -275,6 +277,14 @@ export const N29_NEGATIVE_SENTINEL_MATRIX: Readonly<Record<string, readonly Sent
   ],
   unchangedUsePolicyDeny: [
     { file: "test/pth-knowledge-intake/minimal-loop.integration.test.ts", pattern: /unchanged 重爬遇到当前 use-policy deny/ },
+  ],
+  evidenceQuoteRecheck: [
+    { file: "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts", pattern: /evidence-gate-skip：注入恒接受的 evidenceQuoteVerifier/ },
+  ],
+  stageSigkillRecovery: [
+    { file: "test/pth-knowledge-intake/g8-stage-sigkill.test.ts", pattern: /SIGKILL 恢复：artifact 写入前/ },
+    { file: "test/pth-knowledge-intake/g8-stage-sigkill.test.ts", pattern: /SIGKILL 恢复：aggregate\+outbox commit 后/ },
+    { file: "test/pth-knowledge-intake/g8-stage-sigkill.test.ts", pattern: /SIGKILL 恢复：handler 写结果后/ },
   ],
   realByteLengthRecheck: [
     { file: "test/pth-knowledge-intake/knowledge-ingestor.test.ts", pattern: /promotion recheck uses the real artifact byteLength/ },
