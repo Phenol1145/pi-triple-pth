@@ -14,6 +14,12 @@ import {
   computePolicyDigest,
   loadVerifiedTrustPolicy,
 } from "../../src/pth/execution/knowledge-intake/index.js";
+// P0-3：运行时 attestation 模块（故意不从 contracts barrel 导出，只有验签器/写边界与本测知道它）。
+import {
+  isVerifiedTrustPolicyAttested,
+  POLICY_VERIFIED_BRAND,
+  readVerifiedPolicyAttestation,
+} from "../../src/pth/contracts/knowledge-intake-attestation.js";
 import type {
   FetchAuthorizationInput,
   HumanPrincipalRef,
@@ -111,6 +117,59 @@ describe("N29 Task 2: human-signed Trust Policy", () => {
     });
     expect(verified.authorizeFetch(fetchInput()).decision).toBe("allow");
     expect(verified.authorizeUse(useInput()).decision).toBe("allow");
+  });
+
+  // ─── P0-3：verified 边界是运行时 attestation，不是结构类型 ───────────
+
+  it("P0-3: loadVerifiedTrustPolicy stamps a runtime attestation that copies cannot carry", async () => {
+    const { keyring, manifest } = buildValid();
+    const verified = await loadVerifiedTrustPolicy(manifest, keyring, CLOCK);
+
+    const attestation = readVerifiedPolicyAttestation(verified);
+    expect(attestation).not.toBeNull();
+    expect(attestation).toMatchObject({
+      tenantId: "tenant-a",
+      policyId: "policy-l2-test",
+      policyVersion: "1",
+      digest: manifest.digest,
+      signerKind: "human",
+      signerPrincipalId: "human-alice",
+      signerIssuer: "ptl-human-interface",
+      approvalMethod: "signed-manifest",
+      verifiedAt: "2026-08-20T00:00:00.000Z",
+    });
+
+    // 结构同形的普通对象、spread 拷贝与 JSON round-trip 都拿不到 attestation。
+    expect(isVerifiedTrustPolicyAttested({ ...verified })).toBe(false);
+    expect(isVerifiedTrustPolicyAttested(JSON.parse(JSON.stringify({ manifest })))).toBe(false);
+    expect(
+      isVerifiedTrustPolicyAttested({
+        manifest,
+        digest: manifest.digest,
+        authorizeFetch: verified.authorizeFetch,
+        authorizeUse: verified.authorizeUse,
+      }),
+    ).toBe(false);
+    // 品牌属性 non-enumerable/non-writable：既不会被拷贝，也无法被覆盖。
+    expect(Object.keys(verified)).not.toContain(String(POLICY_VERIFIED_BRAND));
+    expect(Object.getOwnPropertyDescriptor(verified, POLICY_VERIFIED_BRAND)).toMatchObject({
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
+  });
+
+  it("P0-3: attested manifest snapshot is deep-frozen（验签后调用方改不动策略正文）", async () => {
+    const { keyring, manifest } = buildValid();
+    const verified = await loadVerifiedTrustPolicy(manifest, keyring, CLOCK);
+
+    expect(Object.isFrozen(verified.manifest)).toBe(true);
+    expect(Object.isFrozen(verified.manifest.rules)).toBe(true);
+    expect(Object.isFrozen(verified.manifest.rules[0])).toBe(true);
+    // 调用方改自己手上的 manifest 影响不到已验证快照（否则 digest 与 rules 会脱钩）。
+    (manifest.rules[0] as { maxBytes: number }).maxBytes = 1;
+    expect(verified.manifest.rules[0]!.maxBytes).toBe(1024);
+    expect(verified.authorizeFetch(fetchInput({ byteLength: 1024 })).decision).toBe("allow");
   });
 
   it("service-signed manifest rejects with human signer", async () => {

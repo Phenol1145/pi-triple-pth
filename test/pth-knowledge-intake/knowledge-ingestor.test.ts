@@ -148,7 +148,8 @@ describe("N29 Task 5 strict KnowledgeIngestor（真实 PG + 生产 plan/promotio
     const tenantId = nextTenant(label);
     const { manifest, keyring } = signedManifest(tenantId);
     const policy = await loadVerifiedTrustPolicy(manifest, keyring);
-    await repo.installVerifiedPolicy({ digest: manifest.digest, installedBy: "human-alice", ...policy });
+    // P0-3：必须递交验签器签发的那个对象本身（`{...policy}` 拷贝会丢失运行时 attestation → 被拒）。
+    await repo.installVerifiedPolicy(policy);
 
     const subscription = await repo.createSubscription({
       tenantId,

@@ -5,6 +5,15 @@
  * 不做 use-policy 判定。授权事实源仍是人类签名 Trust Policy manifest 与 PTL human proof；
  * `installVerifiedPolicy()` 只写"已验签 manifest 的不可变审计镜像"，DB 行不能创建、扩大或替换 policy。
  *
+ * N29 再验收 P0-3（"verified" 边界不得被结构伪造）：`installVerifiedPolicy()` 不再相信
+ * `VerifiedTrustPolicy` 这个**结构类型**，它在写库前要求运行时 attestation：
+ *  - (B) 未注入 verifier 时，输入必须带 `POLICY_VERIFIED_BRAND`（Symbol + 模块私有 WeakMap，
+ *    只有 `loadVerifiedTrustPolicy()` 会盖章），并与 manifest 身份对账（tenant/policyId/version/digest/signer）；
+ *  - (A) 生产装配注入 `policyVerifier`（read-only keyring 的验签闭包）后，**每次安装都重新验签**：
+ *    attestation 只能由验签器产出，调用方即使自己盖章也绕不过 Ed25519/digest/human signer 校验；
+ *  - 纵深防御：`approvedBy.kind==="human"`、`approvedBy.issuer==="ptl-human-interface"`、
+ *    `approvalProof.method==="signed-manifest"`、signer 与 keyId/tenant 一致，任一不符零行 fail closed。
+ *
  * 关键不变量（plan §2 Global Constraints / §3.2 / §5 Task 3）：
  *  - 所有查询与 CAS 一律 tenant-scoped；跨 tenant 读零可见、写零行。
  *  - subscription / run / dependency 是可变聚合：迁移必须携带 expected `rowVersion`（CAS）。
@@ -26,6 +35,11 @@ import { createHash, randomUUID } from "node:crypto";
 import type pg from "pg";
 import { withTx } from "./pg.js";
 import { enqueueSideEffectInTx } from "../../tasking/side-effect-outbox.js";
+import {
+  attestationMismatchReason,
+  readVerifiedPolicyAttestation,
+  type VerifiedPolicyAttestation,
+} from "../../contracts/knowledge-intake-attestation.js";
 import type {
   ClaimIntakeRunInput,
   CreateSubscriptionInput,
@@ -45,6 +59,7 @@ import type {
   SubscriptionStatus,
   TransitionIntakeRunInput,
   TransitionSubscriptionInput,
+  TrustPolicyManifest,
   VerifiedTrustPolicy,
 } from "../../contracts/knowledge-intake.js";
 
@@ -68,17 +83,33 @@ export class KnowledgeIntakeValidationError extends Error {
   }
 }
 
+/**
+ * 注入式验签器（P0-3 approach A）：把 raw manifest 变成带运行时 attestation 的已验证策略。
+ * 生产实现是 `loadVerifiedTrustPolicy(manifest, keyring)` 的闭包（keyring 只读、私钥永不入进程）。
+ */
+export type VerifiedTrustPolicyVerifier = (manifest: TrustPolicyManifest) => Promise<VerifiedTrustPolicy>;
+
 export interface KnowledgeIntakeRepositoryOptions {
   /** run lease 默认有效期（毫秒，默认 5 分钟）。 */
   leaseTtlMs?: number;
   /** due scanner 默认 outbox kind（默认 "intake.fetch"）。 */
   fetchOutboxKind?: string;
+  /**
+   * 可选注入验签器（生产装配必须注入）：安装时用 read-only keyring **重新验签** raw manifest，
+   * attestation 只能由验签器产出；未注入时则要求输入自带 `loadVerifiedTrustPolicy()` 的运行时
+   * attestation。两种配置下伪造 signature/digest 都不可能被写成"已验证"。
+   */
+  policyVerifier?: VerifiedTrustPolicyVerifier;
 }
 
 // ---------------------------------------------------------------- 内部工具
 
 const DEFAULT_LEASE_TTL_MS = 5 * 60_000;
 const DEFAULT_FETCH_OUTBOX_KIND = "intake.fetch";
+/** policy 安装的纵深防御常量（授权只可能来自人类签名 manifest）。 */
+const HUMAN_PRINCIPAL_KIND = "human";
+const HUMAN_POLICY_ISSUER = "ptl-human-interface";
+const SIGNED_MANIFEST_METHOD = "signed-manifest";
 /** run 未终结（可被 claim / 计入 open run 唯一性）的状态。 */
 const OPEN_RUN_STATUSES = ["queued", "leased", "waiting"] as const;
 /** due scanner 只扫这两种状态：probing = 首轮 initial，active = 周期 scheduled。 */
@@ -340,23 +371,118 @@ async function insertAttempt(
 export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
   private readonly leaseTtlMs: number;
   private readonly fetchOutboxKind: string;
+  private readonly policyVerifier?: VerifiedTrustPolicyVerifier;
 
   constructor(private readonly pool: pg.Pool, opts: KnowledgeIntakeRepositoryOptions = {}) {
     this.leaseTtlMs = opts.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
     this.fetchOutboxKind = opts.fetchOutboxKind ?? DEFAULT_FETCH_OUTBOX_KIND;
+    if (opts.policyVerifier) this.policyVerifier = opts.policyVerifier;
+  }
+
+  /**
+   * P0-3 的唯一可信入口：把输入解析为「带运行时 attestation 的已验证策略」。
+   *
+   *  1. 注入了 `policyVerifier`（生产装配）→ **无条件**用输入的 raw manifest 重新验签
+   *     （Ed25519 detached signature + canonical digest + human signer + 有效期），
+   *     attestation 只能由验签器产出：即使调用方自己盖了品牌，伪造的 signature/digest 也在这里被拒；
+   *  2. 未注入 verifier（例如只做持久化回归的装配）→ 要求输入带
+   *     `loadVerifiedTrustPolicy()` 盖的运行时 attestation，同形普通对象/结构拷贝一律 fail closed；
+   *  3. 两者都不满足 → 零行 fail closed。
+   */
+  private async attestPolicy(
+    input: VerifiedTrustPolicy,
+  ): Promise<{ policy: VerifiedTrustPolicy; attestation: VerifiedPolicyAttestation }> {
+    if (typeof input !== "object" || input === null) {
+      throw new KnowledgeIntakeValidationError(
+        "installVerifiedPolicy: trust policy not verified — must pass through loadVerifiedTrustPolicy",
+      );
+    }
+    if (!this.policyVerifier) {
+      const direct = readVerifiedPolicyAttestation(input);
+      if (direct) return { policy: input, attestation: direct };
+      throw new KnowledgeIntakeValidationError(
+        "installVerifiedPolicy: trust policy not verified — must pass through loadVerifiedTrustPolicy"
+          + "（结构同形的普通对象/拷贝不构成运行时 attestation）",
+      );
+    }
+    const manifest = (input as { manifest?: unknown }).manifest;
+    if (typeof manifest !== "object" || manifest === null) {
+      throw new KnowledgeIntakeValidationError(
+        "installVerifiedPolicy: trust policy not verified — must pass through loadVerifiedTrustPolicy"
+          + "（输入没有可重新验签的 manifest）",
+      );
+    }
+    let reverified: VerifiedTrustPolicy;
+    try {
+      reverified = await this.policyVerifier(manifest as TrustPolicyManifest);
+    } catch (error) {
+      throw new KnowledgeIntakeValidationError(
+        "installVerifiedPolicy: trust policy not verified — must pass through loadVerifiedTrustPolicy"
+          + `（注入 verifier 重新验签失败：${error instanceof Error ? error.message : String(error)}）`,
+      );
+    }
+    const attestation = readVerifiedPolicyAttestation(reverified);
+    if (!attestation) {
+      throw new KnowledgeIntakeValidationError(
+        "installVerifiedPolicy: trust policy not verified — must pass through loadVerifiedTrustPolicy"
+          + "（注入 verifier 没有签发运行时 attestation）",
+      );
+    }
+    return { policy: reverified, attestation };
   }
 
   /**
    * 已验签 manifest 的 append-only 审计镜像。
    * identity=(tenant_id, policy_id, policy_version)；exact 重放（digest + manifest 全同）幂等，
    * 同版本不同 digest/manifest → `KnowledgeIntakeConflictError`（DB 行不得替换策略）。
+   *
+   * 写前 fail closed（零行）：无运行时 attestation、attestation 与 manifest 不一致、
+   * 非 human signer / 错 issuer / 非 signed-manifest / signer 与 keyId·tenant 不一致。
    */
   async installVerifiedPolicy(input: VerifiedTrustPolicy): Promise<void> {
-    const m = input.manifest;
+    const { policy, attestation } = await this.attestPolicy(input);
+    const m = policy.manifest;
     if (!m || !m.policyId || !m.version || !m.tenantId) {
       throw new KnowledgeIntakeValidationError("installVerifiedPolicy: manifest 缺少 policyId/version/tenantId");
     }
-    const digest = input.digest ?? m.digest;
+    // attestation 是验签当时固定的事实：验签后换 manifest / 换 digest 一律拒绝。
+    const mismatch = attestationMismatchReason(attestation, m);
+    if (mismatch) {
+      throw new KnowledgeIntakeValidationError(
+        `installVerifiedPolicy: trust policy attestation 与 manifest 不一致（${mismatch}）`,
+      );
+    }
+    // 纵深防御：人类签名是唯一授权来源（service/worker principal 一律零行）。
+    if (m.approvedBy?.kind !== HUMAN_PRINCIPAL_KIND) {
+      throw new KnowledgeIntakeValidationError(
+        `installVerifiedPolicy: policy 必须由 human principal 批准（approvedBy.kind=${String(m.approvedBy?.kind)}）`,
+      );
+    }
+    if (m.approvedBy.issuer !== HUMAN_POLICY_ISSUER) {
+      throw new KnowledgeIntakeValidationError(
+        `installVerifiedPolicy: policy 批准 issuer 必须是 ${HUMAN_POLICY_ISSUER}（收到 ${String(m.approvedBy.issuer)}）`,
+      );
+    }
+    if (m.approvedBy.tenantId !== m.tenantId) {
+      throw new KnowledgeIntakeValidationError(
+        `installVerifiedPolicy: approvedBy.tenantId=${String(m.approvedBy.tenantId)} 与 manifest tenant=${m.tenantId} 不一致`,
+      );
+    }
+    if (m.approvalProof?.method !== SIGNED_MANIFEST_METHOD) {
+      throw new KnowledgeIntakeValidationError(
+        `installVerifiedPolicy: 只接受 ${SIGNED_MANIFEST_METHOD} 批准证明（收到 ${String(m.approvalProof?.method)}）`,
+      );
+    }
+    if (!m.approvalProof.keyId || m.approvalProof.keyId !== m.approvedBy.principalId) {
+      throw new KnowledgeIntakeValidationError(
+        "installVerifiedPolicy: approvalProof.keyId 必须等于 approvedBy.principalId",
+      );
+    }
+    if (typeof m.approvalProof.signature !== "string" || m.approvalProof.signature.trim() === "") {
+      throw new KnowledgeIntakeValidationError("installVerifiedPolicy: approvalProof.signature 为空");
+    }
+    // digest 只取 attestation（验签时计算并与 manifest 比对通过的那一个）。
+    const digest = attestation.digest;
     if (!digest) throw new KnowledgeIntakeValidationError("installVerifiedPolicy: manifest digest 为空");
     const res = await this.pool.query(
       `INSERT INTO knowledge_trust_policies
@@ -377,14 +503,14 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
         JSON.stringify(m.spaces ?? []),
         toTimestamp(m.validFrom),
         toTimestamp(m.validUntil),
-        m.approvedBy?.principalId ?? "",
-        m.approvedBy?.issuer ?? "",
-        m.approvalProof?.method ?? "",
-        m.approvalProof?.keyId ?? "",
-        m.approvalProof?.signature ?? "",
+        m.approvedBy.principalId,
+        m.approvedBy.issuer,
+        m.approvalProof.method,
+        m.approvalProof.keyId,
+        m.approvalProof.signature,
         JSON.stringify(m),
-        toTimestamp(input.verifiedAt),
-        input.installedBy ?? m.approvedBy?.principalId ?? "",
+        toTimestamp(policy.verifiedAt ?? attestation.verifiedAt),
+        policy.installedBy ?? attestation.signerPrincipalId,
       ],
     );
     if ((res.rowCount ?? 0) === 0) {

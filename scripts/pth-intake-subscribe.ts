@@ -216,7 +216,10 @@ async function main(): Promise<number> {
   const pool = await createPgPool({ connectionString: databaseUrl, max: 2 });
   try {
     await applySchema(pool);
-    const repository = createKnowledgeIntakeRepository(pool);
+    // 注入验签器（P0-3 approach A）：仓库对未盖章输入自行重新验签；keyring 只读、私钥不入进程。
+    const repository = createKnowledgeIntakeRepository(pool, {
+      policyVerifier: (candidate) => loadVerifiedTrustPolicy(candidate, keyring),
+    });
     // ② 只经官方 application service：安装已验签镜像 + 创建 probing 订阅。
     const service = createKnowledgeIntakeSubscriptionService({ repository, policy });
     const subscription = await service.subscribe({
