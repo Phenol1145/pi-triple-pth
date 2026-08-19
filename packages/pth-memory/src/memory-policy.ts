@@ -46,6 +46,9 @@ export function layerOfKind(kind: string): MemoryLayer {
   if (kind === "differentiation-proposal" || kind === "refine-report") return "governance";
   // N14 P3：工具注册提案（tool-reg 治理流——worker 可提交草案，强制 draft，流转走监督层）
   if (kind === "tool-proposal" || kind.startsWith("tool-proposal:")) return "governance";
+  // v1.3 P0 Task 1：Index Memory 三类导航元数据 kind 明确归 knowledge 层——
+  // worker memory.write 不能自声明 official（强制 draft），official 只能由 Promotion Service 晋升。
+  if (kind === "source-index" || kind === "symbol-index" || kind === "memory-collection-index") return "knowledge";
   return "knowledge";
 }
 

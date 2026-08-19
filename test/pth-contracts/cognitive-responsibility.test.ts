@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MEMORY_TYPES,
   N28_FEASIBILITY_BUDGET,
   checkResponsibilityCapacity,
   type MemoryRegion,
@@ -24,6 +25,10 @@ const responsibilities: MemoryResponsibility[] = [
 ];
 
 describe("cognitive responsibility contract", () => {
+  it("MEMORY_TYPES 排序后为五类共享记忆", () => {
+    expect([...MEMORY_TYPES].sort()).toEqual(["index", "log", "setting", "skill", "wiki"]);
+  });
+
   it("accepts a worker load that is inside every responsibility limit", () => {
     expect(checkResponsibilityCapacity(worker, regions, responsibilities, N28_FEASIBILITY_BUDGET.responsibility)).toEqual({
       ok: true,

@@ -23,7 +23,10 @@ export interface WorkerReplicaRef {
   role: RoleDefinitionRef;
 }
 
-export type MemoryType = "setting" | "wiki" | "skill" | "log";
+/** 五类共享记忆（v1.3 P0）：Index Memory 只存导航元数据，绝不存正文。 */
+export const MEMORY_TYPES = ["setting", "wiki", "skill", "log", "index"] as const;
+
+export type MemoryType = (typeof MEMORY_TYPES)[number];
 
 export interface MemoryRegionSelector {
   domains?: readonly string[];

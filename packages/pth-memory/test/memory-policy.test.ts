@@ -38,6 +38,12 @@ describe("memory-policy 层分类（layerOfKind）", () => {
       expect(layerOfKind(k)).toBe("knowledge");
     }
   });
+
+  it("Index Memory 三类 kind 归 knowledge 层（导航元数据也走知识层写入门禁）", () => {
+    for (const k of ["source-index", "symbol-index", "memory-collection-index"]) {
+      expect(layerOfKind(k), k).toBe("knowledge");
+    }
+  });
 });
 
 describe("memory-policy write 规则", () => {
@@ -73,6 +79,16 @@ describe("memory-policy write 规则", () => {
 describe("N29 P0-4：worker knowledge write 强制 draft", () => {
   it("knowledge 层任意 kind/status 一律强制 draft（不再 direct official）", () => {
     for (const kind of ["task-insight", "domain-fact", "domain-method", "research-note", "tool-function", "pth-wiki"]) {
+      expect(layerOfKind(kind), kind).toBe("knowledge");
+      expect(checkWrite(kind, "official"), kind).toEqual({ ok: true, forceStatus: "draft" });
+      expect(checkWrite(kind), kind).toEqual({ ok: true, forceStatus: "draft" });
+      expect(checkWrite(kind, "archived"), kind).toEqual({ ok: true, forceStatus: "draft" });
+      expect(checkWrite(kind, "draft"), kind).toEqual({ ok: true, forceStatus: "draft" });
+    }
+  });
+
+  it("Index Memory 三类 kind 不能经 worker memory.write 自声明 official（强制 draft）", () => {
+    for (const kind of ["source-index", "symbol-index", "memory-collection-index"]) {
       expect(layerOfKind(kind), kind).toBe("knowledge");
       expect(checkWrite(kind, "official"), kind).toEqual({ ok: true, forceStatus: "draft" });
       expect(checkWrite(kind), kind).toEqual({ ok: true, forceStatus: "draft" });
