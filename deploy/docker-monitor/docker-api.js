@@ -48,3 +48,15 @@ export async function getContainers() {
 export async function getContainerStats(id) {
   return dockerGet(`/containers/${id}/stats?stream=false`);
 }
+
+/** @param {string} id @returns {Promise<Record<string, unknown>>} */
+export async function inspectContainer(id) {
+  return dockerGet(`/containers/${id}/json`);
+}
+
+/** 可注入的默认 Docker 客户端（直连本机 unix socket，只读）。 */
+export const defaultDockerClient = {
+  getContainers,
+  inspectContainer,
+  getContainerStats,
+};
