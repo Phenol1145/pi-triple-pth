@@ -175,6 +175,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_DEBUG_SANDBOX", "string", "0", "path", "sandbox", "sandbox 诊断日志开关"),
   d("PTH_TRUST_POLICY_MANIFEST", "string", "", "path", "both", "N29：人类签名 Trust Policy manifest 只读路径（JSON；PTL Human Interface 签发）"),
   d("PTH_TRUST_POLICY_KEYRING", "string", "", "path", "both", "N29：Trust Policy 验证公钥 keyring 只读路径（JSON；stable human principal -> PEM public key）"),
+  d("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH", "string", "", "path", "both", "N29 refix P0-9：full 模式启动必须出示的验收 envelope 只读路径（decision=MIN_INNER_LOOP_GO 且绑定当前 evaluated commit，否则启动失败）"),
 
   // ── 模式 / 开关 / 观测 ───────────────────────────────────────────
   d("PTH_ASP_MODE", "string", "on", "mode", "batch", "动作空间协议（on/off）"),

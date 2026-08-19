@@ -544,6 +544,36 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
         + "（人类签名 Trust Policy 是来源抓取与使用授权的唯一事实源）",
       );
     }
+    // P0-9 修复：full 模式必须出示绑定当前 commit 的 MIN_INNER_LOOP_GO 验收 attestation；
+    // 缺失/不绑定/非 GO 一律启动期 fail closed，不靠运维约定。
+    if (intakeMode === "full") {
+      const acceptancePath = pthConfig().str("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH");
+      if (!acceptancePath) {
+        throw new Error(
+          "PTH_KNOWLEDGE_INTAKE_MODE=full 需要 PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH"
+          + "（指向 decision=MIN_INNER_LOOP_GO 的验收 envelope；否则 full 不得启动）",
+        );
+      }
+      const envelope = JSON.parse(await readFile(acceptancePath, "utf8")) as {
+        decision?: string;
+        evaluatedCommit?: string;
+        implementationTreeClean?: boolean;
+      };
+      if (envelope.decision !== "MIN_INNER_LOOP_GO") {
+        throw new Error(
+          `PTH_KNOWLEDGE_INTAKE_MODE=full 被拒绝：验收 envelope decision=${envelope.decision ?? "<missing>"}（需要 MIN_INNER_LOOP_GO）`,
+        );
+      }
+      if (!envelope.evaluatedCommit || envelope.implementationTreeClean !== true) {
+        throw new Error("PTH_KNOWLEDGE_INTAKE_MODE=full 被拒绝：envelope 缺少 evaluatedCommit 或 implementationTreeClean");
+      }
+      const buildCommit = (process.env["PTH_BUILD_COMMIT"] ?? "").trim();
+      if (buildCommit && envelope.evaluatedCommit !== buildCommit) {
+        throw new Error(
+          `PTH_KNOWLEDGE_INTAKE_MODE=full 被拒绝：envelope evaluatedCommit=${envelope.evaluatedCommit} 与当前构建 ${buildCommit} 不一致`,
+        );
+      }
+    }
     // 已验签 policy 在进程启动时加载一次；轮换需重启 batch（manifest 是不可变签名事实）。
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as TrustPolicyManifest;
     const keyring = JSON.parse(await readFile(keyringPath, "utf8")) as TrustPolicyKeyring;
@@ -582,7 +612,13 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     });
     // 生产 drainer 注册的阶段 handler：intake.fetch / extract / review-domain /
     // review-adversarial / promote —— 每个 handler 只处理一个 stage 并用 run CAS 提交下一步。
-    Object.assign(intakeStageHandlers, intakeService.stageHandlers());
+    const allStageHandlers = intakeService.stageHandlers();
+    if (intakeMode === "draft") {
+      // P0-9 修复：draft 只到 private draft + open plan——不注册 promote handler。
+      // draft 模式下 intake.promote outbox 行没有消费者 → 若被误排会 dead-letter 而非晋升。
+      delete allStageHandlers[INTAKE_STAGE_OUTBOX_KINDS.promote];
+    }
+    Object.assign(intakeStageHandlers, allStageHandlers);
     // 变化重爬/撤销的依赖刷新 fan-out：**权威撤出已在 PG 事务内完成**（依赖边 stale +
     // 旧 official → stale），本 outbox 行只是通知。L7 组合真正的下游刷新消费者之前，
     // 这里注册一个结构化日志 sink：既不让行进 dead-letter 制造噪声，也不静默丢弃事实。

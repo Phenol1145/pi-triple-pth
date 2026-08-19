@@ -386,6 +386,10 @@ export function evaluatePlanVerdicts(
   const passByCheck = new Map<string, KnowledgeVerdictRowRecord[]>();
   const domainPrincipals = new Set<string>();
   const adversarialPrincipals = new Set<string>();
+  // P1-2 修复：除 principal 分离外，domain 与 adversarial 的 executionId 也必须分离
+  // ——同一执行实例不得代表两个 principal 完成双重核验。
+  const domainExecutions = new Set<string>();
+  const adversarialExecutions = new Set<string>();
 
   for (const row of verdictRows) {
     if (row.planId !== plan.id) {
@@ -424,8 +428,10 @@ export function evaluatePlanVerdicts(
         return { ok: false, reason: "domain pass verdict requires domainId" };
       }
       domainPrincipals.add(row.principalId);
+      domainExecutions.add(row.executionId);
     } else {
       adversarialPrincipals.add(row.principalId);
+      adversarialExecutions.add(row.executionId);
     }
 
     const list = passByCheck.get(row.checkId) ?? [];
@@ -436,6 +442,11 @@ export function evaluatePlanVerdicts(
   for (const domainPrincipal of domainPrincipals) {
     if (adversarialPrincipals.has(domainPrincipal)) {
       return { ok: false, reason: "domain and adversarial principals must differ" };
+    }
+  }
+  for (const execution of domainExecutions) {
+    if (adversarialExecutions.has(execution)) {
+      return { ok: false, reason: "domain and adversarial executions must differ" };
     }
   }
 

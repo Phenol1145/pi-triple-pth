@@ -410,6 +410,36 @@ suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
     expect(canPromote(entry!, satisfiedPlan, rows)).toEqual({ ok: true });
   });
 
+  it("canPromote requires domain/adversarial execution separation（P1-2：同 executionId 拒绝）", async () => {
+    await seedDraft("cand-exec-sep");
+    const satisfiedPlan = await seedPlan({
+      id: "plan-exec-sep",
+      candidateId: "cand-exec-sep",
+      status: "satisfied",
+      checks: [
+        { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:domain-expert-2"], separationFrom: ["producer"] },
+        { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer"] },
+      ],
+    });
+    const entry = await store.get("cand-exec-sep", { tenantId: TENANT });
+
+    // 不同 principal，但同一 executionId ——同一执行实例不得代表两个 principal 双重核验。
+    await insertVerdictRow({
+      planId: satisfiedPlan.id, checkId: "domain-1",
+      principalId: "tenant:tenant-a:domain-expert-2", executionId: "task-shared-exec",
+      candidateId: "cand-exec-sep", kind: "domain", domainId: "mathematics", verdict: "pass",
+    });
+    await insertVerdictRow({
+      planId: satisfiedPlan.id, checkId: "adv-1",
+      principalId: "worker:controller:adversarial", executionId: "task-shared-exec",
+      candidateId: "cand-exec-sep", kind: "adversarial", verdict: "pass",
+    });
+    const rows = await repo.listVerdictRows(satisfiedPlan.id, TENANT);
+    const decision = canPromote(entry!, satisfiedPlan, rows);
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toContain("executions must differ");
+  });
+
   it("verdict rows have independent row_version; append verdict does not bump candidate meta.version", async () => {
     await seedDraft("cand-rowversion");
     const plan = await seedPlan({ id: "plan-rowversion", candidateId: "cand-rowversion", status: "open" });
