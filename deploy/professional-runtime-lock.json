@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-19T00:00:00.000Z",
+  "runtimes": {
+    "assembly": {
+      "version": "2.42",
+      "releaseChannel": "stable",
+      "probe": {
+        "tool": "as",
+        "args": ["--version"],
+        "extract": "GNU assembler \\([^)]*\\) ([0-9]+\\.[0-9]+(\\.[0-9]+)?)"
+      }
+    },
+    "lean4": {
+      "version": "4.8.0",
+      "releaseChannel": "stable",
+      "probe": {
+        "tool": "lean",
+        "args": ["--version"],
+        "extract": "Lean \\(version ([0-9]+\\.[0-9]+\\.[0-9]+)"
+      }
+    },
+    "wolfram": {
+      "version": "14.2.0",
+      "releaseChannel": "stable",
+      "probe": {
+        "tool": "wolframscript",
+        "args": ["-version"],
+        "extract": "WolframScript ([0-9]+\\.[0-9]+\\.[0-9]+)"
+      }
+    },
+    "psi4": {
+      "version": "1.9.1",
+      "releaseChannel": "stable",
+      "probe": {
+        "tool": "psi4",
+        "args": ["--version"],
+        "extract": "([0-9]+\\.[0-9]+\\.[0-9]+)"
+      }
+    },
+    "quantum-espresso": {
+      "version": "7.4.1",
+      "releaseChannel": "stable",
+      "probe": {
+        "tool": "pw.x",
+        "args": ["--version"],
+        "extract": "([0-9]+\\.[0-9]+\\.[0-9]+)"
+      }
+    },
+    "jupyter": {
+      "version": "7.2.2",
+      "releaseChannel": "stable",
+      "probe": {
+        "tool": "jupyter-notebook",
+        "args": ["--version"],
+        "extract": "([0-9]+\\.[0-9]+\\.[0-9]+)"
+      }
+    }
+  }
+}
