@@ -99,6 +99,10 @@ export const N29_FOCUSED_SENTINEL_TESTS = [
   "test/pth-runner/knowledge-context.test.ts",
   "test/pth-kernel-assembly/templates.test.ts",
   "packages/pth-memory/test/memory-policy.test.ts",
+  // 再验收 refix 取证面（P0-5 raw store、P1-1 IP 分类、P0-9 模式分离）。
+  "packages/pth-memory/test/memory-store-pg.test.ts",
+  "test/pth-kernel-interpreter/web-transport-ip.test.ts",
+  "test/pth-kernel-assembly/intake-mode-gates.test.ts",
 ] as const;
 
 /** L7 driver 自身的纯判据测试。 */
@@ -212,6 +216,81 @@ export const N29_NEGATIVE_SENTINEL_MATRIX: Readonly<Record<string, readonly Sent
     { file: "test/pth-runner/intake-processors.test.ts", pattern: /requires four distinct principals/ },
     { file: "test/pth-runner/intake-processors.test.ts", pattern: /rejects a reviewer principal that is not eligible/ },
     { file: "test/pth-execution/knowledge-verdicts.test.ts", pattern: /producer 不得自审/ },
+  ],
+  // ── 再验收 refix 逐项旁路 sentinel（P1-3：exact denominator——全部 matcher 必须 passed）──
+  crossTenantOutbox: [
+    { file: "test/pth-tasking/pg-task-repository.test.ts", pattern: /refix P0-1：tenant-a 的 task 声明 tenantId=tenant-b/ },
+    { file: "test/pth-tasking/pg-task-repository.test.ts", pattern: /refix P0-1：retryable \/ rejected 分支的跨 tenant/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /refix P0-1：tenant-a 的 run 声明 tenantId=tenant-b/ },
+  ],
+  sideEffectTenantStamping: [
+    { file: "test/pth-tasking/pg-task-repository.test.ts", pattern: /refix P0-1：省略 tenantId 的 side effect 由通过 CAS 的 task 行盖章/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /refix P0-1：省略 tenantId 的 run side effect 由 run 的 tenant_id 盖章/ },
+  ],
+  wrongFromStage: [
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /refix P0-2：真实 stage=fetch 时伪报 fromStage=promote→complete/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /refix P0-2：fromStage 与真实 stage 不符/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /refix P0-2：跳阶段\/回退\/终态出边等非法边全部零行/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /refix P0-2：合法边逐条通过/ },
+  ],
+  fakePolicyInstall: [
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-3：结构同形但伪造 signature\/digest/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-3：真实 verifier 产出的 policy 安装成功/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-3：service 签名的 policy/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-3：即使手工盖 attestation/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-3：attestation 与 manifest 身份不一致/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-3（approach A）：注入 verifier 的仓库自行验签/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-3（approach A）：注入 verifier 后连手工盖章的伪造 policy/ },
+  ],
+  invalidAdmittedRevision: [
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：usePolicyDecision=deny 的 admitted revision 零行/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：rawHash 与 rawBytes 不符/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：normalizedTextHash 与 normalizedText 不符/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：admitted 缺少 derivedFromRevisionId/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：derivedFromRevisionId 指向另一 tenant/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：derivedFromRevisionId 指向非 raw-quarantine/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：derivedFromRevisionId 指向另一 subscription/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：use decision 的 policy 绑定与 Subscription 不一致/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：Subscription 不存在（或跨 tenant）/ },
+    { file: "test/pth-knowledge-intake/knowledge-intake-pg.test.ts", pattern: /P0-4：recordDependency 不得把依赖边绑到 raw-quarantine/ },
+  ],
+  rawStoreOfficial: [
+    { file: "packages/pth-memory/test/memory-store-pg.test.ts", pattern: /N29 P0-5：task-insight \/ tool-function official 直写被拒/ },
+    { file: "packages/pth-memory/test/memory-store-pg.test.ts", pattern: /N29 P0-5：capability facade（withMemoryTenant）不再公开 promoteOfficial/ },
+    { file: "packages/pth-memory/test/memory-store-pg.test.ts", pattern: /N29 P0-4：official domain 知识直写被拒/ },
+  ],
+  promoteOfficialWithoutEvaluator: [
+    { file: "packages/pth-memory/test/memory-store-pg.test.ts", pattern: /N29 P0-5：promoteOfficial 不提供 evaluator 时抛错/ },
+  ],
+  legacyEmptyBindingPromotion: [
+    { file: "test/pth-execution/knowledge-promotion.test.ts", pattern: /空 sourceBindingsDigest \+ 空 evidence 的 legacy candidate 一律拒绝/ },
+    { file: "test/pth-execution/knowledge-promotion.test.ts", pattern: /空 evidence（digest 为空数组摘要）的 legacy candidate 同样拒绝/ },
+    { file: "test/pth-execution/knowledge-promotion.test.ts", pattern: /meta\.evidence 缺失（undefined）的 legacy candidate 拒绝/ },
+    { file: "test/pth-execution/knowledge-verdicts.test.ts", pattern: /N29 candidate 不得使用空 sourceBindingsDigest/ },
+    { file: "test/pth-execution/knowledge-verdicts.test.ts", pattern: /N29 candidate 拒绝空 evidence/ },
+  ],
+  unchangedUsePolicyDeny: [
+    { file: "test/pth-knowledge-intake/minimal-loop.integration.test.ts", pattern: /unchanged 重爬遇到当前 use-policy deny/ },
+  ],
+  realByteLengthRecheck: [
+    { file: "test/pth-knowledge-intake/knowledge-ingestor.test.ts", pattern: /promotion recheck uses the real artifact byteLength/ },
+  ],
+  privateIpSpecialRanges: [
+    { file: "test/pth-kernel-interpreter/web-transport-ip.test.ts", pattern: /IPv4 组播\/保留\/benchmark\/documentation 拒绝/ },
+    { file: "test/pth-kernel-interpreter/web-transport-ip.test.ts", pattern: /IPv6 loopback\/unspecified\/ULA\/link-local\/multicast 拒绝/ },
+    { file: "test/pth-kernel-interpreter/web-transport-ip.test.ts", pattern: /IPv4-mapped 全展开形式/ },
+    { file: "test/pth-kernel-interpreter/web-transport-ip.test.ts", pattern: /documentation IPv6（2001:db8::\/32）拒绝/ },
+  ],
+  executionSeparation: [
+    { file: "test/pth-execution/knowledge-verdicts.test.ts", pattern: /canPromote requires domain\/adversarial execution separation/ },
+  ],
+  draftModeNoPromoteHandler: [
+    { file: "test/pth-kernel-assembly/intake-mode-gates.test.ts", pattern: /draft 模式剔除 promote handler/ },
+    { file: "test/pth-kernel-assembly/intake-mode-gates.test.ts", pattern: /off 模式零 handler/ },
+  ],
+  fullModeAcceptanceGate: [
+    { file: "test/pth-kernel-assembly/intake-mode-gates.test.ts", pattern: /full 启动门：非 MIN_INNER_LOOP_GO/ },
+    { file: "test/pth-kernel-assembly/intake-mode-gates.test.ts", pattern: /full 启动门：合法 envelope 通过/ },
   ],
 } as const;
 
