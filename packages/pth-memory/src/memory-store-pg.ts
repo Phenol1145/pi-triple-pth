@@ -47,7 +47,12 @@ export interface MemoryEntry {
   content: string;
   ruleRef?: string;
   idempotencyKey?: string;
-  status: "draft" | "official" | "archived";
+  /**
+   * N29 Task 6：新增 `stale`——official 绑定的来源发生实质变化、或其 policy/subscription 被撤销后
+   * 的「已撤出 authoritative 面」态。stale 不出现在默认权威检索（Broker/Context 固定 official），
+   * 但 `revisionHistory()` 与 `getAsOf()` 仍可读到它 official 时期的正文。
+   */
+  status: "draft" | "official" | "archived" | "stale";
   ttlExpiresAt?: number;
   promotedFrom?: string;
   meta: Record<string, unknown>;
@@ -105,12 +110,42 @@ export type KnowledgeOfficialAuthority = "promotion-service" | "seed-migration";
 /** official 领域知识直写被拒的统一错误前缀（测试与调用方据此断言）。 */
 export const KNOWLEDGE_OFFICIAL_WRITE_DENIED = "memory: knowledge official 直写被拒绝";
 
+/** N29 Task 6：知识条目「已撤出 authoritative 面」的状态字面量（唯一事实源）。 */
+export const STALE_KNOWLEDGE_STATUS = "stale" as const;
+
+/**
+ * N29 Task 6：默认权威检索的状态集合。Broker/Context 固定消费本集合，
+ * 因此新增的 `stale` 一旦落库即刻退出 authoritative retrieval（plan §2.4 G6/G7）。
+ */
+export const AUTHORITATIVE_KNOWLEDGE_STATUSES: readonly string[] = ["official"];
+
+/** markKnowledgeStale 选项：与 promotion 对称的内部 authority + 同事务 outbox 钩子。 */
+export interface PgMemoryStoreMarkStaleOptions {
+  /** 撤出原因（写入 meta.stale.reason 与 revision.reason）。 */
+  reason: "source-changed" | "policy-revoked" | "subscription-revoked" | (string & {});
+  /** 触发撤出的（旧）Source Revision id——审计用。 */
+  sourceRevisionId?: string;
+  /** 取代它的新 Source Revision id（变化重爬时可用）。 */
+  supersededByRevisionId?: string;
+  createdBy?: string;
+  /** N29/P0-4：PROVENANCE_REQUIRED_KINDS 必须出示；缺省 fail closed。 */
+  knowledgeOfficialAuthority?: KnowledgeOfficialAuthority;
+  /** 同一事务内入队依赖刷新 outbox（CAS 回滚时 outbox 一并回滚）。 */
+  enqueueOutbox?: (client: pg.PoolClient) => Promise<void>;
+}
+
+export interface PgMemoryStoreMarkStaleResult {
+  disposition: "marked-stale" | "already-stale" | "not-official" | "not-found";
+  id: string;
+  status: MemoryEntry["status"] | undefined;
+}
+
 /** N29/P0-4：判定"是否受 official 知识写授权约束"的唯一事实源。 */
 function requiresKnowledgeOfficialAuthority(kind: string, status: string | undefined): boolean {
   return (status ?? "official") === "official" && PROVENANCE_REQUIRED_KINDS.has(kind);
 }
 
-function denyKnowledgeOfficialWrite(kind: string, op: "write" | "update" | "incrementAggregate"): never {
+function denyKnowledgeOfficialWrite(kind: string, op: "write" | "update" | "incrementAggregate" | "markStale"): never {
   throw new Error(
     `${KNOWLEDGE_OFFICIAL_WRITE_DENIED}（${op} kind="${kind}"）——`
     + `外部内容与普通写侧只能产出 private draft candidate；official 只能由 Promotion Service `
@@ -461,6 +496,149 @@ export class PgMemoryStore {
     }
   }
 
+  /**
+   * N29 Task 6（plan §5 Task 6 Step 5 / §2.4 G7）：把一条 official 知识撤出 authoritative 面
+   * （official → `stale`）。**唯一** 的 stale 入口，与 `promoteOfficial()` 对称：
+   *  - 只接受 official → stale（draft/archived 无意义；已 stale 幂等返回）；
+   *  - PROVENANCE_REQUIRED_KINDS 必须出示 `knowledgeOfficialAuthority`——
+   *    worker/service 经 capability facade（`withMemoryTenant`）拿不到该 authority；
+   *  - 旧 official 正文先写 append-only `memory_revisions`（history/asOf 仍可读）；
+   *  - `enqueueOutbox` 在**同一事务**内执行（依赖刷新 outbox 与 stale 标记原子）。
+   *
+   * 事务绑定变体 `markKnowledgeStaleInTx()` 供 Intake Service 与 dependency 标记同事务使用。
+   */
+  async markKnowledgeStale(
+    id: string,
+    tenantId: string,
+    opts: PgMemoryStoreMarkStaleOptions,
+  ): Promise<PgMemoryStoreMarkStaleResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await this.markKnowledgeStaleWithClient(client, id, tenantId, opts);
+      if (opts.enqueueOutbox) await opts.enqueueOutbox(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (e) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // 保留原始异常——rollback 失败不掩盖主错误
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** 事务绑定 stale 标记（调用方持有 BEGIN/COMMIT；语义与 `markKnowledgeStale()` 完全一致）。 */
+  async markKnowledgeStaleInTx(
+    client: pg.PoolClient,
+    id: string,
+    tenantId: string,
+    opts: PgMemoryStoreMarkStaleOptions,
+  ): Promise<PgMemoryStoreMarkStaleResult> {
+    return this.markKnowledgeStaleWithClient(client, id, tenantId, opts);
+  }
+
+  private async markKnowledgeStaleWithClient(
+    client: pg.PoolClient,
+    id: string,
+    tenantId: string,
+    opts: PgMemoryStoreMarkStaleOptions,
+  ): Promise<PgMemoryStoreMarkStaleResult> {
+    const oldRows = await client.query(
+      `SELECT id, tenant_id, kind, content, status, anchors, meta, version
+         FROM memory_entries WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
+      [id, tenantId],
+    );
+    const old = oldRows.rows[0] as
+      | { id: string; tenant_id: string; kind: string; content: string; status: string; anchors: string[]; meta: Record<string, unknown>; version: number }
+      | undefined;
+    if (!old) return { disposition: "not-found", id, status: undefined };
+    if (old.status === STALE_KNOWLEDGE_STATUS) return { disposition: "already-stale", id, status: STALE_KNOWLEDGE_STATUS };
+    if (old.status !== "official") return { disposition: "not-official", id, status: old.status as MemoryEntry["status"] };
+    // stale 与 official 同属"权威面状态流转"——受同一内部 authority 约束（缺省 fail closed）。
+    if (PROVENANCE_REQUIRED_KINDS.has(old.kind) && !opts.knowledgeOfficialAuthority) {
+      denyKnowledgeOfficialWrite(old.kind, "markStale");
+    }
+
+    await client.query(
+      `INSERT INTO memory_revisions
+         (entry_id, tenant_id, revision, content, status, anchors, meta, created_by, reason)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9)`,
+      [
+        old.id,
+        old.tenant_id,
+        old.version,
+        old.content,
+        old.status,
+        JSON.stringify(old.anchors ?? []),
+        JSON.stringify(old.meta ?? {}),
+        opts.createdBy ?? null,
+        opts.reason ?? "knowledge-stale",
+      ],
+    );
+
+    const stalePatch: Record<string, unknown> = {
+      stale: {
+        reason: opts.reason ?? "source-changed",
+        at: Date.now(),
+        ...(opts.sourceRevisionId !== undefined ? { sourceRevisionId: opts.sourceRevisionId } : {}),
+        ...(opts.supersededByRevisionId !== undefined ? { supersededByRevisionId: opts.supersededByRevisionId } : {}),
+      },
+    };
+    await client.query(
+      `UPDATE memory_entries SET
+         status = '${STALE_KNOWLEDGE_STATUS}',
+         version = $3::integer,
+         updated_at = now(),
+         meta = memory_entries.meta || $4::jsonb || jsonb_build_object(
+           'version', $3::integer,
+           'updatedAt', extract(epoch from now()) * 1000
+         )
+       WHERE id = $1 AND tenant_id = $2 AND status = 'official'`,
+      [id, tenantId, old.version + 1, JSON.stringify(stalePatch)],
+    );
+    return { disposition: "marked-stale", id, status: STALE_KNOWLEDGE_STATUS };
+  }
+
+  /**
+   * N29 Task 6：asOf 读取——返回该条目在 `asOf` 时刻**生效**的物化状态。
+   *
+   * append-only `memory_revisions` 的 `created_at` 是「该 revision 被替换的时刻」，
+   * 因此 asOf 时刻生效的版本 = 第一条 `created_at > asOf` 的历史行；若不存在（asOf 晚于
+   * 最后一次变更）则返回当前行。stale/archived 之后仍可据此回放 official 时期的正文。
+   */
+  async getAsOf(id: string, opts: { tenantId?: string; asOf: Date | number | string }): Promise<MemoryEntry | undefined> {
+    const tenantId = this.resolveTenantOpts(opts);
+    const at = opts.asOf instanceof Date ? opts.asOf : new Date(opts.asOf);
+    if (!Number.isFinite(at.getTime())) throw new Error("memory.getAsOf: asOf must be a valid instant");
+    const current = await this.pool.query(
+      `SELECT * FROM memory_entries WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId],
+    );
+    if (current.rows.length === 0) return undefined;
+    const historic = await this.pool.query(
+      `SELECT entry_id, tenant_id, revision, content, status, anchors, meta, created_at
+         FROM memory_revisions
+        WHERE entry_id = $1 AND tenant_id = $2 AND created_at > $3::timestamptz
+        ORDER BY created_at ASC, revision ASC
+        LIMIT 1`,
+      [id, tenantId, at.toISOString()],
+    );
+    if (historic.rows.length === 0) return mapEntry(current.rows[0]);
+    const row = historic.rows[0] as { revision: number; content: string; status: string; anchors: string[]; meta: Record<string, unknown> };
+    const base = mapEntry(current.rows[0]);
+    return {
+      ...base,
+      content: row.content,
+      status: row.status as MemoryEntry["status"],
+      anchors: row.anchors ?? [],
+      meta: { ...(row.meta ?? {}), version: row.revision },
+    };
+  }
+
   async get(id: string, opts?: { tenantId?: string }): Promise<MemoryEntry | undefined> {
     const tenantId = this.resolveTenantOpts(opts);
     const res = await this.pool.query(
@@ -589,10 +767,12 @@ export class PgMemoryStore {
 
   /**
    * 检索。锚点 = GIN 索引 + `?|`（jsonb 任一包含，多锚点并集，对齐 FS 索引语义）；
-   * kinds/status 过滤（ANY(text[])）；excludeDrafts 排除 status='draft'。
+   * kinds/status 过滤（ANY(text[])）；excludeDrafts 排除 status='draft'；
+   * N29 Task 6：excludeStale 排除 status='stale'（Broker/Context 固定 status=['official']，
+   * 因此权威面本就不含 stale；本开关供"非权威但也不要 stale"的读侧显式表达）。
    * 返回按 id 字典序稳定排序。
    */
-  async retrieve(opts: { anchors?: string[]; kinds?: string[]; status?: string[]; excludeDrafts?: boolean; tenantId?: string } = {}): Promise<MemoryEntry[]> {
+  async retrieve(opts: { anchors?: string[]; kinds?: string[]; status?: string[]; excludeDrafts?: boolean; excludeStale?: boolean; tenantId?: string } = {}): Promise<MemoryEntry[]> {
     const conds: string[] = [];
     const params: unknown[] = [];
     if (opts.anchors && opts.anchors.length > 0) {
@@ -608,6 +788,7 @@ export class PgMemoryStore {
       conds.push(`status = ANY($${params.length}::text[])`);
     }
     if (opts.excludeDrafts) conds.push(`status != 'draft'`);
+    if (opts.excludeStale) conds.push(`status != '${STALE_KNOWLEDGE_STATUS}'`);
     // K1a tenant 隔离：缺省 default tenant；status 默认语义保持不变（official-only 由 broker 表达）
     params.push(this.resolveTenantOpts(opts));
     conds.push(`tenant_id = $${params.length}`);
@@ -751,9 +932,12 @@ export function withMemoryTenant(store: PgMemoryStore, tenantId: string): PgMemo
     write: (entry: MemoryEntry, opts?: PgMemoryStoreWriteOptions) =>
       store.write({ ...entry, tenantId }, stripAuthority(opts)),
     get: (id: string, opts?: { tenantId?: string }) => store.get(id, { ...opts, tenantId }),
+    // N29 Task 6：asOf 是只读回放面——capability facade 可暴露（不携带任何写 authority）。
+    getAsOf: (id: string, opts: { tenantId?: string; asOf: Date | number | string }) =>
+      store.getAsOf(id, { ...opts, tenantId }),
     update: (id: string, patch: Partial<MemoryEntry> & { meta?: Record<string, unknown> }, opts: PgMemoryStoreUpdateOptions = {}) =>
       store.update(id, patch, { ...(stripAuthority(opts) ?? {}), tenantId }),
-    retrieve: (opts: { anchors?: string[]; kinds?: string[]; status?: string[]; excludeDrafts?: boolean; tenantId?: string } = {}) =>
+    retrieve: (opts: { anchors?: string[]; kinds?: string[]; status?: string[]; excludeDrafts?: boolean; excludeStale?: boolean; tenantId?: string } = {}) =>
       store.retrieve({ ...opts, tenantId }),
     listIds: (opts?: { tenantId?: string }) => store.listIds({ ...opts, tenantId }),
     bumpHitCount: (id: string, opts?: { tenantId?: string }) => store.bumpHitCount(id, { ...opts, tenantId }),

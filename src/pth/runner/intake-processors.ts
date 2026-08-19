@@ -1,9 +1,9 @@
 /**
- * runner/intake-processors.ts — N29 Task 5：两个职责分离的 review processor adapter。
+ * runner/intake-processors.ts — N29 Task 5 + Task 6：extract / domain / adversarial processor adapter。
  *
  * 定位：**adapter**，不是 LLM completion 本体。真正的模型调用走既有 `LlmFn`
  * （生产链路由 AgentTaskRunner / batch handler 注入）；本文件负责
- *  1) 组装生产 prompt（plan + candidate + 服务端重算的 evidence quote）；
+ *  1) 组装生产 prompt（plan/revision + candidate + 服务端重算的 evidence quote）；
  *  2) 用生产 result schema 校验模型输出（缺字段 / 枚举越界 / 空 note 一律拒绝）；
  *  3) 把结果映射成绑定 `runId / planId / checkId / candidateId / candidateRevision /
  *     candidateHash / principalId / executionId` 的 verdict outcome。
@@ -12,17 +12,23 @@
  *  - producer / domain reviewer / adversarial reviewer / promoter 四个 principal 必须互不相同；
  *    任意两个角色同一 principal → 直接拒绝且**不调用** LLM；
  *  - reviewer principal 必须落在对应 plan check 的 `eligiblePrincipals` 内；
- *  - 绑定字段一律由服务端盖章：模型自报的 candidateHash / principalId 等被忽略。
+ *  - 绑定字段一律由服务端盖章：模型自报的 candidateHash / principalId 等被忽略；
+ *  - extract processor（Task 6）**不信任**模型自报的 locator/hash：模型只被允许回一段
+ *    verbatim quote，locator / quoteHash / `IntakeEvidenceReference` 全部由服务端从已落库
+ *    admitted revision 的 normalized representation 重算（`intakeEvidenceForClaim`）。
  */
 
 import type { LlmFn, LlmMessage } from "../kernel/interpreter/llm-fn.js";
 import {
+  intakeEvidenceForClaim,
+  sha256Hex,
   validateKnowledgeVerdict,
   type KnowledgeVerdict,
   type KnowledgeVerdictKind,
   type VerificationCheckRecord,
   type VerificationPlanRecord,
 } from "../execution/index.js";
+import type { IntakeClaimInput, SourceRevision } from "../contracts/index.js";
 
 /** 四个职责分离的 principal（与 contracts 的 `IntakeVerificationPrincipals` 结构一致）。 */
 export interface IntakeReviewPrincipals {
@@ -294,4 +300,220 @@ export function createDomainReviewProcessor(deps: IntakeReviewProcessorDeps): In
 /** adversarial reviewer processor adapter（消费同一 plan 的 adversarial check，不同 principal）。 */
 export function createAdversarialReviewProcessor(deps: IntakeReviewProcessorDeps): IntakeReviewProcessor {
   return createReviewProcessor("adversarial", deps);
+}
+
+// ─── N29 Task 6：extract processor adapter ────────────────────────────
+
+export interface IntakeExtractRequest {
+  readonly runId: string;
+  readonly executionId: string;
+  readonly tenantId: string;
+  readonly space: string;
+  readonly domainId: string;
+  /** 已落库的 admitted SourceRevision——processor 只能从它的 normalized representation 取证。 */
+  readonly revision: SourceRevision;
+  readonly model?: string;
+  readonly provider?: string;
+}
+
+export interface IntakeExtractOutcome {
+  readonly runId: string;
+  readonly sourceRevisionId: string;
+  /** 服务端重算后的原子 claim（含 locator / quoteHash / IntakeEvidenceReference）。 */
+  readonly claims: readonly IntakeClaimInput[];
+  readonly rawModelOutput: string;
+  readonly model: string;
+}
+
+export type IntakeExtractResult =
+  | { readonly ok: true; readonly outcome: IntakeExtractOutcome }
+  | { readonly ok: false; readonly error: string };
+
+export interface IntakeExtractProcessor {
+  extract(request: IntakeExtractRequest): Promise<IntakeExtractResult>;
+}
+
+export interface IntakeExtractProcessorDeps {
+  readonly llm: LlmFn;
+  /**
+   * 单次抽取允许的最大 claim 数。N29 首轮约束：每个 admitted revision 最多一条原子 claim
+   * （plan §2 Global Constraints）。
+   */
+  readonly maxClaims?: number;
+  /** normalized representation 送进 prompt 的最大字符数（超出截断——不影响服务端重算）。 */
+  readonly maxPromptChars?: number;
+  readonly model?: string;
+  readonly provider?: string;
+}
+
+/** 生产 result schema：模型只被允许返回 verbatim quote，其余一律服务端重算。 */
+export interface IntakeExtractModelResult {
+  readonly claims: readonly { readonly quote: string }[];
+}
+
+export function parseIntakeExtractModelResult(
+  raw: string,
+): { ok: true; result: IntakeExtractModelResult } | { ok: false; error: string } {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (text === "") return { ok: false, error: "extract result is empty" };
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(text);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fenced?.[1] ?? text);
+  } catch {
+    return { ok: false, error: "extract result must be a JSON object" };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, error: "extract result must be a JSON object" };
+  }
+  const rawClaims = (parsed as Record<string, unknown>)["claims"];
+  if (!Array.isArray(rawClaims)) {
+    return { ok: false, error: "extract result requires a claims array" };
+  }
+  const claims: Array<{ quote: string }> = [];
+  for (const [index, entry] of rawClaims.entries()) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      return { ok: false, error: `claims[${index}] must be an object` };
+    }
+    const quote = (entry as Record<string, unknown>)["quote"];
+    if (typeof quote !== "string" || quote.trim() === "") {
+      return { ok: false, error: `claims[${index}].quote must be a non-empty verbatim string` };
+    }
+    claims.push({ quote });
+  }
+  return { ok: true, result: { claims } };
+}
+
+const DEFAULT_MAX_CLAIMS = 1;
+const DEFAULT_MAX_PROMPT_CHARS = 8_000;
+
+function buildExtractMessages(request: IntakeExtractRequest, representation: string, maxClaims: number): LlmMessage[] {
+  return [
+    {
+      role: "system",
+      content:
+        "You are the EXTRACTOR. Extract at most "
+        + `${maxClaims} atomic factual claim(s) that the source text below states explicitly.\n`
+        + "You may only quote the source VERBATIM — copy an exact contiguous substring, character for character.\n"
+        + 'Answer with a single JSON object: {"claims":[{"quote":"<exact substring of the source>"}]}.\n'
+        + "Do not paraphrase, do not add offsets or hashes, do not output any other field — "
+        + "the server recomputes the locator, the quote hash and the evidence reference itself.",
+    },
+    {
+      role: "user",
+      content:
+        `domain: ${request.domainId}\nspace: ${request.space}\n`
+        + `source revision: ${request.revision.id}\nfinal uri: ${request.revision.finalUri}\n\n`
+        + `normalized source text:\n${representation}`,
+    },
+  ];
+}
+
+/**
+ * extract processor adapter（N29 Task 6）。
+ *
+ * 服务端重算链（模型自报值只作 tripwire，永不作为真相）：
+ *  1. 模型回一段 quote → `indexOf` 定位到已落库 `normalizedText`（找不到 → 拒绝）；
+ *  2. quote 必须唯一定位（出现多次 → 拒绝，避免 locator 歧义）；
+ *  3. `locator` / `quoteHash` 用重算结果；`evidence` 由生产 `intakeEvidenceForClaim()` 生成
+ *     （它自己会校验 revision 必须 admitted 且带 allow use decision）。
+ * 因此 `KnowledgeIngestor` 收到的 claim 与它自己的复算结果逐字节一致。
+ */
+export function createIntakeExtractProcessor(deps: IntakeExtractProcessorDeps): IntakeExtractProcessor {
+  const maxClaims = deps.maxClaims ?? DEFAULT_MAX_CLAIMS;
+  const maxPromptChars = deps.maxPromptChars ?? DEFAULT_MAX_PROMPT_CHARS;
+
+  return {
+    async extract(request: IntakeExtractRequest): Promise<IntakeExtractResult> {
+      if (!request || typeof request !== "object") {
+        return { ok: false, error: "extract request must be an object" };
+      }
+      for (const key of ["runId", "executionId", "tenantId", "space", "domainId"] as const) {
+        if (typeof request[key] !== "string" || request[key].trim() === "") {
+          return { ok: false, error: `extract request requires a non-empty ${key}` };
+        }
+      }
+      const revision = request.revision;
+      if (!revision || typeof revision.normalizedText !== "string" || revision.normalizedText.trim() === "") {
+        return { ok: false, error: "extract request requires an admitted revision with a normalized representation" };
+      }
+      if (revision.disposition !== "admitted") {
+        return { ok: false, error: `extract requires an admitted source revision (got "${revision.disposition}")` };
+      }
+      if (revision.tenantId !== request.tenantId) {
+        return { ok: false, error: `revision tenant ${revision.tenantId} does not match request tenant ${request.tenantId}` };
+      }
+      // 服务端自检：正文与自身 hash 必须一致（被篡改的 representation 不得进入 extractor）。
+      if (sha256Hex(revision.normalizedText) !== revision.normalizedTextHash) {
+        return { ok: false, error: `source revision ${revision.id} normalized text hash does not match its text` };
+      }
+
+      let raw: string;
+      let model: string;
+      try {
+        const completion = await deps.llm.complete(
+          buildExtractMessages(request, revision.normalizedText.slice(0, maxPromptChars), maxClaims),
+          {
+            ...(request.model ?? deps.model ? { model: request.model ?? deps.model! } : {}),
+            ...(request.provider ?? deps.provider ? { provider: request.provider ?? deps.provider! } : {}),
+          },
+        );
+        raw = completion.content;
+        model = completion.model;
+      } catch (e) {
+        return { ok: false, error: `extract llm call failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+
+      const parsed = parseIntakeExtractModelResult(raw);
+      if (!parsed.ok) return { ok: false, error: `extract result rejected: ${parsed.error}` };
+      if (parsed.result.claims.length === 0) {
+        return { ok: false, error: "extract result rejected: no claim was produced" };
+      }
+      if (parsed.result.claims.length > maxClaims) {
+        return { ok: false, error: `extract result rejected: at most ${maxClaims} claim(s) allowed per admitted revision` };
+      }
+
+      const claims: IntakeClaimInput[] = [];
+      for (const [index, claim] of parsed.result.claims.entries()) {
+        const start = revision.normalizedText.indexOf(claim.quote);
+        if (start < 0) {
+          return {
+            ok: false,
+            error: `extract result rejected: claims[${index}].quote is not a verbatim substring of the normalized representation`,
+          };
+        }
+        if (revision.normalizedText.indexOf(claim.quote, start + 1) >= 0) {
+          return {
+            ok: false,
+            error: `extract result rejected: claims[${index}].quote occurs more than once（ambiguous locator）`,
+          };
+        }
+        const locator = { start, end: start + claim.quote.length };
+        let evidence;
+        try {
+          evidence = intakeEvidenceForClaim(revision, locator);
+        } catch (e) {
+          return { ok: false, error: `extract could not build an evidence reference: ${e instanceof Error ? e.message : String(e)}` };
+        }
+        claims.push({
+          // text/quoteHash 均为服务端重算值 —— ingestor 的 tripwire 必然一致。
+          text: revision.normalizedText.slice(locator.start, locator.end),
+          locator,
+          quoteHash: evidence.quoteHash,
+          evidence: [evidence],
+        });
+      }
+
+      return {
+        ok: true,
+        outcome: {
+          runId: request.runId,
+          sourceRevisionId: revision.id,
+          claims,
+          rawModelOutput: raw,
+          model,
+        },
+      };
+    },
+  };
 }

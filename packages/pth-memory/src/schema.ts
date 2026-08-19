@@ -74,4 +74,18 @@ CREATE INDEX IF NOT EXISTS idx_memory_revisions_entry ON memory_revisions(entry_
 CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_entries_tenant_id_id ON memory_entries(tenant_id, id);
 ALTER TABLE memory_entries DROP CONSTRAINT IF EXISTS memory_entries_pkey;
 ALTER TABLE memory_entries ADD PRIMARY KEY (tenant_id, id);
+
+-- N29 Task 6（plan §2.4 G7）：知识条目新增 'stale' 状态。
+-- 语义：某条 official 绑定的 Source Revision 发生**实质变化**，或其 policy/subscription 被撤销时，
+-- Intake/Promotion 的内部路径把旧条目从 authoritative 面撤出（status='stale'）。
+--  - 默认 authoritative 检索（Broker/Context 固定 status=['official']）立即命中 0；
+--  - memory_revisions 的 append-only 历史与 asOf 读取仍可读到它 official 时期的正文。
+-- 幂等：先 DROP IF EXISTS 再 ADD（重复执行安全；旧库自动升级约束）。
+ALTER TABLE memory_entries DROP CONSTRAINT IF EXISTS memory_entries_status_check;
+ALTER TABLE memory_entries ADD CONSTRAINT memory_entries_status_check
+  CHECK (status IN ('draft','official','archived','stale'));
+
+-- asOf 读取的支撑索引：按 (entry, tenant, 归档时刻) 找"在某一时刻仍然生效"的历史 revision。
+CREATE INDEX IF NOT EXISTS idx_memory_revisions_entry_created
+  ON memory_revisions(entry_id, tenant_id, created_at);
 `;
