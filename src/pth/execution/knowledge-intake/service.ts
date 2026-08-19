@@ -714,7 +714,17 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
       || (previous !== null && previous.rawHash === envelope.rawHash);
 
     // ③ unchanged：只落一条 unchanged revision，不产生 candidate、不晋升。
+    // P0-6 修复：unchanged/reuse 必须先通过当前 use-policy；verdict=deny（策略过期/撤销/收紧）
+    // 时不得返回 unchanged-success——撤出依赖 official 并 dead-letter，quarantine 留审计。
     if (unchanged && previous !== null) {
+      if (verdict.verdict === "deny") {
+        await withdrawDependents({
+          tenantId,
+          subscriptionId: subscription.id,
+          reason: "policy-revoked",
+        });
+        return await deadLetter(run, `unchanged recrawl denied by current use-policy [${verdict.denyCodes.join(",")}]: ${verdict.reasons.join("; ")}`);
+      }
       const artifact = envelope.notModified
         ? await deps.repository.getArtifactMeta(tenantId, envelope.rawHash)
         : null;
@@ -751,7 +761,7 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
       await rescheduleSubscription(tenantId, subscription.id, subscription.status === "probing" ? "probing" : "active", {
         nextCrawlAt: new Date(nowOf(deps.clock).getTime() + subscription.recrawlIntervalMs),
       });
-      await deps.repository.transitionRun({
+      const transitioned = await deps.repository.transitionRun({
         tenantId,
         runId: run.id,
         fromStage: "fetch",
@@ -765,6 +775,11 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
         outputHash: envelope.rawHash,
         sourceRevisionId: unchangedRevision.id,
       });
+      // P0-8 修复：transitionRun 返回 null 表示 CAS 失败（lease 过期/被抢占），
+      // 必须抛错让 handler 重试；domain 写（storeAcquisition）在重试时幂等。
+      if (!transitioned) {
+        throw new IntakeStageRetryableError("fetch", run.id, "unchanged transitionRun CAS failed");
+      }
       return {
         runId: run.id,
         stage: "fetch",
@@ -867,8 +882,8 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
       sideEffects: [nextStageEffect(INTAKE_STAGE_OUTBOX_KINDS.extract, run, "admit")],
     });
     if (!advanced) {
-      // CAS 未命中（lease 过期/被抢占）：零 outbox；由 lease 回收路径重来。
-      return { runId: run.id, stage: "fetch", disposition: "skipped", sourceRevisionId: admitted.id };
+      // P0-8 修复：CAS 未命中（lease 过期/被抢占）→ domain 写在重试时幂等，必须抛错回滚。
+      throw new IntakeStageRetryableError("fetch", run.id, "fetch admission transitionRun CAS failed");
     }
     return {
       runId: run.id,
@@ -947,7 +962,7 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
       verificationPlanId: ingested.planId,
       sideEffects: [nextStageEffect(INTAKE_STAGE_OUTBOX_KINDS.reviewDomain, run, "verify")],
     });
-    if (!advanced) return { runId: run.id, stage: "extract", disposition: "skipped" };
+    if (!advanced) throw new IntakeStageRetryableError("extract", run.id, "extract transitionRun CAS failed");
     return {
       runId: run.id,
       stage: "verify",
@@ -1040,7 +1055,7 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
         outputHash: plan.candidateHash,
         sideEffects: [nextStageEffect(INTAKE_STAGE_OUTBOX_KINDS.reviewAdversarial, run, "verify")],
       });
-      if (!advanced) return { runId: run.id, stage: "verify", disposition: "skipped" };
+      if (!advanced) throw new IntakeStageRetryableError("verify", run.id, "domain review transitionRun CAS failed");
       return {
         runId: run.id,
         stage: "verify",
@@ -1085,7 +1100,7 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
       outputHash: refreshed.candidateHash,
       sideEffects: [nextStageEffect(INTAKE_STAGE_OUTBOX_KINDS.promote, run, "promote")],
     });
-    if (!advanced) return { runId: run.id, stage: "verify", disposition: "skipped" };
+    if (!advanced) throw new IntakeStageRetryableError("verify", run.id, "domain review transitionRun CAS failed");
     return {
       runId: run.id,
       stage: "promote",
@@ -1180,7 +1195,7 @@ export function createKnowledgeIntakeService(deps: KnowledgeIntakeServiceDeps): 
       executionId: executionIdOf("promote", run.id),
       outputHash: plan.candidateHash,
     });
-    if (!completed) return { runId: run.id, stage: "promote", disposition: "skipped" };
+    if (!completed) throw new IntakeStageRetryableError("promote", run.id, "promote transitionRun CAS failed");
     return {
       runId: run.id,
       stage: "complete",

@@ -423,7 +423,7 @@ export function createKnowledgeIngestor(deps: KnowledgeIngestorDeps): KnowledgeI
 export type IntakeRecheckPolicySource = Pick<VerifiedTrustPolicy, "manifest" | "authorizeUse">;
 
 export interface IntakeSourceBindingRecheckDeps {
-  readonly intake: Pick<KnowledgeIntakeRepository, "getRevision" | "getSubscription" | "listDependencies">;
+  readonly intake: Pick<KnowledgeIntakeRepository, "getRevision" | "getSubscription" | "listDependencies" | "getArtifactMeta">;
   readonly policy: IntakeRecheckPolicySource | (() => IntakeRecheckPolicySource | Promise<IntakeRecheckPolicySource>);
   /** admission 时申报的 sourceType / license（复检需再次逐项落在当前规则集合内）。 */
   readonly declared?: { readonly sourceType: string; readonly license: string };
@@ -499,6 +499,9 @@ export function createIntakeSourceBindingRecheck(
       if (!rule) {
         return { ok: false, reason: `rule ${revision.usePolicyDecision.ruleId} is not part of the current trust policy` };
       }
+      // P0-7 修复：从 artifact 读取真实 byteLength，不再硬编码 0。
+      const artifactMeta = await deps.intake.getArtifactMeta(input.tenantId, revision.rawHash);
+      const realByteLength = artifactMeta?.byteLength ?? 0;
       const decision = policy.authorizeUse({
         tenantId: input.tenantId,
         space: binding.space,
@@ -508,7 +511,7 @@ export function createIntakeSourceBindingRecheck(
         sourceType: deps.declared?.sourceType ?? rule.sourceTypes[0] ?? "",
         contentType: revision.contentType,
         license: deps.declared?.license ?? rule.licenses[0] ?? "",
-        byteLength: 0,
+        byteLength: realByteLength,
         domain: binding.domainId,
         subscriptionStatus: subscription.status,
       });

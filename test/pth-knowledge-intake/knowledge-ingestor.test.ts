@@ -105,7 +105,7 @@ describe("N29 Task 5 strict KnowledgeIngestor（真实 PG + 生产 plan/promotio
   let seq = 0;
   const nextTenant = (label: string): string => `t-ing-${label}-${++seq}`;
 
-  function signedManifest(tenantId: string): { manifest: TrustPolicyManifest; keyring: Record<string, string> } {
+  function signedManifest(tenantId: string, maxBytes = 1_000_000): { manifest: TrustPolicyManifest; keyring: Record<string, string> } {
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
     const base: TrustPolicyManifest = {
       policyId: `policy-${tenantId}`,
@@ -127,7 +127,7 @@ describe("N29 Task 5 strict KnowledgeIngestor（真实 PG + 生产 plan/promotio
           sourceTypes: ["bounded-html"],
           contentTypes: ["text/html"],
           licenses: ["public-domain"],
-          maxBytes: 1_000_000,
+          maxBytes,
           redirectOrigins: [ORIGIN],
         },
       ],
@@ -506,6 +506,37 @@ describe("N29 Task 5 strict KnowledgeIngestor（真实 PG + 生产 plan/promotio
       { tenantId: h.tenantId, intakeBinding: recheck },
     );
     expect(promoted).toMatchObject({ ok: false, error: expect.stringMatching(/stale/i) });
+    expect((await store.get(candidateId, { tenantId: h.tenantId }))?.status).toBe("draft");
+  });
+
+  it("promotion recheck uses the real artifact byteLength：策略收紧 maxBytes 后必须拒绝（P0-7）", async () => {
+    const h = await seed("bytes");
+    const { candidateId, planId } = await ingestor.ingest(ingestInput(h));
+
+    await recordKnowledgeVerdict(
+      store, verificationRepo, planId, `domain:${DOMAIN}`, 1,
+      { kind: "domain", verdict: "pass", reviewerRole: "domain:mathematics", note: "quote matches source", at: 1, domainId: DOMAIN },
+      { principalId: DOMAIN_REVIEWER, executionId: "run-domain-1" },
+      { tenantId: h.tenantId },
+    );
+    await recordKnowledgeVerdict(
+      store, verificationRepo, planId, "adversarial", 1,
+      { kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no unsupported leap", at: 2 },
+      { principalId: ADVERSARIAL_REVIEWER, executionId: "run-adv-1" },
+      { tenantId: h.tenantId },
+    );
+
+    // 当前策略收紧：maxBytes=1。真实 artifact byteLength（数百字节）必然超限；
+    // 若复核仍硬编码 byteLength=0，此用例会错误晋升。
+    const tightened = signedManifest(h.tenantId, 1);
+    const tightenedPolicy = await loadVerifiedTrustPolicy(tightened.manifest, tightened.keyring);
+    const recheck = createIntakeSourceBindingRecheck({ intake: repo, policy: tightenedPolicy });
+    const promoted = await promoteKnowledgeEntry(
+      store, verificationRepo, candidateId, planId, 1,
+      { principalId: PROMOTER, executionId: "run-promote-1" },
+      { tenantId: h.tenantId, intakeBinding: recheck },
+    );
+    expect(promoted).toMatchObject({ ok: false, error: expect.stringMatching(/no longer authorizes use|maxBytes|byte/i) });
     expect((await store.get(candidateId, { tenantId: h.tenantId }))?.status).toBe("draft");
   });
 });

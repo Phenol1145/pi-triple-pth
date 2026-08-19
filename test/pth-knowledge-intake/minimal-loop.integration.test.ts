@@ -345,7 +345,8 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     };
 
     const fetchBroker = createPolicyBoundSourceFetchBroker({
-      policy,
+      // 闭包读取 `policy` 变量，使 P0-6 负向用例可在运行中轮换当前策略。
+      policy: () => policy,
       declaredSource: DECLARED,
       lookup: async () => PUBLIC_ADDR,
       request: transport,
@@ -675,7 +676,9 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
 
   it("changed recrawl：旧 official 先 stale（asOf 可读）→ 新 candidate → 双核验 → superseding official", async () => {
     const previous = (await officialEntries())[0]!;
-    const asOfBeforeChange = new Date();
+    // 采样数据库时钟而非宿主机时钟——stale 转换用容器 now() 落库，宿主机/容器时钟漂移
+    // 会让 host `new Date()` 的 asOf 判定在并行负载下漂移（既有 flake）。
+    const asOfBeforeChange = (await pool.query<{ t: Date }>(`SELECT now() AS t`)).rows[0].t;
     served.current = { html: V2_HTML, etag: '"v2"' };
 
     await makeDue();
@@ -853,4 +856,94 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     expect(still).toMatchObject({ stage: "fetch", status: "leased", rowVersion: claimed!.rowVersion });
     bump("negatives", "runCasRejected", 4);
   }, 60_000);
+
+  it("负向矩阵：unchanged 重爬遇到当前 use-policy deny → dead-letter + 依赖 official 撤出（P0-6）", async () => {
+    // 独立 subscription：先完成初次摄入产出 official。
+    const subscriptions = createKnowledgeIntakeSubscriptionService({ repository: repo, policy: () => policy });
+    const sub = await subscriptions.subscribe({
+      space: SPACE,
+      canonicalUri: `${ORIGIN}/guide/policy-deny`,
+      domainId: DOMAIN,
+      recrawlIntervalMs: RECRAWL_MS,
+      declared: DECLARED,
+      nextCrawlAt: new Date(Date.now() - 1_000),
+    });
+    const first = await scanner.scanOnce();
+    expect(first.map((r) => r.subscriptionId)).toEqual([sub.id]);
+    await drainUntilRunSettled(first[0]!.id);
+    const afterInitial = await repo.getRun(TENANT, first[0]!.id);
+    expect(afterInitial).toMatchObject({ stage: "complete", status: "completed" });
+
+    const before = await officialEntries();
+    const target = before.find((e) => (e.meta.intake as { sourceSubscriptionId?: string } | undefined)?.sourceSubscriptionId === sub.id);
+    expect(target).toBeDefined();
+
+    // 建第二次重爬 run（subscription 仍 active）。
+    const cur = await repo.getSubscription(TENANT, sub.id);
+    const due = await repo.transitionSubscription({
+      tenantId: TENANT,
+      subscriptionId: sub.id,
+      expectedRowVersion: cur!.rowVersion,
+      toStatus: cur!.status,
+      nextCrawlAt: new Date(Date.now() - 1_000),
+    });
+    expect(due).not.toBeNull();
+    const second = await scanner.scanOnce();
+    expect(second).toHaveLength(1);
+
+    // P0-6 场景：策略轮换后 fetch 仍 allow（同源/同路径/同预算），
+    // 但 use 阶段 domain 不再命中 → verdict=deny。内容未变 → 必须走 deny 分支，
+    // 不得返回 unchanged-complete。
+    const rotated = (() => {
+      const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+      const base: TrustPolicyManifest = {
+        policyId: "policy-n29-rotated",
+        version: "1",
+        tenantId: TENANT,
+        spaces: [SPACE],
+        validFrom: "2020-01-01T00:00:00.000Z",
+        validUntil: "2099-01-01T00:00:00.000Z",
+        approvedBy: { kind: "human", principalId: "human-alice", tenantId: TENANT, issuer: "ptl-human-interface" },
+        approvalProof: { method: "signed-manifest", keyId: "human-alice", signature: "" },
+        rules: [
+          {
+            ruleId: "rule-docs",
+            effect: "allow",
+            httpsOrigin: ORIGIN,
+            pathPrefix: "/guide/",
+            spaces: [SPACE],
+            domains: [`not-${DOMAIN}`],
+            sourceTypes: ["bounded-html"],
+            contentTypes: ["text/html"],
+            licenses: ["public-domain"],
+            maxBytes: 1_000_000,
+            redirectOrigins: [ORIGIN],
+          },
+        ],
+        digest: "",
+      };
+      const digest = computePolicyDigest(base);
+      const signature = edSign(
+        null,
+        canonicalPolicySigningBytes(base),
+        privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+      ).toString("base64");
+      const manifest = { ...base, digest, approvalProof: { ...base.approvalProof, signature } };
+      const keyring = { "human-alice": publicKey.export({ type: "spki", format: "pem" }).toString() };
+      return loadVerifiedTrustPolicy(manifest, keyring);
+    })();
+    policy = await rotated;
+
+    await drainUntilRunSettled(second[0]!.id);
+    const deniedRun = await repo.getRun(TENANT, second[0]!.id);
+    // P0-6：内容未变但 use-policy deny → 不得返回 unchanged-complete；run dead-letter。
+    expect(deniedRun).toMatchObject({ stage: "fetch", status: "dead-letter" });
+
+    // 依赖 official 必须被撤出 authoritative 面（stale），依赖边 stale。
+    const staleDeps = (await repo.listDependencies(TENANT, sub.id)).filter((d) => d.stale);
+    expect(staleDeps.length).toBeGreaterThan(0);
+    const stillOfficial = await store.retrieve({ tenantId: TENANT, anchors: [DOMAIN], kinds: ["domain-fact"], status: ["official"] });
+    expect(stillOfficial.some((e) => e.id === target!.id)).toBe(false);
+    bump("negatives", "unchangedPolicyDenyDeadLetter");
+  }, 120_000);
 });

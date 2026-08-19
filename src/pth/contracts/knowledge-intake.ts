@@ -550,6 +550,8 @@ export interface KnowledgeIntakeRepository {
   listRevisions(tenantId: string, subscriptionId: string): Promise<readonly SourceRevision[]>;
   listAttempts(tenantId: string, runId: string): Promise<readonly IntakeAttempt[]>;
   listDependencies(tenantId: string, subscriptionId: string): Promise<readonly SourceDependency[]>;
+  /** P0-7 修复：读取 artifact 元数据（不含正文字节），用于 promotion source guard 重算真实 byteLength。 */
+  getArtifactMeta(tenantId: string, rawHash: string): Promise<{ id: string; rawHash: string; byteLength: number; contentType: string } | null>;
 }
 
 export interface SourceFetchBroker {
