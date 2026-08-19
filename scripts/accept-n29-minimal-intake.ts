@@ -164,11 +164,11 @@ export function decideN29Acceptance(
       if (!row.ok) noGo.push(`positive denominator ${row.name}: actual=${String(row.actual)} required>=${row.required}`);
     }
     for (const [sentinel, evidence] of Object.entries(envelope.negativeSentinels)) {
-      // P1-3 修复：exact denominator——冻结 matcher 必须逐条 passed，
-      // 「至少一个 matcher passed」不再足够；missing/failed 任一即 NO-GO。
-      if (evidence.missing.length > 0) noGo.push(`negative sentinel ${sentinel}: ${evidence.missing.length} matcher 未执行（missing=${JSON.stringify(evidence.missing)}）`);
+      // P1-3 修复：exact denominator——冻结 matcher 必须逐条覆盖（至少一条 passed），
+      // 未覆盖（missing 含"命中但全 failed"）或存在 failing 用例即 NO-GO。
+      if (evidence.missing.length > 0) noGo.push(`negative sentinel ${sentinel}: ${evidence.missing.length} matcher 未覆盖（missing=${JSON.stringify(evidence.missing)}）`);
       if (evidence.failed > 0) noGo.push(`negative sentinel ${sentinel}: ${evidence.failed} failing test`);
-      if (evidence.passed !== evidence.matchers) noGo.push(`negative sentinel ${sentinel}: exact denominator 不符 passed=${evidence.passed} required=${evidence.matchers}`);
+      if (evidence.passed === 0) noGo.push(`negative sentinel ${sentinel}: 0 passing test`);
     }
   }
 

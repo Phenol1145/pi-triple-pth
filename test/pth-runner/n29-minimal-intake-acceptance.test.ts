@@ -201,11 +201,11 @@ describe("N29 L7 负向 sentinel 派生", () => {
       { currentHead: HEAD },
     );
     expect(outcome.decision).toBe("NO-GO");
-    // P1-3：exact denominator——0 passed 不再是唯一形态；missing 与 denominator 不符必须逐条暴露。
-    expect(outcome.reasons.join("\n")).toMatch(/negative sentinel crossTenant: 1 matcher 未执行/);
-    expect(outcome.reasons.join("\n")).toMatch(/negative sentinel crossTenant: exact denominator 不符 passed=0 required=1/);
+    // P1-3：exact denominator——matcher 未覆盖（含"命中但全 failed"）与 failing 用例必须逐条暴露。
+    expect(outcome.reasons.join("\n")).toMatch(/negative sentinel crossTenant: 1 matcher 未覆盖/);
+    expect(outcome.reasons.join("\n")).toMatch(/negative sentinel crossTenant: 0 passing test/);
     expect(outcome.reasons.join("\n")).toMatch(/negative sentinel expiredLease: 1 failing test/);
-    expect(outcome.reasons.join("\n")).toMatch(/negative sentinel expiredLease: exact denominator 不符 passed=0 required=1/);
+    expect(outcome.reasons.join("\n")).toMatch(/negative sentinel expiredLease: 1 matcher 未覆盖/);
   });
 });
 
