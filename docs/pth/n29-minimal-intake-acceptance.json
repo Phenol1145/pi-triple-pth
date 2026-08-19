@@ -1,8 +1,8 @@
 {
   "schema": "n29-minimal-intake-acceptance/1",
-  "generatedAt": "2026-08-19T09:53:48.997Z",
+  "generatedAt": "2026-08-19T10:36:34.142Z",
   "plan": "docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md",
-  "evaluatedCommit": "c49fbef63b1a1acfaf8fa2e6523ae47ba5d31c29",
+  "evaluatedCommit": "16abccb2ea2897873391e27cca9738d1bcbed9f6",
   "implementationTreeClean": true,
   "trustPolicy": {
     "policyId": "policy-n29-l6",
@@ -14,7 +14,7 @@
   },
   "evaluator": {
     "decision": "PASS",
-    "evaluatedCommit": "c49fbef63b1a1acfaf8fa2e6523ae47ba5d31c29",
+    "evaluatedCommit": "16abccb2ea2897873391e27cca9738d1bcbed9f6",
     "ledgerBoundToCommit": true,
     "policyDigest": "g3tsitUoDggL1pgr21SRwdmS8MSX7g_y2a7NcvpCBv4",
     "positives": [
@@ -560,14 +560,14 @@
     }
   },
   "focused": {
-    "command": "npx vitest run test/pth-knowledge-intake/trust-policy.test.ts test/pth-knowledge-intake/knowledge-intake-pg.test.ts test/pth-knowledge-intake/fetch-broker.test.ts test/pth-knowledge-intake/knowledge-ingestor.test.ts test/pth-knowledge-intake/minimal-loop.integration.test.ts test/pth-runner/intake-processors.test.ts test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts test/pth-knowledge-intake/g8-dual-process.test.ts test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts test/pth-tasking/pg-task-repository.test.ts test/pth-tasking/side-effect-outbox.test.ts test/pth-execution/knowledge-promotion.test.ts test/pth-execution/knowledge-verdicts.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts test/pth-kernel-assembly/templates.test.ts packages/pth-memory/test/memory-policy.test.ts packages/pth-memory/test/memory-store-pg.test.ts test/pth-kernel-interpreter/web-transport-ip.test.ts test/pth-kernel-assembly/intake-mode-gates.test.ts test/pth-runner/n29-minimal-intake-acceptance.test.ts --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/focused.json",
+    "command": "npx vitest run test/pth-knowledge-intake/trust-policy.test.ts test/pth-knowledge-intake/knowledge-intake-pg.test.ts test/pth-knowledge-intake/fetch-broker.test.ts test/pth-knowledge-intake/knowledge-ingestor.test.ts test/pth-knowledge-intake/minimal-loop.integration.test.ts test/pth-runner/intake-processors.test.ts test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts test/pth-knowledge-intake/g8-dual-process.test.ts test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts test/pth-tasking/pg-task-repository.test.ts test/pth-tasking/side-effect-outbox.test.ts test/pth-execution/knowledge-promotion.test.ts test/pth-execution/knowledge-verdicts.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts test/pth-kernel-assembly/templates.test.ts packages/pth-memory/test/memory-policy.test.ts packages/pth-memory/test/memory-store-pg.test.ts test/pth-kernel-interpreter/web-transport-ip.test.ts test/pth-kernel-assembly/intake-mode-gates.test.ts test/pth-runner/n29-minimal-intake-acceptance.test.ts --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-mLI8Vt/focused.json",
     "started": true,
     "exitCode": 0,
-    "durationMs": 49522,
+    "durationMs": 81136,
     "skipped": [],
     "environmentStatus": "available",
-    "stdoutTail": "JSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/focused.json\n",
-    "stderrTail": "(node:52169) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+    "stdoutTail": "JSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-mLI8Vt/focused.json\n",
+    "stderrTail": "(node:95283) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
     "totals": {
       "files": 21,
       "tests": 355,
@@ -580,7 +580,7 @@
     "command": "npx tsc -p tsconfig.n29.json --noEmit",
     "started": true,
     "exitCode": 0,
-    "durationMs": 2318,
+    "durationMs": 2825,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "",
@@ -590,7 +590,7 @@
     "command": "npx tsc --noEmit",
     "started": true,
     "exitCode": 0,
-    "durationMs": 1770,
+    "durationMs": 2670,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "",
@@ -600,7 +600,7 @@
     "command": "npx tsc -p tsconfig.n28.json --noEmit",
     "started": true,
     "exitCode": 0,
-    "durationMs": 1946,
+    "durationMs": 2910,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "",
@@ -610,7 +610,7 @@
     "command": "npm run lint",
     "started": true,
     "exitCode": 0,
-    "durationMs": 6305,
+    "durationMs": 9814,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "\n> @away_from/pi-triple@1.1.3 lint\n> tsc -p packages/shared && tsc -p packages/infra && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc --noEmit && tsc -p packages/shared --noEmit && tsc -p packages/framework --noEmit && npm run check:pth-boundaries && npm run check:pth-config\n\n\n> @away_from/pi-triple@1.1.3 check:pth-boundaries\n> tsx scripts/check-pth-boundaries.ts\n\n── pth-boundaries：当前违规 0 条 ──\n✅ 无新增边界违规\n\n> @away_from/pi-triple@1.1.3 check:pth-config\n> tsx scripts/check-pth-config.ts\n\n── pth-config：schema 123 键 · 直读 0（pth + pth-sandbox src）· compose 未声明 85 键 ──\n✅ pth-config 检查通过\n",
@@ -620,17 +620,17 @@
     "command": "npm run build",
     "started": true,
     "exitCode": 0,
-    "durationMs": 8036,
+    "durationMs": 17817,
     "skipped": [],
     "environmentStatus": "available",
     "stdoutTail": "\n> @away_from/pi-triple@1.1.3 build\n> tsc -p packages/shared && tsc -p packages/infra && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc -p packages/framework && tsc -p packages/mailbox && tsc -p packages/dev-container && tsc -p tsconfig.json\n\n",
     "stderrTail": ""
   },
   "fullRegression": {
-    "command": "npm test -- --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/full.json",
+    "command": "npm test -- --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-mLI8Vt/full.json",
     "started": true,
-    "exitCode": 1,
-    "durationMs": 175639,
+    "exitCode": 0,
+    "durationMs": 270950,
     "skipped": [
       {
         "file": "test/pth-execution/sandbox-security.integration.test.ts",
@@ -638,13 +638,13 @@
       }
     ],
     "environmentStatus": "available",
-    "stdoutTail": "\n> @away_from/pi-triple@1.1.3 test\n> vitest run --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/full.json\n\n{\"ts\":\"2026-08-19T09:53:11.690Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[assembly] 默认 batch 已启动（pid=55650 workers=15）\"}\n{\"ts\":\"2026-08-19T09:53:14.737Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] memory-maintenance-sweep 触发任务 624d4c92-2d19-4946-932d-164104fd0128（定时源——间隔 86400s——第 1 次）\"}\n{\"ts\":\"2026-08-19T09:53:15.665Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] origin-escalation 升级任务 624d4c92-2d19-4946-932d-164104fd0128（memory-keeper 失败）→ 7be7ec1d-42e6-45bb-bb13-bac92edc91b1（tags: origin）\"}\nJSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-XqbKJB/full.json\n",
-    "stderrTail": "Readable.push (node:internal/streams/readable:394:5)\n    at TCP.onStreamRead (node:internal/stream_base_commons:189:23) {\n  length: 116,\n  severity: 'FATAL',\n  code: '57P01',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postgres.c',\n  line: '3286',\n  routine: 'ProcessInterrupts',\n  client: Client {\n    _events: [Object: null prototype] { error: [Function (anonymous)] },\n    _eventsCount: 1,\n    _maxListeners: undefined,\n    connectionParameters: ConnectionParameters {\n      user: 'test',\n      database: 'test',\n      port: 40255,\n      host: 'localhost',\n      binary: false,\n      options: undefined,\n      ssl: false,\n      sslnegotiation: undefined,\n      client_encoding: '',\n      replication: undefined,\n      isDomainSocket: false,\n      application_name: undefined,\n      fallback_application_name: undefined,\n      statement_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'test',\n    database: 'test',\n    port: 40255,\n    host: 'localhost',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides { _types: [Object], text: {}, binary: {} },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    _activeQuery: null,\n    _txStatus: 'I',\n    enableChannelBinding: false,\n    scramMaxIterations: 100000,\n    connection: Connection {\n      _events: [Object: null prototype],\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: [Socket],\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      parsedStatements: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 733,\n    secretKey: 39489699,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 9,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\n(node:56529) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:56821) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:56932) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:56965) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57164) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57162) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57250) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57256) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57257) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57255) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57254) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57247) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57296) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57576) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:57853) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58003) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58166) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58300) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58313) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:58455) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+    "stdoutTail": "\n> @away_from/pi-triple@1.1.3 test\n> vitest run --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-mLI8Vt/full.json\n\n{\"ts\":\"2026-08-19T10:33:29.530Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[assembly] 默认 batch 已启动（pid=96753 workers=15）\"}\n{\"ts\":\"2026-08-19T10:33:32.745Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] memory-maintenance-sweep 触发任务 22ff10b7-5fd3-4d5a-98ff-eb6a0ec079d7（定时源——间隔 86400s——第 1 次）\"}\n{\"ts\":\"2026-08-19T10:33:33.394Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] origin-escalation 升级任务 22ff10b7-5fd3-4d5a-98ff-eb6a0ec079d7（memory-keeper 失败）→ 836cdb50-6254-4b2c-a5ef-0b6a7f67b848（tags: origin）\"}\n{\"ts\":\"2026-08-19T10:33:36.383Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.383Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.383Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.383Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.383Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.383Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drain kick failed: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.384Z\",\"level\":\"error\",\"component\":\"batch\",\"msg\":\"[batch] unhandledRejection（容忍——不终止）: \",\"pid\":96753,\"batchPid\":96753}\n{\"ts\":\"2026-08-19T10:33:36.991Z\",\"level\":\"warn\",\"component\":\"batch\",\"msg\":\"side-effect drainer: poll failed: \",\"pid\":96753,\"batchPid\":96753}\nJSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n29-accept-mLI8Vt/full.json\n",
+    "stderrTail": "nt_timeout: false,\n      lock_timeout: false,\n      idle_in_transaction_session_timeout: false,\n      query_timeout: false,\n      connect_timeout: 0\n    },\n    user: 'test',\n    database: 'test',\n    port: 40397,\n    host: 'localhost',\n    replication: undefined,\n    _Promise: [Function: Promise],\n    _types: TypeOverrides { _types: [Object], text: {}, binary: {} },\n    _ending: true,\n    _ended: false,\n    _connecting: false,\n    _connected: true,\n    _connectionError: false,\n    _queryable: false,\n    _activeQuery: null,\n    _txStatus: 'I',\n    enableChannelBinding: false,\n    scramMaxIterations: 100000,\n    connection: Connection {\n      _events: [Object: null prototype],\n      _eventsCount: 23,\n      _maxListeners: undefined,\n      stream: [Socket],\n      _keepAlive: false,\n      _keepAliveInitialDelayMillis: 0,\n      parsedStatements: {},\n      ssl: false,\n      sslNegotiation: 'postgres',\n      _ending: true,\n      _emitMessage: false,\n      _connecting: true,\n      Symbol(shapeMode): false,\n      Symbol(kCapture): false\n    },\n    _queryQueue: [],\n    binary: false,\n    processID: 1143,\n    secretKey: -597288835,\n    ssl: false,\n    sslNegotiation: 'postgres',\n    _connectionTimeoutMillis: 0,\n    _connectionCallback: null,\n    saslSession: null,\n    release: [Function (anonymous)],\n    readyForQuery: true,\n    hasExecuted: true,\n    _poolUseCount: 6,\n    Symbol(shapeMode): false,\n    Symbol(kCapture): false\n  }\n}\n(node:98028) ExperimentalWarning: Transform Types is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\nnode:internal/modules/cjs/loader:1459\n  throw err;\n  ^\n\nError: Cannot find module '/var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/pth-batch-DTwKQ5/does-not-exist.mjs'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1456:15)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1066:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1071:22)\n    at Module._load (node:internal/modules/cjs/loader:1242:25)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: []\n}\n\nNode.js v24.14.1\n(node:99331) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:99711) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:753) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:765) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:759) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:781) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:783) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:782) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:784) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:762) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:821) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1073) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1139) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1181) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1514) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1531) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:1919) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2085) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2115) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2222) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:2365) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
     "totals": {
       "files": 300,
       "tests": 2618,
-      "passed": 2607,
-      "failed": 2,
+      "passed": 2609,
+      "failed": 0,
       "skipped": 9
     }
   },
@@ -686,9 +686,8 @@
       "evidence": "g10-sabotage-sensitivity.test.ts：trust-policy-attestation-bypass（伪造 policy 在无 verifier 注入时可安装/有 verifier 被拒）、digest-binding-skip（naive evaluator 恒 ok 可晋升空绑定 candidate/真门禁拒绝）、stale-gate-skip（use-policy 恒 allow 时 unchanged 成功/deny 时 verdict=deny）全部 passed。lease/evidence 门禁是 SQL/纯代码不可注入——其敏感度由 L3 的 mutation 探针（临时移除门禁 → 7 断言翻红 → 恢复）取证"
     }
   ],
-  "decision": "NO-GO",
+  "decision": "EVALUATION-INCOMPLETE",
   "reasons": [
-    "fullRegression: exit=1",
     "realism G9-c release canary（真实 HTTPS 来源） (not-executed): 本轮用户裁决不做真实公网 canary（需 PTL Human Interface 的真实签发流程与获批出网通道）；按计划 §5 Task 7 Step 4 记 EVALUATION-INCOMPLETE，未放宽 matcher 或改用 direct-store 让它通过",
     "realism G8-b SIGKILL 重启恢复 (partial): g8-dual-process.test.ts::SIGKILL 恢复 = passed（handler 进行中 kill -9 → lease 过期 → 新进程回收完成，attempts=2、结果行唯一）。覆盖 outbox claim/处理/complete 故障模型；三个 intake 阶段级故障点的进程级注入未逐点执行，阶段不变量由 L1/L3 的 CAS + lease recovery 回归覆盖",
     "realism G10 敏感度（sabotage） (partial): g10-sabotage-sensitivity.test.ts：trust-policy-attestation-bypass（伪造 policy 在无 verifier 注入时可安装/有 verifier 被拒）、digest-binding-skip（naive evaluator 恒 ok 可晋升空绑定 candidate/真门禁拒绝）、stale-gate-skip（use-policy 恒 allow 时 unchanged 成功/deny 时 verdict=deny）全部 passed。lease/evidence 门禁是 SQL/纯代码不可注入——其敏感度由 L3 的 mutation 探针（临时移除门禁 → 7 断言翻红 → 恢复）取证"

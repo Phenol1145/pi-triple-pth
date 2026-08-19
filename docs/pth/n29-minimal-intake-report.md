@@ -1,8 +1,9 @@
 # N29 最小可信知识摄入内环验收报告（M0）——再次复核修复后权威版
 
 > 日期：2026-08-19
-> evaluated commit：`c49fbef63b1a1acfaf8fa2e6523ae47ba5d31c29`
-> 最终决定：**NO-GO**（唯一阻断：full regression 的环境依赖 LLM 用例；详见 §3/§4）
+> evaluated commit：`16abccb2ea2897873391e27cca9738d1bcbed9f6`
+> 最终决定：**EVALUATION-INCOMPLETE**（全部机械门禁 exit 0；仅剩 G9-c canary（用户裁决本轮不做）
+> 与 G8-b/G10 partial 三项 realism 原因；driver exit 2）
 > 决定来源：`scripts/accept-n29-minimal-intake.ts`（唯一终审权威）
 > 完整权威 envelope：`docs/pth/n29-minimal-intake-acceptance.json`
 > 上位复核：[n29-minimal-intake-reacceptance-feedback.md](./n29-minimal-intake-reacceptance-feedback.md)（独立处置 **NOT ACCEPTED / NO-GO**，由复核方持有，本报告不替其改判）
@@ -11,18 +12,18 @@
 
 第二轮复核的九项 P0 与三项 P1 **全部修复并有红→绿回归钉住**；29 个负向 sentinel 全部
 exact 覆盖（无 missing、无 failing）；focused 21 文件 355/355 零 skip；build、lint、
-N29/root/N28 三组 typecheck 全绿；G8 双 OS 进程与 SIGKILL、G9 受控 TLS 全组合、G10 sabotage
-敏感度已执行取证。
+N29/root/N28 三组 typecheck 全绿；**full regression 全绿**（300 文件 2609 passed + 9 冻结 skip，
+环境 LLM 用例使用 deepseek-v4-flash 通过）；G8 双 OS 进程与 SIGKILL、G9 受控 TLS 全组合、
+G10 sabotage 敏感度已执行取证。
 
-**唯一未关闭项**：full regression 中 `test/integration/engine-lifecycle.test.ts` 的两条
-真实 LLM 用例失败——根因是环境侧 LLM 供应商配额耗尽（deepseek 账户余额 -0.24 CNY，
-`is_available=false`；openrouter 免费层 50 次/日 429——均经直接 API 探针验证），
-与 N29 实现无关（同测试在无 N29 改动的 main 上同样失败；配额可用时隔离运行全绿）。
-按 driver 语义，已启动门禁非零退出 → **NO-GO**，不被环境不可用覆盖。
+未达到 `MIN_INNER_LOOP_GO` 的剩余原因只有三项 realism gate：G9-c 真实公网 canary（本轮用户
+裁决不执行，需要 PTL Human Interface 真实签发流程）、G8-b 阶段级三故障点逐点 SIGKILL 未做
+（outbox 级故障模型已取证）、G10 中 lease/evidence 两条不可注入门禁的 sabotage 未做
+（敏感度由 L3 mutation 探针取证）。
 
 `PTH_KNOWLEDGE_INTAKE_MODE` 生产安全值保持 **off**。
 
-## 1. 验收门禁（clean worktree，同 commit `c49fbef`）
+## 1. 验收门禁（clean worktree，同 commit `16abccb`）
 
 | 门禁 | 结果 |
 |---|---|
@@ -32,7 +33,7 @@ N29/root/N28 三组 typecheck 全绿；G8 双 OS 进程与 SIGKILL、G9 受控 T
 | `npx tsc -p tsconfig.n28.json --noEmit` | exit 0 |
 | `npm run lint` | exit 0（boundaries 0 / config 直读 0） |
 | `npm run build` | exit 0 |
-| `npm test`（full） | **exit 1**：2607 passed + 2 failed（engine-lifecycle 真实 LLM 用例）+ 9 冻结 skip |
+| `npm test`（full） | **exit 0**：300 文件 2609 passed + 0 failed + 9 冻结 skip（deepseek-v4-flash） |
 
 ## 2. 第二轮复核 P0/P1 修复对照
 
@@ -62,13 +63,12 @@ N29/root/N28 三组 typecheck 全绿；G8 双 OS 进程与 SIGKILL、G9 受控 T
 | G8-b SIGKILL 恢复 | **partial** | handler 进行中 kill -9 → lease 过期 → 新进程回收完成（attempts=2、结果行唯一）；三个 intake 阶段级故障点的逐点进程注入未执行，阶段不变量由 L1/L3 CAS + lease recovery 回归覆盖 |
 | G10 sabotage 敏感度 | **partial** | trust/digest/stale 三条可注入门禁的 sabotage 敏感度已证明（门移除即失守、基线拒绝）；lease/evidence 为 SQL/纯代码门禁，敏感度由 L3 mutation 探针取证（临时移除 → 7 断言翻红 → 恢复） |
 
-## 4. 环境阻断明细（唯一 NO-GO 来源）
+## 4. 环境说明（曾阻断、已恢复）
 
-- `deepseek`：`/user/balance` 返回 `{"is_available":false,"topped_up_balance":"-0.24"}`（欠费）。
-- `openrouter`：`/chat/completions` 返回 429 `free-models-per-day`（50/日已用尽；`gpt-oss-20b:free`
-  配额可用时 engine-lifecycle 8/8 全绿，多轮用例 66s——已把该用例超时从 60s 加固到 180s）。
-- `zai` / `minimax` 等 auth.json 内 provider 实测同样不可用。
-- 该失败在未含 N29 改动的 main 上同样复现；不是 N29 产品缺陷。
+- 本轮中段 `deepseek` 账户欠费（余额 -0.24 CNY）与 `openrouter` 免费层日配额耗尽曾导致
+  full regression 的两条真实 LLM 用例失败；用户续费 deepseek 后以 `deepseek-v4-flash`
+  重跑，full 全绿（2609 passed + 9 冻结 skip）。
+- 附加固：`engine-lifecycle` 多轮用例超时从 60s 提升到 180s（慢速 provider 下的 flake 加固）。
 
 ## 5. 正向分母（实测）
 
@@ -79,5 +79,6 @@ promotion=2、Broker+Context retrieval=4——全部 `ok=true`（envelope `posit
 
 This result validates the minimal single-source inner loop composition in a controlled environment;
 it does not validate source expansion, multi-domain breadth, autoscaling, or production default
-thresholds. The full-regression gate is currently blocked by LLM provider quota exhaustion in the
-test environment, not by N29 product code.
+thresholds. The release canary against a real human-approved public HTTPS source was not executed
+this round by user decision; the decision remains EVALUATION-INCOMPLETE until G9-c, G8-b stage-level
+fault injection, and the two non-injectable G10 sabotage gates are executed.
