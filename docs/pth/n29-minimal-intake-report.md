@@ -1,9 +1,9 @@
 # N29 最小可信知识摄入内环验收报告（M0）——再次复核修复后权威版
 
 > 日期：2026-08-19
-> evaluated commit：`16abccb2ea2897873391e27cca9738d1bcbed9f6`
-> 最终决定：**EVALUATION-INCOMPLETE**（全部机械门禁 exit 0；仅剩 G9-c canary（用户裁决本轮不做）
-> 与 G8-b/G10 partial 三项 realism 原因；driver exit 2）
+> evaluated commit：`d36891fa4620c4d8b553eb9277bc08a56b0acef2`
+> 最终决定：**EVALUATION-INCOMPLETE**（全部机械门禁 exit 0 + G9-c release canary satisfied；
+> 仅剩 G8-b 与 G10 两项 partial realism 原因；driver exit 2）
 > 决定来源：`scripts/accept-n29-minimal-intake.ts`（唯一终审权威）
 > 完整权威 envelope：`docs/pth/n29-minimal-intake-acceptance.json`
 > 上位复核：[n29-minimal-intake-reacceptance-feedback.md](./n29-minimal-intake-reacceptance-feedback.md)（独立处置 **NOT ACCEPTED / NO-GO**，由复核方持有，本报告不替其改判）
@@ -13,17 +13,21 @@
 第二轮复核的九项 P0 与三项 P1 **全部修复并有红→绿回归钉住**；29 个负向 sentinel 全部
 exact 覆盖（无 missing、无 failing）；focused 21 文件 355/355 零 skip；build、lint、
 N29/root/N28 三组 typecheck 全绿；**full regression 全绿**（300 文件 2609 passed + 9 冻结 skip，
-环境 LLM 用例使用 deepseek-v4-flash 通过）；G8 双 OS 进程与 SIGKILL、G9 受控 TLS 全组合、
-G10 sabotage 敏感度已执行取证。
+deepseek-v4-flash）；G8 双 OS 进程与 SIGKILL、G9 受控 TLS 全组合、G10 sabotage 敏感度已取证；
+**G9-c release canary 已完成**（真实公网来源 `https://gpe.wikipedia.org/wiki/Wikipedia`，
+人类批准的签名 Trust Policy，DoH 解析真实公网 IP 后 pin 连接，完整 initial fetch →
+quarantine → admitted → extract → 双 verdict → promotion → official，evidence locator/
+quoteHash/artifactHash 可回放）。
 
-未达到 `MIN_INNER_LOOP_GO` 的剩余原因只有三项 realism gate：G9-c 真实公网 canary（本轮用户
-裁决不执行，需要 PTL Human Interface 真实签发流程）、G8-b 阶段级三故障点逐点 SIGKILL 未做
-（outbox 级故障模型已取证）、G10 中 lease/evidence 两条不可注入门禁的 sabotage 未做
-（敏感度由 L3 mutation 探针取证）。
+未达到 `MIN_INNER_LOOP_GO` 的剩余原因只有两项 realism gate：
+- **G8-b（partial）**：outbox 级 kill -9 → lease 回收完成已取证；三个 intake 阶段级故障点的
+  逐点进程注入未执行（阶段不变量由 L1/L3 CAS + lease recovery 回归覆盖）。
+- **G10（partial）**：trust/digest/stale 三条可注入门禁的 sabotage 敏感度已证明；
+  lease/evidence 为 SQL/纯代码门禁，敏感度由 L3 mutation 探针取证（临时移除 → 7 断言翻红 → 恢复）。
 
 `PTH_KNOWLEDGE_INTAKE_MODE` 生产安全值保持 **off**。
 
-## 1. 验收门禁（clean worktree，同 commit `16abccb`）
+## 1. 验收门禁（clean worktree，同 commit `d36891f`）
 
 | 门禁 | 结果 |
 |---|---|
@@ -58,7 +62,7 @@ G10 sabotage 敏感度已执行取证。
 |---|---|---|
 | G9-a 受控 TLS（生产 transport） | **satisfied** | fetch-broker TLS 全链路用例 passed |
 | G9-b 受控 TLS 完整生产组合 | **satisfied** | minimal-loop-tls.integration：真实 TLS socket + 生产 transport 跑完 initial/unchanged(304)/changed(stale+supersede) |
-| G9-c release canary（真实公网来源） | **not-executed** | 本轮用户裁决不做真实公网 canary（需 PTL Human Interface 真实签发流程） |
+| G9-c release canary（真实公网来源） | **satisfied** | `n29-canary-evidence.json`：`https://gpe.wikipedia.org/wiki/Wikipedia`（人类批准签名 policy，CC BY-SA 4.0）经 DoH 真实公网 IP + SSRF pin + 生产 transport/ingestor/双 verdict/promotion 完成 initial → official；evidenceCount=1，locator/quoteHash/artifactHash 可回放；绑定 commit 为当前 HEAD 祖先 |
 | G8-a 双 OS 进程 drainer | **satisfied** | 两个独立 tsx 子进程并发消费同一 outbox，(tenant,key) 唯一约束证明恰好一次 |
 | G8-b SIGKILL 恢复 | **partial** | handler 进行中 kill -9 → lease 过期 → 新进程回收完成（attempts=2、结果行唯一）；三个 intake 阶段级故障点的逐点进程注入未执行，阶段不变量由 L1/L3 CAS + lease recovery 回归覆盖 |
 | G10 sabotage 敏感度 | **partial** | trust/digest/stale 三条可注入门禁的 sabotage 敏感度已证明（门移除即失守、基线拒绝）；lease/evidence 为 SQL/纯代码门禁，敏感度由 L3 mutation 探针取证（临时移除 → 7 断言翻红 → 恢复） |
@@ -69,6 +73,9 @@ G10 sabotage 敏感度已执行取证。
   full regression 的两条真实 LLM 用例失败；用户续费 deepseek 后以 `deepseek-v4-flash`
   重跑，full 全绿（2609 passed + 9 冻结 skip）。
 - 附加固：`engine-lifecycle` 多轮用例超时从 60s 提升到 180s（慢速 provider 下的 flake 加固）。
+- canary 网络说明：本机 DNS 是 fake-ip 代理段（198.18.0.0/15），被 P1-1 正确拒绝；
+  canary 用 DoH 解析真实公网 IP（DoH 端点被代理拦截时回退到 Wikimedia 任播候选，
+  每个候选仍经 SSRF 守卫校验），连接 pin 到已校验公网 IP。
 
 ## 5. 正向分母（实测）
 
