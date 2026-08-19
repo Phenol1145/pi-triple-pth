@@ -391,9 +391,10 @@ export function deriveNegativeSentinels(
     let failed = 0;
     for (const matcher of matchers) {
       const hits = assertions.filter((a) => a.file === matcher.file && matcher.pattern.test(a.fullName));
-      if (hits.length === 0) {
+      // P1-3 exact denominator：matcher 零命中、或命中但没有一条 passed，都按未覆盖计。
+      const passingHits = hits.filter((h) => h.status === "passed");
+      if (hits.length === 0 || passingHits.length === 0) {
         missing.push(`${matcher.file}::${String(matcher.pattern)}`);
-        continue;
       }
       for (const hit of hits) {
         if (hit.status === "passed") {
