@@ -549,7 +549,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const keyring = JSON.parse(await readFile(keyringPath, "utf8")) as TrustPolicyKeyring;
     const verifiedPolicy = await loadVerifiedTrustPolicy(manifest, keyring);
 
-    const intakeRepository = createKnowledgeIntakeRepository(pool);
+    const intakeRepository = createKnowledgeIntakeRepository(pool, {
+      // P0-3 approach A：未带运行时 attestation 的 policy 输入由仓库用只读 keyring 自行重新验签。
+      policyVerifier: (candidate) => loadVerifiedTrustPolicy(candidate, keyring),
+    });
     const intakeStore = dataWorld.memory as unknown as Parameters<typeof createKnowledgeIngestor>[0]["store"];
     const intakeLlm = createLlmFn({
       modelRouter,

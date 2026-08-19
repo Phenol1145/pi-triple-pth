@@ -202,6 +202,15 @@ export interface UsePolicyDecision extends PolicyDecisionRef {
   readonly reason: string;
 }
 
+/**
+ * 已验签 Trust Policy（人类签名 manifest + 双阶段 matcher）。
+ *
+ * ⚠️ 这是**结构**接口，本身不构成信任边界：满足该结构的普通对象随处可造。
+ * “已验证” 的唯一事实是运行时 attestation（`contracts/knowledge-intake-attestation.ts`
+ * 的 `POLICY_VERIFIED_BRAND`，故意不从本 barrel 导出）：只有
+ * `execution/knowledge-intake/trust-policy.ts` 的 `loadVerifiedTrustPolicy()` 会盖章，
+ * `KnowledgeIntakeRepository.installVerifiedPolicy()` 在写库前必须校验该 attestation。
+ */
 export interface VerifiedTrustPolicy {
   readonly manifest: TrustPolicyManifest;
   /** 已验签摘要（PG 审计镜像）；缺省取 manifest.digest。 */
@@ -219,6 +228,12 @@ export interface VerifiedTrustPolicy {
 // ─── §3.3 最小端口 ───────────────────────────────────────────────────
 
 export interface TrustPolicyLoader {
+  /**
+   * 返回**带运行时 attestation** 的已验签策略（`POLICY_VERIFIED_BRAND`，见
+   * `knowledge-intake-attestation.ts`）。实现必须真的验签（Ed25519 detached signature +
+   * canonical digest + human signer + 有效期），不得直接回传调用方给的结构对象；
+   * 结构拷贝（`{...policy}`、JSON round-trip）会丢失 attestation，持久化边界会拒绝。
+   */
   loadVerified(): Promise<VerifiedTrustPolicy>;
   authorizeFetch(input: FetchAuthorizationInput): FetchPolicyDecision;
   authorizeUse(input: UseAuthorizationInput): UsePolicyDecision;
@@ -513,6 +528,13 @@ export interface DueScanOptions {
 }
 
 export interface KnowledgeIntakeRepository {
+  /**
+   * 写入已验签 manifest 的 append-only 审计镜像。
+   *
+   * 实现必须在写事务之前校验运行时 attestation（`POLICY_VERIFIED_BRAND`）：
+   * 只有 `loadVerifiedTrustPolicy()` 签发的对象可被安装；同形普通对象、结构拷贝、
+   * service/worker principal 一律零行 fail closed。
+   */
   installVerifiedPolicy(input: VerifiedTrustPolicy): Promise<void>;
   createSubscription(input: CreateSubscriptionInput): Promise<SourceSubscription>;
   transitionSubscription(input: TransitionSubscriptionInput): Promise<SourceSubscription | null>;

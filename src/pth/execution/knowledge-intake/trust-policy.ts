@@ -8,9 +8,17 @@
  *  - authorizeFetch：deny-first；exact https origin/pathPrefix/tenant/space/redirectOrigins/
  *    sourceTypes/contentTypes/licenses/maxBytes；未命中 fail closed。
  *  - authorizeUse：在 fetch 之上追加 domains 与订阅/策略时效、撤销检查。
+ *  - **运行时 attestation（N29 再验收 P0-3）**：`loadVerifiedTrustPolicy()` 是唯一签发入口，
+ *    通过全部校验后用 `attestVerifiedTrustPolicy()` 盖 `POLICY_VERIFIED_BRAND`（Symbol + 模块私有
+ *    WeakMap），并 deep-freeze manifest 快照。持久化边界只信这个 attestation，不信同形普通对象。
  */
 
 import { createHash, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
+import {
+  attestVerifiedTrustPolicy,
+  type AttestedPolicy,
+  type VerifiedPolicyAttestation,
+} from "../../contracts/knowledge-intake-attestation.js";
 import {
   isTrustPolicyManifestStructurallyValid,
   type FetchAuthorizationInput,
@@ -305,6 +313,21 @@ export function authorizeUse(
 
 // ─── 加载并验证 ───────────────────────────────────────────────────────
 
+/** 递归冻结（只走普通对象/数组；manifest 已通过结构校验，全部是 JSON 值）。 */
+function deepFreeze<T>(value: T): T {
+  if (Array.isArray(value)) {
+    for (const item of value) deepFreeze(item);
+    return Object.freeze(value);
+  }
+  if (typeof value === "object" && value !== null) {
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      deepFreeze((value as Record<string, unknown>)[key]);
+    }
+    return Object.freeze(value);
+  }
+  return value;
+}
+
 function verifyDigest(manifest: TrustPolicyManifest): void {
   const expected = computePolicyDigest(manifest);
   const actualBuf = Buffer.from(manifest.digest, "utf8");
@@ -320,12 +343,17 @@ function verifyDigest(manifest: TrustPolicyManifest): void {
  * 只接受 approvalProof.method="signed-manifest"；approvedBy 必须为
  * {kind:"human", principalId, tenantId, issuer:"ptl-human-interface"}。
  * keyring 是 read-only JSON：stable human principal -> PEM public key。
+ *
+ * 返回值是**被运行时 attestation 盖章的对象**（`POLICY_VERIFIED_BRAND`，见
+ * `contracts/knowledge-intake-attestation.ts`）：这是 “已验证” 的唯一签发点。
+ * 结构拷贝（`{...policy}`、JSON round-trip）与手工构造的同形对象都拿不到 attestation，
+ * 因此 `PgKnowledgeIntakeRepository.installVerifiedPolicy()` 会拒绝它们。
  */
 export async function loadVerifiedTrustPolicy(
   manifest: TrustPolicyManifest,
   keyring: TrustPolicyKeyring,
   clock?: TrustPolicyClock,
-): Promise<VerifiedTrustPolicy> {
+): Promise<AttestedPolicy<VerifiedTrustPolicy>> {
   // 先于结构校验判断“人签”，保证 service/错 issuer 报 human signer 而不是泛化结构错误。
   const approvedByCandidate = (manifest as unknown as { approvedBy?: unknown }).approvedBy as Record<string, unknown> | undefined;
   if (
@@ -389,11 +417,37 @@ export async function loadVerifiedTrustPolicy(
     throw new Error("trust policy not yet valid");
   }
 
-  return Object.freeze({
-    manifest,
-    authorizeFetch: (input: FetchAuthorizationInput): FetchPolicyDecision =>
-      authorizeFetch(manifest, input, clock),
-    authorizeUse: (input: UseAuthorizationInput): UsePolicyDecision =>
-      authorizeUse(manifest, input, clock),
-  });
+  // 验签通过后固定一份 deep-frozen 快照：调用方之后再改自己的 manifest 也影响不到已验证策略
+  // （否则 attestation 的 digest 与实际 rules 可能悄悄脱钩）。
+  const attestedManifest = deepFreeze(structuredClone(manifest)) as TrustPolicyManifest;
+  const attestedApprovedBy = attestedManifest.approvedBy;
+  const attestation: VerifiedPolicyAttestation = {
+    tenantId: attestedManifest.tenantId,
+    policyId: attestedManifest.policyId,
+    policyVersion: attestedManifest.version,
+    digest: attestedManifest.digest,
+    signerKind: "human",
+    signerPrincipalId: attestedApprovedBy.principalId,
+    signerIssuer: attestedApprovedBy.issuer,
+    approvalMethod: attestedManifest.approvalProof.method,
+    approvalKeyId: attestedManifest.approvalProof.keyId,
+    verifiedAt: now.toISOString(),
+  };
+
+  return Object.freeze(
+    attestVerifiedTrustPolicy(
+      {
+        manifest: attestedManifest,
+        digest: attestedManifest.digest,
+        verifiedAt: attestation.verifiedAt,
+        verifiedBy: attestedApprovedBy,
+        installedBy: attestedApprovedBy.principalId,
+        authorizeFetch: (input: FetchAuthorizationInput): FetchPolicyDecision =>
+          authorizeFetch(attestedManifest, input, clock),
+        authorizeUse: (input: UseAuthorizationInput): UsePolicyDecision =>
+          authorizeUse(attestedManifest, input, clock),
+      } satisfies VerifiedTrustPolicy,
+      attestation,
+    ),
+  );
 }

@@ -16,14 +16,22 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign as edSign } from "node:crypto";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
 import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import {
   createKnowledgeIntakeRepository,
   KnowledgeIntakeConflictError,
+  KnowledgeIntakeValidationError,
 } from "../../src/pth/kernel/storage/knowledge-intake-pg.js";
+import {
+  canonicalPolicySigningBytes,
+  computePolicyDigest,
+  loadVerifiedTrustPolicy,
+} from "../../src/pth/execution/knowledge-intake/index.js";
+// P0-3 对抗测专用：直接使用内部 attestation 模块（故意不从 contracts barrel 导出）。
+import { attestVerifiedTrustPolicy } from "../../src/pth/contracts/knowledge-intake-attestation.js";
 import type {
   IntakeRunStage,
   IntakeRunStatus,
@@ -40,16 +48,19 @@ type SqlRow = Record<string, any>;
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-function buildManifest(tenantId: string, over: Partial<TrustPolicyManifest> = {}): TrustPolicyManifest {
-  const base: TrustPolicyManifest = {
+const SIGNER = "human:alice";
+
+/** 未签名的 manifest 正文（digest/signature 留空，由 `signManifest()` 用生产算法补齐）。 */
+function manifestBody(tenantId: string, over: Partial<TrustPolicyManifest> = {}): TrustPolicyManifest {
+  return {
     policyId: "policy-intake",
     version: "v1",
     tenantId,
     spaces: ["space-a"],
     validFrom: "2026-01-01T00:00:00.000Z",
-    validUntil: "2027-01-01T00:00:00.000Z",
-    approvedBy: { kind: "human", principalId: "human:alice", tenantId, issuer: "ptl-human-interface" },
-    approvalProof: { method: "signed-manifest", keyId: "key-1", signature: "sig-1" },
+    validUntil: "2099-01-01T00:00:00.000Z",
+    approvedBy: { kind: "human", principalId: SIGNER, tenantId, issuer: "ptl-human-interface" },
+    approvalProof: { method: "signed-manifest", keyId: SIGNER, signature: "" },
     rules: [
       {
         ruleId: "rule-1",
@@ -68,24 +79,93 @@ function buildManifest(tenantId: string, over: Partial<TrustPolicyManifest> = {}
     digest: "",
     ...over,
   };
-  return { ...base, digest: over.digest ?? sha(JSON.stringify({ ...base, digest: undefined })) };
 }
 
-function verifiedOf(manifest: TrustPolicyManifest): VerifiedTrustPolicy {
+/**
+ * 真实 Ed25519 detached signature + 生产 canonical digest。
+ *
+ * 全套件共用一对密钥（只暴露 public key）：Ed25519 签名对相同字节是确定性的，
+ * 因此“同 tenant 同策略正文”重复安装得到 **完全相同** 的 manifest → exact 重放幂等。
+ */
+let suiteKeypairCache: { publicKeyPem: string; privateKeyPem: string } | null = null;
+function suiteKeypair(): { publicKeyPem: string; privateKeyPem: string } {
+  if (!suiteKeypairCache) {
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    suiteKeypairCache = {
+      publicKeyPem: publicKey.export({ type: "spki", format: "pem" }).toString(),
+      privateKeyPem: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    };
+  }
+  return suiteKeypairCache;
+}
+
+function signManifest(body: TrustPolicyManifest): { manifest: TrustPolicyManifest; keyring: Record<string, string> } {
+  const { publicKeyPem, privateKeyPem } = suiteKeypair();
+  const digest = computePolicyDigest(body);
+  const signature = edSign(null, canonicalPolicySigningBytes(body), privateKeyPem).toString("base64");
+  return {
+    manifest: { ...body, digest, approvalProof: { ...body.approvalProof, signature } },
+    keyring: { [body.approvalProof.keyId]: publicKeyPem },
+  };
+}
+
+/** 唯一合法入口：经生产 verifier 产出带运行时 attestation 的 VerifiedTrustPolicy。 */
+function signedFor(
+  tenantId: string,
+  over: Partial<TrustPolicyManifest> = {},
+): { manifest: TrustPolicyManifest; keyring: Record<string, string> } {
+  return signManifest(manifestBody(tenantId, over));
+}
+
+async function realVerifiedPolicy(
+  tenantId: string,
+  over: Partial<TrustPolicyManifest> = {},
+): Promise<VerifiedTrustPolicy> {
+  const signed = signedFor(tenantId, over);
+  return await loadVerifiedTrustPolicy(signed.manifest, signed.keyring);
+}
+
+/**
+ * P0-3 对抗输入：与 `VerifiedTrustPolicy` 完全同形的普通对象（TypeScript 结构类型不是运行时 attestation）。
+ * 任何进程内调用者都能构造它——仓库必须在写事务之前拒绝。
+ */
+function forgedVerified(manifest: TrustPolicyManifest): VerifiedTrustPolicy {
   return {
     manifest,
     digest: manifest.digest,
     verifiedAt: "2026-08-19T00:00:00.000Z",
     verifiedBy: manifest.approvedBy,
-    installedBy: "human:alice",
-    // PG install 只消费 manifest 与审计字段；matcher 方法仅用于满足冻结合同的结构。
+    installedBy: SIGNER,
     authorizeFetch: () => {
-      throw new Error("authorizeFetch is not used by installVerifiedPolicy");
+      throw new Error("forged policy must never be consulted");
     },
     authorizeUse: () => {
-      throw new Error("authorizeUse is not used by installVerifiedPolicy");
+      throw new Error("forged policy must never be consulted");
     },
-  };
+  } as unknown as VerifiedTrustPolicy;
+}
+
+/**
+ * 更强的对抗输入：直接用内部 attestation 模块盖章（模拟“验签器被误用/被绕过语义校验”），
+ * 用来测仓库自己的纵深防御（human principal / issuer / attestation↔manifest 对账），
+ * 而不是只测品牌是否存在。`manifestOverride` 用于模拟“验签后换 manifest”。
+ */
+function handAttested(attestedManifest: TrustPolicyManifest, manifestOverride?: TrustPolicyManifest): VerifiedTrustPolicy {
+  const policy = forgedVerified(manifestOverride ?? attestedManifest) as {
+    manifest: TrustPolicyManifest;
+  } & VerifiedTrustPolicy;
+  return attestVerifiedTrustPolicy(policy, {
+    tenantId: attestedManifest.tenantId,
+    policyId: attestedManifest.policyId,
+    policyVersion: attestedManifest.version,
+    digest: attestedManifest.digest,
+    signerKind: "human",
+    signerPrincipalId: attestedManifest.approvedBy.principalId,
+    signerIssuer: attestedManifest.approvedBy.issuer,
+    approvalMethod: attestedManifest.approvalProof.method,
+    approvalKeyId: attestedManifest.approvalProof.keyId,
+    verifiedAt: "2026-08-19T00:00:00.000Z",
+  });
 }
 
 describe("knowledge intake PG 真相源（N29 Task 3）", () => {
@@ -111,9 +191,9 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
   const nextTenant = (label: string): string => `t-${label}-${++seq}`;
 
   async function installPolicy(tenantId: string): Promise<TrustPolicyManifest> {
-    const manifest = buildManifest(tenantId);
-    await repo.installVerifiedPolicy(verifiedOf(manifest));
-    return manifest;
+    const policy = await realVerifiedPolicy(tenantId);
+    await repo.installVerifiedPolicy(policy);
+    return policy.manifest;
   }
 
   async function seedSubscription(
@@ -254,8 +334,11 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
 
   it("installVerifiedPolicy：exact 重放幂等；manifest 正文不可 UPDATE", async () => {
     const tenantId = nextTenant("policy");
-    const manifest = await installPolicy(tenantId);
-    await repo.installVerifiedPolicy(verifiedOf(manifest));
+    const signed = signedFor(tenantId);
+    const manifest = signed.manifest;
+    await repo.installVerifiedPolicy(await loadVerifiedTrustPolicy(manifest, signed.keyring));
+    // exact 重放：同 manifest 再验一次（新的 attestation）→ 幂等，仍然只有一行。
+    await repo.installVerifiedPolicy(await loadVerifiedTrustPolicy(manifest, signed.keyring));
     const rows = await pool.query<SqlRow>(`SELECT * FROM knowledge_trust_policies WHERE tenant_id = $1`, [tenantId]);
     expect(rows.rowCount).toBe(1);
     expect(rows.rows[0].policy_digest).toBe(manifest.digest);
@@ -272,11 +355,159 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
   it("installVerifiedPolicy：同 policyId/version 不同 digest 显式 conflict（DB 行不得替换策略）", async () => {
     const tenantId = nextTenant("policy-conflict");
     const manifest = await installPolicy(tenantId);
-    const tampered = buildManifest(tenantId, { digest: sha("other-digest") });
-    await expect(repo.installVerifiedPolicy(verifiedOf(tampered))).rejects.toThrow(KnowledgeIntakeConflictError);
+    // 同 policyId@version、真实签名、但正文不同（maxBytes 变化）→ digest 不同 → 显式 conflict。
+    const other = await realVerifiedPolicy(tenantId, {
+      rules: [{ ...manifestBody(tenantId).rules[0]!, maxBytes: 2_000_000 }],
+    });
+    expect(other.manifest.digest).not.toBe(manifest.digest);
+    await expect(repo.installVerifiedPolicy(other)).rejects.toThrow(KnowledgeIntakeConflictError);
     const rows = await pool.query<SqlRow>(`SELECT policy_digest FROM knowledge_trust_policies WHERE tenant_id = $1`, [tenantId]);
     expect(rows.rowCount).toBe(1);
     expect(rows.rows[0].policy_digest).toBe(manifest.digest);
+  });
+
+  // -------------------------------------------- P0-3：verified 边界必须是运行时 attestation
+
+  async function countPolicies(tenantId: string): Promise<number> {
+    const rows = await pool.query<SqlRow>(
+      `SELECT count(*)::int AS n FROM knowledge_trust_policies WHERE tenant_id = $1`,
+      [tenantId],
+    );
+    return rows.rows[0].n as number;
+  }
+
+  it("P0-3：结构同形但伪造 signature/digest 的 VerifiedTrustPolicy 安装为零行", async () => {
+    const tenantId = nextTenant("policy-forged");
+    const body = manifestBody(tenantId);
+    const forged: TrustPolicyManifest = {
+      ...body,
+      digest: sha("forged-digest"),
+      approvalProof: { ...body.approvalProof, signature: "definitely-not-valid" },
+    };
+    await expect(repo.installVerifiedPolicy(forgedVerified(forged))).rejects.toThrow(KnowledgeIntakeValidationError);
+    await expect(repo.installVerifiedPolicy(forgedVerified(forged))).rejects.toThrow(/not verified|loadVerifiedTrustPolicy/);
+    expect(await countPolicies(tenantId)).toBe(0);
+  });
+
+  it("P0-3：真实 verifier 产出的 policy 安装成功，其结构拷贝（丢失 attestation）被拒", async () => {
+    const tenantId = nextTenant("policy-attested");
+    const policy = await realVerifiedPolicy(tenantId);
+    await repo.installVerifiedPolicy(policy);
+    expect(await countPolicies(tenantId)).toBe(1);
+
+    // spread 拷贝保留全部结构字段，但不再是被签发的那个对象 → 必须拒绝。
+    const copy = { ...policy } as VerifiedTrustPolicy;
+    await expect(repo.installVerifiedPolicy(copy)).rejects.toThrow(KnowledgeIntakeValidationError);
+    expect(await countPolicies(tenantId)).toBe(1);
+  });
+
+  it("P0-3：service 签名的 policy（principal kind != human）安装为零行", async () => {
+    const tenantId = nextTenant("policy-service-signer");
+    const body = manifestBody(tenantId, {
+      approvedBy: {
+        kind: "service" as unknown as TrustPolicyManifest["approvedBy"]["kind"],
+        principalId: SIGNER,
+        tenantId,
+        issuer: "ptl-human-interface",
+      },
+    });
+    const signed = signManifest(body);
+    // ① 生产 verifier 直接拒签（human signer 边界）。
+    await expect(loadVerifiedTrustPolicy(signed.manifest, signed.keyring)).rejects.toThrow(/human signer/);
+    // ② 绕开 verifier 直接调仓库同样零行。
+    await expect(repo.installVerifiedPolicy(forgedVerified(signed.manifest))).rejects.toThrow(
+      KnowledgeIntakeValidationError,
+    );
+    expect(await countPolicies(tenantId)).toBe(0);
+  });
+
+  it("P0-3：即使手工盖 attestation，service principal/错 issuer 仍被仓库拒（纵深防御）", async () => {
+    const serviceTenant = nextTenant("policy-attested-service");
+    const serviceBody = manifestBody(serviceTenant, {
+      approvedBy: {
+        kind: "service" as unknown as TrustPolicyManifest["approvedBy"]["kind"],
+        principalId: SIGNER,
+        tenantId: serviceTenant,
+        issuer: "ptl-human-interface",
+      },
+    });
+    await expect(repo.installVerifiedPolicy(handAttested(signManifest(serviceBody).manifest))).rejects.toThrow(
+      /human principal/,
+    );
+    expect(await countPolicies(serviceTenant)).toBe(0);
+
+    const issuerTenant = nextTenant("policy-attested-issuer");
+    const issuerBody = manifestBody(issuerTenant, {
+      approvedBy: {
+        kind: "human",
+        principalId: SIGNER,
+        tenantId: issuerTenant,
+        issuer: "ptl-platform-service" as unknown as TrustPolicyManifest["approvedBy"]["issuer"],
+      },
+    });
+    await expect(repo.installVerifiedPolicy(handAttested(signManifest(issuerBody).manifest))).rejects.toThrow(
+      /ptl-human-interface/,
+    );
+    expect(await countPolicies(issuerTenant)).toBe(0);
+  });
+
+  it("P0-3：attestation 与 manifest 身份不一致（验签后换 manifest）安装为零行", async () => {
+    const tenantId = nextTenant("policy-attest-swap");
+    const honest = signManifest(manifestBody(tenantId)).manifest;
+    const swapped = signManifest(manifestBody(tenantId, { policyId: "policy-swapped" })).manifest;
+    // attestation 记的是 honest 的身份，manifest 却换成了 swapped → 必须拒绝。
+    const spliced = handAttested(honest, swapped);
+    await expect(repo.installVerifiedPolicy(spliced)).rejects.toThrow(/attestation 与 manifest 不一致/);
+    expect(await countPolicies(tenantId)).toBe(0);
+  });
+
+  it("P0-3（approach A）：注入 verifier 的仓库自行验签 raw manifest；伪签名仍零行", async () => {
+    const tenantId = nextTenant("policy-injected-verifier");
+    const signed = signedFor(tenantId);
+    const verifyingRepo = createKnowledgeIntakeRepository(pool, {
+      leaseTtlMs: 60_000,
+      policyVerifier: (candidate) => loadVerifiedTrustPolicy(candidate, signed.keyring),
+    });
+
+    // 未盖章的同形对象：仓库用注入 verifier 重新验签 → 真签名通过。
+    await verifyingRepo.installVerifiedPolicy(forgedVerified(signed.manifest));
+    expect(await countPolicies(tenantId)).toBe(1);
+
+    // 伪造 signature 的同形对象：重新验签失败 → 零新行。
+    const forgedTenant = nextTenant("policy-injected-forged");
+    const forgedSigned = signedFor(forgedTenant);
+    const forged: TrustPolicyManifest = {
+      ...forgedSigned.manifest,
+      approvalProof: { ...forgedSigned.manifest.approvalProof, signature: "definitely-not-valid" },
+    };
+    const forgingRepo = createKnowledgeIntakeRepository(pool, {
+      leaseTtlMs: 60_000,
+      policyVerifier: (candidate) => loadVerifiedTrustPolicy(candidate, forgedSigned.keyring),
+    });
+    await expect(forgingRepo.installVerifiedPolicy(forgedVerified(forged))).rejects.toThrow(
+      KnowledgeIntakeValidationError,
+    );
+    await expect(forgingRepo.installVerifiedPolicy(forgedVerified(forged))).rejects.toThrow(/not verified/);
+    expect(await countPolicies(forgedTenant)).toBe(0);
+  });
+
+  it("P0-3（approach A）：注入 verifier 后连手工盖章的伪造 policy 也会被重新验签拒绝", async () => {
+    const tenantId = nextTenant("policy-restamped-forgery");
+    const honest = signedFor(tenantId);
+    // 品牌齐全（手工盖章）+ 结构完整的 human manifest，但 signature 是伪造的：
+    // 生产装配（注入 verifier）会无条件重新验签 → 密码学上拒绝。
+    const forgedManifest: TrustPolicyManifest = {
+      ...honest.manifest,
+      approvalProof: { ...honest.manifest.approvalProof, signature: "definitely-not-valid" },
+    };
+    const verifyingRepo = createKnowledgeIntakeRepository(pool, {
+      leaseTtlMs: 60_000,
+      policyVerifier: (candidate) => loadVerifiedTrustPolicy(candidate, honest.keyring),
+    });
+    await expect(verifyingRepo.installVerifiedPolicy(handAttested(forgedManifest))).rejects.toThrow(
+      KnowledgeIntakeValidationError,
+    );
+    expect(await countPolicies(tenantId)).toBe(0);
   });
 
   // ---------------------------------------------------------------- subscription
