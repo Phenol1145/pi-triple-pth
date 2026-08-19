@@ -278,7 +278,7 @@ describe("N29 L7 唯一 envelope 判定", () => {
 });
 
 describe("N29 L7 真实性门禁派生", () => {
-  it("TLS 用例通过 → partial（只覆盖 fetch/admission 层）；缺失 → not-executed", () => {
+  it("TLS 用例通过 → satisfied；缺失 → not-executed；G8/G9-b/G10 按取证升级，canary 恒 not-executed", () => {
     const withTls = deriveRealismGates(
       collectVitestAssertions(
         report([
@@ -286,17 +286,39 @@ describe("N29 L7 真实性门禁派生", () => {
             file: "test/pth-knowledge-intake/fetch-broker.test.ts",
             tests: [{ title: "defaultWebRequest 走真实 TLS：redirect/hash/条件请求全链路", status: "passed" }],
           },
+          {
+            file: "test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts",
+            tests: [{ title: "initial crawl 经真实 TLS → official；unchanged 304 重爬；changed 重爬 stale+supersede", status: "passed" }],
+          },
+          {
+            file: "test/pth-knowledge-intake/g8-dual-process.test.ts",
+            tests: [
+              { title: "dual OS-process drainers：同一 outbox 两行并发消费，恰好各处理一次", status: "passed" },
+              { title: "SIGKILL 恢复：handler 中途强杀 → lease 过期 → 新进程回收并完成，恰好一次", status: "passed" },
+            ],
+          },
+          {
+            file: "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+            tests: [
+              { title: "trust-policy-attestation-bypass：仓库未注入 verifier 时…", status: "passed" },
+              { title: "digest-binding-skip：naive evaluator…", status: "passed" },
+              { title: "stale-gate-skip（use-policy 恒 allow）…", status: "passed" },
+            ],
+          },
         ]),
         REPO_ROOT,
       ),
     );
-    const tlsGate = withTls.find((g) => g.gate.startsWith("G9-a"))!;
-    expect(tlsGate.status).toBe("partial");
+    expect(withTls.find((g) => g.gate.startsWith("G9-a"))!.status).toBe("satisfied");
+    expect(withTls.find((g) => g.gate.startsWith("G9-b"))!.status).toBe("satisfied");
+    expect(withTls.find((g) => g.gate.startsWith("G8-a"))!.status).toBe("satisfied");
+    expect(withTls.find((g) => g.gate.startsWith("G8-b"))!.status).toBe("partial");
+    expect(withTls.find((g) => g.gate.startsWith("G10"))!.status).toBe("partial");
+    // canary 恒 not-executed（用户裁决：本轮不做真实公网 canary）。
+    expect(withTls.find((g) => g.gate.startsWith("G9-c"))!.status).toBe("not-executed");
 
     const withoutTls = deriveRealismGates([] as VitestAssertion[]);
     expect(withoutTls.find((g) => g.gate.startsWith("G9-a"))!.status).toBe("not-executed");
-    // release canary / 双 OS 进程 / SIGKILL / G10 一律显式 not-executed
-    expect(withoutTls.filter((g) => g.status === "not-executed").length).toBeGreaterThanOrEqual(5);
     expect(withoutTls.every((g) => g.status !== "satisfied")).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPrivateIpLiteral } from "../../src/pth/impls/kernels/web-transport";
+import { isPrivateIpLiteral } from "../../src/pth/impls/kernels/web-transport.js";
 
 describe("N29 再验收 P1-1：isPrivateIpLiteral 特殊地址分类", () => {
   it("IPv4 私网/环回/链路本地/CGNAT 拒绝", () => {

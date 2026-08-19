@@ -87,6 +87,10 @@ export const N29_FOCUSED_INTAKE_TESTS = [
   "test/pth-knowledge-intake/knowledge-ingestor.test.ts",
   "test/pth-knowledge-intake/minimal-loop.integration.test.ts",
   "test/pth-runner/intake-processors.test.ts",
+  // 再验收 L6/L7：G10 sabotage 敏感度、G8 双进程/SIGKILL、G9 受控 TLS 全组合。
+  "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+  "test/pth-knowledge-intake/g8-dual-process.test.ts",
+  "test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts",
 ] as const;
 
 /** L1 前置修复与消费面：负向 sentinel 的取证来源。 */
