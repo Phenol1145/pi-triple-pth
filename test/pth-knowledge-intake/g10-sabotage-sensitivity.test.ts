@@ -147,10 +147,10 @@ describe("N29 再验收 G10：sabotage 敏感度（真实生产注入缝）", ()
       content: "sabotage candidate",
       status: "draft",
       meta: { provenance: { sourceTaskId: "t", producerRole: "producer", producerModel: "m", sourceRefs: ["r"], contentHash: createHash("sha256").update("sabotage candidate").digest("hex"), createdAt: 1 }, version: 1, evidence: [] },
-    }, { tenantId: TENANT });
+    });
 
     // sabotage：evaluator 恒 ok → 空绑定 candidate 直接晋升（门被移除）。
-    const sabotaged = await store.promoteOfficial(id, TENANT, 1, { promotedBy: "promoter" }, { evaluate: () => ({ ok: true as const }) });
+    const sabotaged = await store.promoteOfficial(id, TENANT, 1, { promotedBy: "promoter", promotedAt: 1 }, { evaluate: () => ({ ok: true as const }) });
     expect(sabotaged.ok).toBe(true);
     expect((await store.get(id, { tenantId: TENANT }))?.status).toBe("official");
 
@@ -164,8 +164,8 @@ describe("N29 再验收 G10：sabotage 敏感度（真实生产注入缝）", ()
       content: "baseline candidate",
       status: "draft",
       meta: { provenance: { sourceTaskId: "t", producerRole: "producer", producerModel: "m", sourceRefs: ["r"], contentHash: createHash("sha256").update("baseline candidate").digest("hex"), createdAt: 1 }, version: 1, evidence: [] },
-    }, { tenantId: TENANT });
-    await expect(store.promoteOfficial(id2, TENANT, 1, { promotedBy: "promoter" })).rejects.toThrow(/evaluator required/);
+    });
+    await expect(store.promoteOfficial(id2, TENANT, 1, { promotedBy: "promoter", promotedAt: 1 })).rejects.toThrow(/evaluator required/);
   });
 
   it("stale-gate-skip（use-policy 恒 allow）：unchanged 内容在 deny 策略下 verdict=deny（门在）；换恒 allow 策略后 verdict=reuse-unchanged（门被移除，unchangedUsePolicyDeny 翻红）", async () => {

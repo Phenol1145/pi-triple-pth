@@ -194,6 +194,10 @@ export function deriveRealismGates(assertions: readonly VitestAssertion[]): Real
     "test/pth-knowledge-intake/fetch-broker.test.ts",
     /defaultWebRequest 走真实 TLS/,
   );
+  const tlsFullLoop = passedTitle(
+    "test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts",
+    /initial crawl 经真实 TLS/,
+  );
   const dualScannerInProcess = passedTitle(
     "test/pth-knowledge-intake/knowledge-intake-pg.test.ts",
     /双 scanner 并发/,
@@ -202,49 +206,77 @@ export function deriveRealismGates(assertions: readonly VitestAssertion[]): Real
     "test/pth-tasking/side-effect-outbox.test.ts",
     /two concurrent drainers never claim the same row/,
   );
+  const dualOsDrainer = passedTitle(
+    "test/pth-knowledge-intake/g8-dual-process.test.ts",
+    /dual OS-process drainers/,
+  );
+  const sigkillRecovery = passedTitle(
+    "test/pth-knowledge-intake/g8-dual-process.test.ts",
+    /SIGKILL 恢复/,
+  );
   const leaseRecovery = passedTitle(
     "test/pth-knowledge-intake/knowledge-intake-pg.test.ts",
     /lease 过期可由新 claim 回收/,
+  );
+  const sabotageTrust = passedTitle(
+    "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+    /trust-policy-attestation-bypass/,
+  );
+  const sabotageDigest = passedTitle(
+    "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+    /digest-binding-skip/,
+  );
+  const sabotageStale = passedTitle(
+    "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+    /stale-gate-skip/,
   );
 
   return [
     {
       gate: "G9-a 受控 TLS 来源（生产 transport）",
       requirement: "生产 transport（defaultWebRequest）经真实 TLS socket 完成抓取/重定向/条件请求",
-      status: tlsTransport ? "partial" : "not-executed",
+      status: tlsTransport ? "satisfied" : "not-executed",
       evidence: tlsTransport
-        ? "test/pth-knowledge-intake/fetch-broker.test.ts::defaultWebRequest 走真实 TLS：redirect/hash/条件请求全链路 = passed（仅覆盖 fetch/admission 层；最小内环集成套件仍替换 HTTP transport 缝）"
+        ? "test/pth-knowledge-intake/fetch-broker.test.ts::defaultWebRequest 走真实 TLS：redirect/hash/条件请求全链路 = passed"
         : "未在本次 focused 报告中观察到 TLS 用例通过（openssl 缺失会使该用例被 runIf 跳过）",
     },
     {
       gate: "G9-b 受控 TLS 来源跑完整生产组合",
       requirement: "minimal-loop 全链路（scanner→fetch→admit→extract→verify→promote→Broker）跑在受控 TLS server 上",
-      status: "not-executed",
-      evidence: "minimal-loop.integration.test.ts 仍替换 WebRequest 与 LlmFn 两条外部缝；TLS 全链路组合未在本 lane 实现",
+      status: tlsFullLoop ? "satisfied" : "not-executed",
+      evidence: tlsFullLoop
+        ? "minimal-loop-tls.integration.test.ts::initial crawl 经真实 TLS → official；unchanged 304 重爬；changed 重爬 stale+supersede = passed（真实 TLS socket + 生产 transport + 全内环组件；仅 LlmFn 后端替换）"
+        : "TLS 全链路组合未在本次 focused 报告中观察到（openssl 缺失会使该套件被 runIf 跳过）",
     },
     {
       gate: "G9-c release canary（真实 HTTPS 来源）",
       requirement: "对一个人类策略已批准的真实公网 HTTPS 来源完成 initial fetch → official 并回放 evidence",
       status: "not-executed",
-      evidence: "本验收环境没有针对真实公网来源的人类签名 Trust Policy，也没有获批的出网通道；按计划 §5 Task 7 Step 4 记 EVALUATION-INCOMPLETE，未放宽 matcher 或改用 direct-store 让它通过",
+      evidence: "本轮用户裁决不做真实公网 canary（需 PTL Human Interface 的真实签发流程与获批出网通道）；按计划 §5 Task 7 Step 4 记 EVALUATION-INCOMPLETE，未放宽 matcher 或改用 direct-store 让它通过",
     },
     {
       gate: "G8-a 双 OS 进程 drainer",
       requirement: "两个独立操作系统进程同时 drain 同一 PG outbox，无重复晋升",
-      status: "not-executed",
-      evidence: `同进程双 drainer / 双 scanner 竞争已取证（dualDrainer=${String(dualDrainerInProcess)}, dualScanner=${String(dualScannerInProcess)}），但两个独立 OS 进程的组合未执行`,
+      status: dualOsDrainer ? "satisfied" : "not-executed",
+      evidence: dualOsDrainer
+        ? "g8-dual-process.test.ts::dual OS-process drainers = passed（两个独立 tsx 子进程并发消费同一 outbox，(tenant,key) 唯一约束 + 处理计数证明恰好一次）"
+        : `未观察到双 OS 进程用例；同进程证据：dualDrainer=${String(dualDrainerInProcess)}, dualScanner=${String(dualScannerInProcess)}`,
     },
     {
       gate: "G8-b SIGKILL 重启恢复",
       requirement: "在 artifact 写入前 / aggregate+outbox commit 后 / handler 写结果后三个故障点 SIGKILL 真实子进程并由新进程读 PG 恢复",
-      status: "not-executed",
-      evidence: `进程内 lease 过期回收与 outbox 重放已取证（leaseRecovery=${String(leaseRecovery)}），但真实 SIGKILL/重启故障注入未执行`,
+      status: sigkillRecovery ? "partial" : "not-executed",
+      evidence: sigkillRecovery
+        ? "g8-dual-process.test.ts::SIGKILL 恢复 = passed（handler 进行中 kill -9 → lease 过期 → 新进程回收完成，attempts=2、结果行唯一）。覆盖 outbox claim/处理/complete 故障模型；三个 intake 阶段级故障点的进程级注入未逐点执行，阶段不变量由 L1/L3 的 CAS + lease recovery 回归覆盖"
+        : `未观察到 SIGKILL 用例；进程内 lease 回收证据 leaseRecovery=${String(leaseRecovery)}`,
     },
     {
       gate: "G10 敏感度（sabotage）",
       requirement: "移除 trust/evidence/digest/lease/stale 任一门禁后至少一个 sentinel 必须翻红",
-      status: "not-executed",
-      evidence: "本 lane 未实现 sabotage 注入 harness（N28 的 six-sabotage 等价物），因此 sentinel 的敏感度未被证明",
+      status: sabotageTrust && sabotageDigest && sabotageStale ? "partial" : "not-executed",
+      evidence: sabotageTrust && sabotageDigest && sabotageStale
+        ? "g10-sabotage-sensitivity.test.ts：trust-policy-attestation-bypass（伪造 policy 在无 verifier 注入时可安装/有 verifier 被拒）、digest-binding-skip（naive evaluator 恒 ok 可晋升空绑定 candidate/真门禁拒绝）、stale-gate-skip（use-policy 恒 allow 时 unchanged 成功/deny 时 verdict=deny）全部 passed。lease/evidence 门禁是 SQL/纯代码不可注入——其敏感度由 L3 的 mutation 探针（临时移除门禁 → 7 断言翻红 → 恢复）取证"
+        : "sabotage 敏感度用例未全部通过",
     },
   ];
 }
