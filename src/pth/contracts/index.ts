@@ -16,3 +16,4 @@ export * from "./cognitive-responsibility.js";
 export * from "./knowledge-intake.js";
 export * from "./runtime-observation.js";
 export * from "./work-mode.js";
+export * from "./professional-computing.js";
