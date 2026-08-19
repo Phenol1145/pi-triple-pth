@@ -389,6 +389,13 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_generation BIGINT NOT NULL DEFA
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_tasks_active_lease ON tasks(tenant_id, lease_id, lease_generation) WHERE status='claimed';
 
+-- M0（2026-08-19）：Work Mode 服务端盖章。gateway/user 发布恒 run；trusted 系统模板发布
+-- 可显式写 optimize/intake；DB 默认 run 并约束三值，旧行自动回填 run。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS work_mode TEXT NOT NULL DEFAULT 'run';
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_work_mode_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_work_mode_check
+  CHECK (work_mode IN ('intake','optimize','run'));
+
 ${MEMORY_SCHEMA_SQL}
 
 -- 死表标注（2026-08-14 A2 探查 0.5）：lab_events/credit_tx 为 archive/agent-lab 遗留——

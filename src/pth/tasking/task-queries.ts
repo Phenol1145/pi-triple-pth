@@ -25,7 +25,7 @@ export class PgTaskQueries implements TaskReadModel {
     const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
     params.push(limit);
     const res = await this.pool.query(
-      `SELECT id, tenant_id, title, text, tags, payload, assigned_role
+      `SELECT id, tenant_id, title, text, tags, payload, assigned_role, work_mode
        FROM tasks WHERE ${conds.join(" AND ")}
        ORDER BY created_at LIMIT $${params.length}`,
       params,
@@ -35,7 +35,7 @@ export class PgTaskQueries implements TaskReadModel {
 
   async get(taskId: string, scope: TenantScope): Promise<TaskWorkItem | null> {
     const res = await this.pool.query(
-      `SELECT id, tenant_id, title, text, tags, payload, assigned_role
+      `SELECT id, tenant_id, title, text, tags, payload, assigned_role, work_mode
        FROM tasks WHERE id = $1 AND tenant_id = $2`,
       [taskId, scope.tenantId],
     );

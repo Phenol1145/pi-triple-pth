@@ -7,6 +7,7 @@ import {
   encodeResultForPayload,
   TASK_MAX_CLAIMS,
 } from "../../contracts/tasking.js";
+import { isWorkMode, type WorkMode } from "../../contracts/work-mode.js";
 /** 路由策略注入（2026-08-13 审计 P2——存储层不再依赖执行层：
  *  校验/分配由装配层（assembly/batch-process）传入——task-store 只存不判） */
 export interface TaskRouting {
@@ -46,6 +47,8 @@ export interface Task {
   leaseId?: string | null;
   leaseGeneration?: number;
   leaseExpiresAt?: Date | null;
+  /** M0：tasks.work_mode（服务端盖章；legacy 行缺省 'run'）。 */
+  workMode: WorkMode;
 }
 
 export interface PublishInput {
@@ -73,6 +76,8 @@ export interface PublishInput {
   deliveryMode?: "entry" | "delegate";
   /** 仅 deliveryMode="delegate" 有效：服务端强制路由目标（body 不可自报） */
   delegateTarget?: string;
+  /** M0：仅 trusted code-owned 发布可显式指定；gateway/user 发布由 TaskControlService 强制 run。 */
+  workMode?: WorkMode;
 }
 
 export interface TaskStore {
@@ -170,11 +175,17 @@ export class PgTaskStore implements TaskStore {
       };
     }
     const tenantId = typeof input.tenantId === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(input.tenantId) ? input.tenantId : "default";
+    const workMode = input.workMode ?? "run";
+    if (!isWorkMode(workMode)) {
+      const err = new Error(`unknown work mode: ${String(workMode)}`) as Error & { statusCode?: number };
+      err.statusCode = 400;
+      throw err;
+    }
     const res = await this.pool.query(
-      `INSERT INTO tasks (id, tenant_id, title, text, created_by, tags, payload, template_id, assigned_role, job_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, tags, payload, template_id, assigned_role, job_id, work_mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [id, tenantId, input.title, input.text, input.createdBy, input.tags ?? [], payload, input.templateId ?? null, assignedRole, input.jobId ?? null],
+      [id, tenantId, input.title, input.text, input.createdBy, input.tags ?? [], payload, input.templateId ?? null, assignedRole, input.jobId ?? null, workMode],
     );
     return mapRow(res.rows[0]);
   }
@@ -327,5 +338,6 @@ function mapRow(row: any): Task {
     leaseId: row.lease_id ?? null,
     leaseGeneration: Number(row.lease_generation ?? 0),
     leaseExpiresAt: row.lease_expires_at != null ? new Date(row.lease_expires_at) : null,
+    workMode: isWorkMode(row.work_mode) ? row.work_mode : "run",
   };
 }

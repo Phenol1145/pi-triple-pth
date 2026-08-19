@@ -340,6 +340,7 @@ export class TriggerEngine {
     let text: string;
     let tags: string[];
     let role: string | undefined;
+    let workMode: import("../../contracts/index.js").WorkMode | undefined;
     let payload: Record<string, unknown> = {};
 
     if (taskDef.template) {
@@ -362,6 +363,7 @@ export class TriggerEngine {
       text = r.text;
       tags = r.tags;
       role = r.role;
+      workMode = r.workMode;
       payload = r.payload;
     } else {
       // 内联兼容逃生舱（旧 memory kind='trigger' 定义继续可用）
@@ -378,6 +380,7 @@ export class TriggerEngine {
       // 任务池纯化（D5）：无默认标签——trigger 任务必须自带路由依据（role 或合法角色标签），
       // 注册期已校验；publish 校验失败（如角色后续被移除）会进 catch 记日志，不炸引擎
       tags,
+      ...(workMode ? { workMode } : {}),
       payload: {
         ...(role ? { flow: { stages: [{ task: { role } }] } } : {}),
         ...payload,

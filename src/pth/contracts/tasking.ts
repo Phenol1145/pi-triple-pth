@@ -19,6 +19,7 @@ import {
   type DomainBinding,
   type DomainId,
 } from "./domains.js";
+import { isWorkMode, type WorkMode } from "./work-mode.js";
 
 export interface TaskLeaseReference {
   readonly taskId: string;
@@ -50,6 +51,8 @@ export interface TaskWorkItem {
   readonly domains: readonly DomainId[];
   /** 解析证据（机读盖章；服务器 resolver 产物） */
   readonly domainBinding?: DomainBinding;
+  /** M0：服务端盖章的 Work Mode（tasks.work_mode）；reader 恒 stamp，legacy 缺省为 run。 */
+  readonly workMode?: WorkMode;
 }
 
 export interface ArtifactRef {
@@ -351,7 +354,8 @@ export function isTaskWorkItemStructurallyValid(v: unknown): v is TaskWorkItem {
     NON_EMPTY_STRING(w.assignedRole) &&
     domainsOk &&
     (w.domainBinding === undefined ||
-      (domainsOk && validateDomainBinding(w.domainBinding as DomainBinding, new Set(w.domains as readonly string[])).ok))
+      (domainsOk && validateDomainBinding(w.domainBinding as DomainBinding, new Set(w.domains as readonly string[])).ok)) &&
+    (w.workMode === undefined || isWorkMode(w.workMode))
   );
 }
 

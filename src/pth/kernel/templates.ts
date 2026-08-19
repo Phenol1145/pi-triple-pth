@@ -13,6 +13,8 @@
  *   - 任务代码只使用 vm 白名单能力（llm/memory/web/tasks/bash/python）
  */
 
+import type { WorkMode } from "../contracts/index.js";
+
 export interface TaskTemplate {
   id: string;
   name: string;
@@ -29,6 +31,8 @@ export interface TaskTemplate {
   hidden?: boolean;
   /** 渲染产物形态：ts-code（PTC 直接执行，缺省）/ natural-language（NL 任务——worker 转译） */
   renderKind?: "ts-code" | "natural-language";
+  /** M0：code-owned Work Mode（缺省 run；系统/优化模板可显式 optimize/intake）。 */
+  workMode?: WorkMode;
 }
 
 // ── 任务模板统一收口（A+，2026-08-16）────────────────────────────
@@ -50,7 +54,7 @@ export interface TemplateTaskSpec {
 }
 
 export type TemplateTaskResolution =
-  | { ok: true; title: string; text: string; tags: string[]; role?: string; payload: Record<string, unknown> }
+  | { ok: true; title: string; text: string; tags: string[]; role?: string; workMode: WorkMode; payload: Record<string, unknown> }
   | { ok: false; code: "unknown-template" | "missing-params"; error: string; missing?: string[] };
 
 /** 事件变量注入：字符串 `{{key}}` 递归替换（缺失 → 空字符串——与 trigger 旧语义一致） */
@@ -97,6 +101,7 @@ export function resolveTemplateTask(
     text,
     tags,
     ...(role ? { role } : {}),
+    workMode: tpl.workMode ?? "run",
     payload: { template: tpl.id, params, ...(spec.payload ?? {}) },
   };
 }
@@ -337,6 +342,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
     name: "记忆维护巡检（归档候选提案）",
     roleTag: "memory",
     hidden: true,
+    workMode: "optimize",
     description: "系统内部：扫描过期 draft/低命中/重复条目 → 归档候选提案（监督批准后执行）。",
     params: [],
     title: "记忆维护巡检（归档候选提案）",

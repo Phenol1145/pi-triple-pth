@@ -8,15 +8,16 @@
  * Freshness 四态为 fresh / lagging / stale / disconnected，由显式注入时钟计算，
  * 任何调用方不能依赖进程本地时间获得确定性结果。
  *
- * M0（src/pth/contracts/work-mode.ts 的 canonical WorkMode）在另一条 lane 并行开发，
- * 本 lane 尚不可见，因此这里先本地定义 RUNTIME_WORK_MODES / RuntimeWorkMode。
- * 合并 M0 后改为 re-export canonical WorkMode。
+ * M0 已合并：RUNTIME_WORK_MODES / RuntimeWorkMode 统一为 canonical
+ * WorkMode（src/pth/contracts/work-mode.ts）的别名，保证观测轴与工作轴同源。
  */
 
-// ─── WorkMode（M0 合并后改为 re-export canonical WorkMode） ───────────────
+import { WORK_MODES, type WorkMode } from "./work-mode.js";
 
-export const RUNTIME_WORK_MODES = ["intake", "optimize", "run"] as const;
-export type RuntimeWorkMode = (typeof RUNTIME_WORK_MODES)[number];
+// ─── WorkMode（canonical WorkMode 的观测侧别名） ──────────────────────────
+
+export const RUNTIME_WORK_MODES = WORK_MODES;
+export type RuntimeWorkMode = WorkMode;
 
 export const RUNTIME_WORK_MODE_FILTERS = ["all", "intake", "optimize", "run"] as const;
 export type RuntimeWorkModeFilter = (typeof RUNTIME_WORK_MODE_FILTERS)[number];

@@ -412,6 +412,7 @@ function mapRun(r: any): IntakeRun {
   return {
     id: r.id,
     tenantId: r.tenant_id,
+    workMode: "intake",
     subscriptionId: r.subscription_id,
     reason: r.reason,
     stage: r.stage,

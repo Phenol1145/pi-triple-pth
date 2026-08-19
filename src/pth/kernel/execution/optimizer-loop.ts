@@ -18,6 +18,10 @@ import { createHash } from "node:crypto";
 import type { WorkerScorecard } from "./worker-scorecard.js";
 import { config } from "../extensions/perf-params.js";
 import { DEFAULT_TENANT_ID, INTERNAL_ORIGIN } from "@away_from/pth-memory";
+import type { WorkMode } from "../../contracts/index.js";
+
+/** M0：优化环产物（suggestion / deopt / verify 洞察）是 code-owned optimize work。 */
+const OPTIMIZER_WORK_MODE: WorkMode = "optimize";
 
 // ── 类型 ─────────────────────────────────────────────────────
 
@@ -118,6 +122,7 @@ const MAX_BUFFER = 200;   // 缓冲上限（防内存无界——窗口不触发
 function deoptInsightMeta(content: string, suggestionId: string, extra: Record<string, unknown>): Record<string, unknown> {
   return {
     ...extra,
+    workMode: OPTIMIZER_WORK_MODE,
     origin: INTERNAL_ORIGIN,
     provenance: {
       sourceTaskId: suggestionId,
@@ -300,7 +305,7 @@ export class Optimizer {
         anchors: [hit.pattern, hit.target],
         content: s,
         status: "draft",
-        meta: { pattern: hit.pattern, target: hit.target, ts: s.ts },
+        meta: { pattern: hit.pattern, target: hit.target, ts: s.ts, workMode: OPTIMIZER_WORK_MODE },
       }).catch(() => { /* 落库失败不阻塞 */ });
     }
     this.lastDetectAt = Date.now();
