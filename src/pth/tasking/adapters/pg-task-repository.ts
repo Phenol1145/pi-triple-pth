@@ -14,6 +14,12 @@
  *    `lease_expires_at IS NOT NULL AND lease_expires_at > now()`；
  *  - side effect 只在 `upd.rowCount === 1` 时于同一事务内 enqueue，CAS 未命中直接返回 upd；
  *  - 无法确定服务端 tenant scope 时 fail closed（committed:false，零 side effect）。
+ *
+ * N29 再验收 P0-1（docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
+ *  - side effect 的 outbox tenant **只由聚合上下文盖章**——三条 CAS 都 `RETURNING tenant_id`，
+ *    用刚通过 CAS 的 `tasks.tenant_id` 落 outbox；调用方自报值不再是事实源；
+ *  - 自报 tenant ≠ 聚合 tenant：开事务前 fail closed（committed:false，任一 tenant 零 outbox），
+ *    事务内再加一道断言（抛错整体回滚）作为深度防御。
  */
 
 import { randomUUID } from "node:crypto";
@@ -22,6 +28,7 @@ import { withTx } from "../../kernel/storage/pg.js";
 import {
   buildCompletedResultWriteback,
   buildErrorResultWriteback,
+  hasForeignTenantSideEffect,
   resolveTaskCommitTenantId,
   TASK_MAX_CLAIMS,
 } from "../../contracts/index.js";
@@ -61,20 +68,37 @@ interface ClaimRow {
  * R4/P0-4 + N29/P0-1：在同一 PG 事务内写入 side_effect_outbox。
  * identity=(tenant_id,key)；exact 重放幂等，不同 kind/payload 抛 conflict 让整个 commit 回滚。
  * 只允许在 task CAS `rowCount === 1` 之后调用。
+ *
+ * N29 再验收 P0-1（feedback §3 P0-1 / §8 条件 1）：`stampedTenantId` 必须来自
+ * **CAS RETURNING 的 `tasks.tenant_id`**——刚通过 CAS 的聚合自身 tenant，而不是调用方自报值。
+ * 输入若自报不同 tenant，这里是第二道防线（抛错 → 整个事务回滚）；第一道在 `commit()` 开事务前。
  */
 async function insertSideEffects(
   client: pg.PoolClient,
+  stampedTenantId: string,
   sideEffects?: ReadonlyArray<TaskCommitSideEffect>,
 ): Promise<void> {
   if (!sideEffects || sideEffects.length === 0) return;
   for (const se of sideEffects) {
+    if (se.tenantId !== undefined && se.tenantId !== stampedTenantId) {
+      throw new Error(
+        `task commit side effect "${se.key}" 自报 tenant "${se.tenantId}" 与聚合 tenant `
+        + `"${stampedTenantId}" 不一致——跨 tenant 入队不允许（tenant 由仓库按聚合上下文盖章）`,
+      );
+    }
     await enqueueSideEffectInTx(client, {
       key: se.key,
-      tenantId: se.tenantId,
+      tenantId: stampedTenantId,
       kind: se.kind,
       payload: se.payload,
     });
   }
+}
+
+/** CAS RETURNING 行里的聚合 tenant（唯一合法盖章来源）；取不到即当作 CAS 未命中处理。 */
+function stampedTenantOf(upd: pg.QueryResult): string | null {
+  const value = (upd.rows[0] as { tenant_id?: unknown } | undefined)?.tenant_id;
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 function toWorkItem(row: ClaimRow, scope: TenantScope): TaskWorkItem {
@@ -174,6 +198,9 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
       // 拿不到 tenant 就 fail closed——不提交、不写任何 side effect。
       const tenantId = resolveTaskCommitTenantId(outcome, opts);
       if (tenantId === null) return { committed: false };
+      // N29 再验收 P0-1：side effect 的 tenant 只能由聚合上下文盖章。调用方自报不同 tenant =
+      // 编排缺陷或跨租户越权：开事务前 fail closed（零领域写、零 outbox、任一 tenant 都不落行）。
+      if (hasForeignTenantSideEffect(tenantId, opts?.sideEffects)) return { committed: false };
       let res: pg.QueryResult;
       if (outcome.status === "completed") {
         // W8 P0 终态回写：payload.result = JSON-safe 编码结果（≤64KiB/截断标记）；
@@ -194,7 +221,8 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
                AND status = 'claimed'
                AND tenant_id = $6
                AND lease_expires_at IS NOT NULL
-               AND lease_expires_at > now()`,
+               AND lease_expires_at > now()
+             RETURNING tenant_id`,
             [taskId, leaseId, generation, JSON.stringify(result), JSON.stringify({ ref: result }), tenantId],
           );
           // N29 P0-1：CAS 未命中（错 generation/过期 lease/跨 tenant/重复提交）→ 立即返回，
@@ -213,7 +241,10 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
               [taskId, leaseId, generation, JSON.stringify(artifactRef), tenantId],
             );
           }
-          await insertSideEffects(client, opts?.sideEffects);
+          // N29 再验收 P0-1：盖章 tenant 取自 CAS RETURNING 的聚合行，不是调用方输入。
+          const stamped = stampedTenantOf(upd);
+          if (stamped === null) return { ...upd, rowCount: 0 } as pg.QueryResult;
+          await insertSideEffects(client, stamped, opts?.sideEffects);
           return upd;
         });
       } else if (outcome.retryable === true) {
@@ -230,11 +261,15 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
                AND status = 'claimed'
                AND tenant_id = $4
                AND lease_expires_at IS NOT NULL
-               AND lease_expires_at > now()`,
+               AND lease_expires_at > now()
+             RETURNING tenant_id`,
             [taskId, leaseId, generation, tenantId],
           );
           if ((upd.rowCount ?? 0) !== 1) return upd;
-          await insertSideEffects(client, opts?.sideEffects);
+          // N29 再验收 P0-1：盖章 tenant 取自 CAS RETURNING 的聚合行，不是调用方输入。
+          const stamped = stampedTenantOf(upd);
+          if (stamped === null) return { ...upd, rowCount: 0 } as pg.QueryResult;
+          await insertSideEffects(client, stamped, opts?.sideEffects);
           return upd;
         });
       } else {
@@ -254,11 +289,15 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
                AND status = 'claimed'
                AND tenant_id = $6
                AND lease_expires_at IS NOT NULL
-               AND lease_expires_at > now()`,
+               AND lease_expires_at > now()
+             RETURNING tenant_id`,
             [taskId, leaseId, generation, outcome.status, JSON.stringify(result), tenantId],
           );
           if ((upd.rowCount ?? 0) !== 1) return upd;
-          await insertSideEffects(client, opts?.sideEffects);
+          // N29 再验收 P0-1：盖章 tenant 取自 CAS RETURNING 的聚合行，不是调用方输入。
+          const stamped = stampedTenantOf(upd);
+          if (stamped === null) return { ...upd, rowCount: 0 } as pg.QueryResult;
+          await insertSideEffects(client, stamped, opts?.sideEffects);
           return upd;
         });
       }

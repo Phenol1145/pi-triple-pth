@@ -832,7 +832,9 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
       leaseToken: claimed!.leaseToken!,
       leaseGeneration: claimed!.leaseGeneration,
       expectedRowVersion: claimed!.rowVersion,
-      toStage: "extract" as const,
+      // N29 refix P0-2：toStage 取 fromStage 的合法后继（fetch→admit）；
+      // 否则这 4 条 CAS 反例会被"非法迁移边"提前拒绝而失去区分度。
+      toStage: "admit" as const,
       status: "queued" as const,
       principalId: PRODUCER,
       executionId: "exec-n29-l7-cas",

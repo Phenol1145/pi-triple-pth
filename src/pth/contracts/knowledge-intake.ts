@@ -257,6 +257,11 @@ export interface ClaimIntakeRunInput {
 export interface TransitionIntakeRunInput {
   readonly tenantId: string;
   readonly runId: string;
+  /**
+   * 调用方声明的**当前**阶段。N29 再验收 P0-2：SQL CAS 必须包含 `stage = fromStage`，
+   * 与 DB 真实 stage 不符即零行；`fromStage → toStage/status` 还必须命中冻结矩阵
+   * （`RUN_STAGE_TRANSITIONS` / `isLegalRunTransition`），调用方不能声明任意跳转。
+   */
   readonly fromStage: IntakeRun["stage"];
   readonly toStage: IntakeRun["stage"];
   readonly status: IntakeRun["status"];
@@ -275,8 +280,70 @@ export interface TransitionIntakeRunInput {
   readonly candidateId?: string;
   readonly verificationPlanId?: string;
   readonly lastError?: string;
-  /** 与状态迁移同事务入队的下一阶段 outbox。 */
+  /** 与状态迁移同事务入队的下一阶段 outbox（tenant 由仓库按 run 聚合盖章）。 */
   readonly sideEffects?: readonly IntakeSideEffect[];
+}
+
+// ─── N29 再验收 P0-2：Run 阶段迁移的冻结矩阵（服务端唯一事实源） ──────────
+
+/**
+ * `fromStage → 允许的 toStage` 冻结矩阵（`Object.freeze`，运行时不可改写）。
+ *
+ * 矩阵**精确等于**最小内环的真实阶段图（`src/pth/execution/knowledge-intake/service.ts`），
+ * 不留任何"没有 handler 服务"的合法边——否则调用方可以把 run 停在无人处理的 stage 造成活锁：
+ *  - `fetch`   → `admit`（外部字节已 quarantine + admitted 落库，交给 extract handler）
+ *              / `complete`（unchanged 重爬直接完成）
+ *              / `fetch`（自边：retryable 回 queued、dead-letter、阶段错投释放）；
+ *  - `admit`   → `verify`（extract handler 在 stage=admit 上运行，写 candidate/plan 后进入双核验）
+ *              / `admit`（自边失败/释放）；
+ *  - `verify`  → `promote`（domain + adversarial 双 verdict 均通过、plan satisfied）
+ *              / `verify`（**同 stage 特例**：domain 通过后转 adversarial；以及失败/释放）；
+ *  - `promote` → `complete`（official 晋升完成）/ `promote`（自边失败/释放）；
+ *  - `complete`→ **终态，零出边**（含自边）：任何重放都零行；
+ *  - `extract` → **当前不可达**（抽取发生在 `admit` 阶段）：零入边、零出边。把抽取拆成独立 stage
+ *    需要同时改本矩阵与 handler 的期望 stage，属于显式合同变更，不能由调用方声明。
+ *
+ * 未列出的边一律非法（跳阶段、回退、终态复活）；`transitionRun()` 在开事务前直接返回 null。
+ */
+export const RUN_STAGE_TRANSITIONS: Readonly<Record<IntakeRunStage, readonly IntakeRunStage[]>> = Object.freeze({
+  fetch: Object.freeze(["fetch", "admit", "complete"] as const),
+  admit: Object.freeze(["admit", "verify"] as const),
+  extract: Object.freeze([] as const),
+  verify: Object.freeze(["verify", "promote"] as const),
+  promote: Object.freeze(["promote", "complete"] as const),
+  complete: Object.freeze([] as const),
+}) as Readonly<Record<IntakeRunStage, readonly IntakeRunStage[]>>;
+
+/**
+ * `status` 侧的冻结规则（与 stage 边联合判定，调用方不能自由组合）：
+ *  - `completed` ⟺ `toStage === "complete"`（唯一的成功终点；complete 也只接受 completed）；
+ *  - `failed` / `dead-letter` 只允许**自边**（`toStage === fromStage`）——失败必须停在出事的阶段，
+ *    不得借失败状态顺带跨阶段推进；
+ *  - `queued` 允许任何非 `complete` 的合法 toStage（推进下一阶段或原地重排）；
+ *  - `leased` / `waiting` 不可由 `transitionRun()` 设置（lease 只能由 `claimRun()` 签发）。
+ */
+export const RUN_TRANSITION_STATUSES: readonly IntakeRunStatus[] = Object.freeze([
+  "queued",
+  "completed",
+  "failed",
+  "dead-letter",
+] as const);
+
+/** 冻结矩阵判据：stage 边 + status 规则同时成立才算合法迁移（仓库在 CAS 前调用）。 */
+export function isLegalRunTransition(
+  fromStage: IntakeRunStage,
+  toStage: IntakeRunStage,
+  status: IntakeRunStatus,
+): boolean {
+  const allowed = RUN_STAGE_TRANSITIONS[fromStage];
+  if (!allowed || !allowed.includes(toStage)) return false;
+  if (!RUN_TRANSITION_STATUSES.includes(status)) return false;
+  // `complete` 是唯一成功终点，且只接受 `completed`；反之 `completed` 也只能落在 `complete`。
+  if (toStage === "complete") return status === "completed";
+  if (status === "completed") return false;
+  // 失败必须停在出事的阶段——不得借失败状态顺带跨阶段推进。
+  if (status === "failed" || status === "dead-letter") return toStage === fromStage;
+  return true;
 }
 
 export interface SourceAcquisitionEnvelope {
@@ -419,12 +486,22 @@ export interface TransitionSubscriptionInput {
   readonly lastSuccessfulRevisionId?: string;
 }
 
-/** 与 run 状态迁移同事务入队的下一阶段 side effect（identity=(tenantId,key)）。 */
+/**
+ * 与 run 状态迁移同事务入队的下一阶段 side effect（identity=(tenantId,key)）。
+ *
+ * N29 再验收 P0-1（docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
+ * **outbox 行的 tenant 由仓库从聚合上下文盖章**——即通过 Run CAS 的那一行
+ * `knowledge_intake_runs.tenant_id`。调用方不再是 tenant 的事实源：
+ *  - 缺省（推荐）：仓库盖章为 run 自身 tenant；
+ *  - 提供且等于 run tenant：允许（向后兼容既有装配点），仍以仓库盖章值落库；
+ *  - 提供且不等于 run tenant：`transitionRun()` 在写 outbox 前抛 `KNOWLEDGE_INTAKE_INVALID`，
+ *    整个事务回滚（零迁移、零 attempt、零 outbox）。
+ */
 export interface IntakeSideEffect {
   readonly key: string;
   readonly kind: string;
   readonly payload: unknown;
-  /** 缺省取迁移的 tenantId；跨 tenant 入队不允许。 */
+  /** @deprecated 由仓库从通过 CAS 的 run `tenant_id` 盖章；提供不相等值 → fail closed（抛错整体回滚）。 */
   readonly tenantId?: string;
 }
 
