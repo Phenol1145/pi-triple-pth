@@ -99,6 +99,30 @@ export interface SourceAdmissionVerdict {
 
 const ACTIVE_SUBSCRIPTION_STATUSES: readonly SubscriptionStatus[] = ["probing", "active"];
 
+/**
+ * `IntakeEvidenceReference.policyDecisionDigest` 的**唯一**事实源：
+ * `sha256(stableJson({fetch, use, artifactHash, normalizedTextHash}))`。
+ *
+ * L5 起由 admission 与 KnowledgeIngestor 共用同一实现——ingestor 用已落库
+ * SourceRevision 的 `fetch_policy_decision` / `use_policy_decision` / `raw_hash` /
+ * `normalized_text_hash` 逐字段重算，因此 evidence 自报的 digest 无法伪造。
+ */
+export function computeIntakePolicyDecisionDigest(input: {
+  readonly fetchPolicyDecision: PolicyDecisionRef;
+  readonly usePolicyDecision: PolicyDecisionRef;
+  readonly artifactHash: string;
+  readonly normalizedTextHash: string;
+}): string {
+  return sha256Hex(
+    stableJson({
+      fetch: policyDecisionRefOf(input.fetchPolicyDecision),
+      use: policyDecisionRefOf(input.usePolicyDecision),
+      artifactHash: input.artifactHash,
+      normalizedTextHash: input.normalizedTextHash,
+    }),
+  );
+}
+
 function findRule(manifest: TrustPolicyManifest, ruleId: string): TrustPolicyRule | undefined {
   return manifest.rules.find((r) => r.ruleId === ruleId);
 }
@@ -263,14 +287,12 @@ export function decideSourceAdmission(
 
   const denied = denyCodes.length > 0;
   const verdict: SourceAdmissionVerdict["verdict"] = denied ? "deny" : isUnchanged ? "reuse-unchanged" : "admit";
-  const policyDecisionDigest = sha256Hex(
-    stableJson({
-      fetch: policyDecisionRefOf(fetchDecision),
-      use: policyDecisionRefOf(useDecision),
-      artifactHash: envelope.rawHash,
-      normalizedTextHash: envelope.normalizedTextHash,
-    }),
-  );
+  const policyDecisionDigest = computeIntakePolicyDecisionDigest({
+    fetchPolicyDecision: fetchDecision,
+    usePolicyDecision: useDecision,
+    artifactHash: envelope.rawHash,
+    normalizedTextHash: envelope.normalizedTextHash,
+  });
 
   return Object.freeze({
     verdict,

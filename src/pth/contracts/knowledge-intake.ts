@@ -357,15 +357,56 @@ export interface MarkDependentsStaleInput {
   readonly exceptSourceRevisionId?: string;
 }
 
+/**
+ * extractor processor 产出的原子 claim（L5 收紧）。
+ *
+ * `text` / `locator` / `quoteHash` 都是 **LLM 自报**：`KnowledgeIngestor` 必须从已落库
+ * SourceRevision 的 normalized representation 重新读取 `[start,end)` 并重算 quote hash，
+ * 自报值只作为 tripwire（不一致即拒），永不作为真相。
+ * 每个 claim 至少一条 `IntakeEvidenceReference`（L5 起为必填）。
+ */
 export interface IntakeClaimInput {
   readonly text: string;
   readonly locator: { readonly start: number; readonly end: number };
   readonly quoteHash: string;
+  readonly evidence: readonly IntakeEvidenceReference[];
+}
+
+/** producer 身份（写入 candidate provenance；principal 见 `IntakeVerificationPrincipals.producer`）。 */
+export interface IntakeProducerRef {
+  readonly role: string;
+  readonly model: string;
+  readonly executionId: string;
+}
+
+/**
+ * 职责分离的四个 principal（L5 冻结）：producer、domain reviewer、adversarial reviewer、
+ * promoter 必须互不相同；任意两个角色同一 principal → 摄入/核验/晋升一律拒绝。
+ */
+export interface IntakeVerificationPrincipals {
+  readonly producer: string;
+  readonly domainReviewer: string;
+  readonly adversarialReviewer: string;
+  readonly promoter: string;
 }
 
 export interface IngestSourceRevisionInput {
   readonly revision: SourceRevision;
   readonly claims: readonly IntakeClaimInput[];
+  /** 声明的 tenant——必须与 revision 与已落库行严格一致（跨 tenant 零可见）。 */
+  readonly tenantId: string;
+  /** 声明的 space——必须与 SourceSubscription 一致。 */
+  readonly space: string;
+  /** 声明的 domain——必须与 SourceSubscription 一致。 */
+  readonly domainId: string;
+  readonly producer: IntakeProducerRef;
+  readonly principals: IntakeVerificationPrincipals;
+  /** 产出该 claim 的 IntakeRun（写入 provenance.sourceTaskId）。 */
+  readonly runId?: string;
+  /** 确定性 candidate id 覆盖（缺省由 revision + evidence digest 派生 → 重放幂等）。 */
+  readonly candidateId?: string;
+  /** 确定性 plan id 覆盖（缺省由 candidate id + candidate revision 派生）。 */
+  readonly planId?: string;
 }
 
 /** subscription 状态迁移 / 重排程：rowVersion CAS + 合法迁移矩阵。 */

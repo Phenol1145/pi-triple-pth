@@ -11,7 +11,10 @@ import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import {
   canPromote,
   candidateHashForEntry,
+  candidateIntakeBindingOf,
+  checkIntakeCandidateBinding,
   computeCandidateHash,
+  isIntakeBoundCandidate,
   sourceBindingsDigestOf,
   type KnowledgeVerdictRowRecord,
   type VerificationPlanRecord,
@@ -423,5 +426,108 @@ suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
     // verdict 落行后 plan 应被 service 刷新为 satisfied（独立于 entry.meta）
     const refreshed = await repo.getPlan(plan.id, TENANT);
     expect(refreshed?.status).toBe("satisfied");
+  });
+});
+
+describe("N29 candidate source binding（verdicts 纯判据）", () => {
+  const CONTENT = "The sum of the interior angles of a triangle equals 180 degrees.";
+  const REV = "rev-v-1";
+  const SUB = "sub-v-1";
+  const PRODUCER = "worker:extractor:producer";
+  const DOMAIN_REVIEWER = "worker:domain:mathematics-reviewer";
+  const ADVERSARIAL_REVIEWER = "worker:controller:adversarial";
+
+  const ref = {
+    sourceSubscriptionId: SUB,
+    sourceRevisionId: REV,
+    representation: "normalized-text" as const,
+    locator: { start: 0, end: CONTENT.length },
+    quoteHash: "a".repeat(64),
+    artifactHash: "b".repeat(64),
+    policyDecisionDigest: "c".repeat(64),
+  };
+  const binding = {
+    sourceSubscriptionId: SUB,
+    sourceRevisionId: REV,
+    representation: "normalized-text" as const,
+    artifactHash: ref.artifactHash,
+    policyDecisionDigest: ref.policyDecisionDigest,
+    tenantId: "tenant-a",
+    space: "space-a",
+    domainId: "mathematics",
+    producerPrincipalId: PRODUCER,
+  };
+
+  function entryOf(evidence: unknown[], intake: unknown = binding) {
+    return {
+      id: "cand-v",
+      tenantId: "tenant-a",
+      kind: "domain-fact",
+      anchors: ["mathematics"],
+      content: CONTENT,
+      status: "draft" as const,
+      meta: { version: 1, domains: ["mathematics"], evidence, intake },
+    };
+  }
+
+  function planOf(evidence: unknown[], over: Partial<VerificationPlanRecord> = {}): VerificationPlanRecord {
+    return {
+      id: "plan-v",
+      tenantId: "tenant-a",
+      candidateId: "cand-v",
+      candidateRevision: 1,
+      candidateHash: computeCandidateHash({ content: CONTENT, domains: ["mathematics"], evidence, effect: null }),
+      requiredDomains: ["mathematics"],
+      checks: [
+        { checkId: "domain:mathematics", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: [DOMAIN_REVIEWER], separationFrom: [PRODUCER] },
+        { checkId: "adversarial", kind: "adversarial", quorum: 1, eligiblePrincipals: [ADVERSARIAL_REVIEWER], separationFrom: [PRODUCER] },
+      ],
+      sourceBindingsDigest: sourceBindingsDigestOf(evidence),
+      status: "satisfied",
+      rowVersion: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...over,
+    };
+  }
+
+  it("isIntakeBoundCandidate 只对携带 intake 绑定/精确 evidence 的 candidate 为真", () => {
+    expect(isIntakeBoundCandidate(entryOf([ref]))).toBe(true);
+    expect(isIntakeBoundCandidate(entryOf([ref], undefined))).toBe(true);
+    expect(isIntakeBoundCandidate({ ...entryOf([{ sourceId: "s", locator: "l" }], undefined), meta: { version: 1, evidence: [{ sourceId: "s", locator: "l" }] } })).toBe(false);
+  });
+
+  it("candidateIntakeBindingOf 拒绝残缺 meta.intake", () => {
+    expect(candidateIntakeBindingOf(entryOf([ref]))).toMatchObject({ sourceRevisionId: REV });
+    expect(candidateIntakeBindingOf(entryOf([ref], { sourceRevisionId: REV }))).toBeUndefined();
+    expect(candidateIntakeBindingOf(entryOf([ref], { ...binding, representation: "raw" }))).toBeUndefined();
+    expect(candidateIntakeBindingOf(entryOf([ref], "nope"))).toBeUndefined();
+  });
+
+  it("N29 candidate 不得使用空 sourceBindingsDigest", () => {
+    const bound = checkIntakeCandidateBinding(entryOf([ref]), planOf([ref], { sourceBindingsDigest: "" }));
+    expect(bound).toMatchObject({ ok: false, reason: expect.stringContaining("source binding") });
+  });
+
+  it("N29 candidate 拒绝空 evidence", () => {
+    const bound = checkIntakeCandidateBinding(entryOf([]), planOf([], { sourceBindingsDigest: sourceBindingsDigestOf([]) }));
+    expect(bound).toMatchObject({ ok: false, reason: expect.stringContaining("evidence") });
+  });
+
+  it("N29 candidate 必须同时具备 domain 与 adversarial check，且 producer 不得自审", () => {
+    const plan = planOf([ref]);
+    expect(checkIntakeCandidateBinding(entryOf([ref]), { ...plan, checks: [plan.checks[0]] }))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("adversarial") });
+    expect(checkIntakeCandidateBinding(entryOf([ref]), { ...plan, checks: [plan.checks[1]] }))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("domain check") });
+    expect(checkIntakeCandidateBinding(entryOf([ref]), {
+      ...plan,
+      checks: plan.checks.map((c) => ({ ...c, eligiblePrincipals: [...c.eligiblePrincipals, PRODUCER] })),
+    })).toMatchObject({ ok: false, reason: expect.stringContaining("producer principal") });
+  });
+
+  it("完整绑定通过（domain + adversarial + 非空 digest + 精确 evidence）", () => {
+    const bound = checkIntakeCandidateBinding(entryOf([ref]), planOf([ref]));
+    expect(bound.ok).toBe(true);
   });
 });

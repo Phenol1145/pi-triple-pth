@@ -202,6 +202,41 @@ export class PgMemoryStore {
    *   → INSERT…ON CONFLICT DO UPDATE → COMMIT；异常 ROLLBACK 重抛；finally release。
    */
   async write(entry: MemoryEntry, opts?: PgMemoryStoreWriteOptions): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await this.writeWithClient(client, entry, opts);
+      await client.query("COMMIT");
+    } catch (e) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // 保留原始异常——rollback 失败不掩盖主错误
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * N29 Task 5：事务绑定 write——调用方持有 BEGIN/COMMIT，用于把 candidate 写入与
+   * VerificationPlan、source dependency 放进**同一个** PostgreSQL 事务（原子 handoff）。
+   * 语义与 `write()` 完全一致（共用同一实现体），额外返回落库后的 version（candidate revision）。
+   */
+  async writeInTx(
+    client: pg.PoolClient,
+    entry: MemoryEntry,
+    opts?: PgMemoryStoreWriteOptions,
+  ): Promise<{ id: string; version: number }> {
+    return this.writeWithClient(client, entry, opts);
+  }
+
+  private async writeWithClient(
+    client: pg.PoolClient,
+    entry: MemoryEntry,
+    opts?: PgMemoryStoreWriteOptions,
+  ): Promise<{ id: string; version: number }> {
     // 缺省 id 生成（memory 封装签名 id?——调用方可不传——防 pg not-null 违反）
     if (!entry.id) entry.id = randomUUID();
     // 系统文档保护（Prompt 框架化 2026-08-09）：静态上下文（角色文档/能力索引/自修改指南）
@@ -225,9 +260,7 @@ export class PgMemoryStore {
     }
 
     const tenantId = this.resolveEntryTenant(entry);
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN");
+    {
       // 行锁（复合 PK=(tenant_id, id)——同 id 跨 tenant 可并存）——旧行用于记录 append-only 历史。
       const oldRows = await client.query(
         `SELECT id, tenant_id, content, status, anchors, meta, version FROM memory_entries WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
@@ -267,7 +300,7 @@ export class PgMemoryStore {
       // - meta 合并：memory_entries.meta || EXCLUDED.meta（调用方 meta 整条写回），
       //   最后强制 version/updatedAt 与列联动（FS：meta={...existing.meta, ...entry.meta, version: next, updatedAt: now}）；
       // - version 列与 meta.version 引用同一 CASE 表达式（SET 中均引用旧行值）→ 二者保持一致。
-      await client.query(
+      const upserted = await client.query(
         `INSERT INTO memory_entries (id, tenant_id, kind, anchors, content, rule_ref, idempotency_key, status, promoted_from, meta)
          VALUES ($1, $10, $2, $3::jsonb, $4, $5, $6, $7, $8, $9::jsonb)
          ON CONFLICT (tenant_id, id) DO UPDATE SET
@@ -290,7 +323,7 @@ export class PgMemoryStore {
              END,
              'updatedAt', extract(epoch from now()) * 1000
            )
-         RETURNING id`,
+         RETURNING id, version`,
         [
           entry.id,
           entry.kind,
@@ -304,16 +337,8 @@ export class PgMemoryStore {
           tenantId,
         ],
       );
-      await client.query("COMMIT");
-    } catch (e) {
-      try {
-        await client.query("ROLLBACK");
-      } catch {
-        // 保留原始异常——rollback 失败不掩盖主错误
-      }
-      throw e;
-    } finally {
-      client.release();
+      const written = upserted.rows[0] as { id: string; version: number } | undefined;
+      return { id: written?.id ?? entry.id, version: Number(written?.version ?? 1) };
     }
   }
 

@@ -8,7 +8,13 @@
  */
 
 import { createHash } from "node:crypto";
-import { validateKnowledgeProvenance, type MemoryEntry } from "@away_from/pth-memory";
+import {
+  isIntakeEvidenceReferenceShape,
+  validateIntakeEvidenceReferences,
+  validateKnowledgeProvenance,
+  type IntakeEvidenceReference,
+  type MemoryEntry,
+} from "@away_from/pth-memory";
 
 export type KnowledgeVerdictKind = "domain" | "adversarial";
 
@@ -193,6 +199,160 @@ export function sourceBindingsDigestOf(evidence: readonly unknown[]): string {
     .digest("hex");
 }
 
+/**
+ * N29 Task 5：VerificationPlan hash——必须覆盖 content、domain、Evidence Reference、
+ * policy decision digest 与 source revision。
+ *
+ * 实现要点：`IntakeEvidenceReference` 自身携带 `policyDecisionDigest` 与
+ * `sourceRevisionId`，所以本函数先**证明覆盖**（逐条 evidence 必须携带同一
+ * policy decision digest 与同一 source revision，否则抛错——不允许产出"未覆盖"的
+ * plan hash），再委托 `computeCandidateHash`。这样 plan hash 与 `canPromote()`
+ * 在锁内重算的 candidate hash 保持同一函数，同时可证覆盖全部五个字段。
+ */
+export function computeVerificationPlanHash(input: {
+  content: string;
+  domains: readonly string[];
+  evidence: readonly unknown[];
+  policyDecisionDigest: string;
+  sourceRevisionId: string;
+  effect?: unknown;
+}): string {
+  if (input.evidence.length === 0) {
+    throw new Error("computeVerificationPlanHash: evidence must not be empty");
+  }
+  const refs = validateIntakeEvidenceReferences(input.evidence);
+  if (!refs.ok) {
+    throw new Error(`computeVerificationPlanHash: ${refs.error}`);
+  }
+  for (const [index, ref] of refs.refs.entries()) {
+    if (ref.policyDecisionDigest !== input.policyDecisionDigest) {
+      throw new Error(
+        `computeVerificationPlanHash: evidence[${index}].policyDecisionDigest is not covered by the plan policy decision digest`,
+      );
+    }
+    if (ref.sourceRevisionId !== input.sourceRevisionId) {
+      throw new Error(
+        `computeVerificationPlanHash: evidence[${index}].sourceRevisionId is not covered by the plan source revision`,
+      );
+    }
+  }
+  return computeCandidateHash({
+    content: input.content,
+    domains: input.domains,
+    evidence: input.evidence,
+    effect: input.effect ?? null,
+  });
+}
+
+/** N29 candidate 的 meta.intake 绑定（KnowledgeIngestor 盖章；调用方不可伪造出 official）。 */
+export interface CandidateIntakeBinding {
+  sourceSubscriptionId: string;
+  sourceRevisionId: string;
+  representation: "normalized-text";
+  artifactHash: string;
+  policyDecisionDigest: string;
+  tenantId: string;
+  space: string;
+  domainId: string;
+  producerPrincipalId: string;
+  runId?: string;
+}
+
+/** 读 meta.intake（结构不合法 → undefined，不伪装绑定）。 */
+export function candidateIntakeBindingOf(entry: MemoryEntry): CandidateIntakeBinding | undefined {
+  const raw = entry.meta?.["intake"];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const b = raw as Record<string, unknown>;
+  const str = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+  if (!str(b["sourceRevisionId"]) || !str(b["sourceSubscriptionId"])) return undefined;
+  if (b["representation"] !== "normalized-text") return undefined;
+  if (!str(b["artifactHash"]) || !str(b["policyDecisionDigest"])) return undefined;
+  if (!str(b["tenantId"]) || !str(b["space"]) || !str(b["domainId"])) return undefined;
+  if (!str(b["producerPrincipalId"])) return undefined;
+  return {
+    sourceSubscriptionId: b["sourceSubscriptionId"],
+    sourceRevisionId: b["sourceRevisionId"],
+    representation: "normalized-text",
+    artifactHash: b["artifactHash"],
+    policyDecisionDigest: b["policyDecisionDigest"],
+    tenantId: b["tenantId"],
+    space: b["space"],
+    domainId: b["domainId"],
+    producerPrincipalId: b["producerPrincipalId"],
+    ...(str(b["runId"]) ? { runId: b["runId"] } : {}),
+  };
+}
+
+/**
+ * 是否为 N29 外部信源 candidate。
+ *
+ * 判据（任一成立）：`meta.intake` 是 KnowledgeIngestor 盖章的绑定，或 `meta.evidence`
+ * 里出现任意一条 `IntakeEvidenceReference`。这类 candidate 不再享有 R3 旧计划的
+ * 空 `sourceBindingsDigest` 兼容路径（plan §5 Task 5 Step 6：不保留兼容旁路）。
+ */
+export function isIntakeBoundCandidate(entry: MemoryEntry): boolean {
+  if (entry.meta?.["intake"] !== undefined) return true;
+  const evidence = entry.meta?.["evidence"];
+  return Array.isArray(evidence) && evidence.some(isIntakeEvidenceReferenceShape);
+}
+
+/**
+ * N29 candidate 的 evidence / source binding 门禁（fail closed）。
+ * 独立导出以便 promotion service 与 plan creation 复用同一判据。
+ */
+export function checkIntakeCandidateBinding(
+  entry: MemoryEntry,
+  plan: VerificationPlanRecord,
+): { ok: true; refs: IntakeEvidenceReference[]; binding: CandidateIntakeBinding } | { ok: false; reason: string } {
+  // ① 空 digest 是 R3 遗留兼容路径——N29 candidate 显式拒绝（旧 plan 必须 invalidated）。
+  if (plan.sourceBindingsDigest.trim() === "") {
+    return {
+      ok: false,
+      reason:
+        "N29 intake candidate requires a non-empty plan source binding digest"
+        + "（empty sourceBindingsDigest is a removed legacy path; invalidate the old plan）",
+    };
+  }
+  // ② 空 evidence / 非法 evidence 一律拒绝。
+  const refs = validateIntakeEvidenceReferences(entry.meta?.["evidence"]);
+  if (!refs.ok) {
+    return { ok: false, reason: `N29 intake candidate evidence invalid: ${refs.error}` };
+  }
+  // ③ meta.intake 绑定必须存在且与 evidence 一致（revision / policy digest / artifact）。
+  const binding = candidateIntakeBindingOf(entry);
+  if (!binding) {
+    return { ok: false, reason: "N29 intake candidate requires a well-formed meta.intake source binding" };
+  }
+  for (const [index, ref] of refs.refs.entries()) {
+    if (ref.sourceRevisionId !== binding.sourceRevisionId) {
+      return { ok: false, reason: `evidence[${index}].sourceRevisionId does not match meta.intake.sourceRevisionId` };
+    }
+    if (ref.sourceSubscriptionId !== binding.sourceSubscriptionId) {
+      return { ok: false, reason: `evidence[${index}].sourceSubscriptionId does not match meta.intake.sourceSubscriptionId` };
+    }
+    if (ref.artifactHash !== binding.artifactHash) {
+      return { ok: false, reason: `evidence[${index}].artifactHash does not match meta.intake.artifactHash` };
+    }
+    if (ref.policyDecisionDigest !== binding.policyDecisionDigest) {
+      return { ok: false, reason: `evidence[${index}].policyDecisionDigest does not match meta.intake.policyDecisionDigest` };
+    }
+  }
+  // ④ plan 必须同时包含 domain 与 adversarial 两个独立 check。
+  if (!plan.checks.some((c) => c.kind === "domain")) {
+    return { ok: false, reason: "N29 intake plan requires a domain check" };
+  }
+  if (!plan.checks.some((c) => c.kind === "adversarial")) {
+    return { ok: false, reason: "N29 intake plan requires an adversarial check" };
+  }
+  // ⑤ producer 不得出现在任何 check 的 eligiblePrincipals（职责分离）。
+  for (const check of plan.checks) {
+    if (check.eligiblePrincipals.includes(binding.producerPrincipalId)) {
+      return { ok: false, reason: `producer principal ${binding.producerPrincipalId} must not be eligible for check ${check.checkId}` };
+    }
+  }
+  return { ok: true, refs: refs.refs, binding };
+}
+
 /** 从 entry + 计划 requiredDomains 计算当前 candidate hash（evidence/effect 取自 meta）。 */
 export function candidateHashForEntry(entry: MemoryEntry, requiredDomains: readonly string[]): string {
   const meta = entry.meta ?? {};
@@ -325,13 +485,21 @@ export function canPromote(
     return { ok: false, reason: `entry.meta.version ${version} does not match plan candidate_revision ${plan.candidateRevision}` };
   }
 
+  // N29 Task 5：外部信源 candidate 的 source binding 门禁先于 hash 比较——空 digest /
+  // 空 evidence / evidence 与 meta.intake 不一致 / 缺 domain+adversarial check /
+  // producer 可自审 一律拒绝（旧 R3 内部 candidate 无 intake 绑定，仍走下方 digest 一致性）。
+  if (isIntakeBoundCandidate(entry)) {
+    const bound = checkIntakeCandidateBinding(entry, plan);
+    if (!bound.ok) return bound;
+  }
+
   const currentHash = candidateHashForEntry(entry, plan.requiredDomains);
   if (currentHash !== plan.candidateHash) {
     return { ok: false, reason: `candidateHash mismatch: entry ${currentHash} != plan ${plan.candidateHash}` };
   }
 
   // R5/P1-4：promotion CAS 校验 evidence 未变（R3 已留 sourceBindingsDigest 位置，本 lane 填实）。
-  // 空 digest 为 R3 旧计划兼容；非空必须与当前 meta.evidence 严格一致。
+  // 空 digest 只对无 intake 绑定的 R3 内部 candidate 有效；非空必须与当前 meta.evidence 严格一致。
   if (plan.sourceBindingsDigest !== "") {
     const rawEvidence = Array.isArray(meta["evidence"]) ? (meta["evidence"] as unknown[]) : [];
     const currentDigest = sourceBindingsDigestOf(rawEvidence);
