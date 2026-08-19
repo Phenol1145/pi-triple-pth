@@ -230,6 +230,7 @@ services:
       - ${HOME}/docs:/works/docs:rw
       - ${HOME}/Projects:/works/Projects:rw
       - ${HOME}/go:/works/go:rw
+      - ${HOME}/compiler:/works/compiler:rw   # asdbg 汇编调试系统项目
     networks:
       - default
     restart: unless-stopped
