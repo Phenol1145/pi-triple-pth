@@ -19,14 +19,15 @@ declare namespace pg {
 
   export class Pool {
     constructor(config?: PoolConfig);
-    query(text: string, values?: unknown[]): Promise<QueryResult>;
+    // R 默认 unknown（保持既有调用点行为）；调用方可显式给出行形状以通过 --noEmit。
+    query<R = unknown>(text: string, values?: unknown[]): Promise<QueryResult<R>>;
     connect(): Promise<PoolClient>;
     end(): Promise<void>;
     on(event: "error", listener: (err: Error) => void): void;
   }
 
   export class PoolClient {
-    query(text: string, values?: unknown[]): Promise<QueryResult>;
+    query<R = unknown>(text: string, values?: unknown[]): Promise<QueryResult<R>>;
     release(err?: Error | boolean): void;
   }
 }

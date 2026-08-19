@@ -18,11 +18,21 @@
  *    与生产 drainer（`createSideEffectDrainer` + service 注册的 intake stage handlers）；
  *  - **只替换** 两条外部缝：HTTP transport（`WebRequest`）与 `LlmFn` 后端。
  *    extractor / domain / adversarial 三个 processor 均为生产实现，evidence 由服务端重算。
+ *
+ * L7（Task 7 Step 1/2）追加：
+ *  - **正向分母台账**：本套件把 initial / unchanged / changed / stale / supersede / domain verdict /
+ *    adversarial verdict / promotion / Broker+Context retrieval 的**实测**计数写入
+ *    `process.env.N29_INTAKE_LEDGER` 指向的 JSON（未设置该 env 时不落盘，行为不变）。
+ *    计数只在对应断言通过之后累加，因此台账不能在断言失败时被填满。
+ *  - **负向/故障矩阵**（§5 Task 7 Step 2 的组合层部分）：越权 subscribe、due 幂等、
+ *    unchanged 零 candidate、stale 退出 authoritative、撤销传播 stale、跨 tenant 零可见、
+ *    run CAS（错 token / 错 generation / 错 rowVersion / 跨 tenant）零写零 outbox。
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { writeFileSync } from "node:fs";
 import { createHash, generateKeyPairSync, randomUUID, sign as edSign } from "node:crypto";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { isVisible, PgMemoryStore } from "@away_from/pth-memory";
 
 import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
@@ -61,9 +71,13 @@ import type {
   VerifiedTrustPolicy,
 } from "../../src/pth/contracts/index.js";
 
+/** 测试内 SQL 行形状（`src/types/pg.d.ts` 的 QueryResult 行默认 unknown；这里显式给出行形状以纳入 N29 typecheck 门禁）。 */
+type SqlRow = Record<string, any>;
+
 // ─── 固定域参数 ───────────────────────────────────────────────────────
 
 const TENANT = "tenant-n29-l6";
+const TENANT_B = "tenant-n29-l6-other";
 const SPACE = "space-a";
 const DOMAIN = "mathematics";
 const ORIGIN = "https://docs.example.org";
@@ -95,6 +109,75 @@ function dispositionCounts(revisions: readonly { disposition: string }[]): Recor
   const out: Record<string, number> = {};
   for (const r of revisions) out[r.disposition] = (out[r.disposition] ?? 0) + 1;
   return out;
+}
+
+// ─── L7 台账（正向分母 + 组合层负向 sentinel 的实测计数） ──────────────
+
+/** 与 `scripts/eval-n29-minimal-intake.ts` 的 `N29_LEDGER_VERSION` 必须一致。 */
+const LEDGER_VERSION = "n29-minimal-intake-ledger/1";
+const LEDGER_PATH = process.env["N29_INTAKE_LEDGER"] ?? "";
+
+const ledger = {
+  version: LEDGER_VERSION,
+  suite: "test/pth-knowledge-intake/minimal-loop.integration.test.ts",
+  /** driver 用它证明台账来自被评估的那个 commit（未由 driver 驱动时为 null）。 */
+  evaluatedCommit: process.env["N29_ACCEPT_COMMIT"] ?? null,
+  writtenAt: "",
+  tenantId: TENANT,
+  space: SPACE,
+  domain: DOMAIN,
+  canonicalUri: URI,
+  policy: { policyId: "", version: "", digest: "", keyId: "", humanPrincipalId: "", issuer: "" },
+  positives: {
+    initialIngestion: 0,
+    unchangedRecrawl: 0,
+    changedRecrawl: 0,
+    staleWithdrawal: 0,
+    supersede: 0,
+    domainVerdict: 0,
+    adversarialVerdict: 0,
+    promotion: 0,
+    brokerRetrieval: 0,
+    contextRetrieval: 0,
+    brokerContextRetrieval: 0,
+  } as Record<string, number>,
+  negatives: {
+    subscribeOutOfScopeDenied: 0,
+    dueScannerIdempotent: 0,
+    unchangedNoNewCandidate: 0,
+    staleNotAuthoritative: 0,
+    policyRevocationStale: 0,
+    crossTenantIsolation: 0,
+    runCasRejected: 0,
+  } as Record<string, number>,
+  evidence: {
+    subscriptionId: "",
+    revisions: [] as Array<{ id: string; disposition: string; rawHash: string }>,
+    officials: [] as Array<{
+      entryId: string;
+      contentHash: string;
+      sourceRevisionId: string;
+      artifactHash: string;
+      quoteHash: string;
+      locator: unknown;
+      supersedes?: readonly string[];
+    }>,
+    verdicts: [] as Array<{ planId: string; kind: string; principalId: string }>,
+  },
+};
+
+/** 只在对应断言已经通过之后调用；不接受任何"预置"分母。 */
+function bump(group: "positives" | "negatives", key: string, by = 1): void {
+  const bucket = ledger[group];
+  bucket[key] = (bucket[key] ?? 0) + by;
+}
+
+function writeLedger(): void {
+  if (!LEDGER_PATH) return;
+  ledger.writtenAt = new Date().toISOString();
+  ledger.positives["brokerContextRetrieval"] =
+    (ledger.positives["brokerRetrieval"] ?? 0) + (ledger.positives["contextRetrieval"] ?? 0);
+  writeFileSync(LEDGER_PATH, `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 }
 
 // ─── 可控 HTTP transport（唯一被替换的网络缝） ────────────────────────
@@ -213,7 +296,7 @@ function signedPolicy(): { manifest: TrustPolicyManifest; keyring: Record<string
 // ─── 组合根 ───────────────────────────────────────────────────────────
 
 describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handlers/Broker）", () => {
-  let container: PostgreSqlContainer;
+  let container: StartedPostgreSqlContainer;
   let pool: Awaited<ReturnType<typeof createPgPool>>;
   let store: PgMemoryStore;
   let repo: ReturnType<typeof createKnowledgeIntakeRepository>;
@@ -252,6 +335,14 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
 
     const signed = signedPolicy();
     policy = await loadVerifiedTrustPolicy(signed.manifest, signed.keyring);
+    ledger.policy = {
+      policyId: policy.manifest.policyId,
+      version: policy.manifest.version,
+      digest: policy.manifest.digest,
+      keyId: policy.manifest.approvalProof.keyId,
+      humanPrincipalId: policy.manifest.approvedBy.principalId,
+      issuer: policy.manifest.approvedBy.issuer,
+    };
 
     const fetchBroker = createPolicyBoundSourceFetchBroker({
       policy,
@@ -292,7 +383,7 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     broker = createKnowledgeBroker({
       grantService,
       dataWorld: {
-        queryReadOnly: async (sql: string) => (await pool.query(sql)).rows,
+        queryReadOnly: async (sql: string) => (await pool.query<SqlRow>(sql)).rows,
         memory: store,
       },
       isVisible: (meta, space) => isVisible(meta, space),
@@ -304,6 +395,7 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
   }, 240_000);
 
   afterAll(async () => {
+    writeLedger();
     await pool?.end();
     await container?.stop();
   }, 120_000);
@@ -380,7 +472,7 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     });
 
     // 策略镜像必须已落库（DB 行只是审计镜像；授权事实仍是签名 manifest）。
-    const mirror = await pool.query(
+    const mirror = await pool.query<SqlRow>(
       `SELECT policy_digest FROM knowledge_trust_policies WHERE tenant_id = $1 AND policy_id = $2`,
       [TENANT, "policy-n29-l6"],
     );
@@ -396,8 +488,10 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
         declared: DECLARED,
       }),
     ).rejects.toThrow(/policy|authoriz/i);
-    const count = await pool.query(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [TENANT]);
+    const count = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [TENANT]);
     expect(count.rows[0].n).toBe(1);
+    ledger.evidence.subscriptionId = subscription.id;
+    bump("negatives", "subscribeOutOfScopeDenied");
   });
 
   it("due scanner 幂等：同一 due window 两次扫描只建一个 Run", async () => {
@@ -408,18 +502,19 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     const second = await scanner.scanOnce();
     expect(second).toHaveLength(0);
 
-    const runs = await pool.query(`SELECT count(*)::int AS n FROM knowledge_intake_runs WHERE tenant_id = $1`, [TENANT]);
+    const runs = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_intake_runs WHERE tenant_id = $1`, [TENANT]);
     expect(runs.rows[0].n).toBe(1);
 
-    const pending = await pool.query(
+    const pending = await pool.query<SqlRow>(
       `SELECT count(*)::int AS n FROM side_effect_outbox WHERE tenant_id = $1 AND kind = $2`,
       [TENANT, INTAKE_STAGE_OUTBOX_KINDS.fetch],
     );
     expect(pending.rows[0].n).toBe(1);
+    bump("negatives", "dueScannerIdempotent");
   });
 
   it("initial crawl：fetch → admit → extract → verify → promote 产出一条 official", async () => {
-    const runId = (await pool.query(`SELECT id FROM knowledge_intake_runs WHERE tenant_id = $1`, [TENANT])).rows[0].id as string;
+    const runId = (await pool.query<SqlRow>(`SELECT id FROM knowledge_intake_runs WHERE tenant_id = $1`, [TENANT])).rows[0].id as string;
     await drainUntilRunSettled(runId);
 
     const run = await repo.getRun(TENANT, runId);
@@ -469,6 +564,24 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     const deps = await repo.listDependencies(TENANT, subscription.id);
     expect(deps.filter((d) => d.stale)).toHaveLength(0);
     expect(deps.map((d) => d.dependentKind).sort()).toEqual(["candidate", "knowledge-entry"]);
+
+    // ── L7 台账：分母只在上述断言全部通过之后累加 ──
+    ledger.evidence.revisions = revisions.map((r) => ({ id: r.id, disposition: r.disposition, rawHash: r.rawHash }));
+    ledger.evidence.officials.push({
+      entryId: officials[0]!.id,
+      contentHash: sha256Hex(officials[0]!.content),
+      sourceRevisionId: String(evidence[0]!["sourceRevisionId"]),
+      artifactHash: String(evidence[0]!["artifactHash"]),
+      quoteHash: String(evidence[0]!["quoteHash"]),
+      locator: evidence[0]!["locator"],
+    });
+    for (const v of verdicts) {
+      ledger.evidence.verdicts.push({ planId: run!.verificationPlanId!, kind: String(v.kind), principalId: String(v.principalId) });
+    }
+    bump("positives", "initialIngestion");
+    bump("positives", "promotion");
+    bump("positives", "domainVerdict", verdicts.filter((v) => v.kind === "domain").length);
+    bump("positives", "adversarialVerdict", verdicts.filter((v) => v.kind === "adversarial").length);
   }, 120_000);
 
   it("official 通过生产 Broker 与 KnowledgeContextProvider 可见（同一 evidence）", async () => {
@@ -498,6 +611,10 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     });
     expect(built.entries.map((e) => e.entryId)).toContain(entryId);
     expect(built.entries.find((e) => e.entryId === entryId)?.evidence.length ?? 0).toBeGreaterThan(0);
+
+    // L7 台账：两条生产消费面（Broker retrieve + Broker get）与 Context 各计一次命中。
+    bump("positives", "brokerRetrieval", 2);
+    bump("positives", "contextRetrieval");
   });
 
   // ─── b) 内容不变重爬 ───────────────────────────────────────────────
@@ -506,7 +623,7 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     const before = {
       revisions: (await repo.listRevisions(TENANT, subscription.id)).length,
       entries: (await allEntries()).length,
-      plans: (await pool.query(`SELECT count(*)::int AS n FROM knowledge_verification_plans WHERE tenant_id = $1`, [TENANT])).rows[0].n as number,
+      plans: (await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_verification_plans WHERE tenant_id = $1`, [TENANT])).rows[0].n as number,
       official: (await officialEntries())[0]!,
     };
     const llmCallsBefore = llmCalls.length;
@@ -532,7 +649,7 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
 
     // 无新 candidate / 无新 plan / 无新晋升 / 未调用任何 LLM。
     expect((await allEntries())).toHaveLength(before.entries);
-    const plans = await pool.query(`SELECT count(*)::int AS n FROM knowledge_verification_plans WHERE tenant_id = $1`, [TENANT]);
+    const plans = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_verification_plans WHERE tenant_id = $1`, [TENANT]);
     expect(plans.rows[0].n).toBe(before.plans);
     expect(llmCalls.length).toBe(llmCallsBefore);
 
@@ -548,6 +665,10 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     // 依赖边未被误标 stale。
     expect((await repo.listDependencies(TENANT, subscription.id)).filter((d) => d.stale)).toHaveLength(0);
     subscription = sub!;
+
+    ledger.evidence.revisions = revisions.map((r) => ({ id: r.id, disposition: r.disposition, rawHash: r.rawHash }));
+    bump("positives", "unchangedRecrawl");
+    bump("negatives", "unchangedNoNewCandidate");
   }, 120_000);
 
   // ─── c) 内容变化重爬 ───────────────────────────────────────────────
@@ -614,7 +735,7 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     expect(deps.filter((d) => d.sourceRevisionId !== newAdmitted.id).every((d) => d.stale)).toBe(true);
 
     // 依赖刷新 outbox 已写出（变化重爬的 fan-out 事实）。
-    const refresh = await pool.query(
+    const refresh = await pool.query<SqlRow>(
       `SELECT count(*)::int AS n FROM side_effect_outbox WHERE tenant_id = $1 AND kind = $2`,
       [TENANT, INTAKE_STAGE_OUTBOX_KINDS.dependencyRefresh],
     );
@@ -623,6 +744,25 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     const sub = await repo.getSubscription(TENANT, subscription.id);
     expect(sub).toMatchObject({ status: "active", lastSuccessfulRevisionId: newAdmitted.id });
     subscription = sub!;
+
+    // ── L7 台账 ──
+    const v2Evidence = (current.meta.evidence as Array<Record<string, unknown>>)[0]!;
+    ledger.evidence.revisions = revisions.map((r) => ({ id: r.id, disposition: r.disposition, rawHash: r.rawHash }));
+    ledger.evidence.officials.push({
+      entryId: current.id,
+      contentHash: sha256Hex(current.content),
+      sourceRevisionId: String(v2Evidence["sourceRevisionId"]),
+      artifactHash: String(v2Evidence["artifactHash"]),
+      quoteHash: String(v2Evidence["quoteHash"]),
+      locator: v2Evidence["locator"],
+      supersedes: current.meta.supersedes as readonly string[],
+    });
+    bump("positives", "changedRecrawl");
+    bump("positives", "staleWithdrawal");
+    bump("positives", "supersede");
+    bump("positives", "promotion");
+    bump("positives", "brokerRetrieval");
+    bump("negatives", "staleNotAuthoritative");
   }, 120_000);
 
   // ─── 撤销：停止重爬 + 依赖标 stale ─────────────────────────────────
@@ -640,10 +780,75 @@ describe("N29 Task 6 最小可信摄入内环（真实 PG + 生产 outbox/handle
     expect(await officialEntries()).toHaveLength(0);
 
     await scanner.scanOnce();
-    const runs = await pool.query(
+    const runs = await pool.query<SqlRow>(
       `SELECT count(*)::int AS n FROM knowledge_intake_runs WHERE tenant_id = $1 AND status IN ('queued','leased','waiting')`,
       [TENANT],
     );
     expect(runs.rows[0].n).toBe(0);
+    bump("negatives", "policyRevocationStale");
+  }, 60_000);
+
+  // ─── 负向/故障矩阵（组合层；§5 Task 7 Step 2） ──────────────────────
+
+  it("负向矩阵：跨 tenant 零可见（另一 tenant 读不到 subscription / revision / dependency / official）", async () => {
+    expect(await repo.getSubscription(TENANT_B, subscription.id)).toBeNull();
+    expect(await repo.listRevisions(TENANT_B, subscription.id)).toHaveLength(0);
+    expect(await repo.listDependencies(TENANT_B, subscription.id)).toHaveLength(0);
+    expect(await store.retrieve({ tenantId: TENANT_B, anchors: [DOMAIN], kinds: ["domain-fact"] })).toHaveLength(0);
+    const subs = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [TENANT_B]);
+    expect(subs.rows[0].n).toBe(0);
+    bump("negatives", "crossTenantIsolation");
+  });
+
+  it("负向矩阵：run CAS 错 token / 错 generation / 错 rowVersion / 跨 tenant 一律零写零 outbox", async () => {
+    // 原 subscription 已撤销，因此另建一条同策略内 subscription，并用真实 due scanner 建 run。
+    const subscriptions = createKnowledgeIntakeSubscriptionService({ repository: repo, policy: () => policy });
+    const second = await subscriptions.subscribe({
+      space: SPACE,
+      canonicalUri: `${ORIGIN}/guide/other`,
+      domainId: DOMAIN,
+      recrawlIntervalMs: RECRAWL_MS,
+      declared: DECLARED,
+      nextCrawlAt: new Date(Date.now() - 1_000),
+    });
+    const created = await scanner.scanOnce();
+    expect(created.map((r) => r.subscriptionId)).toEqual([second.id]);
+    const run = created[0]!;
+    const claimed = await repo.claimRun({
+      tenantId: TENANT,
+      runId: run.id,
+      principalId: PRODUCER,
+      executionId: "exec-n29-l7-cas",
+    });
+    expect(claimed).not.toBeNull();
+
+    const countOutbox = async (): Promise<number> =>
+      (await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM side_effect_outbox WHERE tenant_id = $1`, [TENANT])).rows[0].n as number;
+    const outboxBefore = await countOutbox();
+    const base = {
+      tenantId: TENANT,
+      runId: run.id,
+      fromStage: "fetch" as const,
+      leaseToken: claimed!.leaseToken!,
+      leaseGeneration: claimed!.leaseGeneration,
+      expectedRowVersion: claimed!.rowVersion,
+      toStage: "extract" as const,
+      status: "queued" as const,
+      principalId: PRODUCER,
+      executionId: "exec-n29-l7-cas",
+      sideEffects: [
+        { key: `intake.extract:${run.id}`, kind: INTAKE_STAGE_OUTBOX_KINDS.extract, payload: { runId: run.id } },
+      ],
+    };
+
+    expect(await repo.transitionRun({ ...base, leaseToken: "tok:forged" })).toBeNull();
+    expect(await repo.transitionRun({ ...base, leaseGeneration: claimed!.leaseGeneration + 7 })).toBeNull();
+    expect(await repo.transitionRun({ ...base, expectedRowVersion: claimed!.rowVersion + 7 })).toBeNull();
+    expect(await repo.transitionRun({ ...base, tenantId: TENANT_B })).toBeNull();
+
+    expect(await countOutbox()).toBe(outboxBefore);
+    const still = await repo.getRun(TENANT, run.id);
+    expect(still).toMatchObject({ stage: "fetch", status: "leased", rowVersion: claimed!.rowVersion });
+    bump("negatives", "runCasRejected", 4);
   }, 60_000);
 });

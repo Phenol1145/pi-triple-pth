@@ -20,7 +20,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHash, generateKeyPairSync, sign as edSign } from "node:crypto";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { PgMemoryStore } from "@away_from/pth-memory";
 import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
 import { applySchema } from "../../src/pth/kernel/storage/schema.js";
@@ -35,6 +35,7 @@ import {
   loadVerifiedTrustPolicy,
   normalizeSourceText,
   type KnowledgeIngestorRepository,
+  type PolicyBoundSourceAcquisitionEnvelope,
 } from "../../src/pth/execution/knowledge-intake/index.js";
 import {
   createPgKnowledgeVerificationRepo,
@@ -45,11 +46,13 @@ import {
 import type {
   IntakeEvidenceReference,
   KnowledgeIngestor,
-  PolicyBoundSourceAcquisitionEnvelope,
   SourceRevision,
   TrustPolicyManifest,
   VerifiedTrustPolicy,
 } from "../../src/pth/contracts/index.js";
+
+/** 测试内 SQL 行形状（`src/types/pg.d.ts` 的 QueryResult 行默认 unknown；这里显式给出行形状以纳入 N29 typecheck 门禁）。 */
+type SqlRow = Record<string, any>;
 
 const sha256Hex = (s: string | Uint8Array): string =>
   createHash("sha256").update(typeof s === "string" ? Buffer.from(s, "utf8") : Buffer.from(s)).digest("hex");
@@ -77,7 +80,7 @@ interface Harness {
 }
 
 describe("N29 Task 5 strict KnowledgeIngestor（真实 PG + 生产 plan/promotion）", () => {
-  let container: PostgreSqlContainer;
+  let container: StartedPostgreSqlContainer;
   let pool: Awaited<ReturnType<typeof createPgPool>>;
   let repo: KnowledgeIngestorRepository;
   let store: PgMemoryStore;
@@ -145,7 +148,7 @@ describe("N29 Task 5 strict KnowledgeIngestor（真实 PG + 生产 plan/promotio
     const tenantId = nextTenant(label);
     const { manifest, keyring } = signedManifest(tenantId);
     const policy = await loadVerifiedTrustPolicy(manifest, keyring);
-    await repo.installVerifiedPolicy({ manifest, digest: manifest.digest, installedBy: "human-alice", ...policy });
+    await repo.installVerifiedPolicy({ digest: manifest.digest, installedBy: "human-alice", ...policy });
 
     const subscription = await repo.createSubscription({
       tenantId,
@@ -428,7 +431,7 @@ describe("N29 Task 5 strict KnowledgeIngestor（真实 PG + 生产 plan/promotio
 
     const deps = await repo.listDependencies(h.tenantId, h.subscriptionId);
     expect(deps).toHaveLength(1);
-    const plans = await pool.query(
+    const plans = await pool.query<SqlRow>(
       `SELECT count(*)::int AS n FROM knowledge_verification_plans WHERE tenant_id = $1`,
       [h.tenantId],
     );

@@ -17,7 +17,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHash } from "node:crypto";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
 import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import {
@@ -31,6 +31,9 @@ import type {
   TrustPolicyManifest,
   VerifiedTrustPolicy,
 } from "../../src/pth/contracts/index.js";
+
+/** 测试内 SQL 行形状（`src/types/pg.d.ts` 的 QueryResult 行默认 unknown；这里显式给出行形状以纳入 N29 typecheck 门禁）。 */
+type SqlRow = Record<string, any>;
 
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -84,7 +87,7 @@ function verifiedOf(manifest: TrustPolicyManifest): VerifiedTrustPolicy {
 }
 
 describe("knowledge intake PG 真相源（N29 Task 3）", () => {
-  let container: PostgreSqlContainer;
+  let container: StartedPostgreSqlContainer;
   let pool: Awaited<ReturnType<typeof createPgPool>>;
   let repo: KnowledgeIntakeRepository;
 
@@ -142,12 +145,12 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
   }
 
   async function countOutbox(tenantId: string): Promise<number> {
-    const r = await pool.query(`SELECT count(*)::int AS n FROM side_effect_outbox WHERE tenant_id = $1`, [tenantId]);
+    const r = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM side_effect_outbox WHERE tenant_id = $1`, [tenantId]);
     return r.rows[0].n as number;
   }
 
   async function countRuns(tenantId: string): Promise<number> {
-    const r = await pool.query(`SELECT count(*)::int AS n FROM knowledge_intake_runs WHERE tenant_id = $1`, [tenantId]);
+    const r = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_intake_runs WHERE tenant_id = $1`, [tenantId]);
     return r.rows[0].n as number;
   }
 
@@ -209,11 +212,11 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
       "knowledge_source_dependencies",
     ];
     for (const t of tables) {
-      const r = await pool.query(`SELECT to_regclass($1) AS r`, [t]);
+      const r = await pool.query<SqlRow>(`SELECT to_regclass($1) AS r`, [t]);
       expect(r.rows[0].r, `table ${t} should exist`).toBeTruthy();
     }
     for (const t of ["knowledge_source_subscriptions", "knowledge_intake_runs", "knowledge_source_dependencies"]) {
-      const r = await pool.query(
+      const r = await pool.query<SqlRow>(
         `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND column_name = 'row_version'`,
         [t],
       );
@@ -227,7 +230,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
       "knowledge_source_artifacts",
       "knowledge_source_revisions",
     ]) {
-      const r = await pool.query(
+      const r = await pool.query<SqlRow>(
         `SELECT a.attname
            FROM pg_index i
            JOIN pg_class c ON c.oid = i.indrelid
@@ -241,7 +244,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
 
   it("applySchema 幂等重放（二次执行不报错）", async () => {
     await applySchema(pool);
-    const r = await pool.query(`SELECT to_regclass('knowledge_source_revisions') AS r`);
+    const r = await pool.query<SqlRow>(`SELECT to_regclass('knowledge_source_revisions') AS r`);
     expect(r.rows[0].r).toBeTruthy();
   });
 
@@ -251,16 +254,16 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const tenantId = nextTenant("policy");
     const manifest = await installPolicy(tenantId);
     await repo.installVerifiedPolicy(verifiedOf(manifest));
-    const rows = await pool.query(`SELECT * FROM knowledge_trust_policies WHERE tenant_id = $1`, [tenantId]);
+    const rows = await pool.query<SqlRow>(`SELECT * FROM knowledge_trust_policies WHERE tenant_id = $1`, [tenantId]);
     expect(rows.rowCount).toBe(1);
     expect(rows.rows[0].policy_digest).toBe(manifest.digest);
 
     await expect(
-      pool.query(`UPDATE knowledge_trust_policies SET manifest = '{"hacked":true}'::jsonb WHERE tenant_id = $1`, [
+      pool.query<SqlRow>(`UPDATE knowledge_trust_policies SET manifest = '{"hacked":true}'::jsonb WHERE tenant_id = $1`, [
         tenantId,
       ]),
     ).rejects.toThrow(/append-only|immutable/i);
-    const after = await pool.query(`SELECT manifest FROM knowledge_trust_policies WHERE tenant_id = $1`, [tenantId]);
+    const after = await pool.query<SqlRow>(`SELECT manifest FROM knowledge_trust_policies WHERE tenant_id = $1`, [tenantId]);
     expect(after.rows[0].manifest.policyId).toBe(manifest.policyId);
   });
 
@@ -269,7 +272,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const manifest = await installPolicy(tenantId);
     const tampered = buildManifest(tenantId, { digest: sha("other-digest") });
     await expect(repo.installVerifiedPolicy(verifiedOf(tampered))).rejects.toThrow(KnowledgeIntakeConflictError);
-    const rows = await pool.query(`SELECT policy_digest FROM knowledge_trust_policies WHERE tenant_id = $1`, [tenantId]);
+    const rows = await pool.query<SqlRow>(`SELECT policy_digest FROM knowledge_trust_policies WHERE tenant_id = $1`, [tenantId]);
     expect(rows.rowCount).toBe(1);
     expect(rows.rows[0].policy_digest).toBe(manifest.digest);
   });
@@ -284,7 +287,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
 
     const again = await seedSubscription(tenantId);
     expect(again.id).toBe(first.id);
-    const rows = await pool.query(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [
+    const rows = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [
       tenantId,
     ]);
     expect(rows.rows[0].n).toBe(1);
@@ -323,7 +326,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
       }),
     ).rejects.toThrow();
 
-    const rows = await pool.query(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [
+    const rows = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [
       tenantId,
     ]);
     expect(rows.rows[0].n).toBe(0);
@@ -414,7 +417,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     expect(Date.parse(after!.nextCrawlAt)).toBe(now.getTime() + sub.recrawlIntervalMs);
     expect(after!.rowVersion).toBe(before!.rowVersion + 1);
 
-    const ob = await pool.query(`SELECT key, kind, payload, status FROM side_effect_outbox WHERE tenant_id = $1`, [
+    const ob = await pool.query<SqlRow>(`SELECT key, kind, payload, status FROM side_effect_outbox WHERE tenant_id = $1`, [
       tenantId,
     ]);
     expect(ob.rowCount).toBe(1);
@@ -612,7 +615,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     await seedSubscription(tenantId, { status: "active" });
     const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
     const claimed = await repo.claimRun({ tenantId, runId: run.id, principalId: "worker:a", executionId: "exec-a" });
-    const fetchKey = (await pool.query(`SELECT key FROM side_effect_outbox WHERE tenant_id = $1`, [tenantId])).rows[0]
+    const fetchKey = (await pool.query<SqlRow>(`SELECT key FROM side_effect_outbox WHERE tenant_id = $1`, [tenantId])).rows[0]
       .key as string;
 
     // 同 tenant/key 不同 payload → L1 conflict → 事务整体回滚
@@ -671,7 +674,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     expect(await repo.listAttempts(`${tenantId}-other`, run.id)).toHaveLength(0);
 
     await expect(
-      pool.query(`UPDATE knowledge_intake_attempts SET disposition = 'succeeded' WHERE tenant_id = $1`, [tenantId]),
+      pool.query<SqlRow>(`UPDATE knowledge_intake_attempts SET disposition = 'succeeded' WHERE tenant_id = $1`, [tenantId]),
     ).rejects.toThrow(/append-only|immutable/i);
   });
 
@@ -750,7 +753,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
         nextCrawlAt: new Date(),
       }),
     ).rejects.toThrow(/installVerifiedPolicy|审计镜像/);
-    const rows = await pool.query(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [
+    const rows = await pool.query<SqlRow>(`SELECT count(*)::int AS n FROM knowledge_source_subscriptions WHERE tenant_id = $1`, [
       tenantA,
     ]);
     expect(rows.rows[0].n).toBe(0);
@@ -780,7 +783,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const rawAfter = await repo.getRevision(tenantId, raw.id);
     expect(rawAfter!.disposition).toBe("raw-quarantine");
 
-    const artifacts = await pool.query(
+    const artifacts = await pool.query<SqlRow>(
       `SELECT count(*)::int AS n FROM knowledge_source_artifacts WHERE tenant_id = $1 AND raw_hash = $2`,
       [tenantId, sha(body)],
     );
@@ -797,19 +800,19 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const raw = await repo.storeAcquisition(acquisitionInput(tenantId, sub.id, run.id, "body-x", "raw-quarantine"));
 
     await expect(
-      pool.query(`UPDATE knowledge_source_revisions SET disposition = 'admitted' WHERE tenant_id = $1 AND id = $2`, [
+      pool.query<SqlRow>(`UPDATE knowledge_source_revisions SET disposition = 'admitted' WHERE tenant_id = $1 AND id = $2`, [
         tenantId,
         raw.id,
       ]),
     ).rejects.toThrow(/append-only|immutable/i);
     await expect(
-      pool.query(`UPDATE knowledge_source_revisions SET normalized_text = 'tampered' WHERE tenant_id = $1 AND id = $2`, [
+      pool.query<SqlRow>(`UPDATE knowledge_source_revisions SET normalized_text = 'tampered' WHERE tenant_id = $1 AND id = $2`, [
         tenantId,
         raw.id,
       ]),
     ).rejects.toThrow(/append-only|immutable/i);
     await expect(
-      pool.query(`UPDATE knowledge_source_artifacts SET raw_bytes = 'x'::bytea WHERE tenant_id = $1`, [tenantId]),
+      pool.query<SqlRow>(`UPDATE knowledge_source_artifacts SET raw_bytes = 'x'::bytea WHERE tenant_id = $1`, [tenantId]),
     ).rejects.toThrow(/append-only|immutable/i);
   });
 
@@ -840,7 +843,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     const revA2 = await repo.storeAcquisition(acquisitionInput(tenantA, subA.id, runA.id, body, "unchanged"));
     expect(revA2.artifactId).toBe(revA.artifactId);
 
-    const counts = await pool.query(
+    const counts = await pool.query<SqlRow>(
       `SELECT tenant_id, count(*)::int AS n FROM knowledge_source_artifacts
         WHERE raw_hash = $1 AND tenant_id = ANY($2::text[]) GROUP BY tenant_id ORDER BY tenant_id`,
       [sha(body), [tenantA, tenantB]],
@@ -919,7 +922,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
 
     // dependency 身份/正文不可 UPDATE（只有 stale 状态可迁移）
     await expect(
-      pool.query(`UPDATE knowledge_source_dependencies SET dependent_id = 'hijack' WHERE tenant_id = $1`, [tenantA]),
+      pool.query<SqlRow>(`UPDATE knowledge_source_dependencies SET dependent_id = 'hijack' WHERE tenant_id = $1`, [tenantA]),
     ).rejects.toThrow(/append-only|immutable/i);
   });
 });
