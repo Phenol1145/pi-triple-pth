@@ -2,11 +2,13 @@
 
 > 日期：2026-08-19
 >
-> 状态：**设计待用户确认；尚未进入实施计划与生产代码**
+> 状态：**用户已确认；纳入 v1.3.0，等待按实施计划执行**
 >
 > 已确认视觉方案：C——统一时间轴、执行甘特图与资源折线联动
 >
 > 分层待办：[根 TODO：N30 O0–O5](../../TODO.md#n30-统一运行观测台c-方案分层待办2026-08-19-已确认布局)
+>
+> 实施计划：[2026-08-19 N30 运行观测台实施计划](../superpowers/plans/2026-08-19-n30-runtime-observatory.md)
 
 ## 0. 执行摘要
 
@@ -16,7 +18,7 @@ N30 建设一个本机管理员优先的统一运行观测台，用同一时间�
 2. 执行期间消耗了什么：容器与 Batch 的 CPU、RSS、Heap、Network、heartbeat 和健康状态。
 
 主界面采用已确认的 C 方案：上方为全局状态和筛选，中间为
-Job → Task → Intake Stage 分层甘特图，下方为共享横轴的资源折线图，右侧为选中区间的
+Job → Task → Intake/Optimize/Professional Stage 分层甘特图，下方为共享横轴的资源折线图，右侧为选中区间的
 Worker、Role、Batch、Trace、重试、事件和资源摘要。
 
 本设计不新建业务状态机。PTH 只提供 tenant-scoped、read-only 的运行投影；现有
@@ -82,7 +84,7 @@ PTH 新增一个只读 application/query service：`RuntimeObservationFacade`。
 职责：
 
 - 按认证上下文解析 tenant/space；
-- 从 Task/Job/Intake 的 durable 数据构造时间区间；
+- 从 Task/Job/Intake/Optimizer/Professional Job 的 durable 数据构造时间区间；
 - 从 BatchManager 读取当前 Batch/Worker 关联和健康快照；
 - 输出有界的 timeline snapshot；
 - 提供实时 activity stream，但明确标记为 hint，不作为历史真相。
@@ -121,6 +123,8 @@ export type RuntimeIntervalKind =
   | "service"
   | "job"
   | "task"
+  | "optimizer-work"
+  | "professional-job"
   | "intake-run"
   | "intake-stage";
 
@@ -134,10 +138,14 @@ export type RuntimeIntervalStatus =
   | "stale"
   | "unknown";
 
+import type { WorkMode } from "./work-mode.js";
+
 export interface RuntimeInterval {
   id: string;
   parentId?: string;
   kind: RuntimeIntervalKind;
+  /** service 等中立基础设施区间可为空；业务 work 必须由服务端投影。 */
+  workMode?: WorkMode;
   label: string;
   status: RuntimeIntervalStatus;
   /** 来源内单调版本；优先使用 rowVersion，否则使用规范化 updatedAt。 */
@@ -205,6 +213,8 @@ export interface RuntimeSummary {
   workers: number;
   idleWorkers: number;
   activeIntakeRuns: number;
+  activeOptimizeWorks: number;
+  activeRunWorks: number;
   alerts: number;
 }
 
@@ -417,9 +427,9 @@ FRESH · Docker 1.8s · PTH timeline 3.2s · events 0.4s
 
 ### 7.1 固定布局
 
-1. 顶栏：scope、role、status、时间范围、实时/暂停；
+1. 顶栏：scope、work mode、role、status、时间范围、实时/暂停；
 2. KPI：active tasks、workers、queue、CPU、RSS、alerts；
-3. 甘特图：可折叠 Job/Task/Intake Run/Stage，加 service 辅助 lane；
+3. 甘特图：可折叠 Job/Task/Intake/Optimize/Professional Run/Stage，加 service 辅助 lane；
 4. 折线图：CPU、RSS、Heap、Network，共享甘特横轴；
 5. 详情栏：所选区间的关联身份、状态、资源窗口和最近事件。
 
@@ -431,6 +441,7 @@ FRESH · Docker 1.8s · PTH timeline 3.2s · events 0.4s
 - 暂停实时：停止自动平移，不停止服务端采样；
 - 恢复实时：重取 snapshot 后跳到当前窗口；
 - 状态色固定：running cyan、completed green、waiting amber、failed red、stale grey。
+- Work Mode 使用独立图形/筛选标记（intake/optimize/run），不得覆盖状态颜色或被解释为执行进度。
 
 ### 7.3 可访问性与降级
 
