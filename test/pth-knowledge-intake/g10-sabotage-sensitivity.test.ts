@@ -22,6 +22,7 @@ import {
   computePolicyDigest,
   decideSourceAdmission,
   loadVerifiedTrustPolicy,
+  selectEvidenceQuoteVerifier,
 } from "../../src/pth/execution/knowledge-intake/index.js";
 import { attestVerifiedTrustPolicy } from "../../src/pth/contracts/knowledge-intake-attestation.js";
 import type { TrustPolicyManifest } from "../../src/pth/contracts/index.js";
@@ -30,15 +31,19 @@ import type { PolicyBoundSourceAcquisitionEnvelope } from "../../src/pth/executi
 const TENANT = "t-g10";
 const SIGNER = "human:alice";
 
-function manifestBody(domains: string[]): TrustPolicyManifest {
+function manifestBody(
+  domains: string[],
+  tenantId: string = TENANT,
+  policyId = "policy-g10",
+): TrustPolicyManifest {
   return {
-    policyId: "policy-g10",
+    policyId,
     version: "v1",
-    tenantId: TENANT,
+    tenantId,
     spaces: ["space-a"],
     validFrom: "2026-01-01T00:00:00.000Z",
     validUntil: "2099-01-01T00:00:00.000Z",
-    approvedBy: { kind: "human", principalId: SIGNER, tenantId: TENANT, issuer: "ptl-human-interface" },
+    approvedBy: { kind: "human", principalId: SIGNER, tenantId, issuer: "ptl-human-interface" },
     approvalProof: { method: "signed-manifest", keyId: SIGNER, signature: "" },
     rules: [
       {
@@ -60,8 +65,12 @@ function manifestBody(domains: string[]): TrustPolicyManifest {
 }
 
 async function verifiedPolicy(domains: string[]) {
+  return verifiedPolicyFor(TENANT, "policy-g10", domains);
+}
+
+async function verifiedPolicyFor(tenantId: string, policyId: string, domains: string[]) {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
-  const body = manifestBody(domains);
+  const body = manifestBody(domains, tenantId, policyId);
   const digest = computePolicyDigest(body);
   const signature = edSign(null, canonicalPolicySigningBytes(body), privateKey.export({ type: "pkcs8", format: "pem" }).toString()).toString("base64");
   return loadVerifiedTrustPolicy(
@@ -69,6 +78,8 @@ async function verifiedPolicy(domains: string[]) {
     { [SIGNER]: publicKey.export({ type: "spki", format: "pem" }).toString() },
   );
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("N29 再验收 G10：sabotage 敏感度（真实生产注入缝）", () => {
   let container: StartedPostgreSqlContainer;
@@ -223,5 +234,89 @@ describe("N29 再验收 G10：sabotage 敏感度（真实生产注入缝）", ()
       subscriptionStatus: "active",
     });
     expect(allowed.verdict, JSON.stringify({ denyCodes: allowed.denyCodes, reasons: allowed.reasons })).toBe("reuse-unchanged");
+  });
+
+  it("evidence-gate-skip：注入恒接受的 evidenceQuoteVerifier 时，quoteHash 被篡改的证据仍可通过（门被移除）；缺省服务端复算拒绝（evidenceQuoteRecheck 翻红）", async () => {
+    const revision = { id: "source-revision:evidence-g10", normalizedText: "evidence gate sentinel" };
+    const goodQuote = "evidence";
+    const valid = {
+      sourceRevisionId: revision.id,
+      locator: { start: 0, end: goodQuote.length },
+      quoteHash: createHash("sha256").update(goodQuote).digest("hex"),
+    };
+    const tampered = {
+      ...valid,
+      quoteHash: createHash("sha256").update("tampered quote").digest("hex"),
+    };
+
+    // 基线：缺省 verifier = 服务端严格复算——合法证据通过，篡改 quoteHash 一律拒绝。
+    const strict = selectEvidenceQuoteVerifier();
+    expect(strict({ revision, evidence: [valid] })).toEqual([goodQuote]);
+    expect(() => strict({ revision, evidence: [tampered] })).toThrow(/quote hash does not match the stored source revision/);
+
+    // sabotage：通过生产依赖缝注入恒接受 verifier → 同一篡改证据被当成可信 quote。
+    const sabotaged = selectEvidenceQuoteVerifier(async () => ["forged quote from removed gate"]);
+    await expect(sabotaged({ revision, evidence: [tampered] })).resolves.toEqual(["forged quote from removed gate"]);
+  });
+
+  it("lease-gate-skip：注入恒 true leaseGuard 时，过期 lease 仍可阶段提交并写 outbox（门被移除，expiredLease 翻红）；缺省严格门禁零行", async () => {
+    const tenantId = "t-g10-lease";
+    const policy = await verifiedPolicyFor(tenantId, "policy-g10-lease", ["mathematics"]);
+    const repo = createKnowledgeIntakeRepository(pool);
+    await repo.installVerifiedPolicy(policy);
+    await repo.createSubscription({
+      tenantId,
+      space: "space-a",
+      canonicalUri: "https://docs.example.org/guide/lease",
+      domainId: "mathematics",
+      policyId: policy.manifest.policyId,
+      policyVersion: policy.manifest.version,
+      policyDigest: policy.manifest.digest,
+      policyRuleId: policy.manifest.rules[0]!.ruleId,
+      recrawlIntervalMs: 3_600_000,
+      nextCrawlAt: new Date(Date.now() - 60_000),
+    });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const claimed = await repo.claimRun({
+      tenantId,
+      runId: run!.id,
+      principalId: "worker:lease-a",
+      executionId: "exec-lease-a",
+      leaseMs: 80,
+    });
+    expect(claimed).not.toBeNull();
+    await sleep(160);
+
+    const transition = {
+      tenantId,
+      runId: run!.id,
+      fromStage: "fetch" as const,
+      toStage: "admit" as const,
+      status: "queued" as const,
+      leaseToken: claimed!.leaseToken!,
+      leaseGeneration: claimed!.leaseGeneration,
+      expectedRowVersion: claimed!.rowVersion,
+      principalId: "worker:lease-a",
+      executionId: "exec-lease-a",
+      sideEffects: [{ key: `lease-sabotage:${run!.id}`, kind: "intake.admit", payload: { runId: run!.id } }],
+    } as const;
+
+    const outboxBefore = async (): Promise<number> =>
+      (await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM side_effect_outbox WHERE tenant_id = $1`, [tenantId])).rows[0]!.n;
+    const before = await outboxBefore();
+
+    // 基线：缺省严格 lease 门禁 → 过期 lease 零行、零 outbox。
+    expect(await repo.transitionRun(transition)).toBeNull();
+    expect(await outboxBefore()).toBe(before);
+
+    // sabotage：同一输入，注入恒 true 门禁 → 过期 lease 迁移成功且 outbox 同事务写入。
+    const sabotaged = createKnowledgeIntakeRepository(pool, {
+      leaseGuard: { canCommit: () => true },
+    });
+    const moved = await sabotaged.transitionRun(transition);
+    expect(moved).not.toBeNull();
+    expect(moved!.stage).toBe("admit");
+    expect(moved!.status).toBe("queued");
+    expect(await outboxBefore()).toBe(before + 1);
   });
 });

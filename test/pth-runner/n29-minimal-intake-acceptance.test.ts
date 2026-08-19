@@ -278,44 +278,61 @@ describe("N29 L7 唯一 envelope 判定", () => {
 });
 
 describe("N29 L7 真实性门禁派生", () => {
-  it("TLS 用例通过 → satisfied；缺失 → not-executed；G8/G9-b/G10 按取证升级，canary 恒 not-executed", () => {
-    const withTls = deriveRealismGates(
-      collectVitestAssertions(
-        report([
-          {
-            file: "test/pth-knowledge-intake/fetch-broker.test.ts",
-            tests: [{ title: "defaultWebRequest 走真实 TLS：redirect/hash/条件请求全链路", status: "passed" }],
-          },
-          {
-            file: "test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts",
-            tests: [{ title: "initial crawl 经真实 TLS → official；unchanged 304 重爬；changed 重爬 stale+supersede", status: "passed" }],
-          },
-          {
-            file: "test/pth-knowledge-intake/g8-dual-process.test.ts",
-            tests: [
-              { title: "dual OS-process drainers：同一 outbox 两行并发消费，恰好各处理一次", status: "passed" },
-              { title: "SIGKILL 恢复：handler 中途强杀 → lease 过期 → 新进程回收并完成，恰好一次", status: "passed" },
-            ],
-          },
-          {
-            file: "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
-            tests: [
-              { title: "trust-policy-attestation-bypass：仓库未注入 verifier 时…", status: "passed" },
-              { title: "digest-binding-skip：naive evaluator…", status: "passed" },
-              { title: "stale-gate-skip（use-policy 恒 allow）…", status: "passed" },
-            ],
-          },
-        ]),
-        REPO_ROOT,
-      ),
+  it("TLS 用例通过 → satisfied；缺失 → not-executed；G8-b 三故障点/G10 五项 sabotage 按取证升级，canary 恒 not-executed", () => {
+    const tlsRows = [
+      {
+        file: "test/pth-knowledge-intake/fetch-broker.test.ts",
+        tests: [{ title: "defaultWebRequest 走真实 TLS：redirect/hash/条件请求全链路", status: "passed" }],
+      },
+      {
+        file: "test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts",
+        tests: [{ title: "initial crawl 经真实 TLS → official；unchanged 304 重爬；changed 重爬 stale+supersede", status: "passed" }],
+      },
+    ];
+    const g8Rows = [
+      {
+        file: "test/pth-knowledge-intake/g8-dual-process.test.ts",
+        tests: [
+          { title: "dual OS-process drainers：同一 outbox 两行并发消费，恰好各处理一次", status: "passed" },
+          { title: "SIGKILL 恢复：handler 中途强杀 → lease 过期 → 新进程回收并完成，恰好一次", status: "passed" },
+        ],
+      },
+      {
+        file: "test/pth-knowledge-intake/g8-stage-sigkill.test.ts",
+        tests: [
+          { title: "SIGKILL 恢复：artifact 写入前（真实子进程 kill -9 → 新进程重跑 fetch）", status: "passed" },
+          { title: "SIGKILL 恢复：aggregate+outbox commit 后（run 已 admit + extract outbox 已入队，新进程接管）", status: "passed" },
+          { title: "SIGKILL 恢复：handler 写结果后（candidate/plan 已落库，extract 重放幂等）", status: "passed" },
+        ],
+      },
+    ];
+    const g10Rows = [
+      {
+        file: "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+        tests: [
+          { title: "trust-policy-attestation-bypass：仓库未注入 verifier 时…", status: "passed" },
+          { title: "evidence-gate-skip：注入恒接受的 evidenceQuoteVerifier 时…", status: "passed" },
+          { title: "digest-binding-skip：naive evaluator…", status: "passed" },
+          { title: "lease-gate-skip：注入恒 true leaseGuard 时…", status: "passed" },
+          { title: "stale-gate-skip（use-policy 恒 allow）…", status: "passed" },
+        ],
+      },
+    ];
+    const withAll = deriveRealismGates(
+      collectVitestAssertions(report([...tlsRows, ...g8Rows, ...g10Rows]), REPO_ROOT),
     );
-    expect(withTls.find((g) => g.gate.startsWith("G9-a"))!.status).toBe("satisfied");
-    expect(withTls.find((g) => g.gate.startsWith("G9-b"))!.status).toBe("satisfied");
-    expect(withTls.find((g) => g.gate.startsWith("G8-a"))!.status).toBe("satisfied");
-    expect(withTls.find((g) => g.gate.startsWith("G8-b"))!.status).toBe("partial");
-    expect(withTls.find((g) => g.gate.startsWith("G10"))!.status).toBe("partial");
+    expect(withAll.find((g) => g.gate.startsWith("G9-a"))!.status).toBe("satisfied");
+    expect(withAll.find((g) => g.gate.startsWith("G9-b"))!.status).toBe("satisfied");
+    expect(withAll.find((g) => g.gate.startsWith("G8-a"))!.status).toBe("satisfied");
+    expect(withAll.find((g) => g.gate.startsWith("G8-b"))!.status).toBe("satisfied");
+    expect(withAll.find((g) => g.gate.startsWith("G10"))!.status).toBe("satisfied");
     // canary 恒 not-executed（用户裁决：本轮不做真实公网 canary）。
-    expect(withTls.find((g) => g.gate.startsWith("G9-c"))!.status).toBe("not-executed");
+    expect(withAll.find((g) => g.gate.startsWith("G9-c"))!.status).toBe("not-executed");
+
+    // 只有 outbox 级 SIGKILL、没有阶段级三故障点 → G8-b partial。
+    const partialG8 = deriveRealismGates(collectVitestAssertions(report([...tlsRows, g8Rows[0]!]), REPO_ROOT));
+    expect(partialG8.find((g) => g.gate.startsWith("G8-b"))!.status).toBe("partial");
+    expect(partialG8.find((g) => g.gate.startsWith("G10"))!.status).toBe("not-executed");
 
     const withoutTls = deriveRealismGates([] as VitestAssertion[]);
     expect(withoutTls.find((g) => g.gate.startsWith("G9-a"))!.status).toBe("not-executed");

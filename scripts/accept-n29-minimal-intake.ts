@@ -253,6 +253,19 @@ export function deriveRealismGates(assertions: readonly VitestAssertion[]): Real
     "test/pth-knowledge-intake/g8-dual-process.test.ts",
     /SIGKILL 恢复/,
   );
+  const sigkillBeforeArtifact = passedTitle(
+    "test/pth-knowledge-intake/g8-stage-sigkill.test.ts",
+    /SIGKILL 恢复：artifact 写入前/,
+  );
+  const sigkillAfterAggregateOutbox = passedTitle(
+    "test/pth-knowledge-intake/g8-stage-sigkill.test.ts",
+    /SIGKILL 恢复：aggregate\+outbox commit 后/,
+  );
+  const sigkillAfterHandlerResult = passedTitle(
+    "test/pth-knowledge-intake/g8-stage-sigkill.test.ts",
+    /SIGKILL 恢复：handler 写结果后/,
+  );
+  const stageSigkillPoints = sigkillBeforeArtifact && sigkillAfterAggregateOutbox && sigkillAfterHandlerResult;
   const leaseRecovery = passedTitle(
     "test/pth-knowledge-intake/knowledge-intake-pg.test.ts",
     /lease 过期可由新 claim 回收/,
@@ -261,14 +274,23 @@ export function deriveRealismGates(assertions: readonly VitestAssertion[]): Real
     "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
     /trust-policy-attestation-bypass/,
   );
+  const sabotageEvidence = passedTitle(
+    "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+    /evidence-gate-skip/,
+  );
   const sabotageDigest = passedTitle(
     "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
     /digest-binding-skip/,
+  );
+  const sabotageLease = passedTitle(
+    "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+    /lease-gate-skip/,
   );
   const sabotageStale = passedTitle(
     "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
     /stale-gate-skip/,
   );
+  const g10FiveGates = sabotageTrust && sabotageEvidence && sabotageDigest && sabotageLease && sabotageStale;
 
   return [
     {
@@ -304,18 +326,18 @@ export function deriveRealismGates(assertions: readonly VitestAssertion[]): Real
     {
       gate: "G8-b SIGKILL 重启恢复",
       requirement: "在 artifact 写入前 / aggregate+outbox commit 后 / handler 写结果后三个故障点 SIGKILL 真实子进程并由新进程读 PG 恢复",
-      status: sigkillRecovery ? "partial" : "not-executed",
-      evidence: sigkillRecovery
-        ? "g8-dual-process.test.ts::SIGKILL 恢复 = passed（handler 进行中 kill -9 → lease 过期 → 新进程回收完成，attempts=2、结果行唯一）。覆盖 outbox claim/处理/complete 故障模型；三个 intake 阶段级故障点的进程级注入未逐点执行，阶段不变量由 L1/L3 的 CAS + lease recovery 回归覆盖"
-        : `未观察到 SIGKILL 用例；进程内 lease 回收证据 leaseRecovery=${String(leaseRecovery)}`,
+      status: stageSigkillPoints ? "satisfied" : sigkillRecovery ? "partial" : "not-executed",
+      evidence: stageSigkillPoints
+        ? "g8-stage-sigkill.test.ts：artifact 写入前（storeAcquisition 端口包装挂起→kill -9→零 artifact 中间态→新进程重跑 fetch 完成）、aggregate+outbox commit 后（transitionRun 真实提交后挂起→run=admit+extract outbox pending→新进程接管）、handler 写结果后（ingest 真实落 candidate/plan 后挂起→extract 重放幂等）三个故障点全部 passed；每例断言唯一 run/official/plan、2 verdict、outbox 全 done 且被杀行 attempts≥2。另有 g8-dual-process.test.ts 的 outbox 级 SIGKILL 用例（attempts=2、结果行唯一）"
+        : `未观察到三个阶段级 SIGKILL 用例（beforeArtifact=${String(sigkillBeforeArtifact)}, afterAggregateOutbox=${String(sigkillAfterAggregateOutbox)}, afterHandlerResult=${String(sigkillAfterHandlerResult)}）；outbox 级 SIGKILL=${String(sigkillRecovery)}，进程内 lease 回收证据 leaseRecovery=${String(leaseRecovery)}`,
     },
     {
       gate: "G10 敏感度（sabotage）",
       requirement: "移除 trust/evidence/digest/lease/stale 任一门禁后至少一个 sentinel 必须翻红",
-      status: sabotageTrust && sabotageDigest && sabotageStale ? "partial" : "not-executed",
-      evidence: sabotageTrust && sabotageDigest && sabotageStale
-        ? "g10-sabotage-sensitivity.test.ts：trust-policy-attestation-bypass（伪造 policy 在无 verifier 注入时可安装/有 verifier 被拒）、digest-binding-skip（naive evaluator 恒 ok 可晋升空绑定 candidate/真门禁拒绝）、stale-gate-skip（use-policy 恒 allow 时 unchanged 成功/deny 时 verdict=deny）全部 passed。lease/evidence 门禁是 SQL/纯代码不可注入——其敏感度由 L3 的 mutation 探针（临时移除门禁 → 7 断言翻红 → 恢复）取证"
-        : "sabotage 敏感度用例未全部通过",
+      status: g10FiveGates ? "satisfied" : "not-executed",
+      evidence: g10FiveGates
+        ? "g10-sabotage-sensitivity.test.ts 五项全部 passed：trust-policy-attestation-bypass（伪造 policy 在无 verifier 注入时可安装/有 verifier 被拒 → fakePolicyInstall）、evidence-gate-skip（注入恒接受 evidenceQuoteVerifier 后篡改 quoteHash 通过/缺省服务端复算拒绝 → evidenceQuoteRecheck）、digest-binding-skip（naive evaluator 恒 ok 可晋升空绑定 candidate/缺 evaluator 被拒 → legacyEmptyBindingPromotion）、lease-gate-skip（注入恒 true leaseGuard 后过期 lease 仍可阶段提交+写 outbox/缺省严格门禁零行 → expiredLease）、stale-gate-skip（恒 allow 策略时 unchanged 成功/deny 时 verdict=deny → unchangedUsePolicyDeny）"
+        : `sabotage 敏感度未全部通过：trust=${String(sabotageTrust)} evidence=${String(sabotageEvidence)} digest=${String(sabotageDigest)} lease=${String(sabotageLease)} stale=${String(sabotageStale)}`,
     },
   ];
 }
@@ -467,14 +489,14 @@ export async function collect(repoRoot: string, output?: string): Promise<N29Acc
     unavailableReason: unavailable("toolchain"),
     timeoutMs: 900_000,
   });
-  const focusedCommand = `npx vitest run ${N29_FOCUSED_TEST_FILES.join(" ")} --reporter=json --outputFile ${focusedJson}`;
+  const focusedCommand = `npx vitest run ${N29_FOCUSED_TEST_FILES.join(" ")} --reporter=json --outputFile ${focusedJson} --hookTimeout 60000`;
   const focused = runGate(focusedCommand, {
     cwd: repoRoot,
     env: { N29_INTAKE_LEDGER: ledgerPath, N29_ACCEPT_COMMIT: currentHead },
     unavailableReason: unavailable("toolchain") ?? unavailable("postgres"),
     timeoutMs: 3_600_000,
   });
-  const fullRegression = runGate(`npm test -- --reporter=json --outputFile ${fullJson}`, {
+  const fullRegression = runGate(`npm test -- --reporter=json --outputFile ${fullJson} --hookTimeout 60000`, {
     cwd: repoRoot,
     unavailableReason: unavailable("toolchain") ?? unavailable("postgres"),
     timeoutMs: 5_400_000,

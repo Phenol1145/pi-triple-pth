@@ -846,6 +846,60 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     expect(await countOutbox(tenantId)).toBe(2);
   });
 
+  it("transitionRun：expired lease 零行、零 attempt、零 outbox（§8 条件 7 的提交门）", async () => {
+    const tenantId = nextTenant("transition-expired-lease");
+    await seedSubscription(tenantId, { status: "active" });
+    const [run] = await repo.createDueRuns(new Date(), 10, { tenantId });
+    const claimed = await repo.claimRun({
+      tenantId,
+      runId: run.id,
+      principalId: "worker:a",
+      executionId: "exec-a",
+      leaseMs: 80,
+    });
+    await sleep(160);
+
+    const attemptsBefore = (await repo.listAttempts(tenantId, run.id)).length;
+    const outboxBefore = await countOutbox(tenantId);
+    expect(
+      await repo.transitionRun({
+        tenantId,
+        runId: run.id,
+        fromStage: "fetch",
+        leaseToken: claimed!.leaseToken!,
+        leaseGeneration: claimed!.leaseGeneration,
+        expectedRowVersion: claimed!.rowVersion,
+        toStage: "admit",
+        status: "queued",
+        principalId: "worker:a",
+        executionId: "exec-a",
+        sideEffects: [{ key: `expired:${run.id}`, kind: "intake.admit", payload: { runId: run.id } }],
+      }),
+    ).toBeNull();
+    // 过期 lease 提交不得留下任何 attempt / outbox 写。
+    expect((await repo.listAttempts(tenantId, run.id)).length).toBe(attemptsBefore);
+    expect(await countOutbox(tenantId)).toBe(outboxBefore);
+
+    // 新 worker 正常回收后，同一边仍可提交（证明只拒绝过期 lease，没有打坏聚合）。
+    const reclaimed = await repo.claimRun({ tenantId, runId: run.id, principalId: "worker:b", executionId: "exec-b" });
+    expect(reclaimed!.leaseGeneration).toBe(2);
+    const moved = await repo.transitionRun({
+      tenantId,
+      runId: run.id,
+      fromStage: "fetch",
+      leaseToken: reclaimed!.leaseToken!,
+      leaseGeneration: reclaimed!.leaseGeneration,
+      expectedRowVersion: reclaimed!.rowVersion,
+      toStage: "admit",
+      status: "queued",
+      principalId: "worker:b",
+      executionId: "exec-b",
+      sideEffects: [{ key: `recovered:${run.id}`, kind: "intake.admit", payload: { runId: run.id } }],
+    });
+    expect(moved!.stage).toBe("admit");
+    expect(await countOutbox(tenantId)).toBe(outboxBefore + 1);
+  });
+
   it("transitionRun：错 token / 错 generation / 错 rowVersion / 跨 tenant 均零行且零 outbox", async () => {
     const tenantId = nextTenant("transition-cas");
     await seedSubscription(tenantId, { status: "active" });
