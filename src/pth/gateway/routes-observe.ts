@@ -20,6 +20,23 @@
 import type { FastifyInstance } from "fastify";
 import type { SessionStore } from "../kernel/storage/session/interfaces.js";
 import type { AgentEngine } from "../core/agent-engine.js";
+import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
+import {
+  RUNTIME_TIMELINE_MAX_LIMIT,
+  RUNTIME_TIMELINE_MAX_RANGE_MS,
+  type RuntimeTimelineQuery,
+} from "../application/observation/runtime-observation-facade.js";
+import {
+  isRuntimeIntervalKind,
+  isRuntimeIntervalStatus,
+  isRuntimeWorkModeFilter,
+  RUNTIME_INTERVAL_KINDS,
+  RUNTIME_INTERVAL_STATUSES,
+  RUNTIME_WORK_MODE_FILTERS,
+  type RuntimeIntervalKind,
+  type RuntimeIntervalStatus,
+  type RuntimeWorkModeFilter,
+} from "../contracts/runtime-observation.js";
 
 /**
  * 事件查询过滤参数解析（eventType/since/until/limit——与 EventLog.query 对齐）。
@@ -110,5 +127,125 @@ export function registerObserveRoutes(
       return reply.status(502).send({ error: `event log query failed: ${r.error}` });
     }
     return { tenantId: req.auth.tenantId, count: r.data.length, events: r.data };
+  });
+}
+
+// ─── N30 Task 3：tenant-scoped durable PTH timeline 只读投影路由 ────────────────
+// GET /api/v1/observe/timeline?from=&to=&modes=&kinds=&statuses=&limit=&cursor=
+// tenant/space 只来自 req.auth（认证钩子盖章）；query/body 自报 tenant 一律忽略。
+
+function parseEpochMs(v: unknown, label: string): number | null | undefined {
+  if (v === undefined) return undefined;
+  const n = typeof v === "string" ? Number(v) : v;
+  if (typeof n !== "number" || !Number.isFinite(n)) return null;
+  return n;
+}
+
+function parseCommaList(v: unknown, label: string): string[] | null {
+  if (v === undefined) return null;
+  if (typeof v !== "string" || v.trim() === "") return null;
+  return v.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+function parseModesParam(v: unknown): RuntimeWorkModeFilter[] | null | undefined {
+  const raw = parseCommaList(v, "modes");
+  if (raw === null) return undefined;
+  const modes: RuntimeWorkModeFilter[] = [];
+  for (const item of raw) {
+    if (!isRuntimeWorkModeFilter(item)) return null;
+    modes.push(item);
+  }
+  return modes;
+}
+
+function parseKindsParam(v: unknown): RuntimeIntervalKind[] | null | undefined {
+  const raw = parseCommaList(v, "kinds");
+  if (raw === null) return undefined;
+  const kinds: RuntimeIntervalKind[] = [];
+  for (const item of raw) {
+    if (!isRuntimeIntervalKind(item)) return null;
+    kinds.push(item);
+  }
+  return kinds;
+}
+
+function parseStatusesParam(v: unknown): RuntimeIntervalStatus[] | null | undefined {
+  const raw = parseCommaList(v, "statuses");
+  if (raw === null) return undefined;
+  const statuses: RuntimeIntervalStatus[] = [];
+  for (const item of raw) {
+    if (!isRuntimeIntervalStatus(item)) return null;
+    statuses.push(item);
+  }
+  return statuses;
+}
+
+export function registerRuntimeObservationRoutes(app: FastifyInstance, facade: PthGatewayFacade | null): void {
+  app.get("/api/v1/observe/timeline", async (req, reply) => {
+    if (!facade) {
+      return reply.status(503).send({ error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" });
+    }
+
+    const auth = req.auth;
+    const query = (req.query ?? {}) as Record<string, unknown>;
+
+    // 1. 时间窗：from/to 为 epoch-ms；缺省最近 1 小时；非法（畸形/from>to/超 7 天）→ 400。
+    const now = Date.now();
+    const fromRaw = parseEpochMs(query.from, "from");
+    const toRaw = parseEpochMs(query.to, "to");
+    if (fromRaw === null || toRaw === null) {
+      return reply.status(400).send({ error: "from/to must be numeric epoch-ms timestamps" });
+    }
+    const from = fromRaw ?? now - 3_600_000;
+    const to = toRaw ?? now;
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to < 0 || from > to) {
+      return reply.status(400).send({ error: "malformed window: require 0 <= from <= to" });
+    }
+    if (to - from > RUNTIME_TIMELINE_MAX_RANGE_MS) {
+      return reply.status(400).send({ error: `window range exceeds ${RUNTIME_TIMELINE_MAX_RANGE_MS} ms (7 days)` });
+    }
+
+    // 2. limit fail-closed：默认 500，上限 5000。
+    const limitRaw = query.limit === undefined ? undefined : Number(query.limit);
+    const limit = limitRaw === undefined ? 500 : limitRaw;
+    if (!Number.isInteger(limit) || limit < 1 || limit > RUNTIME_TIMELINE_MAX_LIMIT) {
+      return reply.status(400).send({ error: `limit must be an integer 1-${RUNTIME_TIMELINE_MAX_LIMIT}` });
+    }
+
+    // 3. modes/kinds/statuses：逗号分隔白名单过滤；未知值一律 400。
+    const modes = parseModesParam(query.modes);
+    if (modes === null) {
+      return reply.status(400).send({ error: `unknown mode; allowed: ${RUNTIME_WORK_MODE_FILTERS.join(",")}` });
+    }
+    const kinds = parseKindsParam(query.kinds);
+    if (kinds === null) {
+      return reply.status(400).send({ error: `unknown kind; allowed: ${RUNTIME_INTERVAL_KINDS.join(",")}` });
+    }
+    const statuses = parseStatusesParam(query.statuses);
+    if (statuses === null) {
+      return reply.status(400).send({ error: `unknown status; allowed: ${RUNTIME_INTERVAL_STATUSES.join(",")}` });
+    }
+
+    const cursor = typeof query.cursor === "string" && query.cursor.length > 0 ? query.cursor : undefined;
+    const timelineQuery: RuntimeTimelineQuery = {
+      cursor,
+      limit,
+      ...(modes ? { modes } : {}),
+      ...(kinds ? { kinds } : {}),
+      ...(statuses ? { statuses } : {}),
+    };
+
+    try {
+      // 4. tenant/space 只来自认证上下文；query.tenant 即使存在也绝不参与。
+      const page = await facade.queryTimeline(
+        { tenantId: auth.tenantId, ...(auth.space ? { space: auth.space } : {}) },
+        { from, to },
+        timelineQuery,
+      );
+      return page;
+    } catch (err) {
+      const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
+      return reply.status(statusCode).send({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 }
