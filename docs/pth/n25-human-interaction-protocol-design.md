@@ -2,7 +2,7 @@
 
 > 日期：2026-08-18  
 > 状态：**设计已确认，尚未实施**  
-> 边界裁决：[ADR-0005](../adr/0005-pth-human-interaction-boundary.md)  
+> 边界裁决：[ADR-0005](../adr/0005-pth-human-interaction-boundary.md)；角色所有权修订：[ADR-0006](../adr/0006-ptl-human-interface-role-boundary.md)
 > 术语事实源：[CONTEXT.md](../../CONTEXT.md)  
 > 契约复验输入：[v1.2 F1–F5 复验报告](./v1.2-acceptance-fix-revalidation.md)
 
@@ -20,7 +20,7 @@ PTH 需要自己的 Human Interaction bounded context，才能兑现“接收自
 核心裁决如下：
 
 - **PTH 拥有协议和持久状态。** PTL、CLI、HTTP/SSE、未来 Web 与 mailbox 都只是 adapter。
-- **`human-interface` 是按需语义角色，不是 batch worker。** 它产生 proposal，不拥有最终状态或授权。
+- **`human-interface` 是 PTL 的按需语义角色，不是 PTH batch worker。** 它通过公开协议产生 proposal，不拥有最终状态或授权。
 - **LLM 提议，服务器裁决。** LLM 输出 IntentProposal；确定性约束、策略和能力元数据生成 ResolvedIntent、EffectAssessment 与 review route。
 - **Task Draft 与 Task 分离。** Draft 是可版本化工作承诺；只有通过质量门和审核后才编译成 TaskSubmission。
 - **等待人类是真实 blocked gate。** 不用 retryable reject、普通 pending 或子任务 await 模拟。
@@ -57,7 +57,8 @@ PTH 需要自己的 Human Interaction bounded context，才能兑现“接收自
 flowchart LR
     U["用户"] --> A["Channel Adapter\nCLI / HTTP-SSE / PTH Web / PTL"]
     A --> HI["Human Interaction Service\n权威状态 · 约束 · 策略"]
-    HI --> IA["human-interface\nIntentProposal · TaskDraftProposal · PresentationProposal"]
+    A --> IA["PTL human-interface\nIntentProposal · TaskDraftProposal · PresentationProposal"]
+    IA --> HI
     HI --> IR["Intent Resolver\n轴约束 · 置信度 · 目标绑定"]
     IR --> D{"Resolved mode"}
     D -->|"chitchat"| O["Output Composer"]
@@ -78,7 +79,7 @@ flowchart LR
 | 参与者 | 拥有 | 不拥有 |
 |---|---|---|
 | Human Interaction Service | session/turn、intent resolution、draft/review/request/response 状态、presentation policy | Task 的 claim/lease/terminal 状态；LLM 执行 |
-| `human-interface` | 结构化 proposal、用户语言改写建议 | 数据库状态、授权、effect 真值、审批决定、任务认领 |
+| PTL `human-interface` | 结构化 proposal、用户语言改写建议 | PTH 数据库状态、授权、effect 真值、审批决定、任务认领 |
 | Task Control | TaskSubmission、任务状态、lease、blocked gate、cancel/resume | 用户表达、意图分类模型 |
 | Task Runner | 执行已租借任务并返回 outcome 或 suspension | Task 状态迁移、人类身份判断 |
 | Channel Adapter | 认证上下文传递、输入/输出渲染、断线重连 | 领域状态、policy、actor 自报、恢复裁决 |
@@ -160,7 +161,7 @@ interface EffectAssessment {
 ```
 
 每个 capability 必须有 server-owned effect descriptor；组合任务取安全上界，不允许
-`human-interface` 或 TaskDraft 作者把风险向下覆盖。
+PTL `human-interface` 或 TaskDraft 作者把风险向下覆盖。
 
 ### 3.2 Proposal 与权威解析分离
 
@@ -519,7 +520,7 @@ safety floor。进程内 `setTimeout` 只能优化唤醒，不能作为真相。
 
 ## 8. 面向用户的输出调整
 
-`human-interface` 可以改变语言、结构、详略和渠道格式，但不能改变事实、状态、风险或决定。
+PTL `human-interface` 可以改变语言、结构、详略和渠道格式，但不能改变事实、状态、风险或决定。
 
 ### 8.1 Canonical result 与 presentation 分离
 
@@ -749,7 +750,7 @@ SSE 每个事件包含 `id`、`event`、`data`、timestamp、session/turn/reques
 | `TaskAwait` / dispatchWait | 保留父子任务等待；human wait 使用独立 gate |
 | PTL mailbox | 保留 pi session 通讯；未来可做 channel adapter |
 | HTTP bridge | 保持兼容 adapter；PTH CLI 仍是规范入口 |
-| role-lineage 中“PTL 负责人类交互” | 改为“human-interface 不是 worker；Human Interaction 归 PTH，PTL 是 adapter” |
+| role-lineage 中“PTL 负责人类交互” | 明确为“human-interface 角色归 PTL；Human Interaction 协议/状态归 PTH；PTL 界面是 adapter” |
 
 迁移期间旧接口不能自动创建已批准决定。任何旧 `approve`/`close` 动作要接入新协议，必须显式
 转换为带 stable principal、target revision 和 policy snapshot 的 command。
@@ -764,13 +765,13 @@ SSE 每个事件包含 `id`、`event`、`data`、timestamp、session/turn/reques
 - CapabilityEffectDescriptor；
 - structural 与 cross-axis constraint tests。
 
-退出条件：`human-interface` 注册为 interaction-agent 且 batch 永不展开；body tenant/actor 无法伪造。
+退出条件：PTH Runtime Catalog 不注册 `human-interface` 且 batch 永不展开；PTL proposal 的 body tenant/actor 无法伪造。
 
 ### Phase H1：Session、Turn、Intent 与 Discussion
 
 - PostgreSQL session/turn/intent store；
 - idempotent append；
-- human-interface IntentProposal；
+- PTL human-interface IntentProposal；
 - server resolver；
 - chitchat/discussion/request/control/clarification；
 - discussion read-only capability ceiling。
@@ -884,7 +885,7 @@ user turn
 本设计的“完成”不是类型文件存在或 demo 可聊天，而是同时满足：
 
 1. 领域术语、公共 DTO、状态机与数据库不变量一致；
-2. `human-interface` 可按需调用但永不进入 batch；
+2. PTL `human-interface` 可按需调用公开协议，PTH Runtime Catalog 无该角色且 batch 永不展开；
 3. 闲聊/讨论/请求/控制能被约束解析；
 4. TaskDraft 可版本化、可展示、可审核并能证明 Task 来源；
 5. review 可调且 safety floor 不可绕过；

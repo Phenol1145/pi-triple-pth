@@ -9,6 +9,8 @@
 > 分层待办：[根 TODO：N30 O0–O5](../../TODO.md#n30-统一运行观测台c-方案分层待办2026-08-19-已确认布局)
 >
 > 实施计划：[2026-08-19 N30 运行观测台实施计划](../superpowers/plans/2026-08-19-n30-runtime-observatory.md)
+>
+> v1.3 操作入口：[N33 PTL 五页 Operator Console](./n33-v13-ptl-operator-console-design.md)
 
 ## 0. 执行摘要
 
@@ -27,6 +29,10 @@ Worker、Role、Batch、Trace、重试、事件和资源摘要。
 
 首版只支持本机管理员：默认监听 `127.0.0.1`，PTH 管理令牌仅存在于服务端，Docker Socket
 永不暴露给浏览器。租户自助访问与长期时序存储属于 O5，必须另行验收。
+
+N30 始终是只读 Observation Plane。它可以独立提供 C 方案页面；N33 落地后，PTL Operator
+Console 通过同源 GET/SSE 代理把该页面以 `embed=1` 放入“总览”。N30 进程不因此获得 PTH 写凭据，
+也不承载运行、调试、记忆或配置页的控制逻辑。
 
 ## 1. 当前基础与缺口
 
@@ -71,6 +77,7 @@ Worker、Role、Batch、Trace、重试、事件和资源摘要。
 - 不新增观测数据库、对象存储或时序数据库；
 - 不允许浏览器直接读取 Docker Socket、Redis、PostgreSQL 或 PTH 管理令牌；
 - 不提供 pause、resume、remove、retry、cancel 等控制按钮；
+- 不因为 N33 嵌入而接收任何 POST、控制命令或浏览器身份；
 - 不在 O1–O4 提供公网或多租户自助访问；
 - 不把告警直接连接到 controller 或自动调节路径。
 

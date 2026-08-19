@@ -8,8 +8,11 @@
 >
 > 配套观测面：[N30 统一运行观测台设计](./n30-runtime-observatory-design.md)
 >
+> 配套人类操作入口：[N33 PTL 五页 Operator Console](./n33-v13-ptl-operator-console-design.md)
+>
 > 实施计划：[v1.3 专业计算实施计划](../superpowers/plans/2026-08-19-v13-professional-computing.md) ·
-> [N30 运行观测台实施计划](../superpowers/plans/2026-08-19-n30-runtime-observatory.md)
+> [N30 运行观测台实施计划](../superpowers/plans/2026-08-19-n30-runtime-observatory.md) ·
+> [N33 PTL 五页操作台实施计划](../superpowers/plans/2026-08-19-v13-ptl-operator-console.md)
 
 ## 0. 执行摘要
 
@@ -27,8 +30,9 @@ Role 与一个教程编排 Role：
 但使用各自受限的专业 Runtime Adapter。共享不等于全权限：角色只能看见冻结 Task Working Set，
 只能调用 Role 与 Execution Grant 同时允许的适配器。
 
-本版本同时交付 N30 C 方案 Web 运行观测台，用甘特图展示 Job/Task/Intake/Professional Job
-区间，用同步折线图展示 CPU、RSS、Heap 和 Network。观测台只读，不成为执行事实源。
+本版本同时交付 N30 C 方案只读运行观测面与 N33 PTL 五页操作台。N30 用甘特图展示
+Job/Task/Intake/Professional Job 区间，用同步折线图展示 CPU、RSS、Heap 和 Network；N33
+承载本机人类操作入口。两者都不成为执行事实源。
 
 所有有限工作项由服务端盖章为三种 Work Mode 之一：`intake`、`optimize`、`run`。Mode 只表达
 工作目的，可以并发；它不替代 Task/Intake 的原生状态机，也不等于 Role 或 Workflow。
@@ -44,6 +48,7 @@ Role 与一个教程编排 Role：
 - 建立 Assembly、Lean 4、Wolfram、Psi4、Quantum ESPRESSO 适配器；
 - 建立 Jupyter Notebook 生成、干净内核执行和专业复核闭环；
 - 实施 N30 O0–O4 本机管理员运行观测台；
+- 实施 N33 总览/运行/调试/记忆/配置五页 PTL Operator Console；
 - 用真实任务、真实工具输出、真实 artifact 和无新增 skip 的门禁验收。
 
 ### 1.2 v1.3.0 不包含
@@ -53,7 +58,7 @@ Role 与一个教程编排 Role：
 - 不让 LLM 自由拼接 shell 命令或直接接触软件进程；
 - 不把 Notebook 历史输出当作成功证据；
 - 不自动接受新的外部信息源；来源仍受 N29 TrustPolicy 与摄入门控制约束；
-- 不在本版本开放多租户 Web 运维面；N30 O5 后置。
+- 不在本版本开放多租户 Web 运维面；N30 O5 与 N33 远程多用户模式后置。
 
 ## 2. 三种工作模式
 
@@ -286,7 +291,7 @@ export interface NotebookGuideManifest {
 干净 kernel 中执行 `Restart Kernel and Run All` 等价流程，禁止隐藏状态、凭据、宿主绝对路径和
 内嵌大二进制。Notebook 中的历史输出不能替代本轮执行记录。
 
-## 8. N30 Web 视图的 v1.3 位置
+## 8. N30 / N33 Web 视图的 v1.3 位置
 
 N30 与专业计算并行实现，复用相同 `taskId/workerId/roleId/traceId`：
 
@@ -296,6 +301,10 @@ N30 与专业计算并行实现，复用相同 `taskId/workerId/roleId/traceId`�
 - Notebook 执行显示为 Jupyter Professional Job；
 - 页面 stale/dead/断流时冻结并明确标记，不补造零值；
 - 浏览器不持有 Docker Socket、PTH 管理 token 或专业软件凭据。
+
+N33 在 PTL 提供五页操作台。N30 只读页面嵌入“总览”；专业任务从“运行/run”经预览与确认发布，
+“调试”只观察 Worker/Role/Working Set，“记忆”和“配置”保持只读。N33 不拥有专业作业状态，
+也不在浏览器中开放任意 adapter 命令。
 
 ## 9. 交付里程碑
 
@@ -308,10 +317,11 @@ N30 与专业计算并行实现，复用相同 `taskId/workerId/roleId/traceId`�
 | P3 | Wolfram + Psi4 + QE 垂直切片 | 许可证/资源/收敛/版本门全绿 |
 | P4 | technical-educator + Notebook 闭环 | 四份教程干净执行并由相应专业 Role 复核 |
 | P5 | N30 O0–O4 | 甘特/折线联动、Freshness、真实 Docker+PTH 组合验收 |
-| P6 | v1.3 综合验收 | 五 Role 共享记忆与核心；全量、lint、build、无新增 skip |
+| P6 | N33 PTL Operator Console | 五页安全壳、三 mode 原生命令、有界调试/记忆/配置读面 |
+| P7 | v1.3 综合验收 | 五 Role 共享记忆与核心；N30/N33；全量、lint、build、无新增 skip |
 
 M0 → P0 → P1 → P2 是首条关键路径。P3 可在 P2 的统一契约稳定后并行；P4 依赖至少一个专业结果；
-P5 与 P0–P4 并行，但 P6 必须同时满足专业计算和 N30 门禁。
+P5 与 P0–P4 并行；P6 先消费 P5 的只读数据面；P7 必须同时满足专业计算、N30 与 N33 门禁。
 
 ## 10. 最终版本门
 
@@ -324,7 +334,8 @@ v1.3.0 只有在以下条件全部满足时才能发布：
 5. 四个专业场景使用真实软件完成，适配器不可用不计 PASS；
 6. 四份 Notebook 在干净环境全量执行并完成专业复核；
 7. N30 O0–O4 的 mode/freshness、资源上限、安全与可访问性验收通过；
-8. N29 最小可信摄入内环原有门禁不回退；
-9. focused、全量、lint、build 均成功，skip manifest 无新增；
-10. 权威 acceptance envelope 绑定包含实现与报告的同一 clean commit；
-11. N31 Workflow 抽象没有被偷渡进 v1.3 实现。
+8. N33 五页、三 mode 原生命令、只读面、浏览器凭据隔离与安全验收通过；
+9. N29 最小可信摄入内环原有门禁不回退；
+10. focused、全量、lint、build 均成功，skip manifest 无新增；
+11. 权威 acceptance envelope 绑定包含实现与报告的同一 clean commit；
+12. N31 Workflow 抽象没有被偷渡进 v1.3 实现。
