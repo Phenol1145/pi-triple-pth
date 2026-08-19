@@ -2,104 +2,445 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>Docker 容器监控</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>N30 运行观测台</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'self'">
 <style>
-  :root { --bg:#0f1419; --card:#1a2129; --border:#2a3441; --txt:#e6edf3; --dim:#8b949e; }
-  * { box-sizing:border-box; margin:0; padding:0; }
-  body { background:var(--bg); color:var(--txt); font:14px/1.5 -apple-system,"PingFang SC",sans-serif; padding:24px; }
-  h1 { font-size:20px; margin-bottom:4px; }
-  .sub { color:var(--dim); margin-bottom:20px; font-size:12px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px; }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px; }
-  .card.running { border-left:3px solid #3fb950; }
-  .card.exited  { border-left:3px solid #f85149; }
-  .card.created { border-left:3px solid #d29922; }
-  .head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
-  .name { font-weight:600; font-size:15px; word-break:break-all; }
-  .state { font-size:12px; padding:2px 8px; border-radius:10px; }
-  .state.running { background:#1f6f43; }
-  .state.exited  { background:#8b1e1e; }
-  .state.created { background:#6e4a12; }
-  .img { color:var(--dim); font-size:11px; margin-bottom:8px; word-break:break-all; }
-  table { width:100%; border-collapse:collapse; font-size:12px; }
-  td { padding:3px 0; color:var(--dim); }
-  td.k { width:55px; }
-  td.v { color:var(--txt); text-align:right; }
-  .bar { height:4px; background:#2a3441; border-radius:2px; margin-top:2px; overflow:hidden; }
-  .bar > div { height:100%; background:#3fb950; transition:width .5s; }
-  .bar.warn > div { background:#d29922; }
-  .bar.crit > div { background:#f85149; }
-  .ports { color:var(--dim); font-size:11px; margin-top:8px; word-break:break-all; }
-  .error { color:#f85149; background:#3a1d1d; padding:8px 12px; border-radius:8px; margin-bottom:14px; }
-  .badge { display:inline-block; font-size:11px; color:var(--dim); margin-left:8px; }
+  :root {
+    --bg: #0f1419; --card: #161b22; --border: #2a3441; --txt: #e6edf3; --dim: #8b949e;
+    --cyan: #22d3ee; --green: #3fb950; --amber: #d29922; --red: #f85149; --grey: #6e7681;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--txt); font: 14px/1.5 -apple-system, "PingFang SC", "Segoe UI", sans-serif; padding: 16px; }
+  h1 { font-size: 18px; }
+  h2 { font-size: 13px; font-weight: 600; }
+  .dim { color: var(--dim); }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+  .hidden { display: none !important; }
+
+  header.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+  header.top .spacer { flex: 1; }
+  .btn { background: #21262d; color: var(--txt); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+  .btn.active { border-color: var(--cyan); color: var(--cyan); }
+  .btn:focus-visible { outline: 2px solid var(--cyan); }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border); color: var(--dim); }
+  .badge.live { color: var(--green); border-color: var(--green); }
+  .badge.paused { color: var(--amber); border-color: var(--amber); }
+
+  #source-banners { display: grid; gap: 8px; margin-bottom: 12px; }
+  .banner { border-radius: 8px; padding: 8px 12px; font-size: 13px; border: 1px solid; }
+  .banner.docker { background: #3a1d1d; border-color: #f85149; color: #ffd7d5; }
+  .banner.pth { background: #3a2c12; border-color: #d29922; color: #ffe7a3; }
+  .banner.aggregator { background: #3a1d1d; border-color: #f85149; color: #ffd7d5; }
+
+  .kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .kpi .cell { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .kpi .v { font-size: 20px; font-weight: 600; }
+  .kpi .k { font-size: 11px; color: var(--dim); }
+
+  .c-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+  @media (max-width: 1100px) { .c-layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; min-width: 0; }
+  .panel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; gap: 8px; flex-wrap: wrap; }
+  .legend { font-size: 11px; color: var(--dim); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px 0 8px; vertical-align: -1px; }
+
+  #gantt { overflow-x: auto; }
+  #gantt svg { display: block; min-width: 720px; }
+  #gantt .bar { cursor: pointer; }
+  #gantt .bar:hover .bar-body { stroke: #fff; stroke-width: 1; }
+  #gantt .bar.selected .bar-body { stroke: #fff; stroke-width: 2; }
+
+  .canvas-wrap { position: relative; }
+  #resource { display: block; width: 100%; height: auto; }
+
+  #detail .kv { display: grid; grid-template-columns: 88px minmax(0, 1fr); row-gap: 6px; font-size: 13px; }
+  #detail .kv dt { color: var(--dim); }
+  #detail .kv dd { word-break: break-all; }
+  #detail table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  #detail td, #detail th { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: right; }
+  #detail th:first-child, #detail td:first-child { text-align: left; color: var(--dim); }
+
+  body.embed header.top { display: none; }
+  body.embed { padding: 8px; }
+  .empty { color: var(--dim); padding: 18px; text-align: center; }
+  footer { margin-top: 12px; color: var(--dim); font-size: 11px; }
 </style>
 </head>
 <body>
-<h1>Docker 容器监控 <span class="badge" id="ts"></span></h1>
-<div class="sub">实时状态（SSE 自动更新）· 只读面板</div>
-<div id="error" class="error" hidden></div>
-<div id="grid" class="grid"></div>
+<header class="top">
+  <h1>N30 运行观测台</h1>
+  <span id="scope" class="badge">local-admin</span>
+  <span id="live-badge" class="badge live">LIVE</span>
+  <label class="dim">Work Mode</label>
+  <button class="btn" data-mode="intake" aria-pressed="false">intake</button>
+  <button class="btn" data-mode="optimize" aria-pressed="false">optimize</button>
+  <button class="btn" data-mode="run" aria-pressed="false">run</button>
+  <label class="dim">窗口</label>
+  <button class="btn active" data-preset="1h">1h</button>
+  <button class="btn" data-preset="15m">15m</button>
+  <button class="btn" id="pause-btn">暂停</button>
+  <span id="window-label" class="dim"></span>
+  <span class="spacer"></span>
+  <span class="dim">键盘：←/→ 选择，[ / ] 缩放，P 暂停</span>
+</header>
 
-<script>
-const grid = document.getElementById("grid");
-const tsEl = document.getElementById("ts");
-const errEl = document.getElementById("error");
+<section id="source-banners"></section>
+
+<section class="kpi" id="kpi"></section>
+
+<main class="c-layout">
+  <section class="panel">
+    <div class="panel-head">
+      <h2>执行甘特图（Job → Task → Intake/Optimize/Professional Stage + 服务 lane）</h2>
+      <span class="legend">
+        <i style="background:#22d3ee"></i>running
+        <i style="background:#3fb950"></i>completed
+        <i style="background:#d29922"></i>waiting
+        <i style="background:#f85149"></i>failed
+        <i style="background:#6e7681"></i>stale
+      </span>
+    </div>
+    <div id="gantt"><div class="empty">等待快照…</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>资源折线（CPU / RSS / Heap / Network 共享甘特横轴）</h2>
+      <span class="legend">
+        <i style="background:#22d3ee"></i>CPU
+        <i style="background:#3fb950"></i>RSS
+        <i style="background:#d29922"></i>Heap
+        <i style="background:#f0883e"></i>Net
+      </span>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="resource" width="960" height="220" role="img" aria-label="资源折线图，可在图上拖拽刷选时间窗"></canvas>
+    </div>
+  </section>
+
+  <aside class="panel" id="detail">
+    <div class="panel-head"><h2>选中区间详情</h2><span id="detail-range" class="dim"></span></div>
+    <div id="detail-body"><div class="empty">点击甘特条或按 ←/→ 选择区间</div></div>
+  </aside>
+</main>
+
+<div id="aria-summary" class="sr-only" aria-live="polite"></div>
+<footer>只读观测面 · 数据缺失显示 unknown，不以 0 伪装健康</footer>
+
+<script type="module">
+import { createUiState, validateEmbedBase } from "./ui-state.js";
+import {
+  renderGanttSvg,
+  buildGanttModel,
+  buildResourceModel,
+  drawResourceChart,
+  buildDetailModel,
+  renderTextSummary,
+  RESOURCE_PADDING,
+} from "./charts.js";
+
+const $ = (id) => document.getElementById(id);
+const ganttEl = $("gantt");
+const canvas = $("resource");
+const ctx = canvas.getContext("2d");
+
+// ---- embed 模式：?embed=1&base=/observe（同源绝对路径，GET/SSE 只读代理） ----
+const params = new URLSearchParams(location.search);
+const embed = params.get("embed") === "1";
+let base = "/";
+if (embed) {
+  const rawBase = params.get("base") ?? "/";
+  const validated = validateEmbedBase(rawBase);
+  if (validated === null) {
+    document.body.innerHTML = '<div class="banner aggregator">embed base 非法：必须是同源绝对路径（无 scheme/host/.. /编码斜杠）。</div>';
+    throw new Error("invalid embed base");
+  }
+  base = validated;
+  document.body.classList.add("embed");
+}
+const endpoint = (path) => (base === "/" ? path : `${base}${path}`);
+const SNAPSHOT_URL = endpoint("/snapshot");
+const EVENTS_URL = endpoint("/events");
+
+const state = createUiState({ clock: () => Date.now(), defaultPreset: "1h" });
+let lastLanes = [];
+let needResync = false;
+let selectedIndex = -1;
+let brush = null;
 
 function fmtBytes(n) {
-  if (n == null) return "-";
+  if (n == null) return "unknown";
   if (n >= 1e9) return (n / 1e9).toFixed(1) + "G";
   if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
   return n + "B";
 }
-function fmtPct(p) { return p == null ? "-" : p.toFixed(1) + "%"; }
+function fmtPct(p) { return p == null ? "unknown" : p.toFixed(1) + "%"; }
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
 
-function render(snap) {
-  tsEl.textContent = "更新于 " + new Date(snap.ts).toLocaleTimeString();
-  if (snap.error) { errEl.hidden = false; errEl.textContent = "⚠ Docker API 错误: " + snap.error; }
-  else errEl.hidden = true;
+function renderKpi(renderedAt) {
+  const summary = state.getSummary();
+  const samples = state.getVisibleSamples();
+  const latest = samples[samples.length - 1];
+  const cells = [
+    ["active tasks", summary.activeTasks ?? 0],
+    ["workers", summary.workers ?? 0],
+    ["queue", summary.queuedTasks ?? 0],
+    ["CPU", latest ? fmtPct(latest.cpuPercent) : "unknown"],
+    ["RSS", latest ? fmtBytes(latest.rssBytes) : "unknown"],
+    ["alerts", summary.alerts ?? 0],
+  ];
+  $("kpi").innerHTML = cells.map(([k, v]) => `<div class="cell"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
+}
 
-  const containers = snap.containers || [];
-  if (containers.length === 0) { grid.innerHTML = "<div class='sub'>无容器（docker 未运行或没有容器）</div>"; return; }
+function renderBanners(renderedAt) {
+  const sources = state.getSourceStates(renderedAt);
+  const warnings = state.getWarnings();
+  const docker = sources.find((s) => s.source === "docker");
+  const pth = sources.find((s) => s.source === "pth-timeline");
+  const banners = [];
+  if (docker && docker.state === "disconnected") {
+    banners.push(`<div class="banner docker">Docker 不可用：仍展示 PTH 时间线，资源值标 unknown。最后观测于 ${docker.lastSuccessAt ? new Date(docker.lastSuccessAt).toLocaleTimeString() : "—"}</div>`);
+  }
+  if (pth && pth.state === "disconnected") {
+    banners.push(`<div class="banner pth">PTH 不可用：仍展示服务与资源曲线。最后观测于 ${pth.lastSuccessAt ? new Date(pth.lastSuccessAt).toLocaleTimeString() : "—"}</div>`);
+  }
+  for (const w of warnings) {
+    const cls = w.source === "pth" ? "pth" : w.source === "aggregator" ? "aggregator" : "docker";
+    banners.push(`<div class="banner ${cls}">${esc(w.message ?? w.code ?? "warning")}</div>`);
+  }
+  $("source-banners").innerHTML = banners.join("");
+}
 
-  grid.innerHTML = "";
-  for (const c of containers) {
-    const card = document.createElement("div");
-    card.className = "card " + c.state;
-    const memBar = c.memPct == null ? "" :
-      `<div class="bar ${c.memPct > 85 ? "crit" : c.memPct > 60 ? "warn" : ""}"><div style="width:${Math.min(c.memPct,100).toFixed(0)}%"></div></div>`;
-    const cpuBar = c.cpu == null ? "" :
-      `<div class="bar ${c.cpu > 85 ? "crit" : c.cpu > 60 ? "warn" : ""}"><div style="width:${Math.min(c.cpu,100).toFixed(0)}%"></div></div>`;
-    const health = c.health ? `<span class="badge">health: ${c.health}</span>` : "";
-    card.innerHTML = `
-      <div class="head">
-        <span class="name">${escapeHtml(c.names || c.id)}</span>
-        <span class="state ${c.state}">${c.state}${health}</span>
-      </div>
-      <div class="img">${escapeHtml(c.image || "")}</div>
-      <table>
-        <tr><td class="k">CPU</td><td class="v">${fmtPct(c.cpu)}</td></tr>
-        <tr><td></td><td>${cpuBar}</td></tr>
-        <tr><td class="k">内存</td><td class="v">${fmtBytes(c.mem)} / ${fmtBytes(c.memLimit)} (${fmtPct(c.memPct)})</td></tr>
-        <tr><td></td><td>${memBar}</td></tr>
-        <tr><td class="k">网络</td><td class="v">↓ ${fmtBytes(c.netRx)} · ↑ ${fmtBytes(c.netTx)}</td></tr>
-      </table>
-      <div class="ports">${(c.ports || []).map(escapeHtml).join(" · ") || c.status || ""}</div>`;
-    grid.appendChild(card);
+function renderDetail(renderedAt) {
+  const detail = buildDetailModel(state, { renderedAt });
+  const body = $("detail-body");
+  const range = $("detail-range");
+  if (!detail) {
+    body.innerHTML = '<div class="empty">点击甘特条或按 ←/→ 选择区间</div>';
+    range.textContent = "";
+    return;
+  }
+  const iv = detail.interval;
+  range.textContent = `${new Date(detail.window.from).toLocaleTimeString()} → ${new Date(detail.window.to).toLocaleTimeString()}${detail.stale ? " · stale" : ""}`;
+  const u = detail.usage;
+  body.innerHTML = `
+    <dl class="kv">
+      <dt>Worker</dt><dd>${esc(detail.workerId ?? "—")}</dd>
+      <dt>Role</dt><dd>${esc(detail.roleId ?? "—")}</dd>
+      <dt>Batch</dt><dd>${esc(detail.batchId ?? "—")}</dd>
+      <dt>Trace</dt><dd>${esc(detail.traceId ?? "—")}</dd>
+      <dt>重试</dt><dd>${esc(detail.retry)}</dd>
+      <dt>错误</dt><dd>${esc(detail.error ?? "—")}</dd>
+      <dt>状态</dt><dd>${esc(iv.status ?? "unknown")}</dd>
+    </dl>
+    <table>
+      <tr><th>usage</th><th>当前</th><th>峰值</th></tr>
+      <tr><td>CPU</td><td>${fmtPct(u.cpuPercent.current)}</td><td>${fmtPct(u.cpuPercent.peak)}</td></tr>
+      <tr><td>RSS</td><td>${fmtBytes(u.rssBytes.current)}</td><td>${fmtBytes(u.rssBytes.peak)}</td></tr>
+      <tr><td>Heap</td><td>${fmtBytes(u.heapUsedBytes.current)}</td><td>${fmtBytes(u.heapUsedBytes.peak)}</td></tr>
+      <tr><td>Net</td><td>${fmtBytes(u.netBytesPerSec.current)}/s</td><td>${fmtBytes(u.netBytesPerSec.peak)}/s</td></tr>
+    </table>`;
+}
+
+function render(renderedAt = Date.now()) {
+  const ganttWidth = Math.max(720, ganttEl.clientWidth || 960);
+  const ganttModel = buildGanttModel(state, { renderedAt, width: ganttWidth });
+  lastLanes = ganttModel.lanes;
+  ganttEl.innerHTML = renderGanttSvg(state, { renderedAt, width: ganttWidth });
+
+  const resourceModel = buildResourceModel(state, { renderedAt, width: canvas.width });
+  drawResourceChart(ctx, resourceModel, { width: canvas.width, height: canvas.height });
+
+  const selectedId = state.getSelectedIntervalId();
+  if (selectedId) {
+    const bar = ganttEl.querySelector(`.bar[data-interval-id="${CSS.escape(selectedId)}"]`);
+    if (bar) bar.classList.add("selected");
+  }
+
+  renderKpi(renderedAt);
+  renderDetail(renderedAt);
+  renderBanners(renderedAt);
+  $("aria-summary").textContent = renderTextSummary(state, { renderedAt });
+
+  const window = state.getWindow();
+  $("window-label").textContent = `${new Date(window.from).toLocaleTimeString()} → ${new Date(window.to).toLocaleTimeString()}`;
+  const badge = $("live-badge");
+  if (state.isPaused()) {
+    badge.textContent = "PAUSED";
+    badge.className = "badge paused";
+  } else {
+    badge.textContent = "LIVE";
+    badge.className = "badge live";
+  }
+  $("pause-btn").textContent = state.isPaused() ? "恢复" : "暂停";
+  $("scope").textContent = `${state.getScope().mode ?? "local-admin"} · ${state.getScope().tenantId ?? "local"}`;
+}
+
+function applyEvent(type, ev) {
+  const seq = ev.lastEventId && Number.isFinite(Number(ev.lastEventId)) ? Number(ev.lastEventId) : null;
+  const result = state.applyEvent({ type, data: ev.data, seq });
+  if (result.applied || state.isRefetchRequired()) {
+    if (state.isRefetchRequired()) needResync = true;
+    render();
   }
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (m) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[m]));
+async function fetchSnapshot() {
+  const res = await fetch(SNAPSHOT_URL, { cache: "no-store", headers: { accept: "application/json" } });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const snapshot = await res.json();
+  state.applySnapshot(snapshot);
+  needResync = false;
+  render();
 }
 
-// 首帧立即拉一次（避免等待 SSE 首个 tick），再订阅动态更新
-fetch("/events")
-  .then((r) => r.text())
-  .catch(() => {});
-const es = new EventSource("/events");
-es.onmessage = (ev) => { try { render(JSON.parse(ev.data)); } catch {} };
-es.onerror = () => { /* EventSource 自动重连 */ };
+function openEvents() {
+  const es = new EventSource(EVENTS_URL);
+  const types = ["snapshot", "interval.upsert", "interval.remove", "freshness", "heartbeat", "resource-sample", "service-interval", "warning.upsert"];
+  for (const type of types) {
+    es.addEventListener(type, (ev) => applyEvent(type, ev));
+  }
+  es.onerror = () => {
+    needResync = true;
+    const sources = state.getSourceStates(Date.now());
+    if (sources.every((s) => s.state === "disconnected")) {
+      $("source-banners").innerHTML = '<div class="banner aggregator">SSE 断开：正在重连，恢复前先重取快照。</div>';
+    }
+  };
+  es.onopen = () => {
+    if (needResync || state.isRefetchRequired()) {
+      fetchSnapshot().catch(() => {
+        $("source-banners").innerHTML = '<div class="banner aggregator">快照重取失败，SSE 恢复后自动重试。</div>';
+      });
+    }
+  };
+}
+
+// ---- 联动：点甘特条 → 选中区间 → 详情面板 + 两张图同窗高亮 ----
+ganttEl.addEventListener("click", (e) => {
+  const bar = e.target.closest(".bar");
+  if (!bar) return;
+  const id = bar.dataset.intervalId;
+  if (!id) return;
+  if (state.getSelectedIntervalId() === id) state.clearSelection();
+  else state.selectInterval(id);
+  render();
+});
+
+// ---- 联动：资源图刷选 → 反向更新甘特窗口 ----
+function canvasX(ev) {
+  const rect = canvas.getBoundingClientRect();
+  return (ev.clientX - rect.left) * (canvas.width / Math.max(1, rect.width));
+}
+function pxToTs(px) {
+  const w = state.getWindow();
+  const left = RESOURCE_PADDING.left;
+  const right = RESOURCE_PADDING.right;
+  const plot = Math.max(1, canvas.width - left - right);
+  return w.from + ((px - left) / plot) * (w.to - w.from);
+}
+canvas.addEventListener("mousedown", (e) => {
+  brush = { startX: canvasX(e) };
+});
+canvas.addEventListener("mousemove", (e) => {
+  if (!brush) return;
+  brush.endX = canvasX(e);
+  render();
+  const x0 = Math.min(brush.startX, brush.endX);
+  const x1 = Math.max(brush.startX, brush.endX);
+  ctx.fillStyle = "rgba(34,211,238,0.15)";
+  ctx.fillRect(x0, RESOURCE_PADDING.top, Math.max(1, x1 - x0), canvas.height - RESOURCE_PADDING.top - RESOURCE_PADDING.bottom);
+});
+window.addEventListener("mouseup", () => {
+  if (!brush) return;
+  const x0 = Math.min(brush.startX, brush.endX ?? brush.startX);
+  const x1 = Math.max(brush.startX, brush.endX ?? brush.startX);
+  const from = pxToTs(x0);
+  const to = pxToTs(x1);
+  brush = null;
+  if (to - from < 1000) { render(); return; }
+  state.zoomFromBrush(from, to);
+  render();
+});
+
+// ---- 键盘导航与文本摘要 ----
+document.addEventListener("keydown", (e) => {
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    e.preventDefault();
+    const ids = lastLanes.map((lane) => lane.id);
+    if (ids.length === 0) return;
+    const delta = e.key === "ArrowRight" ? 1 : -1;
+    selectedIndex = (selectedIndex + delta + ids.length) % ids.length;
+    state.selectInterval(ids[selectedIndex]);
+    render();
+  } else if (e.key === "[") {
+    e.preventDefault();
+    const w = state.getWindow();
+    const half = Math.max(60_000, (w.to - w.from) * 0.4);
+    const center = (w.from + w.to) / 2;
+    state.setCustomWindow(center - half, center + half);
+    render();
+  } else if (e.key === "]") {
+    e.preventDefault();
+    const w = state.getWindow();
+    const half = (w.to - w.from) * 0.75;
+    const center = (w.from + w.to) / 2;
+    state.setCustomWindow(center - half, center + half);
+    render();
+  } else if (e.key === "p" || e.key === "P") {
+    e.preventDefault();
+    togglePause();
+  }
+});
+
+function togglePause() {
+  if (state.isPaused()) {
+    state.resume();
+    fetchSnapshot().catch(() => render());
+  } else {
+    state.setPaused(true);
+  }
+  render();
+}
+
+document.querySelectorAll("[data-preset]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-preset]").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.setPreset(btn.dataset.preset);
+    render();
+  });
+});
+
+document.querySelectorAll("[data-mode]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const mode = btn.dataset.mode;
+    const filter = new Set(state.getWorkModeFilter());
+    if (filter.has(mode)) filter.delete(mode);
+    else filter.add(mode);
+    state.setWorkModeFilter(filter);
+    btn.classList.toggle("active", filter.has(mode));
+    btn.setAttribute("aria-pressed", String(filter.has(mode)));
+    render();
+  });
+});
+
+$("pause-btn").addEventListener("click", togglePause);
+
+// ---- 启动：先快照，再订阅 SSE；SSE 重连/seq 缺口时重取快照 ----
+(async function boot() {
+  try {
+    await fetchSnapshot();
+  } catch {
+    $("source-banners").innerHTML = '<div class="banner aggregator">快照不可用：等待 SSE 重连后重试。</div>';
+  }
+  openEvents();
+})();
 </script>
 </body>
 </html>
