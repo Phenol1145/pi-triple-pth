@@ -72,6 +72,8 @@ export interface SourceSubscription {
 export interface IntakeRun {
   readonly id: string;
   readonly tenantId: string;
+  /** M0：IntakeRun 是服务端固定 intake work（不是 body 可自报的判别量）。 */
+  readonly workMode: "intake";
   readonly subscriptionId: string;
   readonly reason: "initial" | "scheduled" | "manual-retry";
   readonly stage: "fetch" | "admit" | "extract" | "verify" | "promote" | "complete";

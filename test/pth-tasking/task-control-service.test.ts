@@ -54,13 +54,14 @@ suite("task control service（P1-3）", () => {
 
   it("publish：createdBy 只取服务器端 scope.principalId，body 字段不可覆盖", async () => {
     const task = await service.publish(
-      { title: "t", text: "x", createdBy: "forged-body", tags: ["code"], payload: { tenant: "forged" }, tenantId: "tenant-forged" },
+      { title: "t", text: "x", createdBy: "forged-body", tags: ["code"], payload: { tenant: "forged" }, tenantId: "tenant-forged", workMode: "intake" },
       scopeA,
     );
-    expect(task).toMatchObject({ createdBy: "tenant:tenant-a:tenant-agent", tenantId: "tenant-a" });
-    const row = await pool.query("SELECT created_by, tenant_id FROM tasks WHERE id = $1", [task.id]);
+    expect(task).toMatchObject({ createdBy: "tenant:tenant-a:tenant-agent", tenantId: "tenant-a", workMode: "run" });
+    const row = await pool.query("SELECT created_by, tenant_id, work_mode FROM tasks WHERE id = $1", [task.id]);
     expect(row.rows[0].created_by).toBe("tenant:tenant-a:tenant-agent");
     expect(row.rows[0].tenant_id).toBe("tenant-a");
+    expect(row.rows[0].work_mode).toBe("run");
   });
 
   it("W8 P0：外部入口恒盖 entry delivery，body 伪造 delivery 被服务端覆盖", async () => {
@@ -140,6 +141,22 @@ suite("task control service（P1-3）", () => {
     );
     const done = await routedService.awaitTask({ taskId: delegated.taskId }, caller, scopeA);
     expect(done).toEqual({ status: "completed", result: { value: 42 }, artifactRef: null, summary: undefined });
+  });
+
+  it("M0：delegate 继承父任务 work_mode（intake 父 → intake 子）", async () => {
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, work_mode)
+       VALUES ('parent-intake','tenant-a','parent','x','worker:developer','developer','claimed','intake')`,
+    );
+    const caller = {
+      taskId: "parent-intake",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-intake" },
+    };
+    const child = await routedService.delegate({ to: "coder", title: "intake 子任务", text: "x" }, caller, scopeA);
+    const row = await pool.query("SELECT work_mode FROM tasks WHERE id = $1", [child.taskId]);
+    expect(row.rows[0].work_mode).toBe("intake");
   });
 
   it("W8 P1：组织权 fail-fast——违规不进任务池；MID 目标由服务端直接填 assigned_role", async () => {

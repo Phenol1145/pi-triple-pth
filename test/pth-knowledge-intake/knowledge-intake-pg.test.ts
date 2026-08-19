@@ -683,6 +683,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
     expect(runs[0].stage).toBe("fetch");
     expect(runs[0].status).toBe("queued");
     expect(runs[0].reason).toBe("scheduled");
+    expect(runs[0].workMode).toBe("intake");
 
     const after = await repo.getSubscription(tenantId, sub.id);
     expect(Date.parse(after!.nextCrawlAt)).toBeGreaterThan(Date.parse(before!.nextCrawlAt));

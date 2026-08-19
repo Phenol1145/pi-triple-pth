@@ -29,6 +29,7 @@ import {
   buildCompletedResultWriteback,
   buildErrorResultWriteback,
   hasForeignTenantSideEffect,
+  isWorkMode,
   resolveTaskCommitTenantId,
   TASK_MAX_CLAIMS,
 } from "../../contracts/index.js";
@@ -62,6 +63,7 @@ interface ClaimRow {
   payload: unknown;
   assigned_role: string;
   lease_generation: string | number | null;
+  work_mode?: string | null;
 }
 
 /**
@@ -113,6 +115,7 @@ function toWorkItem(row: ClaimRow, scope: TenantScope): TaskWorkItem {
     payload: row.payload,
     assignedRole: row.assigned_role,
     domains,
+    workMode: isWorkMode(row.work_mode) ? row.work_mode : "run",
     ...(domainBinding ? { domainBinding } : {}),
   };
 }
@@ -138,7 +141,7 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
       if (taskIds.length === 0) return [];
       return withTx(pool, async (client) => {
         const sel = await client.query(
-          `SELECT id, tenant_id, title, text, tags, payload, assigned_role, lease_generation
+          `SELECT id, tenant_id, title, text, tags, payload, assigned_role, lease_generation, work_mode
            FROM tasks
            WHERE id = ANY($1::text[])
              AND tenant_id = $2

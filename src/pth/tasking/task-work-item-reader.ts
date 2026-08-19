@@ -13,7 +13,7 @@ import {
   type DomainBinding,
   type DomainId,
 } from "../contracts/domains.js";
-import type { TaskWorkItem, TenantScope } from "../contracts/index.js";
+import { isWorkMode, type TaskWorkItem, type TenantScope, type WorkMode } from "../contracts/index.js";
 
 export interface TaskWorkRow {
   id: string;
@@ -23,6 +23,7 @@ export interface TaskWorkRow {
   tags: string[] | null;
   payload: unknown;
   assigned_role: string | null;
+  work_mode?: string | null;
 }
 
 function isPlainRecord(v: unknown): v is Record<string, unknown> {
@@ -55,6 +56,10 @@ export function readWorkItemDomainBinding(
   return check.ok ? (raw as DomainBinding) : undefined;
 }
 
+function parseWorkMode(v: unknown): WorkMode {
+  return isWorkMode(v) ? v : "run";
+}
+
 export function toTaskWorkItem(row: TaskWorkRow, scope: TenantScope): TaskWorkItem {
   const domains = readWorkItemDomains(row.payload);
   const domainBinding = readWorkItemDomainBinding(row.payload, domains);
@@ -67,6 +72,7 @@ export function toTaskWorkItem(row: TaskWorkRow, scope: TenantScope): TaskWorkIt
     payload: row.payload,
     assignedRole: row.assigned_role ?? "unknown",
     domains,
+    workMode: parseWorkMode(row.work_mode),
     ...(domainBinding ? { domainBinding } : {}),
   };
 }

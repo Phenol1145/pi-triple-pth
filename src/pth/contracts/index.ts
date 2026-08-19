@@ -14,3 +14,4 @@ export * from "./role-routing-policy.js";
 export * from "./program.js";
 export * from "./cognitive-responsibility.js";
 export * from "./knowledge-intake.js";
+export * from "./work-mode.js";

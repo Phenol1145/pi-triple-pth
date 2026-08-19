@@ -12,6 +12,7 @@ import type { PublishInput } from "../kernel/storage/task-store-pg.js";
 import {
   buildEntryDelivery,
   isTaskDeliveryStructurallyValid,
+  isWorkMode,
   TASK_AWAIT_SUSPENDED_CODE,
   type TaskAwaitInput,
   type TaskAwaitResult,
@@ -21,6 +22,7 @@ import {
   type TaskDelivery,
   type TaskDispatchContext,
   type TenantScope,
+  type WorkMode,
 } from "../contracts/index.js";
 import type { DomainBinding } from "../contracts/domains.js";
 import { PgTaskQueries } from "./task-queries.js";
@@ -70,12 +72,14 @@ export class TaskControlService {
     scope: TenantScope,
   ): Promise<Task> {
     // P1-3：服务器端盖章——body 里的 createdBy/tenantId 一律丢弃。
+    // M0：gateway/用户发布恒为 run——body 里的 workMode 一律丢弃，不可自报 intake/optimize。
     // W8 P0：外部入口恒盖 entry delivery（path=[assignedRole]、lineageId=taskId）。
-    const { createdBy: _createdBy, tenantId: _tenantId, ...rest } = input;
+    const { createdBy: _createdBy, tenantId: _tenantId, workMode: _workMode, ...rest } = input;
     return this.deps.store.publish({
       ...rest,
       createdBy: scope.principalId,
       tenantId: scope.tenantId,
+      workMode: "run",
       deliveryMode: "entry",
     });
   }
@@ -85,6 +89,23 @@ export class TaskControlService {
    * 组织权矩阵在进入任务池前校验；parent/path/lineageId 全部由调用者身份盖章，
    * body 只允许任务内容/模板/标签/上下文/回流预期。
    */
+  /**
+   * M0：delegate 继承父任务的 tasks.work_mode。父行缺失（legacy/测试 caller 未落库）时
+   * 不阻断既有 delegate 行为，按默认 run 继承；父行存在但值非法也 fail-closed 回 run。
+   */
+  private async resolveParentWorkMode(caller: TaskDispatchContext, scope: TenantScope): Promise<WorkMode> {
+    try {
+      const res = await this.deps.pool.query(
+        `SELECT work_mode FROM tasks WHERE id = $1 AND tenant_id = $2`,
+        [caller.taskId, scope.tenantId],
+      );
+      const row = res.rows[0] as { work_mode?: unknown } | undefined;
+      return isWorkMode(row?.work_mode) ? row.work_mode : "run";
+    } catch {
+      return "run";
+    }
+  }
+
   async delegate(input: TaskDelegateInput, caller: TaskDispatchContext, scope: TenantScope): Promise<TaskDelegateResult> {
     const to = typeof input.to === "string" ? input.to.trim() : "";
     if (!to) throw new PtcContractError("tasks.delegate", "to 必填（直接子类型 id）");
@@ -207,6 +228,7 @@ export class TaskControlService {
       ...(input.expect !== undefined ? { expect: input.expect } : {}),
     };
 
+    const parentWorkMode = await this.resolveParentWorkMode(caller, scope);
     const task = await this.deps.store.publish({
       title: finalTitle,
       text: finalText,
@@ -214,6 +236,7 @@ export class TaskControlService {
       tenantId: scope.tenantId,
       tags: finalTags,
       payload,
+      workMode: parentWorkMode,
       deliveryMode: "delegate",
       delegateTarget: to,
     });
