@@ -14,6 +14,9 @@ import { applySchema } from "../../src/pth/kernel/storage/schema.js";
 import {
   canPromote,
   computeCandidateHash,
+  computeVerificationPlanHash,
+  isIntakeBoundCandidate,
+  sourceBindingsDigestOf,
   validateKnowledgeVerdict,
   type KnowledgeVerdict,
   type KnowledgeVerdictRowRecord,
@@ -21,6 +24,7 @@ import {
 } from "../../src/pth/execution/knowledge-verdicts.js";
 import {
   createPgKnowledgeVerificationRepo,
+  createVerificationPlan,
   promoteKnowledgeEntry,
   recordKnowledgeVerdict,
   rejectKnowledgeEntry,
@@ -518,5 +522,244 @@ pgSuite("knowledge promotion pg (real PostgreSQL, R3)", () => {
     const outbox = await pool.query(`SELECT * FROM side_effect_outbox WHERE key = 'promotion-index:${TENANT}:pg-promote-cas:plan-promote-cas'`);
     expect(outbox.rows).toHaveLength(1);
     expect(outbox.rows[0]).toMatchObject({ kind: "promotion-index", status: "pending" });
+  });
+});
+
+// ─── N29 Task 5：evidence / plan / promotion 硬化（pure 判据） ──────────
+
+describe("N29 intake candidate promotion hardening（pure）", () => {
+  const INTAKE_CONTENT = "The sum of the interior angles of a triangle equals 180 degrees.";
+  const REV = "rev-n29-1";
+  const SUB = "sub-n29-1";
+  const POLICY_DIGEST = "c".repeat(64);
+  const PRODUCER = "worker:extractor:producer";
+  const DOMAIN_REVIEWER = "worker:domain:mathematics-reviewer";
+  const ADVERSARIAL_REVIEWER = "worker:controller:adversarial";
+  const PROMOTER = "worker:memory-keeper";
+
+  const evidenceRef = {
+    sourceSubscriptionId: SUB,
+    sourceRevisionId: REV,
+    representation: "normalized-text" as const,
+    locator: { start: 0, end: INTAKE_CONTENT.length },
+    quoteHash: "a".repeat(64),
+    artifactHash: "b".repeat(64),
+    policyDecisionDigest: POLICY_DIGEST,
+  };
+
+  const intakeBinding = {
+    sourceSubscriptionId: SUB,
+    sourceRevisionId: REV,
+    representation: "normalized-text" as const,
+    artifactHash: evidenceRef.artifactHash,
+    policyDecisionDigest: POLICY_DIGEST,
+    tenantId: TENANT,
+    space: "space-a",
+    domainId: "mathematics",
+    producerPrincipalId: PRODUCER,
+  };
+
+  function intakeCandidate(over: { evidence?: unknown[]; intake?: unknown } = {}): MemoryEntry {
+    const evidence = over.evidence ?? [evidenceRef];
+    return {
+      id: "cand-n29",
+      tenantId: TENANT,
+      kind: "domain-fact",
+      anchors: ["mathematics"],
+      content: INTAKE_CONTENT,
+      status: "draft",
+      meta: {
+        version: 1,
+        spaceScope: { space: "space-a", visibility: "private" },
+        domains: ["mathematics"],
+        evidence,
+        intake: over.intake ?? intakeBinding,
+        provenance: buildKnowledgeProvenance({
+          content: INTAKE_CONTENT,
+          sourceTaskId: "run-n29",
+          producerRole: PRODUCER,
+          producerModel: "deepseek-v4-flash",
+          sourceRefs: [`source-revision:${REV}`],
+        }),
+        verdicts: [],
+      },
+    };
+  }
+
+  function intakePlan(over: Partial<VerificationPlanRecord> = {}): VerificationPlanRecord {
+    const evidence = [evidenceRef];
+    return {
+      id: "plan-n29",
+      tenantId: TENANT,
+      candidateId: "cand-n29",
+      candidateRevision: 1,
+      candidateHash: computeCandidateHash({ content: INTAKE_CONTENT, domains: ["mathematics"], evidence, effect: null }),
+      requiredDomains: ["mathematics"],
+      checks: [
+        { checkId: "domain:mathematics", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: [DOMAIN_REVIEWER], separationFrom: [PRODUCER, ADVERSARIAL_REVIEWER, PROMOTER] },
+        { checkId: "adversarial", kind: "adversarial", quorum: 1, eligiblePrincipals: [ADVERSARIAL_REVIEWER], separationFrom: [PRODUCER, DOMAIN_REVIEWER, PROMOTER] },
+      ],
+      sourceBindingsDigest: sourceBindingsDigestOf(evidence),
+      status: "satisfied",
+      rowVersion: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...over,
+    };
+  }
+
+  function passRows(plan: VerificationPlanRecord): KnowledgeVerdictRowRecord[] {
+    return [
+      { id: 1, planId: plan.id, tenantId: TENANT, checkId: "domain:mathematics", candidateId: plan.candidateId, candidateRevision: 1, candidateHash: plan.candidateHash, principalId: DOMAIN_REVIEWER, executionId: "run-domain", kind: "domain", verdict: "pass", reviewerRole: "domain:mathematics", note: "quote matches", domainId: "mathematics", evidence: [], at: 1, rowVersion: 1, createdAt: new Date().toISOString() },
+      { id: 2, planId: plan.id, tenantId: TENANT, checkId: "adversarial", candidateId: plan.candidateId, candidateRevision: 1, candidateHash: plan.candidateHash, principalId: ADVERSARIAL_REVIEWER, executionId: "run-adv", kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial", note: "no leap", evidence: [], at: 2, rowVersion: 1, createdAt: new Date().toISOString() },
+    ];
+  }
+
+  it("detects N29 intake candidates by meta.intake or exact evidence shape", () => {
+    expect(isIntakeBoundCandidate(intakeCandidate())).toBe(true);
+    expect(isIntakeBoundCandidate(intakeCandidate({ intake: undefined }))).toBe(true); // evidence 形状即可判别
+    expect(isIntakeBoundCandidate(makeDraft())).toBe(false);
+  });
+
+  it("baseline: a fully bound N29 candidate can be promoted", () => {
+    const plan = intakePlan();
+    expect(canPromote(intakeCandidate(), plan, passRows(plan))).toEqual({ ok: true });
+  });
+
+  it("rejects a N29 candidate whose plan carries an empty sourceBindingsDigest（legacy path removed）", () => {
+    const plan = intakePlan({ sourceBindingsDigest: "" });
+    expect(canPromote(intakeCandidate(), plan, passRows(plan))).toEqual({
+      ok: false,
+      reason: expect.stringContaining("source binding"),
+    });
+  });
+
+  it("rejects an evidence-free N29 candidate（plan §5 Task 5 Step 1 red case）", () => {
+    // 空 evidence + 空 digest：先在 source binding 门禁翻红。
+    const emptyDigestPlan = intakePlan({ sourceBindingsDigest: "" });
+    expect(canPromote(intakeCandidate({ evidence: [] }), emptyDigestPlan, passRows(emptyDigestPlan))).toEqual({
+      ok: false,
+      reason: expect.stringContaining("source binding"),
+    });
+    // 空 evidence + 非空 digest：在 evidence 门禁翻红。
+    const digestOnlyPlan = intakePlan({ sourceBindingsDigest: sourceBindingsDigestOf([]) });
+    expect(canPromote(intakeCandidate({ evidence: [] }), digestOnlyPlan, passRows(digestOnlyPlan))).toEqual({
+      ok: false,
+      reason: expect.stringContaining("evidence"),
+    });
+  });
+
+  it("rejects invalid / mismatched evidence references on a N29 candidate", () => {
+    // source binding 门禁先于 candidateHash 比较：evidence 自身非法即拒（错 representation）。
+    const badRepresentation = [{ ...evidenceRef, representation: "raw-bytes" }];
+    expect(canPromote(
+      intakeCandidate({ evidence: badRepresentation }),
+      intakePlan({ sourceBindingsDigest: sourceBindingsDigestOf(badRepresentation) }),
+      [],
+    )).toMatchObject({ ok: false, reason: expect.stringMatching(/evidence|representation/i) });
+
+    // evidence 与 meta.intake 的 revision 不一致
+    const otherRevision = [{ ...evidenceRef, sourceRevisionId: "rev-other" }];
+    expect(canPromote(
+      intakeCandidate({ evidence: otherRevision }),
+      intakePlan({ sourceBindingsDigest: sourceBindingsDigestOf(otherRevision) }),
+      [],
+    )).toMatchObject({ ok: false, reason: expect.stringMatching(/sourceRevisionId/i) });
+
+    // artifactHash / policyDecisionDigest 与 meta.intake 不一致
+    const otherArtifact = [{ ...evidenceRef, artifactHash: "e".repeat(64) }];
+    expect(canPromote(
+      intakeCandidate({ evidence: otherArtifact }),
+      intakePlan({ sourceBindingsDigest: sourceBindingsDigestOf(otherArtifact) }),
+      [],
+    )).toMatchObject({ ok: false, reason: expect.stringMatching(/artifactHash/i) });
+  });
+
+  it("rejects a N29 plan missing the domain or adversarial check, or letting the producer self-review", () => {
+    const noAdv = intakePlan({ checks: [intakePlan().checks[0]] });
+    expect(canPromote(intakeCandidate(), noAdv, [passRows(noAdv)[0]]))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("adversarial") });
+
+    const noDomain = intakePlan({ checks: [intakePlan().checks[1]] });
+    expect(canPromote(intakeCandidate(), noDomain, [passRows(noDomain)[1]]))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("domain check") });
+
+    const selfReview = intakePlan();
+    selfReview.checks = selfReview.checks.map((c) => ({ ...c, eligiblePrincipals: [...c.eligiblePrincipals, PRODUCER] }));
+    expect(canPromote(intakeCandidate(), selfReview, passRows(selfReview)))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("producer principal") });
+  });
+
+  it("rejects a N29 candidate without a well-formed meta.intake binding", () => {
+    const plan = intakePlan();
+    expect(canPromote(intakeCandidate({ intake: { sourceRevisionId: REV } }), plan, passRows(plan)))
+      .toMatchObject({ ok: false, reason: expect.stringContaining("meta.intake") });
+  });
+
+  it("computeVerificationPlanHash refuses to produce an uncovered plan hash", () => {
+    expect(() => computeVerificationPlanHash({
+      content: INTAKE_CONTENT, domains: ["mathematics"], evidence: [],
+      policyDecisionDigest: POLICY_DIGEST, sourceRevisionId: REV,
+    })).toThrow(/evidence/i);
+
+    expect(() => computeVerificationPlanHash({
+      content: INTAKE_CONTENT, domains: ["mathematics"], evidence: [evidenceRef],
+      policyDecisionDigest: "d".repeat(64), sourceRevisionId: REV,
+    })).toThrow(/policyDecisionDigest/);
+
+    expect(() => computeVerificationPlanHash({
+      content: INTAKE_CONTENT, domains: ["mathematics"], evidence: [evidenceRef],
+      policyDecisionDigest: POLICY_DIGEST, sourceRevisionId: "rev-other",
+    })).toThrow(/sourceRevisionId/);
+
+    expect(computeVerificationPlanHash({
+      content: INTAKE_CONTENT, domains: ["mathematics"], evidence: [evidenceRef],
+      policyDecisionDigest: POLICY_DIGEST, sourceRevisionId: REV,
+    })).toBe(computeCandidateHash({ content: INTAKE_CONTENT, domains: ["mathematics"], evidence: [evidenceRef], effect: null }));
+  });
+
+  it("createVerificationPlan rejects empty evidence / empty digest / missing role separation before touching the DB", async () => {
+    let queried = 0;
+    const executor = {
+      async query() {
+        queried += 1;
+        return { rowCount: 0, rows: [] };
+      },
+    } as never;
+    const base = {
+      planId: "plan-n29-new",
+      tenantId: TENANT,
+      candidateId: "cand-n29",
+      candidateRevision: 1,
+      content: INTAKE_CONTENT,
+      requiredDomains: ["mathematics"],
+      policyDecisionDigest: POLICY_DIGEST,
+      sourceRevisionId: REV,
+      checks: intakePlan().checks,
+    };
+
+    expect(await createVerificationPlan({ ...base, evidence: [] }, executor))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/evidence/i) });
+    expect(await createVerificationPlan({ ...base, evidence: [{ sourceId: "s", locator: "l" }] }, executor))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/evidence/i) });
+    expect(await createVerificationPlan({ ...base, evidence: [evidenceRef], requiredDomains: [] }, executor))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/requiredDomains/i) });
+    expect(await createVerificationPlan({ ...base, evidence: [evidenceRef], sourceRevisionId: "" }, executor))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/sourceRevisionId/i) });
+    expect(await createVerificationPlan({ ...base, evidence: [evidenceRef], policyDecisionDigest: "nope" }, executor))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/policyDecisionDigest/i) });
+    expect(await createVerificationPlan({ ...base, evidence: [evidenceRef], checks: [base.checks[0]] }, executor))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/adversarial/i) });
+    expect(await createVerificationPlan({ ...base, evidence: [evidenceRef], checks: [base.checks[1]] }, executor))
+      .toMatchObject({ ok: false, error: expect.stringMatching(/domain check/i) });
+    // domain 与 adversarial 的 eligible principal 不得重叠（职责分离）
+    expect(await createVerificationPlan({
+      ...base,
+      evidence: [evidenceRef],
+      checks: [base.checks[0], { ...base.checks[1], eligiblePrincipals: [DOMAIN_REVIEWER] }],
+    }, executor)).toMatchObject({ ok: false, error: expect.stringMatching(/both domain and adversarial/i) });
+
+    // 全部在写库前 fail closed：零 SQL。
+    expect(queried).toBe(0);
   });
 });

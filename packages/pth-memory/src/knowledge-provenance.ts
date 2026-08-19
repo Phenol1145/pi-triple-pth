@@ -27,7 +27,160 @@ export interface KnowledgeEvidenceRef {
   quoteHash?: string;
 }
 
-/** 校验 meta.evidence 是否为合法 KnowledgeEvidenceRef 数组（写侧 seed/refiner draft 共用）。 */
+/**
+ * N29 Task 5：外部信源摄入的**精确** Evidence Reference。
+ *
+ * 与 `KnowledgeEvidenceRef`（K5 内部任务产物引用）的分工：
+ *  - `KnowledgeEvidenceRef` 是可读的来源工件引用（locator 为自由字符串）；
+ *  - `IntakeEvidenceReference` 是可回放的外部信源引用：representation 固定
+ *    `normalized-text`，locator 是归一化表示上的半开区间 `[start,end)`，
+ *    quote/artifact/policy 三个摘要都由**服务端**从已落库 SourceRevision 重算得出。
+ *
+ * 形状与 `src/pth/contracts/knowledge-intake.ts` 的同名类型逐字段一致（结构等价）；
+ * 本包不 import PTH core，故在此独立声明（写侧/读侧校验必须能在 memory 包内完成）。
+ */
+export interface IntakeEvidenceReference {
+  sourceSubscriptionId: string;
+  sourceRevisionId: string;
+  representation: "normalized-text";
+  locator: { start: number; end: number };
+  /** sha256(normalizedText.slice(start,end)) hex（64 位小写） */
+  quoteHash: string;
+  /** sha256(raw bytes) hex（64 位小写） */
+  artifactHash: string;
+  /** sha256(stableJson({fetch,use,artifactHash,normalizedTextHash})) hex（64 位小写） */
+  policyDecisionDigest: string;
+}
+
+const HEX64 = /^[0-9a-f]{64}$/;
+
+function isHex64(v: unknown): v is string {
+  return typeof v === "string" && HEX64.test(v);
+}
+
+function isNonEmptyStr(v: unknown): v is string {
+  return typeof v === "string" && v.trim() !== "";
+}
+
+/**
+ * 严格校验单条 IntakeEvidenceReference（写侧 fail closed）。
+ * 缺字段、非 64-hex 摘要、非法 locator、错误 representation 一律拒绝。
+ */
+export function validateIntakeEvidenceReference(
+  value: unknown,
+): { ok: true; ref: IntakeEvidenceReference } | { ok: false; error: string } {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return { ok: false, error: "intake evidence reference must be an object" };
+  }
+  const r = value as Record<string, unknown>;
+
+  if (!isNonEmptyStr(r["sourceSubscriptionId"])) {
+    return { ok: false, error: "intake evidence sourceSubscriptionId must be a non-empty string" };
+  }
+  if (!isNonEmptyStr(r["sourceRevisionId"])) {
+    return { ok: false, error: "intake evidence sourceRevisionId must be a non-empty string" };
+  }
+  if (r["representation"] !== "normalized-text") {
+    return {
+      ok: false,
+      error: `intake evidence representation must be "normalized-text" (got ${JSON.stringify(r["representation"]) ?? "undefined"})`,
+    };
+  }
+
+  const locator = r["locator"];
+  if (typeof locator !== "object" || locator === null || Array.isArray(locator)) {
+    return { ok: false, error: "intake evidence locator must be an object { start, end }" };
+  }
+  const { start, end } = locator as Record<string, unknown>;
+  if (typeof start !== "number" || !Number.isSafeInteger(start) || start < 0) {
+    return { ok: false, error: "intake evidence locator.start must be a non-negative safe integer" };
+  }
+  if (typeof end !== "number" || !Number.isSafeInteger(end)) {
+    return { ok: false, error: "intake evidence locator.end must be a safe integer" };
+  }
+  if (end <= start) {
+    return { ok: false, error: `intake evidence locator must be a non-empty half-open range (start=${start}, end=${end})` };
+  }
+
+  for (const key of ["quoteHash", "artifactHash", "policyDecisionDigest"] as const) {
+    if (!isHex64(r[key])) {
+      return { ok: false, error: `intake evidence ${key} must be a 64-char lowercase hex sha256` };
+    }
+  }
+
+  return {
+    ok: true,
+    ref: {
+      sourceSubscriptionId: r["sourceSubscriptionId"],
+      sourceRevisionId: r["sourceRevisionId"],
+      representation: "normalized-text",
+      locator: { start, end },
+      quoteHash: r["quoteHash"] as string,
+      artifactHash: r["artifactHash"] as string,
+      policyDecisionDigest: r["policyDecisionDigest"] as string,
+    },
+  };
+}
+
+/** 读侧宽松解析：非法/缺失返回 undefined（不伪装成合法引用）。 */
+export function parseIntakeEvidenceReference(value: unknown): IntakeEvidenceReference | undefined {
+  const checked = validateIntakeEvidenceReference(value);
+  return checked.ok ? checked.ref : undefined;
+}
+
+/** 严格校验 IntakeEvidenceReference 数组；空数组即拒绝（N29 official 必须有非空 evidence）。 */
+export function validateIntakeEvidenceReferences(
+  value: unknown,
+): { ok: true; refs: IntakeEvidenceReference[] } | { ok: false; error: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, error: "intake evidence must be an array" };
+  }
+  if (value.length === 0) {
+    return { ok: false, error: "intake evidence must contain at least one reference" };
+  }
+  const refs: IntakeEvidenceReference[] = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const checked = validateIntakeEvidenceReference(value[i]);
+    if (!checked.ok) return { ok: false, error: `evidence[${i}]: ${checked.error}` };
+    refs.push(checked.ref);
+  }
+  return { ok: true, refs };
+}
+
+/** 结构判别（不判授权）：该值是否为合法 N29 IntakeEvidenceReference。 */
+export function isIntakeEvidenceReferenceShape(value: unknown): boolean {
+  return validateIntakeEvidenceReference(value).ok;
+}
+
+/** 读侧：从 meta.evidence 取 N29 精确引用；缺失/非法项被跳过。 */
+export function intakeEvidenceReferencesFromMeta(meta: unknown): IntakeEvidenceReference[] {
+  if (typeof meta !== "object" || meta === null) return [];
+  const raw = (meta as Record<string, unknown>)["evidence"];
+  if (!Array.isArray(raw)) return [];
+  const out: IntakeEvidenceReference[] = [];
+  for (const item of raw) {
+    const ref = parseIntakeEvidenceReference(item);
+    if (ref) out.push(ref);
+  }
+  return out;
+}
+
+/** N29 精确引用 → 旧 KnowledgeEvidenceRef 投影（Broker/Context 读侧形状不变）。 */
+export function intakeEvidenceRefToKnowledgeEvidenceRef(ref: IntakeEvidenceReference): KnowledgeEvidenceRef {
+  return {
+    sourceId: ref.sourceRevisionId,
+    locator: `${ref.representation}[${ref.locator.start},${ref.locator.end})`,
+    sourceVersion: ref.sourceRevisionId,
+    artifactHash: ref.artifactHash,
+    quoteHash: ref.quoteHash,
+  };
+}
+
+/**
+ * 校验 meta.evidence 是否为合法 KnowledgeEvidenceRef 数组（写侧 seed/refiner draft 共用）。
+ * N29：元素也可以是 `IntakeEvidenceReference`——此时投影为等价 KnowledgeEvidenceRef
+ * （读侧 Broker/Context 形状不变；精确引用请用 `validateIntakeEvidenceReferences`）。
+ */
 export function validateKnowledgeEvidenceRefs(
   value: unknown,
 ): { ok: true; refs: KnowledgeEvidenceRef[] } | { ok: false; error: string } {
@@ -39,6 +192,11 @@ export function validateKnowledgeEvidenceRefs(
     const item = value[i];
     if (typeof item !== "object" || item === null) {
       return { ok: false, error: `evidence[${i}] must be an object` };
+    }
+    const intake = parseIntakeEvidenceReference(item);
+    if (intake) {
+      refs.push(intakeEvidenceRefToKnowledgeEvidenceRef(intake));
+      continue;
     }
     const r = item as Record<string, unknown>;
     if (typeof r["sourceId"] !== "string" || r["sourceId"].trim() === "") {

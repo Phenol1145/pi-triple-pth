@@ -18,14 +18,21 @@ import { PromotionConflictError, type PgMemoryStore } from "@away_from/pth-memor
 import { enqueueSideEffectInTx } from "../tasking/index.js";
 import {
   canPromote,
+  candidateIntakeBindingOf,
+  computeVerificationPlanHash,
   evaluatePlanVerdicts,
+  isIntakeBoundCandidate,
+  sourceBindingsDigestOf,
   validateKnowledgeVerdict,
+  type CandidateIntakeBinding,
   type KnowledgeVerdict,
   type KnowledgeVerdictKind,
   type KnowledgeVerdictRowRecord,
+  type VerificationCheckRecord,
   type VerificationPlanRecord,
   type VerificationPlanStatus,
 } from "./knowledge-verdicts.js";
+import { validateIntakeEvidenceReferences } from "@away_from/pth-memory";
 
 export interface KnowledgeServiceAuth {
   principalId: string;
@@ -53,6 +60,18 @@ function tenantOpts(opts?: { tenantId?: string }): { tenantId?: string } | undef
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim() !== "";
+}
+
+/** 稳定 JSON（递归键排序）——jsonb 会重排对象键，比较必须用规范形式而非 JSON.stringify。 */
+function stableJsonOf(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJsonOf).join(",")}]`;
+  if (value === null || typeof value !== "object") return JSON.stringify(value ?? null) ?? "null";
+  const rec = value as Record<string, unknown>;
+  return `{${Object.keys(rec)
+    .filter((k) => rec[k] !== undefined)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableJsonOf(rec[k])}`)
+    .join(",")}}`;
 }
 
 function isValidAuth(auth: KnowledgeServiceAuth | undefined): auth is KnowledgeServiceAuth {
@@ -209,6 +228,159 @@ export function createPgKnowledgeVerificationRepo(pool: pg.Pool): KnowledgeVerif
   };
 }
 
+/**
+ * N29 Task 5：**生产** VerificationPlan 创建。
+ *
+ * 门禁（fail closed，先校验后写库）：
+ *  - evidence 必须非空且每条都是合法 `IntakeEvidenceReference`；
+ *  - 每条 evidence 的 policyDecisionDigest / sourceRevisionId 必须被 plan 覆盖；
+ *  - `sourceBindingsDigest` 必须非空（不再允许 R3 旧空 digest 计划）；
+ *  - checks 必须同时含 domain（domainId ∈ requiredDomains）与 adversarial，各自 quorum ≥ 1；
+ *  - domain / adversarial 的 eligiblePrincipals 必须完全不相交（职责分离）。
+ *
+ * plan hash 由 `computeVerificationPlanHash()` 覆盖 content + domain + evidence +
+ * policy decision digest + source revision；测试不得手写 SQL 作为生产路径。
+ * 同 (tenant, candidate, candidateRevision) 重放：payload 全同 → idempotent；不同 → conflict。
+ */
+export interface VerificationPlanCreateInput {
+  readonly planId: string;
+  readonly tenantId: string;
+  readonly candidateId: string;
+  readonly candidateRevision: number;
+  readonly content: string;
+  readonly requiredDomains: readonly string[];
+  readonly evidence: readonly unknown[];
+  readonly policyDecisionDigest: string;
+  readonly sourceRevisionId: string;
+  readonly checks: readonly VerificationCheckRecord[];
+  readonly effect?: unknown;
+}
+
+export async function createVerificationPlan(
+  input: VerificationPlanCreateInput,
+  executor: KnowledgeVerificationQueryable,
+): Promise<{ ok: true; plan: VerificationPlanRecord; idempotent: boolean } | { ok: false; error: string }> {
+  if (!isNonEmptyString(input.planId) || !isNonEmptyString(input.tenantId) || !isNonEmptyString(input.candidateId)) {
+    return { ok: false, error: "planId, tenantId and candidateId must be non-empty strings" };
+  }
+  if (!Number.isSafeInteger(input.candidateRevision) || input.candidateRevision < 1) {
+    return { ok: false, error: "candidateRevision must be a positive safe integer" };
+  }
+  if (!isNonEmptyString(input.content)) {
+    return { ok: false, error: "candidate content must be a non-empty string" };
+  }
+  const domains = [...new Set(input.requiredDomains.map((d) => d.trim()).filter((d) => d !== ""))].sort();
+  if (domains.length === 0) {
+    return { ok: false, error: "requiredDomains must contain at least one domain" };
+  }
+  if (!isNonEmptyString(input.sourceRevisionId)) {
+    return { ok: false, error: "sourceRevisionId must be a non-empty string（unknown source revision is rejected）" };
+  }
+  if (!/^[0-9a-f]{64}$/.test(input.policyDecisionDigest)) {
+    return { ok: false, error: "policyDecisionDigest must be a 64-char lowercase hex sha256" };
+  }
+
+  const refs = validateIntakeEvidenceReferences(input.evidence);
+  if (!refs.ok) {
+    return { ok: false, error: `verification plan evidence invalid: ${refs.error}` };
+  }
+
+  const sourceBindingsDigest = sourceBindingsDigestOf(input.evidence);
+  if (sourceBindingsDigest.trim() === "") {
+    return { ok: false, error: "verification plan requires a non-empty source binding digest" };
+  }
+
+  const domainChecks = input.checks.filter((c) => c.kind === "domain");
+  const adversarialChecks = input.checks.filter((c) => c.kind === "adversarial");
+  if (domainChecks.length === 0) {
+    return { ok: false, error: "verification plan requires at least one domain check" };
+  }
+  if (adversarialChecks.length === 0) {
+    return { ok: false, error: "verification plan requires at least one adversarial check" };
+  }
+  for (const check of input.checks) {
+    if (!isNonEmptyString(check.checkId)) return { ok: false, error: "every check requires a non-empty checkId" };
+    if (!Number.isSafeInteger(check.quorum) || check.quorum < 1) {
+      return { ok: false, error: `check ${check.checkId} requires quorum >= 1` };
+    }
+    if (!Array.isArray(check.eligiblePrincipals) || check.eligiblePrincipals.length === 0) {
+      return { ok: false, error: `check ${check.checkId} requires at least one eligible principal` };
+    }
+    if (check.kind === "domain" && !domains.includes(String(check.domainId ?? "").trim())) {
+      return { ok: false, error: `domain check ${check.checkId} domainId must be one of requiredDomains` };
+    }
+    if (check.kind === "adversarial" && check.domainId !== undefined) {
+      return { ok: false, error: `adversarial check ${check.checkId} must not carry domainId` };
+    }
+  }
+  const domainPrincipals = new Set(domainChecks.flatMap((c) => c.eligiblePrincipals));
+  for (const principal of adversarialChecks.flatMap((c) => c.eligiblePrincipals)) {
+    if (domainPrincipals.has(principal)) {
+      return { ok: false, error: `principal ${principal} cannot be eligible for both domain and adversarial checks` };
+    }
+  }
+
+  let candidateHash: string;
+  try {
+    candidateHash = computeVerificationPlanHash({
+      content: input.content,
+      domains,
+      evidence: input.evidence,
+      policyDecisionDigest: input.policyDecisionDigest,
+      sourceRevisionId: input.sourceRevisionId,
+      effect: input.effect ?? null,
+    });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+
+  const checksJson = JSON.stringify(input.checks);
+  // 无 target 的 DO NOTHING：同时吸收 PK(id) 与 uq(tenant,candidate,revision) 两种重放冲突。
+  const inserted = await executor.query(
+    `INSERT INTO knowledge_verification_plans
+       (id, tenant_id, candidate_id, candidate_revision, candidate_hash, required_domains,
+        checks, source_bindings_digest, status)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,'open')
+     ON CONFLICT DO NOTHING
+     RETURNING *`,
+    [
+      input.planId,
+      input.tenantId,
+      input.candidateId,
+      input.candidateRevision,
+      candidateHash,
+      JSON.stringify(domains),
+      checksJson,
+      sourceBindingsDigest,
+    ],
+  );
+  if (inserted.rows.length > 0) {
+    return { ok: true, plan: planFromRow(inserted.rows[0]), idempotent: false };
+  }
+
+  const existing = await executor.query(
+    `SELECT * FROM knowledge_verification_plans
+      WHERE tenant_id = $1 AND candidate_id = $2 AND candidate_revision = $3`,
+    [input.tenantId, input.candidateId, input.candidateRevision],
+  );
+  if (existing.rows.length === 0) {
+    return { ok: false, error: "verification plan insert conflict: row not found after insert" };
+  }
+  const prev = planFromRow(existing.rows[0]);
+  const same = prev.id === input.planId
+    && prev.candidateHash === candidateHash
+    && prev.sourceBindingsDigest === sourceBindingsDigest
+    && stableJsonOf(prev.requiredDomains) === stableJsonOf(domains)
+    && stableJsonOf(prev.checks) === stableJsonOf(input.checks);
+  if (!same) {
+    return {
+      ok: false,
+      error: `verification plan conflict: ${input.tenantId}/${input.candidateId}@${input.candidateRevision} already exists with a different payload`,
+    };
+  }
+  return { ok: true, plan: prev, idempotent: true };
+}
+
 async function refreshPlanStatus(
   repo: KnowledgeVerificationRepo,
   plan: VerificationPlanRecord,
@@ -353,6 +525,33 @@ export async function recordKnowledgeVerdict(
 }
 
 /**
+ * N29 Task 5：晋升前的「current policy + source binding」复检端口。
+ *
+ * 在 `promoteOfficial()` 的既有锁事务内被调用（收到同一 `client`），用于回答
+ * 「此刻这条 official 是否仍然被人类签名策略与不可变来源支持」：
+ *  - SourceRevision 仍存在、仍属同 tenant/subscription、disposition 仍为 admitted；
+ *  - evidence 的 quote/artifact/policy 摘要能被已落库 revision 逐字段重算；
+ *  - 当前 policy 的 `authorizeUse()` 仍然 allow，且 policy decision digest 未变；
+ *  - candidate→revision 依赖边未被标记 stale。
+ *
+ * fail closed：intake-bound candidate 缺少本端口时 **禁止** 晋升。
+ */
+export interface IntakeSourceBindingRecheckInput {
+  readonly tenantId: string;
+  readonly planId: string;
+  readonly candidateId: string;
+  readonly candidateRevision: number;
+  readonly candidateHash: string;
+  readonly evidence: readonly unknown[];
+  readonly binding: CandidateIntakeBinding;
+  readonly client: pg.PoolClient;
+}
+
+export interface IntakeSourceBindingRecheck {
+  recheck(input: IntakeSourceBindingRecheckInput): Promise<{ ok: true } | { ok: false; reason: string }>;
+}
+
+/**
  * 晋升 draft → official（R1 CAS + R3/P0-3 严格 revision/plan 绑定）。
  * 只接受 planId + expectedCandidateRevision；auth 必填。
  * 单事务内（PgMemoryStore.promoteOfficial）用同一 client 重读 plan/verdict rows，
@@ -365,7 +564,13 @@ export async function promoteKnowledgeEntry(
   planId: string,
   expectedCandidateRevision: number,
   auth: KnowledgeServiceAuth,
-  opts?: { tenantId?: string; promoterRole?: string; note?: string },
+  opts?: {
+    tenantId?: string;
+    promoterRole?: string;
+    note?: string;
+    /** N29：intake-bound candidate 必须提供；缺省 → fail closed 拒绝晋升。 */
+    intakeBinding?: IntakeSourceBindingRecheck;
+  },
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (!isValidAuth(auth)) {
     return { ok: false, error: "auth context required: principalId and executionId must be non-empty" };
@@ -418,7 +623,39 @@ export async function promoteKnowledgeEntry(
         if (verifierPrincipals.has(auth.principalId)) {
           return { ok: false, reason: "promoter cannot also be a verifier" };
         }
-        return canPromote(entry, lockedPlan, rows);
+        const gate = canPromote(entry, lockedPlan, rows);
+        if (!gate.ok) return gate;
+
+        // N29 Task 5：外部信源 candidate 必须在锁内重新校验 current policy + source binding。
+        if (isIntakeBoundCandidate(entry)) {
+          const binding = candidateIntakeBindingOf(entry);
+          if (!binding) {
+            return { ok: false, reason: "N29 intake candidate requires a well-formed meta.intake source binding" };
+          }
+          if (binding.producerPrincipalId === auth.principalId) {
+            return { ok: false, reason: "promoter cannot be producer" };
+          }
+          if (!opts?.intakeBinding) {
+            return {
+              ok: false,
+              reason:
+                "N29 intake candidate requires a current policy and source binding recheck before writing official"
+                + "（promoteKnowledgeEntry opts.intakeBinding is missing → fail closed）",
+            };
+          }
+          const rechecked = await opts.intakeBinding.recheck({
+            tenantId,
+            planId,
+            candidateId: entryId,
+            candidateRevision: lockedPlan.candidateRevision,
+            candidateHash: lockedPlan.candidateHash,
+            evidence: Array.isArray(entry.meta?.["evidence"]) ? (entry.meta["evidence"] as unknown[]) : [],
+            binding,
+            client,
+          });
+          if (!rechecked.ok) return rechecked;
+        }
+        return { ok: true };
       },
       enqueueOutbox: async (client) => {
         await enqueuePromotionIndexOutbox(client, { entryId, planId, tenantId });

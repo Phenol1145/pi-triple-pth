@@ -119,6 +119,27 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/** dependency append-only INSERT（pool 与事务 client 共用同一条 SQL——语义不分叉）。 */
+async function insertDependency(executor: SqlExecutor, input: SourceDependencyInput): Promise<void> {
+  await executor.query(
+    `INSERT INTO knowledge_source_dependencies
+       (tenant_id, subscription_id, source_revision_id, dependent_kind, dependent_id,
+        dependent_revision, space, evidence_digest)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (tenant_id, dependent_kind, dependent_id, source_revision_id) DO NOTHING`,
+    [
+      input.tenantId,
+      input.subscriptionId,
+      input.sourceRevisionId,
+      input.dependentKind ?? "knowledge-entry",
+      input.dependentId,
+      input.dependentRevision ?? null,
+      input.space ?? "",
+      input.evidenceDigest ?? "",
+    ],
+  );
+}
+
 function mapSubscription(r: any): SourceSubscription {
   return {
     id: r.id,
@@ -737,23 +758,16 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
 
   /** 依赖边 append-only：同一 (tenant, dependentKind, dependentId, revision) 重复登记幂等不覆盖。 */
   async recordDependency(input: SourceDependencyInput): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO knowledge_source_dependencies
-         (tenant_id, subscription_id, source_revision_id, dependent_kind, dependent_id,
-          dependent_revision, space, evidence_digest)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (tenant_id, dependent_kind, dependent_id, source_revision_id) DO NOTHING`,
-      [
-        input.tenantId,
-        input.subscriptionId,
-        input.sourceRevisionId,
-        input.dependentKind ?? "knowledge-entry",
-        input.dependentId,
-        input.dependentRevision ?? null,
-        input.space ?? "",
-        input.evidenceDigest ?? "",
-      ],
-    );
+    await insertDependency(this.pool, input);
+  }
+
+  /**
+   * N29 Task 5：事务绑定依赖边登记——KnowledgeIngestor 必须让 candidate 写入、
+   * VerificationPlan 创建与 candidate→revision 依赖边落在**同一个**事务里
+   * （任一步失败 → 整体回滚，不留孤儿 candidate 或孤儿 plan）。
+   */
+  async recordDependencyInTx(client: pg.PoolClient, input: SourceDependencyInput): Promise<void> {
+    await insertDependency(client, input);
   }
 
   /** stale 标记：tenant + subscription 作用域；可排除当前 revision；返回被标记的 dependent id。 */
@@ -827,10 +841,21 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
   }
 }
 
+/**
+ * N29 Task 5：事务绑定写入面。M0 冻结合同（contracts）不得出现 `pg` 类型，
+ * 因此事务面在 PG 适配器层声明；消费方（KnowledgeIngestor）按结构消费。
+ */
+export interface TransactionBoundIntakeWrites {
+  recordDependencyInTx(client: pg.PoolClient, input: SourceDependencyInput): Promise<void>;
+}
+
+/** PG 仓库的完整对外面（冻结合同 + 事务绑定写入）。 */
+export type PgKnowledgeIntakeRepositoryFace = KnowledgeIntakeRepository & TransactionBoundIntakeWrites;
+
 /** 工厂（与 tasking/adapters 的 createPgTaskRepository 风格一致）。 */
 export function createKnowledgeIntakeRepository(
   pool: pg.Pool,
   opts: KnowledgeIntakeRepositoryOptions = {},
-): KnowledgeIntakeRepository {
+): PgKnowledgeIntakeRepositoryFace {
   return new PgKnowledgeIntakeRepository(pool, opts);
 }
