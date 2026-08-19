@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import type { WorkerScorecard } from "./worker-scorecard.js";
 import { config } from "../extensions/perf-params.js";
-import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
+import { DEFAULT_TENANT_ID, INTERNAL_ORIGIN } from "@away_from/pth-memory";
 
 // ── 类型 ─────────────────────────────────────────────────────
 
@@ -50,7 +50,11 @@ export interface OptimizerDeps {
    * incrementAggregate：scorecard 聚合快照原子 upsert（2026-08-12 审批面 B——
    * 单条 SQL 增量——避免读-改-写竞态）；缺省 = 跳过聚合（明细仍落库——降级逐条读） */
   memory?: {
-    write(e: { id?: string; tenantId?: string; kind: string; anchors?: unknown; content: unknown; status?: string; meta?: Record<string, unknown> }): Promise<unknown>;
+    write(
+      e: { id?: string; tenantId?: string; kind: string; anchors?: unknown; content: unknown; status?: string; meta?: Record<string, unknown> },
+      /** N29 再验收 P0-5：official 知识层写入必须出示内部 authority（内部推理 = internal-reasoning）。 */
+      opts?: { knowledgeOfficialAuthority?: "promotion-service" | "seed-migration" | "internal-reasoning" },
+    ): Promise<unknown>;
     incrementAggregate?(id: string, kind: string, anchors: unknown[], deltas: Record<string, number>, meta: Record<string, unknown>, opts?: { tenantId?: string }): Promise<void>;
     /** 只读查询（deopt 复测读聚合/建议——2026-08-13） */
     queryReadOnly?(sql: string): Promise<unknown>;
@@ -104,10 +108,17 @@ export function rollupAggregateRows(rows: Array<{ content: string }>): Record<st
 
 const MAX_BUFFER = 200;   // 缓冲上限（防内存无界——窗口不触发时丢弃最旧）
 
-/** N19 Phase 1b：official task-insight 现要求 meta.provenance（六字段）——deopt 洞察补齐。 */
+/**
+ * N19 Phase 1b：official task-insight 现要求 meta.provenance（六字段）——deopt 洞察补齐。
+ *
+ * N29 再验收 P0-5（feedback §3 P0-5 关闭条件 3）：deopt/verify 洞察是**内部推理产物**
+ * （没有外部 SourceRevision），因此必须显式声明 `origin=internal` 并以
+ * `knowledgeOfficialAuthority: "internal-reasoning"` 写入；不得再以"缺来源绑定"隐式过门。
+ */
 function deoptInsightMeta(content: string, suggestionId: string, extra: Record<string, unknown>): Record<string, unknown> {
   return {
     ...extra,
+    origin: INTERNAL_ORIGIN,
     provenance: {
       sourceTaskId: suggestionId,
       producerRole: "optimizer-loop",
@@ -371,7 +382,7 @@ export class Optimizer {
               content: guardDeoptContent,
               status: "official",
               meta: deoptInsightMeta(guardDeoptContent, row.id, { pattern, guard: guardId, ts: Date.now() }),
-            }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
+            }, { knowledgeOfficialAuthority: "internal-reasoning" }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
             console.warn(`[optimizer] guard deopt 回滚: ${pattern}（${guardId}——avgKills ${(baseline.avgGuardKills ?? 0).toFixed(2)}→${avgKills.toFixed(2)} / avgHits ${(baseline.avgGuardHits ?? 0).toFixed(2)}→${avgHits.toFixed(2)}——global）`);
           }
           continue;
@@ -409,7 +420,7 @@ export class Optimizer {
                 content: expiredContent,
                 status: "official",
                 meta: deoptInsightMeta(expiredContent, row.id, { pattern, ts: Date.now() }),
-              }).catch(() => { /* 洞察落库失败不阻塞 */ });
+              }, { knowledgeOfficialAuthority: "internal-reasoning" }).catch(() => { /* 洞察落库失败不阻塞 */ });
               console.warn(`[optimizer] verify 超时未闭合: ${row.id}（${pattern}——${target}）`);
             }
           }
@@ -447,7 +458,7 @@ export class Optimizer {
           content: deoptContent,
           status: "official",
           meta: deoptInsightMeta(deoptContent, row.id, { pattern, role: roleId, ts: Date.now() }),
-        }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
+        }, { knowledgeOfficialAuthority: "internal-reasoning" }).catch(() => { /* 回滚 insight 落库失败不阻塞 */ });
         console.warn(`[optimizer] deopt 回滚: ${pattern}（${roleId ?? "capability-index"}——基线 ${baseline.avgFails.toFixed(2)}→${evidence.avgFails.toFixed(2)} fails——${evidence.source}）`);
       } catch (e) {
         console.warn(`[optimizer] deopt 单条复测失败 ${row.id}: ${e instanceof Error ? e.message : String(e)}`);

@@ -36,6 +36,19 @@ import { createInMemoryPromoteOfficial } from "../helpers";
 const TENANT = DEFAULT_TENANT_ID;
 const content = "The Earth orbits the Sun.";
 
+/**
+ * N29 再验收 P0-5（feedback §3 P0-5 / §8 条件 6）：`canPromote()` 不再保留"空
+ * sourceBindingsDigest + 空 evidence"的 legacy 兼容路径。内部推理知识（非外部信源 candidate）
+ * 也必须显式声明来源绑定，因此本套件的 legacy candidate/plan 固定携带一组内部 evidence 引用。
+ */
+const LEGACY_EVIDENCE = [{ sourceId: "task:task-1", locator: "task-output#1" }];
+const LEGACY_CANDIDATE_HASH = computeCandidateHash({
+  content,
+  domains: ["mathematics"],
+  evidence: LEGACY_EVIDENCE,
+  effect: null,
+});
+
 function makeDraft(id = "cand-1", overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   return {
     id,
@@ -53,6 +66,7 @@ function makeDraft(id = "cand-1", overrides: Partial<MemoryEntry> = {}): MemoryE
         producerModel: "deepseek-v4-flash",
         sourceRefs: ["task:task-1"],
       }),
+      evidence: LEGACY_EVIDENCE,
       verdicts: [] as KnowledgeVerdict[],
     },
     ...overrides,
@@ -88,7 +102,7 @@ function makePlan(overrides: Partial<VerificationPlanRecord> = {}): Verification
     tenantId: TENANT,
     candidateId: "cand-1",
     candidateRevision: 1,
-    candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+    candidateHash: LEGACY_CANDIDATE_HASH,
     requiredDomains: ["mathematics"],
     checks: [
       {
@@ -107,7 +121,7 @@ function makePlan(overrides: Partial<VerificationPlanRecord> = {}): Verification
         separationFrom: ["producer", "other-verifier"],
       },
     ],
-    sourceBindingsDigest: "",
+    sourceBindingsDigest: sourceBindingsDigestOf(LEGACY_EVIDENCE),
     status: "satisfied",
     rowVersion: 1,
     createdAt: new Date().toISOString(),
@@ -238,6 +252,74 @@ describe("validateKnowledgeVerdict（N22 1）", () => {
   });
 });
 
+/**
+ * N29 再验收 P0-5（feedback §3 P0-5 条件 3 / §8 条件 6）：
+ * legacy / 非 intake candidate 的"空 sourceBindingsDigest + 空 evidence"兼容路径必须删除。
+ *
+ * 反例：报告 §3 P0-5 指出 `knowledge-verdicts.ts` 只对被识别为 intake-bound 的 candidate 强制
+ * 非空 evidence/digest，legacy candidate 仍可用空 digest + 空 evidence 晋升成 official。
+ */
+describe("N29 再验收 P0-5：canPromote 不再有空 digest / 空 evidence 兼容路径", () => {
+  function legacyRows(plan: VerificationPlanRecord): KnowledgeVerdictRowRecord[] {
+    return [
+      {
+        id: 1, planId: plan.id, tenantId: TENANT, checkId: "domain-1", candidateId: plan.candidateId,
+        candidateRevision: 1, candidateHash: plan.candidateHash, principalId: "tenant:tenant-a:platform-admin",
+        executionId: "task-d", kind: "domain", verdict: "pass", reviewerRole: "domain:expert",
+        note: "verified", domainId: "mathematics", evidence: [], at: 1, rowVersion: 1,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 2, planId: plan.id, tenantId: TENANT, checkId: "adv-1", candidateId: plan.candidateId,
+        candidateRevision: 1, candidateHash: plan.candidateHash, principalId: "worker:controller:adversarial",
+        executionId: "task-a", kind: "adversarial", verdict: "pass", reviewerRole: "controller:adversarial",
+        note: "no shortcut", evidence: [], at: 2, rowVersion: 1, createdAt: new Date().toISOString(),
+      },
+    ];
+  }
+
+  /** legacy candidate（无 meta.intake、无 IntakeEvidenceReference）——必须走同一非空绑定门禁。 */
+  function legacyDraft(meta: Record<string, unknown> = {}): MemoryEntry {
+    const draft = makeDraft();
+    return { ...draft, meta: { ...draft.meta, ...meta } };
+  }
+
+  it("空 sourceBindingsDigest + 空 evidence 的 legacy candidate 一律拒绝（旧兼容路径已删除）", () => {
+    const emptyHash = computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null });
+    const plan = makePlan({ sourceBindingsDigest: "", candidateHash: emptyHash });
+    const entry = legacyDraft({ evidence: [] });
+    expect(isIntakeBoundCandidate(entry)).toBe(false);
+    const decision = canPromote(entry, plan, legacyRows(plan));
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toMatch(/sourceBindingsDigest|source binding/i);
+  });
+
+  it("空 evidence（digest 为空数组摘要）的 legacy candidate 同样拒绝", () => {
+    const emptyHash = computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null });
+    const plan = makePlan({ sourceBindingsDigest: sourceBindingsDigestOf([]), candidateHash: emptyHash });
+    const entry = legacyDraft({ evidence: [] });
+    const decision = canPromote(entry, plan, legacyRows(plan));
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toMatch(/evidence/i);
+  });
+
+  it("meta.evidence 缺失（undefined）的 legacy candidate 拒绝", () => {
+    const emptyHash = computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null });
+    const plan = makePlan({ sourceBindingsDigest: sourceBindingsDigestOf([]), candidateHash: emptyHash });
+    const draft = makeDraft();
+    const meta = { ...draft.meta };
+    delete meta["evidence"];
+    const decision = canPromote({ ...draft, meta }, plan, legacyRows(plan));
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toMatch(/evidence/i);
+  });
+
+  it("显式非空 evidence + 匹配 digest 的 legacy candidate 才能晋升（正向基线）", () => {
+    const plan = makePlan();
+    expect(canPromote(makeDraft(), plan, legacyRows(plan))).toEqual({ ok: true });
+  });
+});
+
 describe("rejectKnowledgeEntry（N22 2）", () => {
   it("draft → 追加 reject verdict + status archived（不删内容）", async () => {
     const store = makeStore([makeDraft()]);
@@ -306,6 +388,7 @@ pgSuite("knowledge promotion pg (real PostgreSQL, R3)", () => {
           producerModel: "deepseek-v4-flash",
           sourceRefs: ["task:task-1"],
         }),
+        evidence: LEGACY_EVIDENCE,
         verdicts: [],
       },
     } as any);
@@ -315,19 +398,20 @@ pgSuite("knowledge promotion pg (real PostgreSQL, R3)", () => {
     await pool.query(
       `INSERT INTO knowledge_verification_plans
          (id, tenant_id, candidate_id, candidate_revision, candidate_hash, required_domains, checks, source_bindings_digest, status)
-       VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6::jsonb, '', $7)
+       VALUES ($1, $2, $3, 1, $4, $5::jsonb, $6::jsonb, $8, $7)
        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status`,
       [
         planId,
         TENANT,
         candidateId,
-        computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+        LEGACY_CANDIDATE_HASH,
         JSON.stringify(["mathematics"]),
         JSON.stringify([
           { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:platform-admin"], separationFrom: ["producer", "other-verifier"] },
           { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer", "other-verifier"] },
         ]),
         status,
+        sourceBindingsDigestOf(LEGACY_EVIDENCE),
       ],
     );
   }
@@ -480,7 +564,7 @@ pgSuite("knowledge promotion pg (real PostgreSQL, R3)", () => {
       checkId: "domain-1",
       candidateId: "pg-promote-cas",
       candidateRevision: 1,
-      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+      candidateHash: LEGACY_CANDIDATE_HASH,
       principalId: "tenant:tenant-a:platform-admin",
       executionId: "task-d",
       kind: "domain",
@@ -497,7 +581,7 @@ pgSuite("knowledge promotion pg (real PostgreSQL, R3)", () => {
       checkId: "adv-1",
       candidateId: "pg-promote-cas",
       candidateRevision: 1,
-      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+      candidateHash: LEGACY_CANDIDATE_HASH,
       principalId: "worker:controller:adversarial",
       executionId: "task-a",
       kind: "adversarial",

@@ -5,6 +5,10 @@
  * （memory_entries.meta.version）与 review-row version（knowledge_verdict_rows.row_version）
  * 分离；canPromote 不再读取 entry.meta.verdicts，改由 service 在锁内重读持久
  * plan + verdict rows 后调用本文件的纯函数。
+ *
+ * N29 再验收 P0-5（feedback §3 P0-5 / §8 条件 6）：`canPromote()` 删除 legacy 空绑定兼容路径。
+ * 空 `plan.sourceBindingsDigest` 与空 `meta.evidence` 对**所有** candidate（含 legacy/内部
+ * 推理 candidate）一律拒绝——"没有来源绑定"不能再被解释为"可信"。
  */
 
 import { createHash } from "node:crypto";
@@ -453,6 +457,16 @@ export function evaluatePlanVerdicts(
  * - candidateHashForEntry(entry, plan.requiredDomains) 与 plan.candidateHash 严格相等；
  * - plan.status === satisfied；
  * - evaluatePlanVerdicts 逐 check quorum / separation / 无 reject / revision+hash 全一致。
+ *
+ * N29 再验收 P0-5（feedback §3 P0-5 / §8 条件 6）：**删除 legacy 空绑定兼容路径**。
+ * 旧实现只对被识别为 intake-bound 的 candidate 强制非空 evidence/digest，legacy/内部 candidate
+ * 仍可用空 `sourceBindingsDigest` + 空 `meta.evidence` 晋升成 official——那是"无来源可信"的
+ * 旁路。现在**所有** candidate 都必须满足：
+ *  - `plan.sourceBindingsDigest` 非空；
+ *  - `meta.evidence` 是非空数组；
+ *  - `sourceBindingsDigestOf(meta.evidence) === plan.sourceBindingsDigest`。
+ * 内部推理知识若无外部 SourceRevision，必须显式声明内部 evidence 引用（并在 store 侧使用
+ * `origin=internal` 合同），不能以"空 digest"表示可信。
  */
 export function canPromote(
   entry: MemoryEntry,
@@ -485,9 +499,29 @@ export function canPromote(
     return { ok: false, reason: `entry.meta.version ${version} does not match plan candidate_revision ${plan.candidateRevision}` };
   }
 
+  // N29 再验收 P0-5：空 sourceBindingsDigest 是已删除的 R3 兼容路径——对**任何** candidate
+  // 都必须翻红（旧 plan 必须 invalidated 后重建，不能靠空 digest 继续晋升）。
+  if (plan.sourceBindingsDigest.trim() === "") {
+    return {
+      ok: false,
+      reason:
+        "official knowledge requires a non-empty plan source binding digest"
+        + "（empty sourceBindingsDigest is a removed legacy path; invalidate the old plan and rebuild it）",
+    };
+  }
+  // 空 evidence 同样一律拒绝：official 知识必须有可复核的来源绑定（外部 SourceRevision 或
+  // 显式内部 evidence 引用）。
+  const rawEvidence = Array.isArray(meta["evidence"]) ? (meta["evidence"] as unknown[]) : [];
+  if (rawEvidence.length === 0) {
+    return {
+      ok: false,
+      reason: "candidate meta.evidence must contain at least one source binding reference（empty evidence is a removed legacy path）",
+    };
+  }
+
   // N29 Task 5：外部信源 candidate 的 source binding 门禁先于 hash 比较——空 digest /
   // 空 evidence / evidence 与 meta.intake 不一致 / 缺 domain+adversarial check /
-  // producer 可自审 一律拒绝（旧 R3 内部 candidate 无 intake 绑定，仍走下方 digest 一致性）。
+  // producer 可自审 一律拒绝（内部 candidate 走上方通用门禁 + 下方 digest 一致性）。
   if (isIntakeBoundCandidate(entry)) {
     const bound = checkIntakeCandidateBinding(entry, plan);
     if (!bound.ok) return bound;
@@ -498,14 +532,10 @@ export function canPromote(
     return { ok: false, reason: `candidateHash mismatch: entry ${currentHash} != plan ${plan.candidateHash}` };
   }
 
-  // R5/P1-4：promotion CAS 校验 evidence 未变（R3 已留 sourceBindingsDigest 位置，本 lane 填实）。
-  // 空 digest 只对无 intake 绑定的 R3 内部 candidate 有效；非空必须与当前 meta.evidence 严格一致。
-  if (plan.sourceBindingsDigest !== "") {
-    const rawEvidence = Array.isArray(meta["evidence"]) ? (meta["evidence"] as unknown[]) : [];
-    const currentDigest = sourceBindingsDigestOf(rawEvidence);
-    if (currentDigest !== plan.sourceBindingsDigest) {
-      return { ok: false, reason: `sourceBindingsDigest mismatch: entry ${currentDigest} != plan ${plan.sourceBindingsDigest}` };
-    }
+  // R5/P1-4：promotion CAS 校验 evidence 未变（digest 由上方保证非空，这里逐字节对账）。
+  const currentDigest = sourceBindingsDigestOf(rawEvidence);
+  if (currentDigest !== plan.sourceBindingsDigest) {
+    return { ok: false, reason: `sourceBindingsDigest mismatch: entry ${currentDigest} != plan ${plan.sourceBindingsDigest}` };
   }
 
   if (plan.status !== "satisfied") {

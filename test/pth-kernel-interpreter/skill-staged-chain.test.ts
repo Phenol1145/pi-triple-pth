@@ -6,6 +6,7 @@ import { resetPthConfig } from "../../src/pth/config/config-center.js";
 import { approveSkillProposal, buildKnowledgeProvenance, executeApprovedSkillProposal } from "@away_from/pth-memory";
 import {
   computeCandidateHash,
+  sourceBindingsDigestOf,
   type KnowledgeVerdictRowRecord,
   type VerificationPlanRecord,
 } from "../../src/pth/execution/knowledge-verdicts.js";
@@ -112,6 +113,9 @@ function makeVerificationRepo() {
   return { repo, plans, rows };
 }
 
+/** N29 再验收 P0-5：candidate/plan 固定携带一条内部 evidence 引用（空绑定不再可晋升）。 */
+const KNOWLEDGE_EVIDENCE = [{ sourceId: "task:task-1", locator: "task-output#1" }];
+
 function makePlanFor(entryId: string, overrides: Partial<VerificationPlanRecord> = {}): VerificationPlanRecord {
   const content = "Earth orbits the Sun.";
   return {
@@ -119,13 +123,13 @@ function makePlanFor(entryId: string, overrides: Partial<VerificationPlanRecord>
     tenantId: "default",
     candidateId: entryId,
     candidateRevision: 1,
-    candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+    candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: KNOWLEDGE_EVIDENCE, effect: null }),
     requiredDomains: ["mathematics"],
     checks: [
       { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:platform-admin"], separationFrom: ["producer", "other-verifier"] },
       { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer", "other-verifier"] },
     ],
-    sourceBindingsDigest: "",
+    sourceBindingsDigest: sourceBindingsDigestOf(KNOWLEDGE_EVIDENCE),
     status: "open",
     rowVersion: 1,
     createdAt: new Date().toISOString(),
@@ -277,6 +281,8 @@ describe("K4 Phase 4：knowledge 写能力按角色注入（N22 3）", () => {
           producerModel: "deepseek-v4-flash",
           sourceRefs: ["task:task-1"],
         }),
+        // N29 再验收 P0-5：canPromote 删除了空 evidence/空 digest 兼容路径——candidate 必须显式声明来源绑定。
+        evidence: KNOWLEDGE_EVIDENCE,
         verdicts: [],
       },
     });

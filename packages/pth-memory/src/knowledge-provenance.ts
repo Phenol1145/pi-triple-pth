@@ -3,6 +3,30 @@ import { createHash } from "node:crypto";
 /** 官方领域知识强制 provenance 的 kind 白名单（N19 Phase 1b 设计 1.1）。 */
 export const PROVENANCE_REQUIRED_KINDS: ReadonlySet<string> = new Set(["domain-fact", "domain-method"]);
 
+/**
+ * N29 再验收 P0-5（feedback §3 P0-5 / §8 条件 6）：受 **official 写授权** 约束的 kind 集合。
+ *
+ * 背景：报告的 PostgreSQL 探针用 `kind="task-insight" + status="official"` 经 raw
+ * `PgMemoryStore.write()` 直接写出了 official 知识——因为 official authority 当时只挂在
+ * `PROVENANCE_REQUIRED_KINDS`（domain-fact / domain-method）上。
+ *
+ * 判据 = "会被当作权威知识消费"的 knowledge 层 kind：
+ *  - `domain-fact` / `domain-method`：Broker / KnowledgeContext 的领域知识面；
+ *  - `task-insight`：worker capability 的经验/洞察面（`memory.recall` 固定 status=official）；
+ *  - `tool-function`：authorized state reads 的工具函数面（同样固定 status=official）。
+ *
+ * 不在集合内的 knowledge 层 kind（`task-scorecard*` 等度量/日志类）不是权威知识消费面；
+ * `skill*` / `role-doc*` / `tool-reg` 属 prompt 层，另有 isSystemDocId + 治理流保护。
+ *
+ * 集合内的 kind 以 official 落库（write / update / incrementAggregate / markStale）时
+ * 必须出示 `KnowledgeOfficialAuthority`；缺省一律 fail closed。
+ */
+export const OFFICIAL_KNOWLEDGE_GATED_KINDS: ReadonlySet<string> = new Set([
+  ...PROVENANCE_REQUIRED_KINDS,
+  "task-insight",
+  "tool-function",
+]);
+
 /** 知识来源证明（写入 meta.provenance 的六字段契约）。 */
 export interface KnowledgeProvenance {
   sourceTaskId: string;

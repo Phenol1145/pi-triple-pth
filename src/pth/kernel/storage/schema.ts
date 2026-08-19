@@ -17,6 +17,10 @@ export const SCHEMA_VERSION = 1;
  *    并用 `derived_from_revision_id` 关联，不得把 quarantined 行原地 UPDATE 成 admitted；
  *    正文列由 BEFORE UPDATE 触发器守卫（改正文 → `restrict_violation`）；
  *  - `raw_hash` 在 tenant 内唯一：同 tenant 重复字节复用既有 artifact，跨 tenant 各存一份；
+ *  - N29 再验收 P0-4：`admitted` revision 的三条不变量在 DB 层再守一次（CHECK + BEFORE INSERT
+ *    触发器）：必须有 `derived_from_revision_id`、use decision 必须 `allow`、父行必须是同
+ *    tenant + 同 subscription 的 `raw-quarantine` 行；hash 可重算性由仓库写口负责（见
+ *    `knowledge-intake-pg.ts` 的 `storeAcquisition()`）；
  *  - 外键全部 tenant-qualified（复合 FK）；可空自引用列按 MATCH SIMPLE 语义在 NULL 时不约束；
  *  - 迁移风格与本文件既有约定一致：`CREATE TABLE/INDEX IF NOT EXISTS` +
  *    `DROP TRIGGER IF EXISTS` → `CREATE TRIGGER`，可重复执行。
@@ -233,6 +237,54 @@ CREATE TRIGGER trg_knowledge_source_revisions_append_only
     'requested_uri','final_uri','redirect_chain','acquired_at','response_status','content_type',
     'etag','last_modified','artifact_id','raw_hash','normalized_text_hash','normalized_text',
     'disposition','fetch_policy_decision','use_policy_decision','created_at');
+
+-- N29 再验收 P0-4（feedback §3 P0-4 / §8 条件 4）：admitted 不变量的**同事务数据库约束层**
+-- 第二道防线。仓库写口（storeAcquisition）已逐项对账并服务端重算 hash；这里再用声明式约束 +
+-- BEFORE INSERT 触发器兜住"绕过仓库直接 INSERT"的路径：
+--   ① admitted 必须携带 derived_from_revision_id（raw→admitted 关联不可缺）；
+--   ② admitted 的 use decision 必须是 allow（deny 不得成为 admitted）；
+--   ③ admitted 的父行必须是同 tenant + 同 subscription 的 raw-quarantine 行（跨行判据 → 触发器）。
+ALTER TABLE knowledge_source_revisions
+  DROP CONSTRAINT IF EXISTS knowledge_source_revisions_admitted_needs_parent;
+ALTER TABLE knowledge_source_revisions
+  ADD CONSTRAINT knowledge_source_revisions_admitted_needs_parent
+  CHECK (disposition <> 'admitted' OR derived_from_revision_id IS NOT NULL);
+ALTER TABLE knowledge_source_revisions
+  DROP CONSTRAINT IF EXISTS knowledge_source_revisions_admitted_needs_allow;
+ALTER TABLE knowledge_source_revisions
+  ADD CONSTRAINT knowledge_source_revisions_admitted_needs_allow
+  CHECK (disposition <> 'admitted' OR (use_policy_decision ->> 'decision') = 'allow');
+
+CREATE OR REPLACE FUNCTION knowledge_source_revisions_guard_admitted() RETURNS trigger AS $admitted$
+DECLARE
+  parent_disposition TEXT;
+  parent_subscription TEXT;
+BEGIN
+  IF NEW.disposition <> 'admitted' THEN
+    RETURN NEW;
+  END IF;
+  SELECT r.disposition, r.subscription_id INTO parent_disposition, parent_subscription
+    FROM knowledge_source_revisions r
+   WHERE r.tenant_id = NEW.tenant_id AND r.id = NEW.derived_from_revision_id;
+  IF parent_disposition IS NULL THEN
+    RAISE EXCEPTION 'admitted revision % has no raw-quarantine parent in tenant %', NEW.id, NEW.tenant_id
+      USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF parent_disposition <> 'raw-quarantine' THEN
+    RAISE EXCEPTION 'admitted revision % must derive from raw-quarantine (parent disposition=%)',
+      NEW.id, parent_disposition USING ERRCODE = 'restrict_violation';
+  END IF;
+  IF parent_subscription <> NEW.subscription_id THEN
+    RAISE EXCEPTION 'admitted revision % parent belongs to subscription % (expected %)',
+      NEW.id, parent_subscription, NEW.subscription_id USING ERRCODE = 'restrict_violation';
+  END IF;
+  RETURN NEW;
+END;
+$admitted$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_knowledge_source_revisions_admitted_parent ON knowledge_source_revisions;
+CREATE TRIGGER trg_knowledge_source_revisions_admitted_parent
+  BEFORE INSERT ON knowledge_source_revisions FOR EACH ROW
+  EXECUTE FUNCTION knowledge_source_revisions_guard_admitted();
 
 -- 7/7 Source Dependency（边 append-only；只有 stale 状态可迁移，带 row_version）。
 CREATE TABLE IF NOT EXISTS knowledge_source_dependencies (

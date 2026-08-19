@@ -2,14 +2,14 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
-import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, PgMemoryStore, provenanceFromMeta, runReadOnlyQuery } from "@away_from/pth-memory";
+import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, PgMemoryStore, provenanceFromMeta, runReadOnlyQuery, withMemoryTenant } from "@away_from/pth-memory";
 import { applySchema } from "../../../src/pth/kernel/storage/schema.js";
 import {
   createPgKnowledgeVerificationRepo,
   promoteKnowledgeEntry,
   recordKnowledgeVerdict,
 } from "../../../src/pth/execution/knowledge-promotion.js";
-import { computeCandidateHash } from "../../../src/pth/execution/knowledge-verdicts.js";
+import { computeCandidateHash, sourceBindingsDigestOf } from "../../../src/pth/execution/knowledge-verdicts.js";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1/2/3（pg.test.ts / schema.test.ts / task-store-pg.test.ts）：
@@ -537,6 +537,123 @@ suite("memory store pg", () => {
     expect((await store.get("n29-seed-official"))?.status).toBe("official");
   });
 
+  // ── N29 再验收 P0-5（feedback §3 P0-5 / §8 条件 6）：official 知识的剩余旁路 ──────────
+  // 反例来源：docs/pth/n29-minimal-intake-reacceptance-feedback.md §2.3 探针
+  // `rawStoreOfficial = { status: "official", kind: "task-insight" }` 与 §3 P0-5 的
+  // "promoteOfficial() evaluator 可省略" / "capability facade 仍公开晋升原语"。
+
+  it("N29 P0-5：promoteOfficial 不提供 evaluator 时抛错（门禁不可省略，零写）", async () => {
+    const provenance = buildKnowledgeProvenance({
+      content: "no-evaluator", sourceTaskId: "t-p05", producerRole: "developer",
+      producerModel: "deepseek-v4-flash", sourceRefs: ["task:t-p05"],
+    });
+    await store.write({
+      id: "n29-p05-no-evaluator", kind: "domain-fact", anchors: ["n29-p05"],
+      content: "no-evaluator", status: "draft", meta: { provenance },
+    } as any);
+
+    await expect(
+      store.promoteOfficial("n29-p05-no-evaluator", DEFAULT_TENANT_ID, 1, {
+        promotedBy: "memory-keeper", promotedAt: Date.now(),
+      }),
+    ).rejects.toThrow(/evaluator/i);
+    // 空 opts（既不传 evaluate 也不传 evaluateAsync）同样被拒
+    await expect(
+      store.promoteOfficial("n29-p05-no-evaluator", DEFAULT_TENANT_ID, 1, {
+        promotedBy: "memory-keeper", promotedAt: Date.now(),
+      }, { createdBy: "memory-keeper" }),
+    ).rejects.toThrow(/evaluator/i);
+
+    const after = await store.get("n29-p05-no-evaluator");
+    expect(after?.status).toBe("draft");
+    expect(after?.meta?.promotion).toBeUndefined();
+    expect(await store.revisionHistory("n29-p05-no-evaluator")).toHaveLength(0);
+  });
+
+  it("N29 P0-5：task-insight / tool-function official 直写被拒（raw store 旁路关闭）", async () => {
+    for (const kind of ["task-insight", "tool-function"]) {
+      const content = `raw-official-${kind}`;
+      const provenance = buildKnowledgeProvenance({
+        content, sourceTaskId: "t-p05-raw", producerRole: "developer",
+        producerModel: "deepseek-v4-flash", sourceRefs: ["task:t-p05-raw"],
+      });
+      await expect(
+        store.write({
+          id: `n29-p05-raw-${kind}`, kind, anchors: ["n29-p05"],
+          content, status: "official", meta: { provenance },
+        } as any),
+      ).rejects.toThrow(/official/);
+      expect(await store.get(`n29-p05-raw-${kind}`)).toBeUndefined();
+      // force（系统文档通道）不是 knowledge official authority
+      await expect(
+        store.write({
+          id: `n29-p05-raw-force-${kind}`, kind, anchors: ["n29-p05"],
+          content, status: "official", meta: { provenance },
+        } as any, { force: true }),
+      ).rejects.toThrow(/official/);
+      expect(await store.get(`n29-p05-raw-force-${kind}`)).toBeUndefined();
+      // draft → official 的 update 直写同样被拒
+      await store.write({
+        id: `n29-p05-upd-${kind}`, kind, anchors: ["n29-p05"],
+        content, status: "draft", meta: { provenance },
+      } as any);
+      await expect(store.update(`n29-p05-upd-${kind}`, { status: "official" })).rejects.toThrow(/official/);
+      expect((await store.get(`n29-p05-upd-${kind}`))?.status).toBe("draft");
+    }
+  });
+
+  it("N29 P0-5：capability facade（withMemoryTenant）不再公开 promoteOfficial", async () => {
+    const facade = withMemoryTenant(store, "tenant-p05");
+    expect((facade as unknown as Record<string, unknown>)["promoteOfficial"]).toBeUndefined();
+    // 只读/草稿面仍然可用（facade 不是被整体关闭）
+    expect(typeof (facade as unknown as Record<string, unknown>)["write"]).toBe("function");
+    expect(typeof (facade as unknown as Record<string, unknown>)["get"]).toBe("function");
+    // facade 写 official 领域知识仍然被拒（authority 被剥离）
+    const provenance = buildKnowledgeProvenance({
+      content: "facade", sourceTaskId: "t-facade", producerRole: "developer",
+      producerModel: "deepseek-v4-flash", sourceRefs: ["task:t-facade"],
+    });
+    await expect(
+      facade.write({
+        id: "n29-p05-facade", kind: "domain-fact", anchors: ["n29-p05"],
+        content: "facade", status: "official", meta: { provenance },
+      } as any, { knowledgeOfficialAuthority: "seed-migration" } as any),
+    ).rejects.toThrow(/official/);
+    expect(await store.get("n29-p05-facade", { tenantId: "tenant-p05" })).toBeUndefined();
+  });
+
+  it("N29 P0-5：内部推理知识写 official 必须显式 origin=internal + 内部 authority", async () => {
+    const content = "internal reasoning insight";
+    const provenance = buildKnowledgeProvenance({
+      content, sourceTaskId: "optimizer-suggestion:s-1", producerRole: "optimizer-loop",
+      producerModel: "optimizer-loop", sourceRefs: ["optimizer-suggestion:s-1"],
+    });
+    // ① 有 authority 但没有显式 origin=internal → 拒绝（不得以"隐式内部"表示可信）
+    await expect(
+      store.write({
+        id: "n29-p05-internal-no-origin", kind: "task-insight", anchors: ["n29-p05"],
+        content, status: "official", meta: { provenance },
+      } as any, { knowledgeOfficialAuthority: "internal-reasoning" } as any),
+    ).rejects.toThrow(/origin/);
+    expect(await store.get("n29-p05-internal-no-origin")).toBeUndefined();
+
+    // ② origin=internal + 内部 authority + 有效 provenance → 允许（显式内部来源合同）
+    await store.write({
+      id: "n29-p05-internal-ok", kind: "task-insight", anchors: ["n29-p05"],
+      content, status: "official", meta: { provenance, origin: "internal" },
+    } as any, { knowledgeOfficialAuthority: "internal-reasoning" } as any);
+    expect((await store.get("n29-p05-internal-ok"))?.status).toBe("official");
+
+    // ③ origin=internal 但没有 authority → 仍然拒绝（origin 不是 authority）
+    await expect(
+      store.write({
+        id: "n29-p05-internal-no-auth", kind: "task-insight", anchors: ["n29-p05"],
+        content, status: "official", meta: { provenance, origin: "internal" },
+      } as any),
+    ).rejects.toThrow(/official/);
+    expect(await store.get("n29-p05-internal-no-auth")).toBeUndefined();
+  });
+
   it("K1b：真实 PG 链路 draft domain-fact（meta.provenance）→ plan verdict rows → promote → official", async () => {
     const content = "The Earth orbits the Sun.";
     const provenance = buildKnowledgeProvenance({
@@ -546,23 +663,26 @@ suite("memory store pg", () => {
       producerModel: "deepseek-v4-flash",
       sourceRefs: ["task:task-1"],
     });
+    // N29 再验收 P0-5：legacy 空 digest/空 evidence 兼容路径已删除——内部 candidate 也必须显式声明来源绑定。
+    const chainEvidence = [{ sourceId: "task:task-1", locator: "task-output#1" }];
     await store.write({
       id: "k1b-chain", kind: "domain-fact", anchors: ["science"],
-      content, status: "draft", meta: { provenance, verdicts: [] },
+      content, status: "draft", meta: { provenance, evidence: chainEvidence, verdicts: [] },
     } as any);
 
     const repo = createPgKnowledgeVerificationRepo(pool);
     await pool.query(
       `INSERT INTO knowledge_verification_plans
          (id, tenant_id, candidate_id, candidate_revision, candidate_hash, required_domains, checks, source_bindings_digest, status)
-       VALUES ('plan-k1b-chain', $1, 'k1b-chain', 1, $2, '["mathematics"]'::jsonb, $3::jsonb, '', 'open')`,
+       VALUES ('plan-k1b-chain', $1, 'k1b-chain', 1, $2, '["mathematics"]'::jsonb, $3::jsonb, $4, 'open')`,
       [
         DEFAULT_TENANT_ID,
-        computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+        computeCandidateHash({ content, domains: ["mathematics"], evidence: chainEvidence, effect: null }),
         JSON.stringify([
           { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:platform-admin"], separationFrom: ["producer", "other-verifier"] },
           { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer", "other-verifier"] },
         ]),
+        sourceBindingsDigestOf(chainEvidence),
       ],
     );
 

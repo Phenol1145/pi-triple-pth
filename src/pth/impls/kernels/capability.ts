@@ -284,7 +284,11 @@ export function buildCapabilities(deps: {
               if (!verificationRepo) return { ok: false, error: "verification backend unavailable（缺少 verificationRepo 注入且 memory store 无 pg pool）" };
               const tenantId = deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID;
               const taskId = deps.taskContext?.current?.taskId;
-              return promoteKnowledgeEntry(memoryStore(), verificationRepo, entryId, planId, expectedCandidateRevision, {
+              // N29 再验收 P0-5（feedback §3 P0-5 关闭条件 1/2）：capability facade
+              // （`withMemoryTenant`）**不再**公开 promoteOfficial 原语，所以这里把 raw store 交给
+              // Promotion Service —— 唯一带门禁的晋升入口（auth + plan + 双 verdict + canPromote +
+              // 不可省略 evaluator）。tenant 仍由服务端 taskContext 盖章（与 facade 同源，worker 不可自报）。
+              return promoteKnowledgeEntry(deps.dataWorld.memory, verificationRepo, entryId, planId, expectedCandidateRevision, {
                 principalId: "worker:memory-keeper",
                 executionId: taskId ?? `worker:memory-keeper:${process.pid}`,
                 roleId: "memory-keeper",

@@ -5,7 +5,7 @@ import { buildKnowledgeProvenance } from "@away_from/pth-memory";
 import { registerKernelRoutes } from "../../src/pth/gateway/routes-kernel";
 import { createPthGatewayFacade, type PthGatewayFacade } from "../../src/pth/application/gateway/pth-gateway-facade.js";
 import type { KnowledgeVerificationRepo } from "../../src/pth/execution/knowledge-promotion.js";
-import { computeCandidateHash, type VerificationPlanRecord } from "../../src/pth/execution/knowledge-verdicts.js";
+import { computeCandidateHash, sourceBindingsDigestOf, type VerificationPlanRecord } from "../../src/pth/execution/knowledge-verdicts.js";
 import type { KernelRuntime } from "../../src/pth/kernel/assembly";
 
 // 简化 auth：路由测试直接构造 app 并注册 kernel 路由（不含全局 auth hook——auth 已由
@@ -463,6 +463,12 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4 / R3）", (
     };
   }
 
+  /**
+   * N29 再验收 P0-5：candidate 必须显式携带来源绑定（空 evidence + 空 digest 的 legacy
+   * 兼容路径已从 canPromote 删除），因此 seed 的 draft 固定带一条内部 evidence 引用。
+   */
+  const KNOWLEDGE_EVIDENCE = [{ sourceId: "task:task-1", locator: "task-output#1" }];
+
   function seedDraft(store: ReturnType<typeof makeMemoryStore>, id = "cand-1") {
     const content = "Earth orbits the Sun.";
     store.rows.set(id, {
@@ -481,6 +487,7 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4 / R3）", (
           producerModel: "deepseek-v4-flash",
           sourceRefs: ["task:task-1"],
         }),
+        evidence: KNOWLEDGE_EVIDENCE,
         verdicts: [],
       },
     });
@@ -544,13 +551,13 @@ describe("K4 Phase 4：knowledge verify/promote 监督通道（N22 4 / R3）", (
       tenantId: "tenant-a",
       candidateId: id,
       candidateRevision: 1,
-      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: [], effect: null }),
+      candidateHash: computeCandidateHash({ content, domains: ["mathematics"], evidence: KNOWLEDGE_EVIDENCE, effect: null }),
       requiredDomains: ["mathematics"],
       checks: [
         { checkId: "domain-1", kind: "domain", domainId: "mathematics", quorum: 1, eligiblePrincipals: ["tenant:tenant-a:platform-admin", "tenant:tenant-a:domain-expert"], separationFrom: ["producer", "other-verifier"] },
         { checkId: "adv-1", kind: "adversarial", quorum: 1, eligiblePrincipals: ["worker:controller:adversarial"], separationFrom: ["producer", "other-verifier"] },
       ],
-      sourceBindingsDigest: "",
+      sourceBindingsDigest: sourceBindingsDigestOf(KNOWLEDGE_EVIDENCE),
       status: "open",
       rowVersion: 1,
       createdAt: new Date().toISOString(),

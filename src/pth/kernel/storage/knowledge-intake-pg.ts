@@ -29,6 +29,13 @@
  *    是第二道防线（同 subscription 同时只允许一个未终结 run）。
  *  - artifact/revision 正文 append-only：raw-quarantine 与 admitted 是两条独立行
  *    （admitted 用 `derivedFromRevisionId` 指回 quarantine 行），`raw_hash` 在 tenant 内去重复用。
+ *  - **SourceRevision / Artifact 不变量在写口守住**（N29 再验收 P0-4：feedback §3 P0-4 / §8 条件 4）：
+ *    `storeAcquisition()` 服务端重算 `sha256(rawBytes)` / `sha256(normalizedText)` 与 byteLength，
+ *    并要求 admitted 满足「同 tenant+subscription 的 raw-quarantine 父行 + use/fetch decision=allow
+ *    + decision 的 policy/rule 绑定与 Subscription 及已验签策略镜像三方一致（含 spaces/有效期）」；
+ *    `recordDependency*()` 只接受已准入（admitted/unchanged）且同 subscription 的来源 revision。
+ *    任一项不符 → 带具体 code 的 `KnowledgeIntakeValidationError` + 事务回滚（零 artifact、零 revision）。
+ *    schema 侧另有 CHECK + BEFORE INSERT 触发器作为同事务数据库约束层的第二道防线。
  *
  * 合同来源：M0 类型与端口来自 L2 冻结合同 `src/pth/contracts/knowledge-intake.ts`；
  * 本文件只声明 PG 实现专属类型（错误、选项、工厂），不再本地声明 M0 重复类型。
@@ -56,6 +63,7 @@ import type {
   IntakeSideEffect,
   KnowledgeIntakeRepository,
   MarkDependentsStaleInput,
+  PolicyDecisionRef,
   SourceDependency,
   SourceDependencyInput,
   SourceRevision,
@@ -79,12 +87,56 @@ export class KnowledgeIntakeConflictError extends Error {
   }
 }
 
-/** 输入不满足 append-only / 策略绑定前置条件（写前 fail closed，零行）。 */
+/**
+ * 校验失败的具体不变量（N29 再验收 P0-4：feedback §3 P0-4 / §8 条件 4）。
+ *
+ * 每个 code 对应一条**单一**领域不变量，让"被错误内部调用者直接调用"的对抗测试能够
+ * 逐项钉住（而不是只断言"抛了个错"）。`KNOWLEDGE_INTAKE_INVALID` 是历史缺省码。
+ */
+export type KnowledgeIntakeValidationCode =
+  | "KNOWLEDGE_INTAKE_INVALID"
+  /** artifact 自报 rawHash ≠ sha256(rawBytes)（服务端重算不通过）。 */
+  | "ARTIFACT_RAW_HASH_MISMATCH"
+  /** artifact 自报 byteLength ≠ rawBytes.byteLength。 */
+  | "ARTIFACT_BYTE_LENGTH_MISMATCH"
+  /** 复用既有 artifact 的 revision（304 unchanged）找不到该 rawHash 的 artifact 行。 */
+  | "ARTIFACT_NOT_FOUND"
+  /** revision 自报 normalizedTextHash ≠ sha256(normalizedText)。 */
+  | "REVISION_NORMALIZED_TEXT_HASH_MISMATCH"
+  /** revision 引用的 Subscription 在本 tenant 内不存在。 */
+  | "SUBSCRIPTION_NOT_FOUND"
+  /** admitted 缺少 usePolicyDecision。 */
+  | "ADMITTED_USE_DECISION_MISSING"
+  /** admitted 的 usePolicyDecision.decision ≠ allow。 */
+  | "ADMITTED_USE_DECISION_NOT_ALLOW"
+  /** admitted 缺少 derivedFromRevisionId（无 raw→admitted 关联）。 */
+  | "ADMITTED_PARENT_REQUIRED"
+  /** admitted 的父 revision 在本 tenant 内不存在（含跨 tenant 引用）。 */
+  | "ADMITTED_PARENT_NOT_FOUND"
+  /** admitted 的父 revision disposition ≠ raw-quarantine。 */
+  | "ADMITTED_PARENT_NOT_QUARANTINE"
+  /** admitted 的父 revision 属于另一个 subscription。 */
+  | "ADMITTED_PARENT_SUBSCRIPTION_MISMATCH"
+  /** policy decision 结构不完整（缺 policyId/version/digest/ruleId 或非法 decision）。 */
+  | "POLICY_DECISION_MALFORMED"
+  /** policy decision 的 policy/rule 绑定与 Subscription 不一致。 */
+  | "POLICY_DECISION_BINDING_MISMATCH"
+  /** decision 绑定的 policy 在本 tenant 没有已验签审计镜像（或 digest 不符）。 */
+  | "POLICY_NOT_INSTALLED"
+  /** 已装策略的 spaces 不覆盖 Subscription 的 space。 */
+  | "POLICY_SPACE_MISMATCH"
+  /** 已装策略在 acquisition 时刻不在有效期内。 */
+  | "POLICY_NOT_VALID_NOW"
+  /** admitted 的 fetch decision ≠ allow（字节本不该被取回）。 */
+  | "FETCH_DECISION_NOT_ALLOW";
+
+/** 输入不满足 append-only / 策略绑定 / hash 可重算前置条件（写前 fail closed，零行）。 */
 export class KnowledgeIntakeValidationError extends Error {
-  readonly code = "KNOWLEDGE_INTAKE_INVALID";
-  constructor(message: string) {
+  readonly code: KnowledgeIntakeValidationCode;
+  constructor(message: string, code: KnowledgeIntakeValidationCode = "KNOWLEDGE_INTAKE_INVALID") {
     super(message);
     this.name = "KnowledgeIntakeValidationError";
+    this.code = code;
   }
 }
 
@@ -164,6 +216,52 @@ function iso(value: Date | string | null | undefined): string | undefined {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+/** N29 再验收 P0-4：所有落库 hash 必须由服务端重算（自报值只作 tripwire）。 */
+function sha256Hex(data: string | Uint8Array): string {
+  return createHash("sha256").update(data instanceof Uint8Array ? Buffer.from(data) : data).digest("hex");
+}
+
+/** policy decision 的结构完备性（缺字段 / 非法 decision 一律写前 fail closed）。 */
+function assertPolicyDecisionShape(decision: PolicyDecisionRef, label: string): void {
+  const missing = (["policyId", "policyVersion", "policyDigest", "ruleId"] as const).filter(
+    (k) => typeof decision[k] !== "string" || decision[k].trim() === "",
+  );
+  if (missing.length > 0) {
+    throw new KnowledgeIntakeValidationError(
+      `storeAcquisition: ${label} 缺少 ${missing.join("/")}`,
+      "POLICY_DECISION_MALFORMED",
+    );
+  }
+  if (decision.decision !== "allow" && decision.decision !== "deny") {
+    throw new KnowledgeIntakeValidationError(
+      `storeAcquisition: ${label}.decision 只能是 allow|deny（收到 ${String(decision.decision)}）`,
+      "POLICY_DECISION_MALFORMED",
+    );
+  }
+}
+
+/**
+ * N29 再验收 P0-4：decision 的 policy/rule 绑定必须与 Subscription 完全一致。
+ * Subscription 是"人类策略 → 具体来源"的授权绑定；decision 换 policy/rule 等于换授权。
+ */
+function assertDecisionMatchesSubscription(label: string, decision: PolicyDecisionRef, subscription: Row): void {
+  const pairs: readonly (readonly [string, unknown, unknown])[] = [
+    ["policyId", decision.policyId, subscription.policy_id],
+    ["policyVersion", decision.policyVersion, subscription.policy_version],
+    ["policyDigest", decision.policyDigest, subscription.policy_digest],
+    ["ruleId", decision.ruleId, subscription.policy_rule_id],
+  ];
+  for (const [field, actual, expected] of pairs) {
+    if (actual !== expected) {
+      throw new KnowledgeIntakeValidationError(
+        `storeAcquisition: ${label}.${field}=${String(actual)} 与 Subscription 绑定的`
+          + ` ${String(expected)} 不一致——admitted revision 的策略绑定必须与订阅一致`,
+        "POLICY_DECISION_BINDING_MISMATCH",
+      );
+    }
+  }
+}
+
 function toTimestamp(value: Date | string | null | undefined): string | null {
   return iso(value) ?? null;
 }
@@ -173,8 +271,41 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/** dependency append-only INSERT（pool 与事务 client 共用同一条 SQL——语义不分叉）。 */
+/**
+ * dependency append-only INSERT（pool 与事务 client 共用同一条 SQL——语义不分叉）。
+ *
+ * N29 再验收 P0-4（§3 P0-4 关闭条件："所有 repository 公共写口都必须按'被错误内部调用者
+ * 直接调用'进行对抗测试"）：依赖边把 official 知识 / candidate 绑到一条不可变来源 revision 上，
+ * 因此写前必须对账「该 revision 属同 tenant + 同 subscription 且已准入」——绑到
+ * raw-quarantine（未准入字节）或跨 subscription 的 revision 都是错误持久状态。
+ */
 async function insertDependency(executor: SqlExecutor, input: SourceDependencyInput): Promise<void> {
+  const revision = await executor.query(
+    `SELECT subscription_id, disposition FROM knowledge_source_revisions
+      WHERE tenant_id = $1 AND id = $2`,
+    [input.tenantId, input.sourceRevisionId],
+  );
+  if ((revision.rowCount ?? 0) !== 1) {
+    throw new KnowledgeIntakeValidationError(
+      `recordDependency: source revision ${input.sourceRevisionId} 在 tenant=${input.tenantId} 不存在`,
+      "ADMITTED_PARENT_NOT_FOUND",
+    );
+  }
+  const revisionRow = revision.rows[0] as Row;
+  if (revisionRow.subscription_id !== input.subscriptionId) {
+    throw new KnowledgeIntakeValidationError(
+      `recordDependency: source revision ${input.sourceRevisionId} 属于 subscription`
+        + ` ${String(revisionRow.subscription_id)}，与本次 ${input.subscriptionId} 不一致`,
+      "ADMITTED_PARENT_SUBSCRIPTION_MISMATCH",
+    );
+  }
+  if (revisionRow.disposition !== "admitted" && revisionRow.disposition !== "unchanged") {
+    throw new KnowledgeIntakeValidationError(
+      `recordDependency: 依赖边不得绑定 disposition=${String(revisionRow.disposition)} 的 revision`
+        + "（只有 admitted / unchanged 是已准入来源）",
+      "ADMITTED_PARENT_NOT_QUARANTINE",
+    );
+  }
   await executor.query(
     `INSERT INTO knowledge_source_dependencies
        (tenant_id, subscription_id, source_revision_id, dependent_kind, dependent_id,
@@ -875,23 +1006,157 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
 
   /**
    * 落一次 acquisition：artifact（tenant 内按 raw_hash 去重复用）+ 一条 append-only revision。
-   * raw-quarantine / admitted / unchanged 各自独立成行；admitted 必须带 use policy decision。
+   * raw-quarantine / admitted / unchanged 各自独立成行。
+   *
+   * N29 再验收 P0-4（feedback §3 P0-4 / §8 条件 4）：本方法是**公共写口**，必须按
+   * "被错误内部调用者直接调用"设防——service happy path 的判定不构成信任边界。写事务内逐项对账：
+   *
+   *  ① **hash 服务端重算**：`rawHash === sha256(rawBytes)`、`normalizedTextHash === sha256(normalizedText)`、
+   *     `byteLength === rawBytes.byteLength`；自报值只作 tripwire（不一致即拒），永不作为真相。
+   *     304 unchanged（零字节复用既有 artifact）例外：不重算 rawHash，但必须命中既有 artifact 行。
+   *  ② **admitted 必须派生自同 tenant + 同 subscription 的 raw-quarantine 行**
+   *     （`derivedFromRevisionId` 必填、父行存在、disposition/subscription 逐项对账）。
+   *  ③ **admitted 的 use/fetch decision 必须是 allow**（deny 一律零行，绝不落 admitted）。
+   *  ④ **decision 的 policy 绑定必须与 Subscription 及已验签策略审计镜像三方一致**
+   *     （policyId/version/digest/ruleId + 镜像 digest + spaces 覆盖 space + 有效期）。
+   *
+   * 任一项不成立 → `KnowledgeIntakeValidationError`（带具体 code）+ 事务回滚：零 artifact、零 revision。
+   * schema 侧还有第二道防线（CHECK + BEFORE INSERT 触发器），见 `KNOWLEDGE_INTAKE_SCHEMA_SQL`。
    */
   async storeAcquisition(input: StoreAcquisitionInput): Promise<SourceRevision> {
     const rev = input.revision;
-    if (rev.disposition === "admitted" && !rev.usePolicyDecision) {
-      throw new KnowledgeIntakeValidationError(
-        "storeAcquisition: admitted revision 必须携带 usePolicyDecision（deterministic use-policy admission）",
-      );
-    }
+    const admitted = rev.disposition === "admitted";
     if (!rev.fetchPolicyDecision) {
       throw new KnowledgeIntakeValidationError("storeAcquisition: 缺少 fetchPolicyDecision");
     }
     if (!input.artifact.rawHash) {
       throw new KnowledgeIntakeValidationError("storeAcquisition: 缺少 artifact.rawHash");
     }
+    if (admitted && !rev.usePolicyDecision) {
+      throw new KnowledgeIntakeValidationError(
+        "storeAcquisition: admitted revision 必须携带 usePolicyDecision（deterministic use-policy admission）",
+        "ADMITTED_USE_DECISION_MISSING",
+      );
+    }
+    assertPolicyDecisionShape(rev.fetchPolicyDecision, "fetchPolicyDecision");
+    if (rev.usePolicyDecision) assertPolicyDecisionShape(rev.usePolicyDecision, "usePolicyDecision");
+
+    // ① hash 服务端重算（自报值只作 tripwire）。
+    const rawBytes = Buffer.from(input.artifact.rawBytes ?? new Uint8Array(0));
+    const reusesExistingArtifact = rawBytes.byteLength === 0;
+    if (!reusesExistingArtifact) {
+      const recomputedRawHash = sha256Hex(rawBytes);
+      if (recomputedRawHash !== input.artifact.rawHash) {
+        throw new KnowledgeIntakeValidationError(
+          `storeAcquisition: artifact.rawHash 自报 ${input.artifact.rawHash} 与 sha256(rawBytes)`
+            + ` ${recomputedRawHash} 不一致——服务端重算是唯一真相`,
+          "ARTIFACT_RAW_HASH_MISMATCH",
+        );
+      }
+      if (input.artifact.byteLength !== rawBytes.byteLength) {
+        throw new KnowledgeIntakeValidationError(
+          `storeAcquisition: artifact.byteLength 自报 ${input.artifact.byteLength} 与 rawBytes 实际长度`
+            + ` ${rawBytes.byteLength} 不一致`,
+          "ARTIFACT_BYTE_LENGTH_MISMATCH",
+        );
+      }
+    } else if (admitted) {
+      // admitted 必须由真实字节支撑（零字节只可能是 304 复用路径的 unchanged 行）。
+      throw new KnowledgeIntakeValidationError(
+        "storeAcquisition: admitted revision 必须携带 rawBytes（不得以零字节 artifact 落 admitted）",
+        "ARTIFACT_RAW_HASH_MISMATCH",
+      );
+    }
+    const recomputedNormalizedHash = sha256Hex(rev.normalizedText ?? "");
+    if (rev.normalizedTextHash !== recomputedNormalizedHash) {
+      throw new KnowledgeIntakeValidationError(
+        `storeAcquisition: normalizedTextHash 自报 ${String(rev.normalizedTextHash)} 与`
+          + ` sha256(normalizedText) ${recomputedNormalizedHash} 不一致——服务端重算是唯一真相`,
+        "REVISION_NORMALIZED_TEXT_HASH_MISMATCH",
+      );
+    }
+
     return withTx(this.pool, async (client) => {
-      const artifactId = await this.upsertArtifact(client, input);
+      // ② Subscription 必须存在于同 tenant（FK 之前先给出可判读的领域错误）。
+      const subRes = await client.query(
+        `SELECT space, policy_id, policy_version, policy_digest, policy_rule_id
+           FROM knowledge_source_subscriptions WHERE tenant_id = $1 AND id = $2`,
+        [input.tenantId, input.subscriptionId],
+      );
+      if ((subRes.rowCount ?? 0) !== 1) {
+        throw new KnowledgeIntakeValidationError(
+          `storeAcquisition: subscription ${input.subscriptionId} 在 tenant=${input.tenantId} 不存在`,
+          "SUBSCRIPTION_NOT_FOUND",
+        );
+      }
+      const subscription = subRes.rows[0] as Row;
+
+      if (admitted) {
+        // ③ admitted 必须派生自同 tenant + 同 subscription 的 raw-quarantine 行。
+        if (!rev.derivedFromRevisionId) {
+          throw new KnowledgeIntakeValidationError(
+            "storeAcquisition: admitted revision 必须携带 derivedFromRevisionId"
+              + "（admitted 只能从同 tenant/subscription 的 raw-quarantine revision 派生）",
+            "ADMITTED_PARENT_REQUIRED",
+          );
+        }
+        const parentRes = await client.query(
+          `SELECT subscription_id, disposition FROM knowledge_source_revisions
+            WHERE tenant_id = $1 AND id = $2`,
+          [input.tenantId, rev.derivedFromRevisionId],
+        );
+        if ((parentRes.rowCount ?? 0) !== 1) {
+          throw new KnowledgeIntakeValidationError(
+            `storeAcquisition: derivedFromRevisionId ${rev.derivedFromRevisionId} 在 tenant=${input.tenantId}`
+              + " 不存在（跨 tenant 引用一律零行）",
+            "ADMITTED_PARENT_NOT_FOUND",
+          );
+        }
+        const parent = parentRes.rows[0] as Row;
+        if (parent.disposition !== "raw-quarantine") {
+          throw new KnowledgeIntakeValidationError(
+            `storeAcquisition: derivedFromRevisionId ${rev.derivedFromRevisionId} 的 disposition 是`
+              + ` ${String(parent.disposition)}，admitted 只能从 raw-quarantine 派生`,
+            "ADMITTED_PARENT_NOT_QUARANTINE",
+          );
+        }
+        if (parent.subscription_id !== input.subscriptionId) {
+          throw new KnowledgeIntakeValidationError(
+            `storeAcquisition: derivedFromRevisionId ${rev.derivedFromRevisionId} 属于 subscription`
+              + ` ${String(parent.subscription_id)}，与本次 ${input.subscriptionId} 不一致`,
+            "ADMITTED_PARENT_SUBSCRIPTION_MISMATCH",
+          );
+        }
+
+        // ④ decision 必须 allow（deny/非 allow 一律零 admitted 行）。
+        if (rev.usePolicyDecision!.decision !== "allow") {
+          throw new KnowledgeIntakeValidationError(
+            `storeAcquisition: admitted revision 的 usePolicyDecision.decision=`
+              + `${String(rev.usePolicyDecision!.decision)}——只有 allow 才能落 admitted`,
+            "ADMITTED_USE_DECISION_NOT_ALLOW",
+          );
+        }
+        if (rev.fetchPolicyDecision.decision !== "allow") {
+          throw new KnowledgeIntakeValidationError(
+            `storeAcquisition: admitted revision 的 fetchPolicyDecision.decision=`
+              + `${String(rev.fetchPolicyDecision.decision)}——非 allow 的抓取不得产出 admitted`,
+            "FETCH_DECISION_NOT_ALLOW",
+          );
+        }
+
+        // ⑤ decision 的 policy/rule 绑定必须与 Subscription 及已验签审计镜像三方一致。
+        for (const [label, decision] of [
+          ["usePolicyDecision", rev.usePolicyDecision!],
+          ["fetchPolicyDecision", rev.fetchPolicyDecision],
+        ] as const) {
+          assertDecisionMatchesSubscription(label, decision, subscription);
+        }
+        await this.assertInstalledPolicy(client, input.tenantId, subscription, rev.usePolicyDecision!, rev.acquiredAt);
+      }
+
+      const artifactId = reusesExistingArtifact
+        ? await this.reuseArtifact(client, input)
+        : await this.upsertArtifact(client, input, rawBytes);
       const revisionId = input.revisionId ?? randomUUID();
       const res = await client.query(
         `INSERT INTO knowledge_source_revisions
@@ -930,9 +1195,88 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
     });
   }
 
+  /**
+   * admitted 的 policy 绑定第三方对账：已验签策略审计镜像。
+   * 镜像不存在 / digest 不符 / spaces 不覆盖 space / acquisition 时刻不在有效期 → 零行 fail closed。
+   */
+  private async assertInstalledPolicy(
+    client: pg.PoolClient,
+    tenantId: string,
+    subscription: Row,
+    decision: { policyId: string; policyVersion: string; policyDigest: string },
+    acquiredAt: Date | string,
+  ): Promise<void> {
+    const res = await client.query(
+      `SELECT policy_digest, spaces, valid_from, valid_until FROM knowledge_trust_policies
+        WHERE tenant_id = $1 AND policy_id = $2 AND policy_version = $3`,
+      [tenantId, decision.policyId, decision.policyVersion],
+    );
+    if ((res.rowCount ?? 0) !== 1) {
+      throw new KnowledgeIntakeValidationError(
+        `storeAcquisition: policy ${decision.policyId}@${decision.policyVersion} 在 tenant=${tenantId}`
+          + " 没有已验签审计镜像——admitted revision 不得引用未安装策略",
+        "POLICY_NOT_INSTALLED",
+      );
+    }
+    const mirror = res.rows[0] as Row;
+    if (mirror.policy_digest !== decision.policyDigest) {
+      throw new KnowledgeIntakeValidationError(
+        `storeAcquisition: policy decision digest ${decision.policyDigest} 与已验签镜像`
+          + ` ${String(mirror.policy_digest)} 不一致`,
+        "POLICY_NOT_INSTALLED",
+      );
+    }
+    const spaces: unknown = mirror.spaces;
+    const space = subscription.space as string;
+    if (Array.isArray(spaces) && !spaces.includes(space)) {
+      throw new KnowledgeIntakeValidationError(
+        `storeAcquisition: 已验签策略 ${decision.policyId}@${decision.policyVersion} 的 spaces`
+          + ` 不覆盖 subscription space "${space}"`,
+        "POLICY_SPACE_MISMATCH",
+      );
+    }
+    const at = new Date(iso(acquiredAt) ?? new Date().toISOString()).getTime();
+    const from = new Date(mirror.valid_from as string).getTime();
+    const until = new Date(mirror.valid_until as string).getTime();
+    if (Number.isFinite(at) && ((Number.isFinite(from) && at < from) || (Number.isFinite(until) && at >= until))) {
+      throw new KnowledgeIntakeValidationError(
+        `storeAcquisition: acquisition 时刻 ${new Date(at).toISOString()} 不在已验签策略有效期`
+          + `[${String(mirror.valid_from)}, ${String(mirror.valid_until)}) 内`,
+        "POLICY_NOT_VALID_NOW",
+      );
+    }
+  }
+
+  /** 304 unchanged 的零字节复用：必须命中既有 artifact 行（绝不新建零字节 artifact）。 */
+  private async reuseArtifact(client: pg.PoolClient, input: StoreAcquisitionInput): Promise<string> {
+    const existing = await client.query(
+      `SELECT id, byte_length FROM knowledge_source_artifacts WHERE tenant_id = $1 AND raw_hash = $2`,
+      [input.tenantId, input.artifact.rawHash],
+    );
+    if ((existing.rowCount ?? 0) === 0) {
+      throw new KnowledgeIntakeValidationError(
+        `storeAcquisition: rawBytes 为空但 tenant=${input.tenantId} 没有 rawHash=${input.artifact.rawHash}`
+          + " 的既有 artifact——不得以零字节 artifact 落库",
+        "ARTIFACT_NOT_FOUND",
+      );
+    }
+    const row = existing.rows[0] as Row;
+    if (Number(row.byte_length) !== input.artifact.byteLength) {
+      throw new KnowledgeIntakeConflictError(
+        `storeAcquisition: rawHash=${input.artifact.rawHash} 已存在但 byteLength 不一致`
+          + `（既有 ${row.byte_length}，新 ${input.artifact.byteLength}）——拒绝复用`,
+      );
+    }
+    return row.id as string;
+  }
+
   /** artifact 去重：同 tenant 同 raw_hash 复用既有行；byteLength 不一致视为冲突 fail closed。 */
-  private async upsertArtifact(client: pg.PoolClient, input: StoreAcquisitionInput): Promise<string> {
-    const { rawHash, byteLength, rawBytes, contentType } = input.artifact;
+  private async upsertArtifact(
+    client: pg.PoolClient,
+    input: StoreAcquisitionInput,
+    rawBytes: Buffer,
+  ): Promise<string> {
+    const { rawHash, byteLength, contentType } = input.artifact;
     const id = randomUUID();
     const ins = await client.query(
       `INSERT INTO knowledge_source_artifacts
@@ -940,7 +1284,7 @@ export class PgKnowledgeIntakeRepository implements KnowledgeIntakeRepository {
        VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (tenant_id, raw_hash) DO NOTHING
        RETURNING id`,
-      [input.tenantId, id, rawHash, byteLength, contentType ?? "", Buffer.from(rawBytes)],
+      [input.tenantId, id, rawHash, byteLength, contentType ?? "", rawBytes],
     );
     if ((ins.rowCount ?? 0) === 1) return (ins.rows[0] as Row).id as string;
 
