@@ -186,6 +186,45 @@ export function decideN29Acceptance(
  * 能从本次 focused 报告里取证的就据实取证，取不到的必须显式记 `not-executed`，
  * 不允许用"已有等价 mock 覆盖"充当满足。
  */
+/**
+ * G9-c release canary 证据：`docs/pth/n29-canary-evidence.json` 由
+ * `scripts/n29-canary-gpe-wikipedia.ts` 在真实公网来源上产出并绑定当时的 evaluatedCommit。
+ * 证据 commit 必须是当前 HEAD 的祖先或等于当前 HEAD（后续只允许 docs/证据提交），
+ * 且 official entry + admitted revision + artifact hash + ≥1 evidence 完整。
+ */
+export function resolveCanaryRealismGate(
+  repoRoot: string,
+  currentHead: string,
+  evidence: unknown,
+): { status: "satisfied"; evidence: string } | { status: "not-executed"; evidence: string } {
+  const e = evidence as {
+    kind?: string;
+    evaluatedCommit?: string;
+    admittedRevisionId?: string;
+    artifactHash?: string;
+    official?: { entryId?: string; artifactHash?: string; evidenceCount?: number };
+  } | null;
+  const committed = typeof e?.evaluatedCommit === "string" && e.evaluatedCommit.length === 40;
+  const isAncestor = committed
+    && spawnSync("git", ["merge-base", "--is-ancestor", e!.evaluatedCommit!, currentHead], { cwd: repoRoot }).status === 0;
+  const contentOk =
+    e?.kind === "n29-release-canary" &&
+    typeof e.admittedRevisionId === "string" && e.admittedRevisionId !== "" &&
+    typeof e.artifactHash === "string" && /^[0-9a-f]{64}$/.test(e.artifactHash) &&
+    typeof e.official?.entryId === "string" && e.official.entryId !== "" &&
+    (e.official?.evidenceCount ?? 0) >= 1;
+  if (committed && isAncestor && contentOk) {
+    return {
+      status: "satisfied",
+      evidence: `n29-canary-evidence.json：真实 HTTPS 来源（gpe.wikipedia.org/wiki/Wikipedia）完整生产组合完成——initial fetch → official，evidenceCount=${e!.official!.evidenceCount}，admittedRevision=${e!.admittedRevisionId}，artifactHash=${e!.artifactHash}，绑定 commit=${e!.evaluatedCommit}（当前 HEAD 的祖先/相等）`,
+    };
+  }
+  return {
+    status: "not-executed",
+    evidence: `n29-canary-evidence.json 缺失/不完整/绑定 commit 不是当前 HEAD 的祖先（kind=${String(e?.kind ?? "missing")}, committed=${String(committed)}, isAncestor=${String(isAncestor)}, contentOk=${String(contentOk)}）；需 PTL Human Interface 真实签发与获批出网通道`,
+  };
+}
+
 export function deriveRealismGates(assertions: readonly VitestAssertion[]): RealismGateEvidence[] {
   const passedTitle = (file: string, pattern: RegExp): boolean =>
     assertions.some((a) => a.file === file && pattern.test(a.fullName) && a.status === "passed");
@@ -368,6 +407,24 @@ function treeClean(repoRoot: string): boolean {
   return spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" }).stdout.trim() === "";
 }
 
+async function readCanaryEvidence(repoRoot: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path.join(repoRoot, "docs/pth/n29-canary-evidence.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function applyCanaryEvidence(
+  gates: RealismGateEvidence[],
+  evidence: unknown,
+  repoRoot: string,
+  currentHead: string,
+): RealismGateEvidence[] {
+  const resolved = resolveCanaryRealismGate(repoRoot, currentHead, evidence);
+  return gates.map((gate) => (gate.gate.startsWith("G9-c") ? { gate: gate.gate, requirement: gate.requirement, ...resolved } : gate));
+}
+
 // ─── 采集 ─────────────────────────────────────────────────────────────
 
 export async function collect(repoRoot: string, output?: string): Promise<N29AcceptanceEnvelope> {
@@ -478,7 +535,12 @@ export async function collect(repoRoot: string, output?: string): Promise<N29Acc
     lint,
     build,
     fullRegression,
-    realismGates: deriveRealismGates(focusedAssertions),
+    realismGates: applyCanaryEvidence(
+      deriveRealismGates(focusedAssertions),
+      await readCanaryEvidence(repoRoot),
+      repoRoot,
+      currentHead,
+    ),
     decision: "EVALUATION-INCOMPLETE",
     reasons: [],
     disclaimer: N29_DISCLAIMER,

@@ -1,0 +1,61 @@
+{
+  "kind": "n29-release-canary",
+  "evaluatedCommit": "99897071e0bbcae433df0cf937a61fb8511e7e4a",
+  "executedAt": "2026-08-19T11:08:42.816Z",
+  "source": {
+    "canonicalUri": "https://gpe.wikipedia.org/wiki/Wikipedia",
+    "origin": "https://gpe.wikipedia.org",
+    "license": "cc-by-sa-4.0",
+    "humanApprover": "human-anzhize（用户批准；本地 Ed25519 签名，私钥仅进程内存）"
+  },
+  "policy": {
+    "policyId": "policy-n29-canary-gpe",
+    "version": "1",
+    "digest": "2oH8Jg0kj7AoFGEbT4R56CBfMAj2B3yhGxE4cNvMOxE",
+    "signerPublicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2azOYaqX8Sb8pPLIrBbOkHAiQ5YeS5Tr+q714bviH1Y=\n-----END PUBLIC KEY-----\n"
+  },
+  "run": {
+    "id": "ed4e817f-bb4b-481f-92e8-8434608b2ffe",
+    "status": "completed",
+    "stage": "complete",
+    "attempts": 5
+  },
+  "subscription": {
+    "id": "c69a8150-4bdc-4321-a4ac-a03f6844868f",
+    "status": "active"
+  },
+  "revisions": [
+    {
+      "id": "147d9642-3c0d-4814-8c4e-dbece141f69c",
+      "disposition": "raw-quarantine",
+      "rawHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729"
+    },
+    {
+      "id": "3535debf-5852-437a-a41c-d4c579764f06",
+      "disposition": "admitted",
+      "rawHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729"
+    }
+  ],
+  "admittedRevisionId": "3535debf-5852-437a-a41c-d4c579764f06",
+  "artifactHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729",
+  "official": {
+    "entryId": "intake-candidate:3535debf-5852-437a-a41c-d4c579764f06:367b4569efdb991e",
+    "contentHash": "84bf3a324299d0a8e0ee80cb22e90d8375f17772a2dd6e0f7a260eff2f7c1fba",
+    "sourceRevisionId": "3535debf-5852-437a-a41c-d4c579764f06",
+    "artifactHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729",
+    "evidenceCount": 1,
+    "firstEvidence": {
+      "locator": {
+        "end": 6596,
+        "start": 6411
+      },
+      "quoteHash": "84bf3a324299d0a8e0ee80cb22e90d8375f17772a2dd6e0f7a260eff2f7c1fba",
+      "artifactHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729",
+      "representation": "normalized-text",
+      "sourceRevisionId": "3535debf-5852-437a-a41c-d4c579764f06",
+      "policyDecisionDigest": "24a8ab866dff902cc20b2ab3b1be4569919bd67cd46a9dd31bf65626b9b1d68c",
+      "sourceSubscriptionId": "c69a8150-4bdc-4321-a4ac-a03f6844868f"
+    }
+  },
+  "verdicts": "domain+adversarial pass（不同 principal/execution，详见 PG knowledge_verdicts）"
+}
