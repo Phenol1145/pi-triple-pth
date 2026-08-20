@@ -2,7 +2,7 @@
 /**
  * copy-framework-web-assets.mjs —— v1.4：Vite 构建产物校验（不再复制 legacy 文件）。
  *
- * `npm run build:web` 已把 Preact 应用写入 packages/framework/dist/operator-console/public，
+ * `npm run build:web` 已把 Preact 应用写入 packages/pth-console/dist/operator-console/public，
  * 并生成 asset-manifest.json。本脚本只做发行级校验：
  *  - manifest 是唯一允许服务清单，必须包含 index.html；
  *  - 每个清单文件必须存在、扩展名在白名单内、sha256 与磁盘一致；
@@ -15,12 +15,12 @@ import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const publicDir = join(root, "packages", "framework", "dist", "operator-console", "public");
+const publicDir = join(root, "packages", "pth-console", "dist", "operator-console", "public");
 const manifestPath = join(publicDir, "asset-manifest.json");
 const ALLOWED_EXTENSIONS = new Set([".html", ".css", ".js", ".svg", ".ico", ".png", ".webp", ".woff", ".woff2"]);
 
 function fail(message) {
-  throw new Error(`operator-console web asset validation failed: ${message}`);
+  throw new Error(`pth-console web asset validation failed: ${message}`);
 }
 
 if (!existsSync(manifestPath)) fail("asset-manifest.json missing");
@@ -55,4 +55,4 @@ for (const rel of listFiles(publicDir)) {
   if (!listed.has(rel)) fail(`file not listed in manifest: ${rel}`);
 }
 
-console.log(`operator-console public assets validated: ${listed.size} files (${[...listed].sort().join(", ")})`);
+console.log(`pth-console public assets validated: ${listed.size} files (${[...listed].sort().join(", ")})`);

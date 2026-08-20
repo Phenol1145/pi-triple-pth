@@ -18,7 +18,7 @@ import type { KernelRuntime } from "../../src/pth/kernel/assembly";
 import {
   createOperatorConsoleServer,
   type OperatorConsoleServer,
-} from "../../packages/framework/src/operator-console/index.js";
+} from "../../packages/pth-console/src/operator-console/index.js";
 
 const BOOTSTRAP_TOKEN = "b".repeat(64);
 const PTH_TOKEN = "pth-it-secret-token-0123456789abcdef";

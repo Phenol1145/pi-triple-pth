@@ -1,0 +1,26 @@
+{
+  "name": "@away_from/pth-console",
+  "version": "1.4.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:web": "vite build",
+    "typecheck:web": "tsc --noEmit -p web-src/tsconfig.json",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots"
+  },
+  "dependencies": {
+    "@away_from/shared": "file:../shared"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@preact/preset-vite": "^2.10.6",
+    "preact": "^10.29.8",
+    "vite": "^7.3.6"
+  }
+}

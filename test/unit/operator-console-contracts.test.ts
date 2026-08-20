@@ -7,7 +7,7 @@ import {
   deepFreezeJson,
   type OperatorContext,
   type OperatorPreviewCanonicalInput,
-} from "../../packages/framework/src/operator-console/contracts.js";
+} from "../../packages/pth-console/src/operator-console/contracts.js";
 
 /** 与 PTH src/pth/contracts/work-mode.ts 同源的 canonical WorkMode 镜像 */
 describe("@away_from/shared WorkMode mirror", () => {

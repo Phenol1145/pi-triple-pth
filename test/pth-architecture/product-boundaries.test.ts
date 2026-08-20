@@ -16,7 +16,7 @@ describe("PTL/PTH product boundaries", () => {
     const report = collectProductBoundaryViolations();
     expect(report.transitionalFiles.length).toBeGreaterThan(0);
     for (const file of report.transitionalFiles) {
-      expect(file).toMatch(/^packages\/framework\/src\/(bridge|operator-console)\//);
+      expect(file).toMatch(/^packages\/pth-console\/src\/(bridge|operator-console)\//);
     }
   });
 });

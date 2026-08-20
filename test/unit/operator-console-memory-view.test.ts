@@ -7,7 +7,7 @@ import {
   createMemoryViewModel,
   MEMORY_MAX_LIMIT,
   MEMORY_REVISION_LIMIT,
-} from "../../packages/framework/web/operator-console/memory.js";
+} from "../../packages/pth-console/web/operator-console/memory.js";
 
 describe("operator console memory view", () => {
   it("双饼图分母与切片比率精确", () => {

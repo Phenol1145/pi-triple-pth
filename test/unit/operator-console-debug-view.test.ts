@@ -6,7 +6,7 @@ import {
   createDebugViewModel,
   DEBUG_LAGGING_MS,
   DEBUG_STALE_MS,
-} from "../../packages/framework/web/operator-console/debug.js";
+} from "../../packages/pth-console/web/operator-console/debug.js";
 
 const worker = (overrides = {}) => ({
   workerId: "worker-a",

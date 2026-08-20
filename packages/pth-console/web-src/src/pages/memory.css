@@ -1,0 +1,35 @@
+.memory-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(14rem, 1fr) minmax(0, 2.4fr);
+}
+
+.memory-filters {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.memory-filter {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+}
+
+.memory-detail {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.memory-detail h4 {
+  margin: 0.25rem 0 0;
+}
+
+@media (max-width: 900px) {
+  .memory-layout {
+    grid-template-columns: 1fr;
+  }
+}

@@ -49,7 +49,7 @@ async function collect(output?: string): Promise<void> {
   const unavailable = (kind: UnavailableReason): UnavailableReason | undefined =>
     probes.find((p) => p.kind === kind)?.ok ? undefined : kind;
 
-  const prepBuildWeb = runGate("npx tsc -p packages/framework && npm run build:web -w @away_from/framework", {
+  const prepBuildWeb = runGate("npx tsc -p packages/pth-console && npm run build:web -w @away_from/pth-console", {
     cwd: repoRoot, unavailableReason: unavailable("toolchain"), timeoutMs: 900_000,
   });
   if (prepBuildWeb.started && prepBuildWeb.exitCode !== 0) reasons.push("build:web non-zero");
@@ -79,14 +79,14 @@ async function collect(output?: string): Promise<void> {
     }
   }
 
-  const typecheck = runGate("npm run typecheck:web -w @away_from/framework", {
+  const typecheck = runGate("npm run typecheck:web -w @away_from/pth-console", {
     cwd: repoRoot, unavailableReason: unavailable("toolchain"), timeoutMs: 300_000,
   });
   gates.typecheckWeb = { exitCode: typecheck.exitCode, note: typecheck.stdoutTail?.slice(-200) ?? "" };
   if (typecheck.started && typecheck.exitCode !== 0) reasons.push("typecheck:web non-zero");
   if (!typecheck.started) reasons.push("typecheck:web unavailable: EVALUATION-INCOMPLETE");
 
-  const playwright = runGate("npm run test:e2e -w @away_from/framework", {
+  const playwright = runGate("npm run test:e2e -w @away_from/pth-console", {
     cwd: repoRoot, unavailableReason: unavailable("toolchain"), timeoutMs: 900_000,
   });
   gates.playwright = { exitCode: playwright.exitCode, note: playwright.stdoutTail?.slice(-500) ?? "" };

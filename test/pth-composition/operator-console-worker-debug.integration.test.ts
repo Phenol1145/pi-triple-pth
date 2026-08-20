@@ -11,7 +11,7 @@ import http from "node:http";
 import {
   createOperatorConsoleServer,
   type OperatorConsoleServer,
-} from "../../packages/framework/src/operator-console/index.js";
+} from "../../packages/pth-console/src/operator-console/index.js";
 
 const BOOTSTRAP_TOKEN = "c".repeat(64);
 const PTH_TOKEN = "pth-debug-secret-token-0123456789abcdef";

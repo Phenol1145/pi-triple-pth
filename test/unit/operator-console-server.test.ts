@@ -3,7 +3,7 @@ import http from "node:http";
 import {
   createOperatorConsoleServer,
   type OperatorConsoleServer,
-} from "../../packages/framework/src/operator-console/index.js";
+} from "../../packages/pth-console/src/operator-console/index.js";
 
 const TOKEN = "a".repeat(64);
 

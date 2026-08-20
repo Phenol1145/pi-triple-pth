@@ -11,14 +11,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { createDebugViewModel } from "../packages/framework/web/operator-console/debug.js";
-import { createMemoryViewModel, buildMemoryCharts } from "../packages/framework/web/operator-console/memory.js";
-import { createConfigViewModel, redactConfigEntry } from "../packages/framework/web/operator-console/config.js";
+import { createDebugViewModel } from "../packages/pth-console/web/operator-console/debug.js";
+import { createMemoryViewModel, buildMemoryCharts } from "../packages/pth-console/web/operator-console/memory.js";
+import { createConfigViewModel, redactConfigEntry } from "../packages/pth-console/web/operator-console/config.js";
 import { runN33RealProbes } from "./n33-real-probes.js";
 
 const root = new URL("..", import.meta.url);
-const html = readFileSync(new URL("packages/framework/web/operator-console/index.html", root), "utf8");
-const app = readFileSync(new URL("packages/framework/web/operator-console/app.js", root), "utf8");
+const html = readFileSync(new URL("packages/pth-console/web/operator-console/index.html", root), "utf8");
+const app = readFileSync(new URL("packages/pth-console/web/operator-console/app.js", root), "utf8");
 
 const PAGES = ["overview", "work", "debug", "memory", "config"] as const;
 const MODES = ["run", "intake", "optimize"] as const;

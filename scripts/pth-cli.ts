@@ -190,8 +190,14 @@ async function main(): Promise<void> {
     case "config":
       if (rest[0] === "export") return configExport();
       return configList();
+    case "web": {
+      const { runPthWeb } = await import("../packages/pth-console/src/cli.js");
+      await runPthWeb(rest);
+      return;
+    }
     default:
-      console.log(`用法: pth <submit|handoff|status|wait|roles|tags|config> ...\n  示例: npm run pth -- handoff\n        npm run pth -- submit "【目标】..." --concept\n        npm run pth -- submit "任务描述" --role developer --tags implement\n        npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y\n        npm run pth -- config              # 配置分组表（secret 打码）\n        npm run pth -- config export       # PTL 迁移命令`);
+      console.log(`用法: pth <submit|handoff|status|wait|roles|tags|config|web> ...\n  示例: npm run pth -- handoff\n        npm run pth -- submit "【目标】..." --concept\n        npm run pth -- submit "任务描述" --role developer --tags implement\n        npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y\n        npm run pth -- config              # 配置分组表（secret 打码）\n        npm run pth -- config export       # PTL 迁移命令
+        npm run pth -- web [--port <n>]   # 启动人类操作台（loopback）`);
   }
 }
 

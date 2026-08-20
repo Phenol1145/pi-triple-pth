@@ -2,7 +2,7 @@
  * test/unit/operator-console-config-view.test.ts — N33 Task 8 视图模型测试。
  */
 import { describe, expect, it } from "vitest";
-import { createConfigViewModel, redactConfigEntry } from "../../packages/framework/web/operator-console/config.js";
+import { createConfigViewModel, redactConfigEntry } from "../../packages/pth-console/web/operator-console/config.js";
 
 describe("operator console config view", () => {
   it("secret 条目任何值都恒定打码为 ***", () => {

@@ -9,20 +9,20 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { createOperatorActionRegistry } from "../../packages/framework/src/operator-console/action-registry.js";
-import type { OperatorContext } from "../../packages/framework/src/operator-console/contracts.js";
+import { createOperatorActionRegistry } from "../../packages/pth-console/src/operator-console/action-registry.js";
+import type { OperatorContext } from "../../packages/pth-console/src/operator-console/contracts.js";
 import {
   createOperatorWorkService,
   type OperatorWorkService,
-} from "../../packages/framework/src/operator-console/preview-store.js";
-import { createInMemoryChannelAudit } from "../../packages/framework/src/operator-console/channel-audit.js";
-import { createRunTaskPublishAdapter } from "../../packages/framework/src/operator-console/actions/run-actions.js";
+} from "../../packages/pth-console/src/operator-console/preview-store.js";
+import { createInMemoryChannelAudit } from "../../packages/pth-console/src/operator-console/channel-audit.js";
+import { createRunTaskPublishAdapter } from "../../packages/pth-console/src/operator-console/actions/run-actions.js";
 import {
   createIntakeSubscriptionCreateAdapter,
   createIntakeRunTriggerAdapter,
-} from "../../packages/framework/src/operator-console/actions/intake-actions.js";
-import { createOptimizeSuggestionApplyAdapter } from "../../packages/framework/src/operator-console/actions/optimize-actions.js";
-import type { PthOperatorClient } from "../../packages/framework/src/operator-console/pth-operator-client.js";
+} from "../../packages/pth-console/src/operator-console/actions/intake-actions.js";
+import { createOptimizeSuggestionApplyAdapter } from "../../packages/pth-console/src/operator-console/actions/optimize-actions.js";
+import type { PthOperatorClient } from "../../packages/pth-console/src/operator-console/pth-operator-client.js";
 
 const CTX: OperatorContext = { tenant: "t-1", space: "ts" };
 

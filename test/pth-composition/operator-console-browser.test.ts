@@ -9,12 +9,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createDebugViewModel } from "../../packages/framework/web/operator-console/debug.js";
-import { createMemoryViewModel } from "../../packages/framework/web/operator-console/memory.js";
-import { createConfigViewModel } from "../../packages/framework/web/operator-console/config.js";
+import { createDebugViewModel } from "../../packages/pth-console/web/operator-console/debug.js";
+import { createMemoryViewModel } from "../../packages/pth-console/web/operator-console/memory.js";
+import { createConfigViewModel } from "../../packages/pth-console/web/operator-console/config.js";
 
-const appSource = readFileSync(fileURLToPath(new URL("../../packages/framework/web/operator-console/app.js", import.meta.url)), "utf8");
-const htmlSource = readFileSync(fileURLToPath(new URL("../../packages/framework/web/operator-console/index.html", import.meta.url)), "utf8");
+const appSource = readFileSync(fileURLToPath(new URL("../../packages/pth-console/web/operator-console/app.js", import.meta.url)), "utf8");
+const htmlSource = readFileSync(fileURLToPath(new URL("../../packages/pth-console/web/operator-console/index.html", import.meta.url)), "utf8");
 
 describe("operator console browser (pure-DOM approximation)", () => {
   it("五页路由存在且静态页面无凭据", () => {

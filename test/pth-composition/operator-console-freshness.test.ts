@@ -10,12 +10,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import {
   createDebugViewModel,
-} from "../../packages/framework/web/operator-console/debug.js";
-import { createMemoryViewModel } from "../../packages/framework/web/operator-console/memory.js";
+} from "../../packages/pth-console/web/operator-console/debug.js";
+import { createMemoryViewModel } from "../../packages/pth-console/web/operator-console/memory.js";
 import {
   createOperatorConsoleServer,
   type OperatorConsoleServer,
-} from "../../packages/framework/src/operator-console/index.js";
+} from "../../packages/pth-console/src/operator-console/index.js";
 
 const BOOTSTRAP_TOKEN = "9".repeat(64);
 const PTH_TOKEN = "pth-freshness-secret-token-0123456789abcdef";

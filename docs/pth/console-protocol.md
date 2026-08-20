@@ -1,7 +1,7 @@
-# PTL Operator Console 协议（v1）
+# PTH Console 协议（v1）
 
-> 适用范围：浏览器 ↔ PTL Console server、PTL Console server ↔ PTH、PTL Console server ↔ N30。
-> 权威实现：`packages/framework/src/operator-console/*`；路由机器可读规范：`packages/framework/operator-console-openapi.json`。
+> 适用范围：浏览器 ↔ PTH Console server、PTH Console server ↔ PTH、PTH Console server ↔ N30。
+> 权威实现：`packages/pth-console/src/operator-console/*`；路由机器可读规范：`packages/pth-console/operator-console-openapi.json`。
 > 本文档与 OpenAPI 若冲突，以 OpenAPI JSON 为准；契约测试 `test/pth-contracts/console-api-contract.test.ts` 负责防漂移。
 
 ## 1. 版本与兼容

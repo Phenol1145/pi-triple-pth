@@ -1,7 +1,7 @@
 /**
  * console-api-contract.test.ts —— Console OpenAPI 契约合规（防协议漂移）。
  *
- * 把 packages/framework/operator-console-openapi.json 当作唯一机器可读路由清单：
+ * 把 packages/pth-console/operator-console-openapi.json 当作唯一机器可读路由清单：
  *  - 每个 spec path 在真实 loopback server 上必须存在（绝不 404）；
  *  - 错误响应必须满足统一 error envelope；
  *  - /api/version 与 v1 前缀行为冻结；
@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import http from "node:http";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createOperatorConsoleServer, type OperatorConsoleServer } from "../../packages/framework/src/operator-console/index.js";
+import { createOperatorConsoleServer, type OperatorConsoleServer } from "../../packages/pth-console/src/operator-console/index.js";
 
 const BOOTSTRAP_TOKEN = "c".repeat(64);
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -24,7 +24,7 @@ interface OpenApiDoc {
 }
 
 const consoleSpec = JSON.parse(
-  readFileSync(`${repoRoot}/packages/framework/operator-console-openapi.json`, "utf8"),
+  readFileSync(`${repoRoot}/packages/pth-console/operator-console-openapi.json`, "utf8"),
 ) as OpenApiDoc;
 const pthSpec = JSON.parse(
   readFileSync(`${repoRoot}/docs/pth/pth-console-openapi.json`, "utf8"),

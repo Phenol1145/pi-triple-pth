@@ -4,11 +4,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   createOperatorConsoleServer,
   type OperatorConsoleServer,
-} from "../../packages/framework/src/operator-console/index.js";
+} from "../../packages/pth-console/src/operator-console/index.js";
 import {
   createN30ReadOnlyProxy,
   N30_READ_ONLY_PATHS,
-} from "../../packages/framework/src/operator-console/n30-proxy.js";
+} from "../../packages/pth-console/src/operator-console/n30-proxy.js";
 
 const TOKEN = "a".repeat(64);
 

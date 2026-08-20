@@ -1104,7 +1104,7 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | 审批面 | gateway/routes-lineage.ts（C）+ optimizer-loop（B）+ 监督层（A） |
 | 扩展/安全门控 | kernel/extensions/ext-registry.ts · kernel/interpreter/ext-capability.ts |
 | 组装/恢复 | kernel/assembly.ts |
-| PTL 桥 | packages/framework/src/bridge/ |
+| PTL 桥 | packages/pth-console/src/bridge/ |
 | 派发/异步 | scripts/pth-cli.ts |
 
 ---

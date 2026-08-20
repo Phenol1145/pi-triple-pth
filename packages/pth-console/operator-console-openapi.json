@@ -1,0 +1,604 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "PTL Operator Console API",
+    "version": "1.0.0",
+    "description": "Loopback-only Console HTTP API. See docs/pth/console-protocol.md for security rules."
+  },
+  "servers": [{ "url": "http://127.0.0.1:3194" }],
+  "paths": {
+    "/api/v1/version": {
+      "get": {
+        "summary": "Console API version",
+        "operationId": "getApiVersion",
+        "responses": {
+          "200": {
+            "description": "version info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["api", "service", "version"],
+                  "properties": {
+                    "api": { "type": "string", "const": "v1" },
+                    "service": { "type": "string", "const": "ptl-operator-console" },
+                    "version": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "405": { "$ref": "#/components/responses/Error405" }
+        }
+      }
+    },
+    "/api/v1/session/bootstrap": {
+      "post": {
+        "summary": "Exchange one-time fragment token for session cookie and CSRF token",
+        "operationId": "bootstrapSession",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token"],
+                "properties": { "token": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/SessionBootstrap" },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" }
+        }
+      }
+    },
+    "/api/v1/session": {
+      "get": {
+        "summary": "Current session state",
+        "operationId": "getSession",
+        "responses": {
+          "200": { "$ref": "#/components/responses/SessionInfo" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "403": { "$ref": "#/components/responses/Error403" }
+        }
+      }
+    },
+    "/api/v1/debug/workers": {
+      "get": {
+        "summary": "Worker inspection projection",
+        "operationId": "getDebugWorkers",
+        "responses": {
+          "200": {
+            "description": "worker list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["workers", "tenant", "space"],
+                  "properties": {
+                    "workers": { "type": "array", "items": { "$ref": "#/components/schemas/WorkerRow" } },
+                    "tenant": { "type": "string" },
+                    "space": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "502": { "$ref": "#/components/responses/Error502" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/memory/summary": {
+      "get": {
+        "summary": "Memory summary by canonical type",
+        "operationId": "getMemorySummary",
+        "responses": {
+          "200": {
+            "description": "summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["byType"],
+                  "properties": {
+                    "byType": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "required": ["count", "bytes"],
+                        "properties": { "count": { "type": "integer" }, "bytes": { "type": "integer" } }
+                      }
+                    },
+                    "totals": { "type": "object", "nullable": true }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "502": { "$ref": "#/components/responses/Error502" }
+        }
+      }
+    },
+    "/api/v1/memory/entries": {
+      "get": {
+        "summary": "Memory entries page",
+        "operationId": "listMemoryEntries",
+        "parameters": [
+          { "name": "type", "in": "query", "schema": { "type": "string" } },
+          { "name": "kind", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "anchor", "in": "query", "schema": { "type": "string" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["items", "cursor", "total"],
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/MemoryItem" } },
+                    "cursor": { "type": "string", "nullable": true },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "502": { "$ref": "#/components/responses/Error502" }
+        }
+      }
+    },
+    "/api/v1/memory/entries/{id}": {
+      "get": {
+        "summary": "Memory entry detail",
+        "operationId": "getMemoryEntry",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "item",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemoryItem" } } }
+          },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "502": { "$ref": "#/components/responses/Error502" }
+        }
+      }
+    },
+    "/api/v1/memory/entries/{id}/revisions": {
+      "get": {
+        "summary": "Memory revision history",
+        "operationId": "getMemoryRevisions",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": {
+            "description": "revisions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["revision", "action", "time", "type"],
+                    "properties": {
+                      "revision": { "type": "integer", "nullable": true },
+                      "action": { "type": "string" },
+                      "time": { "type": "string" },
+                      "type": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "502": { "$ref": "#/components/responses/Error502" }
+        }
+      }
+    },
+    "/api/v1/config/ptl": {
+      "get": {
+        "summary": "PTL local config descriptor",
+        "operationId": "getPtlConfig",
+        "responses": {
+          "200": {
+            "description": "config items",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ConfigItem" } } } }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error401" }
+        }
+      }
+    },
+    "/api/v1/config/pth": {
+      "get": {
+        "summary": "PTH config descriptor (redacted)",
+        "operationId": "getPthConfig",
+        "responses": {
+          "200": {
+            "description": "config items",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/ConfigItem" } } } }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "502": { "$ref": "#/components/responses/Error502" }
+        }
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "summary": "Runtime catalog roles",
+        "operationId": "getRoles",
+        "responses": {
+          "200": {
+            "description": "role items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["items"],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "revision"],
+                        "properties": {
+                          "id": { "type": "string" },
+                          "parent": { "type": "string", "nullable": true },
+                          "revision": { "type": "string" },
+                          "family": { "type": "string" },
+                          "tags": { "type": "array", "items": { "type": "string" } },
+                          "capabilities": { "type": "array", "items": { "type": "string" } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "502": { "$ref": "#/components/responses/Error502" }
+        }
+      }
+    },
+    "/api/v1/work/actions": {
+      "get": {
+        "summary": "Registered native work actions",
+        "operationId": "getWorkActions",
+        "responses": {
+          "200": {
+            "description": "action list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["actions", "tenant", "space"],
+                  "properties": {
+                    "actions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["mode", "action", "nativeKind", "descriptor"],
+                        "properties": {
+                          "mode": { "type": "string", "enum": ["run", "intake", "optimize"] },
+                          "action": { "type": "string" },
+                          "nativeKind": { "type": "string" },
+                          "descriptor": {
+                            "type": "object",
+                            "required": ["title", "fields"],
+                            "properties": {
+                              "title": { "type": "string" },
+                              "description": { "type": "string" },
+                              "fields": { "type": "array", "items": { "$ref": "#/components/schemas/FormField" } }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "tenant": { "type": "string" },
+                    "space": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/work/preview": {
+      "post": {
+        "summary": "Preview a native work action",
+        "operationId": "previewWork",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["mode", "action", "input"],
+                "properties": {
+                  "mode": { "type": "string", "enum": ["run", "intake", "optimize"] },
+                  "action": { "type": "string" },
+                  "input": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["preview", "tenant", "space"],
+                  "properties": {
+                    "preview": {
+                      "type": "object",
+                      "required": ["previewId", "previewDigest", "mode", "action", "normalizedInput", "summary", "impact", "nativeTarget", "expiresAt", "confirmation"],
+                      "properties": {
+                        "previewId": { "type": "string" },
+                        "previewDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                        "mode": { "type": "string" },
+                        "action": { "type": "string" },
+                        "summary": { "type": "array", "items": { "type": "string" } },
+                        "impact": {
+                          "type": "object",
+                          "required": ["scope", "reversible", "risk"],
+                          "properties": {
+                            "scope": { "type": "string" },
+                            "reversible": { "type": "boolean" },
+                            "risk": { "type": "string" }
+                          }
+                        },
+                        "nativeTarget": { "type": "string" },
+                        "expiresAt": { "type": "string" },
+                        "confirmation": { "type": "string", "const": "required" }
+                      }
+                    },
+                    "tenant": { "type": "string" },
+                    "space": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "503": { "$ref": "#/components/responses/Error503" }
+        }
+      }
+    },
+    "/api/v1/work/submit": {
+      "post": {
+        "summary": "Submit a previewed work action (idempotent)",
+        "operationId": "submitWork",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["previewId", "previewDigest", "idempotencyKey"],
+                "properties": {
+                  "previewId": { "type": "string" },
+                  "previewDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+                  "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "native work ref",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["ref"],
+                  "properties": {
+                    "ref": {
+                      "type": "object",
+                      "required": ["mode", "kind", "id", "tenantId", "submittedAt"],
+                      "properties": {
+                        "mode": { "type": "string" },
+                        "kind": { "type": "string" },
+                        "id": { "type": "string" },
+                        "tenantId": { "type": "string" },
+                        "submittedAt": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" },
+          "409": { "$ref": "#/components/responses/Error409" },
+          "410": { "$ref": "#/components/responses/Error410" },
+          "502": { "$ref": "#/components/responses/Error502" }
+        }
+      }
+    },
+    "/api/v1/work/evaluate": {
+      "post": {
+        "summary": "Evaluate native work acceptance",
+        "operationId": "evaluateWork",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["mode", "kind", "id"],
+                "properties": {
+                  "mode": { "type": "string" },
+                  "kind": { "type": "string" },
+                  "id": { "type": "string" },
+                  "submittedAt": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "acceptance projection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["acceptance"],
+                  "properties": {
+                    "acceptance": {
+                      "type": "object",
+                      "required": ["accepted"],
+                      "properties": {
+                        "accepted": { "type": "boolean" },
+                        "evidence": { "type": "object" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error400" },
+          "401": { "$ref": "#/components/responses/Error401" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "WorkerRow": {
+        "type": "object",
+        "required": ["workerId", "batchId", "roleId", "roleRevision", "lifecycle", "workMode", "regions", "workingSet", "toolNames", "skillIds"],
+        "properties": {
+          "workerId": { "type": "string" },
+          "batchId": { "type": "string" },
+          "roleId": { "type": "string" },
+          "roleRevision": { "type": "string" },
+          "lifecycle": { "type": "string" },
+          "workMode": { "type": "string", "nullable": true },
+          "taskId": { "type": "string", "nullable": true },
+          "leaseId": { "type": "string", "nullable": true },
+          "heartbeatAt": { "type": "string", "nullable": true },
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["regionId"],
+              "properties": { "regionId": { "type": "string" }, "weights": { "type": "number", "nullable": true } }
+            }
+          },
+          "workingSet": { "type": "array", "items": { "type": "string" } },
+          "toolNames": { "type": "array", "items": { "type": "string" } },
+          "skillIds": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "MemoryItem": {
+        "type": "object",
+        "required": ["id", "kind", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string", "nullable": true },
+          "kind": { "type": "string" },
+          "status": { "type": "string" },
+          "anchors": { "type": "array", "items": { "type": "string" } },
+          "version": { "type": "integer", "nullable": true },
+          "createdAt": { "type": "string", "nullable": true },
+          "updatedAt": { "type": "string", "nullable": true },
+          "contentBytes": { "type": "integer", "nullable": true }
+        }
+      },
+      "ConfigItem": {
+        "type": "object",
+        "required": ["key", "group", "type", "scope", "source", "secret"],
+        "properties": {
+          "key": { "type": "string" },
+          "group": { "type": "string" },
+          "type": { "type": "string" },
+          "scope": { "type": "string" },
+          "source": { "type": "string" },
+          "runtimeMutable": { "type": "boolean" },
+          "restartRequired": { "type": "boolean" },
+          "description": { "type": "string" },
+          "secret": { "type": "boolean" },
+          "defaultValue": {},
+          "effectiveValue": {},
+          "sourceDetail": { "type": "string", "nullable": true }
+        }
+      },
+      "FormField": {
+        "type": "object",
+        "required": ["name", "type", "required"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["string", "number", "boolean", "enum", "object", "array"] },
+          "required": { "type": "boolean" },
+          "description": { "type": "string" },
+          "schema": { "type": "object" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_-]{0,63}$" },
+              "message": { "type": "string" },
+              "requestId": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "SessionBootstrap": {
+        "description": "session created",
+        "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "csrfToken", "operatorPrincipalId", "expiresAt"], "properties": { "ok": { "type": "boolean" }, "csrfToken": { "type": "string" }, "operatorPrincipalId": { "type": "string" }, "expiresAt": { "type": "string" } } } } }
+      },
+      "SessionInfo": {
+        "description": "session info",
+        "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "operatorPrincipalId", "expiresAt"], "properties": { "ok": { "type": "boolean" }, "operatorPrincipalId": { "type": "string" }, "expiresAt": { "type": "string" } } } } }
+      },
+      "Error400": { "description": "bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Error401": { "description": "unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Error403": { "description": "forbidden", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Error405": { "description": "method not allowed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Error409": { "description": "conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Error410": { "description": "gone", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Error502": { "description": "upstream failure", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Error503": { "description": "unavailable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    }
+  }
+}

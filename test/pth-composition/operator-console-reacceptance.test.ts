@@ -11,7 +11,7 @@
 import { describe, expect, it, afterAll, beforeAll, vi } from "vitest";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { createOperatorConsoleServer, type OperatorConsoleServer } from "../../packages/framework/src/operator-console/index.js";
+import { createOperatorConsoleServer, type OperatorConsoleServer } from "../../packages/pth-console/src/operator-console/index.js";
 import {
   toBrowserDebugWorkers,
   toBrowserMemoryDetail,
@@ -19,11 +19,11 @@ import {
   toBrowserMemoryRevisions,
   toBrowserPthConfig,
   toBrowserRoles,
-} from "../../packages/framework/src/operator-console/index.js";
-import { createDebugViewModel } from "../../packages/framework/web/operator-console/debug.js";
-import { createMemoryViewModel } from "../../packages/framework/web/operator-console/memory.js";
-import { createConfigViewModel } from "../../packages/framework/web/operator-console/config.js";
-import { createRunTaskPublishAdapter } from "../../packages/framework/src/operator-console/actions/run-actions.js";
+} from "../../packages/pth-console/src/operator-console/index.js";
+import { createDebugViewModel } from "../../packages/pth-console/web/operator-console/debug.js";
+import { createMemoryViewModel } from "../../packages/pth-console/web/operator-console/memory.js";
+import { createConfigViewModel } from "../../packages/pth-console/web/operator-console/config.js";
+import { createRunTaskPublishAdapter } from "../../packages/pth-console/src/operator-console/actions/run-actions.js";
 
 const BOOTSTRAP_TOKEN = "b".repeat(64);
 

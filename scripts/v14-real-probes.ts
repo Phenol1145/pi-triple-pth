@@ -1,7 +1,7 @@
 /**
  * scripts/v14-real-probes.ts —— v1.4 权威评测器的真实公共探针。
  *
- * 前置：`npm run build:web -w @away_from/framework` 已完成（eval 只消费 manifest）。
+ * 前置：`npm run build:web -w @away_from/pth-console` 已完成（eval 只消费 manifest）。
  * 输出只含计数/布尔，不含动态端口、时间戳或 requestId → 同一 commit 双跑字节一致。
  */
 

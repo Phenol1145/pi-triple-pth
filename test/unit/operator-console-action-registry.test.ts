@@ -7,12 +7,12 @@ import type {
   OperatorFormDescriptor,
   NativeWorkProjection,
   NativeWorkRef,
-} from "../../packages/framework/src/operator-console/contracts.js";
+} from "../../packages/pth-console/src/operator-console/contracts.js";
 import {
   createOperatorActionRegistry,
   type OperatorActionRegistry,
   type OperatorModeAdapter,
-} from "../../packages/framework/src/operator-console/action-registry.js";
+} from "../../packages/pth-console/src/operator-console/action-registry.js";
 
 /** 构造一个具备完整 compile-time adapter 形状的 fake adapter。 */
 function fakeAdapter(mode: WorkMode, action: string): OperatorModeAdapter {

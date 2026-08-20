@@ -1,0 +1,99 @@
+.work-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.work-description {
+  color: var(--color-text-secondary);
+  margin: 0 0 1rem;
+}
+
+.work-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.work-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.work-field__label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.work-field__description {
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+}
+
+.work-input,
+.work-textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0.5rem 0.65rem;
+  font: inherit;
+}
+
+.work-input:focus-visible,
+.work-textarea:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.work-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.work-facts {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0 0 1rem;
+}
+
+.work-facts > div {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 0.75rem;
+}
+
+.work-facts dt {
+  color: var(--color-text-secondary);
+}
+
+.work-facts dd {
+  margin: 0;
+}
+
+.work-summary {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem 0.75rem 2rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-hover);
+  display: grid;
+  gap: 0.25rem;
+}
+
+.work-confirm {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.work-submitted {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+  padding: 0.5rem 0;
+}

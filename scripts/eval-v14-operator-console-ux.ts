@@ -37,14 +37,14 @@ export async function evaluateV14OperatorConsoleUx(): Promise<{
   sha256: string;
 }> {
   const reasons: string[] = [];
-  const styles = read("packages/framework/web/operator-console-src/src/styles.css");
-  const ui = read("packages/framework/web/operator-console-src/src/ui.tsx");
-  const toast = existsSync(path.join(root, "packages/framework/web/operator-console-src/src/toast.tsx"))
-    ? read("packages/framework/web/operator-console-src/src/toast.tsx")
+  const styles = read("packages/pth-console/web/operator-console-src/src/styles.css");
+  const ui = read("packages/pth-console/web/operator-console-src/src/ui.tsx");
+  const toast = existsSync(path.join(root, "packages/pth-console/web/operator-console-src/src/toast.tsx"))
+    ? read("packages/pth-console/web/operator-console-src/src/toast.tsx")
     : "";
 
   const pages = PAGE_IDS.filter((id) =>
-    existsSync(path.join(root, `packages/framework/web/operator-console-src/src/pages/${id}.tsx`)),
+    existsSync(path.join(root, `packages/pth-console/web/operator-console-src/src/pages/${id}.tsx`)),
   );
   const primitives = UI_PRIMITIVES.filter((name) =>
     ui.includes(`export function ${name}`) || toast.includes(`export function ${name}`),
@@ -55,7 +55,7 @@ export async function evaluateV14OperatorConsoleUx(): Promise<{
     focusVisible: styles.includes(":focus-visible"),
     reducedMotion: styles.includes("prefers-reduced-motion"),
   };
-  const forbidden = /dangerouslySetInnerHTML|innerHTML\s*=|document\.write/.test(ui + toast + read("packages/framework/web/operator-console-src/src/app.tsx"));
+  const forbidden = /dangerouslySetInnerHTML|innerHTML\s*=|document\.write/.test(ui + toast + read("packages/pth-console/web/operator-console-src/src/app.tsx"));
 
   const realProbes = await runV14RealProbes();
   const n29 = readEnvelope("docs/pth/n29-minimal-intake-acceptance.json");

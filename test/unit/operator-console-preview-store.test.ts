@@ -17,23 +17,23 @@ import path from "node:path";
 import {
   createOperatorActionRegistry,
   type OperatorModeAdapter,
-} from "../../packages/framework/src/operator-console/action-registry.js";
+} from "../../packages/pth-console/src/operator-console/action-registry.js";
 import type {
   NativeWorkRef,
   OperatorCommandPreview,
   OperatorContext,
   OperatorFormDescriptor,
-} from "../../packages/framework/src/operator-console/contracts.js";
+} from "../../packages/pth-console/src/operator-console/contracts.js";
 import {
   createOperatorWorkService,
   OPERATOR_MAX_PENDING_PREVIEWS,
   OPERATOR_PREVIEW_TTL_MS,
-} from "../../packages/framework/src/operator-console/preview-store.js";
+} from "../../packages/pth-console/src/operator-console/preview-store.js";
 import {
   createInMemoryChannelAudit,
   createOperatorChannelAudit,
   type OperatorChannelAudit,
-} from "../../packages/framework/src/operator-console/channel-audit.js";
+} from "../../packages/pth-console/src/operator-console/channel-audit.js";
 
 const CTX: OperatorContext = { tenant: "t-1", space: "ts" };
 
@@ -66,7 +66,7 @@ function fakeAdapter(opts: FakeAdapterOpts = {}): OperatorModeAdapter & { native
     describe: () => descriptor,
     async preview(input, context) {
       const { canonicalPreviewDigest } = await import(
-        "../../packages/framework/src/operator-console/contracts.js"
+        "../../packages/pth-console/src/operator-console/contracts.js"
       );
       const normalizedInput = { title: String((input as Record<string, unknown>).title ?? "") };
       const expiresAt = new Date(clock() + OPERATOR_PREVIEW_TTL_MS).toISOString();
