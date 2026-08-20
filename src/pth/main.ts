@@ -335,6 +335,8 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
       })
     : null;
 
+  // N33 Task 3：/api/v1/observe/{workers,memory/*,config,roles} 由 server.ts 内
+  // registerSystemInspectionRoutes 注册（facade 从 kernelRuntime.pool/batchManager 装配）。
   const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime, knowledgeBroker });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
