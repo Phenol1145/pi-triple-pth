@@ -131,4 +131,22 @@ describe("WorkerSlotRuntime（生产组件——batch-process 与 harness 共用
     r.finishTask("task-x");
     expect(runtime.heartbeat({ ts: 43, rss: 1, cpuU: 2, cpuS: 3 }).tasks).toEqual([]);
   });
+
+  it("P1-2：heartbeat 可携带 authoritative 责任区/工作集有界投影", () => {
+    const runtime = new WorkerSlotRuntime({ emit: () => {} });
+    const r = replica("10000000-0000-4000-8000-000000000035");
+    runtime.add({
+      replica: r, role,
+      loop: { runOnce: async () => false, pause: () => {}, resume: () => {}, stop: () => {} },
+      dispose: async () => {},
+    });
+    const hb = runtime.heartbeat(
+      { ts: 42, rss: 1, cpuU: 2, cpuS: 3 },
+      (workerId) => ({ responsibilities: [{ regionId: "r-1", kind: "primary", priority: 1, regionRevision: 1 }], regionWeights: { "r-1": 3 }, workingSet: { taskId: "t-1", entryIds: ["e-1"], skillIndexIds: ["s-1"], activeSkillIds: [], toolNames: ["memory"], counts: { memoryEntries: 1, skillIndexEntries: 1, activeSkills: 0, tools: 1 }, usage: { memoryEntries: 1, memoryChars: 9, skillIndexEntries: 1, activeSkills: 0, skillChars: 9, tools: 1 }, omitted: {} }, __workerId: workerId }),
+    );
+    expect(hb.replicas[0]!.authoritative).toMatchObject({
+      regionWeights: { "r-1": 3 },
+      workingSet: { taskId: "t-1", entryIds: ["e-1"] },
+    });
+  });
 });

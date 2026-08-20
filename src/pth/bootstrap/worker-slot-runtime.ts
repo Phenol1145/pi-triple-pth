@@ -85,10 +85,13 @@ export class WorkerSlotRuntime {
     return results;
   }
 
-  heartbeat(resource: { ts: number; rss: number; cpuU: number; cpuS: number }): {
+  heartbeat(
+    resource: { ts: number; rss: number; cpuU: number; cpuS: number },
+    authoritativeFor?: (workerId: string) => unknown,
+  ): {
     type: "status";
     tasks: Array<{ workerId: string; taskId: string }>;
-    replicas: WorkerReplicaStatus[];
+    replicas: Array<WorkerReplicaStatus & { authoritative?: unknown }>;
     ts: number;
     rss: number;
     cpuU: number;
@@ -101,7 +104,12 @@ export class WorkerSlotRuntime {
     return {
       type: "status",
       tasks,
-      replicas: this.slots.map((slot) => slot.replica.snapshot()),
+      replicas: this.slots.map((slot) => {
+        const status = slot.replica.snapshot();
+        return authoritativeFor
+          ? { ...status, authoritative: authoritativeFor(status.workerId) }
+          : status;
+      }),
       ts: resource.ts,
       rss: resource.rss,
       cpuU: resource.cpuU,

@@ -49,7 +49,7 @@ import { roleDefinitionRevision, type WorkerReplica } from "../kernel/execution/
 import type { WorkerControlMessage, WorkerSlot } from "./worker-slot-runtime.js";
 import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type ProfessionalRuntimeLock, type WorkerReplicaRef } from "../contracts/index.js";
 import { assembleProfessionalRuntimeRegistry, createProfessionalArtifactPort, type ProfessionalRuntimeAdapterFactory } from "./professional-runtime-adapters.js";
-import { assertMemoryDirectoryResponsibilityCapacity, buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createKnowledgeBroker, createLayeredKnowledgeRetriever, createVerifiedTaskReadScopeFactory, filterKnowledgeEntriesByQueryText, rankKnowledgeEntries, regionEntryIds, type DirectoryEntryInput, type KnowledgeMemoryEntry, type LayeredSearchWaveInput, type LayeredSearchWaveResult, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
+import { assertMemoryDirectoryResponsibilityCapacity, buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createKnowledgeBroker, createLayeredKnowledgeRetriever, createVerifiedTaskReadScopeFactory, filterKnowledgeEntriesByQueryText, rankKnowledgeEntries, regionEntryIds, responsibilitiesForWorker, type DirectoryEntryInput, type KnowledgeMemoryEntry, type LayeredSearchWaveInput, type LayeredSearchWaveResult, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
 import { KNOWLEDGE_CONTEXT_KINDS } from "../runner/index.js";
 import { createAuthorizedStateReadPort, createAuthorizedTaskReadFactory, createCognitiveWorkingSetProvider, createScopedSkillPort, expandTaskReadGrantCapabilities, type AuthorizedTaskReadFactory } from "../runner/index.js";
 // N29 Task 6：intake 内环装配（PTH_KNOWLEDGE_INTAKE_MODE=off 时完全不实例化）。
@@ -286,6 +286,12 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const batchId = pthConfig().str("PTH_BATCH_ID") || `batch:${process.pid}`;
   // N28 复核 Layer3：role 批量 remove 的最终回执聚合（全部 worker-removed 后发唯一 role removed）。
   const pendingRoleRemovals = new Map<string, Set<string>>();
+  // N33 复验收 P1-2：feasibility worker 最近一次认知工作集账本快照（心跳时有界投影）。
+  const authoritativeWorkingSets = new Map<string, {
+    taskId: string;
+    directorySnapshotId: string;
+    snapshot: ReturnType<import("../kernel/execution/cognitive-budget.js").CognitiveBudgetLedger["snapshot"]>;
+  }>();
 
   // N28 T6 + 复核 Layer2：feasibility 模式 provider + 启动前责任容量硬闸（缺依赖=启动错误，绝不省略）。
   let authorizedTaskReadFactory = deps.authorizedTaskReadFactory;
@@ -364,7 +370,19 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
           state: createAuthorizedStateReadPort({ memory: dataWorld.memory, isVisible: (meta, space) => isVisible(meta, space), clock }),
           clock,
         });
-        return createCognitiveWorkingSetProvider({ budget: N28_FEASIBILITY_BUDGET, resolveRoleBudget: deps.resolveRoleBudget });
+        const baseProvider = createCognitiveWorkingSetProvider({ budget: N28_FEASIBILITY_BUDGET, resolveRoleBudget: deps.resolveRoleBudget });
+        // P1-2：同一 provider 每次 build 后记录账本快照，heartbeat 只投有界投影。
+        return {
+          build: async (input) => {
+            const built = await baseProvider.build(input);
+            authoritativeWorkingSets.set(input.worker.workerId, {
+              taskId: input.taskId,
+              directorySnapshotId: input.directorySnapshotId,
+              snapshot: built.ledger.snapshot(),
+            });
+            return built;
+          },
+        } as typeof baseProvider;
       })()
     : undefined;
 
@@ -1115,7 +1133,39 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const mem = process.memoryUsage();
     const cpu = process.cpuUsage();
     if (mode === "feasibility") {
-      process.send?.(runtime.heartbeat({ ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system }));
+      const directory = deps.memoryDirectory;
+      process.send?.(runtime.heartbeat(
+        { ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system },
+        (workerId) => {
+          const responsibilities = directory ? responsibilitiesForWorker(directory, workerId) : [];
+          const working = authoritativeWorkingSets.get(workerId);
+          return {
+            responsibilities: responsibilities.map((r) => ({ regionId: r.regionId, kind: r.kind, priority: r.priority, regionRevision: r.regionRevision })),
+            regionWeights: Object.fromEntries(responsibilities.map((r) => {
+              const region = directory?.regions.find((x) => x.regionId === r.regionId);
+              return [r.regionId, region?.estimatedWeight ?? 0] as const;
+            })),
+            workingSet: working
+              ? {
+                  taskId: working.taskId,
+                  directorySnapshotId: working.directorySnapshotId,
+                  entryIds: working.snapshot.memoryEntryIds,
+                  skillIndexIds: working.snapshot.skillIndexIds,
+                  activeSkillIds: working.snapshot.activeSkillIds,
+                  toolNames: working.snapshot.toolNames,
+                  counts: {
+                    memoryEntries: working.snapshot.usage.memoryEntries,
+                    skillIndexEntries: working.snapshot.usage.skillIndexEntries,
+                    activeSkills: working.snapshot.usage.activeSkills,
+                    tools: working.snapshot.usage.tools,
+                  },
+                  usage: working.snapshot.usage,
+                  omitted: working.snapshot.omitted,
+                }
+              : null,
+          };
+        },
+      ));
     } else {
       process.send?.({ type: "status", tasks: [], ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system });
     }

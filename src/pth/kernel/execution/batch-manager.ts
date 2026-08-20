@@ -14,6 +14,28 @@ export interface BatchHandle {
   idleRatio: number;
 }
 
+/** N33 复验收 P1-2：feasibility 心跳携带的 authoritative 责任区/工作集有界投影。 */
+export interface WorkerAuthoritativeProjection {
+  responsibilities?: Array<{ regionId: string; kind: string; priority: number; regionRevision: number }>;
+  regionWeights?: Record<string, number>;
+  workingSet?: {
+    taskId?: string;
+    directorySnapshotId?: string;
+    entryIds?: string[];
+    skillIndexIds?: string[];
+    activeSkillIds?: string[];
+    toolNames?: string[];
+    counts?: {
+      memoryEntries: number; skillIndexEntries: number; activeSkills: number; tools: number;
+    };
+    usage?: {
+      memoryEntries: number; memoryChars: number; skillIndexEntries: number;
+      activeSkills: number; skillChars: number; tools: number;
+    };
+    omitted?: Record<string, number>;
+  } | null;
+}
+
 // 与 Task 5 stats.ts 的 BatchStatusLike 契约对齐（id/workers/currentTasks 字段兼容，可直喂 collectStats）
 export interface BatchStatus {
   id: string;
@@ -31,8 +53,9 @@ export interface BatchStatus {
   /** 子进程自报累计 CPU（µs——user+system；增量由消费方差分） */
   cpuUserUs?: number;
   cpuSystemUs?: number;
-  /** N28 T2：feasibility 模式心跳自报的副本状态（off 模式子进程不上报 → []）。 */
-  replicas?: WorkerReplicaStatus[];
+  /** N28 T2：feasibility 模式心跳自报的副本状态（off 模式子进程不上报 → []）。
+   *  N33 复验收 P1-2：feasibility 心跳额外携带 authoritative 责任区/工作集有界投影。 */
+  replicas?: Array<WorkerReplicaStatus & { authoritative?: WorkerAuthoritativeProjection | null }>;
 }
 
 export interface BatchManagerDeps {
@@ -106,7 +129,9 @@ export class BatchManager {
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
-        record.replicas = Array.isArray(msg.replicas) ? (msg.replicas as WorkerReplicaStatus[]) : [];
+        record.replicas = Array.isArray(msg.replicas)
+          ? (msg.replicas as Array<WorkerReplicaStatus & { authoritative?: WorkerAuthoritativeProjection | null }>)
+          : [];
         // H6（watchdog v2）：status 消息即心跳——记录最近到达时间（batch-process 每 2s 上报）
         record.lastHeartbeat = typeof msg.ts === "number" ? msg.ts : Date.now();
         // 2026-08-18 L3：资源自报随心跳落档（rss/cpu——§9 L2 内存/CPU 缺口）

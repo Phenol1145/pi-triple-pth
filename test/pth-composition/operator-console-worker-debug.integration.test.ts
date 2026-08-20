@@ -104,6 +104,8 @@ describe("operator console worker debug integration", () => {
     const body = await res.text();
     expect(body).toContain("worker-a");
     expect(body).toContain("lean4-prover");
+    expect(body).toContain("memory:wiki");
+    expect(body).toContain("idx:lean:list-map");
     expect(body).not.toContain(PTH_TOKEN);
     expect(body).not.toContain("chainOfThought");
     expect(body).not.toContain("secret");

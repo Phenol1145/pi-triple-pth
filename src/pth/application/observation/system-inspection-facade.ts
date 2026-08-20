@@ -73,6 +73,27 @@ export interface SystemInspectionBatchStatus {
     role: { roleId: string; revision: string };
     state: string;
     currentTaskId?: string;
+    /** N33 复验收 P1-2：batch 心跳携带的 authoritative 责任区/工作集有界投影。 */
+    authoritative?: {
+      responsibilities?: Array<{ regionId: string; kind: string; priority: number; regionRevision: number }>;
+      regionWeights?: Record<string, number>;
+      workingSet?: {
+        taskId?: string;
+        directorySnapshotId?: string;
+        entryIds?: string[];
+        skillIndexIds?: string[];
+        activeSkillIds?: string[];
+        toolNames?: string[];
+        counts?: {
+          memoryEntries: number; skillIndexEntries: number; activeSkills: number; tools: number;
+        };
+        usage?: {
+          memoryEntries: number; memoryChars: number; skillIndexEntries: number;
+          activeSkills: number; skillChars: number; tools: number;
+        };
+        omitted?: Record<string, number>;
+      } | null;
+    } | null;
   }>;
 }
 
@@ -438,6 +459,9 @@ export class SystemInspectionFacade {
       for (const replica of batch.replicas ?? []) {
         const taskId = replica.currentTaskId ?? taskOf(replica.workerId);
         const task = taskId ? taskById.get(taskId) : undefined;
+        const authoritative = replica.authoritative ?? null;
+        const responsibilities = authoritative?.responsibilities ?? [];
+        const working = authoritative?.workingSet ?? null;
         out.push({
           workerId: replica.workerId,
           batchId: replica.batchId || batch.id,
@@ -451,18 +475,18 @@ export class SystemInspectionFacade {
           workMode: task && isWorkMode(task.work_mode) ? task.work_mode : null,
           currentTaskId: task ? taskId : null,
           leaseId: task?.lease_id ? String(task.lease_id) : null,
-          regionIds: [],
-          regionWeights: {},
+          regionIds: responsibilities.map((r) => r.regionId),
+          regionWeights: authoritative?.regionWeights ?? {},
           workingSet: {
-            entryIds: [],
-            skillIndexIds: [],
-            activeSkillIds: [],
-            counts: { memoryEntries: 0, skillIndexEntries: 0, activeSkills: 0, tools: 0 },
-            usage: { memoryEntries: 0, memoryChars: 0, skillIndexEntries: 0, activeSkills: 0, skillChars: 0, tools: 0 },
-            omitted: {},
+            entryIds: working?.entryIds ?? [],
+            skillIndexIds: working?.skillIndexIds ?? [],
+            activeSkillIds: working?.activeSkillIds ?? [],
+            counts: working?.counts ?? { memoryEntries: 0, skillIndexEntries: 0, activeSkills: 0, tools: 0 },
+            usage: working?.usage ?? { memoryEntries: 0, memoryChars: 0, skillIndexEntries: 0, activeSkills: 0, skillChars: 0, tools: 0 },
+            omitted: working?.omitted ?? {},
           },
-          toolNames: [],
-          skillIds: [],
+          toolNames: working?.toolNames ?? [],
+          skillIds: working?.skillIndexIds ?? [],
           heartbeatLagMs: typeof batch.heartbeatLagMs === "number" ? batch.heartbeatLagMs : null,
         });
       }

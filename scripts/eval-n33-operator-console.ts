@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { createDebugViewModel } from "../packages/framework/web/operator-console/debug.js";
 import { createMemoryViewModel, buildMemoryCharts } from "../packages/framework/web/operator-console/memory.js";
 import { createConfigViewModel, redactConfigEntry } from "../packages/framework/web/operator-console/config.js";
+import { runN33RealProbes } from "./n33-real-probes.js";
 
 const root = new URL("..", import.meta.url);
 const html = readFileSync(new URL("packages/framework/web/operator-console/index.html", root), "utf8");
@@ -26,8 +27,20 @@ function failures(reasons: string[]): { decision: "NO-GO"; reasons: string[] } {
   return { decision: "NO-GO", reasons };
 }
 
-function evalN33() {
+async function evalN33() {
   const reasons: string[] = [];
+
+  // ── P1-4：真实公共探针（module graph / secret boundary / DTO / native idempotency） ──
+  const realProbes = await runN33RealProbes();
+  if (realProbes.moduleGraph.servedAssets !== 6) reasons.push(`real module graph served ${realProbes.moduleGraph.servedAssets} != 6`);
+  if (realProbes.moduleGraph.appImportCount !== 3) reasons.push(`app.js module imports ${realProbes.moduleGraph.appImportCount} != 3`);
+  if (realProbes.secretBoundary.upstreamErrors !== 3) reasons.push(`upstream error probes ${realProbes.secretBoundary.upstreamErrors} != 3`);
+  if (realProbes.secretBoundary.requestIds !== 3) reasons.push(`upstream request ids ${realProbes.secretBoundary.requestIds} != 3`);
+  if (realProbes.secretBoundary.leakedSentinelCount !== 0) reasons.push(`leaked sentinel count ${realProbes.secretBoundary.leakedSentinelCount} != 0`);
+  if (!realProbes.dto.debugOk) reasons.push("real DTO debug projection failed");
+  if (!realProbes.dto.memoryOk) reasons.push("real DTO memory projection failed");
+  if (!realProbes.dto.configOk) reasons.push("real DTO config projection failed");
+  if (!realProbes.nativeIdempotency.keyForwarded) reasons.push("native idempotency key not forwarded");
 
   // ── 页面与导航分母 ──
   const pageRoutes = PAGES.filter((p) => html.includes(`data-page-root="${p}"`));
@@ -106,6 +119,7 @@ function evalN33() {
       recentRevisionRows: 10,
       secretsRedacted: 1,
       rolesRepresented: config.view().roles.length,
+      realProbes,
     },
     checks: {
       noInnerHtmlAssignment: !/innerHTML\s*=/.test(app),
@@ -118,8 +132,8 @@ function evalN33() {
   return { ...payload, sha256: digest };
 }
 
-const first = JSON.stringify(evalN33(), null, 2);
-const second = JSON.stringify(evalN33(), null, 2);
+const first = JSON.stringify(await evalN33(), null, 2);
+const second = JSON.stringify(await evalN33(), null, 2);
 if (first !== second) {
   console.error("evaluator is not deterministic");
   process.exit(1);
