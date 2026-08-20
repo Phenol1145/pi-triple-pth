@@ -335,9 +335,41 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
       })
     : null;
 
+  // N33 Task 5：intake 手动控制面（operator console 的订阅创建/run 触发窄端点）。
+  // 需要 kernel（pg pool）+ 已验签 TrustPolicy（PTH_TRUST_POLICY_MANIFEST/KEYRING）；
+  // 任一缺席 → /api/v1/intake/* 503，PTH 其余功能照常（与 kernel fail-open 约定一致）。
+  // 已验签 policy 启动时加载一次（manifest 是不可变签名事实——轮换需重启）。
+  let intakeManualControl: import("./execution/knowledge-intake/manual-control.js").IntakeManualControlService | null = null;
+  const intakeManifestPath = pthConfig().str("PTH_TRUST_POLICY_MANIFEST");
+  const intakeKeyringPath = pthConfig().str("PTH_TRUST_POLICY_KEYRING");
+  if (kernelRuntime && intakeManifestPath && intakeKeyringPath) {
+    try {
+      const { loadVerifiedTrustPolicy } = await import("./execution/knowledge-intake/trust-policy.js");
+      const { createKnowledgeIntakeRepository } = await import("./kernel/storage/knowledge-intake-pg.js");
+      const { createIntakeManualControlService } = await import("./execution/knowledge-intake/manual-control.js");
+      const manifest = JSON.parse(await fs.promises.readFile(intakeManifestPath, "utf8")) as Parameters<typeof loadVerifiedTrustPolicy>[0];
+      const keyring = JSON.parse(await fs.promises.readFile(intakeKeyringPath, "utf8")) as Parameters<typeof loadVerifiedTrustPolicy>[1];
+      const verifiedPolicy = await loadVerifiedTrustPolicy(manifest, keyring);
+      const intakeRepository = createKnowledgeIntakeRepository(kernelRuntime.pool, {
+        policyVerifier: (candidate) => loadVerifiedTrustPolicy(candidate, keyring),
+      });
+      intakeManualControl = createIntakeManualControlService({
+        pool: kernelRuntime.pool,
+        repository: intakeRepository,
+        policy: verifiedPolicy,
+      });
+      logger.info({
+        event: "intake_manual_control_ready",
+        note: `intake 手动控制面已装配（policy=${verifiedPolicy.manifest.policyId}@${verifiedPolicy.manifest.version}）`,
+      });
+    } catch (err) {
+      logger.warn({ err: String(err), event: "intake_manual_control_disabled", note: "intake 手动控制面装配失败——/intake/* 503，PTH 其余功能照常" });
+    }
+  }
+
   // N33 Task 3：/api/v1/observe/{workers,memory/*,config,roles} 由 server.ts 内
   // registerSystemInspectionRoutes 注册（facade 从 kernelRuntime.pool/batchManager 装配）。
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime, knowledgeBroker });
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime, knowledgeBroker, intakeManualControl });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 
