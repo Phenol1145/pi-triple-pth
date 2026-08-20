@@ -154,6 +154,10 @@ export class TaskLoop {
         cognitiveWorkingSetProvider: this.deps.cognitiveWorkingSetProvider,
         cognitiveResponsibilityMode: this.deps.cognitiveResponsibilityMode,
         authorizedReads: this.deps.authorizedReads,
+        professionalRegistry: this.deps.professionalRuntimeRegistry,
+        professionalArtifacts: this.deps.professionalArtifacts,
+        professionalGrantService: this.deps.professionalGrantService,
+        professionalGrantTtlMs: this.deps.professionalGrantTtlMs,
         onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {

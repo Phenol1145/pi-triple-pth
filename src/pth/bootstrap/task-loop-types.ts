@@ -52,6 +52,11 @@ export interface TaskLoopDeps {
   authorizedReads?: import("../runner/index.js").AuthorizedTaskReadFactory;
   verifiedReadScopeFactory?: import("../execution/index.js").VerifiedTaskReadScopeFactory;
   cognitiveResponsibilityMode?: "off" | "feasibility";
+  /** Task 4：professional runtime registry / artifact port / grant service（注入后透传 AgentTaskRunner）。 */
+  professionalRuntimeRegistry?: import("../execution/index.js").ProfessionalRuntimeRegistry;
+  professionalArtifacts?: import("../runner/index.js").ProfessionalArtifactPort;
+  professionalGrantService?: import("../execution/index.js").ExecutionGrantService;
+  professionalGrantTtlMs?: number;
 }
 
 /**

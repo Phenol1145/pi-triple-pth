@@ -28,6 +28,9 @@ import type { WorkerReplicaRef } from "../contracts/index.js";
 import type { MemoryDirectorySnapshot, VerifiedTaskReadScopeFactory } from "../execution/index.js";
 import type { CognitiveWorkingSetProvider } from "./cognitive-working-set.js";
 import type { AuthorizedTaskReadFactory } from "./authorized-task-reads.js";
+import type { ExecutionGrantService } from "../execution/authorization/execution-grant-service.js";
+import type { ProfessionalRuntimeRegistry } from "../execution/professional-runtime.js";
+import { createProfessionalTaskCapability, type ProfessionalArtifactPort } from "./professional-task-capability.js";
 import { canonicalExposureChars } from "../kernel/execution/cognitive-budget.js";
 import { taskToolUnion, normalizeToolName } from "../kernel/execution/agent-loop-prompt.js";
 import { visibleRegistryTools } from "../kernel/execution/tool-registry.js";
@@ -63,6 +66,14 @@ export interface AgentTaskRunnerDeps {
   cognitiveResponsibilityMode?: "off" | "feasibility";
   /** N28 T6：grant-bound 任务读取工厂（feasibility 模式必填）。 */
   authorizedReads?: AuthorizedTaskReadFactory;
+  /** Task 4：professional runtime registry（注入后任务内可用 professional.* capability）。 */
+  professionalRegistry?: ProfessionalRuntimeRegistry;
+  /** Task 4：artifact 端口（租户隔离输入读取/输出落盘）。 */
+  professionalArtifacts?: ProfessionalArtifactPort;
+  /** Task 4：签发 professional.execute grant 的服务（服务端签名/过期/replay）。 */
+  professionalGrantService?: ExecutionGrantService;
+  /** Task 4：professional grant TTL（缺省 120s）。 */
+  professionalGrantTtlMs?: number;
 }
 
 function leaseRef(lease: TaskLease): TaskOutcome["lease"] {
@@ -279,6 +290,46 @@ export class AgentTaskRunner implements TaskRunner {
           ? existingKnowledge as Record<string, unknown>
           : {};
         capabilityInject["knowledge"] = { ...knowledgeCap, context: knowledgeContext };
+      }
+
+      // Task 4：professional capability 按 N28 合并模式注入（不动 memory/skills/state）。
+      // 只注入专业角色 Worker Replica，且 grant 由服务端签发；LLM 只能拿到任务级 facade。
+      if (this.deps.replica && this.deps.professionalRegistry && this.deps.professionalArtifacts && this.deps.professionalGrantService) {
+        try {
+          const professionalGrant = this.deps.professionalGrantService.issue({
+            lease: { taskId: lease.taskId, leaseId: lease.leaseId, generation: lease.generation },
+            scope: {
+              tenantId: work.scope.tenantId,
+              principalId: `worker:${this.deps.replica.workerId}`,
+              roles: [role.id],
+              traceId: work.scope.traceId,
+              space,
+            },
+            workspace: lease.workspace,
+            language: "ts",
+            capabilities: ["professional.execute"],
+            ttlMs: this.deps.professionalGrantTtlMs ?? 120_000,
+          });
+          capabilityInject["professional"] = createProfessionalTaskCapability({
+            lease,
+            work,
+            worker: this.deps.replica,
+            role,
+            grant: professionalGrant,
+            registry: this.deps.professionalRegistry,
+            artifacts: this.deps.professionalArtifacts,
+            space,
+          });
+        } catch (error) {
+          return {
+            lease: ref,
+            status: "rejected",
+            retryable: false,
+            error: { code: "professional-grant-issue-failed", message: (error as Error).message },
+            artifacts: [],
+            traceId,
+          };
+        }
       }
 
       if (cognitive) {

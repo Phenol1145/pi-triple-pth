@@ -1,0 +1,108 @@
+/**
+ * bootstrap/professional-runtime-adapters.ts — v1.3 Task 4 唯一生产组装点。
+ *
+ * `assembleProfessionalRuntimeRegistry()` 只消费 committed lock + adapter factories：
+ *  - 不 import 任何 fixture 数据（专业角色/责任/预算 fixture 不属于本文件）；
+ *  - factory 抛错、probe 失败、非 stable、版本与 lock 不一致的 adapter 一律不注册；
+ *  - 注册表创建后由调用方（batch-process）注入每个 specialist Worker Replica。
+ *
+ * 本文件同时提供生产 artifact 端口（文件系统实现）：
+ *  - `artifact://<tenant>/<path>` 被解析为 `<artifactPath>/<tenant>/<path>`；
+ *  - 防穿越：path 必须是相对路径且归一化后仍在 tenant 目录内。
+ */
+
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { relative, resolve, sep } from "node:path";
+import type { ArtifactRef, ProfessionalJobSpec, ProfessionalRuntimeId, ProfessionalRuntimeLock } from "../contracts/index.js";
+import {
+  createProfessionalRuntimeRegistry,
+  type ProfessionalRuntimeAdapter,
+  type ProfessionalRuntimeRegistry,
+} from "../execution/professional-runtime.js";
+import type { ProfessionalArtifactPort } from "../runner/professional-task-capability.js";
+
+export type ProfessionalRuntimeAdapterFactory<
+  S extends ProfessionalJobSpec = ProfessionalJobSpec,
+  R = unknown,
+> = () => ProfessionalRuntimeAdapter<S, R> | Promise<ProfessionalRuntimeAdapter<S, R>>;
+
+export interface AssembleProfessionalRuntimeRegistryInput {
+  readonly lock: ProfessionalRuntimeLock;
+  readonly factories?: Readonly<Partial<Record<ProfessionalRuntimeId, ProfessionalRuntimeAdapterFactory<any, any>>>>;
+  readonly clock?: () => Date;
+}
+
+/** 生产组装点：只注册 probe 成功且满足 committed lock 的 adapter。 */
+export async function assembleProfessionalRuntimeRegistry(
+  input: AssembleProfessionalRuntimeRegistryInput,
+): Promise<ProfessionalRuntimeRegistry> {
+  const registry = createProfessionalRuntimeRegistry({ lock: input.lock, clock: input.clock });
+  const factories = input.factories ?? {};
+  for (const runtimeId of Object.keys(factories) as ProfessionalRuntimeId[]) {
+    const factory = factories[runtimeId];
+    if (!factory) continue;
+    try {
+      const adapter = await factory();
+      const probe = await adapter.probe();
+      const entry = input.lock.runtimes[runtimeId];
+      if (!entry || entry.releaseChannel !== "stable") continue;
+      if (!probe.available || probe.releaseChannel !== "stable") continue;
+      if (probe.version !== entry.version) continue;
+      registry.register(adapter);
+    } catch {
+      // 依赖缺失/探测失败 = 该 runtime 不可用，不注册；registry.probe 会返回 unregistered-runtime。
+    }
+  }
+  return registry;
+}
+
+function tenantFromUri(uri: string): string | null {
+  const prefix = "artifact://";
+  if (!uri.startsWith(prefix)) return null;
+  const rest = uri.slice(prefix.length);
+  const slash = rest.indexOf("/");
+  if (slash < 0) return null;
+  return rest.slice(0, slash);
+}
+
+function safeArtifactPath(basePath: string, tenantId: string, uri: string): string {
+  const prefix = "artifact://";
+  if (!uri.startsWith(prefix)) {
+    throw new Error(`artifact uri ${uri} is not an artifact:// locator`);
+  }
+  const rest = uri.slice(prefix.length);
+  const slash = rest.indexOf("/");
+  const uriTenant = slash < 0 ? rest : rest.slice(0, slash);
+  if (uriTenant !== tenantId) {
+    throw new Error(`artifact tenant mismatch: ${uriTenant} != ${tenantId}`);
+  }
+  const relativePath = slash < 0 ? "" : rest.slice(slash + 1);
+  if (relativePath === "" || relativePath.includes("\0") || relativePath.includes("..") || relativePath.startsWith("/") || relativePath.includes("\\")) {
+    throw new Error(`artifact uri ${uri} escapes the tenant artifact namespace`);
+  }
+  const base = resolve(basePath, tenantId);
+  const abs = resolve(base, relativePath);
+  const rel = relative(base, abs);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || rel.startsWith(`${sep}`)) {
+    throw new Error(`artifact uri ${uri} escapes the tenant artifact namespace`);
+  }
+  return abs;
+}
+
+/** 生产 artifact 端口：`artifact://<tenant>/<path>` → `<artifactPath>/<tenant>/<path>`。 */
+export function createProfessionalArtifactPort(input: { artifactPath: string }): ProfessionalArtifactPort {
+  const artifactPath = input.artifactPath;
+  return {
+    async getInput(tenantId, artifact: ArtifactRef) {
+      const abs = safeArtifactPath(artifactPath, tenantId, artifact.uri);
+      return new Uint8Array(await readFile(abs));
+    },
+    async putOutput(put) {
+      const uri = `artifact://${put.tenantId}/${put.jobId}/${put.kind}`;
+      const abs = safeArtifactPath(artifactPath, put.tenantId, uri);
+      await mkdir(abs.slice(0, abs.lastIndexOf("/")) || abs, { recursive: true });
+      await writeFile(abs, put.bytes);
+      return { kind: put.kind, uri, ...(put.mediaType ? { mediaType: put.mediaType } : {}) };
+    },
+  };
+}

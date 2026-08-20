@@ -112,6 +112,12 @@ export function buildCapabilities(deps: {
   taskContext?: { current: TaskDispatchContext | null };
   /** R3/P1-2：verification repo 注入缝（测试/非 PG 装配传内存 repo；缺省从 PgMemoryStore 派生） */
   verificationRepo?: KnowledgeVerificationRepo;
+  /**
+   * Task 4：任务级 professional facade 不在本装配点创建（本装配点无 lease/grant/worker replica）。
+   * 调用方可选传入一个已构造的 professional 命名空间（测试/特殊装配用）；
+   * 生产路径由 AgentTaskRunner 在每任务经 capabilityInject 注入，见 runner/professional-task-capability.ts。
+   */
+  professional?: Record<string, unknown>;
 }): Record<string, unknown> {
   // 标准扩展包（memory/context/model——SPEC 2026-08-09）：能力注入 + 预置对象
   // N14 P3：onActivity 透传 ExtContext（manage.tool.register 的 tool.proposal.created 事件源）
@@ -361,6 +367,8 @@ export function buildCapabilities(deps: {
         }
       : {}),
     // tasks peek/submit 面仍摘除（权限 v2 R3）——任务代码只可走 delegate/await 原语，不可直连任务池
+    // Task 4：professional 任务级 facade 经 AgentTaskRunner.capabilityInject 注入；此处仅提供可选装配缝。
+    ...(deps.professional ? { professional: deps.professional } : {}),
     ...(deps.bash ? { bash: deps.bash } : {}),
     ...(deps.python ? { python: deps.python } : {}),
     // 2026-08-11 生产核裁决：ts 程序内 c.* 能力全部撤销（"不应在 ts 空间内调用 C"）——

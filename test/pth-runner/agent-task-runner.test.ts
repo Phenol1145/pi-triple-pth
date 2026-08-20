@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentTaskRunner } from "../../src/pth/runner/agent-task-runner.js";
-import type { TaskLease, TaskWorkItem, TenantScope } from "../../src/pth/contracts/index.js";
+import type { ExecutionGrant, TaskLease, TaskWorkItem, TenantScope, WorkerReplicaRef } from "../../src/pth/contracts/index.js";
+import type { ProfessionalArtifactPort } from "../../src/pth/runner/professional-task-capability.js";
+import type { ProfessionalRuntimeRegistry } from "../../src/pth/execution/professional-runtime.js";
+import type { ExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import type { WorkerKernel } from "../../src/pth/kernel/interpreter/index.js";
 import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
 import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
@@ -299,5 +302,95 @@ describe("AgentTaskRunner（P1-4）", () => {
     const opts = vi.mocked(runAgentTask).mock.calls[0]![0] as { task: { title: string; text: string }; capabilityInject: Record<string, unknown> };
     expect(opts.task.text).toBe("return 42;");
     expect(opts.capabilityInject["knowledge"]).toBeUndefined();
+  });
+
+  it("Task 4：注入 professional capability 且不覆盖 memory/skills/state", async () => {
+    vi.mocked(runAgentTask).mockReset();
+    vi.mocked(runAgentTask).mockResolvedValue({ ok: true, value: { done: true }, summary: "done", steps: 1 });
+
+    const caps = {
+      memory: { keep: true },
+      skills: { keep: true },
+      state: { keep: true },
+    };
+    const worker: WorkerReplicaRef = {
+      workerId: "10000000-0000-4000-8000-000000000001",
+      batchId: "batch-professional",
+      role: { roleId: "assembly-engineer", revision: "rev-v1" },
+    };
+    const grant: ExecutionGrant = {
+      grantId: "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a6",
+      nonce: "bb7d7e7e-c3ec-4e58-b34d-2f6a2a70e0a7",
+      lease: { taskId: lease.taskId, leaseId: lease.leaseId, generation: lease.generation },
+      scope: {
+        tenantId: "tenant-a",
+        principalId: `worker:${worker.workerId}`,
+        roles: [worker.role.roleId],
+        traceId: scope.traceId,
+        space: "meta",
+      },
+      workspace: lease.workspace,
+      language: "ts",
+      capabilities: ["professional.execute"],
+      issuedAt: "2026-08-19T00:00:00.000Z",
+      deadlineAt: "2026-08-19T00:01:00.000Z",
+    };
+    const professionalRegistry = {
+      probe: vi.fn(),
+      execute: vi.fn(),
+      cancel: vi.fn(),
+      register: vi.fn(),
+    } as unknown as ProfessionalRuntimeRegistry;
+    const professionalArtifacts: ProfessionalArtifactPort = {
+      getInput: vi.fn(async () => new Uint8Array()),
+      putOutput: vi.fn(async () => ({ kind: "out", uri: "artifact://tenant-a/out" })),
+    };
+    const professionalGrantService = {
+      issue: vi.fn(() => grant),
+      verify: vi.fn(),
+    } as unknown as ExecutionGrantService;
+
+    const { kernel } = fakeKernel();
+    const runner = new AgentTaskRunner({
+      kernel,
+      role: { id: "assembly-engineer", tags: [], prompt: "assembly" },
+      workspace: { taskId: "task-1", tenant: "tenant-a", dir: "/tmp/task-1" },
+      llm: fakeLlm,
+      caps,
+      config: { agentMode: true, aspMode: false },
+      replica: worker,
+      professionalRegistry,
+      professionalArtifacts,
+      professionalGrantService,
+    });
+
+    const outcome = await runner.run({ lease, work });
+
+    expect(outcome.status).toBe("completed");
+    expect(professionalGrantService.issue).toHaveBeenCalledWith({
+      lease: { taskId: lease.taskId, leaseId: lease.leaseId, generation: lease.generation },
+      scope: {
+        tenantId: "tenant-a",
+        principalId: `worker:${worker.workerId}`,
+        roles: ["assembly-engineer"],
+        traceId: scope.traceId,
+        space: "meta",
+      },
+      workspace: lease.workspace,
+      language: "ts",
+      capabilities: ["professional.execute"],
+      ttlMs: 120_000,
+    });
+
+    const opts = vi.mocked(runAgentTask).mock.calls[0]![0] as {
+      caps: Record<string, unknown>;
+      capabilityInject: Record<string, unknown>;
+    };
+    expect(opts.caps).toBe(caps); // 不覆盖既有 memory/skills/state
+    const professional = opts.capabilityInject["professional"] as Record<string, unknown>;
+    expect(professional).toBeDefined();
+    expect(professional["probe"]).toBeTypeOf("function");
+    expect(professional["execute"]).toBeTypeOf("function");
+    expect(professional["cancel"]).toBeTypeOf("function");
   });
 });

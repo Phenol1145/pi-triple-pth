@@ -47,7 +47,8 @@ import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
 import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
 import { roleDefinitionRevision, type WorkerReplica } from "../kernel/execution/worker-replica.js";
 import type { WorkerControlMessage, WorkerSlot } from "./worker-slot-runtime.js";
-import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type WorkerReplicaRef } from "../contracts/index.js";
+import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type ProfessionalRuntimeLock, type WorkerReplicaRef } from "../contracts/index.js";
+import { assembleProfessionalRuntimeRegistry, createProfessionalArtifactPort, type ProfessionalRuntimeAdapterFactory } from "./professional-runtime-adapters.js";
 import { assertMemoryDirectoryResponsibilityCapacity, buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createKnowledgeBroker, createLayeredKnowledgeRetriever, createVerifiedTaskReadScopeFactory, filterKnowledgeEntriesByQueryText, rankKnowledgeEntries, regionEntryIds, type DirectoryEntryInput, type KnowledgeMemoryEntry, type LayeredSearchWaveInput, type LayeredSearchWaveResult, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
 import { KNOWLEDGE_CONTEXT_KINDS } from "../runner/index.js";
 import { createAuthorizedStateReadPort, createAuthorizedTaskReadFactory, createCognitiveWorkingSetProvider, createScopedSkillPort, expandTaskReadGrantCapabilities, type AuthorizedTaskReadFactory } from "../runner/index.js";
@@ -102,6 +103,8 @@ export interface RunBatchProcessDeps {
     index: number;
     requestedReplica?: WorkerReplicaRef;
   }) => WorkerReplica;
+  /** Task 4：专业 runtime adapter 工厂（缺省 = committed lock 下零 adapter，后续垂直切片注入）。 */
+  professionalRuntimeFactories?: Readonly<Partial<Record<import("../contracts/index.js").ProfessionalRuntimeId, ProfessionalRuntimeAdapterFactory<any, any>>>>;
 }
 
 /**
@@ -214,6 +217,26 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const workspaceMgr = new DefaultTaskWorkspaceManager({ basePath: deps.basePath, artifactPath: deps.artifactPath });
   // 产物根必须先存在：archive 用 rename 而非 mkdir——父目录缺失时 rename 抛 ENOENT
   await mkdir(deps.artifactPath, { recursive: true });
+
+  // Task 4：专业计算执行宿主——committed lock + adapter factories 唯一组装点。
+  // 只注册 probe 成功且版本匹配 committed lock 的 adapter；artifact 端口按租户隔离。
+  const professionalRuntimeLock = JSON.parse(
+    await readFile(new URL("../../../deploy/professional-runtime-lock.json", import.meta.url), "utf8"),
+  ) as ProfessionalRuntimeLock;
+  const professionalRuntimeRegistry = await assembleProfessionalRuntimeRegistry({
+    lock: professionalRuntimeLock,
+    factories: deps.professionalRuntimeFactories,
+  });
+  const professionalArtifacts = createProfessionalArtifactPort({ artifactPath: deps.artifactPath });
+  let professionalGrantService: ReturnType<typeof createExecutionGrantService> | undefined;
+  try {
+    professionalGrantService = createExecutionGrantService({
+      keyProvider: createHmacGrantKeyProvider({ secret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET") }),
+    });
+  } catch (error) {
+    // 无有效 grant 签名密钥时 professional.execute 不注入（LLM 面关闭），不阻塞普通任务。
+    professionalGrantService = undefined;
+  }
 
   // 日志（日志体系 T2/T3）：IPC 转发主进程统一打标；stdio 兜底
   const logger = createKernelLogger({
@@ -979,6 +1002,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       // N14 P2：tool-reg 注册面——任务开始冻结快照 + agent 态执行缝（穿透 runChild 同一闭包）
       toolRegStore: dataWorld.memory,
       toolRegRunChild: runChildImpl,
+      // Task 4：同一 registry + artifact 端口供给所有 specialist Worker Replica。
+      professionalRuntimeRegistry,
+      professionalArtifacts,
+      professionalGrantService,
       // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
       llm,
       // agent 循环的 capability 白名单（与 vm 注入同一份）
