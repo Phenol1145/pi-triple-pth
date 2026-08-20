@@ -115,6 +115,7 @@ export const PROFESSIONAL_RUNTIME_ROLE_ALLOWLIST: Readonly<Record<ProfessionalRu
   wolfram: Object.freeze(["symbolic-mathematician"]),
   psi4: Object.freeze(["computational-chemist"]),
   "quantum-espresso": Object.freeze(["computational-chemist"]),
+  cp2k: Object.freeze(["computational-chemist"]),
   jupyter: Object.freeze(["technical-educator"]),
 });
 

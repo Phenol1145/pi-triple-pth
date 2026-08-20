@@ -1,0 +1,10 @@
+{
+  "id": "computational-chemistry",
+  "name": "computational-chemistry",
+  "version": "0.1.0",
+  "description": "计算化学运行时：Psi4 单点/几何优化 + Quantum ESPRESSO 周期 SCF；输入文件由服务端固定模板生成，绝不接受原始命令或宿主路径；资源/收敛/版本全部结构化",
+  "contracts": {
+    "tools": ["probe", "runPsi4", "runQuantumEspresso"]
+  },
+  "compat": { "pluginApi": "0.7.0" }
+}

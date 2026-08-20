@@ -25,6 +25,7 @@ export const PROFESSIONAL_RUNTIME_IDS = [
   "wolfram",
   "psi4",
   "quantum-espresso",
+  "cp2k",
   "jupyter",
 ] as const;
 export type ProfessionalRuntimeId = (typeof PROFESSIONAL_RUNTIME_IDS)[number];
@@ -97,6 +98,29 @@ export function isLean4JobSpecStructurallyValid(v: unknown): v is Lean4JobSpec {
   if (!isArtifactRefStructurallyValid(v.projectRef)) return false;
   if (v.module !== undefined && !NON_EMPTY_STRING(v.module)) return false;
   if (v.declaration !== undefined && !NON_EMPTY_STRING(v.declaration)) return false;
+  return true;
+}
+
+// ── cp2k ──
+
+export const CP2K_OPERATIONS = ["single-point", "optimize"] as const;
+export type Cp2kOperation = (typeof CP2K_OPERATIONS)[number];
+
+export interface Cp2kJobSpec {
+  readonly operation: Cp2kOperation;
+  /** XYZ 结构 artifact（原子坐标）。 */
+  readonly structureRef: ArtifactRef;
+  readonly xcFunctional?: string;
+  readonly cutoffRy?: number;
+}
+
+export function isCp2kJobSpecStructurallyValid(v: unknown): v is Cp2kJobSpec {
+  if (!isObject(v) || hasForbiddenKeys(v)) return false;
+  if (!hasOnlyKeys(v, ["operation", "structureRef", "xcFunctional", "cutoffRy"])) return false;
+  if (!NON_EMPTY_STRING(v.operation) || !(CP2K_OPERATIONS as readonly string[]).includes(v.operation)) return false;
+  if (!isArtifactRefStructurallyValid(v.structureRef)) return false;
+  if (v.xcFunctional !== undefined && !NON_EMPTY_STRING(v.xcFunctional)) return false;
+  if (v.cutoffRy !== undefined && !(isFiniteNumber(v.cutoffRy) && v.cutoffRy > 0)) return false;
   return true;
 }
 
@@ -242,6 +266,7 @@ export type ProfessionalJobSpec =
   | WolframJobSpec
   | Psi4JobSpec
   | QuantumEspressoJobSpec
+  | Cp2kJobSpec
   | JupyterJobSpec;
 
 export interface ProfessionalJobRequest<S extends ProfessionalJobSpec = ProfessionalJobSpec> {
@@ -320,6 +345,7 @@ function isSpecStructurallyValidForRuntime(runtimeId: ProfessionalRuntimeId, spe
     case "wolfram": return isWolframJobSpecStructurallyValid(spec);
     case "psi4": return isPsi4JobSpecStructurallyValid(spec);
     case "quantum-espresso": return isQuantumEspressoJobSpecStructurallyValid(spec);
+    case "cp2k": return isCp2kJobSpecStructurallyValid(spec);
     case "jupyter": return isJupyterJobSpecStructurallyValid(spec);
   }
 }

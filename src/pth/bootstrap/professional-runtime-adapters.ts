@@ -18,6 +18,11 @@ import { createAssemblyRuntimeAdapter } from "../execution/adapters/assembly-run
 import { createLean4RuntimeAdapter } from "../execution/adapters/lean4-runtime-adapter.js";
 import { createWolframRuntimeAdapter } from "../execution/adapters/wolfram-runtime-adapter.js";
 import {
+  createPsi4RuntimeAdapter,
+  createQuantumEspressoRuntimeAdapter,
+  createCp2kRuntimeAdapter,
+} from "../execution/adapters/computational-chemistry-adapter.js";
+import {
   createProfessionalRuntimeRegistry,
   type ProfessionalRuntimeAdapter,
   type ProfessionalRuntimeRegistry,
@@ -55,6 +60,10 @@ export interface AssembleProfessionalRuntimeRegistryInput {
   readonly wolframKernelPath?: string;
   readonly wolframLicenseProvider?: string;
   readonly wolframExecPrefix?: readonly string[];
+  /** v1.3 Task 8：计算化学引擎（生产在 pi 容器内直跑；测试注入 execPrefix）。 */
+  readonly chemWorkDir?: string;
+  readonly chemExecPrefix?: readonly string[];
+  readonly psi4Command?: string;
 }
 
 /** 生产组装点：只注册 probe 成功且满足 committed lock 的 adapter。 */
@@ -105,6 +114,44 @@ export async function assembleProfessionalRuntimeRegistry(
           ...(input.wolframKernelPath !== undefined ? { kernelPath: input.wolframKernelPath } : {}),
           ...(input.wolframLicenseProvider !== undefined ? { licenseProvider: input.wolframLicenseProvider } : {}),
           ...(input.wolframExecPrefix !== undefined ? { execPrefix: input.wolframExecPrefix } : {}),
+        });
+    }
+  }
+  if (input.artifactPath !== undefined) {
+    const artifactPath = input.artifactPath;
+    const chemPort = createProfessionalArtifactPort({ artifactPath });
+    const chemCommon = {
+      ...(input.chemWorkDir !== undefined ? { workDir: input.chemWorkDir } : {}),
+      ...(input.chemExecPrefix !== undefined ? { execPrefix: input.chemExecPrefix } : {}),
+    };
+    if (!factories.psi4 && input.lock.runtimes.psi4) {
+      const entry = input.lock.runtimes.psi4;
+      factories.psi4 = () =>
+        createPsi4RuntimeAdapter({
+          artifactPort: chemPort,
+          lockVersion: entry.version,
+          engineCommand: input.psi4Command ?? "psi4",
+          ...chemCommon,
+        });
+    }
+    if (!factories.cp2k && input.lock.runtimes.cp2k) {
+      const entry = input.lock.runtimes.cp2k;
+      factories.cp2k = () =>
+        createCp2kRuntimeAdapter({
+          artifactPort: chemPort,
+          lockVersion: entry.version,
+          engineCommand: "cp2k",
+          ...chemCommon,
+        });
+    }
+    if (!factories["quantum-espresso"] && input.lock.runtimes["quantum-espresso"]) {
+      const entry = input.lock.runtimes["quantum-espresso"];
+      factories["quantum-espresso"] = () =>
+        createQuantumEspressoRuntimeAdapter({
+          artifactPort: chemPort,
+          lockVersion: entry.version,
+          engineCommand: "pw.x",
+          ...chemCommon,
         });
     }
   }

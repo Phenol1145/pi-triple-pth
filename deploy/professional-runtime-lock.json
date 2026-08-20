@@ -53,14 +53,14 @@
       }
     },
     "quantum-espresso": {
-      "version": "7.4.1",
+      "version": "6.7",
       "releaseChannel": "stable",
       "probe": {
         "tool": "pw.x",
         "args": [
           "--version"
         ],
-        "extract": "([0-9]+\\.[0-9]+\\.[0-9]+)"
+        "extract": "Program PWSCF v\\.?([0-9]+\\.[0-9]+)"
       }
     },
     "jupyter": {
@@ -72,6 +72,17 @@
           "--version"
         ],
         "extract": "([0-9]+\\.[0-9]+\\.[0-9]+)"
+      }
+    },
+    "cp2k": {
+      "version": "2023.1",
+      "releaseChannel": "stable",
+      "probe": {
+        "tool": "cp2k",
+        "args": [
+          "--version"
+        ],
+        "extract": "CP2K version ([0-9]+\\.[0-9]+)"
       }
     }
   }
