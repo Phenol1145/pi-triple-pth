@@ -144,9 +144,9 @@ export function createPthClient({
     if (pollStarted) return;
     stopped = false;
     pollStarted = true;
-    pollInFlight = void pollOnce();
+    pollInFlight = pollOnce().catch(() => undefined);
     pollTimer = setInterval(() => {
-      if (!stopped) pollInFlight = void pollOnce();
+      if (!stopped) pollInFlight = pollOnce().catch(() => undefined);
     }, reconcileMs);
     pollTimer.unref?.();
   }
