@@ -16,6 +16,7 @@ import { relative, resolve, sep } from "node:path";
 import type { ArtifactRef, ProfessionalJobSpec, ProfessionalRuntimeId, ProfessionalRuntimeLock } from "../contracts/index.js";
 import { createAssemblyRuntimeAdapter } from "../execution/adapters/assembly-runtime-adapter.js";
 import { createLean4RuntimeAdapter } from "../execution/adapters/lean4-runtime-adapter.js";
+import { createWolframRuntimeAdapter } from "../execution/adapters/wolfram-runtime-adapter.js";
 import {
   createProfessionalRuntimeRegistry,
   type ProfessionalRuntimeAdapter,
@@ -47,6 +48,13 @@ export interface AssembleProfessionalRuntimeRegistryInput {
   readonly lean4WorkDir?: string;
   readonly lean4SharedPackagesDir?: string;
   readonly lean4ExecPrefix?: readonly string[];
+  /**
+   * v1.3 Task 7 接线：wolfram adapter 只读服务端 kernel/license 配置；
+   * 未提供 kernelPath 时工厂照常存在（probe 返回 license-unavailable）。
+   */
+  readonly wolframKernelPath?: string;
+  readonly wolframLicenseProvider?: string;
+  readonly wolframExecPrefix?: readonly string[];
 }
 
 /** 生产组装点：只注册 probe 成功且满足 committed lock 的 adapter。 */
@@ -83,6 +91,20 @@ export async function assembleProfessionalRuntimeRegistry(
           ...(input.lean4WorkDir !== undefined ? { workDir: input.lean4WorkDir } : {}),
           ...(input.lean4SharedPackagesDir !== undefined ? { sharedPackagesDir: input.lean4SharedPackagesDir } : {}),
           ...(input.lean4ExecPrefix !== undefined ? { execPrefix: input.lean4ExecPrefix } : {}),
+        });
+    }
+  }
+  if (!factories.wolfram && input.artifactPath !== undefined) {
+    const artifactPath = input.artifactPath;
+    const entry = input.lock.runtimes.wolfram;
+    if (entry) {
+      factories.wolfram = () =>
+        createWolframRuntimeAdapter({
+          artifactPort: createProfessionalArtifactPort({ artifactPath }),
+          lockVersion: entry.version,
+          ...(input.wolframKernelPath !== undefined ? { kernelPath: input.wolframKernelPath } : {}),
+          ...(input.wolframLicenseProvider !== undefined ? { licenseProvider: input.wolframLicenseProvider } : {}),
+          ...(input.wolframExecPrefix !== undefined ? { execPrefix: input.wolframExecPrefix } : {}),
         });
     }
   }

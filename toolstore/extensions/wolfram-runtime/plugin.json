@@ -1,0 +1,10 @@
+{
+  "id": "wolfram-runtime",
+  "name": "wolfram-runtime",
+  "version": "0.1.0",
+  "description": "Wolfram 符号计算运行时：固定 .wl 文件协议（表达式经 JSON 转义 + ToExpression），绝不执行 shell 转义或任意文件导入；license 数据永不进入载荷/产物/日志",
+  "contracts": {
+    "tools": ["probe", "evaluate", "verify"]
+  },
+  "compat": { "pluginApi": "0.7.0" }
+}
