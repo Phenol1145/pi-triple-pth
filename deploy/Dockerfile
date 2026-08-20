@@ -74,6 +74,8 @@ COPY --chown=node:node --from=builder /app/packages/mailbox/dist ./packages/mail
 COPY --chown=node:node --from=builder /app/packages/pth-memory/dist ./packages/pth-memory/dist
 COPY --chown=node:node --from=builder /app/packages/pth-sandbox/dist ./packages/pth-sandbox/dist
 COPY --chown=node:node --from=builder /app/packages/dev-container/dist ./packages/dev-container/dist
+# v1.3 专业运行时：batch 进程启动读取 committed lock（生产唯一版本事实）
+COPY --chown=node:node deploy/professional-runtime-lock.json ./deploy/professional-runtime-lock.json
 
 COPY --chown=node:node --from=builder /app/dist ./dist
 # 自修改（v1）：容器带源码只读面（worker readSource 读 src/ 修改 PTH 自己——dist 运行 + src 可读）
