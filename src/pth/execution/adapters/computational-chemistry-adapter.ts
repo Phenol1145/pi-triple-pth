@@ -10,6 +10,7 @@
  * 公共纪律：引擎输入文件服务端生成，绝不接受原始命令；版本 == committed lock；
  * `not-converged` 是合法结构化结果但绝不 success；资源/收敛/版本全部结构化。
  */
+import { pthConfig } from "../../config/index.js";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -138,7 +139,7 @@ function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJo
   outputHashFor: (value: V) => string,
 ): ProfessionalRuntimeAdapter<S, V> {
   const clock = deps.clock ?? (() => new Date());
-  const workDir = resolve(deps.workDir ?? process.env.PTH_WORKSPACES_PATH ?? join(tmpdir(), `pth-${id}-jobs`));
+  const workDir = resolve(deps.workDir ?? pthConfig().str("PTH_WORKSPACES_PATH") ?? join(tmpdir(), `pth-${id}-jobs`));
   const runner = makeChemRunner(deps);
   const running = new Map<string, { cancelled: boolean }>();
   const sha256hex = (s: Uint8Array | string) => createHash("sha256").update(s).digest("hex");
