@@ -1,0 +1,6 @@
+{
+  "name": "pth-jupyter-asm-extension",
+  "private": true,
+  "type": "commonjs",
+  "description": "jupyter-asm 扩展（bridge.js/kernel 子进程链路）为 CommonJS——仓库根 package.json 是 type:module，此文件恢复 .js 的 CJS 语义（修复 run_tests.sh 既有破坏）。"
+}

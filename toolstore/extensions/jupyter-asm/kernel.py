@@ -25,6 +25,10 @@ PthAsmSimKernel —— RV32I (asm-sim) Jupyter kernel 适配器（v1 验证）
 部署形态：模式 A（本地 jupyter 宿主机——kernel 独立进程——不连 PTH——v1 纯探索）。
 运行时依赖（宿主机提供）：python3 + ipykernel + node（bridge.js 走子进程）。
 无 stdin/comm 需求——缺省即可（ipykernel KernelBase 已处理 busy/idle/心跳）。
+
+v1.3 Task 9 备注：可执行教程走 jupyter-guide 扩展的 python3 clean-kernel
+execute-all（toolstore/extensions/jupyter-guide/execute.py），本探索核不参与
+教程执行链路；此处仅清理重复的 language_info 死赋值。
 """
 import json
 import os
@@ -47,8 +51,7 @@ class PthAsmSimKernel(Kernel):
     """RV32I 汇编 Jupyter kernel：execute_request → node bridge.js 子进程 → 协议消息。"""
 
     implementation = "pth-asm-sim"
-    implementation_version = "0.1.0"
-    language_info = {"name": "rv32i-asm", "mimetype": "text/plain", "file_extension": ".s"}
+    implementation_version = "0.1.1"   # v1.3 Task 9：去除重复 language_info 死赋值
     language = "rv32i-asm"
     language_version = "0.1.0"
     language_info = {

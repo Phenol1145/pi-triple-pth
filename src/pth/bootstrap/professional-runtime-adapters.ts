@@ -21,6 +21,7 @@ import {
   createPsi4RuntimeAdapter,
   createQuantumEspressoRuntimeAdapter,
   createCp2kRuntimeAdapter,
+  createJupyterRuntimeAdapter,
 } from "../execution/index.js";
 import {
   createProfessionalRuntimeRegistry,
@@ -64,6 +65,10 @@ export interface AssembleProfessionalRuntimeRegistryInput {
   readonly chemWorkDir?: string;
   readonly chemExecPrefix?: readonly string[];
   readonly psi4Command?: string;
+  /** v1.3 Task 9：jupyter clean-kernel 执行（生产在 jupyter 服务容器内直跑）。 */
+  readonly jupyterWorkDir?: string;
+  readonly jupyterExecPrefix?: readonly string[];
+  readonly jupyterPathForExec?: (hostPath: string) => string;
 }
 
 /** 生产组装点：只注册 probe 成功且满足 committed lock 的 adapter。 */
@@ -152,6 +157,20 @@ export async function assembleProfessionalRuntimeRegistry(
           lockVersion: entry.version,
           engineCommand: "pw.x",
           ...chemCommon,
+        });
+    }
+  }
+  if (!factories.jupyter && input.artifactPath !== undefined) {
+    const artifactPath = input.artifactPath;
+    const entry = input.lock.runtimes.jupyter;
+    if (entry) {
+      factories.jupyter = () =>
+        createJupyterRuntimeAdapter({
+          artifactPort: createProfessionalArtifactPort({ artifactPath }),
+          lockVersion: entry.version,
+          ...(input.jupyterWorkDir !== undefined ? { workDir: input.jupyterWorkDir } : {}),
+          ...(input.jupyterExecPrefix !== undefined ? { execPrefix: input.jupyterExecPrefix } : {}),
+          ...(input.jupyterPathForExec !== undefined ? { pathForExec: input.jupyterPathForExec } : {}),
         });
     }
   }
