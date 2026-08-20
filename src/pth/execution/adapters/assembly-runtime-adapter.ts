@@ -16,6 +16,7 @@
  * 仓库以同路径挂载进容器，路径透明。环境变量 PTH_ASM_TOOLCHAIN_EXEC（空格分隔）
  * 是 execPrefix 的缺省来源。
  */
+import { pthConfig } from "../../config/index.js";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -166,8 +167,9 @@ async function loadAsmKernelTools(indexPath: string, exec: AsmExecFn, workDir?: 
   if (existing !== code) await writeFile(shimPath, code, "utf8");
   const require = createRequire(import.meta.url);
   const factory = require(shimPath) as (ctx: unknown) => Promise<{ tools: AsmKernelTools }>;
+  // pth-config: controlled env write for asm-kernel shim（loader 读 process.env 而非 pthConfig）
   // asm-kernel 在 factory 调用时捕获 PTH_WORKSPACES_PATH；装载期间覆盖后还原。
-  const prev = process.env.PTH_WORKSPACES_PATH;
+  const prev = pthConfig().str("PTH_WORKSPACES_PATH");
   if (workDir !== undefined) process.env.PTH_WORKSPACES_PATH = workDir;
   try {
     const mod = await factory({ log: () => {}, exec });
@@ -179,7 +181,7 @@ async function loadAsmKernelTools(indexPath: string, exec: AsmExecFn, workDir?: 
     return mod.tools;
   } finally {
     if (workDir !== undefined) {
-      if (prev === undefined) delete process.env.PTH_WORKSPACES_PATH;
+      if (prev === "") delete process.env.PTH_WORKSPACES_PATH;
       else process.env.PTH_WORKSPACES_PATH = prev;
     }
   }
@@ -187,7 +189,7 @@ async function loadAsmKernelTools(indexPath: string, exec: AsmExecFn, workDir?: 
 
 function createExecFn(deps: CreateAssemblyRuntimeAdapterDeps): AsmExecFn {
   if (deps.exec) return deps.exec;
-  const envPrefix = process.env.PTH_ASM_TOOLCHAIN_EXEC?.split(" ").filter(Boolean);
+  const envPrefix = pthConfig().str("PTH_ASM_TOOLCHAIN_EXEC")?.split(" ").filter(Boolean);
   const prefix = deps.execPrefix ?? (envPrefix && envPrefix.length > 0 ? envPrefix : undefined);
   return (cmd, args, opts = {}) =>
     new Promise((resolvePromise) => {

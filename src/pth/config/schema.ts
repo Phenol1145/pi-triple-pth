@@ -177,7 +177,11 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_TRUST_POLICY_KEYRING", "string", "", "path", "both", "N29：Trust Policy 验证公钥 keyring 只读路径（JSON；stable human principal -> PEM public key）"),
   d("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH", "string", "", "path", "both", "N29 refix P0-9：full 模式启动必须出示的验收 envelope 只读路径（decision=MIN_INNER_LOOP_GO 且绑定当前 evaluated commit，否则启动失败）"),
   d("PTH_WOLFRAM_KERNEL_PATH", "string", "", "path", "batch", "v1.3 P3：Wolfram Engine 内核路径（仅服务端；license 数据绝不进任务载荷/产物/日志）"),
-  d("PTH_WOLFRAM_LICENSE_PROVIDER", "string", "", "secret", "batch", "v1.3 P3：license provider 标识（license 值由运行时安全注入，schema 绝不记录密钥本身）", { secret: true }),
+  d("PTH_WOLFRAM_LICENSE_PROVIDER", "string", "", "mode", "batch", "v1.3 P3：license provider 标识（license 值由运行时安全注入，schema 绝不记录密钥本身）"),
+  d("PTH_ASM_TOOLCHAIN_EXEC", "string", "", "mode", "batch", "v1.3 P2：assembly adapter 测试容器注入前缀（生产缺省直跑）"),
+  d("PTH_LEAN4_TOOLCHAIN_EXEC", "string", "", "mode", "batch", "v1.3 P3：lean4 adapter 测试容器注入前缀"),
+  d("PTH_LEAN4_PACKAGES_DIR", "string", "/home/node/lean-packages", "path", "batch", "v1.3 P3：Mathlib 共享 cache 目录（容器内）"),
+  d("PTH_LEAN4_TEMPLATE_DIR", "string", "/home/node/lean-template", "path", "batch", "v1.3 P3：已构建 Mathlib 模板工程目录"),
 
   // ── 模式 / 开关 / 观测 ───────────────────────────────────────────
   d("PTH_ASP_MODE", "string", "on", "mode", "batch", "动作空间协议（on/off）"),

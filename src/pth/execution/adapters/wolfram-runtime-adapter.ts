@@ -12,6 +12,7 @@
  * 无 licensed kernel：probe.available=false 且 reason=license-unavailable——测试如实
  * 记录 EVALUATION-INCOMPLETE，绝不 skip、绝不用 SymPy 冒充。
  */
+import { pthConfig } from "../../config/index.js";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -74,9 +75,9 @@ const VERSION_RE = /WolframScript\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)/;
 
 export function createWolframRuntimeAdapter(deps: CreateWolframRuntimeAdapterDeps): ProfessionalRuntimeAdapter<WolframJobSpec, WolframJobValue> {
   const clock = deps.clock ?? (() => new Date());
-  const workDir = resolve(deps.workDir ?? process.env.PTH_WORKSPACES_PATH ?? join(tmpdir(), "pth-wolfram-jobs"));
-  const kernelPath = deps.kernelPath ?? process.env.PTH_WOLFRAM_KERNEL_PATH ?? "";
-  const licenseProvider = deps.licenseProvider ?? process.env.PTH_WOLFRAM_LICENSE_PROVIDER ?? "";
+  const workDir = resolve(deps.workDir ?? pthConfig().str("PTH_WORKSPACES_PATH") ?? join(tmpdir(), "pth-wolfram-jobs"));
+  const kernelPath = deps.kernelPath ?? pthConfig().str("PTH_WOLFRAM_KERNEL_PATH") ?? "";
+  const licenseProvider = deps.licenseProvider ?? pthConfig().str("PTH_WOLFRAM_LICENSE_PROVIDER") ?? "";
   const timeoutMs = Math.min(Math.max(deps.timeoutMs ?? DEFAULT_TIMEOUT_MS, 100), 600_000);
   const maxOutputBytes = deps.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const running = new Map<string, { cancelled: boolean }>();

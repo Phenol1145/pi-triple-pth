@@ -17,6 +17,7 @@
  * Mathlib cache 经 sharedPackagesDir（容器内共享 .lake/packages 目录）复用，
  * 首次运行从 templateDir 拷贝。
  */
+import { pthConfig } from "../../config/index.js";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -99,9 +100,9 @@ export interface CreateLean4RuntimeAdapterDeps {
 
 export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): ProfessionalRuntimeAdapter<Lean4JobSpec, Lean4JobValue> {
   const clock = deps.clock ?? (() => new Date());
-  const workDir = resolve(deps.workDir ?? process.env.PTH_WORKSPACES_PATH ?? join(tmpdir(), "pth-lean4-jobs"));
-  const sharedPackagesDir = deps.sharedPackagesDir ?? process.env.PTH_LEAN4_PACKAGES_DIR ?? DEFAULT_SHARED_PACKAGES_DIR;
-  const templateDir = deps.templateDir ?? process.env.PTH_LEAN4_TEMPLATE_DIR ?? DEFAULT_TEMPLATE_DIR;
+  const workDir = resolve(deps.workDir ?? pthConfig().str("PTH_WORKSPACES_PATH") ?? join(tmpdir(), "pth-lean4-jobs"));
+  const sharedPackagesDir = deps.sharedPackagesDir ?? pthConfig().str("PTH_LEAN4_PACKAGES_DIR") ?? DEFAULT_SHARED_PACKAGES_DIR;
+  const templateDir = deps.templateDir ?? pthConfig().str("PTH_LEAN4_TEMPLATE_DIR") ?? DEFAULT_TEMPLATE_DIR;
   const buildTimeoutMs = Math.min(Math.max(deps.buildTimeoutMs ?? DEFAULT_BUILD_TIMEOUT_MS, 100), 3_600_000);
   const maxOutputBytes = deps.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const running = new Map<string, { cancelled: boolean }>();
@@ -109,7 +110,7 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
   const sha256hex = (s: Uint8Array | string) => createHash("sha256").update(s).digest("hex");
 
   const execPrefix: readonly string[] | undefined = deps.execPrefix ?? (() => {
-    const env = process.env.PTH_LEAN4_TOOLCHAIN_EXEC;
+    const env = pthConfig().str("PTH_LEAN4_TOOLCHAIN_EXEC");
     return env && env.trim() !== "" ? env.split(" ").filter(Boolean) : undefined;
   })();
   const usesDockerExec = execPrefix?.[0] === "docker" && execPrefix?.[1] === "exec";
