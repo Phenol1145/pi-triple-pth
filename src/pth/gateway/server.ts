@@ -12,7 +12,9 @@ import { registerSessionRoutes } from "./routes-sessions.js";
 import { registerSelfRoutes } from "./routes-self.js";
 import { registerProgramRoutes } from "./routes-programs.js";
 import { registerFallbackRoutes } from "./routes-fallback.js";
-import { registerObserveRoutes, registerRuntimeObservationRoutes } from "./routes-observe.js";
+import { registerObserveRoutes, registerRuntimeObservationRoutes, registerSystemInspectionRoutes } from "./routes-observe.js";
+import { SystemInspectionFacade } from "../application/observation/system-inspection-facade.js";
+import { config } from "../config/index.js";
 import { registerEventsRoutes } from "./routes-events.js";
 import { registerDebugRoutes, type DebugGatewayFactory } from "./routes-debug.js";
 import { registerKernelRoutes } from "./routes-kernel.js";
@@ -78,16 +80,22 @@ export async function createServer(deps: {
   }
   if (deps.kernelRuntime) {
     const facade = createPthGatewayFacade(deps.kernelRuntime);
+    const systemInspection = new SystemInspectionFacade(deps.kernelRuntime.pool, {
+      batchManager: deps.kernelRuntime.batchManager,
+      configCenter: config(),
+    });
     registerKernelRoutes(app, facade, deps.autopilot, deps.knowledgeBroker);
     registerLineageRoutes(app, facade);
     registerTriggerRoutes(app, facade);
     registerJobRoutes(app, facade);
     registerRuntimeObservationRoutes(app, facade);
+    registerSystemInspectionRoutes(app, systemInspection);
   } else {
     registerKernelRoutes(app, null, deps.autopilot, deps.knowledgeBroker);
     registerLineageRoutes(app, null);
     registerTriggerRoutes(app, null);
     registerRuntimeObservationRoutes(app, null);
+    registerSystemInspectionRoutes(app, null);
   }
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 

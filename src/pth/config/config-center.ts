@@ -10,6 +10,14 @@
  */
 
 import { PTH_CONFIG_SCHEMA, getConfigDef, secretConfigKeys } from "./schema.js";
+import { CONFIG_INSPECTION_MASK, type ConfigSource } from "../contracts/system-inspection.js";
+
+export interface ConfigExplanation {
+  /** default=构造期 env 缺失；env=构造期 env 命中；runtime=构造后 set；file/unknown 仅由可证明适配器显式提供 */
+  source: ConfigSource;
+  /** secret 键恒为 `***`；非 secret 键为当前有效值。 */
+  value: string;
+}
 
 export interface ConfigCenter {
   /** 读参数（配置中心有效值优先，回退 env） */
@@ -20,6 +28,8 @@ export interface ConfigCenter {
   snapshot(includeSecrets?: boolean): Record<string, string>;
   /** 变更订阅（返回取消函数） */
   on(key: string, cb: (value: string | undefined) => void): () => void;
+  /** N33 Task 3：解释键的来源与当前值（secret 恒打码；不保留历史；绝不从等值推断 source） */
+  explain(key: string): ConfigExplanation;
 }
 
 const MASK = "***";
@@ -32,14 +42,18 @@ function effectiveValue(env: NodeJS.ProcessEnv, key: string, def: string | numbe
 
 class Center implements ConfigCenter {
   private values = new Map<string, string>();
+  private sources = new Map<string, ConfigSource>();
   private listeners = new Map<string, Set<(v: string | undefined) => void>>();
   private env: NodeJS.ProcessEnv;
 
   constructor(env: NodeJS.ProcessEnv = process.env) {
     this.env = env;
-    // 启动合并：全部 schema 键（env 优先，schema 默认值兜底）——单一真相源
+    // 启动合并：全部 schema 键（env 优先，schema 默认值兜底）——单一真相源。
+    // source 只由「构造期 env 是否命中」决定，绝不与 default 值比较。
     for (const def of PTH_CONFIG_SCHEMA) {
+      const hasEnv = env[def.key] !== undefined;
       this.values.set(def.key, effectiveValue(env, def.key, def.default));
+      this.sources.set(def.key, hasEnv ? "env" : "default");
     }
   }
 
@@ -49,7 +63,18 @@ class Center implements ConfigCenter {
 
   set(key: string, value: string): void {
     this.values.set(key, value);
+    this.sources.set(key, "runtime");
     this.listeners.get(key)?.forEach((cb) => cb(value));
+  }
+
+  explain(key: string): ConfigExplanation {
+    const def = getConfigDef(key);
+    const source = this.sources.get(key)
+      ?? (this.env[key] !== undefined ? "env" : def ? "default" : "unknown");
+    const value = def?.secret === true
+      ? CONFIG_INSPECTION_MASK
+      : (this.values.get(key) ?? this.env[key] ?? "");
+    return { source, value };
   }
 
   snapshot(includeSecrets = false): Record<string, string> {

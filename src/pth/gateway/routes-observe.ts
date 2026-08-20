@@ -22,6 +22,15 @@ import type { SessionStore } from "../kernel/storage/session/interfaces.js";
 import type { AgentEngine } from "../core/agent-engine.js";
 import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 import {
+  SystemInspectionError,
+  SystemInspectionFacade,
+  SYSTEM_INSPECTION_MAX_REVISIONS,
+} from "../application/observation/system-inspection-facade.js";
+import {
+  SYSTEM_INSPECTION_DEFAULT_LIMIT,
+  SYSTEM_INSPECTION_MAX_LIMIT,
+} from "../contracts/system-inspection.js";
+import {
   RUNTIME_TIMELINE_MAX_LIMIT,
   RUNTIME_TIMELINE_MAX_RANGE_MS,
   type RuntimeTimelineQuery,
@@ -246,6 +255,180 @@ export function registerRuntimeObservationRoutes(app: FastifyInstance, facade: P
     } catch (err) {
       const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
       return reply.status(statusCode).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+}
+
+// ─── N33 Task 3：Bounded PTH Inspection Projections 只读路由 ─────────────────
+// GET /api/v1/observe/workers
+// GET /api/v1/observe/memory/entries?type=&kind=&anchor=&statuses=&limit=&cursor=
+// GET /api/v1/observe/memory/entries/:id
+// GET /api/v1/observe/memory/entries/:id/revisions   （固定最近 10 条，倒序）
+// GET /api/v1/observe/memory/summary
+// GET /api/v1/observe/config
+// GET /api/v1/observe/roles
+// tenant/space 只来自 req.auth；query/body 自报 tenant/space 一律 400。
+
+const SYSTEM_INSPECTION_MEMORY_STATUSES = ["official", "draft", "archived", "stale"] as const;
+
+function rejectTenantSpaceOverride(query: Record<string, unknown>): boolean {
+  return query.tenant !== undefined || query.space !== undefined;
+}
+
+function parseSystemInspectionLimit(raw: unknown): number {
+  if (raw === undefined) return SYSTEM_INSPECTION_DEFAULT_LIMIT;
+  const n = typeof raw === "string" ? Number(raw) : raw;
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > SYSTEM_INSPECTION_MAX_LIMIT) {
+    throw new SystemInspectionError(`limit must be an integer 1-${SYSTEM_INSPECTION_MAX_LIMIT}`);
+  }
+  return n;
+}
+
+function parseMemoryStatusesParam(raw: unknown): string[] | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string" || raw.trim() === "") return undefined;
+  const items = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  for (const item of items) {
+    if (!(SYSTEM_INSPECTION_MEMORY_STATUSES as readonly string[]).includes(item)) {
+      throw new SystemInspectionError(`unknown memory status: ${item}`);
+    }
+  }
+  return items;
+}
+
+function handleSystemInspectionError(reply: { status: (code: number) => { send: (body: unknown) => unknown } }, err: unknown) {
+  const statusCode = (err as { statusCode?: number }).statusCode ?? 500;
+  return reply.status(statusCode).send({ error: err instanceof Error ? err.message : String(err) });
+}
+
+export function registerSystemInspectionRoutes(
+  app: FastifyInstance,
+  facade: SystemInspectionFacade | null,
+): void {
+  const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>
+    reply.status(503).send({ error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" });
+
+  app.get("/api/v1/observe/workers", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    if (rejectTenantSpaceOverride(query)) {
+      return reply.status(400).send({ error: "tenant/space must come from auth" });
+    }
+    try {
+      const auth = req.auth;
+      return await facade.queryWorkers({ tenantId: auth.tenantId, ...(auth.space ? { space: auth.space } : {}) });
+    } catch (err) {
+      return handleSystemInspectionError(reply, err);
+    }
+  });
+
+  app.get("/api/v1/observe/memory/entries", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    if (rejectTenantSpaceOverride(query)) {
+      return reply.status(400).send({ error: "tenant/space must come from auth" });
+    }
+    try {
+      const auth = req.auth;
+      const page = await facade.queryMemory(
+        { tenantId: auth.tenantId, ...(auth.space ? { space: auth.space } : {}) },
+        {
+          limit: parseSystemInspectionLimit(query.limit),
+          ...(typeof query.type === "string" && query.type.trim() !== "" ? { type: query.type } : {}),
+          ...(typeof query.kind === "string" && query.kind.trim() !== "" ? { kind: query.kind } : {}),
+          ...(typeof query.anchor === "string" && query.anchor.trim() !== "" ? { anchor: query.anchor } : {}),
+          ...(typeof query.cursor === "string" && query.cursor.length > 0 ? { cursor: query.cursor } : {}),
+          ...(parseMemoryStatusesParam(query.statuses) ? { statuses: parseMemoryStatusesParam(query.statuses) } : {}),
+        },
+      );
+      return page;
+    } catch (err) {
+      return handleSystemInspectionError(reply, err);
+    }
+  });
+
+  app.get("/api/v1/observe/memory/entries/:id", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    if (rejectTenantSpaceOverride(query)) {
+      return reply.status(400).send({ error: "tenant/space must come from auth" });
+    }
+    try {
+      const auth = req.auth;
+      const id = (req.params as Record<string, string>).id;
+      const entry = await facade.queryMemoryEntry({ tenantId: auth.tenantId, ...(auth.space ? { space: auth.space } : {}) }, id);
+      if (!entry) return reply.status(404).send({ error: "Memory entry not found" });
+      return entry;
+    } catch (err) {
+      return handleSystemInspectionError(reply, err);
+    }
+  });
+
+  app.get("/api/v1/observe/memory/entries/:id/revisions", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    if (rejectTenantSpaceOverride(query)) {
+      return reply.status(400).send({ error: "tenant/space must come from auth" });
+    }
+    try {
+      const auth = req.auth;
+      const id = (req.params as Record<string, string>).id;
+      const revisions = await facade.queryMemoryRevisions(
+        { tenantId: auth.tenantId, ...(auth.space ? { space: auth.space } : {}) },
+        id,
+        SYSTEM_INSPECTION_MAX_REVISIONS,
+      );
+      return { entryId: id, revisions };
+    } catch (err) {
+      return handleSystemInspectionError(reply, err);
+    }
+  });
+
+  app.get("/api/v1/observe/memory/summary", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    if (rejectTenantSpaceOverride(query)) {
+      return reply.status(400).send({ error: "tenant/space must come from auth" });
+    }
+    try {
+      const auth = req.auth;
+      return await facade.queryMemorySummary(
+        { tenantId: auth.tenantId, ...(auth.space ? { space: auth.space } : {}) },
+        {
+          ...(typeof query.type === "string" && query.type.trim() !== "" ? { type: query.type } : {}),
+          ...(typeof query.kind === "string" && query.kind.trim() !== "" ? { kind: query.kind } : {}),
+          ...(typeof query.anchor === "string" && query.anchor.trim() !== "" ? { anchor: query.anchor } : {}),
+          ...(parseMemoryStatusesParam(query.statuses) ? { statuses: parseMemoryStatusesParam(query.statuses) } : {}),
+        },
+      );
+    } catch (err) {
+      return handleSystemInspectionError(reply, err);
+    }
+  });
+
+  app.get("/api/v1/observe/config", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    if (rejectTenantSpaceOverride(query)) {
+      return reply.status(400).send({ error: "tenant/space must come from auth" });
+    }
+    try {
+      return await facade.queryConfig();
+    } catch (err) {
+      return handleSystemInspectionError(reply, err);
+    }
+  });
+
+  app.get("/api/v1/observe/roles", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    if (rejectTenantSpaceOverride(query)) {
+      return reply.status(400).send({ error: "tenant/space must come from auth" });
+    }
+    try {
+      return facade.queryRoles();
+    } catch (err) {
+      return handleSystemInspectionError(reply, err);
     }
   });
 }

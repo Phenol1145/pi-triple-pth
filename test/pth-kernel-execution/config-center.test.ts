@@ -65,3 +65,40 @@ describe("配置中心（ConfigCenter）", () => {
     expect(configNumber("PTH_NONE", 10)).toBe(10);
   });
 });
+
+describe("ConfigCenter.explain（N33 Task 3）", () => {
+  beforeEach(() => {
+    delete process.env.PTH_TEST_PARAM;
+    delete process.env.LOG_LEVEL;
+    resetConfig({ PTH_AGENT_MODEL: "env-model", LOG_LEVEL: "info" });
+  });
+
+  it("default 与 env 初始来源：只看出席，不从等值推断", () => {
+    // LOG_LEVEL env=info 与 schema default 完全相同，仍必须报 env。
+    expect(config().explain("LOG_LEVEL")).toEqual({ source: "env", value: "info" });
+    // PTH_AGENT_MAX_STEPS 未注入 env → default。
+    expect(config().explain("PTH_AGENT_MAX_STEPS")).toEqual({ source: "default", value: "10" });
+  });
+
+  it("runtime set 之后 explain 跟踪为 runtime，且不保留历史", () => {
+    config().set("PTH_AGENT_MODEL", "deepseek-v4-pro");
+    expect(config().explain("PTH_AGENT_MODEL")).toEqual({ source: "runtime", value: "deepseek-v4-pro" });
+    // 再次 set 覆盖：只有最新来源，没有历史列表。
+    config().set("PTH_AGENT_MODEL", "deepseek-v4-flash");
+    expect(config().explain("PTH_AGENT_MODEL")).toEqual({ source: "runtime", value: "deepseek-v4-flash" });
+  });
+
+  it("secret 键 explain 恒为 ***，即便 runtime set 传入了明文", () => {
+    config().set("DATABASE_URL", "postgres://super-secret");
+    expect(config().explain("DATABASE_URL")).toEqual({ source: "runtime", value: "***" });
+    expect(config().explain("REDIS_PASSWORD").value).toBe("***");
+  });
+
+  it("未注册键：env 命中报 env，set 后报 runtime，否则 unknown", () => {
+    expect(config().explain("PTH_NO_SUCH_KEY")).toEqual({ source: "unknown", value: "" });
+    resetConfig({ PTH_CUSTOM_INSPECTION: "from-env" });
+    expect(config().explain("PTH_CUSTOM_INSPECTION")).toEqual({ source: "env", value: "from-env" });
+    config().set("PTH_CUSTOM_INSPECTION", "from-runtime");
+    expect(config().explain("PTH_CUSTOM_INSPECTION")).toEqual({ source: "runtime", value: "from-runtime" });
+  });
+});
