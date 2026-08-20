@@ -353,8 +353,10 @@ export function createMonitorServer({
 
   const server = createServer((req, res) => {
     const url = req.url ?? "/";
+    // embed 模式通过 query 传参（GET /?embed=1&base=/observe）；路由只看 pathname。
+    const pathname = url.split("?")[0];
 
-    if (url === "/") {
+    if (pathname === "/") {
       try {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(getHtml());
@@ -365,13 +367,13 @@ export function createMonitorServer({
       return;
     }
 
-    if (url === "/snapshot") {
+    if (pathname === "/snapshot") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       res.end(JSON.stringify(buildSnapshot()));
       return;
     }
 
-    if (url === "/events") {
+    if (pathname === "/events") {
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -411,7 +413,7 @@ export function createMonitorServer({
       return;
     }
 
-    if (url === "/health") {
+    if (pathname === "/health") {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
       res.end(JSON.stringify({ sources: buildSourceStates() }));
       return;
