@@ -3,11 +3,13 @@
   "generatedAt": "2026-08-19T00:00:00.000Z",
   "runtimes": {
     "assembly": {
-      "version": "2.42",
+      "version": "2.40",
       "releaseChannel": "stable",
       "probe": {
-        "tool": "as",
-        "args": ["--version"],
+        "tool": "x86_64-linux-gnu-as",
+        "args": [
+          "--version"
+        ],
         "extract": "GNU assembler \\([^)]*\\) ([0-9]+\\.[0-9]+(\\.[0-9]+)?)"
       }
     },
@@ -16,7 +18,9 @@
       "releaseChannel": "stable",
       "probe": {
         "tool": "lean",
-        "args": ["--version"],
+        "args": [
+          "--version"
+        ],
         "extract": "Lean \\(version ([0-9]+\\.[0-9]+\\.[0-9]+)"
       }
     },
@@ -25,7 +29,9 @@
       "releaseChannel": "stable",
       "probe": {
         "tool": "wolframscript",
-        "args": ["-version"],
+        "args": [
+          "-version"
+        ],
         "extract": "WolframScript ([0-9]+\\.[0-9]+\\.[0-9]+)"
       }
     },
@@ -34,7 +40,9 @@
       "releaseChannel": "stable",
       "probe": {
         "tool": "psi4",
-        "args": ["--version"],
+        "args": [
+          "--version"
+        ],
         "extract": "([0-9]+\\.[0-9]+\\.[0-9]+)"
       }
     },
@@ -43,7 +51,9 @@
       "releaseChannel": "stable",
       "probe": {
         "tool": "pw.x",
-        "args": ["--version"],
+        "args": [
+          "--version"
+        ],
         "extract": "([0-9]+\\.[0-9]+\\.[0-9]+)"
       }
     },
@@ -52,7 +62,9 @@
       "releaseChannel": "stable",
       "probe": {
         "tool": "jupyter-notebook",
-        "args": ["--version"],
+        "args": [
+          "--version"
+        ],
         "extract": "([0-9]+\\.[0-9]+\\.[0-9]+)"
       }
     }

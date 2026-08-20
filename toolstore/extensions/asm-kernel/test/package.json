@@ -1,0 +1,5 @@
+{
+  "type": "commonjs",
+  "private": true,
+  "description": "asm-kernel 测试脚本是 CommonJS（require/module.exports）；仓库根 package.json 为 type:module，此文件恢复 node toolstore/extensions/asm-kernel/test/*.js 直接可运行。"
+}

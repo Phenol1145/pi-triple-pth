@@ -13,7 +13,7 @@
 // kernels：asm（生产核——as/ld/qemu 系统工具链）、asm-sim（探索核——RV32I 纯 JS 模拟器）
 //
 // 说明：入口单文件自包含（eval 通道无 require/相对 import）——RV32I 模拟器段由构建脚本
-//   （test/build-index.js）从 rv32i-sim.cjs 注入（保持同源）；本文件为构建产物。
+//   （test/build-index.js）从 rv32i-sim.js 注入（保持同源）；本文件为构建产物。
 // 子进程：优先 ctx.exec（SDK 标准受控通道——超时/输出上限）；缺失时回退动态 import node:child_process。
 module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
   const log = typeof ctx?.log === "function" ? ctx.log : () => {};
@@ -27,15 +27,7 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
 
   const HOST_ARCH = process.arch === "arm64" ? "aarch64" : process.arch === "x64" ? "x86_64" : (process.arch || "unknown");
   // 工作目录：PTH_WORKSPACES_PATH（batch 注入）> cwd > tmp；缓存 workDir/.build-cache/asm/{sha}/main.{s,o}
-  // 工作目录：PTH_WORKSPACES_PATH（batch 注入）> cwd > tmp（可写性回退——2026-08-12 容器实测
-  // EACCES：非 worker 环境 cwd 不可写时回退 os.tmpdir——保证 assemble/simulate 始终可用）
-  let workBase = process.env.PTH_WORKSPACES_PATH || process.cwd();
-  try {
-    await fsp.mkdir(nodePath.join(workBase, ".asm-work"), { recursive: true });
-  } catch {
-    workBase = os.tmpdir();
-    await fsp.mkdir(nodePath.join(workBase, ".asm-work"), { recursive: true });
-  }
+  const workBase = process.env.PTH_WORKSPACES_PATH || process.cwd();
   const workDir = nodePath.join(workBase, ".asm-work");
   const cacheDir = nodePath.join(workDir, ".build-cache", "asm");
   let cacheReady = false;
@@ -81,7 +73,7 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
     return t || null;
   };
 
-  // ── RV32I 模拟器（探索核——构建时从 rv32i-sim.cjs 注入，同源）──
+  // ── RV32I 模拟器（探索核——构建时从 rv32i-sim.js 注入，同源）──
     
   // ─── 编码常量 ─────────────────────────────────────────────
   const OP_LUI     = 0x37;
@@ -309,7 +301,6 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
   
   /** 第一遍：标号定址 + 尺寸累计 */
   function firstPass(lines) {
-    /** @type {Record<string, number>} */
     const symbols = {};       // 标签 → 绝对字节地址（code 段绝对 0 基；data 段 DATA_BASE 基）
     let section = "text";
     let codeOff = 0, dataOff = 0;
@@ -858,7 +849,7 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
       return { ok: true, result: { stdout: r.stdout, stderr: r.stderr, exitCode: r.code ?? (r.ok ? 0 : 1), timedOut } };
     },
 
-    /** 反汇编（objdump -d——验证/调试辅助） */
+    /** 反汇编（objdump -d——验证/调试辅助；跨架构目标优先 <target>-linux-gnu-objdump） */
     disasm: async (args = {}) => {
       let file = null;
       if (args.objRef) file = nodePath.join(cacheDir, String(args.objRef), "main.o");
@@ -866,9 +857,15 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
       else if (args.path) file = resolveFile(args.path);
       if (!file) return { ok: false, error: "disasm: 需要 objRef / binaryRef / path" };
       if (!(await fsp.stat(file).catch(() => null))) return { ok: false, error: `disasm: 找不到 ${file}` };
-      const r = await runCmd("objdump", ["-d", file], { timeoutMs: 60000 });
+      const t = args.target != null ? tgt(args.target) : null;
+      if (args.target != null && !t) return { ok: false, error: `disasm: 不支持目标 '${args.target}'` };
+      // 宿主 objdump 只支持原生架构；跨架构二进制必须用 per-target objdump（binutils-<target>-linux-gnu）。
+      const candidates = t && t.host !== HOST_ARCH ? [`${t.host}-linux-gnu-objdump`, "objdump"] : ["objdump"];
+      const objdump = await findBin(candidates);
+      if (!objdump) return { ok: false, error: `disasm: objdump 未安装（尝试 ${candidates.join(" / ")}）` };
+      const r = await runCmd(objdump, ["-d", file], { timeoutMs: 60000 });
       if (!r.ok) return { ok: false, error: `disasm: objdump 失败\n${(r.stderr || r.error || "").slice(0, 1000)}` };
-      return { ok: true, result: { text: r.stdout, target: args.target ?? null } };
+      return { ok: true, result: { text: r.stdout, target: args.target ?? null, objdump } };
     },
 
     /** 探索核：RV32I 纯 JS 解释执行（不碰系统工具链） */

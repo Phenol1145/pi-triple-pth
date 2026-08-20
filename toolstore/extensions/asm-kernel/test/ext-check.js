@@ -91,6 +91,33 @@ const ok = (name, cond, detail) => { if (cond) { pass++; console.log(`PASS  ${na
   const d = await mod.tools.disasm({ binaryRef: b.result?.binaryRef });
   ok("disasm（objdump -d）", d.ok === true && /_start|<.*>:/i.test(d.result?.text ?? ""), JSON.stringify(d).slice(0, 120));
 
+  // ── 4. 交叉目标冒烟（x86_64：交叉 as/ld -static + qemu-x86_64 + per-target objdump）──
+  // 工具缺失 = FAIL（与 v1.3 Task 5 纪律一致：不 skip）；需要
+  // binutils-x86-64-linux-gnu + qemu-user（见 README §5 / deploy/Dockerfile）。
+  const helloX86 = `
+    .global _start
+    .text
+_start:
+    mov $1, %rax
+    mov $1, %rdi
+    lea msg(%rip), %rsi
+    mov $11, %rdx
+    syscall
+    mov $60, %rax
+    xor %rdi, %rdi
+    syscall
+    .data
+msg: .ascii "hello asm!\\n"
+  `;
+  const xb = await mod.tools.build({ source: helloX86, target: "x86_64" });
+  ok("build（x86_64 交叉 as+ld -static）", xb.ok === true && !!xb.result.binaryRef, JSON.stringify(xb).slice(0, 200));
+  const xr = await mod.tools.run({ binaryRef: xb.result?.binaryRef, target: "x86_64" });
+  ok("run（qemu-x86_64 包装）", xr.ok === true && xr.result.stdout === "hello asm!\n" && xr.result.exitCode === 0,
+    JSON.stringify(xr).slice(0, 300));
+  const xd = await mod.tools.disasm({ binaryRef: xb.result?.binaryRef, target: "x86_64" });
+  ok("disasm（x86_64-linux-gnu-objdump）", xd.ok === true && /syscall/.test(xd.result?.text ?? "") && xd.result?.objdump === "x86_64-linux-gnu-objdump",
+    JSON.stringify(xd).slice(0, 200));
+
   console.log(`\n=== ext-check 汇总: ${pass} PASS / ${fail} FAIL ===`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error("ext-check 异常:", e); process.exit(1); });

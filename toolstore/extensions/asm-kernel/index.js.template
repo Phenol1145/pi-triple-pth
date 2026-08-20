@@ -172,7 +172,7 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
       return { ok: true, result: { stdout: r.stdout, stderr: r.stderr, exitCode: r.code ?? (r.ok ? 0 : 1), timedOut } };
     },
 
-    /** 反汇编（objdump -d——验证/调试辅助） */
+    /** 反汇编（objdump -d——验证/调试辅助；跨架构目标优先 <target>-linux-gnu-objdump） */
     disasm: async (args = {}) => {
       let file = null;
       if (args.objRef) file = nodePath.join(cacheDir, String(args.objRef), "main.o");
@@ -180,9 +180,15 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
       else if (args.path) file = resolveFile(args.path);
       if (!file) return { ok: false, error: "disasm: 需要 objRef / binaryRef / path" };
       if (!(await fsp.stat(file).catch(() => null))) return { ok: false, error: `disasm: 找不到 ${file}` };
-      const r = await runCmd("objdump", ["-d", file], { timeoutMs: 60000 });
+      const t = args.target != null ? tgt(args.target) : null;
+      if (args.target != null && !t) return { ok: false, error: `disasm: 不支持目标 '${args.target}'` };
+      // 宿主 objdump 只支持原生架构；跨架构二进制必须用 per-target objdump（binutils-<target>-linux-gnu）。
+      const candidates = t && t.host !== HOST_ARCH ? [`${t.host}-linux-gnu-objdump`, "objdump"] : ["objdump"];
+      const objdump = await findBin(candidates);
+      if (!objdump) return { ok: false, error: `disasm: objdump 未安装（尝试 ${candidates.join(" / ")}）` };
+      const r = await runCmd(objdump, ["-d", file], { timeoutMs: 60000 });
       if (!r.ok) return { ok: false, error: `disasm: objdump 失败\n${(r.stderr || r.error || "").slice(0, 1000)}` };
-      return { ok: true, result: { text: r.stdout, target: args.target ?? null } };
+      return { ok: true, result: { text: r.stdout, target: args.target ?? null, objdump } };
     },
 
     /** 探索核：RV32I 纯 JS 解释执行（不碰系统工具链） */

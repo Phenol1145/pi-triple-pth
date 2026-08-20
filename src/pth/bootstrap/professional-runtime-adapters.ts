@@ -14,6 +14,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type { ArtifactRef, ProfessionalJobSpec, ProfessionalRuntimeId, ProfessionalRuntimeLock } from "../contracts/index.js";
+import { createAssemblyRuntimeAdapter } from "../execution/adapters/assembly-runtime-adapter.js";
 import {
   createProfessionalRuntimeRegistry,
   type ProfessionalRuntimeAdapter,
@@ -30,6 +31,14 @@ export interface AssembleProfessionalRuntimeRegistryInput {
   readonly lock: ProfessionalRuntimeLock;
   readonly factories?: Readonly<Partial<Record<ProfessionalRuntimeId, ProfessionalRuntimeAdapterFactory<any, any>>>>;
   readonly clock?: () => Date;
+  /**
+   * v1.3 Task 5 接线：提供 artifactPath 且 factories 未覆盖 assembly 时，
+   * 自动按 committed lock 装配真实 asm-kernel adapter（生产唯一组装路径）。
+   */
+  readonly artifactPath?: string;
+  /** 透传给 assembly adapter（测试/容器注入；生产缺省即可）。 */
+  readonly asmKernelIndexPath?: string;
+  readonly asmExecPrefix?: readonly string[];
 }
 
 /** 生产组装点：只注册 probe 成功且满足 committed lock 的 adapter。 */
@@ -37,7 +46,22 @@ export async function assembleProfessionalRuntimeRegistry(
   input: AssembleProfessionalRuntimeRegistryInput,
 ): Promise<ProfessionalRuntimeRegistry> {
   const registry = createProfessionalRuntimeRegistry({ lock: input.lock, clock: input.clock });
-  const factories = input.factories ?? {};
+  const factories: Partial<Record<ProfessionalRuntimeId, ProfessionalRuntimeAdapterFactory<any, any>>> = {
+    ...input.factories,
+  };
+  if (!factories.assembly && input.artifactPath !== undefined) {
+    const artifactPath = input.artifactPath;
+    const entry = input.lock.runtimes.assembly;
+    if (entry) {
+      factories.assembly = () =>
+        createAssemblyRuntimeAdapter({
+          artifactPort: createProfessionalArtifactPort({ artifactPath }),
+          lockVersion: entry.version,
+          ...(input.asmKernelIndexPath !== undefined ? { asmKernelIndexPath: input.asmKernelIndexPath } : {}),
+          ...(input.asmExecPrefix !== undefined ? { execPrefix: input.asmExecPrefix } : {}),
+        });
+    }
+  }
   for (const runtimeId of Object.keys(factories) as ProfessionalRuntimeId[]) {
     const factory = factories[runtimeId];
     if (!factory) continue;
