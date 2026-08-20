@@ -269,6 +269,10 @@ export interface ProfessionalDiagnostic {
   readonly code: string;
   readonly severity: "info" | "warning" | "error";
   readonly message: string;
+  /** 源码定位（Lean 编译器诊断等提供；解析失败时缺省）。 */
+  readonly file?: string;
+  readonly line?: number;
+  readonly column?: number;
 }
 
 export interface ProfessionalResourceUsage {

@@ -1,0 +1,10 @@
+{
+  "id": "lean4-runtime",
+  "name": "lean4-runtime",
+  "version": "0.1.0",
+  "description": "Lean 4 证明运行时：固定命令面（probe/check/buildProject），绝不接受任意命令；依赖清单与工具链版本由 committed lock 钉死",
+  "contracts": {
+    "tools": ["probe", "check", "buildProject"]
+  },
+  "compat": { "pluginApi": "0.7.0" }
+}
