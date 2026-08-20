@@ -1,0 +1,120 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "PTH API (console-facing subset)",
+    "version": "1.0.0",
+    "description": "The only PTH endpoints the PTL Operator Console server is allowed to call. Authorization is a server-held Bearer token; tenant/space always derive from server auth, never from request body."
+  },
+  "servers": [{ "url": "http://127.0.0.1:4000" }],
+  "paths": {
+    "/api/v1/observe/workers": {
+      "get": {
+        "operationId": "observeWorkers",
+        "responses": {
+          "200": { "description": "WorkerInspection[]", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "required": ["workerId", "role", "regionIds", "workingSet"], "properties": { "workerId": { "type": "string" }, "role": { "type": "object", "required": ["roleId", "revision"], "properties": { "roleId": { "type": "string" }, "revision": { "type": "string" } } }, "regionIds": { "type": "array", "items": { "type": "string" } }, "workingSet": { "type": "object" } } } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/v1/observe/memory/summary": {
+      "get": {
+        "operationId": "observeMemorySummary",
+        "responses": {
+          "200": { "description": "MemorySummary", "content": { "application/json": { "schema": { "type": "object", "required": ["byType", "totals"], "properties": { "byType": { "type": "object" }, "totals": { "type": "object" } } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/v1/observe/memory/entries": {
+      "get": {
+        "operationId": "observeMemoryEntries",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "type", "in": "query", "schema": { "type": "string" } },
+          { "name": "kind", "in": "query", "schema": { "type": "string" } },
+          { "name": "anchor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "page", "content": { "application/json": { "schema": { "type": "object", "required": ["items", "nextCursor"], "properties": { "items": { "type": "array", "items": { "type": "object" } }, "nextCursor": { "type": "string", "nullable": true } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/v1/observe/memory/entries/{id}": {
+      "get": {
+        "operationId": "observeMemoryEntry",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "MemoryListItem", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/v1/observe/memory/entries/{id}/revisions": {
+      "get": {
+        "operationId": "observeMemoryRevisions",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "revisions", "content": { "application/json": { "schema": { "type": "object", "required": ["entryId", "revisions"], "properties": { "entryId": { "type": "string" }, "revisions": { "type": "array", "items": { "type": "object" } } } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/v1/observe/config": {
+      "get": {
+        "operationId": "observeConfig",
+        "responses": {
+          "200": { "description": "ConfigInspectionEntry[]", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "required": ["key", "secret"], "properties": { "key": { "type": "string" }, "secret": { "type": "boolean" } } } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/v1/observe/roles": {
+      "get": {
+        "operationId": "observeRoles",
+        "responses": {
+          "200": { "description": "RoleInspection[]", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "required": ["roleId", "revision"], "properties": { "roleId": { "type": "string" }, "revision": { "type": "string" } } } } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/v1/kernel/tasks": {
+      "post": {
+        "operationId": "publishTask",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["title", "text"],
+                "properties": {
+                  "title": { "type": "string", "maxLength": 200 },
+                  "text": { "type": "string", "maxLength": 65536 },
+                  "tags": { "type": "array", "items": { "type": "string" } },
+                  "payload": { "type": "object" },
+                  "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 128 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "created task", "content": { "application/json": { "schema": { "type": "object", "required": ["id", "status"], "properties": { "id": { "type": "string" }, "status": { "type": "string" } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    }
+  },
+  "components": {
+    "responses": {
+      "BadRequest": { "description": "bad request", "content": { "application/json": { "schema": { "type": "object", "required": ["error"], "properties": { "error": { "type": "string" } } } } } },
+      "Unauthorized": { "description": "unauthorized", "content": { "application/json": { "schema": { "type": "object" } } } },
+      "NotFound": { "description": "not found", "content": { "application/json": { "schema": { "type": "object" } } } }
+    }
+  }
+}
