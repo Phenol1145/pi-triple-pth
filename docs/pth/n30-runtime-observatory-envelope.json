@@ -1,0 +1,367 @@
+{
+  "schema": "n30-runtime-observatory-acceptance/1",
+  "generatedAt": "2026-08-20T15:43:09.938Z",
+  "plan": "docs/superpowers/plans/2026-08-19-n30-runtime-observatory.md",
+  "evaluatedCommit": "c3a2e5a94bac3bdcc50e458c91a691c88a5e551d",
+  "implementationTreeClean": true,
+  "evaluator": {
+    "decision": "PASS",
+    "totals": {
+      "files": 13,
+      "tests": 104,
+      "passed": 104,
+      "failed": 0,
+      "skipped": 0
+    },
+    "metrics": {
+      "resource": {
+        "count": 14400,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "activity": {
+        "count": 14400,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "timeline": {
+        "count": 14400,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      }
+    },
+    "gates": [
+      {
+        "gate": "report.no-failed",
+        "ok": true,
+        "reason": "no failed tests"
+      },
+      {
+        "gate": "report.no-skipped",
+        "ok": true,
+        "reason": "no skipped tests"
+      },
+      {
+        "gate": "probe.file:test/unit/docker-monitor-alerts.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/unit/docker-monitor-alerts.test.ts"
+      },
+      {
+        "gate": "probe.file:test/unit/docker-monitor-charts.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/unit/docker-monitor-charts.test.ts"
+      },
+      {
+        "gate": "probe.file:test/unit/docker-monitor-metrics.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/unit/docker-monitor-metrics.test.ts"
+      },
+      {
+        "gate": "probe.file:test/unit/docker-monitor-pth-client.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/unit/docker-monitor-pth-client.test.ts"
+      },
+      {
+        "gate": "probe.file:test/unit/docker-monitor-ring-buffer.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/unit/docker-monitor-ring-buffer.test.ts"
+      },
+      {
+        "gate": "probe.file:test/unit/docker-monitor-runtime-aggregator.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/unit/docker-monitor-runtime-aggregator.test.ts"
+      },
+      {
+        "gate": "probe.file:test/unit/docker-monitor-server.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/unit/docker-monitor-server.test.ts"
+      },
+      {
+        "gate": "probe.file:test/unit/docker-monitor-ui-state.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/unit/docker-monitor-ui-state.test.ts"
+      },
+      {
+        "gate": "probe.file:test/pth-contracts/runtime-observation.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/pth-contracts/runtime-observation.test.ts"
+      },
+      {
+        "gate": "probe.file:test/pth-application/runtime-observation-facade.pg.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/pth-application/runtime-observation-facade.pg.test.ts"
+      },
+      {
+        "gate": "probe.file:test/pth-composition/runtime-observatory.integration.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/pth-composition/runtime-observatory.integration.test.ts"
+      },
+      {
+        "gate": "probe.file:test/pth-composition/runtime-observatory-long-run.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/pth-composition/runtime-observatory-long-run.test.ts"
+      },
+      {
+        "gate": "probe.file:test/browser/runtime-observatory.test.ts",
+        "ok": true,
+        "reason": "failed=0 in test/browser/runtime-observatory.test.ts"
+      },
+      {
+        "gate": "probe.alerts.heartbeat.stale",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.alerts.heartbeat.dead",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.alerts.queue.backlog",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.alerts.resource.cpu",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.alerts.resource.rss",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.alerts.task.timeout",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.alerts.stage.stall",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.alerts.readonly",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.ring.bounded",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.sample.bounded",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.event.bounded",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.stale.exact",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.metrics.nullPreserved",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.tenant.isolation",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.tenant.cursorFailClosed",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.browser.credential",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.browser.staleHonest",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.charts.sharedScale",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "probe.reconcile.authoritative",
+        "ok": true,
+        "reason": "passed"
+      },
+      {
+        "gate": "ledger.valid",
+        "ok": true,
+        "reason": "ledger version n30-runtime-observatory-ledger/1"
+      },
+      {
+        "gate": "ledger.latency-samples",
+        "ok": true,
+        "reason": "samples resource=14400 activity=14400 timeline=14400"
+      },
+      {
+        "gate": "ledger.latency-finite",
+        "ok": true,
+        "reason": "all percentiles finite"
+      },
+      {
+        "gate": "latency.targets",
+        "ok": true,
+        "reason": "P95 resource=0≤5000 activity=0≤2000 timeline=0≤10000"
+      },
+      {
+        "gate": "alerts.write-calls",
+        "ok": true,
+        "reason": "writeCallsObserved=0"
+      }
+    ],
+    "reasons": []
+  },
+  "focused": {
+    "command": "npx vitest run test/unit/docker-monitor-*.test.ts test/pth-contracts/runtime-observation.test.ts test/pth-application/runtime-observation-facade.pg.test.ts test/pth-composition/runtime-observatory.integration.test.ts test/pth-composition/runtime-observatory-long-run.test.ts test/browser/runtime-observatory.test.ts --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n30-accept-5IAUa5/focused.json --hookTimeout 60000 --testTimeout 120000",
+    "started": true,
+    "exitCode": 0,
+    "durationMs": 23239,
+    "skipped": [],
+    "environmentStatus": "available",
+    "stdoutTail": "JSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n30-accept-5IAUa5/focused.json\n",
+    "stderrTail": "",
+    "totals": {
+      "files": 13,
+      "tests": 104,
+      "passed": 104,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "full": {
+    "command": "npm test -- --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n30-accept-5IAUa5/full.json --hookTimeout 60000",
+    "started": true,
+    "exitCode": 0,
+    "durationMs": 643970,
+    "skipped": [
+      {
+        "file": "test/pth-execution/sandbox-security.integration.test.ts",
+        "tests": 9
+      }
+    ],
+    "environmentStatus": "available",
+    "stdoutTail": "\n> @away_from/pi-triple@1.2.0 test\n> vitest run --reporter=json --outputFile /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n30-accept-5IAUa5/full.json --hookTimeout 60000\n\n{\"ts\":\"2026-08-20T15:37:49.919Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[assembly] 默认 batch 已启动（pid=2278 workers=15）\"}\n{\"ts\":\"2026-08-20T15:37:53.054Z\",\"level\":\"info\",\"component\":\"kernel\",\"msg\":\"[trigger] memory-maintenance-sweep 触发任务 161b351b-d850-49a0-8751-e1cb0a70cee6（定时源——间隔 86400s——第 1 次）\"}\nJSON report written to /var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/n30-accept-5IAUa5/full.json\n",
+    "stderrTail": "ning was created)\nbatch process fatal: error: the database system is shutting down\n    at /Users/anzhize/pi-platform/node_modules/pg-pool/index.js:45:11\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async createPgPool (file:///Users/anzhize/pi-platform/dist/pth/kernel/storage/pg.js:11:5)\n    at async runBatchProcess (file:///Users/anzhize/pi-platform/dist/pth/bootstrap/batch-process.js:124:18)\n    at async file:///Users/anzhize/pi-platform/dist/pth/bootstrap/batch-process.js:1152:9 {\n  length: 106,\n  severity: 'FATAL',\n  code: '57P03',\n  detail: undefined,\n  hint: undefined,\n  position: undefined,\n  internalPosition: undefined,\n  internalQuery: undefined,\n  where: undefined,\n  schema: undefined,\n  table: undefined,\n  column: undefined,\n  dataType: undefined,\n  constraint: undefined,\n  file: 'postmaster.c',\n  line: '2375',\n  routine: 'ProcessStartupPacket'\n}\n(node:2621) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\n[workflow] pit CLI 不可用，workflow 扩展需要 pit\nnode:internal/modules/cjs/loader:1459\n  throw err;\n  ^\n\nError: Cannot find module '/var/folders/_z/xdr0g1rj7yb82vhm75y_lg4r0000gn/T/pth-batch-Aa2Vl7/does-not-exist.mjs'\n    at Module._resolveFilename (node:internal/modules/cjs/loader:1456:15)\n    at defaultResolveImpl (node:internal/modules/cjs/loader:1066:19)\n    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1071:22)\n    at Module._load (node:internal/modules/cjs/loader:1242:25)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  code: 'MODULE_NOT_FOUND',\n  requireStack: []\n}\n\nNode.js v24.14.1\n(node:7006) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:7562) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:7744) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8016) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8029) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8170) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8202) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8224) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8248) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8251) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8249) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8250) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8244) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8261) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8720) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8743) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:8881) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9028) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9244) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9249) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n(node:9299) ExperimentalWarning: SQLite is an experimental feature and might change at any time\n(Use `node --trace-warnings ...` to show where the warning was created)\n",
+    "totals": {
+      "files": 347,
+      "tests": 3019,
+      "passed": 3010,
+      "failed": 0,
+      "skipped": 9
+    }
+  },
+  "lint": {
+    "command": "npm run lint",
+    "started": true,
+    "exitCode": 0,
+    "durationMs": 15653,
+    "skipped": [],
+    "environmentStatus": "available",
+    "stdoutTail": "\n> @away_from/pi-triple@1.2.0 lint\n> tsc -p packages/shared && tsc -p packages/infra && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc --noEmit && tsc -p packages/shared --noEmit && tsc -p packages/framework --noEmit && npm run check:pth-boundaries && npm run check:pth-config\n\n\n> @away_from/pi-triple@1.2.0 check:pth-boundaries\n> tsx scripts/check-pth-boundaries.ts\n\n── pth-boundaries：当前违规 0 条 ──\n✅ 无新增边界违规\n\n> @away_from/pi-triple@1.2.0 check:pth-config\n> tsx scripts/check-pth-config.ts\n\n── pth-config：schema 129 键 · 直读 0（pth + pth-sandbox src）· compose 未声明 91 键 ──\n✅ pth-config 检查通过\n",
+    "stderrTail": ""
+  },
+  "build": {
+    "command": "npm run build",
+    "started": true,
+    "exitCode": 0,
+    "durationMs": 17798,
+    "skipped": [],
+    "environmentStatus": "available",
+    "stdoutTail": "\n> @away_from/pi-triple@1.2.0 build\n> tsc -p packages/shared && tsc -p packages/infra && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc -p packages/framework && node scripts/copy-framework-web-assets.mjs && tsc -p packages/mailbox && tsc -p packages/dev-container && tsc -p tsconfig.json\n\noperator-console public assets copied: app.js, config.js, debug.js, index.html, memory.js, styles.css\n",
+    "stderrTail": ""
+  },
+  "sabotage": [
+    {
+      "gate": "probe.ring.bounded",
+      "baseOk": true,
+      "sabotagedOk": false,
+      "flipped": true
+    },
+    {
+      "gate": "probe.metrics.nullPreserved",
+      "baseOk": true,
+      "sabotagedOk": false,
+      "flipped": true
+    },
+    {
+      "gate": "probe.tenant.isolation",
+      "baseOk": true,
+      "sabotagedOk": false,
+      "flipped": true
+    },
+    {
+      "gate": "probe.browser.credential",
+      "baseOk": true,
+      "sabotagedOk": false,
+      "flipped": true
+    },
+    {
+      "gate": "probe.reconcile.authoritative",
+      "baseOk": true,
+      "sabotagedOk": false,
+      "flipped": true
+    },
+    {
+      "gate": "probe.browser.staleHonest",
+      "baseOk": true,
+      "sabotagedOk": false,
+      "flipped": true
+    },
+    {
+      "gate": "probe.charts.sharedScale",
+      "baseOk": true,
+      "sabotagedOk": false,
+      "flipped": true
+    },
+    {
+      "gate": "alerts.write-calls",
+      "baseOk": true,
+      "sabotagedOk": false,
+      "flipped": true
+    }
+  ],
+  "realismGates": [
+    {
+      "gate": "real-docker-pth-composition",
+      "requirement": "真实 testcontainers PostgreSQL + 最小 PTH gateway + docker-monitor 聚合（monitor /snapshot 合并 durable timeline）",
+      "status": "satisfied",
+      "evidence": "test/pth-composition/runtime-observatory.integration.test.ts::monitor /snapshot 合并真实 PG durable timeline，且 pth-timeline fresh = passed"
+    },
+    {
+      "gate": "long-run-bounded-memory",
+      "requirement": "假时钟推进 14,400 个 2 秒样本，ring/sample/event 内存低于固定上限，stale 边界精确，时间轴漂移 ≤1 采样周期",
+      "status": "satisfied",
+      "evidence": "test/pth-composition/runtime-observatory-long-run.test.ts::ring 内存 14,400 样本 = passed（含 8 小时 server 采样、event 内存、stale 精确边界）"
+    },
+    {
+      "gate": "browser-credential-boundary",
+      "requirement": "浏览器载荷/页面源码/本地存储不含 Docker socket 路径或 PTH 凭据字段",
+      "status": "satisfied",
+      "evidence": "test/browser/runtime-observatory.test.ts::页面源码与浏览器模块不含 Docker socket 路径或凭据字段 = passed"
+    }
+  ],
+  "decision": "GO",
+  "reasons": [],
+  "disclaimer": "This result validates the local runtime observatory (N30 O0–O4) only: Docker sampling, tenant-scoped durable PTH timeline projection, server-side aggregation/freshness, C-layout Gantt/resource charts, read-only alerts, bounded long-run memory and sabotage sensitivity. It does not validate N33 embedment, O5 tenant self-service, long-term history retention, or any control-plane write path."
+}
