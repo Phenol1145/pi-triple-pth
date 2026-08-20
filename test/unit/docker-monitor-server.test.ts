@@ -112,6 +112,22 @@ describe("docker-monitor createMonitorServer", () => {
     }
   });
 
+  it("embed 模式：GET /?embed=1&base=/observe 返回同一观测台 HTML", async () => {
+    const monitor = createMonitorServer({ port: 0, docker: makeDocker(), clock: () => now });
+    const port = await startAndGetPort(monitor);
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/?embed=1&base=/observe`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/html");
+
+      const html = await res.text();
+      expect(html).toContain("N30 运行观测台");
+      expect(html).toContain("validateEmbedBase");
+    } finally {
+      await monitor.close();
+    }
+  });
+
   it("/snapshot 返回 intervals/samples/freshness", async () => {
     const docker = makeDocker({
       getContainers: vi.fn(async () => [runningContainer()]),
