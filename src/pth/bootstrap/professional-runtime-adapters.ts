@@ -15,6 +15,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type { ArtifactRef, ProfessionalJobSpec, ProfessionalRuntimeId, ProfessionalRuntimeLock } from "../contracts/index.js";
 import { createAssemblyRuntimeAdapter } from "../execution/adapters/assembly-runtime-adapter.js";
+import { createLean4RuntimeAdapter } from "../execution/adapters/lean4-runtime-adapter.js";
 import {
   createProfessionalRuntimeRegistry,
   type ProfessionalRuntimeAdapter,
@@ -39,6 +40,13 @@ export interface AssembleProfessionalRuntimeRegistryInput {
   /** 透传给 assembly adapter（测试/容器注入；生产缺省即可）。 */
   readonly asmKernelIndexPath?: string;
   readonly asmExecPrefix?: readonly string[];
+  /**
+   * v1.3 Task 6 接线：提供 artifactPath 且 factories 未覆盖 lean4 时，
+   * 自动按 committed lock 装配真实 lean4-runtime adapter。
+   */
+  readonly lean4WorkDir?: string;
+  readonly lean4SharedPackagesDir?: string;
+  readonly lean4ExecPrefix?: readonly string[];
 }
 
 /** 生产组装点：只注册 probe 成功且满足 committed lock 的 adapter。 */
@@ -59,6 +67,22 @@ export async function assembleProfessionalRuntimeRegistry(
           lockVersion: entry.version,
           ...(input.asmKernelIndexPath !== undefined ? { asmKernelIndexPath: input.asmKernelIndexPath } : {}),
           ...(input.asmExecPrefix !== undefined ? { execPrefix: input.asmExecPrefix } : {}),
+        });
+    }
+  }
+  if (!factories.lean4 && input.artifactPath !== undefined) {
+    const artifactPath = input.artifactPath;
+    const entry = input.lock.runtimes.lean4;
+    const mathlibRev = (entry as { dependencies?: { mathlib?: { rev?: string } } }).dependencies?.mathlib?.rev;
+    if (entry && typeof mathlibRev === "string" && /^[0-9a-f]{40}$/.test(mathlibRev)) {
+      factories.lean4 = () =>
+        createLean4RuntimeAdapter({
+          artifactPort: createProfessionalArtifactPort({ artifactPath }),
+          lockVersion: entry.version,
+          mathlibRev,
+          ...(input.lean4WorkDir !== undefined ? { workDir: input.lean4WorkDir } : {}),
+          ...(input.lean4SharedPackagesDir !== undefined ? { sharedPackagesDir: input.lean4SharedPackagesDir } : {}),
+          ...(input.lean4ExecPrefix !== undefined ? { execPrefix: input.lean4ExecPrefix } : {}),
         });
     }
   }

@@ -37,7 +37,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     qemu-user \
     binutils-x86-64-linux-gnu \
     binutils-riscv64-linux-gnu \
+    git \
     && rm -rf /var/lib/apt/lists/*
+
+# Lean 4 锁定稳定工具链（v1.3 Task 6）：直接钉 committed lock 的 v4.33.0；
+# 禁止任何 `elan default stable` 或移动分支。本地镜像构建验证留 release 阶段。
+ARG LEAN_VERSION=v4.33.0
+RUN curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+    | sh -s -- -y --no-modify-path --default-toolchain leanprover/lean4:${LEAN_VERSION} \
+    && ln -s /root/.elan/bin/lean /usr/local/bin/lean \
+    && ln -s /root/.elan/bin/lake /usr/local/bin/lake \
+    && lean --version
 
 WORKDIR /app
 
