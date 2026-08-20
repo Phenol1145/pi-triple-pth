@@ -32,25 +32,20 @@ function buildFakePth(calls: { mutations: number }) {
     }
     if (url.pathname === "/api/v1/observe/config") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({
-        items: [
-          { key: "DATABASE_URL", group: "db", type: "string", source: "env", scope: "global", secret: true, defaultValue: "***", effectiveValue: "***" },
-          { key: "PORT", group: "server", type: "number", source: "default", scope: "global", secret: false, defaultValue: 8080, effectiveValue: 8080 },
-        ],
-      }));
+      res.end(JSON.stringify([
+        { key: "DATABASE_URL", group: "db", type: "string", source: "env", scope: "global", secret: true, runtime: true, description: "db url", effectiveValue: "***", defaultValue: "***" },
+        { key: "PORT", group: "server", type: "number", source: "default", scope: "global", secret: false, runtime: false, description: "port", effectiveValue: "8080", defaultValue: "8080" },
+      ]));
       return;
     }
     if (url.pathname === "/api/v1/observe/roles") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({
-        items: [
-          {
-            id: "lean4-prover", parent: "solver", roleRevision: "rev-7", family: "executor",
-            tags: ["formal"], capabilities: ["memory", "skills"], defaultReplicas: 0,
-            loadPolicyRef: "professional:lean4-prover:v1",
-          },
-        ],
-      }));
+      res.end(JSON.stringify([
+        {
+          roleId: "lean4-prover", revision: "rev-7", parent: "solver", generation: 5,
+          tags: ["formal"], capabilities: ["memory", "skills"], thinking: "medium", acceptanceRole: "read-only",
+        },
+      ]));
       return;
     }
     res.writeHead(404).end();

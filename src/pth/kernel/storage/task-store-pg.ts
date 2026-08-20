@@ -78,6 +78,8 @@ export interface PublishInput {
   delegateTarget?: string;
   /** M0：仅 trusted code-owned 发布可显式指定；gateway/user 发布由 TaskControlService 强制 run。 */
   workMode?: WorkMode;
+  /** N33 复验收 P0-4：tenant-scoped 原生发布幂等键；重复发布返回首次接受的行。 */
+  idempotencyKey?: string;
 }
 
 export interface TaskStore {
@@ -175,19 +177,38 @@ export class PgTaskStore implements TaskStore {
       };
     }
     const tenantId = typeof input.tenantId === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(input.tenantId) ? input.tenantId : "default";
+    const idempotencyKey = input.idempotencyKey;
+    if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || idempotencyKey.trim() === "" || idempotencyKey.length > 128)) {
+      const err = new Error("idempotencyKey 可选——若提供必须是 1..128 字符的非空字符串") as Error & { statusCode?: number };
+      err.statusCode = 400;
+      throw err;
+    }
+    if (idempotencyKey) {
+      const existing = await this.pool.query(`SELECT * FROM tasks WHERE tenant_id = $1 AND idempotency_key = $2`, [tenantId, idempotencyKey]);
+      if (existing.rows[0]) return mapRow(existing.rows[0]);
+    }
     const workMode = input.workMode ?? "run";
     if (!isWorkMode(workMode)) {
       const err = new Error(`unknown work mode: ${String(workMode)}`) as Error & { statusCode?: number };
       err.statusCode = 400;
       throw err;
     }
-    const res = await this.pool.query(
-      `INSERT INTO tasks (id, tenant_id, title, text, created_by, tags, payload, template_id, assigned_role, job_id, work_mode)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING *`,
-      [id, tenantId, input.title, input.text, input.createdBy, input.tags ?? [], payload, input.templateId ?? null, assignedRole, input.jobId ?? null, workMode],
-    );
-    return mapRow(res.rows[0]);
+    try {
+      const res = await this.pool.query(
+        `INSERT INTO tasks (id, tenant_id, title, text, created_by, tags, payload, template_id, assigned_role, job_id, work_mode, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING *`,
+        [id, tenantId, input.title, input.text, input.createdBy, input.tags ?? [], payload, input.templateId ?? null, assignedRole, input.jobId ?? null, workMode, idempotencyKey ?? null],
+      );
+      return mapRow(res.rows[0]);
+    } catch (error) {
+      // 并发同键：唯一索引兜底，返回已提交的首行（commit 成功但响应丢失时重试收敛到同一 task）。
+      if (idempotencyKey && (error as { code?: string }).code === "23505") {
+        const existing = await this.pool.query(`SELECT * FROM tasks WHERE tenant_id = $1 AND idempotency_key = $2`, [tenantId, idempotencyKey]);
+        if (existing.rows[0]) return mapRow(existing.rows[0]);
+      }
+      throw error;
+    }
   }
 
   async getById(id: string): Promise<Task | null> {

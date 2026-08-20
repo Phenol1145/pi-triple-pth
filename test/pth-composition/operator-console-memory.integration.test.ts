@@ -40,9 +40,13 @@ function buildFakePth(calls: { list: number; detail: number; revisions: number }
       calls.list += 1;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({
-        items: [{ id: "idx:a", type: "index", kind: "symbol-index", status: "official", updatedAt: "2026-08-20T00:00:00Z" }],
-        cursor: null,
-        total: 1,
+        items: [{
+          id: "idx:a", kind: "symbol-index", status: "official", anchors: ["lean"], memoryType: "index",
+          version: 2, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:01.000Z", contentBytes: 12,
+        }],
+        nextCursor: "cursor-next",
+        scope: { tenantId: "tenant-a" },
+        collectedAt: 1,
       }));
       return;
     }
@@ -50,14 +54,22 @@ function buildFakePth(calls: { list: number; detail: number; revisions: number }
     if (req.method === "GET" && entry) {
       calls.detail += 1;
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ id: entry[1], type: "index", kind: "symbol-index", status: "official", content: "bounded-body", evidence: [] }));
+      res.end(JSON.stringify({
+        id: entry[1], kind: "symbol-index", status: "official", anchors: ["lean"], memoryType: "index",
+        version: 2, createdAt: "2026-08-20T00:00:00.000Z", updatedAt: "2026-08-20T00:00:01.000Z", contentBytes: 12,
+      }));
       return;
     }
     const rev = /^\/api\/v1\/observe\/memory\/entries\/([^/]+)\/revisions$/.exec(url.pathname);
     if (req.method === "GET" && rev) {
       calls.revisions += 1;
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ action: "write", revision: `r${i}`, time: "t", type: "index" }))));
+      res.end(JSON.stringify({
+        entryId: rev[1],
+        revisions: Array.from({ length: 10 }, (_, i) => ({
+          entryId: rev[1], revision: i, status: "official", createdAt: `2026-08-20T00:0${i}:00.000Z`, reason: "promote",
+        })),
+      }));
       return;
     }
     res.writeHead(404).end();
@@ -113,7 +125,9 @@ describe("operator console memory integration", () => {
 
     const detail = await fetch(`${baseUrl}/api/memory/entries/idx%3Aa`, { headers: { cookie, host: consoleServer.hostHeader } });
     expect(detail.status).toBe(200);
-    expect((await detail.text())).toContain("bounded-body");
+    const detailBody = await detail.text();
+    expect(detailBody).toContain("contentBytes");
+    expect(detailBody).not.toContain("bounded-body");
 
     const rev = await fetch(`${baseUrl}/api/memory/entries/idx%3Aa/revisions`, { headers: { cookie, host: consoleServer.hostHeader } });
     const revBody = await rev.json();

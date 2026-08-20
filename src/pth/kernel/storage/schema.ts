@@ -396,6 +396,13 @@ ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_work_mode_check;
 ALTER TABLE tasks ADD CONSTRAINT tasks_work_mode_check
   CHECK (work_mode IN ('intake','optimize','run'));
 
+-- N33 复验收 P0-4（2026-08-20）：tenant-scoped 原生发布幂等键。
+-- 同 tenant 同 key 只允许一行任务；重复发布返回首次接受的行（含 commit 后响应丢失场景）。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_tenant_idempotency
+  ON tasks(tenant_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
 ${MEMORY_SCHEMA_SQL}
 
 -- 死表标注（2026-08-14 A2 探查 0.5）：lab_events/credit_tx 为 archive/agent-lab 遗留——

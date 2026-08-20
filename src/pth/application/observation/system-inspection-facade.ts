@@ -368,6 +368,11 @@ export class SystemInspectionFacade {
     if (!Number.isInteger(limit) || limit < 1 || limit > SYSTEM_INSPECTION_MAX_REVISIONS) {
       throw new SystemInspectionError(`revision limit must be an integer 1-${SYSTEM_INSPECTION_MAX_REVISIONS}`);
     }
+    // N33 复验收 P1-1：revision 历史必须先过与 detail 完全相同的 tenant/status/space 可见性门。
+    // 条目不可见时返回空历史，而不是按 entryId 猜出 revision/status/createdBy/reason 元数据。
+    const { ancestors, currentSpace } = visibleSpacePredicateParams(scope);
+    const visible = await this.#pool.query<SqlRow>(MEMORY_ENTRY_SQL, [scope.tenantId, entryId, ancestors, currentSpace]);
+    if (visible.rows.length === 0) return [];
     const result = await this.#pool.query<SqlRow>(MEMORY_REVISIONS_SQL, [scope.tenantId, entryId, limit]);
     return result.rows.slice(0, limit).map((row) => ({
       entryId: String(row.entry_id),

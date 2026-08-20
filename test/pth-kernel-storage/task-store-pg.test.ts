@@ -49,6 +49,20 @@ suite("task store pg", () => {
     expect(t.id).toBeTruthy();
   });
 
+  it("N33 P0-4：tenant-scoped 幂等键重复发布收敛到首次任务", async () => {
+    const first = await store.publish({
+      title: "idem", text: "first", createdBy: "me", tags: ["code"], tenantId: "tenant-a", idempotencyKey: "idem-key-1",
+    });
+    const replay = await store.publish({
+      title: "idem", text: "retry-after-lost-response", createdBy: "me", tags: ["code"], tenantId: "tenant-a", idempotencyKey: "idem-key-1",
+    });
+    expect(replay.id).toBe(first.id);
+    const otherTenant = await store.publish({
+      title: "idem", text: "other tenant", createdBy: "me", tags: ["code"], tenantId: "tenant-b", idempotencyKey: "idem-key-1",
+    });
+    expect(otherTenant.id).not.toBe(first.id);
+  });
+
   it("P1-1：存量行可读写，lease 列默认安全并可回读", async () => {
     await pool.query(
       `INSERT INTO tasks (id, tenant_id, title, text, created_by, status)

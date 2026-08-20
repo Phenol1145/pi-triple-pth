@@ -26,25 +26,30 @@ function buildFakePth(calls: { count: number }) {
       }
       calls.count += 1;
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({
-        items: [
-          {
-            workerId: "worker-a",
-            batchId: "batch-1",
-            roleId: "lean4-prover",
-            roleRevision: "rev-9",
-            lifecycle: "running",
-            workMode: "run",
-            taskId: "task-1",
-            leaseId: "lease-1",
-            heartbeatAt: "2026-08-20T00:00:00.000Z",
-            regions: [{ regionId: "memory:wiki", weights: 1 }],
-            workingSet: ["idx:lean:list-map"],
-            toolNames: ["probe", "check"],
-            skillIds: ["skill:prove:v1"],
+      res.end(JSON.stringify([
+        {
+          workerId: "worker-a",
+          batchId: "batch-1",
+          role: { roleId: "lean4-prover", revision: "rev-9" },
+          lifecycle: "busy",
+          workMode: "run",
+          currentTaskId: "task-1",
+          leaseId: "lease-1",
+          heartbeatLagMs: 42,
+          regionIds: ["memory:wiki"],
+          regionWeights: { "memory:wiki": 1 },
+          workingSet: {
+            entryIds: ["idx:lean:list-map"],
+            skillIndexIds: ["skill:prove:v1"],
+            activeSkillIds: [],
+            counts: { memoryEntries: 1, skillIndexEntries: 1, activeSkills: 0, tools: 2 },
+            usage: { memoryEntries: 1, memoryChars: 10, skillIndexEntries: 1, activeSkills: 0, skillChars: 10, tools: 2 },
+            omitted: {},
           },
-        ],
-      }));
+          toolNames: ["probe", "check"],
+          skillIds: ["skill:prove:v1"],
+        },
+      ]));
       return;
     }
     res.writeHead(404).end();

@@ -157,6 +157,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     if (domains === null) {
       return reply.status(400).send({ error: "domains 可选——若提供必须是字符串数组且元素非空" });
     }
+    const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : undefined;
 
     // 模板发布：{template, params} → 统一解析器渲染任务（任务模板统一收口 A+）
     if (typeof body.template === "string") {
@@ -177,6 +178,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
         payload: r.payload,
         tenantId,
         domains,
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       }, scope);
       return reply.status(201).send(task);
     }
@@ -196,7 +198,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     // payload 透传（任务链 flow 声明等路由信息——发布时 payload 即任务自带路由）
     // body.flow 顶层并入 payload（API 友好——flow 放顶层也能路由——routeTaskRole flowRole 读 payload.flow）
     const payload = { ...((body.payload ?? {}) as Record<string, unknown>), ...(body.flow ? { flow: body.flow } : {}) };
-    const task = await facade.publishTask({ title, text, createdBy, tags, payload, tenantId, domains }, scope);
+    const task = await facade.publishTask({ title, text, createdBy, tags, payload, tenantId, domains, ...(idempotencyKey ? { idempotencyKey } : {}) }, scope);
     return reply.status(201).send(task);
   });
 
