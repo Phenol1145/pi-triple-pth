@@ -29,6 +29,12 @@ import {
   type WorkerLifecycle,
 } from "../../contracts/index.js";
 import { PTH_CONFIG_SCHEMA } from "../../config/schema.js";
+import {
+  SYSTEM_INSPECTION_MEMORY_ENTRY_SQL,
+  SYSTEM_INSPECTION_MEMORY_LIST_SQL,
+  SYSTEM_INSPECTION_MEMORY_REVISIONS_SQL,
+  SYSTEM_INSPECTION_MEMORY_SUMMARY_SQL,
+} from "./system-inspection-sql.js";
 import { classifyFeasibilityMemoryType } from "../../execution/memory-type-classifier.js";
 import { roleDefinitionRevision } from "../../kernel/execution/worker-replica.js";
 import { getRuntimeCatalog } from "../../catalog/role-routing-policy.js";
@@ -294,7 +300,7 @@ export class SystemInspectionFacade {
       limit + 1,
     ];
 
-    const sql = MEMORY_LIST_SQL;
+    const sql = SYSTEM_INSPECTION_MEMORY_LIST_SQL;
     const result = await this.#pool.query<SqlRow>(sql, params);
     const rows = result.rows;
 
@@ -330,7 +336,7 @@ export class SystemInspectionFacade {
     validateScope(scope);
     if (!isNonEmptyString(id)) throw new SystemInspectionError("entry id must be a non-empty string");
     const { ancestors, currentSpace } = visibleSpacePredicateParams(scope);
-    const result = await this.#pool.query<SqlRow>(MEMORY_ENTRY_SQL, [
+    const result = await this.#pool.query<SqlRow>(SYSTEM_INSPECTION_MEMORY_ENTRY_SQL, [
       scope.tenantId,
       id,
       ancestors,
@@ -354,7 +360,7 @@ export class SystemInspectionFacade {
       throw new SystemInspectionError("anchor must be a non-empty string");
     }
     const { ancestors, currentSpace } = visibleSpacePredicateParams(scope);
-    const result = await this.#pool.query<SqlRow>(MEMORY_SUMMARY_SQL, [
+    const result = await this.#pool.query<SqlRow>(SYSTEM_INSPECTION_MEMORY_SUMMARY_SQL, [
       scope.tenantId,
       statuses,
       kinds,
@@ -392,9 +398,9 @@ export class SystemInspectionFacade {
     // N33 复验收 P1-1：revision 历史必须先过与 detail 完全相同的 tenant/status/space 可见性门。
     // 条目不可见时返回空历史，而不是按 entryId 猜出 revision/status/createdBy/reason 元数据。
     const { ancestors, currentSpace } = visibleSpacePredicateParams(scope);
-    const visible = await this.#pool.query<SqlRow>(MEMORY_ENTRY_SQL, [scope.tenantId, entryId, ancestors, currentSpace]);
+    const visible = await this.#pool.query<SqlRow>(SYSTEM_INSPECTION_MEMORY_ENTRY_SQL, [scope.tenantId, entryId, ancestors, currentSpace]);
     if (visible.rows.length === 0) return [];
-    const result = await this.#pool.query<SqlRow>(MEMORY_REVISIONS_SQL, [scope.tenantId, entryId, limit]);
+    const result = await this.#pool.query<SqlRow>(SYSTEM_INSPECTION_MEMORY_REVISIONS_SQL, [scope.tenantId, entryId, limit]);
     return result.rows.slice(0, limit).map((row) => ({
       entryId: String(row.entry_id),
       revision: Number(row.revision),
@@ -578,100 +584,6 @@ export class SystemInspectionFacade {
     }));
   }
 }
-
-// ─── SQL（只读投影：只有 SELECT，绝不写领域源表） ─────────────────────────────
-
-const VISIBILITY_SQL = `
-      COALESCE(me.meta->'spaceScope'->>'space', 'meta') = ANY($5::text[])
-      AND (
-        COALESCE(me.meta->'spaceScope'->>'visibility', 'public') = 'public'
-        OR COALESCE(me.meta->'spaceScope'->>'space', 'meta') = $6::text
-      )
-`;
-
-const MEMORY_LIST_SQL = `
-SELECT
-  me.id,
-  me.kind,
-  me.status,
-  me.anchors,
-  me.version,
-  me.created_at,
-  me.updated_at,
-  octet_length(me.content)::int AS content_bytes
-FROM memory_entries me
-WHERE me.tenant_id = $1::text
-  AND me.status = ANY($2::text[])
-  AND me.kind = ANY($3::text[])
-  AND ($4::text[] IS NULL OR me.anchors ?| $4::text[])
-  AND ${VISIBILITY_SQL}
-  AND ($7::timestamptz IS NULL OR (me.updated_at, me.id) > ($7::timestamptz, $8::text))
-ORDER BY me.updated_at ASC, me.id ASC
-LIMIT $9::int
-`;
-
-const MEMORY_ENTRY_SQL = `
-SELECT
-  me.id,
-  me.kind,
-  me.status,
-  me.anchors,
-  me.version,
-  me.created_at,
-  me.updated_at,
-  octet_length(me.content)::int AS content_bytes
-FROM memory_entries me
-WHERE me.tenant_id = $1::text
-  AND me.id = $2::text
-  AND COALESCE(me.meta->'spaceScope'->>'space', 'meta') = ANY($3::text[])
-  AND (
-    COALESCE(me.meta->'spaceScope'->>'visibility', 'public') = 'public'
-    OR COALESCE(me.meta->'spaceScope'->>'space', 'meta') = $4::text
-  )
-LIMIT 1
-`;
-
-const MEMORY_SUMMARY_SQL = `
-SELECT
-  me.kind,
-  count(*)::int AS count,
-  COALESCE(sum(octet_length(me.content)), 0)::int AS bytes
-FROM memory_entries me
-WHERE me.tenant_id = $1::text
-  AND me.status = ANY($2::text[])
-  AND me.kind = ANY($3::text[])
-  AND ($4::text[] IS NULL OR me.anchors ?| $4::text[])
-  AND ${VISIBILITY_SQL}
-GROUP BY me.kind
-`;
-
-const MEMORY_REVISIONS_SQL = `
-SELECT entry_id, revision, status, created_at, created_by, reason FROM (
-  SELECT
-    r.entry_id,
-    r.revision,
-    r.status,
-    r.created_at,
-    r.created_by,
-    r.reason
-  FROM memory_revisions r
-  WHERE r.tenant_id = $1::text
-    AND r.entry_id = $2::text
-  UNION ALL
-  SELECT
-    me.id AS entry_id,
-    me.version AS revision,
-    me.status,
-    me.updated_at AS created_at,
-    NULL::text AS created_by,
-    NULL::text AS reason
-  FROM memory_entries me
-  WHERE me.tenant_id = $1::text
-    AND me.id = $2::text
-) events
-ORDER BY events.revision DESC, events.created_at DESC
-LIMIT $3::int
-`;
 
 export const SYSTEM_INSPECTION_MEMORY_STATUSES = MEMORY_INSPECTION_STATUSES;
 export const SYSTEM_INSPECTION_MEMORY_TYPE_KINDS = MEMORY_TYPE_KINDS;
