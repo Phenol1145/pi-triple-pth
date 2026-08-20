@@ -29,22 +29,14 @@ import {
   type ProfessionalRuntimeProbe,
   type ProfessionalRuntimeRegistry,
   type VerifiedProfessionalJobAuth,
-} from "../execution/professional-runtime.js";
-import type { ExecutionGrantService } from "../execution/authorization/execution-grant-service.js";
+} from "../execution/index.js";
+import type { ExecutionGrantService } from "../execution/index.js";
 
 /** Task 4 服务端输出预算上限：LLM 单次 professional.execute 声明的输出总量不得超过此值。 */
 export const PROFESSIONAL_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-export interface ProfessionalArtifactPort {
-  getInput(tenantId: string, artifact: ArtifactRef): Promise<Uint8Array>;
-  putOutput(input: {
-    tenantId: string;
-    jobId: string;
-    kind: string;
-    mediaType: string;
-    bytes: Uint8Array;
-  }): Promise<ArtifactRef>;
-}
+import type { ProfessionalArtifactPort } from "../contracts/index.js";
+export type { ProfessionalArtifactPort };
 
 export interface ProfessionalOutputSpec {
   readonly kind: string;

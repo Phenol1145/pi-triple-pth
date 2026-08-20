@@ -28,8 +28,8 @@ import type { WorkerReplicaRef } from "../contracts/index.js";
 import type { MemoryDirectorySnapshot, VerifiedTaskReadScopeFactory } from "../execution/index.js";
 import type { CognitiveWorkingSetProvider } from "./cognitive-working-set.js";
 import type { AuthorizedTaskReadFactory } from "./authorized-task-reads.js";
-import type { ExecutionGrantService } from "../execution/authorization/execution-grant-service.js";
-import type { ProfessionalRuntimeRegistry } from "../execution/professional-runtime.js";
+import type { ExecutionGrantService, ProfessionalRuntimeRegistry } from "../execution/index.js";
+
 import { createProfessionalTaskCapability, type ProfessionalArtifactPort } from "./professional-task-capability.js";
 import { canonicalExposureChars } from "../kernel/execution/cognitive-budget.js";
 import { taskToolUnion, normalizeToolName } from "../kernel/execution/agent-loop-prompt.js";

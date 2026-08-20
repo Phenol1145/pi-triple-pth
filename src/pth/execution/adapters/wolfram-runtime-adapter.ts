@@ -26,7 +26,7 @@ import {
   type WolframJobSpec,
 } from "../../contracts/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import type { ProfessionalArtifactPort } from "../../runner/professional-task-capability.js";
+import type { ProfessionalArtifactPort } from "../../contracts/index.js";
 
 export interface WolframExecResult {
   ok: boolean;

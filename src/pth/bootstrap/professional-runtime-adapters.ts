@@ -14,20 +14,20 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type { ArtifactRef, ProfessionalJobSpec, ProfessionalRuntimeId, ProfessionalRuntimeLock } from "../contracts/index.js";
-import { createAssemblyRuntimeAdapter } from "../execution/adapters/assembly-runtime-adapter.js";
-import { createLean4RuntimeAdapter } from "../execution/adapters/lean4-runtime-adapter.js";
-import { createWolframRuntimeAdapter } from "../execution/adapters/wolfram-runtime-adapter.js";
 import {
+  createAssemblyRuntimeAdapter,
+  createLean4RuntimeAdapter,
+  createWolframRuntimeAdapter,
   createPsi4RuntimeAdapter,
   createQuantumEspressoRuntimeAdapter,
   createCp2kRuntimeAdapter,
-} from "../execution/adapters/computational-chemistry-adapter.js";
+} from "../execution/index.js";
 import {
   createProfessionalRuntimeRegistry,
   type ProfessionalRuntimeAdapter,
   type ProfessionalRuntimeRegistry,
-} from "../execution/professional-runtime.js";
-import type { ProfessionalArtifactPort } from "../runner/professional-task-capability.js";
+} from "../execution/index.js";
+import type { ProfessionalArtifactPort } from "../runner/index.js";
 
 export type ProfessionalRuntimeAdapterFactory<
   S extends ProfessionalJobSpec = ProfessionalJobSpec,

@@ -28,7 +28,7 @@ import {
   type Cp2kJobSpec,
 } from "../../contracts/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import type { ProfessionalArtifactPort } from "../../runner/professional-task-capability.js";
+import type { ProfessionalArtifactPort } from "../../contracts/index.js";
 
 export interface ChemExecResult {
   ok: boolean;

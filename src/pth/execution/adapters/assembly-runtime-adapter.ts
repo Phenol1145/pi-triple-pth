@@ -33,7 +33,7 @@ import {
   type ProfessionalJobResult,
 } from "../../contracts/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import type { ProfessionalArtifactPort } from "../../runner/professional-task-capability.js";
+import type { ProfessionalArtifactPort } from "../../contracts/index.js";
 
 // ─── 执行通道与结果类型 ────────────────────────────────────────────────────
 

@@ -17,6 +17,18 @@ import {
 } from "./tasking.js";
 import type { WorkerReplicaRef } from "./cognitive-responsibility.js";
 
+/** Task 4 服务端 artifact 端口（生产/测试注入面）；类型归属 contracts，实现留在 runner/bootstrap。 */
+export interface ProfessionalArtifactPort {
+  getInput(tenantId: string, artifact: ArtifactRef): Promise<Uint8Array>;
+  putOutput(input: {
+    tenantId: string;
+    jobId: string;
+    kind: string;
+    mediaType: string;
+    bytes: Uint8Array;
+  }): Promise<ArtifactRef>;
+}
+
 // ─── Runtime id 白名单 ──────────────────────────────────────────────────────
 
 export const PROFESSIONAL_RUNTIME_IDS = [
