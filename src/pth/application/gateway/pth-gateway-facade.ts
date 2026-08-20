@@ -66,8 +66,10 @@ export interface PthGatewayFacade {
   /** W8 P2：取消任务（recursive=true 沿 delivery.parent 链传播到全部未终态子任务） */
   cancelTask(id: string, opts: { recursive?: boolean }, scope?: TenantScope): Promise<TaskCancelResult>;
   taskCounts(): Promise<TaskCounts>;
-  optimizerSuggestions(): Promise<unknown[]>;
-  applyOptimizer(id: string): Promise<unknown>;
+  /** N33 Task 5：优化建议列表可按 tenant 收窄（有 scope 时只列该 tenant 的可见建议）。 */
+  optimizerSuggestions(scope?: TenantScope): Promise<unknown[]>;
+  /** N33 Task 5：apply 按 tenant 收窄——有 scope 时 memory 读写被钉到该 tenant。 */
+  applyOptimizer(id: string, scope?: TenantScope): Promise<unknown>;
   approveMemoryAdmin(id: string): Promise<unknown>;
   /** K4 Phase 4（N22 4）/R3：候选验证（监督通道）。auth 必填；verdict 绑定 planId+checkId+expectedCandidateRevision。 */
   verifyKnowledge(
@@ -194,17 +196,30 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     };
   }
 
-  async optimizerSuggestions(): Promise<unknown[]> {
+  async optimizerSuggestions(scope?: TenantScope): Promise<unknown[]> {
+    // N33 Task 5：tenant-scoped 时走参数化查询（queryReadOnly 无参，不能内插 tenantId）。
+    if (scope) {
+      const res = await this.#kernel.pool.query(
+        `SELECT id, status, kind, left(content::text, 200) AS preview, created_at FROM memory_entries WHERE kind = 'optimizer-suggestion' AND tenant_id = $1 ORDER BY created_at DESC LIMIT 20`,
+        [scope.tenantId],
+      );
+      return res.rows as unknown[];
+    }
     const rows = await this.#kernel.dataWorld.queryReadOnly(
       `SELECT id, status, kind, left(content::text, 200) AS preview, created_at FROM memory_entries WHERE kind = 'optimizer-suggestion' ORDER BY created_at DESC LIMIT 20`,
     );
     return rows as unknown[];
   }
 
-  async applyOptimizer(id: string): Promise<unknown> {
+  async applyOptimizer(id: string, scope?: TenantScope): Promise<unknown> {
     const { applyOptimizerSuggestion } = await import("../../kernel/execution/optimizer-apply.js");
+    // N33 Task 5：有 scope 时把 memory store 钉到调用方 tenant（optimizer-apply 内部
+    // 的 DEFAULT_TENANT_ID 会被 withMemoryTenant 覆盖）；canary/deopt 护栏保持不变。
+    const memory = scope
+      ? withMemoryTenant(this.#kernel.dataWorld.memory, scope.tenantId)
+      : this.#kernel.dataWorld.memory;
     return applyOptimizerSuggestion(
-      this.#kernel.dataWorld.memory,
+      memory,
       id,
       this.#kernel.dataWorld.queryReadOnly,
       (t) => this.#kernel.dataWorld.tasks.publish({ title: t.title, text: t.text, createdBy: "optimizer", tags: t.tags, payload: t.payload }),

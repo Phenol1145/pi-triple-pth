@@ -18,6 +18,8 @@ import { config } from "../config/index.js";
 import { registerEventsRoutes } from "./routes-events.js";
 import { registerDebugRoutes, type DebugGatewayFactory } from "./routes-debug.js";
 import { registerKernelRoutes } from "./routes-kernel.js";
+import { registerIntakeRoutes } from "./routes-intake.js";
+import type { IntakeManualControlService } from "../execution/knowledge-intake/manual-control.js";
 import { registerLineageRoutes } from "./routes-lineage.js";
 import { registerTriggerRoutes } from "./routes-trigger.js";
 import { registerJobRoutes } from "./routes-jobs.js";
@@ -52,6 +54,8 @@ export async function createServer(deps: {
   autopilot?: { status: () => unknown } | null;
   /** P2-5：grant-bound 知识 broker（可选——未装配则 /kernel/knowledge 503） */
   knowledgeBroker?: KnowledgeBroker | null;
+  /** N33 Task 5：intake 手动控制面（可选——未装配则 /intake/* 503） */
+  intakeManualControl?: IntakeManualControlService | null;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
@@ -97,6 +101,8 @@ export async function createServer(deps: {
     registerRuntimeObservationRoutes(app, null);
     registerSystemInspectionRoutes(app, null);
   }
+  // N33 Task 5：intake 原生动作窄端点（独立于 kernel facade——未装配也注册，503 fail-open）
+  registerIntakeRoutes(app, deps.intakeManualControl ?? null);
   registerSelfRoutes(app, deps.toolPlatform, "0.1.0", deps.sandboxMonitor);
 
   app.get("/ws", { websocket: true }, (socket, req) => {

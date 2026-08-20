@@ -255,21 +255,30 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
 
   // ── batch 控制 ───────────────────────────────────────────
   // ── 优化闭环（2026-08-12 体系自制）：建议列表 + 批准应用（监督通道）──
+  // N33 Task 5：两路均 tenant-scoped——有 auth tenant 声明时只读/只应用本 tenant 建议。
   app.get("/api/v1/kernel/optimizer/suggestions", async (req, reply) => {
     if (!facade) return unavailable(reply);
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    const scope: TenantScope | undefined = auth?.tenantId
+      ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
+      : undefined;
     try {
-      return await facade.optimizerSuggestions();
+      return await facade.optimizerSuggestions(scope);
     } catch (e) {
       return reply.code(500).send({ error: (e as Error).message });
     }
   });
   app.post("/api/v1/kernel/optimizer/apply", async (req, reply) => {
     if (!facade) return unavailable(reply);
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    const scope: TenantScope | undefined = auth?.tenantId
+      ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
+      : undefined;
     const body = (req.body ?? {}) as { id?: string };
     const id = String(body.id ?? "").trim();
     if (!id) return reply.code(400).send({ error: "id required" });
     try {
-      const r = await facade.applyOptimizer(id);
+      const r = await facade.applyOptimizer(id, scope);
       if (!(r as { ok?: boolean }).ok) return reply.code(400).send(r);
       return r;
     } catch (e) {

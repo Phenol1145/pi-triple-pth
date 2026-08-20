@@ -800,3 +800,91 @@ describe("P0-3：任务发布的 tenant 只来自 auth token", () => {
     expect(published[0]).not.toMatchObject({ tenant: "tenant-forged" });
   });
 });
+
+describe("N33 Task 5：optimizer 建议/应用 tenant 域化", () => {
+  function optimizerKernel(spies: {
+    poolQueries: Array<{ sql: string; params: unknown[] }>;
+    memoryGets: Array<{ id: string; opts: unknown }>;
+    readOnlySql: string[];
+  }): KernelRuntime {
+    return {
+      pool: {
+        query: async (sql: string, params: unknown[] = []) => {
+          spies.poolQueries.push({ sql, params });
+          return { rows: [] };
+        },
+      } as any,
+      dataWorld: {
+        tasks: { publish: async () => ({ id: "t-x" }), candidates: async () => [], countPending: async () => 0 },
+        memory: {
+          get: async (id: string, opts: unknown) => {
+            spies.memoryGets.push({ id, opts });
+            return null; // 建议不存在 → apply 返回 !ok（只验证 tenant 钉定）
+          },
+        } as any,
+        queryReadOnly: async (sql: string) => {
+          spies.readOnlySql.push(sql);
+          return [];
+        },
+        transcripts: {} as any,
+        audit: {} as any,
+      } as any,
+      batchManager: { listBatches: async () => [], isBatchAlive: () => false } as any,
+      watchdog: { getCrashLog: () => [] } as any,
+      shutdown: async () => {},
+    };
+  }
+
+  function optimizerApp(spies: Parameters<typeof optimizerKernel>[0], auth: unknown): ReturnType<typeof Fastify> {
+    const app = Fastify();
+    if (auth) {
+      app.addHook("onRequest", async (req) => {
+        (req as unknown as { auth: unknown }).auth = auth;
+      });
+    }
+    registerKernelRoutes(app, wrap(optimizerKernel(spies)));
+    return app;
+  }
+
+  it("GET /kernel/optimizer/suggestions 带 auth tenant → 参数化 tenant 过滤（不经 queryReadOnly）", async () => {
+    const spies = { poolQueries: [] as Array<{ sql: string; params: unknown[] }>, memoryGets: [] as Array<{ id: string; opts: unknown }>, readOnlySql: [] as string[] };
+    const app = optimizerApp(spies, { tenantId: "tenant-b", role: "platform-admin" });
+    try {
+      const res = await app.inject({ method: "GET", url: "/api/v1/kernel/optimizer/suggestions" });
+      expect(res.statusCode).toBe(200);
+      expect(spies.readOnlySql).toHaveLength(0);
+      expect(spies.poolQueries).toHaveLength(1);
+      expect(spies.poolQueries[0]!.sql).toContain("tenant_id = $1");
+      expect(spies.poolQueries[0]!.params).toEqual(["tenant-b"]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("POST /kernel/optimizer/apply 带 auth tenant → memory store 钉到该 tenant", async () => {
+    const spies = { poolQueries: [] as Array<{ sql: string; params: unknown[] }>, memoryGets: [] as Array<{ id: string; opts: unknown }>, readOnlySql: [] as string[] };
+    const app = optimizerApp(spies, { tenantId: "tenant-b", role: "platform-admin" });
+    try {
+      const res = await app.inject({ method: "POST", url: "/api/v1/kernel/optimizer/apply", payload: { id: "sug-1" } });
+      expect(res.statusCode).toBe(400); // 建议不存在（fake get → null）
+      expect(spies.memoryGets).toHaveLength(1);
+      expect(spies.memoryGets[0]).toMatchObject({ id: "sug-1", opts: { tenantId: "tenant-b" } });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("无 auth → 缺省路径（queryReadOnly 无 tenant 过滤，行为与既有版本一致）", async () => {
+    const spies = { poolQueries: [] as Array<{ sql: string; params: unknown[] }>, memoryGets: [] as Array<{ id: string; opts: unknown }>, readOnlySql: [] as string[] };
+    const app = optimizerApp(spies, null);
+    try {
+      const res = await app.inject({ method: "GET", url: "/api/v1/kernel/optimizer/suggestions" });
+      expect(res.statusCode).toBe(200);
+      expect(spies.poolQueries).toHaveLength(0);
+      expect(spies.readOnlySql).toHaveLength(1);
+      expect(spies.readOnlySql[0]).not.toContain("tenant_id = $1");
+    } finally {
+      await app.close();
+    }
+  });
+});
