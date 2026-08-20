@@ -1,0 +1,72 @@
+{
+  "schema": "v14-operator-console-ux-acceptance/1",
+  "generatedAt": "2026-08-20T18:51:33.842Z",
+  "plan": "docs/superpowers/plans/2026-08-21-v14-operator-console-ux.md",
+  "evaluatedCommit": "a9f1f162d797415798f799836a053dbcbe4a20a3",
+  "implementationTreeClean": true,
+  "decision": "GO",
+  "gates": {
+    "cleanTree": {
+      "exitCode": 0,
+      "note": "clean"
+    },
+    "evaluatedCommit": {
+      "exitCode": 0,
+      "note": "a9f1f162d797415798f799836a053dbcbe4a20a3"
+    },
+    "evaluator": {
+      "exitCode": 0,
+      "note": "decision=PASS denominators={\"pages\":5,\"uiPrimitives\":13,\"designTokens\":4,\"manifestFiles\":14,\"manifestDigestsOk\":14,\"moduleGraphServed\":14,\"upstreamErrors\":3,\"requestIds\":3,\"leakedSentinels\":0}"
+    },
+    "typecheckWeb": {
+      "exitCode": 0,
+      "note": "\n> @away_from/framework@1.3.0 typecheck:web\n> tsc --noEmit -p web/operator-console-src/tsconfig.json\n\n"
+    },
+    "playwright": {
+      "exitCode": 0,
+      "note": "away_from/framework@1.3.0 test:e2e\n> playwright test\n\n\nRunning 4 tests using 1 worker\n\n  ✓  1 [chromium] › e2e/operator-console.spec.ts:23:3 › Operator Console v1.4 › 五页导航与数据页 (414ms)\n  ✓  2 [chromium] › e2e/operator-console.spec.ts:41:3 › Operator Console v1.4 › secret 零泄漏与键盘聚焦可见 (75ms)\n  ✓  3 [chromium] › e2e/operator-console.spec.ts:53:3 › Operator Console v1.4 › 移动端视口仍可导航 (47ms)\n  ✓  4 [chromium] › e2e/operator-console.spec.ts:62:3 › Operator Console v1.4 › 五页截图基线 (2.6s)\n\n  4 passed (19.2s)\n"
+    },
+    "focused": {
+      "exitCode": 0,
+      "note": "files=19 tests=141 passed=141 failed=0 skipped=0",
+      "skipped": 0,
+      "failed": 0
+    },
+    "full": {
+      "exitCode": 0,
+      "note": "files=351 tests=3062 passed=3053 failed=0 skipped=9",
+      "skipped": 9,
+      "failed": 0
+    },
+    "lint": {
+      "exitCode": 0,
+      "note": "_from/pi-triple@1.3.0 check:pth-boundaries\n> tsx scripts/check-pth-boundaries.ts\n\n── pth-boundaries：当前违规 0 条 ──\n✅ 无新增边界违规\n\n> @away_from/pi-triple@1.3.0 check:pth-config\n> tsx scripts/check-pth-config.ts\n\n── pth-config：schema 129 键 · 直读 0（pth + pth-sandbox src）· compose 未声明 91 键 ──\n✅ pth-config 检查通过\n"
+    },
+    "build": {
+      "exitCode": 0,
+      "note": "s\noperator-console public assets validated: 14 files (assets/api.js, assets/config.js, assets/debug.js, assets/index.css, assets/index.js, assets/index2.css, assets/index3.css, assets/index4.css, assets/index5.css, assets/index6.css, assets/memory.js, assets/overview.js, assets/work.js, index.html)\n"
+    },
+    "n29Envelope": {
+      "exitCode": 0,
+      "note": "MIN_INNER_LOOP_GO"
+    },
+    "n30Envelope": {
+      "exitCode": 0,
+      "note": "GO"
+    },
+    "n33Envelope": {
+      "exitCode": 0,
+      "note": "GO"
+    }
+  },
+  "reasons": [],
+  "skipManifest": {
+    "allowed": [
+      {
+        "file": "test/pth-execution/sandbox-security.integration.test.ts",
+        "tests": 9
+      }
+    ],
+    "observed": 9
+  }
+}
