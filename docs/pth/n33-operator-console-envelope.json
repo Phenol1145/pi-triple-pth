@@ -1,0 +1,56 @@
+{
+  "schema": "n33-operator-console-acceptance/1",
+  "generatedAt": "2026-08-20T16:11:08.590Z",
+  "plan": "docs/superpowers/plans/2026-08-19-v13-ptl-operator-console.md",
+  "evaluatedCommit": "16475b01ee273b6a439ff7cbd8d2c813446acf94",
+  "implementationTreeClean": true,
+  "decision": "GO",
+  "gates": {
+    "cleanTree": {
+      "exitCode": 0,
+      "note": "clean"
+    },
+    "evaluatedCommit": {
+      "exitCode": 0,
+      "note": "16475b01ee273b6a439ff7cbd8d2c813446acf94"
+    },
+    "evaluator": {
+      "exitCode": 0,
+      "note": "decision=PASS"
+    },
+    "focused": {
+      "exitCode": 0,
+      "note": "files=22 tests=172 passed=172 failed=0 skipped=0",
+      "skipped": 0,
+      "failed": 0
+    },
+    "full": {
+      "exitCode": 0,
+      "note": "files=348 tests=3025 passed=3016 failed=0 skipped=9",
+      "skipped": 9,
+      "failed": 0
+    },
+    "lint": {
+      "exitCode": 0,
+      "note": "_from/pi-triple@1.2.0 check:pth-boundaries\n> tsx scripts/check-pth-boundaries.ts\n\n── pth-boundaries：当前违规 0 条 ──\n✅ 无新增边界违规\n\n> @away_from/pi-triple@1.2.0 check:pth-config\n> tsx scripts/check-pth-config.ts\n\n── pth-config：schema 129 键 · 直读 0（pth + pth-sandbox src）· compose 未声明 91 键 ──\n✅ pth-config 检查通过\n"
+    },
+    "build": {
+      "exitCode": 0,
+      "note": "memory && tsc -p packages/pth-sandbox && tsc -p packages/framework && node scripts/copy-framework-web-assets.mjs && tsc -p packages/mailbox && tsc -p packages/dev-container && tsc -p tsconfig.json\n\noperator-console public assets copied: app.js, config.js, debug.js, index.html, memory.js, styles.css\n"
+    },
+    "n30Envelope": {
+      "exitCode": 0,
+      "note": "GO"
+    }
+  },
+  "reasons": [],
+  "skipManifest": {
+    "allowed": [
+      {
+        "file": "test/pth-execution/sandbox-security.integration.test.ts",
+        "tests": 9
+      }
+    ],
+    "observed": 9
+  }
+}
