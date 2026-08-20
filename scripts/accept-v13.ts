@@ -151,7 +151,14 @@ async function collect(output?: string): Promise<void> {
   }
 
   if (focused.started && focused.exitCode !== 0) reasons.push(`focused: exit=${String(focused.exitCode)}`);
-  if (full.started && full.exitCode !== 0) reasons.push(`full: exit=${String(full.exitCode)}`);
+  if (full.started && full.exitCode !== 0) {
+    reasons.push(`full: exit=${String(full.exitCode)}`);
+    try {
+      await writeFile("/tmp/v13-full-failed.json", await readFile(fullJson));
+    } catch {
+      // 诊断副本失败不改变权威决策
+    }
+  }
   for (const gate of ["lint", "build"] as const) {
     const g = gates[gate];
     if (g.exitCode !== 0 && !reasons.some((r) => r === `${gate} unavailable: EVALUATION-INCOMPLETE`)) reasons.push(`${gate} non-zero`);
