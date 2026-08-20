@@ -191,7 +191,7 @@ function renderKpi(renderedAt) {
     ["queue", summary.queuedTasks ?? 0],
     ["CPU", latest ? fmtPct(latest.cpuPercent) : "unknown"],
     ["RSS", latest ? fmtBytes(latest.rssBytes) : "unknown"],
-    ["alerts", summary.alerts ?? 0],
+    ["alerts", Array.isArray(summary.alerts) ? summary.alerts.length : (summary.alerts ?? 0)],
   ];
   $("kpi").innerHTML = cells.map(([k, v]) => `<div class="cell"><div class="v">${esc(v)}</div><div class="k">${k}</div></div>`).join("");
 }

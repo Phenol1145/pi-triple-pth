@@ -168,6 +168,8 @@ describe("docker-monitor createMonitorServer", () => {
       expect(snap.sources[0].source).toBe("docker");
       expect(snap.sources[0].state).toBe("fresh");
       expect(snap.sources[0].expectedIntervalMs).toBe(2000);
+      // 正常场景：告警为空数组（不是占位 0）。
+      expect(snap.summary.alerts).toEqual([]);
     } finally {
       await monitor.close();
     }
@@ -193,6 +195,90 @@ describe("docker-monitor createMonitorServer", () => {
       expect(types).toContain("service-interval");
       expect(types).toContain("heartbeat");
       for (const ev of events) expect(ev.id).toBeTruthy();
+    } finally {
+      await monitor.close();
+    }
+  });
+
+  it("/snapshot 在 PTH heartbeat stale 时产生 alert，/events 发出 alert 事件（upsert id + 全局 seq）", async () => {
+    let nowMs = 0;
+    let pthDown = false;
+    const pthFetch = vi.fn(async (url: string, init: { method: string }) => {
+      const parsed = new URL(url);
+      expect(init.method).toBe("GET");
+      if (parsed.pathname.endsWith("/runtime/events")) {
+        return new Response("", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      }
+      expect(parsed.pathname).toBe("/api/v1/observe/timeline");
+      if (pthDown) throw new Error("pth down");
+      return new Response(JSON.stringify({
+        intervals: [],
+        nextCursor: null,
+        window: { from: nowMs - 3_600_000, to: nowMs },
+        scope: { mode: "local-admin", tenantId: "tenant-a" },
+        sourceObservedAt: nowMs,
+        collectedAt: nowMs,
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const monitor = createMonitorServer({
+      port: 0,
+      intervalMs: 2000,
+      docker: makeDocker({ getContainers: vi.fn(async () => []) }),
+      clock: () => nowMs,
+      pth: {
+        endpoint: "http://127.0.0.1:4000",
+        token: "runtime-observer-test-token",
+        fetchImpl: pthFetch,
+      },
+    });
+
+    // 首次成功：pth-timeline fresh → alerts 为空数组。
+    await monitor.collectOnce();
+    expect(monitor.snapshot().summary.alerts).toEqual([]);
+
+    // 先以健康 PTH 启动服务器（pthClient.start() 的即时 poll 不会失败）。
+    const port = await startAndGetPort(monitor);
+    try {
+      // PTH 失败且时间越过 staleAfterMs → /snapshot 的 summary.alerts 非空且形状正确。
+      pthDown = true;
+      nowMs = 16_001;
+      await monitor.collectOnce();
+      const snap = monitor.snapshot();
+      expect(Array.isArray(snap.summary.alerts)).toBe(true);
+      expect(snap.summary.alerts.length).toBeGreaterThan(0);
+
+      const staleAlert = snap.summary.alerts.find((a: { code?: string }) => a.code === "heartbeat.stale");
+      expect(staleAlert).toBeTruthy();
+      expect(staleAlert.source).toBe("pth-timeline");
+      expect(staleAlert.interval).toBeNull();
+      expect(Number.isFinite(staleAlert.evidenceWindow.from)).toBe(true);
+      expect(staleAlert.evidenceWindow.to).toBe(nowMs);
+      expect(staleAlert.id).toContain("heartbeat.stale:pth-timeline:");
+
+      // /events 初始连接在 snapshot 后发送 alert 事件，且事件 ID 单调（全局 seq）。
+      const res = await fetch(`http://127.0.0.1:${port}/events`, { signal: AbortSignal.timeout(3000) });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+
+      const events = await readSseEvents(res, 4);
+      const alertEvents = events.filter((ev) => ev.event === "alert");
+      expect(alertEvents.length).toBeGreaterThan(0);
+      const alertPayload = JSON.parse(alertEvents[0]!.data!);
+      expect(alertPayload.code).toBe("heartbeat.stale");
+      expect(alertPayload.source).toBe("pth-timeline");
+      expect(alertPayload.id).toContain("heartbeat.stale:pth-timeline:");
+
+      const ids = events.map((ev) => Number(ev.id)).filter((n) => Number.isFinite(n));
+      for (let i = 1; i < ids.length; i += 1) {
+        expect(ids[i]).toBeGreaterThan(ids[i - 1]!);
+      }
     } finally {
       await monitor.close();
     }

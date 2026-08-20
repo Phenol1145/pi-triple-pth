@@ -88,7 +88,11 @@ function makeAlert(code, {
   threshold,
   message,
 }) {
+  const intervalId = isRecord(interval) && typeof interval.id === "string" ? interval.id : "";
+  const from = isRecord(evidenceWindow) && isFiniteNumber(evidenceWindow.from) ? evidenceWindow.from : 0;
   return {
+    // 稳定身份：同一告警在重复评估/重复 SSE 推送时按 id upsert，不产生重复条目。
+    id: `${code}:${source}:${intervalId}:${from}`,
     code,
     severity,
     source,

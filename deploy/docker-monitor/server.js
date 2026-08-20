@@ -18,6 +18,7 @@ import { computeMetrics, buildContainerInterval } from "./metrics.js";
 import { createTimeSeriesRing } from "./ring-buffer.js";
 import { createPthClient } from "./pth-client.js";
 import { createRuntimeAggregator } from "./runtime-aggregator.js";
+import { evaluateAlerts } from "./alerts.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MAX_AGE_MS = 3_600_000;
@@ -172,15 +173,27 @@ export function createMonitorServer({
     });
     const pthIntervals = pthClient ? aggregator.getIntervals() : [];
     const allIntervals = [...dockerIntervals, ...pthIntervals];
+    const sources = buildSourceStates();
+    const samples = ring.range(from, collectedAt);
+    const summary = computeSummary(allIntervals);
+    // 只读告警评估：输入聚合区间 + 有界样本 + 来源 freshness；
+    // evaluateAlerts 不持有、也不调用任何控制 API。
+    const alerts = evaluateAlerts({
+      now: collectedAt,
+      sources,
+      summary,
+      intervals: allIntervals,
+      samples,
+    });
     const snapshot = {
       snapshotId: `local-${collectedAt}-${allIntervals.length}-${ring.size}`,
       collectedAt,
       window: { from, to: collectedAt },
       scope: pthScope ?? { mode: "local-admin", tenantId: "local" },
-      summary: computeSummary(allIntervals),
+      summary: { ...summary, alerts },
       intervals: allIntervals,
-      samples: ring.range(from, collectedAt),
-      sources: buildSourceStates(),
+      samples,
+      sources,
       warnings: [],
     };
     return snapshot;
@@ -348,7 +361,12 @@ export function createMonitorServer({
       }
     }
 
-    return buildSnapshot();
+    const snapshot = buildSnapshot();
+    // 告警 upsert：每条告警带稳定 id，客户端按 id 去重；seq 由 broadcast 统一分配。
+    for (const alert of snapshot.summary.alerts ?? []) {
+      broadcast("alert", alert);
+    }
+    return snapshot;
   }
 
   const server = createServer((req, res) => {
@@ -396,6 +414,7 @@ export function createMonitorServer({
       for (const iv of dockerIntervals) sseSend(res, "service-interval", iv);
       for (const s of snap.samples) sseSend(res, "resource-sample", s);
       sseSend(res, "snapshot", snap);
+      for (const alert of snap.summary.alerts ?? []) sseSend(res, "alert", alert);
       sseSend(res, "freshness", { sources: buildSourceStates(), observedAt });
 
       const timer = setInterval(() => {
