@@ -1,60 +1,58 @@
 #!/usr/bin/env node
 /**
- * copy-framework-web-assets.mjs — 将 framework 的 operator-console Web 壳
- * 确定性地复制到 dist/operator-console/public。
+ * copy-framework-web-assets.mjs —— v1.4：Vite 构建产物校验（不再复制 legacy 文件）。
  *
- * 约束：只允许 index.html / styles.css / app.js + debug.js / memory.js / config.js；拒绝符号链接与未知扩展名；
- * 复制前只删除该目标目录，不触碰其他产物。
+ * `npm run build:web` 已把 Preact 应用写入 packages/framework/dist/operator-console/public，
+ * 并生成 asset-manifest.json。本脚本只做发行级校验：
+ *  - manifest 是唯一允许服务清单，必须包含 index.html；
+ *  - 每个清单文件必须存在、扩展名在白名单内、sha256 与磁盘一致；
+ *  - public 目录内除了清单文件外不得出现未列入清单的文件（fail-closed）。
  */
 
-import { mkdirSync, readdirSync, rmSync, copyFileSync, lstatSync, existsSync } from "node:fs";
-import { dirname, extname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const sourceDir = join(root, "packages", "framework", "web", "operator-console");
-const destDir = join(root, "packages", "framework", "dist", "operator-console", "public");
+const publicDir = join(root, "packages", "framework", "dist", "operator-console", "public");
+const manifestPath = join(publicDir, "asset-manifest.json");
+const ALLOWED_EXTENSIONS = new Set([".html", ".css", ".js", ".svg", ".ico", ".png", ".webp", ".woff", ".woff2"]);
 
-// v1.3 N33：T6/T7/T8 新增的纯页面模块与壳三件套同等对待（仍拒绝一切未知扩展名/符号链接）。
-const ALLOWED_FILES = new Set(["index.html", "styles.css", "app.js", "debug.js", "memory.js", "config.js"]);
-const ALLOWED_EXTENSIONS = new Set([".html", ".css", ".js"]);
-
-function copyRecursive(from, to) {
-  if (!existsSync(from)) {
-    throw new Error(`operator-console web source missing: ${from}`);
-  }
-  const stat = lstatSync(from);
-  if (stat.isSymbolicLink()) {
-    throw new Error(`operator-console web assets must not contain symlinks: ${from}`);
-  }
-  if (stat.isDirectory()) {
-    mkdirSync(to, { recursive: true });
-    for (const entry of readdirSync(from)) {
-      copyRecursive(join(from, entry), join(to, entry));
-    }
-    return;
-  }
-  if (!stat.isFile()) {
-    throw new Error(`operator-console web asset is not a regular file: ${from}`);
-  }
-  const name = from.split("/").pop();
-  if (!ALLOWED_FILES.has(name)) {
-    throw new Error(`operator-console web asset not allowed: ${from}`);
-  }
-  const ext = extname(from);
-  if (!ALLOWED_EXTENSIONS.has(ext)) {
-    throw new Error(`operator-console web asset has unknown extension: ${from}`);
-  }
-  copyFileSync(from, to);
+function fail(message) {
+  throw new Error(`operator-console web asset validation failed: ${message}`);
 }
 
-rmSync(destDir, { recursive: true, force: true });
-mkdirSync(destDir, { recursive: true });
-copyRecursive(sourceDir, destDir);
+if (!existsSync(manifestPath)) fail("asset-manifest.json missing");
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+if (!manifest || typeof manifest !== "object" || !manifest["index.html"]) fail("manifest must contain index.html");
 
-const copied = readdirSync(destDir).sort();
-if (copied.length !== ALLOWED_FILES.size || copied.some((f) => !ALLOWED_FILES.has(f))) {
-  throw new Error(`operator-console public directory must contain exactly the allowed assets; got: ${copied.join(", ")}`);
+const listed = new Set(Object.keys(manifest));
+for (const [rel, entry] of Object.entries(manifest)) {
+  if (!entry || entry.path !== rel || typeof entry.sha256 !== "string" || typeof entry.mime !== "string") {
+    fail(`manifest entry invalid: ${rel}`);
+  }
+  const ext = extname(rel);
+  if (!ALLOWED_EXTENSIONS.has(ext)) fail(`manifest extension not allowed: ${rel}`);
+  const full = join(publicDir, rel);
+  if (!existsSync(full)) fail(`manifest file missing: ${rel}`);
+  const buffer = readFileSync(full);
+  const digest = createHash("sha256").update(buffer).digest("hex");
+  if (digest !== entry.sha256) fail(`digest mismatch: ${rel}`);
 }
 
-console.log(`operator-console public assets copied: ${copied.join(", ")}`);
+function listFiles(dir) {
+  const out = [];
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...listFiles(full));
+    else out.push(relative(publicDir, full));
+  }
+  return out;
+}
+for (const rel of listFiles(publicDir)) {
+  if (rel === "asset-manifest.json") continue;
+  if (!listed.has(rel)) fail(`file not listed in manifest: ${rel}`);
+}
+
+console.log(`operator-console public assets validated: ${listed.size} files (${[...listed].sort().join(", ")})`);
