@@ -29,8 +29,7 @@ import {
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE_DOC = resolve(ROOT, "docs/pth/n16-v1.2-role-expansion.md");
-const OUT_DIR = resolve(ROOT, "src/pth/catalog/data");
-const OUT_FILE = resolve(OUT_DIR, "discipline-catalog-data.ts");
+const OUT_FILE = resolve(ROOT, "src/pth/catalog/data/discipline-catalog-data.ts");
 
 const EXPECTED_COUNTS = { category: 5, discipline: 32, subDiscipline: 147, total: 184 };
 const GEN_TO_LEVEL: Record<string, DomainLevel> = {
@@ -139,12 +138,7 @@ function assertCounts(defs: DomainDefinition[]) {
   return counts;
 }
 
-function renderPart(
-  filename: string,
-  name: string,
-  defs: DomainDefinition[],
-  counts: ReturnType<typeof levelCounts>,
-): string {
+function renderSource(defs: DomainDefinition[], counts: ReturnType<typeof levelCounts>): string {
   const json = JSON.stringify(defs, null, 2);
   return `/**
  * GENERATED FILE — 请勿手改。
@@ -158,59 +152,8 @@ function renderPart(
  */
 import type { DomainDefinition } from "../../contracts/domains.js";
 
-export const ${name}: DomainDefinition[] = ${json};
+export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = ${json};
 `;
-}
-
-function chunk<T>(items: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    out.push(items.slice(i, i + size));
-  }
-  return out;
-}
-
-function renderParts(defs: DomainDefinition[], counts: ReturnType<typeof levelCounts>): Array<{ filename: string; source: string }> {
-  const categories = defs.filter((d) => d.level === "category");
-  const disciplines = defs.filter((d) => d.level === "discipline");
-  const subdisciplines = defs.filter((d) => d.level === "sub-discipline");
-  const subChunks = chunk(subdisciplines, Math.ceil(subdisciplines.length / 4));
-
-  const parts: Array<{ filename: string; name: string; defs: DomainDefinition[] }> = [
-    { filename: "discipline-catalog-categories.ts", name: "DISCIPLINE_CATEGORY_DEFINITIONS", defs: categories },
-    { filename: "discipline-catalog-disciplines.ts", name: "DISCIPLINE_DEFINITION_ENTRIES", defs: disciplines },
-  ];
-  subChunks.forEach((chunkItems, index) => {
-    parts.push({
-      filename: `discipline-catalog-subdisciplines-${index + 1}.ts`,
-      name: `DISCIPLINE_SUBDISCIPLINE_DEFINITIONS_${index + 1}`,
-      defs: chunkItems,
-    });
-  });
-
-  const rendered = parts.map((part) => ({
-    filename: part.filename,
-    source: renderPart(part.filename, part.name, part.defs, counts),
-  }));
-
-  const imports = parts.map((part) => `import { ${part.name} } from "./${part.filename.replace(/\.ts$/, ".js")}";`).join("\n");
-  const barrel = `/**
- * GENERATED FILE — 请勿手改。本文件只是分片 barrel：拼接顺序必须与生成器一致。
- * 生成命令：npx tsx scripts/build-discipline-catalog.ts
- * 数量断言（manifest 复算）：category=${counts.category}、discipline=${counts.discipline}、
- *   sub-discipline=${counts.subDiscipline}、total=${counts.total}。
- */
-import type { DomainDefinition } from "../../contracts/domains.js";
-${imports}
-
-export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = [
-  ...DISCIPLINE_CATEGORY_DEFINITIONS,
-  ...DISCIPLINE_DEFINITION_ENTRIES,
-${subChunks.map((_, index) => `  ...DISCIPLINE_SUBDISCIPLINE_DEFINITIONS_${index + 1},`).join("\n")}
-];
-`;
-  rendered.push({ filename: "discipline-catalog-data.ts", source: barrel });
-  return rendered;
 }
 
 function main(): void {
@@ -218,28 +161,24 @@ function main(): void {
   const baseDefs = buildDefinitions(parseRows(markdown));
   const defs = applyDisciplineAliasOverrides(baseDefs, PRODUCTION_DOMAIN_ALIAS_OVERRIDES);
   const counts = assertCounts(defs);
-  const parts = renderParts(defs, counts);
+  const source = renderSource(defs, counts);
   const checkMode = process.argv.includes("--check");
 
   if (checkMode) {
-    for (const part of parts) {
-      const disk = readFileSync(resolve(OUT_DIR, part.filename), "utf8");
-      if (disk !== part.source) {
-        fail(`--check 失败：${part.filename} 与重新解析内容不一致——请运行 npx tsx scripts/build-discipline-catalog.ts 重新生成`);
-      }
+    const disk = readFileSync(OUT_FILE, "utf8");
+    if (disk !== source) {
+      fail("--check 失败：磁盘文件与重新解析内容不一致——请运行 npx tsx scripts/build-discipline-catalog.ts 重新生成");
     }
     console.log(
-      `✓ --check 一致（${parts.length} 个文件）：category=${counts.category} discipline=${counts.discipline} ` +
+      `✓ --check 一致：category=${counts.category} discipline=${counts.discipline} ` +
         `sub-discipline=${counts.subDiscipline} total=${counts.total}`,
     );
     return;
   }
 
-  mkdirSync(OUT_DIR, { recursive: true });
-  for (const part of parts) {
-    writeFileSync(resolve(OUT_DIR, part.filename), part.source, "utf8");
-  }
-  console.log(`✓ 已生成 ${parts.length} 个文件到 ${relative(ROOT, OUT_DIR)}`);
+  mkdirSync(dirname(OUT_FILE), { recursive: true });
+  writeFileSync(OUT_FILE, source, "utf8");
+  console.log(`✓ 已生成 ${relative(ROOT, OUT_FILE)}`);
   console.log(
     `✓ manifest 复算：category=${counts.category} discipline=${counts.discipline} ` +
       `sub-discipline=${counts.subDiscipline} total=${counts.total}`,
