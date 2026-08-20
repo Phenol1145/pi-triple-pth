@@ -93,7 +93,7 @@ async function collect(output?: string): Promise<void> {
     "test/pth-kernel-execution/professional-roles.test.ts",
   ];
   const focused = runGate(
-    `npx vitest run ${focusedFiles.join(" ")} --reporter=json --outputFile ${focusedJson} --hookTimeout 60000 --testTimeout 180000`,
+    `npx vitest run ${focusedFiles.join(" ")} --reporter=json --outputFile ${focusedJson} --hookTimeout 60000 --testTimeout 180000 --maxWorkers=2`,
     { cwd: repoRoot, unavailableReason: unavailable("toolchain") ?? unavailable("docker"), timeoutMs: 3_600_000 },
   );
 
@@ -123,7 +123,11 @@ async function collect(output?: string): Promise<void> {
     reasons.push("focused unavailable: EVALUATION-INCOMPLETE");
   }
 
-  const full = runGate(`npm test -- --reporter=json --outputFile ${fullJson} --hookTimeout 60000`, {
+  // 环境复位（非门禁）：focused 真实工具链运行后清掉容器内残留进程，避免 full 假失败。
+  if (unavailable("toolchain") === undefined && unavailable("docker") === undefined) {
+    runGate("docker restart v13-asm-toolchain && sleep 2", { cwd: repoRoot, timeoutMs: 120_000 });
+  }
+  const full = runGate(`npm test -- --reporter=json --outputFile ${fullJson} --hookTimeout 60000 --maxWorkers=4`, {
     cwd: repoRoot, unavailableReason: unavailable("toolchain") ?? unavailable("docker"), timeoutMs: 5_400_000,
   });
   if (full.started) {
