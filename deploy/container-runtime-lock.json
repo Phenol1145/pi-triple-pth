@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "runtimes": [
+    {
+      "id": "docker",
+      "allowed": true,
+      "versionConstraint": ">=20.10.0",
+      "sockets": ["/var/run/docker.sock"],
+      "probe": {
+        "method": "GET",
+        "path": "/_ping",
+        "successStatus": [200],
+        "timeoutMs": 2000
+      },
+      "version": {
+        "method": "GET",
+        "path": "/version",
+        "field": "Version",
+        "timeoutMs": 2000
+      }
+    },
+    {
+      "id": "orbstack",
+      "allowed": true,
+      "versionConstraint": ">=1.0.0",
+      "sockets": ["${HOME}/.orbstack/run/docker.sock"],
+      "probe": {
+        "method": "GET",
+        "path": "/_ping",
+        "successStatus": [200],
+        "timeoutMs": 2000
+      },
+      "version": {
+        "method": "GET",
+        "path": "/version",
+        "field": "Version",
+        "timeoutMs": 2000
+      }
+    },
+    {
+      "id": "podman",
+      "allowed": true,
+      "versionConstraint": ">=4.0.0",
+      "sockets": ["${XDG_RUNTIME_DIR}/podman/podman.sock", "/run/user/${UID}/podman/podman.sock"],
+      "probe": {
+        "method": "GET",
+        "path": "/_ping",
+        "successStatus": [200],
+        "timeoutMs": 2000
+      },
+      "version": {
+        "method": "GET",
+        "path": "/version",
+        "field": "Version",
+        "timeoutMs": 2000
+      }
+    }
+  ]
+}
