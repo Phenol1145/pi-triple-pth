@@ -65,7 +65,7 @@ describe("v1.3 Task 3：五个显式专业角色（explicit-only）", () => {
 
   it("role→runtime 与 professional-runtime.ts allowlist 对齐", () => {
     expect(professionalRuntimeIdsForRole("assembly-engineer")).toEqual(["assembly"]);
-    expect(professionalRuntimeIdsForRole("computational-chemist")).toEqual(["psi4", "quantum-espresso"]);
+    expect(professionalRuntimeIdsForRole("computational-chemist")).toEqual(["psi4", "quantum-espresso", "cp2k"]);
     expect(professionalRuntimeIdsForRole("lean4-prover")).toEqual(["lean4"]);
     expect(professionalRuntimeIdsForRole("symbolic-mathematician")).toEqual(["wolfram"]);
     expect(professionalRuntimeIdsForRole("technical-educator")).toEqual(["jupyter"]);
