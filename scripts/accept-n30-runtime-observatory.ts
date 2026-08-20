@@ -159,14 +159,17 @@ function passedTitle(assertions: readonly VitestAssertion[], file: string, patte
 
 export function deriveN30RealismGates(assertions: readonly VitestAssertion[]): RealismGateEvidence[] {
   const dockerComposition = passedTitle(
+    assertions,
     "test/pth-composition/runtime-observatory.integration.test.ts",
     /monitor \/snapshot 合并真实 PG durable timeline/,
   );
   const longRun = passedTitle(
+    assertions,
     "test/pth-composition/runtime-observatory-long-run.test.ts",
     /ring 内存：14,400 个样本后只保留 1,800 条/,
   );
   const browser = passedTitle(
+    assertions,
     "test/browser/runtime-observatory.test.ts",
     /页面源码与浏览器模块不含 Docker socket 路径或凭据字段/,
   );
