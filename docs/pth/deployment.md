@@ -27,7 +27,7 @@ docker-compose.yaml
 ### 2.2 配置统一 secrets 文件（deploy/.env.pth.secrets）
 
 ```bash
-npm run pth -- init        # 复制 example + chmod 600（已有文件会拒绝，需 --force）
+pth init        # 复制 example + chmod 600（已有文件会拒绝，需 --force）
 # 或手动：cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets
 # 编辑 deploy/.env.pth.secrets——替换全部 dev-only 值（该文件已 gitignore）
 ```
@@ -43,16 +43,16 @@ npm run pth -- init        # 复制 example + chmod 600（已有文件会拒绝�
 # tenant/space 只能来自该 token 声明；请求体自报 space 会被拒绝（P0-1）
 ```
 
-性能参数仍在 §3 全表（代码内默认值；`npm run pth -- config` 可看全量）。
+性能参数仍在 §3 全表（代码内默认值；`pth config` 可看全量）。
 
 ### 2.3 拉起（推荐：`pth up` 一条命令）
 
 ```bash
-npm run pth -- up
+pth up
 # 内部：up -d postgres redis → 等 healthy → up -d pi-platform sandbox → 等 healthy
 #       → 生成 64-hex operator token（tenantId=ops, role=platform-admin）写入 Redis
 #       → 验证 /health + /api/v1/self/version → 打印 PTH_API/PTH_TOKEN
-npm run pth -- status        # 栈健康 + API /health
+pth status        # 栈健康 + API /health
 ```
 
 手动等价命令（依赖顺序：先数据层，再应用层）：

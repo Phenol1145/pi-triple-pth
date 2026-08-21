@@ -283,7 +283,7 @@ export function createOperatorConsoleServer(deps: OperatorConsoleServerDeps): Op
         sendEmpty(res, 405, { allow: "GET, HEAD" });
         return;
       }
-      sendJson(res, 200, { api: "v1", service: "ptl-operator-console", version: "1.4.0" });
+      sendJson(res, 200, { api: "v1", service: "ptl-operator-console", version: "1.5.0" });
       return;
     }
 

@@ -27,8 +27,8 @@ ConfigCenter（env 优先，schema 兜底）  ← set/on：runtime 键运行时�
 ## 2. 查看配置
 
 ```bash
-npm run pth -- config              # 分组表（默认值/runtime/scope；密钥 ***）
-npm run pth -- config export       # 输出 ptl config set pth.url/pth.token（PTL 迁移通道）
+pth config              # 分组表（默认值/runtime/scope；密钥 ***）
+pth config export       # 输出 ptl config set pth.url/pth.token（PTL 迁移通道）
 npm run check:pth-config -- --report  # schema 统计 + compose 覆盖度报告
 ```
 

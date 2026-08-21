@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+**/dist
+coverage
+test-results
+playwright-report
+deploy/.env.pth.secrets
+.*-work-*
+*.log

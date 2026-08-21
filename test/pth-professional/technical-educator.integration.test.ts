@@ -57,9 +57,9 @@ const TOOLCHAIN_PREFIX = [
   "-e", "OMPI_MCA_rmaps_base_oversubscribe=1", "-e", "OMPI_MCA_orte_allow_run_as_root=1",
   "v13-asm-toolchain",
 ];
-/** jupyter 服务容器（仓库挂在 /works/pi-platform，前缀不同——需路径翻译）。 */
+/** jupyter 服务容器（仓库经 compose 挂载到 /works/pi-triple-pth，前缀不同——需路径翻译）。 */
 const JUPYTER_PREFIX = ["docker", "exec", "pi-platform-jupyter-1"];
-const pathForJupyter = (hostPath: string) => hostPath.replace("/Users/anzhize/pi-platform", "/works/pi-platform");
+const pathForJupyter = (hostPath: string) => hostPath.replace(REPO_ROOT, "/works/pi-triple-pth");
 
 const ASM_WORK_DIR = join(REPO_ROOT, `.edu-asm-work-${process.pid}`);
 const LEAN_WORK_DIR = join(REPO_ROOT, `.edu-lean-work-${process.pid}`);

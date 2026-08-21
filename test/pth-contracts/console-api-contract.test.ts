@@ -97,7 +97,7 @@ describe("console API contract", () => {
     for (const path of ["/api/v1/version", "/api/version"]) {
       const response = await request(app.port, "GET", path);
       expect(response.status, path).toBe(200);
-      expect(JSON.parse(response.body)).toEqual({ api: "v1", service: "ptl-operator-console", version: "1.4.0" });
+      expect(JSON.parse(response.body)).toEqual({ api: "v1", service: "ptl-operator-console", version: "1.5.0" });
     }
   });
 

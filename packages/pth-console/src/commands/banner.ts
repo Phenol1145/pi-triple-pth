@@ -3,7 +3,7 @@
  * 不 import framework（PTL 侧）；版本由 pth-console 包自身声明。
  */
 
-export const PTH_CONSOLE_VERSION = "1.4.0";
+export const PTH_CONSOLE_VERSION = "1.5.0";
 
 export function printPthBanner(): void {
   console.log("");

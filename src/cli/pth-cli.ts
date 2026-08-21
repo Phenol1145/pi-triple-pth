@@ -2,7 +2,7 @@
 /**
  * pth-cli —— PTH 任务派发 CLI（2026-08-12：消除裸 curl 派发摩擦）
  *
- * 用法（npm run pth -- <cmd> ...）：
+ * 用法（pth <cmd> ...）：
  *   pth init [--force]                          # 初始化 deploy/.env.pth.secrets
  *   pth up [--rebuild] [--no-seed-token]        # compose 拉起 PTH 全栈并验证
  *   pth down [--volumes]                        # 停止 PTH 栈
@@ -13,7 +13,6 @@
  *   pth status <taskId>
  *   pth wait <taskId> [--timeout <秒>]        # 轮询到 completed + 打印 result
  *   pth roles                                   # 列出可派发角色（含 governance——显式 flow）
- *   pth tags                                    # 列出已注册标签
  *   pth config                                  # 配置分组表（secret 打码）
  *   pth config export [--include-token]         # PTL 信息迁移命令
  *
@@ -21,11 +20,11 @@
  *   / PTH_CREATED_BY（缺省 cli）
  *
  * 示例：
- *   npm run pth -- init && npm run pth -- up    # 一条命令起全栈
- *   npm run pth -- submit "统计 memory 库 scorecard 数" --role memory-stats --tags stats
- *   npm run pth -- submit "写 README" --role writer --tags write --title "README"
- *   npm run pth -- submit --template recon-doc --param url=https://go.dev/ref/spec --param entryId=go-spec
- *   npm run pth -- wait <id>                    # 完成即返回（含 result）
+ *   pth init && pth up    # 一条命令起全栈
+ *   pth submit "统计 memory 库 scorecard 数" --role memory-stats --tags stats
+ *   pth submit "写 README" --role writer --tags write --title "README"
+ *   pth submit --template recon-doc --param url=https://go.dev/ref/spec --param entryId=go-spec
+ *   pth wait <id>                    # 完成即返回（含 result）
  */
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -33,7 +32,7 @@ import { fileURLToPath } from "node:url";
 const API = process.env.PTH_API ?? "http://localhost:3000";
 const TOKEN = process.env.PTH_TOKEN ?? "test-token-123";
 const CREATED_BY = process.env.PTH_CREATED_BY ?? "cli";
-const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 const [, , cmd, ...rest] = process.argv;
 
@@ -113,7 +112,7 @@ async function submit(): Promise<void> {
   const tags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
   if (concept) {
     // D3 / T9：概念设计交接——PTL 侧完整理解需求 → PTH 生成实施方案
-    const { validateConceptDesign, CONCEPT_DESIGN_TEMPLATE } = await import("../src/pth/kernel/concept-design.js");
+    const { validateConceptDesign, CONCEPT_DESIGN_TEMPLATE } = await import("../pth/kernel/concept-design.js");
     const check = validateConceptDesign(text);
     if (!check.ok) {
       throw new Error(`概念设计不完整，缺少段落: ${check.missing.join(", ")}\n\n模板:\n${CONCEPT_DESIGN_TEMPLATE}`);
@@ -130,7 +129,7 @@ async function submit(): Promise<void> {
 }
 
 async function handoff(): Promise<void> {
-  const { CONCEPT_DESIGN_TEMPLATE } = await import("../src/pth/kernel/concept-design.js");
+  const { CONCEPT_DESIGN_TEMPLATE } = await import("../pth/kernel/concept-design.js");
   console.log(CONCEPT_DESIGN_TEMPLATE);
 }
 
@@ -162,8 +161,8 @@ async function wait(): Promise<void> {
 }
 
 async function roles(): Promise<void> {
-  const { allKnownRoles, setDefaultRoles } = await import("../src/pth/kernel/execution/worker-cluster.js");
-  const { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } = await import("../src/pth/impls/roles/default-roles.js");
+  const { allKnownRoles, setDefaultRoles } = await import("../pth/kernel/execution/worker-cluster.js");
+  const { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } = await import("../pth/impls/roles/default-roles.js");
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);   // 2026-08-13 审计 P2：CLI 本地角色面同样走注入
   console.log("可派发角色（--role 指定；governance 需 PTH_WORKER_ROLES 显式启用进 batch）:");
   for (const r of allKnownRoles()) {
@@ -173,7 +172,7 @@ async function roles(): Promise<void> {
 
 async function configList(): Promise<void> {
   // 配置集中化 C4：schema 是唯一真相源——分组打印当前有效值（secret 打码）
-  const { PTH_CONFIG_SCHEMA, pthConfig } = await import("../src/pth/config/index.js");
+  const { PTH_CONFIG_SCHEMA, pthConfig } = await import("../pth/config/index.js");
   const cfg = pthConfig();
   const groups = new Map<string, typeof PTH_CONFIG_SCHEMA>();
   for (const def of PTH_CONFIG_SCHEMA) {
@@ -194,14 +193,14 @@ async function configList(): Promise<void> {
 
 async function configExport(): Promise<void> {
   // PTL 信息迁移通道：输出 ptl config set 命令（token 默认不打；--include-token 显式导出）
-  const { exportPtlMigration } = await import("../src/pth/config/index.js");
+  const { exportPtlMigration } = await import("../pth/config/index.js");
   const lines = exportPtlMigration(process.env, rest.includes("--include-token"));
   console.log("PTL 迁移命令（复制执行）:");
   for (const l of lines) console.log(`  ${l}`);
 }
 
 async function bridgeArgs() {
-  const { parseCommandArgs } = await import("../packages/pth-console/src/commands/flags.js");
+  const { parseCommandArgs } = await import("@away_from/pth-console");
   return parseCommandArgs(rest);
 }
 
@@ -211,17 +210,17 @@ async function programCommand(): Promise<void> {
   const sub = passthrough[0];
   const args = passthrough.slice(1);
   if (sub === "submit") {
-    const { cmdSubmit } = await import("../packages/pth-console/src/commands/submit.js");
+    const { cmdSubmit } = await import("@away_from/pth-console");
     await cmdSubmit(args, flags);
     return;
   }
   if (sub === "run") {
-    const { cmdRun } = await import("../packages/pth-console/src/commands/run.js");
+    const { cmdRun } = await import("@away_from/pth-console");
     await cmdRun(args[0] ?? "", args.slice(1), flags);
     return;
   }
   if (sub === "list") {
-    const { cmdPrograms } = await import("../packages/pth-console/src/commands/programs.js");
+    const { cmdPrograms } = await import("@away_from/pth-console");
     await cmdPrograms(flags);
     return;
   }
@@ -231,7 +230,7 @@ async function programCommand(): Promise<void> {
 /** pth job submit|status|fetch —— 原 ptl hub job。 */
 async function jobCommand(): Promise<void> {
   const { flags, passthrough } = await bridgeArgs();
-  const { cmdHubJobSubmit, cmdHubJobStatus, cmdHubJobFetch } = await import("../packages/pth-console/src/commands/jobs.js");
+  const { cmdHubJobSubmit, cmdHubJobStatus, cmdHubJobFetch } = await import("@away_from/pth-console");
   const [sub, ...args] = passthrough;
   if (sub === "submit") return cmdHubJobSubmit(args, flags);
   if (sub === "status") return cmdHubJobStatus(args, flags);
@@ -242,7 +241,7 @@ async function jobCommand(): Promise<void> {
 /** pth kernel … —— 原 ptl hub kernel 命令族。 */
 async function kernelCommand(): Promise<void> {
   const { flags, passthrough } = await bridgeArgs();
-  const mod = await import("../packages/pth-console/src/commands/kernel.js");
+  const mod = await import("@away_from/pth-console");
   const [sub, ...args] = passthrough;
   switch (sub) {
     case "tasks":
@@ -288,67 +287,66 @@ async function main(): Promise<void> {
     case "status": {
       // 无位置 taskId → 栈状态；有 taskId → 任务状态（保持旧行为）
       if (hasPositional(rest, ["--env-file", "--port"])) return status();
-      const { runPthStatus } = await import("../packages/pth-console/src/launcher.js");
+      const { runPthStatus } = await import("@away_from/pth-console");
       await runPthStatus(rest, { repoRoot: REPO_ROOT });
       return;
     }
     case "wait": return wait();
     case "roles": return roles();
-    case "tags": return tags();
     case "program": return programCommand();
     case "job": return jobCommand();
     case "kernel": return kernelCommand();
     case "request": {
       const { flags, passthrough } = await bridgeArgs();
-      const { cmdHubRequest } = await import("../packages/pth-console/src/commands/request.js");
+      const { cmdHubRequest } = await import("@away_from/pth-console");
       await cmdHubRequest(passthrough, flags);
       return;
     }
     case "requests": {
       const { flags } = await bridgeArgs();
-      const { cmdHubRequests } = await import("../packages/pth-console/src/commands/request.js");
+      const { cmdHubRequests } = await import("@away_from/pth-console");
       await cmdHubRequests(flags);
       return;
     }
     case "respond": {
       const { flags, passthrough } = await bridgeArgs();
-      const { cmdHubRespond } = await import("../packages/pth-console/src/commands/respond.js");
+      const { cmdHubRespond } = await import("@away_from/pth-console");
       await cmdHubRespond(passthrough, flags);
       return;
     }
     case "observe": {
       const { flags, passthrough } = await bridgeArgs();
-      const { cmdHubObserve } = await import("../packages/pth-console/src/commands/observe.js");
+      const { cmdHubObserve } = await import("@away_from/pth-console");
       await cmdHubObserve(passthrough, flags);
       return;
     }
     case "debug": {
       const { flags, passthrough } = await bridgeArgs();
-      const { cmdHubDebug } = await import("../packages/pth-console/src/commands/debug.js");
+      const { cmdHubDebug } = await import("@away_from/pth-console");
       await cmdHubDebug(passthrough, flags);
       return;
     }
     case "bench": {
       const { flags, passthrough } = await bridgeArgs();
-      const { cmdHubBench } = await import("../packages/pth-console/src/commands/bench.js");
+      const { cmdHubBench } = await import("@away_from/pth-console");
       await cmdHubBench(passthrough, flags);
       return;
     }
     case "console": {
       const { flags, passthrough } = await bridgeArgs();
-      const { cmdHubConsole } = await import("../packages/pth-console/src/commands/console.js");
+      const { cmdHubConsole } = await import("@away_from/pth-console");
       await cmdHubConsole(passthrough, flags);
       return;
     }
     case "lineage": {
       const { flags, passthrough } = await bridgeArgs();
-      const { cmdHubLineage } = await import("../packages/pth-console/src/commands/lineage.js");
+      const { cmdHubLineage } = await import("@away_from/pth-console");
       await cmdHubLineage(passthrough, flags);
       return;
     }
     case "trigger": {
       const { flags, passthrough } = await bridgeArgs();
-      const { cmdHubTrigger } = await import("../packages/pth-console/src/commands/trigger.js");
+      const { cmdHubTrigger } = await import("@away_from/pth-console");
       await cmdHubTrigger(passthrough, flags);
       return;
     }
@@ -356,32 +354,32 @@ async function main(): Promise<void> {
       if (rest[0] === "export") return configExport();
       return configList();
     case "web": {
-      const { runPthWeb } = await import("../packages/pth-console/src/cli.js");
+      const { runPthWeb } = await import("@away_from/pth-console");
       await runPthWeb(rest);
       return;
     }
     case "init": {
-      const { runPthInit } = await import("../packages/pth-console/src/launcher.js");
+      const { runPthInit } = await import("@away_from/pth-console");
       await runPthInit(rest, { repoRoot: REPO_ROOT });
       return;
     }
     case "up": {
-      const { runPthUp } = await import("../packages/pth-console/src/launcher.js");
+      const { runPthUp } = await import("@away_from/pth-console");
       await runPthUp(rest, { repoRoot: REPO_ROOT });
       return;
     }
     case "down": {
-      const { runPthDown } = await import("../packages/pth-console/src/launcher.js");
+      const { runPthDown } = await import("@away_from/pth-console");
       await runPthDown(rest, { repoRoot: REPO_ROOT });
       return;
     }
     case "logs": {
-      const { runPthLogs } = await import("../packages/pth-console/src/launcher.js");
+      const { runPthLogs } = await import("@away_from/pth-console");
       await runPthLogs(rest, { repoRoot: REPO_ROOT });
       return;
     }
     default:
-      console.log(`用法: pth <init|up|down|status|logs|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|tags|config|web> ...\n  生命周期: npm run pth -- init / up / status / logs / down\n  任务派发: npm run pth -- submit "任务描述" --role developer --tags implement\n            npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y\n            npm run pth -- wait <taskId>\n  程序面:   npm run pth -- program submit <dir> | run <name> | list\n  回退请求: npm run pth -- request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: npm run pth -- observe <sessions|session|trace|events>\n            npm run pth -- debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            npm run pth -- job submit|status|fetch · kernel tasks|batch|templates|status\n  其他:     npm run pth -- roles · tags · config · web [--port <n>]`);
+      console.log(`用法: pth <init|up|down|status|logs|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|config|web> ...\n  生命周期: pth init / up / status / logs / down\n  任务派发: pth submit "任务描述" --role developer --tags implement\n            pth submit --template recon-doc --param url=https://x --param entryId=y\n            pth wait <taskId>\n  程序面:   pth program submit <dir> | run <name> | list\n  回退请求: pth request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: pth observe <sessions|session|trace|events>\n            pth debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            pth job submit|status|fetch · kernel tasks|batch|templates|status\n  其他:     pth roles · config · web [--port <n>]`);
   }
 }
 

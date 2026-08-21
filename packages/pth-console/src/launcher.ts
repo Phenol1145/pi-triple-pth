@@ -213,7 +213,7 @@ export function createPthLauncher(options: PthLauncherOptions) {
     } catch {
       throw new PthLauncherError(
         "SECRETS_MISSING",
-        `${envFile} not found. Run: npm run pth -- init`,
+        `${envFile} not found. Run: pth init`,
         `compose file: ${composeFile}`,
       );
     }
@@ -307,7 +307,7 @@ export function createPthLauncher(options: PthLauncherOptions) {
 
   function helpUp(): void {
     console.log([
-      "用法: npm run pth -- up [--env-file <path>] [--port <n>] [--tenant <id>] [--token <t>] [--timeout <s>] [--rebuild] [--no-seed-token] [--no-verify]",
+      "用法: pth up [--env-file <path>] [--port <n>] [--tenant <id>] [--token <t>] [--timeout <s>] [--rebuild] [--no-seed-token] [--no-verify]",
       "  --env-file <path>    secrets 文件（默认 deploy/.env.pth.secrets）",
       "  --port <n>           本机验证端口（默认 3000）",
       "  --tenant <id>        operator token 的 tenantId（默认 ops）",
@@ -365,12 +365,12 @@ export function createPthLauncher(options: PthLauncherOptions) {
     console.log("PTH 已就绪。");
     console.log(`  export PTH_API=http://127.0.0.1:${port}`);
     if (token) console.log(`  export PTH_TOKEN=${token}`);
-    console.log("  验证: npm run pth -- status");
-    if (token) console.log("  发任务: npm run pth -- submit \"任务描述\" --role developer");
+    console.log("  验证: pth status");
+    if (token) console.log("  发任务: pth submit \"任务描述\" --role developer");
   }
 
   function helpDown(): void {
-    console.log("用法: npm run pth -- down [--env-file <path>] [--volumes]");
+    console.log("用法: pth down [--env-file <path>] [--volumes]");
   }
 
   async function down(args: string[]): Promise<void> {
@@ -388,7 +388,7 @@ export function createPthLauncher(options: PthLauncherOptions) {
   }
 
   function helpStatus(): void {
-    console.log("用法: npm run pth -- status [--env-file <path>] [--port <n>]");
+    console.log("用法: pth status [--env-file <path>] [--port <n>]");
     console.log("  （无 taskId 时显示栈健康；带 taskId 仍查询任务状态）");
   }
 
@@ -420,7 +420,7 @@ export function createPthLauncher(options: PthLauncherOptions) {
   }
 
   function helpLogs(): void {
-    console.log("用法: npm run pth -- logs [service] [--tail <n>] [--follow] [--env-file <path>]");
+    console.log("用法: pth logs [service] [--tail <n>] [--follow] [--env-file <path>]");
   }
 
   async function logs(args: string[]): Promise<void> {
@@ -448,7 +448,7 @@ export function createPthLauncher(options: PthLauncherOptions) {
   }
 
   function helpInit(): void {
-    console.log("用法: npm run pth -- init [--force]");
+    console.log("用法: pth init [--force]");
     console.log(`  复制 ${SECRETS_EXAMPLE} → ${SECRETS_FILE} 并 chmod 600（已存在时需 --force）。`);
   }
 
@@ -468,7 +468,7 @@ export function createPthLauncher(options: PthLauncherOptions) {
       );
     }
     console.log(`✔ 已写入 ${SECRETS_FILE}（chmod 600）`);
-    console.log("  编辑该文件替换全部示例密钥，然后: npm run pth -- up");
+    console.log("  编辑该文件替换全部示例密钥，然后: pth up");
   }
 
   return { up, down, status, logs, init };

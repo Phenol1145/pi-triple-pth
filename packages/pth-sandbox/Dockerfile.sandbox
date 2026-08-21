@@ -3,21 +3,20 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
+
 COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
-# npm workspaces（packages/*）——@pi-triple/infra 等 workspace 包链接必需
-COPY packages/ ./packages/
+# npm workspaces（全部 workspace 包的 package.json——workspace 链接必需）
+COPY packages/pth-memory/package.json packages/pth-memory/
+COPY packages/pth-sandbox/package.json packages/pth-sandbox/
+COPY packages/pth-console/package.json packages/pth-console/
+ARG NPM_CONFIG_REGISTRY
 RUN npm ci
 
-COPY src/ ./src/
-# 2026-08-15 拆分：沙箱运行时 = pth-memory + pth-sandbox 两包（内核契约/宿主在沙箱包内）；
-# runtime 还要 framework dist（/usr/local/bin/ptl）。
-# 依赖拓扑序：shared → infra → pth-memory → pth-sandbox → framework
-# （pth-sandbox 依赖 infra/pth-memory 的 dist 声明——顺序错误在干净构建上下文必失败）
-RUN npx tsc -p packages/shared \
-    && npx tsc -p packages/infra \
-    && npx tsc -p packages/pth-memory \
-    && npx tsc -p packages/pth-sandbox \
-    && npx tsc -p packages/framework
+COPY packages/ ./packages/
+# 2026-08-21 拆仓：沙箱运行时 = pth-memory + pth-sandbox 两包；
+# shared/infra 已是 npm 发布包，不再编译 framework。
+RUN npx tsc -p packages/pth-memory \
+    && npx tsc -p packages/pth-sandbox
 
 # ---- Runtime stage ----
 # sandbox：隔离命令执行容器。安全边界：
@@ -25,17 +24,13 @@ RUN npx tsc -p packages/shared \
 #     （/exec、Python/Bash REPL）以 workload（UID/GID 2001）运行，无法读控制器 env/密钥或改写 /app
 #   - egress 锁定：compose 仅挂 internal 网络（本镜像不暴露任何出网路径；curl 仅供 healthcheck 内网探测）
 #   - 共享密钥经 compose env 注入（SANDBOX_SHARED_SECRET），不镜像硬编码
-#   - bash 安装说明（F/WP3 Task 10 适配）：exec API 字符串 cmd 以 `bash -lc` 执行
-#     （pth bash 工具转发 shell 命令字符串需要 bash 语义；slim 基础镜像仅含 sh）
 FROM node:22-slim
 
-# F/WP3 Task 14：curl（healthcheck）/ bash（exec API 字符串命令）已装；tmux（调试入口 + pit-control
-# 扩展的会话管理）；git（pi 自修改模式工作流依赖 git 状态/提交）。
-# 调试/编译链（调试协议 SPEC + 编译核 SPEC，2026-08-09）：
-#   gcc/g++（编译核 variants）、gdb（调试 L0 完整调试）、strace/valgrind（调试 L2 + obs 观测）、
-#   tcc（变体快编译——毫秒级迭代）
+# curl（healthcheck）/ bash（exec API 字符串命令）；tmux（调试入口）；git（pi 自修改模式依赖）
+# 调试/编译链：gcc/g++（编译核 variants）、gdb（调试 L0）、strace/valgrind（调试 L2 + obs 观测）、
+# tcc（变体快编译）
 RUN apt-get update && apt-get install -y curl bash tmux git python3 python3-pip gcc g++ gdb strace valgrind tcc && rm -rf /var/lib/apt/lists/*
-# kernel sandbox SPEC §3.1：PyKernel 宿主依赖（python 3.11+ 的 --break-system-packages 兼容）
+# kernel sandbox SPEC §3.1：PyKernel 宿主依赖
 RUN pip3 install --no-cache-dir numpy --break-system-packages || pip3 install --no-cache-dir numpy
 
 # P0-2：创建不可信工作负载用户；控制器（root）通过 spawn uid/gid 降权运行 workload
@@ -51,52 +46,34 @@ WORKDIR /app
 ENV DATA_DIR=/data
 
 COPY package.json package-lock.json ./
-# file: 依赖目标（@pi-triple/* workspace 包——npm ci 链接必需）
+# workspace 包目录（package.json + 构建产物——npm ci 链接必需）
 COPY packages/ ./packages/
-# F/WP3 Task 14 注：build 阶段可联网（npm registry）；运行时内网锁（internal 网络无外部出口）。
-# pi 可执行（@earendil-works/pi-coding-agent 的 bin → node_modules/.bin/pi）随 --omit=dev 装入，
-# 无需额外 npm i。
+# build 阶段可联网（npm registry）；运行时内网锁（internal 网络无外部出口）。
+# pi 可执行（@earendil-works/pi-coding-agent 的 bin）随 --omit=dev 装入。
+ARG NPM_CONFIG_REGISTRY
 RUN npm ci --omit=dev
 
 COPY --from=builder /app/packages/pth-memory/dist /app/packages/pth-memory/dist
 COPY --from=builder /app/packages/pth-sandbox/dist /app/packages/pth-sandbox/dist
-# PTL（packages/framework——仓库拆分后 pit.js 归属 framework 包）
-COPY --from=builder /app/packages/framework/dist /app/packages/framework/dist
 
-# ---- F/WP3 Task 14：内嵌 pi + PTL（自修改模式）----
-# pi 可执行 + PTL 稳定 PATH 入口：
-#   /usr/local/bin/pi  →  node_modules/@earendil-works/pi-coding-agent/dist/cli.js
-#   /usr/local/bin/ptl →  packages/framework/dist/pit.js（package.json bin "ptl" 对应；shebang 已由 tsc 保留——2026-08-13 N9：pit 已改名 ptl）
-# 镜像不持 LLM 密钥（用户裁决）：需要自修改会话时按需临时注入 env（见
-# scripts/sandbox-debug-entry.sh 头注释的 docker exec -e 操作流），用完即撤。
+# 内嵌 pi（自修改模式）：/usr/local/bin/pi → node_modules/@earendil-works/pi-coding-agent/dist/cli.js
+# 镜像不持 LLM 密钥（用户裁决）：需要自修改会话时按需临时注入 env，用完即撤。
 RUN ln -sf /app/node_modules/@earendil-works/pi-coding-agent/dist/cli.js /usr/local/bin/pi && \
-    ln -sf /app/packages/framework/dist/pit.js /usr/local/bin/ptl && \
-    chmod +x /usr/local/bin/pi /usr/local/bin/ptl
+    chmod +x /usr/local/bin/pi
 
-# PTL 扩展：mailbox / pit-control（TS 源——pi loader 原生加载 .ts；依赖 ../_shared）。
-# 拷入 PI_CODING_AGENT_DIR=<agentDir>/extensions/，pi 按 agentDir/extensions 自动发现。
-# agentDir 走镜像内 /data/agent-dir（sandbox 不挂 agent-dir 卷——与 pth 隔离）。
-COPY extensions/_shared /data/agent-dir/extensions/_shared/
-COPY extensions/mailbox /data/agent-dir/extensions/mailbox/
-COPY extensions/pit-control /data/agent-dir/extensions/pit-control/
-
-# F/WP3 Task 14 调试入口：启动 pi / PTL 会话（tmux）——详见脚本头注释。
-COPY scripts/sandbox-debug-entry.sh /usr/local/bin/sandbox-debug-entry.sh
-RUN chmod +x /usr/local/bin/sandbox-debug-entry.sh
+# PTL 已拆出（pi-triple-ptl）；sandbox 不再内嵌 ptl/framework——PTL 能力经 pth CLI/HTTP API 到达。
 
 ENV PI_CODING_AGENT_DIR=/data/agent-dir
-# PTL 在 sandbox 内联 pth（sandbox-internal 网络：pth 服务名可解析；hub observe/上传自修改构件）
+# PTH 服务名（sandbox-internal 网络）：沙箱回桥 PTH 的固定地址
 ENV PLATFORM_URL=http://pi-platform:3000
 
-# 工作区共享卷（compose：workspaces → /data/workspaces，与 pth 同卷同路径——Task 12 约定）。
-# P0-2：workload 用户需要写工作区，暂保持 0777（P0-3 将收窄为租户/任务级隔离）；
-# /app 归 root，workload 只读——不可信代码不能篡改控制器运行时。
+# 工作区共享卷（compose：workspaces → /data/workspaces，与 pth 同卷同路径）。
+# P0-2：workload 用户需要写工作区，暂保持 0777；/app 归 root，workload 只读。
 RUN mkdir -p /data/workspaces /data/agent-dir /data/compiled-cache \
     && chmod 0777 /data/workspaces /data/compiled-cache \
     && chown -R root:root /app /data/agent-dir
 
 # 控制器以容器内 root 运行（仅用于 setuid 到 workload；容器无特权模式/无 Docker socket）
-# ——不再 USER node；/exec、Python/Bash REPL 的 spawn 由 PTH_WORKLOAD_UID/GID 降权。
 
 EXPOSE 8080
 

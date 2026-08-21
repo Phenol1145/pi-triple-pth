@@ -1,59 +1,31 @@
 # ─────────────────────────────────────────────────────────────
-# dev 容器 —— PTL 工具容器（方案 C 瘦身版，2026-08-12）
-#   定位：PTL 外接工具环境（agent-reach / yt-dlp / instsci / bf / bfc / chatgpt-share）
-#         可信可出网、无密钥注入（用户裁决——需时 docker exec -e 临时给）
-#   基座：python:3.13-slim（工具全为 python 生态——yt-dlp/agent-reach/bfc 均 pip/uv）
-#         对比旧基座（生产 PTH 镜像 1.5GB）→ ~250MB，build 秒级
-#   jupyter 已独立为 compose 服务（jupyter/minimal-notebook 官方镜像——本容器不再承载）
-#   热修改：工具源码 bind 挂载（tools/dev → /opt/tools）——改即生效，免 rebuild
-#   使用：docker compose up -d dev → ~/.local/bin/<tool>（gen-dev-wrapper 生成）→ exec -T dev
+# PTH dev 镜像（2026-08-21 拆仓后：tsx watch 秒级循环）
+#   用法：docker compose -f deploy/docker-compose.yaml -f deploy/docker-compose.dev.yaml up -d pi-platform
+#   生产语义不变：src/config bind 挂载只影响本镜像，部署仍走 deploy/Dockerfile。
 # ─────────────────────────────────────────────────────────────
-FROM python:3.13-slim
+FROM node:22-slim
 
-LABEL org.opencontainers.image.title="pi-platform dev tools"
-LABEL org.opencontainers.image.description="PTL 外接工具容器（agent-reach/yt-dlp/bfc 等——可出网无密钥）"
+WORKDIR /app
 
-# ── 1) 系统工具（root）──
-#   beef（Debian 官方 Brainfuck 解释器——bf shim 依赖）/ tcc（Tiny C 编译器——bfc bf→C 真编译）
-#   libc6-dev：tcc 链接必需；git/curl：agent-reach/yt-dlp 运行依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    git \
-    ca-certificates \
-    beef \
-    tcc \
-    libc6-dev \
-    && rm -rf /var/lib/apt/lists/*
 
-# ── 2) pip 工具（root——容器无密钥无多用户隔离需求）──
-#   yt-dlp（PyPI）/ agent-reach（GitHub Panniantong）/ instsci（GitHub rimagination）
-RUN pip install --no-cache-dir --break-system-packages \
-    yt-dlp \
-    "agent-reach @ git+https://github.com/Panniantong/agent-reach@main"
+COPY package.json package-lock.json tsconfig.json tsconfig.base.json ./
+COPY packages/pth-memory/package.json packages/pth-memory/
+COPY packages/pth-sandbox/package.json packages/pth-sandbox/
+COPY packages/pth-console/package.json packages/pth-console/
+ARG NPM_CONFIG_REGISTRY
+RUN npm ci
 
-# ── 3) uv 工具链（按需——容器内不再预装 instsci：宿主机已有 ~/.local/bin/instsci）──
-#   需要时 docker compose exec dev uv tool install "instsci @ git+https://github.com/rimagination/instsci"
-RUN pip install --no-cache-dir --break-system-packages uv
+COPY packages/ ./packages/
+COPY src/ ./src/
+COPY scripts/copy-framework-web-assets.mjs ./scripts/
+RUN npx tsc -p packages/pth-memory \
+    && npx tsc -p packages/pth-sandbox \
+    && npx tsc -p packages/pth-console \
+    && npm run build:web -w @away_from/pth-console \
+    && node scripts/copy-framework-web-assets.mjs \
+    && npx tsc
 
-# ── 4) bfc/bf 工具（纯 Python stdlib——COPY 源码，热改靠 bind 挂载覆盖）──
-COPY tools/dev/bfc/ /opt/tools/bfc/
-RUN chmod +x /opt/tools/bfc/bf /opt/tools/bfc/bfc \
-    && ln -sf /opt/tools/bfc/bf /usr/local/bin/bf \
-    && ln -sf /opt/tools/bfc/bfc /usr/local/bin/bfc
+EXPOSE 3000
 
-# ── 5) chatgpt-share（agent-reach 附随工具——COPY 进镜像；宿主机直跑版在 ~/.agent-reach）──
-COPY tools/dev/agent-reach-chatgpt/ /opt/tools/chatgpt-share/
-RUN chmod +x /opt/tools/chatgpt-share/chatgpt-share \
-    && ln -sf /opt/tools/chatgpt-share/chatgpt-share /usr/local/bin/chatgpt-share
-
-# ── 6) PATH 统一 + 工作目录 ──
-# NOTE: 以 root 运行是因为 bind mount 宿主目录（~/pi-platform 等）需要写权限；
-# macOS Docker Desktop/OrbStack 下 bind mount 属主映射依赖 host UID，
-# 非 root 用户需额外 userns 配置或宿主机 chown——当前保持 root 简化。
-# 安全缓解：容器无密钥注入、无特权模式、网络隔离由 compose 控制。
-ENV PATH="/usr/local/bin:/root/.local/bin:${PATH}" \
-    UV_LINK_MODE=copy
-
-WORKDIR /works
-# 入口：长驻（wrapper exec -T 直执行工具；不跑 jupyter/不跑服务）
-CMD ["tail", "-f", "/dev/null"]
+# compose.dev overlay 覆盖 command 为 tsx watch；这里给镜像一个可直接运行的默认值
+CMD ["node", "dist/pth/main.js"]

@@ -16,7 +16,7 @@ function arg(name: string, args: string[]): string | undefined {
 export async function runPthWeb(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log([
-      "用法: npm run pth -- web [--port <n>] [--no-open]",
+      "用法: pth web [--port <n>] [--no-open]",
       "  --port <n>   监听端口（默认随机空闲端口）",
       "  --no-open    启动后不自动打开浏览器",
       "  仅监听 127.0.0.1；PTH/N30 凭据只保存在服务端内存。",

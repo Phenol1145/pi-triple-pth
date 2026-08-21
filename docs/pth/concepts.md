@@ -1003,7 +1003,7 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | 概念 | 定义 | 落点 |
 |---|---|---|
 | **PTL→PTH 调用通道（bridge）**〔旧〕 | 程序提交通道（PTL → PTH 的派发通道——HTTP 桥，兼容保留；规范接口为 PTH CLI） | packages/framework |
-| **任务派发（submit）**〔旧〕 | pth-cli submit——异步模式（派发不阻塞） | scripts/pth-cli |
+| **任务派发（submit）**〔旧〕 | pth-cli submit——异步模式（派发不阻塞） | src/cli/pth-cli.ts |
 | **产物交付（artifacts）**〔旧〕 | 产物归档到卷 → 宿主机提取（docker cp）——协作交付物 | task-loop archive |
 | **hook（pth-notify）**〔旧〕 | PTH 完成/失败 → POST → PTL 扩展 → 通知+会话消息注入（subagent 式唤醒） | task-loop · 扩展 |
 | **扩展（ext）**〔旧〕 | toolstore 插件——capability 注入（经 caps 白名单门控） | ext-registry |
@@ -1105,7 +1105,7 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | 扩展/安全门控 | kernel/extensions/ext-registry.ts · kernel/interpreter/ext-capability.ts |
 | 组装/恢复 | kernel/assembly.ts |
 | PTL 桥 | packages/pth-console/src/bridge/ |
-| 派发/异步 | scripts/pth-cli.ts |
+| 派发/异步 | src/cli/pth-cli.ts |
 
 ---
 

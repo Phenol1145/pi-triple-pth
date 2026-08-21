@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-tgz/
+coverage/
+test-results/
+playwright-report/
+blob-report/
+deploy/.env.pth.secrets
+.DS_Store
+*.log
+.chem-work-*
+.edu-*-work-*

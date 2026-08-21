@@ -1,6 +1,7 @@
 # Dev 叠加变体（开发模式——tsx watch 秒级循环——不改生产语义）
 # 启动：docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml -f deploy/docker-compose.dev.yaml up -d pi-platform
 # 生产：docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up（普通——rebuild 后跑）
+# 注：dev 镜像为 PTH 专用（node + tsx + 预构建产物）；PTL 工具 dev 容器已随拆仓迁往 pi-triple-ptl。
 services:
   pi-platform:
     build:

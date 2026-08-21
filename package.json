@@ -1,0 +1,60 @@
+{
+  "name": "@away_from/pi-triple-pth",
+  "version": "1.5.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "bin": {
+    "pth": "./dist/cli/pth-cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "clean": "rm -rf dist packages/pth-memory/dist packages/pth-sandbox/dist packages/pth-console/dist",
+    "build": "tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc -p packages/pth-console && npm run build:web -w @away_from/pth-console && node scripts/copy-framework-web-assets.mjs && tsc -p tsconfig.json",
+    "pth:dev": "tsx watch src/pth/main.ts",
+    "pth:start": "node dist/pth/main.js",
+    "monitor": "node deploy/docker-monitor/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify:sandbox-build": "bash scripts/verify-clean-sandbox-build.sh",
+    "lint": "tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc -p packages/pth-console && tsc --noEmit && npm run typecheck:web -w @away_from/pth-console && npm run check:pth-boundaries && npm run check:pth-config && npm run check:product-boundaries && npm run check:docs-links",
+    "check:pth-boundaries": "tsx scripts/check-pth-boundaries.ts",
+    "check:pth-config": "tsx scripts/check-pth-config.ts",
+    "check:product-boundaries": "tsx scripts/check-product-boundaries.ts",
+    "docs:manifest": "tsx scripts/build-docs-manifest.ts",
+    "check:docs-links": "tsx scripts/check-doc-links.ts --allow docs/superpowers/plans/2026-08-10-pth-dev-loop-speedup.md docs/superpowers/specs/2026-08-08-pth-perf-metrics-design.md docs/superpowers/specs/2026-08-08-pth-logging-design.md docs/superpowers/specs/2026-08-08-pth-multilang-repl-design.md docs/superpowers/specs/2026-08-08-pth-task-resolver-design.md CONTEXT.md docs/adr/0005-pth-human-interaction-boundary.md docs/adr/0006-ptl-human-interface-role-boundary.md tsconfig.n28.json TODO.md docs/superpowers/plans/2026-08-19-n30-runtime-observatory.md docs/superpowers/plans/2026-08-19-v13-professional-computing.md docs/superpowers/plans/2026-08-19-v13-ptl-operator-console.md docs/repo-split-v15-manifest.json docs/superpowers/specs/2026-08-08-repo-split-design.md",
+    "pth": "node dist/cli/pth-cli.js",
+    "test:e2e": "npm run test:e2e -w @away_from/pth-console"
+  },
+  "dependencies": {
+    "@away_from/infra": "^1.5.0",
+    "@away_from/pth-console": "file:packages/pth-console",
+    "@away_from/pth-memory": "file:packages/pth-memory",
+    "@away_from/pth-sandbox": "file:packages/pth-sandbox",
+    "@away_from/shared": "^1.5.0",
+    "@earendil-works/pi-ai": "^0.82.1",
+    "@earendil-works/pi-coding-agent": "^0.82.1",
+    "@fastify/websocket": "^11.0.0",
+    "@sinclair/typebox": "^0.34.52",
+    "bullmq": "^5.0.0",
+    "chokidar": "^4.0.0",
+    "fastify": "^5.0.0",
+    "ioredis": "^5.4.0",
+    "pg": "^8.22.0",
+    "prom-client": "^15.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^12.1.0",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.21.0",
+    "testcontainers": "^12.1.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

@@ -1,6 +1,7 @@
-name: pi-platform   # 项目名显式固定（compose 文件移入 deploy/ 后缺省名会变成 deploy——卷/容器身份必须保持）
+name: pi-triple-pth   # PTH 仓独立 compose 项目（与旧仓 pi-platform 栈隔离，避免容器/卷身份冲突）
 services:
   pi-platform:
+    image: pi-triple-pth:latest
     build:
       context: ..          # 构建上下文 = 仓库根（compose 的 context 相对本文件所在目录解析）
       dockerfile: deploy/Dockerfile
@@ -108,6 +109,7 @@ services:
   # （同卷同路径——转发 cwd 无需映射）；sandbox 侧 cwd 白名单根（exec-api workspacesRoot）默认
   # /data/workspaces，与 pth 侧 WorkspaceManager basePath（DATA_DIR=/data 时）完全一致。
   sandbox:
+    image: pi-triple-pth-sandbox:latest
     build:
       context: ..
       dockerfile: packages/pth-sandbox/Dockerfile.sandbox
@@ -206,68 +208,6 @@ services:
           memory: 4G
           pids: 128
 
-  # ── G 阶段：dev 容器（多语言开发工作区——PTL 工具环境 + 用户开发/学习研究）──
-  # 定位：sandbox=运行产物中间态（无网无密钥不可信）；dev=开发/调试/成品保留（可信出网）。
-  # 非开源工具（kimiim-cli/obsidian 等 Mach-O）保留本机，不入容器（用户裁决）。
-  # 密钥不注入（用户裁决——需时 docker exec -e 临时给）。
-  # ── G 阶段：dev 工具容器（瘦身版 2026-08-12——PTL 外接工具环境）──
-  # 定位：工具执行（agent-reach/yt-dlp/instsci/bf/bfc/chatgpt-share——wrapper exec -T dev <tool>）。
-  # 可信可出网、无密钥注入（用户裁决——需时 docker exec -e 临时给）。
-  # jupyter 已独立为下方 jupyter 服务（官方 minimal-notebook——本容器不再承载）。
-  # 热修改：tools/dev bind 挂载 /opt/tools（改即生效免 rebuild）；agent-reach 配置只读挂 ~/.agents。
-  dev:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile.dev
-    # root 单用户（工具容器无多用户/jupyter 拒绝 root 的问题）
-    entrypoint: ["/bin/bash", "-lc", "exec tail -f /dev/null"]
-    volumes:
-      # 热改源（精确对齐镜像内 COPY 路径——改即生效免 rebuild）
-      - ${HOME}/pi-platform/tools/dev/bfc:/opt/tools/bfc:rw
-      - ${HOME}/pi-platform/tools/dev/agent-reach-chatgpt:/opt/tools/chatgpt-share:rw
-      - ${HOME}/.agents:/root/.agents:ro                 # agent-reach skill/配置（只读——含凭据，用户自行挂载）
-      - ${HOME}/pi-platform:/works/pi-platform:rw
-      - ${HOME}/docs:/works/docs:rw
-      - ${HOME}/Projects:/works/Projects:rw
-      - ${HOME}/go:/works/go:rw
-      - ${HOME}/compiler:/works/compiler:rw   # asdbg 汇编调试系统项目
-    networks:
-      - default
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "sh", "-c", "kill -0 1 2>/dev/null || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-  # ── G 阶段：jupyter 独立服务（官方 minimal-notebook——jupyter 原生生态完整保留）──
-  # 定位：数据科学工作台（jovyan/conda/start-notebook.sh 原生）；与 dev 工具容器解耦。
-  jupyter:
-    image: quay.io/jupyter/minimal-notebook:python-3.13
-    ports:
-      - "127.0.0.1:8888:8888"        # jupyter（仅本机）——WeKnora searxng 也占 8888，冲突时改 JUPYTER_PORT
-    volumes:
-      - jupyter-home:/home/jovyan       # /home/jovyan 持久化（conda env/jupyter 配置/uv 缓存/nvm）
-      - dev-artifacts:/data/artifacts   # 成品保留区（sandbox 产物成品落此）
-      - workspaces:/data/workspaces     # 与 pth/sandbox 共享（可选——cwd 语义一致）
-      - ${HOME}/ai-teach-jupyter:/works/ai-teach-jupyter:rw
-      - ${HOME}/pi-platform:/works/pi-platform:rw
-      - ${HOME}/docs:/works/docs:rw
-      - ${HOME}/lifelab:/works/labs/lifelab:rw
-      - ${HOME}/Projects:/works/Projects:rw
-      - ${HOME}/go:/works/go:rw
-      - ${HOME}/.agents:/home/jovyan/.agents:ro   # agent-reach skill/配置（只读——含凭据，用户自行挂载）
-    environment:
-      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-TokenForJupyter}
-    networks:
-      - default
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8888/api"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
 volumes:
   toolstore:        # 扩展代码库 + 策略 + 命名编译单元（持久卷）
   compiled-cache:   # 编译核持久缓存（CCompiledKernel cacheDir——独立于 workspaces 隔离安全）
@@ -277,7 +217,6 @@ volumes:
   components:
   agent-dir:
   sessions:
-  jupyter-home:     # jupyter 独立服务 /home/jovyan 持久化
   agent-lab:
   redis-data:
   postgres-data:

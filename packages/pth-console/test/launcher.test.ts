@@ -132,7 +132,7 @@ describe("pth up", () => {
   it("secrets 缺失 → 拒绝并提示 pth init", async () => {
     const repoRoot = await makeRepo(false);
     const { launcher } = makeLauncher(repoRoot, {});
-    await expect(launcher.up([])).rejects.toMatchObject({ code: "SECRETS_MISSING", message: expect.stringContaining("pth -- init") });
+    await expect(launcher.up([])).rejects.toMatchObject({ code: "SECRETS_MISSING", message: expect.stringContaining("pth init") });
   });
 
   it("secrets 缺必填值 → SECRETS_INCOMPLETE", async () => {
