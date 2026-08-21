@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移）；tool containers / jupyter 双面设计已定稿（ADR-0002）；P2 宿主栈实测与 T2–T4 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；tool containers / jupyter 双面设计已定稿（ADR-0002）；T2–T4 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -258,7 +258,7 @@ export async function probeExecutionBackends(registry, opts: {
 
 ### P2 Lean 外移 + 本地执行器（pi-triple-ptl 为主，pth 联动）
 
-**状态：✅ 代码与编排已实现（2026-08-22）；宿主栈全链路实测待办（见 §6.5）。**
+**状态：✅ 已实现并实测（2026-08-22）。**
 
 1. ✅ 本地执行器：PTL `LocalSpawnBackend`（sync+stream、pathMapping 翻译、超时/截断）
    + `startLocalExecServer`（shared `ExecutionHttpServer`，127.0.0.1，Bearer）+ `ptl local-exec`。
@@ -270,8 +270,9 @@ export async function probeExecutionBackends(registry, opts: {
    旧 named volume 数据需一次性迁移。
 4. ✅ `lean4-runtime-adapter` 默认解析 `local-lean`（P1 约定路由）；`PTH_LEAN4_TOOLCHAIN_EXEC`
    前缀仅在测试/临时容器场景使用。
-5. ⏳ **退出门（部分实测）**：`lean --version`、`lake build` 经 engine → 本地执行器全链路；
-   engine 镜像不再含 Lean；超时/输出上限/错误信封契约测试已过（PTL 476 tests 全绿）。
+5. ✅ **退出门全部通过**：`lean --version` 与 `lake build`（8 jobs 成功）经 engine 镜像 →
+   本地执行器全链路通过；engine 镜像不再含 Lean；超时/输出上限/错误信封契约测试通过
+   （PTL 476 tests 全绿）。
 
 ### P3 → T3：tool containers 三域迁移（取代 dev 容器）
 
@@ -580,8 +581,8 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 
 - [x] `curl /health` 无 token 通过；`curl /capabilities` 返回 `pathMapping:true`（PTL 自动化测试）
 - [x] 错误 token → `401 UNAUTHORIZED`；请求自报 `sandbox-untrusted` → `400 INVALID_REQUEST`
-- [ ] `lean --version` 经 `/exec` 返回 `exitCode:0` 与版本输出（宿主 elan 安装后实测）
-- [ ] `lake build` 在映射后的宿主 workspace 执行成功（engine 内 `cwd=/data/workspaces/...` 可用）
+- [x] `lean --version` 经 `/exec` 返回 `exitCode:0` 与版本输出（2026-08-22 实测，宿主 elan v4.33.0）
+- [x] `lake build` 在映射后的宿主 workspace 执行成功（engine 内 `cwd=/data/workspaces/...` 可用；8 jobs）
 - [x] 超时命令被杀进程组，`timedOut:true`；超过输出上限 `truncated` 存在
 - [x] 未登记 pathMapping → `CWD_NOT_ALLOWED`
 - [x] engine 容器 → `host.docker.internal:8787` 可达：engine 镜像内 `HttpExecutionClient`
