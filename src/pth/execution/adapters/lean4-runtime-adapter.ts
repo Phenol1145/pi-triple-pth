@@ -18,11 +18,12 @@
  * 首次运行从 templateDir 拷贝。
  */
 import { pthConfig } from "../../config/index.js";
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, normalize, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import type { ExecutionBackend } from "@away_from/shared/execution";
+import { execViaBackend, executionBackendFromPrefix, type AdapterExecFn } from "../exec-via-backend.js";
 import {
   isLean4JobSpecStructurallyValid,
   type ArtifactRef,
@@ -89,6 +90,8 @@ export interface CreateLean4RuntimeAdapterDeps {
   readonly templateDir?: string;
   /** 命令前缀（如 ["docker","exec",...,"v13-asm-toolchain"]）。 */
   readonly execPrefix?: readonly string[];
+  /** execution/v1 执行面（优先于 execPrefix 的兼容解析） */
+  readonly executionBackend?: ExecutionBackend;
   /** 完全自定义 runner（优先于 execPrefix）。 */
   readonly exec?: Lean4ExecFn;
   readonly buildTimeoutMs?: number;
@@ -117,72 +120,13 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
 
   function makeExec(prefix: readonly string[] | undefined): Lean4ExecFn {
     if (deps.exec) return deps.exec;
-
-    return (cmd, args, opts) =>
-      new Promise((resolveExec) => {
-        const { cwd, timeoutMs = buildTimeoutMs, maxOutputBytes: cap = maxOutputBytes } = opts;
-        // docker exec：容器内目录用 -w 指定；宿主侧 cwd 必须留空（容器本地路径在宿主不存在，
-        // 否则 spawn ENOENT）。其他前缀用宿主 spawn cwd。
-        let file = cmd;
-        let finalArgs: string[] = [...args];
-        const isDockerExec = prefix?.[0] === "docker" && prefix?.[1] === "exec";
-        const spawnOpts: { cwd?: string } = isDockerExec ? {} : { cwd };
-        if (prefix && prefix.length > 0) {
-          file = prefix[0]!;
-          if (isDockerExec) {
-            // 容器名是 prefix 的最后一个 token（-e 等 flag 的值不以 "-" 开头，不能用 findIndex 推断）。
-            const rest = prefix.slice(2);
-            const containerIdx = rest.length - 1;
-            const head = rest.slice(0, containerIdx);
-            const tail = rest.slice(containerIdx);
-            finalArgs = ["exec", ...head, ...(cwd !== undefined ? ["-w", cwd] : []), ...tail, cmd, ...args];
-          } else {
-            finalArgs = [...prefix.slice(1), cmd, ...args];
-          }
-        }
-        const started = Date.now();
-        let stdout = "";
-        let stderr = "";
-        let settled = false;
-        let timedOut = false;
-        const child = execFile(file, finalArgs, spawnOpts, (error, _stdout, _stderr) => {
-          stdout = _stdout;
-          stderr = _stderr;
-          if (settled) return;
-          settled = true;
-          if (error && (error as NodeJS.ErrnoException).code === "ENOENT") {
-            resolveExec({ ok: false, stdout, stderr, code: null, timedOut: false, error: `executable not found: ${file}` });
-            return;
-          }
-          const rawCode = (error as { code?: number | string } | null)?.code;
-          const code = typeof rawCode === "number" ? rawCode : error ? 1 : 0;
-          resolveExec({
-            ok: !timedOut && code === 0,
-            stdout,
-            stderr,
-            code,
-            timedOut,
-            error: error ? `${error.message}${rawCode !== undefined ? ` (${String(rawCode)})` : ""}` : undefined,
-          });
-        });
-        if (child.stdout) child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-        if (child.stderr) child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-        const timer = setTimeout(() => {
-          timedOut = true;
-          child.kill("SIGKILL");
-        }, timeoutMs);
-        child.on("close", () => {
-          clearTimeout(timer);
-          if (!settled) {
-            settled = true;
-            resolveExec({ ok: !timedOut && child.exitCode === 0, stdout, stderr, code: child.exitCode, timedOut });
-          }
-        });
-        if (Date.now() - started > timeoutMs) {
-          timedOut = true;
-          child.kill("SIGKILL");
-        }
-        void cap;
+    const backend = deps.executionBackend ?? executionBackendFromPrefix(prefix);
+    const viaBackend: AdapterExecFn = execViaBackend(backend);
+    return async (cmd, args, opts = {}) =>
+      viaBackend(cmd, args, {
+        cwd: opts.cwd,
+        timeoutMs: opts.timeoutMs ?? buildTimeoutMs,
+        maxOutputBytes: opts.maxOutputBytes ?? maxOutputBytes,
       });
   }
 

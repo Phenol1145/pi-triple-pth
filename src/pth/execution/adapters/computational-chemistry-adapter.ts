@@ -11,11 +11,12 @@
  * `not-converged` 是合法结构化结果但绝不 success；资源/收敛/版本全部结构化。
  */
 import { pthConfig } from "../../config/index.js";
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import type { ExecutionBackend } from "@away_from/shared/execution";
+import { execViaBackend, executionBackendFromPrefix, type AdapterExecFn } from "../exec-via-backend.js";
 import {
   isPsi4JobSpecStructurallyValid,
   isQuantumEspressoJobSpecStructurallyValid,
@@ -58,6 +59,8 @@ interface ChemAdapterDeps {
   readonly probeCommand?: string;
   readonly workDir?: string;
   readonly execPrefix?: readonly string[];
+  /** execution/v1 执行面（优先于 execPrefix 的兼容解析） */
+  readonly executionBackend?: ExecutionBackend;
   readonly exec?: ChemExecFn;
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
@@ -83,51 +86,18 @@ export interface QuantumEspressoJobValue {
   readonly toolchain: { readonly engine: string; readonly version: string };
 }
 
-function makeChemRunner(deps: ChemAdapterDeps) {
+function makeChemRunner(deps: ChemAdapterDeps): ChemExecFn {
   if (deps.exec) return deps.exec;
-  const prefix = deps.execPrefix ?? [];
-  const isDockerExec = prefix[0] === "docker" && prefix[1] === "exec";
-  return (cmd: string, args: readonly string[], opts: { cwd?: string; timeoutMs?: number; maxOutputBytes?: number }) =>
-    new Promise<ChemExecResult>((resolveExec) => {
-      const { cwd, timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS, maxOutputBytes: cap = deps.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES } = opts;
-      let file = cmd;
-      let finalArgs: string[] = [...args];
-      const spawnOpts: { cwd?: string } = isDockerExec ? {} : { cwd };
-      if (prefix.length > 0) {
-        file = prefix[0]!;
-        if (isDockerExec) {
-          const rest = prefix.slice(2);
-          const containerIdx = rest.length - 1;
-          finalArgs = ["exec", ...rest.slice(0, containerIdx), ...(cwd !== undefined ? ["-w", cwd] : []), ...rest.slice(containerIdx), cmd, ...args];
-        } else {
-          finalArgs = [...prefix.slice(1), cmd, ...args];
-        }
-      }
-      let stdout = "";
-      let stderr = "";
-      let settled = false;
-      let timedOut = false;
-      const child = execFile(file, finalArgs, spawnOpts, (error, _stdout, _stderr) => {
-        stdout = _stdout;
-        stderr = _stderr;
-        if (settled) return;
-        settled = true;
-        const rawCode = (error as { code?: number | string } | null)?.code;
-        const code = typeof rawCode === "number" ? rawCode : error ? 1 : 0;
-        resolveExec({ ok: !timedOut && code === 0, stdout, stderr, code, timedOut, error: error ? `${error.message}${rawCode !== undefined ? ` (${String(rawCode)})` : ""}` : undefined });
-      });
-      if (child.stdout) child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-      if (child.stderr) child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-      const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs);
-      child.on("close", () => {
-        clearTimeout(timer);
-        if (!settled) {
-          settled = true;
-          resolveExec({ ok: !timedOut && child.exitCode === 0, stdout, stderr, code: child.exitCode, timedOut });
-        }
-      });
-      void cap;
+  const backend = deps.executionBackend ?? executionBackendFromPrefix(deps.execPrefix);
+  const viaBackend: AdapterExecFn = execViaBackend(backend);
+  const defaultTimeout = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return async (cmd, args, opts = {}) => {
+    return viaBackend(cmd, args, {
+      cwd: opts.cwd,
+      timeoutMs: opts.timeoutMs ?? defaultTimeout,
+      maxOutputBytes: opts.maxOutputBytes ?? deps.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
     });
+  };
 }
 
 function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJobSpec, V>(

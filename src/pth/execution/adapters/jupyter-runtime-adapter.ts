@@ -17,12 +17,13 @@
  * 执行通道可注入（execPrefix / exec / pathForExec）：生产在 jupyter 服务容器内直跑；
  * 测试在 macOS 宿主注入 `docker exec pi-platform-jupyter-1` 前缀与宿主→容器路径翻译。
  */
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import type { ExecutionBackend } from "@away_from/shared/execution";
+import { execViaBackend, executionBackendFromPrefix, type AdapterExecFn } from "../exec-via-backend.js";
 import {
   isJupyterJobSpecStructurallyValid,
   type ArtifactRef,
@@ -93,6 +94,8 @@ export interface CreateJupyterRuntimeAdapterDeps {
   readonly driverPath?: string;
   /** 命令前缀（如 ["docker","exec","-i","pi-platform-jupyter-1"]）。 */
   readonly execPrefix?: readonly string[];
+  /** execution/v1 执行面（优先于 execPrefix 的兼容解析） */
+  readonly executionBackend?: ExecutionBackend;
   /** 完全自定义 runner（优先于 execPrefix）。 */
   readonly exec?: JupyterExecFn;
   /** 宿主路径 → 执行通道路径翻译（容器挂载前缀不同步时注入；缺省恒等）。 */
@@ -130,61 +133,13 @@ export function createJupyterRuntimeAdapter(
 
   function makeExec(): JupyterExecFn {
     if (deps.exec) return deps.exec;
-    return (cmd, args, opts) =>
-      new Promise((resolveExec) => {
-        const isDockerExec = execPrefix?.[0] === "docker" && execPrefix?.[1] === "exec";
-        let file = cmd;
-        let finalArgs: string[] = [...args];
-        const spawnOpts: { cwd?: string } = isDockerExec ? {} : (opts.cwd !== undefined ? { cwd: opts.cwd } : {});
-        if (execPrefix && execPrefix.length > 0) {
-          file = execPrefix[0]!;
-          if (isDockerExec) {
-            const rest = execPrefix.slice(2);
-            const containerIdx = rest.length - 1;
-            const head = rest.slice(0, containerIdx);
-            const tail = rest.slice(containerIdx);
-            finalArgs = ["exec", ...head, ...(opts.cwd !== undefined ? ["-w", opts.cwd] : []), ...tail, cmd, ...args];
-          } else {
-            finalArgs = [...execPrefix.slice(1), cmd, ...args];
-          }
-        }
-        let stdout = "";
-        let stderr = "";
-        let settled = false;
-        let timedOut = false;
-        const child = execFile(file, finalArgs, spawnOpts, (error, _stdout, _stderr) => {
-          stdout = _stdout;
-          stderr = _stderr;
-          if (settled) return;
-          settled = true;
-          if (error && (error as NodeJS.ErrnoException).code === "ENOENT") {
-            resolveExec({ ok: false, stdout, stderr, code: null, timedOut: false, error: `executable not found: ${file}` });
-            return;
-          }
-          const rawCode = (error as { code?: number | string } | null)?.code;
-          const code = typeof rawCode === "number" ? rawCode : error ? 1 : 0;
-          resolveExec({
-            ok: !timedOut && code === 0,
-            stdout,
-            stderr,
-            code,
-            timedOut,
-            error: error ? `${error.message}${rawCode !== undefined ? ` (${String(rawCode)})` : ""}` : undefined,
-          });
-        });
-        if (child.stdout) child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-        if (child.stderr) child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-        const timer = setTimeout(() => {
-          timedOut = true;
-          child.kill("SIGKILL");
-        }, opts.timeoutMs ?? execTimeoutMs);
-        child.on("close", () => {
-          clearTimeout(timer);
-          if (!settled) {
-            settled = true;
-            resolveExec({ ok: !timedOut && child.exitCode === 0, stdout, stderr, code: child.exitCode, timedOut });
-          }
-        });
+    const backend = deps.executionBackend ?? executionBackendFromPrefix(execPrefix);
+    const viaBackend: AdapterExecFn = execViaBackend(backend);
+    return async (cmd, args, opts = {}) =>
+      viaBackend(cmd, args, {
+        cwd: opts.cwd,
+        timeoutMs: opts.timeoutMs ?? execTimeoutMs,
+        maxOutputBytes: deps.maxOutputBytes,
       });
   }
 

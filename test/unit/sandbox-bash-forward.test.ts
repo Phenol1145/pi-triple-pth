@@ -121,7 +121,7 @@ describe("SandboxExecClient 转发（F/WP3 Task 11）", () => {
       const client = new SandboxExecClient({ baseUrl: sandbox.baseUrl, secret: "s" });
       const result = await client.exec({ cmd: "sleep 1", timeout: 50 });
       expect(result.timedOut).toBe(true);
-      expect(sandbox.requests[0].body.timeout).toBe(50);
+      expect(sandbox.requests[0].body.timeoutMs).toBe(50);
     } finally {
       await sandbox.close();
     }

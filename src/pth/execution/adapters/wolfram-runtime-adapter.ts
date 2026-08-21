@@ -13,11 +13,12 @@
  * 记录 EVALUATION-INCOMPLETE，绝不 skip、绝不用 SymPy 冒充。
  */
 import { pthConfig } from "../../config/index.js";
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
+import type { ExecutionBackend } from "@away_from/shared/execution";
+import { execViaBackend, executionBackendFromPrefix, type AdapterExecFn } from "../exec-via-backend.js";
 import {
   isWolframJobSpecStructurallyValid,
   type ArtifactRef,
@@ -63,6 +64,8 @@ export interface CreateWolframRuntimeAdapterDeps {
   readonly licenseProvider?: string;
   readonly workDir?: string;
   readonly execPrefix?: readonly string[];
+  /** execution/v1 执行面（优先于 execPrefix 的兼容解析） */
+  readonly executionBackend?: ExecutionBackend;
   readonly exec?: WolframExecFn;
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
@@ -86,58 +89,13 @@ export function createWolframRuntimeAdapter(deps: CreateWolframRuntimeAdapterDep
 
   function makeExec(): WolframExecFn {
     if (deps.exec) return deps.exec;
-    const prefix = deps.execPrefix ?? [];
-    const isDockerExec = prefix[0] === "docker" && prefix[1] === "exec";
-    return (cmd, args, opts) =>
-      new Promise((resolveExec) => {
-        const { cwd, timeoutMs: t = timeoutMs, maxOutputBytes: cap = maxOutputBytes } = opts;
-        let file = cmd;
-        let finalArgs: string[] = [...args];
-        const spawnOpts: { cwd?: string } = isDockerExec ? {} : { cwd };
-        if (prefix.length > 0) {
-          file = prefix[0]!;
-          if (isDockerExec) {
-            const rest = prefix.slice(2);
-            const containerIdx = rest.length - 1;
-            finalArgs = ["exec", ...rest.slice(0, containerIdx), ...(cwd !== undefined ? ["-w", cwd] : []), ...rest.slice(containerIdx), cmd, ...args];
-          } else {
-            finalArgs = [...prefix.slice(1), cmd, ...args];
-          }
-        }
-        let stdout = "";
-        let stderr = "";
-        let settled = false;
-        let timedOut = false;
-        const child = execFile(file, finalArgs, spawnOpts, (error, _stdout, _stderr) => {
-          stdout = _stdout;
-          stderr = _stderr;
-          if (settled) return;
-          settled = true;
-          const rawCode = (error as { code?: number | string } | null)?.code;
-          const code = typeof rawCode === "number" ? rawCode : error ? 1 : 0;
-          resolveExec({
-            ok: !timedOut && code === 0,
-            stdout,
-            stderr,
-            code,
-            timedOut,
-            error: error ? `${error.message}${rawCode !== undefined ? ` (${String(rawCode)})` : ""}` : undefined,
-          });
-        });
-        if (child.stdout) child.stdout.on("data", (d: Buffer) => { stdout += d.toString(); });
-        if (child.stderr) child.stderr.on("data", (d: Buffer) => { stderr += d.toString(); });
-        const timer = setTimeout(() => {
-          timedOut = true;
-          child.kill("SIGKILL");
-        }, t);
-        child.on("close", () => {
-          clearTimeout(timer);
-          if (!settled) {
-            settled = true;
-            resolveExec({ ok: !timedOut && child.exitCode === 0, stdout, stderr, code: child.exitCode, timedOut });
-          }
-        });
-        void cap;
+    const backend = deps.executionBackend ?? executionBackendFromPrefix(deps.execPrefix);
+    const viaBackend: AdapterExecFn = execViaBackend(backend);
+    return async (cmd, args, opts = {}) =>
+      viaBackend(cmd, args, {
+        cwd: opts.cwd,
+        timeoutMs: opts.timeoutMs ?? timeoutMs,
+        maxOutputBytes: opts.maxOutputBytes ?? maxOutputBytes,
       });
   }
 

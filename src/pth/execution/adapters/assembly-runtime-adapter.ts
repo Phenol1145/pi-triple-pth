@@ -17,13 +17,14 @@
  * 是 execPrefix 的缺省来源。
  */
 import { pthConfig } from "../../config/index.js";
-import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
+import type { ExecutionBackend } from "@away_from/shared/execution";
+import { execViaBackend, executionBackendFromPrefix, type AdapterExecFn } from "../exec-via-backend.js";
 import {
   isAssemblyJobSpecStructurallyValid,
   type ArtifactRef,
@@ -81,6 +82,8 @@ export interface CreateAssemblyRuntimeAdapterDeps {
   readonly workDir?: string;
   /** 命令前缀（如 ["docker","exec","v13-asm-toolchain"]）；缺省读 PTH_ASM_TOOLCHAIN_EXEC。 */
   readonly execPrefix?: readonly string[];
+  /** execution/v1 执行面（优先于 execPrefix 的兼容解析） */
+  readonly executionBackend?: ExecutionBackend;
   /** 完全自定义 runner（优先于 execPrefix）。 */
   readonly exec?: AsmExecFn;
   readonly runTimeoutMs?: number;
@@ -191,49 +194,32 @@ function createExecFn(deps: CreateAssemblyRuntimeAdapterDeps): AsmExecFn {
   if (deps.exec) return deps.exec;
   const envPrefix = pthConfig().str("PTH_ASM_TOOLCHAIN_EXEC")?.split(" ").filter(Boolean);
   const prefix = deps.execPrefix ?? (envPrefix && envPrefix.length > 0 ? envPrefix : undefined);
-  return (cmd, args, opts = {}) =>
-    new Promise((resolvePromise) => {
-      const finalCmd = prefix && prefix.length > 0 ? prefix[0]! : cmd;
-      const finalArgs = prefix && prefix.length > 0 ? [...prefix.slice(1), cmd, ...args] : [...args];
-      const timeoutMs = opts.timeoutMs ?? 30_000;
-      // 不用 execFile 内置 timeout：经 docker exec 时 CLI 收到 SIGTERM 会以 exit 0
-      // 干净退出（err=null），超时会被误判为成功。自行计时 + 强制标记。
-      let forcedTimeout = false;
-      const child = execFile(
-        finalCmd,
-        finalArgs,
-        { cwd: opts.cwd, maxBuffer: opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES },
-        (err, stdout, stderr) => {
-          clearTimeout(timer);
-          if (forcedTimeout) {
-            // asm-kernel run 以 /timed ?out|SIGTERM/i 判定超时——错误文本必须带标记。
-            resolvePromise({
-              ok: false,
-              stdout: String(stdout ?? ""),
-              stderr: String(stderr ?? ""),
-              error: `timed out after ${timeoutMs}ms (SIGTERM): ${String(stderr ?? "").slice(0, 400)}`,
-            });
-            return;
-          }
-          if (err) {
-            const e = err as Error & { code?: number | string };
-            resolvePromise({
-              ok: false,
-              stdout: String(stdout ?? ""),
-              stderr: String(stderr ?? ""),
-              error: String(stderr || e.message).slice(0, 800),
-              ...(e.code !== undefined ? { code: e.code } : {}),
-            });
-          } else {
-            resolvePromise({ ok: true, stdout: String(stdout ?? ""), stderr: String(stderr ?? ""), code: 0 });
-          }
-        },
-      );
-      const timer = setTimeout(() => {
-        forcedTimeout = true;
-        child.kill("SIGTERM");
-      }, timeoutMs);
+  const backend = deps.executionBackend ?? executionBackendFromPrefix(prefix);
+  const viaBackend: AdapterExecFn = execViaBackend(backend);
+  return async (cmd, args, opts = {}) => {
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    const r = await viaBackend(cmd, args, {
+      cwd: opts.cwd,
+      timeoutMs,
+      maxOutputBytes: opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
     });
+    if (r.ok) return { ok: true, stdout: r.stdout, stderr: r.stderr, code: 0 };
+    if (r.timedOut) {
+      return {
+        ok: false,
+        stdout: r.stdout,
+        stderr: r.stderr,
+        error: `timed out after ${timeoutMs}ms (SIGTERM): ${r.stderr.slice(0, 400)}`,
+      };
+    }
+    return {
+      ok: false,
+      stdout: r.stdout,
+      stderr: r.stderr,
+      error: (r.error ?? r.stderr).slice(0, 800),
+      ...(r.code !== null ? { code: r.code } : {}),
+    };
+  };
 }
 
 // ─── 版本探测 ──────────────────────────────────────────────────────────────

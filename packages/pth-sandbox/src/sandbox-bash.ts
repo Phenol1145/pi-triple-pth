@@ -18,6 +18,8 @@
  * 返回（S2 实证 custom bash 走标准 tool_result，输出完整性优先——聚合返回不丢字节）。
  */
 
+import { ExecutionClientError, HttpExecutionClient } from "@away_from/shared/execution";
+
 import { Type } from "@sinclair/typebox";
 
 // ─── 类型化错误 ─────────────────────────────────────────────────────
@@ -190,9 +192,12 @@ export class SandboxHealthMonitor {
   }
 }
 
-// ─── HTTP 转发客户端 ────────────────────────────────────────────────
+// ─── HTTP 转发客户端（execution/v1）───────────────────────────────
 export class SandboxExecClient {
-  constructor(private opts: SandboxClientOptions) {}
+  private readonly client: HttpExecutionClient;
+  constructor(private opts: SandboxClientOptions) {
+    this.client = new HttpExecutionClient({ baseUrl: this.opts.baseUrl, token: this.opts.secret });
+  }
 
   private requestTimeoutMs(req: SandboxExecRequest): number {
     if (typeof req.timeout === "number" && req.timeout > 0) return req.timeout + 10_000;
@@ -207,25 +212,10 @@ export class SandboxExecClient {
     const onOuterAbort = () => ctrl.abort();
     signal?.addEventListener("abort", onOuterAbort);
     try {
-      const res = await fetch(`${this.opts.baseUrl}/exec`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${this.opts.secret}`,
-        },
-        body: JSON.stringify({
-          cmd: req.cmd,
-          cwd: req.cwd,
-          timeout: req.timeout,
-        }),
-        signal: ctrl.signal,
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        this.opts.monitor?.recordFailure();
-        throw new SandboxForwardError(SANDBOX_ERROR_UNAVAILABLE, `sandbox /exec failed: HTTP ${res.status} ${text}`);
-      }
-      const result = (await res.json()) as SandboxExecResult;
+      const result = await this.client.execute(
+        { cmd: req.cmd, cwd: req.cwd, timeoutMs: req.timeout },
+        ctrl.signal,
+      );
       // 转发成功 → 清零连续失败；若已 degraded 则自动恢复（F/WP3 Task 13）
       this.opts.monitor?.recordSuccess();
       return result;
@@ -235,9 +225,11 @@ export class SandboxExecClient {
         // 超时不计入降级（sandbox 可达但慢）；探活以 /health 为准
         throw new SandboxForwardError(SANDBOX_ERROR_TIMEOUT, `sandbox /exec timed out after ${timeoutMs}ms`);
       }
-      if (err instanceof SandboxForwardError) throw err; // 已在上方记录 failure
+      const message = err instanceof ExecutionClientError
+        ? `sandbox /exec failed: HTTP ${err.status ?? "?"} ${err.message}`
+        : `sandbox unreachable: ${err instanceof Error ? err.message : String(err)}`;
       this.opts.monitor?.recordFailure();
-      throw new SandboxForwardError(SANDBOX_ERROR_UNAVAILABLE, `sandbox unreachable: ${err instanceof Error ? err.message : String(err)}`);
+      throw new SandboxForwardError(SANDBOX_ERROR_UNAVAILABLE, message);
     } finally {
       clearTimeout(abortTimer);
       signal?.removeEventListener("abort", onOuterAbort);
