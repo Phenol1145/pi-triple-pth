@@ -7,7 +7,7 @@
 ![version](https://img.shields.io/badge/version-1.5.0-blue)
 
 - **定位**：任务派发 → batch worker → kernel/sandbox 执行 → 产物沉淀记忆。
-- **导航**：Quick Start · [模块](#模块) · [架构](#architecture) · [开发](#development) · [文档](#documentation)
+- **导航**：Quick Start · [模块](#模块) · [架构](#architecture) · [开发](#development) · [仓库定位](docs/POSITIONING.md) · [文档](#documentation)
 
 ## ✨ Quick Start
 
@@ -68,6 +68,7 @@ npm run test:e2e   # Playwright operator console
 ## Roadmap
 
 - ✅ v1.5.0：从主仓 filter-repo 拆出；PTH-only Dockerfile/compose；`pth up` 全栈回归
+- 🚧 命名演进：PTH → **FRACTA 引擎**（规划中；代码/包名/命令品牌迁移将单独立项）
 - 🚧 R4–R8 container-runtime 契约实现与验收
 
 ## Documentation
