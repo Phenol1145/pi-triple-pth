@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**约定已定，实施计划待执行**（2026-08-21）。
+> 状态：**约定已定；P0 协议面冻结已实现（2026-08-21）——P1–P3 待实施**。
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`。
 > 协议事实源：`@away_from/shared/execution`（execution/v1）；设计背景：`docs/execution-surface-v1-design.md`。
@@ -106,11 +106,17 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 
 ### P0 协议面冻结（pi-triple-deps，无行为迁移）
 
-1. shared 增加 `ExecutionBackendDescriptor` + `HttpExecutionBackend`（封装
+**状态：✅ 已实现（2026-08-21）；npm 发布待办。**
+
+1. ✅ shared 增加 `ExecutionBackendDescriptor` + `HttpExecutionBackend`（封装
    `HttpExecutionClient`：id、descriptor、capabilities 缓存与 profile 校验）。
-2. 补充 golden wire 测试：descriptor JSON、capabilities 不匹配、profile 自提升拒绝。
-3. 发布 `@away_from/shared` 新版本，PTH/PTL lock 升级。
-4. **退出门**：deps 全量测试绿；三仓 POSITIONING + 本计划 + ADR 已同步。
+   实现：`packages/shared/src/execution/types.ts` · `validate.ts` · `backends/http.ts`；
+   barrel 经 `@away_from/shared/execution` 导出。
+2. ✅ 契约测试：`test/unit/execution-http-backend.test.ts`——golden descriptor JSON、
+   capabilities version 不匹配、sandbox-untrusted 安全不变量、profile 自提升拒绝、
+   pathMapping 注入、stream/pathMapping 能力前置拒绝。
+3. ⏳ 发布 `@away_from/shared` 新版本，PTH/PTL lock 升级（npm 发布为用户动作）。
+4. ✅ 退出门（代码/测试）：deps lint/build 绿，15 files / 93 tests 全绿；三仓文档同步。
 
 ### P1 engine 后端注册与路由（pi-triple-pth）
 
