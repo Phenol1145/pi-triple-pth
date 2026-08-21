@@ -5,6 +5,7 @@
 | 仓库定位 | [POSITIONING](POSITIONING.md)（三仓同源） |
 | 执行面协议 | [execution-surface-v1-design](execution-surface-v1-design.md)（三仓同源） |
 | 执行面拓扑与协议面固定计划 | [fracta-engine-execution-topology](fracta-engine-execution-topology.md)（三仓同源） |
+| Role / Worker 定义协议 | [role-worker-protocol-v1](pth/role-worker-protocol-v1.md)（PTH 仓） |
 | 决策记录 | [ADR-0001：执行面全部外部化](adr/0001-fracta-engine-external-execution-surfaces.md)（三仓同源） |
 | 决策记录 | [ADR-0002：tool containers 与 execution/v1.1](adr/0002-tool-containers-execution-v11.md)（三仓同源） |
 | 部署 / `pth up` | [deployment](pth/deployment.md) |

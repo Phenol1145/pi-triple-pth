@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-21T18:17:24.938Z",
+  "generatedAt": "2026-08-21T19:04:05.020Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -537,6 +537,12 @@
     },
     {
       "path": "docs/pth/repo-split-v15-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/role-worker-protocol-v1.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"

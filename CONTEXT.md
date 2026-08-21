@@ -12,6 +12,24 @@ _Avoid_: platform（compose 服务名 `pi-platform` 是迁移前的代码名，�
 engine 内按角色实例化的执行单元（role × replica），跑任务循环、消费任务、产出 outcome。
 _Avoid_: agent 实例、进程（batch 子进程是 worker 的宿主，不是 worker 本身）
 
+**role-definition/v1**:
+Role = 类声明：`catalog/data/roles/<id>.json` 的角色定义文件协议。`version` 单调递增（编辑带
+baseVersion 乐观并发）；`generation` 由 parent/composedFrom 派生；revision = 内容哈希供 worker 绑定。
+_Avoid_: 把角色写死在源码、把 version/generation 混用
+
+**worker-spec/v1**:
+Worker = 对象的实例化参数：`catalog/data/workers.json`（副本数、roleRevision pin、drain 策略）。
+运行时投影为 WorkerReplica/WorkerSlot。
+_Avoid_: 直接用 PTH_WORKER_ROLES 作为主源（仅 bootstrap 覆盖保留）
+
+**drain-swap**:
+role 新 revision 的生效语义：旧 worker 暂停认领 → 新 revision worker 接管 → 旧 worker 跑完在飞任务后退役；失败回滚。保证任何任务全程只由一个 worker 且绑定唯一 role revision。
+_Avoid_: 热更新时直接杀旧 worker、修改后强制重启整个 engine
+
+**mutation tiers（可改性分层）**:
+T0 不可修改（协议/内核/安全机制，release-only）/ T1 声明式可变（catalog/data，GitOps 热应用）/ T2 配置可变（env/config）。
+_Avoid_: 把 T1 数据硬编码进 T0 源码
+
 **LLM interface**:
 engine 面向模型暴露的语义面——role prompt、动作空间、工具语义与执行请求的构造；执行细节对 LLM 不可见。
 _Avoid_: 工具层、动作层（它们是 LLM interface 的组成部分，不等于整体）

@@ -397,6 +397,19 @@ capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
 - 已知旧路径漂移：`agent-reach` wrapper 与 dev-container 包指向
   `~/pi-platform/docker-compose.yaml`，T3 一并修正。
 
+### 5.10 可改性分层（mutation tiers，与 role/worker 协议同源）
+
+| 层 | 内容 | 变更方式 |
+|---|---|---|
+| T0 不可修改 | contracts / execution wire / validate / grant / kernel·loop·interpreter 机制 / 装配 fail-closed / professional-runtime-lock / tool-manifest digest | PR + 门禁 + 镜像/npm 发布 |
+| T1 声明式可变 | `catalog/data/**`：role-definition/v1、worker-spec/v1、policies、observers、spaces、任务模板、skills/prompts | proposal → 审批 → 文件（GitOps）→ apply（drain-swap 热生效） |
+| T2 配置可变 | PTH_* env / PTH_EXEC_BACKENDS / 模式开关 | 配置中心 + env + 重启（部分 runtime SET） |
+
+- 机器断言：T0 源码不得 import `catalog/data/**`；role 对象在生产装配中只来自 catalog loader；
+  T1 写入口只经 `pth role/worker` 或审批管线（写审计）。
+- role/worker 完整协议（字段、REST 面、drain-swap、迁移映射）见 PTH 仓
+  `docs/pth/role-worker-protocol-v1.md`；本表是三仓共用的边界摘要。
+
 ## 6. 本地执行器开发指南（Lean 首期参考实现）
 
 ### 6.1 定位与安全基线
