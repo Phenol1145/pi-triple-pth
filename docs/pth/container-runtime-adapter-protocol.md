@@ -56,7 +56,7 @@ interface ContainerRuntimeAdapter {
    - 未声明或 `allowed:false` → `RUNTIME_NOT_ALLOWED`；
    - 显式 socket 不在白名单 → `SOCKET_NOT_ALLOWED`；
    - 对候选执行 `probe → version → 版本约束`，任一失败 → `EXPLICIT_RUNTIME_UNAVAILABLE`；不自动尝试其他 runtime；
-   - 同一 id 有多个 socket 时按 lock 顺序取第一个可用。
+   - 同一 id 有多个 socket 时也 fail-closed：多个候选可用 → `AMBIGUOUS_RUNTIME`，必须用 `PI_CONTAINER_RUNTIME_SOCKET` 显式指定一个（排障可解释）。
 4. **自动路径**：按 lock 顺序逐个 probe：
    - 恰好 1 个候选通过 → 选中，`source: "probe"`；
    - 0 个通过 → `NO_RUNTIME_AVAILABLE`，错误携带每个 socket 的 reason；
