@@ -27,39 +27,19 @@ import fs from "node:fs";
 import os from "node:os";
 import crypto from "node:crypto";
 import { cp, mkdir, rm, chmod, chown, readdir, lstat } from "node:fs/promises";
+import {
+  EXECUTION_WIRE,
+  type ExecutionCapabilities,
+  type ExecutionRequest,
+  type ExecutionResult,
+} from "@away_from/shared/execution";
 import { buildWorkloadEnv, workloadIdentity, WORKLOAD_HOME } from "./workload/environment.js";
 import { loadSandboxConfig } from "./config.js";
 import { existsForReady, validateCwd, validateBody, prepareWorkspace } from "./exec-api-validation.js";
 
-// ─── 类型 ────────────────────────────────────────────────────────────
-export interface ExecRequest {
-  /** shell 命令字符串 或 argv 数组 */
-  cmd: string | string[];
-  /** 执行目录（默认 workspacesRoot）；resolve 后必须在白名单内 */
-  cwd?: string;
-  /** 子进程 env 增量（合并到容器 env；注意：不注入 LLM 密钥——sandbox 不持密钥） */
-  env?: Record<string, string>;
-  /** 超时 ms（默认 defaultTimeoutMs，上限 maxTimeoutMs）——到点 SIGKILL 进程组 */
-  timeout?: number;
-  /** stdout 字节上限（超限 SIGKILL 进程组 + truncated 标记；默认 1MB，上限 4MB） */
-  maxStdoutBytes?: number;
-  /** stderr 字节上限（同上） */
-  maxStderrBytes?: number;
-  /** true → 后台执行立即返回 {execId}，经 GET /exec/:id/stream 消费 */
-  stream?: boolean;
-}
-
-export interface ExecResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
-  /** 被信号终止时携带的信号名（如 SIGKILL） */
-  signal?: string | null;
-  /** 超时强杀标记 */
-  timedOut: boolean;
-  /** P2-4：字节上限截断标记（超限即杀进程组） */
-  truncated?: { field: "stdout" | "stderr"; originalLen: number; keptLen: number };
-}
+// ─── 类型（execution/v1 对齐；保留旧名别名兼容内部调用） ─────────────────────
+export type ExecRequest = ExecutionRequest;
+export type ExecResult = ExecutionResult;
 
 export interface ExecApiOptions {
   /** cwd 白名单根（默认 /data/workspaces——compose 共享卷路径约定，Task 12 统一） */
@@ -95,6 +75,8 @@ interface StreamJob {
   signal: string | null;
   timedOut: boolean;
   finished: boolean;
+  /** 完成后的 execution/v1 结果（含 truncated），供 GET /exec/:id 回放 */
+  result?: ExecutionResult;
   cleanupTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -113,6 +95,7 @@ function createJob(id: string): StreamJob {
     signal: null,
     timedOut: false,
     finished: false,
+    result: undefined,
     cleanupTimer: null,
   };
 }
@@ -252,6 +235,16 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
   const jobs = new Map<string, StreamJob>();
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
+  const capabilities: ExecutionCapabilities = {
+    version: EXECUTION_WIRE.version,
+    streaming: true,
+    cancel: true,
+    cwdWhitelist: true,
+    uidIsolation: true,
+    egressLocked: true,
+    pathMapping: false,
+  };
+
   // S1-4：shutdown dispose——app.close() 时终止全部在飞 stream 子进程并清注册表
   app.addHook("onClose", async () => {
     for (const job of jobs.values()) {
@@ -285,7 +278,13 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
     return false;
   }
 
-  app.get("/health", async () => ({ status: "ok" }));
+  app.get(EXECUTION_WIRE.paths.health, async () => ({ status: "ok" }));
+
+  // execution/v1：能力声明（与 /exec 同样受共享密钥保护；能力无敏感信息）
+  app.get(EXECUTION_WIRE.paths.capabilities, async (req, reply) => {
+    if (!enforceAuth(req, reply)) return;
+    return capabilities;
+  });
 
   // P2-6：liveness/readiness 拆分。/health 只做 liveness（进程活着）；
   // /ready 检查执行前置条件：共享密钥、工作区根、私有根（若启用）与调用方额外检查。
@@ -307,8 +306,19 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
     return { status: ready ? "ready" : "degraded", checks };
   });
 
-  app.post("/exec", async (req, reply) => {
+  app.post(EXECUTION_WIRE.paths.exec, async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
+    const rawBody = (req.body ?? {}) as Record<string, unknown>;
+    // 信任档由 backend 强制：sandbox 只接受未声明或 sandbox-untrusted；
+    // 客户端声明 host/dev-container 一律拒绝（不得自我提升）。
+    if (rawBody.profile !== undefined && rawBody.profile !== "sandbox-untrusted") {
+      reply.code(400).send({ error: "profile must be sandbox-untrusted on this backend" });
+      return;
+    }
+    if (rawBody.pathMapping !== undefined) {
+      reply.code(400).send({ error: "pathMapping is not supported by sandbox backend" });
+      return;
+    }
     let cmd: string | string[];
     let timeoutMs: number;
     let maxStdoutBytes: number;
@@ -342,6 +352,7 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
       resultPromise.then(async (r) => {
         const syncErr = await syncBack();
         if (syncErr) r.stderr = `${r.stderr}\n${syncErr}`;
+        job.result = { ...r, execId: job.id };
         finishJob(job, jobs);
       });
       return { execId: job.id, status: "running" };
@@ -349,11 +360,25 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
     const result = await resultPromise;
     const syncErr = await syncBack();
     if (syncErr) result.stderr = `${result.stderr}\n${syncErr}`;
+    job.result = { ...result, execId: job.id };
     finishJob(job, jobs);
-    return result;
+    return job.result;
   });
 
-  app.get<{ Params: { id: string } }>("/exec/:id", async (req, reply) => {
+  app.post<{ Params: { id: string } }>(EXECUTION_WIRE.paths.cancel, async (req, reply) => {
+    if (!enforceAuth(req, reply)) return;
+    const job = jobs.get(req.params.id);
+    if (!job) { reply.code(404).send({ error: "job not found" }); return; }
+    if (!job.finished && job.proc && job.proc.pid !== undefined) {
+      try {
+        // 终止整个进程组（含子孙）——execution/v1 的 cancel 是尽力语义
+        process.kill(-job.proc.pid, "SIGKILL");
+      } catch { /* 子进程已退出 */ }
+    }
+    return { ok: true };
+  });
+
+  app.get<{ Params: { id: string } }>(EXECUTION_WIRE.paths.job, async (req, reply) => {
     if (!enforceAuth(req, reply)) return;
     const job = jobs.get(req.params.id);
     if (!job) { reply.code(404).send({ error: "job not found" }); return; }
@@ -361,7 +386,7 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
     return {
       status: "done",
       execId: job.id,
-      result: {
+      result: job.result ?? {
         stdout: job.stdout.join(""),
         stderr: job.stderr.join(""),
         exitCode: job.exitCode,
@@ -371,7 +396,7 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
     };
   });
 
-  app.get<{ Params: { id: string } }>("/exec/:id/stream", (req, reply) => {
+  app.get<{ Params: { id: string } }>(EXECUTION_WIRE.paths.stream, (req, reply) => {
     if (!enforceAuth(req, reply)) return;
     const job = jobs.get(req.params.id);
     if (!job) { reply.code(404).send({ error: "job not found" }); return; }
@@ -387,9 +412,10 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
     const writeEvent = (event: string, data: unknown) => {
       raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
-    const onOutput = (stream: "stdout" | "stderr", data: string) => writeEvent("output", { stream, data });
+    const onOutput = (stream: "stdout" | "stderr", data: string) =>
+      writeEvent(EXECUTION_WIRE.events.output, { stream, data });
     const onDone = () => {
-      writeEvent("done", { exitCode: job.exitCode, signal: job.signal, timedOut: job.timedOut });
+      writeEvent(EXECUTION_WIRE.events.done, { exitCode: job.exitCode, signal: job.signal, timedOut: job.timedOut });
       raw.end();
     };
     const replay = () => {

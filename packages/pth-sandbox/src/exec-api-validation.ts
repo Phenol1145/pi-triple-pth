@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { cp, mkdir, rm, chmod, chown, readdir, lstat } from "node:fs/promises";
+import { ExecutionRequestError, validateExecutionRequest } from "@away_from/shared/execution";
 import { workloadIdentity } from "./workload/environment.js";
 import { loadSandboxConfig } from "./config.js";
 
@@ -56,35 +57,28 @@ export function validateBody(
   maxStdoutBytes: number,
   maxStderrBytes: number,
 ): { cmd: string | string[]; timeoutMs: number; maxStdoutBytes: number; maxStderrBytes: number } {
-  if (!body || typeof body !== "object") throw new Error("request body required");
-  const b = body as Record<string, unknown>;
-  const cmd = b.cmd;
-  const cmdOk =
-    (typeof cmd === "string" && cmd.length > 0) ||
-    (Array.isArray(cmd) && cmd.length > 0 && cmd.every((c) => typeof c === "string"));
-  if (!cmdOk) throw new Error("cmd must be a non-empty string or an array of strings");
-  let timeoutMs = defaultTimeoutMs;
-  if (b.timeout !== undefined) {
-    if (typeof b.timeout !== "number" || !Number.isFinite(b.timeout) || b.timeout <= 0) {
-      throw new Error("timeout must be a positive number (ms)");
-    }
-    timeoutMs = Math.min(b.timeout, maxTimeoutMs);
+  const raw = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  // execution/v1 规范字段为 timeoutMs；保留旧字段 timeout 作为过渡别名（客户端迁移后移除）。
+  const input = { ...raw };
+  if (input.timeoutMs === undefined && typeof raw.timeout === "number") {
+    input.timeoutMs = raw.timeout;
   }
-  let outMax = maxStdoutBytes;
-  if (b.maxStdoutBytes !== undefined) {
-    if (typeof b.maxStdoutBytes !== "number" || !Number.isFinite(b.maxStdoutBytes) || b.maxStdoutBytes <= 0 || b.maxStdoutBytes > 4 * 1024 * 1024) {
-      throw new Error("maxStdoutBytes must be 1..4MB");
-    }
-    outMax = Math.floor(b.maxStdoutBytes);
+  try {
+    const normalized = validateExecutionRequest(input, {
+      timeoutMs: defaultTimeoutMs,
+      maxStdoutBytes,
+      maxStderrBytes,
+    });
+    return {
+      cmd: normalized.cmd,
+      timeoutMs: Math.min(normalized.timeoutMs ?? defaultTimeoutMs, maxTimeoutMs),
+      maxStdoutBytes: normalized.maxStdoutBytes ?? maxStdoutBytes,
+      maxStderrBytes: normalized.maxStderrBytes ?? maxStderrBytes,
+    };
+  } catch (error) {
+    if (error instanceof ExecutionRequestError) throw new Error(error.message);
+    throw error;
   }
-  let errMax = maxStderrBytes;
-  if (b.maxStderrBytes !== undefined) {
-    if (typeof b.maxStderrBytes !== "number" || !Number.isFinite(b.maxStderrBytes) || b.maxStderrBytes <= 0 || b.maxStderrBytes > 4 * 1024 * 1024) {
-      throw new Error("maxStderrBytes must be 1..4MB");
-    }
-    errMax = Math.floor(b.maxStderrBytes);
-  }
-  return { cmd: cmd as string | string[], timeoutMs, maxStdoutBytes: outMax, maxStderrBytes: errMax };
 }
 
 export async function chownRecursive(target: string, uid: number, gid: number): Promise<void> {
