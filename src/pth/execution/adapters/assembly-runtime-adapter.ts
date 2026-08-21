@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, executionBackendFromPrefix, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
 import {
   isAssemblyJobSpecStructurallyValid,
   type ArtifactRef,
@@ -194,8 +194,10 @@ function createExecFn(deps: CreateAssemblyRuntimeAdapterDeps): AsmExecFn {
   if (deps.exec) return deps.exec;
   const envPrefix = pthConfig().str("PTH_ASM_TOOLCHAIN_EXEC")?.split(" ").filter(Boolean);
   const prefix = deps.execPrefix ?? (envPrefix && envPrefix.length > 0 ? envPrefix : undefined);
-  const backend = deps.executionBackend ?? executionBackendFromPrefix(prefix);
-  const viaBackend: AdapterExecFn = execViaBackend(backend);
+  const backend = resolveExecutionBackend({ executionBackend: deps.executionBackend, execPrefix: prefix });
+  const viaBackend: AdapterExecFn = backend
+    ? execViaBackend(backend)
+    : unavailableAdapterExec("assembly: no execution backend configured");
   return async (cmd, args, opts = {}) => {
     const timeoutMs = opts.timeoutMs ?? 30_000;
     const r = await viaBackend(cmd, args, {

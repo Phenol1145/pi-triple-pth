@@ -172,6 +172,17 @@ export class PthConfig {
   list(key: string): string[] {
     return this.str(key).split(",").map((s) => s.trim()).filter(Boolean);
   }
+
+  /** JSON 读取（空串 → undefined；解析失败抛带 key 的错误——调用方决定包装语义） */
+  json<T = unknown>(key: string): T | undefined {
+    const raw = this.str(key);
+    if (raw === undefined || raw.trim() === "") return undefined;
+    try {
+      return JSON.parse(raw) as T;
+    } catch (error) {
+      throw new Error(`${key} 不是合法 JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 }
 
 let pthConfigSingleton: PthConfig | null = null;

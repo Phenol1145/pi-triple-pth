@@ -30,6 +30,7 @@ export type ConfigGroup =
   | "mode"
   | "observability"
   | "worker"
+  | "execution"
   | "cli";
 
 export interface PthConfigDef {
@@ -128,6 +129,12 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_PYTHON_MODE", "string", "kernel", "kernel", "batch", "python 执行模式：kernel / sandbox-kernel"),
   d("PTH_BASH_MODE", "string", "kernel", "kernel", "batch", "bash 执行模式：kernel / sandbox-kernel"),
   d("PTH_EXEC_SESSION_TTL_MS", "number", 30 * 60_000, "kernel", "main", "kernel 直连执行会话 TTL"),
+
+  // ── execution 后端注册（P1：execution/v1.1 路由，三仓 topology §4） ──
+  d("PTH_EXEC_BACKENDS", "json", "", "execution", "both", "ExecutionBackendDescriptor[] JSON；空 + sandbox alias 开 → 合成 sandbox 后端"),
+  d("PTH_EXEC_BACKEND_ROUTES", "json", "", "execution", "both", "ProfessionalRuntimeId → backend id 路由表 JSON（如 {\"lean4\":\"local-lean\"}）"),
+  d("PTH_EXEC_BACKEND_PROBE_TIMEOUT_MS", "number", 2000, "execution", "both", "startup 单 backend capabilities 探测超时"),
+  d("PTH_EXEC_SANDBOX_ALIAS", "string", "on", "execution", "both", "sandbox 后端自动合成开关（off 关闭；只影响未显式配置 sandbox 的情况）"),
 
   // ── compiled kernel ──────────────────────────────────────────────
   d("PTH_COMPILED_CACHE_DIR", "string", "/data/compiled-cache/c", "compiled", "sandbox", "编译核缓存目录"),

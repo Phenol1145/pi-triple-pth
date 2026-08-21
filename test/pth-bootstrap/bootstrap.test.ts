@@ -25,4 +25,30 @@ describe("P3-4：bootstrap 统一装配入口", () => {
     expect("profile" in DEFAULT_MODULE_MANIFEST).toBe(false);
     expect(DEFAULT_MODULE_MANIFEST.modules).toContain("kernel");
   });
+
+  it("P1：buildPthHost 返回 backends/routes；非法 PTH_EXEC_BACKENDS 监听前 fail-closed", async () => {
+    const host = await buildPthHost(DEFAULT_MODULE_MANIFEST, {
+      env: {
+        PTH_EXEC_BACKENDS: JSON.stringify([
+          { id: "local-lean", url: "http://host.docker.internal:8787", profile: "host" },
+        ]),
+        PTH_EXEC_BACKEND_ROUTES: JSON.stringify({ lean4: "local-lean" }),
+        PTH_EXEC_SANDBOX_ALIAS: "off",
+      },
+    });
+    expect(host.backends.get("local-lean")?.descriptor.url).toBe("http://host.docker.internal:8787");
+    expect(host.routes).toEqual({ lean4: "local-lean" });
+    expect(host.backends.get("sandbox")).toBeUndefined();
+
+    await expect(buildPthHost(DEFAULT_MODULE_MANIFEST, {
+      env: { PTH_EXEC_BACKENDS: "{broken", PTH_EXEC_SANDBOX_ALIAS: "off" },
+    })).rejects.toThrow(/PTH_EXEC_BACKENDS 不是合法 JSON/);
+
+    await expect(buildPthHost(DEFAULT_MODULE_MANIFEST, {
+      env: {
+        PTH_EXEC_BACKENDS: JSON.stringify([{ id: "x", url: "http://x", profile: "host", bogus: 1 }]),
+        PTH_EXEC_SANDBOX_ALIAS: "off",
+      },
+    })).rejects.toThrow(/unknown backend descriptor field/);
+  });
 });

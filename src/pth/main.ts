@@ -22,7 +22,8 @@ import { createExecutionGrantService } from "./execution/authorization/execution
 import { createHmacGrantKeyProvider } from "./execution/authorization/grant-key-provider.js";
 import { createPthKnowledgeBroker } from "./execution/adapters/pth-knowledge-broker.js";
 import { loadBootstrapConfig } from "./bootstrap/bootstrap-config.js";
-import { buildPthHost } from "./bootstrap/pth-host.js";
+import { buildPthHost, isStrictExecutionEnv } from "./bootstrap/pth-host.js";
+import { probeExecutionBackends } from "./execution/index.js";
 import { pthConfig, validatePthConfig } from "./config/index.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -43,6 +44,32 @@ async function main() {
   }
 
   logger.info({ os: platform.os, arch: platform.arch, event: "platform_starting" });
+
+  // P1：执行后端注册 + 启动探测（监听端口前 fail-closed；dev 非 required 失败仅告警）。
+  // 非法 PTH_EXEC_BACKENDS / route typo / strict+required 缺 token → 拒绝启动。
+  let host: Awaited<ReturnType<typeof buildPthHost>>;
+  try {
+    host = await buildPthHost(loadBootstrapConfig().manifest);
+    for (const warning of host.executionWarnings) {
+      logger.warn({ message: warning, event: "exec_backend_warn" });
+    }
+    await probeExecutionBackends(host.backends, {
+      strict: isStrictExecutionEnv(),
+      timeoutMs: pthConfig().num("PTH_EXEC_BACKEND_PROBE_TIMEOUT_MS"),
+      logger: {
+        warn: (message) => logger.warn({ message, event: "exec_backend_probe_warn" }),
+        error: (message) => logger.error({ message, event: "exec_backend_probe_error" }),
+      },
+    });
+  } catch (err) {
+    logger.error({ err: String(err), event: "bootstrap_failed", note: "manifest 非法/后端注册非法/strict 探测失败——拒绝启动" });
+    process.exit(1);
+  }
+  const sandboxBackend = host!.backends.get("sandbox");
+  const sandboxBaseUrl = sandboxBackend?.descriptor.url ?? process.env.SANDBOX_URL ?? "http://localhost:8080";
+  const sandboxSecret = sandboxBackend?.descriptor.tokenEnv !== undefined
+    ? (process.env[sandboxBackend.descriptor.tokenEnv] ?? "")
+    : (process.env.SANDBOX_SHARED_SECRET ?? "");
 
 /** 凭据注入 pi-ai env（DEEPSEEK_API_KEY 等——原生 tool_calls 需要——auth.json 单一源） */
 async function injectPiAiKeysFromAuth(): Promise<void> {
@@ -107,7 +134,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   const sandboxThreshold = Math.max(1, parseInt(process.env.SANDBOX_DEGRADED_THRESHOLD ?? "3", 10) || 3);
   const sandboxMonitor = new SandboxHealthMonitor({
     failureThreshold: sandboxThreshold,
-    baseUrl: process.env.SANDBOX_URL ?? "http://localhost:8080",
+    baseUrl: sandboxBaseUrl,
     onStateChange: (degraded, consecutiveFailures) => {
       if (degraded) {
         audit.write({
@@ -125,8 +152,8 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
     },
   });
   const sandboxClient = new SandboxExecClient({
-    baseUrl: process.env.SANDBOX_URL ?? "http://localhost:8080",
-    secret: process.env.SANDBOX_SHARED_SECRET ?? "",
+    baseUrl: sandboxBaseUrl,
+    secret: sandboxSecret,
     monitor: sandboxMonitor,
   });
   const sandboxBash = createSandboxBashDefinition(sandboxClient);
@@ -193,13 +220,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   // fail-open：pg 不可达时 kernelRuntime = null，/kernel/* 路由 503，PTH 其余功能照常。
   const databaseUrl = process.env.DATABASE_URL;
 
-  // P3-4：单 Host bootstrap——manifest 校验与 catalog 构建在监听端口前 fail-closed
-  try {
-    await buildPthHost(loadBootstrapConfig().manifest);
-  } catch (err) {
-    logger.error({ err: String(err), event: "bootstrap_failed", note: "manifest 非法/依赖缺失——拒绝启动" });
-    process.exit(1);
-  }
+  // P3-4：单 Host bootstrap——manifest 校验、catalog 构建与执行后端注册均已在上方完成（监听端口前 fail-closed）
   let kernelRuntime: Awaited<ReturnType<typeof createKernelRuntime>> | null = null;
   // 性能自持（v0.8）：PerfAutopilot 自愈闭环——创建于 kernel 装配后（registry + batchManager 就绪）
   let autopilot: import("./kernel/execution/perf-autopilot.js").PerfAutopilot | null = null;

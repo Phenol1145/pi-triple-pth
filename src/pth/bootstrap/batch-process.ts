@@ -184,12 +184,33 @@ function refineInputFromPayload(payload: unknown): RefineInput {
  * 不 resolve：子进程长驻（pg 连接池维持存活），主进程通过 IPC 终止。
  */
 export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> {
-  // P3-4：runner Host 与 API Host 共用同一 bootstrap manifest（fork worker 前 fail-closed）
-  {
-    const { loadBootstrapConfig } = await import("./bootstrap-config.js");
-    const { buildPthHost } = await import("./pth-host.js");
-    await buildPthHost(loadBootstrapConfig().manifest);
+  // P1：runner Host 与 API Host 共用同一 bootstrap manifest + 执行后端注册表
+  // （fork worker 前 fail-closed：非法 descriptor / route typo / strict+required 探测失败）。
+  const { loadBootstrapConfig } = await import("./bootstrap-config.js");
+  const { buildPthHost, isStrictExecutionEnv } = await import("./pth-host.js");
+  const { probeExecutionBackends } = await import("../execution/index.js");
+  const host = await buildPthHost(loadBootstrapConfig().manifest);
+  const startupLogger = createKernelLogger({
+    ipcSend: (msg) => { try { process.send?.(msg); } catch { /* IPC 不可用 */ } },
+  });
+  const batchLogger = startupLogger.child("batch", { pid: process.pid });
+  for (const warning of host.executionWarnings) {
+    batchLogger.warn(warning);
   }
+  await probeExecutionBackends(host.backends, {
+    strict: isStrictExecutionEnv(),
+    timeoutMs: pthConfig().num("PTH_EXEC_BACKEND_PROBE_TIMEOUT_MS"),
+    logger: {
+      warn: (message) => batchLogger.warn(message),
+      error: (message) => batchLogger.error(message),
+    },
+  });
+  // kernel sandbox 接线：sandbox descriptor 优先（url/token），旧 env 兜底。
+  const sandboxBackend = host.backends.get("sandbox");
+  const sandboxKernelUrl = sandboxBackend?.descriptor.url ?? pthConfig().str("PTH_SANDBOX_KERNEL_URL");
+  const sandboxKernelSecret = sandboxBackend?.descriptor.tokenEnv !== undefined
+    ? (process.env[sandboxBackend.descriptor.tokenEnv] ?? "")
+    : pthConfig().str("SANDBOX_SHARED_SECRET");
   // 内存优化：连接池收紧（7 角色 worker 并发 ≤7——max 8 够；默认 10 冗余）
   // PTH_PG_POOL_MAX 可覆盖（batch 数多时 PG 连接总量 = pool_max × batches 需核算）
   const pool = await createPgPool({ connectionString: deps.databaseUrl, max: pthConfig().num("PTH_PG_POOL_MAX") });
@@ -226,6 +247,11 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const professionalRuntimeRegistry = await assembleProfessionalRuntimeRegistry({
     lock: professionalRuntimeLock,
     factories: deps.professionalRuntimeFactories,
+    // P1.0：artifactPath 必传——默认 factory 全部以此为前置（生产装配空洞修复）
+    artifactPath: deps.artifactPath,
+    // P1.4/P1.5：执行后端路由 + legacy 前缀硬切（无 backend/prefix → 不注册 runtime）
+    executionBackends: host.backends,
+    backendRoutes: host.routes,
   });
   const professionalArtifacts = createProfessionalArtifactPort({ artifactPath: deps.artifactPath });
   let professionalGrantService: ReturnType<typeof createExecutionGrantService> | undefined;
@@ -237,12 +263,6 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     // 无有效 grant 签名密钥时 professional.execute 不注入（LLM 面关闭），不阻塞普通任务。
     professionalGrantService = undefined;
   }
-
-  // 日志（日志体系 T2/T3）：IPC 转发主进程统一打标；stdio 兜底
-  const logger = createKernelLogger({
-    ipcSend: (msg) => { try { process.send?.(msg); } catch { /* IPC 不可用 */ } },
-  });
-  const batchLogger = logger.child("batch", { pid: process.pid });
 
   // modelRouter：SDK ModelRuntime（自动加载 pi auth.json/models-store——deepseek 已配置）。
   // 真实 LLM 能力（转写/记忆任务依赖）；失败时不阻塞——v1 机械认领仍可用。
@@ -783,8 +803,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
               pythonMode: pthConfig().str("PTH_PYTHON_MODE") as any,
               bashMode: pthConfig().str("PTH_BASH_MODE") as any,
               sandboxKernel: {
-                url: pthConfig().str("PTH_SANDBOX_KERNEL_URL"),
-                secret: pthConfig().str("SANDBOX_SHARED_SECRET"),
+                url: sandboxKernelUrl,
+                secret: sandboxKernelSecret,
                 grantSecret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET"),
                 grantIdentity: {
                   principalId: replica ? `worker:${replica.ref.workerId}` : `worker:${childRole.id}`,
@@ -908,8 +928,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       bashMode: pthConfig().str("PTH_BASH_MODE") as any,
       // kernel sandbox 接线：sandbox-kernel 模式连宿主（url/secret 与 bash 转发同源）
       sandboxKernel: {
-        url: pthConfig().str("PTH_SANDBOX_KERNEL_URL"),
-        secret: pthConfig().str("SANDBOX_SHARED_SECRET"),
+        url: sandboxKernelUrl,
+        secret: sandboxKernelSecret,
         // P2-2 接线（Side B 补）：由 kernel-manager 按 language 签发 worker 级 grant。
         grantSecret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET"),
         grantIdentity: {

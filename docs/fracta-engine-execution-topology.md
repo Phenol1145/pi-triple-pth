@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 已实现（execution/v1.1 模式框架 + ExecutionHttpServer + 客户端）；tool containers / jupyter 双面设计已定稿（ADR-0002）；P1–T4 待实施。**
+> 状态：**P0 + P0.1 + P1 已实现（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由）；tool containers / jupyter 双面设计已定稿（ADR-0002）；P2–T4 待实施。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -106,7 +106,7 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 | tool containers（原 dev 容器） | `dev-container` | ❌ 只是工具容器，无 `/exec` HTTP 面 | 按 §5 迁移为 compiled/network/secrets 三域 + execution/v1.1 |
 | 本地执行器 | `host` | ❌ `LocalBackend` 只在进程内 | 按 v1.1 + pathMapping 实现；首期承载 Lean |
 | jupyter 服务 | — | ⚠️ 前端与 engine 无头执行两套入口（docker exec） | 单容器双面：北 8888 / 南 v1.1 registry 后端 `jupyter` |
-| engine 侧 | — | ⚠️ 适配器已接 `ExecutionBackend`，装配仍是 LocalBackend/DockerExecBackend 硬编码 | BackendRegistry + `PTH_EXEC_BACKENDS` + v1/v1.1 协商 |
+| engine 侧 | — | ✅ P1：BackendRegistry + `PTH_EXEC_BACKENDS`/`PTH_EXEC_BACKEND_ROUTES` 硬切路由（无隐式 LocalBackend，v1/v1.1 协商） | P2 消费本地执行器 v1.1 |
 | Lean 工具链 | — | ❌ 在 engine 镜像内（`deploy/Dockerfile` 装 elan/lean/lake） | 从镜像移除，改由本地执行器（v1.1）提供 |
 
 ## 4. 优先级计划（协议面优先）
@@ -122,12 +122,12 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 2. ✅ 契约测试：`test/unit/execution-http-backend.test.ts`——golden descriptor JSON、
    capabilities version 不匹配、sandbox-untrusted 安全不变量、profile 自提升拒绝、
    pathMapping 注入、stream/pathMapping 能力前置拒绝。
-3. ⏳ 发布 `@away_from/shared` 新版本，PTH/PTL lock 升级（npm 发布为用户动作）。
+3. ✅ 发布 `@away_from/shared@1.6.0` + `@away_from/infra@1.6.0`（2026-08-22；PTH/PTL lock 升级）。
 4. ✅ 退出门（代码/测试）：deps lint/build 绿，15 files / 93 tests 全绿；三仓文档同步。
 
 ### P0.1 execution/v1.1 模式框架（pi-triple-deps，与 P0 合并发布）
 
-**状态：✅ 已实现（2026-08-22）；npm 发布待办（与 P0 合并为 shared@1.6.0）。**
+**状态：✅ 已实现并发布（2026-08-22；shared/infra 1.6.0 + PTH/PTL lock 升级）。**
 
 1. ✅ `ExecutionRequest.mode` + capabilities `modes` 位图 + `MODE_NOT_SUPPORTED`；
    `interactive` = WS `/exec/:id/ws`（stdin/stdout/stderr/resize/pty）；`persistent`
@@ -137,9 +137,11 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
    v1 请求字节形状不注入 mode。
 3. ✅ 契约测试：16 files / 113 tests（v1.1 新增 20：模式能力声明、未声明模式拒绝、
    WS 消息帧、SSE 回放、v1/v1.1 客户端分支、v1.0 fail-closed、persistent 规范）。
-4. ⏳ 发布 `@away_from/shared@1.6.0`（P0 + P0.1 合并产物，一次发布；npm 发布为用户动作）。
+4. ✅ 发布 `@away_from/shared@1.6.0`（P0 + P0.1 合并产物，一次发布；PTH/PTL lock 升级）。
 
 ### P1 engine 后端注册与路由（pi-triple-pth）
+
+**状态：✅ 已实现（2026-08-22；`execution/backend-registry.ts` + 组合根接线 + 专业 runtime 硬切路由）。**
 
 **裁决（2026-08-21）：立即硬切——删除隐式 LocalBackend 直跑。未路由 runtime 一律
 unregistered；dev 也必须显式配置 backend 或 legacy execPrefix。**
@@ -249,11 +251,10 @@ export async function probeExecutionBackends(registry, opts: {
 
 #### 退出门
 
-1. deps 1.6.0 依赖升级后 `npm run lint && npm run build && npm test` 全绿；
-2. strict 且无任何 backend → 启动即失败（日志可解释）；dev → 告警，专业 runtime 全部
-   unregistered（无隐式 LocalBackend）；
-3. sandbox 现网行为零变化（alias 合成 + 原客户端路径）；
-4. 三仓拓扑文档 P1 状态同步。
+1. ✅ deps 1.6.0 发布后 PTH lint 全绿 + batch/professional 集成测试通过（PTL 470/470 全绿）；
+2. ✅ strict 且零 backend → 装配即失败；dev → 告警，专业 runtime 全部 unregistered（无隐式 LocalBackend）；
+3. ✅ sandbox 现网行为零变化（alias 合成 + 原 SandboxExecClient 路径）；
+4. ✅ 三仓拓扑文档 P1 状态同步。
 
 ### P2 Lean 外移 + 本地执行器（pi-triple-ptl 为主，pth 联动）
 

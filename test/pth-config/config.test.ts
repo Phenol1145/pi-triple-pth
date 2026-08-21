@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   config, resetConfig, configNumber, pthConfig, resetPthConfig,
-  validatePthConfig, exportPtlMigration,
+  validatePthConfig, exportPtlMigration, getConfigDef,
 } from "../../src/pth/config/index.js";
 
 describe("PTH config 集中化（C1：schema 默认值 + ConfigCenter 权威化）", () => {
@@ -83,5 +83,29 @@ describe("PTH config 集中化（C1：schema 默认值 + ConfigCenter 权威化�
     expect(pthConfig().str("PTH_AGENT_MODEL")).toBe("r1");
     resetPthConfig({});
     expect(pthConfig().str("PTH_AGENT_MODEL")).toBe("deepseek-v4-flash");
+  });
+});
+
+describe("P1.1：execution 配置组 + json() accessor", () => {
+  beforeEach(() => resetPthConfig({}));
+
+  it("四个 PTH_EXEC_* 键进 schema（group=execution，默认值固定）", () => {
+    const cfg = pthConfig();
+    expect(cfg.str("PTH_EXEC_BACKENDS")).toBe("");
+    expect(cfg.str("PTH_EXEC_BACKEND_ROUTES")).toBe("");
+    expect(cfg.num("PTH_EXEC_BACKEND_PROBE_TIMEOUT_MS")).toBe(2000);
+    expect(cfg.str("PTH_EXEC_SANDBOX_ALIAS")).toBe("on");
+    expect(getConfigDef("PTH_EXEC_BACKENDS")?.group).toBe("execution");
+  });
+
+  it("json()：空串 → undefined；合法 JSON → 解析值；非法 JSON → 抛带 key 的错误", () => {
+    const cfg = pthConfig();
+    expect(cfg.json("PTH_EXEC_BACKENDS")).toBeUndefined();
+    resetPthConfig({ PTH_EXEC_BACKENDS: JSON.stringify([{ id: "local-lean", url: "http://x", profile: "host" }]) });
+    expect(pthConfig().json<unknown[]>("PTH_EXEC_BACKENDS")).toEqual([
+      { id: "local-lean", url: "http://x", profile: "host" },
+    ]);
+    resetPthConfig({ PTH_EXEC_BACKENDS: "{broken" });
+    expect(() => pthConfig().json("PTH_EXEC_BACKENDS")).toThrow(/PTH_EXEC_BACKENDS 不是合法 JSON/);
   });
 });

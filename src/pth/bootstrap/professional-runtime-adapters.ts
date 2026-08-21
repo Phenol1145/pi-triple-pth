@@ -13,7 +13,9 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
+import type { ExecutionBackend } from "@away_from/shared/execution";
 import type { ArtifactRef, ProfessionalJobSpec, ProfessionalRuntimeId, ProfessionalRuntimeLock } from "../contracts/index.js";
+import type { ExecutionBackendRegistry } from "../execution/index.js";
 import {
   createAssemblyRuntimeAdapter,
   createLean4RuntimeAdapter,
@@ -69,6 +71,47 @@ export interface AssembleProfessionalRuntimeRegistryInput {
   readonly jupyterWorkDir?: string;
   readonly jupyterExecPrefix?: readonly string[];
   readonly jupyterPathForExec?: (hostPath: string) => string;
+  /**
+   * P1 硬切：执行后端注册表（优先 backendRoutes → 约定 id；无命中且无 legacy 前缀
+   * → 不创建该 runtime 的执行面，probe 返回 unavailable）。
+   */
+  readonly executionBackends?: ExecutionBackendRegistry;
+  readonly backendRoutes?: Readonly<Partial<Record<ProfessionalRuntimeId, string>>>;
+  /** false（默认）= 不允许 adapter 回退 env legacy 前缀；显式传入的 execPrefix 仍受支持 */
+  readonly allowLegacyExecutionFallback?: boolean;
+}
+
+/** P1.4 约定路由：显式 backendRoutes 优先；registry 中不存在即跳过（不隐式直跑） */
+const DEFAULT_BACKEND_ROUTES: Readonly<Partial<Record<ProfessionalRuntimeId, string>>> = {
+  lean4: "local-lean",
+  assembly: "local-asm",
+  wolfram: "local-wolfram",
+  psi4: "local-chem",
+  cp2k: "local-chem",
+  "quantum-espresso": "local-chem",
+  jupyter: "dev-jupyter",
+};
+
+function runtimeExecutionBackend(
+  input: AssembleProfessionalRuntimeRegistryInput,
+  runtimeId: ProfessionalRuntimeId,
+): ExecutionBackend | undefined {
+  const route = input.backendRoutes?.[runtimeId] ?? DEFAULT_BACKEND_ROUTES[runtimeId];
+  if (!route) return undefined;
+  return input.executionBackends?.get(route);
+}
+
+/**
+ * legacy execPrefix 语义（P1.5 硬切）：
+ *  - 显式传入的 prefix 始终受支持（测试/容器注入）；
+ *  - 未显式传入且 allowLegacyExecutionFallback !== true → 传 []，禁止 adapter 回退 env。
+ */
+function legacyExecPrefix(
+  input: AssembleProfessionalRuntimeRegistryInput,
+  explicit: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (explicit !== undefined) return explicit;
+  return input.allowLegacyExecutionFallback === true ? undefined : [];
 }
 
 /** 生产组装点：只注册 probe 成功且满足 committed lock 的 adapter。 */
@@ -88,7 +131,8 @@ export async function assembleProfessionalRuntimeRegistry(
           artifactPort: createProfessionalArtifactPort({ artifactPath }),
           lockVersion: entry.version,
           ...(input.asmKernelIndexPath !== undefined ? { asmKernelIndexPath: input.asmKernelIndexPath } : {}),
-          ...(input.asmExecPrefix !== undefined ? { execPrefix: input.asmExecPrefix } : {}),
+          executionBackend: runtimeExecutionBackend(input, "assembly"),
+          execPrefix: legacyExecPrefix(input, input.asmExecPrefix),
         });
     }
   }
@@ -104,7 +148,8 @@ export async function assembleProfessionalRuntimeRegistry(
           mathlibRev,
           ...(input.lean4WorkDir !== undefined ? { workDir: input.lean4WorkDir } : {}),
           ...(input.lean4SharedPackagesDir !== undefined ? { sharedPackagesDir: input.lean4SharedPackagesDir } : {}),
-          ...(input.lean4ExecPrefix !== undefined ? { execPrefix: input.lean4ExecPrefix } : {}),
+          executionBackend: runtimeExecutionBackend(input, "lean4"),
+          execPrefix: legacyExecPrefix(input, input.lean4ExecPrefix),
         });
     }
   }
@@ -118,7 +163,8 @@ export async function assembleProfessionalRuntimeRegistry(
           lockVersion: entry.version,
           ...(input.wolframKernelPath !== undefined ? { kernelPath: input.wolframKernelPath } : {}),
           ...(input.wolframLicenseProvider !== undefined ? { licenseProvider: input.wolframLicenseProvider } : {}),
-          ...(input.wolframExecPrefix !== undefined ? { execPrefix: input.wolframExecPrefix } : {}),
+          executionBackend: runtimeExecutionBackend(input, "wolfram"),
+          execPrefix: legacyExecPrefix(input, input.wolframExecPrefix),
         });
     }
   }
@@ -127,7 +173,6 @@ export async function assembleProfessionalRuntimeRegistry(
     const chemPort = createProfessionalArtifactPort({ artifactPath });
     const chemCommon = {
       ...(input.chemWorkDir !== undefined ? { workDir: input.chemWorkDir } : {}),
-      ...(input.chemExecPrefix !== undefined ? { execPrefix: input.chemExecPrefix } : {}),
     };
     if (!factories.psi4 && input.lock.runtimes.psi4) {
       const entry = input.lock.runtimes.psi4;
@@ -136,6 +181,8 @@ export async function assembleProfessionalRuntimeRegistry(
           artifactPort: chemPort,
           lockVersion: entry.version,
           engineCommand: input.psi4Command ?? "psi4",
+          executionBackend: runtimeExecutionBackend(input, "psi4"),
+          execPrefix: legacyExecPrefix(input, input.chemExecPrefix),
           ...chemCommon,
         });
     }
@@ -146,6 +193,8 @@ export async function assembleProfessionalRuntimeRegistry(
           artifactPort: chemPort,
           lockVersion: entry.version,
           engineCommand: "cp2k",
+          executionBackend: runtimeExecutionBackend(input, "cp2k"),
+          execPrefix: legacyExecPrefix(input, input.chemExecPrefix),
           ...chemCommon,
         });
     }
@@ -156,6 +205,8 @@ export async function assembleProfessionalRuntimeRegistry(
           artifactPort: chemPort,
           lockVersion: entry.version,
           engineCommand: "pw.x",
+          executionBackend: runtimeExecutionBackend(input, "quantum-espresso"),
+          execPrefix: legacyExecPrefix(input, input.chemExecPrefix),
           ...chemCommon,
         });
     }
@@ -169,7 +220,8 @@ export async function assembleProfessionalRuntimeRegistry(
           artifactPort: createProfessionalArtifactPort({ artifactPath }),
           lockVersion: entry.version,
           ...(input.jupyterWorkDir !== undefined ? { workDir: input.jupyterWorkDir } : {}),
-          ...(input.jupyterExecPrefix !== undefined ? { execPrefix: input.jupyterExecPrefix } : {}),
+          executionBackend: runtimeExecutionBackend(input, "jupyter"),
+          execPrefix: legacyExecPrefix(input, input.jupyterExecPrefix),
           ...(input.jupyterPathForExec !== undefined ? { pathForExec: input.jupyterPathForExec } : {}),
         });
     }

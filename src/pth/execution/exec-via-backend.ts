@@ -1,14 +1,14 @@
 /**
- * exec-via-backend.ts —— PTH 调用方迁移 execution/v1 的公共桥。
+ * exec-via-backend.ts —— PTH 调用方迁移 execution/v1 的公共桥（P1 硬切）。
  *
- * 旧 execPrefix（docker exec 前缀）解析为 DockerExecBackend；无前缀为 LocalBackend。
+ * 旧 execPrefix（docker exec 前缀）仍可显式解析为 DockerExecBackend；
+ * **无前缀不再返回 LocalBackend**——未路由 runtime 一律 unregistered。
  * 每个 professional adapter 的 exec/execPrefix 构造参数保持兼容，内部统一经
  * ExecutionBackend.execute 执行——各 adapter 不再维护自己的 spawn 副本。
  */
 
 import {
   DockerExecBackend,
-  LocalBackend,
   type ExecutionBackend,
   type ExecutionCapabilities,
   type ExecutionRequest,
@@ -61,11 +61,25 @@ function backendFromDockerExecPrefix(prefix: readonly string[]): ExecutionBacken
   };
 }
 
-/** 旧 execPrefix → execution/v1 backend；无前缀 → LocalBackend（生产容器内直跑）。 */
-export function executionBackendFromPrefix(prefix?: readonly string[]): ExecutionBackend {
-  if (!prefix || prefix.length === 0) return new LocalBackend();
+/** 旧 execPrefix → execution/v1 backend；无前缀/未知前缀 → undefined（P1 硬切）。 */
+export function executionBackendFromPrefix(prefix?: readonly string[]): ExecutionBackend | undefined {
+  if (!prefix || prefix.length === 0) return undefined;
   if (prefix[0] === "docker" && prefix[1] === "exec") return backendFromDockerExecPrefix(prefix);
   throw new Error(`unsupported execPrefix (migrate to ExecutionBackend): ${prefix.join(" ")}`);
+}
+
+/** adapter 执行面解析：显式 executionBackend 优先，其次 docker exec prefix。 */
+export function resolveExecutionBackend(input: {
+  executionBackend?: ExecutionBackend;
+  execPrefix?: readonly string[];
+}): ExecutionBackend | undefined {
+  if (input.executionBackend) return input.executionBackend;
+  return executionBackendFromPrefix(input.execPrefix);
+}
+
+/** 未路由执行面：exec 返回结构化失败（probe 自然 unavailable），绝不隐式直跑。 */
+export function unavailableAdapterExec(reason: string): AdapterExecFn {
+  return async () => ({ ok: false, stdout: "", stderr: reason, code: null, timedOut: false, error: reason });
 }
 
 /** backend.execute → adapter 通用结果。 */

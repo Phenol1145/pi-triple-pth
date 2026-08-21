@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, executionBackendFromPrefix, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
 import {
   isPsi4JobSpecStructurallyValid,
   isQuantumEspressoJobSpecStructurallyValid,
@@ -88,8 +88,10 @@ export interface QuantumEspressoJobValue {
 
 function makeChemRunner(deps: ChemAdapterDeps): ChemExecFn {
   if (deps.exec) return deps.exec;
-  const backend = deps.executionBackend ?? executionBackendFromPrefix(deps.execPrefix);
-  const viaBackend: AdapterExecFn = execViaBackend(backend);
+  const backend = resolveExecutionBackend({ executionBackend: deps.executionBackend, execPrefix: deps.execPrefix });
+  const viaBackend: AdapterExecFn = backend
+    ? execViaBackend(backend)
+    : unavailableAdapterExec("computational-chemistry: no execution backend configured");
   const defaultTimeout = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return async (cmd, args, opts = {}) => {
     return viaBackend(cmd, args, {

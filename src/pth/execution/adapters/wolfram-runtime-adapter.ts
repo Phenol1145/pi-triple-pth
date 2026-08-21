@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, executionBackendFromPrefix, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
 import {
   isWolframJobSpecStructurallyValid,
   type ArtifactRef,
@@ -89,8 +89,10 @@ export function createWolframRuntimeAdapter(deps: CreateWolframRuntimeAdapterDep
 
   function makeExec(): WolframExecFn {
     if (deps.exec) return deps.exec;
-    const backend = deps.executionBackend ?? executionBackendFromPrefix(deps.execPrefix);
-    const viaBackend: AdapterExecFn = execViaBackend(backend);
+    const backend = resolveExecutionBackend({ executionBackend: deps.executionBackend, execPrefix: deps.execPrefix });
+    const viaBackend: AdapterExecFn = backend
+      ? execViaBackend(backend)
+      : unavailableAdapterExec("wolfram: no execution backend configured");
     return async (cmd, args, opts = {}) =>
       viaBackend(cmd, args, {
         cwd: opts.cwd,
