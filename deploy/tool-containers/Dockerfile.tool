@@ -15,7 +15,10 @@ RUN case "${TOOL_DOMAIN}" in \
       network)  pip3 install --break-system-packages --no-cache-dir yt-dlp ;; \
       secrets)  pip3 install --break-system-packages --no-cache-dir \
                   "agent-reach @ git+https://github.com/Panniantong/agent-reach@main" ;; \
-      compiled) echo "compiled 工具经 COPY/apt（beef）安装" ;; \
+      compiled) apt-get update && apt-get install -y --no-install-recommends \
+                  binutils qemu-user binutils-x86-64-linux-gnu \
+                  binutils-aarch64-linux-gnu binutils-riscv64-linux-gnu \
+                  && rm -rf /var/lib/apt/lists/* ;; \
       *)        echo "unknown tool domain: ${TOOL_DOMAIN}" && exit 1 ;; \
     esac
 
@@ -32,8 +35,7 @@ RUN chmod 755 /opt/tools/bfc/bf /opt/tools/bfc/bfc /opt/tools/chatgpt-share/chat
     && chmod -R a+rX /opt/tool-server \
     && case "${TOOL_DOMAIN}" in \
          compiled) ln -sf /opt/tools/bfc/bf /usr/local/bin/bf \
-                   && ln -sf /opt/tools/bfc/bfc /usr/local/bin/bfc \
-                   && ln -sf not-installed.sh /usr/local/bin/v13-asm-toolchain ;; \
+                   && ln -sf /opt/tools/bfc/bfc /usr/local/bin/bfc ;; \
          secrets)  ln -sf /opt/tools/chatgpt-share/chatgpt-share /usr/local/bin/chatgpt-share ;; \
        esac
 

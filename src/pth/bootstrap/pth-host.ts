@@ -15,6 +15,7 @@ import {
   buildExecutionBackendRegistry,
   type ExecutionBackendRegistry,
 } from "../execution/index.js";
+import { loadToolRegistry, type ToolRegistryFile } from "../tools/tool-registry.js";
 import type { ProfessionalRuntimeId } from "../contracts/index.js";
 
 export interface BuiltPthHost {
@@ -35,6 +36,8 @@ export interface BuildPthHostOptions {
   /** 缺省 = PTH_CONFIG_STRICT=1 或 NODE_ENV=production */
   strict?: boolean;
   capabilitiesTtlMs?: number;
+  /** 测试注入；缺省从 ~/.pi-triple/tool-containers.json（不存在 = 空）加载 */
+  toolRegistry?: ToolRegistryFile;
 }
 
 export function isStrictExecutionEnv(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -57,11 +60,13 @@ export async function buildPthHost(
 
   // P1：执行后端注册（fail-closed：非法 descriptor/route typo 在监听/forks 前抛错；不探网络）
   const env = options.env ?? process.env;
+  const toolRegistry = options.toolRegistry ?? loadToolRegistry();
   const { registry, warnings } = buildExecutionBackendRegistry({
     env,
     strict: options.strict ?? isStrictExecutionEnv(env),
     fetchLike: options.fetchLike,
     capabilitiesTtlMs: options.capabilitiesTtlMs,
+    toolRegistry,
   });
 
   return {

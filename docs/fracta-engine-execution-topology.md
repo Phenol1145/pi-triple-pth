@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移；GHCR release 待凭据实测）；T4 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由；GHCR release 待凭据实测）；P4/P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -289,12 +289,29 @@ chatgpt-share），可信可出网、无密钥注入、root 单用户，调用�
    （deprecation banner，后续删除）；`agent-reach` wrapper 与 dev-container 旧
    compose 路径的彻底清理随退役执行。
 3. ✅ 存量分流：bf/bfc → compiled（beef/tcc 后端）；yt-dlp → network；
-   agent-reach + chatgpt-share → secrets；v13-asm-toolchain 占位待 T4；instsci 保持宿主机。
+   agent-reach + chatgpt-share → secrets；v13-asm-toolchain 于 T4 迁入 compiled；
+   instsci 保持宿主机。
 4. ✅ **退出门（pth CLI 面）**：bf HelloWorld / bfc emit-C / yt-dlp --version /
    agent-reach v1.5.0 / chatgpt-share --help 全部经 execution 协议调用成功；
    `pth tools verify` 全 healthy；secrets WS+pty 会话通过；DockerExecBackend 测试不回退
-   （PTL 476 tests 全绿）。engine 经 registry 调 compiled/network 的消费在 T4
-   professional 路由切换时接线（registry 能力已在 P1 就绪）。
+   （PTL 476 tests 全绿）。engine 经 registry 调 compiled/network 由 T4 接线完成。
+
+### T4 v13-asm-toolchain 吸收 + professional 路由切换
+
+**状态：✅ 已实现并实测（2026-08-22）。**
+
+1. ✅ compiled 镜像安装 binutils + qemu-user + x86-64/aarch64/riscv64 交叉 binutils
+   （版本 2.40 与 committed lock 一致）。
+2. ✅ manifest 移除 `v13-asm-toolchain` 占位符，登记 asm-kernel 全部 16 个白名单工具
+   （which/objdump/三目标 as/ld/objdump/三 qemu）。
+3. ✅ engine 自动合并宿主 tool 回环注册表：`buildPthHost` 读取
+   `PTH_TOOL_REGISTRY_PATH`（compose 只读挂载 `${HOME}/.pi-triple`），compiled/network
+   条目合成 `dev-container` backend，127.0.0.1 → host.docker.internal 改写，ENGINE_TOKEN
+   直连；secrets 永不进 engine。
+4. ✅ professional 默认路由 `assembly → tools-compiled`（backendRoutes 可覆盖）；
+   lean4 等其他路由不变。
+5. ✅ 实测：6 个工具链二进制 `--version` 全部经 execution 协议返回正确版本；
+   `pth tools verify` 16/16 healthy；registry merge 单测覆盖 token/url 改写与 secrets 隔离。
 
 ### P4 后续（persistent + kernel-host 迁移，不在本轮实现）
 

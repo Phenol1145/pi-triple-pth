@@ -14,6 +14,7 @@ import {
   type ExecutionBackendDescriptor,
 } from "@away_from/shared/execution";
 import { isProfessionalRuntimeId, type ProfessionalRuntimeId } from "../contracts/index.js";
+import type { ToolRegistryFile } from "../tools/tool-registry.js";
 
 export interface ExecutionBackendRegistry {
   get(id: string): HttpExecutionBackend | undefined;
@@ -32,6 +33,11 @@ export interface BuildExecutionBackendRegistryInput {
   capabilitiesTtlMs?: number;
   /** 缺省取 env.PTH_EXEC_SANDBOX_ALIAS（"off"/"0"/"false" 关闭） */
   sandboxAlias?: string;
+  /**
+   * T4：宿主 pth tools 回环注册表（engineVisible 域合并为 backend）。
+   * 127.0.0.1 回环改写为 host.docker.internal（engine 容器视角）。
+   */
+  toolRegistry?: ToolRegistryFile;
 }
 
 export interface BuildExecutionBackendRegistryResult {
@@ -95,6 +101,22 @@ export function buildExecutionBackendRegistry(
     seen.add("sandbox");
   }
 
+  const toolTokens = new Map<string, string>();
+  for (const entry of Object.values(input.toolRegistry?.tools ?? {})) {
+    if (entry.domain !== "compiled" && entry.domain !== "network") continue; // secrets 不进 engine
+    if (seen.has(entry.backendId)) {
+      warnings.push(`tool registry backend ${entry.backendId} 与显式 PTH_EXEC_BACKENDS 冲突——显式配置优先`);
+      continue;
+    }
+    seen.add(entry.backendId);
+    descriptors.push({
+      id: entry.backendId,
+      url: entry.url.replace(/^http:\/\/127\.0\.0\.1:/, "http://host.docker.internal:"),
+      profile: "dev-container",
+    });
+    toolTokens.set(entry.backendId, entry.token);
+  }
+
   const map = new Map<string, HttpExecutionBackend>();
   for (const descriptor of descriptors) {
     if (descriptor.tokenEnv !== undefined && !env[descriptor.tokenEnv]) {
@@ -105,7 +127,7 @@ export function buildExecutionBackendRegistry(
     }
     map.set(descriptor.id, new HttpExecutionBackend({
       descriptor,
-      token: descriptor.tokenEnv !== undefined ? env[descriptor.tokenEnv] : undefined,
+      token: descriptor.tokenEnv !== undefined ? env[descriptor.tokenEnv] : toolTokens.get(descriptor.id),
       fetchLike: input.fetchLike,
       capabilitiesTtlMs: input.capabilitiesTtlMs,
     }));

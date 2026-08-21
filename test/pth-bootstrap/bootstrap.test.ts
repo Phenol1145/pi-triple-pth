@@ -51,4 +51,26 @@ describe("P3-4：bootstrap 统一装配入口", () => {
       },
     })).rejects.toThrow(/unknown backend descriptor field/);
   });
+
+  it("T4：tool registry 注入合并为 engine backend（host.docker.internal 改写）", async () => {
+    const host = await buildPthHost(DEFAULT_MODULE_MANIFEST, {
+      env: { PTH_EXEC_SANDBOX_ALIAS: "off" },
+      toolRegistry: {
+        schemaVersion: 1,
+        updatedAt: "",
+        domainTokens: {},
+        tools: {
+          bf: {
+            tool: "bf", domain: "compiled", backendId: "tools-compiled",
+            url: "http://127.0.0.1:54321", port: 54321, token: "engine-token-tools-compiled", updatedAt: "",
+          },
+        },
+      },
+    });
+    expect(host.backends.get("tools-compiled")?.descriptor).toMatchObject({
+      id: "tools-compiled",
+      url: "http://host.docker.internal:54321",
+      profile: "dev-container",
+    });
+  });
 });

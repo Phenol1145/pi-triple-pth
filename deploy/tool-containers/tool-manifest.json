@@ -10,7 +10,20 @@
       "tools": [
         { "name": "bf", "argv": ["bf"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck 解释器（beef 后端，T3 已迁移）" },
         { "name": "bfc", "argv": ["bfc"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck → C 编译器（纯 Python，tcc 后端，T3 已迁移）" },
-        { "name": "v13-asm-toolchain", "argv": ["bash", "-lc", "as --version"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 汇编工具链（T4 迁移后替换占位符）" }
+        { "name": "which", "argv": ["which"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "asm-kernel 工具链探测（T4）" },
+        { "name": "objdump", "argv": ["objdump"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "宿主 objdump（asm-kernel 反汇编，T4）" },
+        { "name": "x86_64-linux-gnu-as", "argv": ["x86_64-linux-gnu-as"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel x86-64 汇编器（T4）" },
+        { "name": "x86_64-linux-gnu-ld", "argv": ["x86_64-linux-gnu-ld"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel x86-64 链接器（T4）" },
+        { "name": "x86_64-linux-gnu-objdump", "argv": ["x86_64-linux-gnu-objdump"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel x86-64 反汇编（T4）" },
+        { "name": "aarch64-linux-gnu-as", "argv": ["aarch64-linux-gnu-as"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel aarch64 汇编器（T4）" },
+        { "name": "aarch64-linux-gnu-ld", "argv": ["aarch64-linux-gnu-ld"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel aarch64 链接器（T4）" },
+        { "name": "aarch64-linux-gnu-objdump", "argv": ["aarch64-linux-gnu-objdump"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel aarch64 反汇编（T4）" },
+        { "name": "riscv64-linux-gnu-as", "argv": ["riscv64-linux-gnu-as"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel riscv64 汇编器（T4）" },
+        { "name": "riscv64-linux-gnu-ld", "argv": ["riscv64-linux-gnu-ld"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel riscv64 链接器（T4）" },
+        { "name": "riscv64-linux-gnu-objdump", "argv": ["riscv64-linux-gnu-objdump"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel riscv64 反汇编（T4）" },
+        { "name": "qemu-x86_64", "argv": ["qemu-x86_64"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel x86-64 执行器（T4）" },
+        { "name": "qemu-aarch64", "argv": ["qemu-aarch64"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel aarch64 执行器（T4）" },
+        { "name": "qemu-riscv64", "argv": ["qemu-riscv64"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel riscv64 执行器（T4）" }
       ]
     },
     "network": {

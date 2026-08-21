@@ -84,7 +84,8 @@ export interface AssembleProfessionalRuntimeRegistryInput {
 /** P1.4 约定路由：显式 backendRoutes 优先；registry 中不存在即跳过（不隐式直跑） */
 const DEFAULT_BACKEND_ROUTES: Readonly<Partial<Record<ProfessionalRuntimeId, string>>> = {
   lean4: "local-lean",
-  assembly: "local-asm",
+  // T4：assembly 切到 compiled tool container（v13-asm-toolchain 白名单已迁入）
+  assembly: "tools-compiled",
   wolfram: "local-wolfram",
   psi4: "local-chem",
   cp2k: "local-chem",

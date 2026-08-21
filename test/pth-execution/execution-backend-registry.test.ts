@@ -4,7 +4,8 @@ import {
   probeExecutionBackends,
   type ExecutionBackendRegistry,
 } from "../../src/pth/execution/backend-registry.js";
-import type { ExecutionCapabilities } from "@away_from/shared/execution";
+import { EXECUTION_WIRE, type ExecutionCapabilities } from "@away_from/shared/execution";
+import type { ToolRegistryFile } from "../../src/pth/tools/tool-registry.js";
 
 const V1_CAPS: ExecutionCapabilities = {
   version: "execution/v1",
@@ -207,6 +208,50 @@ describe("P1.2：execution backend registry（fail-closed 合成/校验/路由/�
       logger: { warn: (m) => badLogs.push(m), error: (m) => badLogs.push(m) },
     });
     expect(badLogs.some((m) => m.includes("v0") && m.includes("capabilities"))).toBe(true);
+  });
+
+  it("T4：tool registry 合并——compiled/network 改写 host.docker.internal + 直连 token；secrets 不进 engine", async () => {
+    const toolRegistry: ToolRegistryFile = {
+      schemaVersion: 1,
+      updatedAt: "2026-08-22T00:00:00.000Z",
+      domainTokens: {},
+      tools: {
+        bf: {
+          tool: "bf", domain: "compiled", backendId: "tools-compiled",
+          url: "http://127.0.0.1:54321", port: 54321, token: "engine-token-tools-compiled", updatedAt: "",
+        },
+        yt: {
+          tool: "yt-dlp", domain: "network", backendId: "tools-network",
+          url: "http://127.0.0.1:54322", port: 54322, token: "engine-token-tools-network", updatedAt: "",
+        },
+        secret: {
+          tool: "agent-reach", domain: "secrets", backendId: "tools-secrets",
+          url: "http://127.0.0.1:54323", port: 54323, token: "host-token-tools-secrets-000", updatedAt: "",
+        },
+      },
+    };
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const fetchLike = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      const body = url.endsWith(EXECUTION_WIRE.paths.capabilities)
+        ? V1_CAPS
+        : { stdout: "ok", stderr: "", exitCode: 0, timedOut: false };
+      return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const { registry } = buildExecutionBackendRegistry({
+      env: { PTH_EXEC_SANDBOX_ALIAS: "off" },
+      strict: false,
+      fetchLike,
+      toolRegistry,
+    });
+    expect(registry.get("tools-secrets")).toBeUndefined();
+    expect(registry.get("tools-compiled")?.descriptor).toMatchObject({
+      url: "http://host.docker.internal:54321",
+      profile: "dev-container",
+    });
+    await registry.get("tools-compiled")!.execute({ cmd: "true", mode: "sync" });
+    const execCall = calls.find((c) => c.url.endsWith(EXECUTION_WIRE.paths.exec))!;
+    expect((execCall.init.headers as Record<string, string>).authorization).toBe("Bearer engine-token-tools-compiled");
   });
 
   it("registry get/list 契约：未知 id → undefined；routes 冻结语义", () => {

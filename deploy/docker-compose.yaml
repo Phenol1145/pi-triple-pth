@@ -14,6 +14,8 @@ services:
       # P2：workspaces 由 named volume 改为宿主 bind mount（engine/sandbox/宿主执行器三方同目录）。
       # 旧 named volume 数据需一次性迁移；Linux 宿主注意目录属主（容器内 node uid=1000）。
       - ${PTH_WORKSPACES_HOST:?PTH_WORKSPACES_HOST must be set（宿主 workspaces 绝对路径）}:/data/workspaces
+      # T4：宿主 pth tools 回环注册表只读挂载（动态端口/token 由 pth tools up 维护）
+      - ${HOME:-/tmp}/.pi-triple:/opt/pi-triple-tools:ro
       - compiled-cache:/data/compiled-cache   # 编译核持久缓存（跨调用/跨容器重启）
       - platform:/data/platform
       - tenants:/data/tenants
@@ -47,6 +49,8 @@ services:
       # P2：执行后端注册表——sandbox（required）+ 宿主 Lean 本地执行器（默认非 required，缺失时 lean4 unregistered）
       - PTH_EXEC_BACKENDS=[{"id":"sandbox","url":"http://sandbox:8080","profile":"sandbox-untrusted","tokenEnv":"SANDBOX_SHARED_SECRET","required":true},{"id":"local-lean","url":"http://host.docker.internal:8787","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"${PTH_WORKSPACES_HOST}"},"required":${PTH_LOCAL_LEAN_REQUIRED:-false}}]
       - LOCAL_EXEC_SHARED_SECRET=${LOCAL_EXEC_SHARED_SECRET:-}
+      # T4：engine 自动合并宿主 tool 回环注册表（tools-compiled/tools-network → backend）
+      - PTH_TOOL_REGISTRY_PATH=/opt/pi-triple-tools/tool-containers.json
       # 配置集中化 C3：生产严格模式——开发默认值/弱密钥 fail-fast
       - PTH_CONFIG_STRICT=1
     # kernel sandbox SPEC §3.3：REPL kernel 执行层落 sandbox 侧（持久 kernel 宿主池）
