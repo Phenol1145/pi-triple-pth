@@ -21,4 +21,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
-      - run: npm test
+      # professional 垂直用例依赖本地预置工具链容器（v13-asm-toolchain/Lean/QE/CP2K），
+      # CI runner 不预置这些环境——排除 .integration 垂直切片；本地全量回归仍跑全部。
+      - run: npm test -- --exclude 'test/pth-professional/*.integration.test.ts'

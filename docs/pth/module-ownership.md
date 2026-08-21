@@ -1,11 +1,12 @@
 # 模块归属与产品边界（PTL / PTH）
 
 > 依据：`docs/product-shape.md`（2026-08-21 产品形态基线）。
-> 本文件回答“哪个目录属于哪个产品、允许怎么 import”，由 `scripts/check-product-boundaries.ts` 机械校验。
+> 本文件回答“哪个目录属于哪个产品、允许怎么 import”，由各仓 `scripts/check-product-boundaries.ts` 机械校验。
+> v1.5 拆仓后：PTL 代码在 `pi-triple-ptl`，PTH 代码在本仓，公共能力在 `pi-triple-deps`。
 
 ## 1. 产品归属
 
-### PTL（pi 环境管理工具）
+### PTL（pi 环境管理工具——pi-triple-ptl 仓）
 - `packages/framework/src/cli/**`
 - `packages/framework/src/commands/**`
 - `packages/framework/src/containers/**`
@@ -14,14 +15,14 @@
 - `packages/framework/src/session/**`（PTL tmux session 管理）
 - `packages/framework/src/tui-*/**`（TUI，产品形态已定为废弃，保留只读兼容）
 - 顶层 PTL 入口/工具：`env.ts`、`extension-copy.ts`、`launcher.ts`、`migrate.ts`、`pit.ts`、`shared-layer.ts`
-- 公共能力（非产品专属）：`packages/shared/src`、`packages/infra/src`
+- `packages/mailbox/src/**`、`packages/dev-container/src/**`（PTL 扩展包）
+- 公共能力（非产品专属，pi-triple-deps 仓）：`@away_from/shared`、`@away_from/infra`
 
-### PTH（Agent 协作与自优化系统）
+### PTH（Agent 协作与自优化系统——本仓）
 - `src/pth/**`
 - `packages/pth-memory/src/**`
 - `packages/pth-sandbox/src/**`
 - `packages/pth-console/src/**`（PTH client/protocol/pack + pth CLI 命令 + 人类操作台）
-- `packages/mailbox/src/**`（PTH 侧邮箱/异步通道）
 
 ## 2. Import 规则
 

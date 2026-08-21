@@ -16,7 +16,6 @@ const PTH_CORE_PREFIXES = [
   "packages/pth-memory/src/",
   "packages/pth-sandbox/src/",
   "packages/pth-console/src/",
-  "packages/mailbox/src/",
 ];
 
 const PTL_ONLY_PREFIXES = [
@@ -27,14 +26,15 @@ const PTL_ONLY_PREFIXES = [
   "packages/framework/src/stack/",
   "packages/framework/src/session/",
   "packages/framework/src/tui-",
+  "packages/mailbox/src/",
+  "packages/dev-container/src/",
 ];
 
-const PTL_PACKAGE_TARGETS = ["@away_from/framework"];
+const PTL_PACKAGE_TARGETS = ["@away_from/framework", "@away_from/mailbox", "@away_from/dev-container"];
 const PTH_PACKAGE_TARGETS = [
   "@away_from/pth-console",
   "@away_from/pth-memory",
   "@away_from/pth-sandbox",
-  "@away_from/mailbox",
 ];
 
 const PTL_ONLY_FILES = new Set([
@@ -72,7 +72,13 @@ function relOf(file: string): string {
 }
 
 function walk(dir: string, out: string[] = []): string[] {
-  for (const name of readdirSync(dir)) {
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return out; // 拆仓后某仓库可能没有 src/（如 pi-triple-ptl）——扫描根缺省跳过
+  }
+  for (const name of entries) {
     if (IGNORE_DIRS.has(name)) continue;
     const full = join(dir, name);
     let stat;

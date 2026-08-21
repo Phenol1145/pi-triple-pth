@@ -182,7 +182,7 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 POST /api/v1/kernel/batch/:id/workers  {action, role, copies?}
   pause  暂停认领（保留状态）   resume 恢复   remove 永久停止+回收 python 进程
   add    动态新增角色 worker（按需扩）
-ptl hub kernel batch worker <pause|resume|remove|add> <batchId> <role> [copies]
+ptl stack? <pause|resume|remove|add> <batchId> <role> [copies]
 ```
 **batch 级 add/remove 保留**：故障隔离 / 多租户 / 资源分片场景。
 **资源分配策略接口**：balanced（角色分散）/ reinforced（单角色堆叠）——策略注册表可扩展（未来算法实现 BatchCompositionStrategy 即可）。
@@ -295,12 +295,12 @@ env 与运行时 SET 的关系：启动时 env 快照载入 → 运行时 SET �
 pth.deployment.json（声明式部署描述——四服务拓扑/env/卷/健康检查/限额/sandbox internal 契约）
   ↓ ContainerBackend 接口（up/down/status/logs/restart/exec/available）
 docker（compose 渲染——已实现） | podman | k8s（扩展点）
-  ↓ PTL 侧工具（ptl hub 运维族——不再手写 compose 命令）
-ptl hub deploy [--rebuild]   # 部署（build + up）
-ptl hub status [--service s] # 服务状态（彩色）
-ptl hub logs <svc> [--tail]  # 日志
-ptl hub upgrade              # 重建镜像 + 重启
-ptl hub exec <svc> -- <cmd>  # 容器内执行
+  ↓ PTL 侧工具（ptl stack 运维族——不再手写 compose 命令）
+ptl stack deploy [--rebuild]   # 部署（build + up）
+ptl stack status [--service s] # 服务状态（彩色）
+ptl stack logs <svc> [--tail]  # 日志
+ptl stack upgrade              # 重建镜像 + 重启
+ptl stack exec <svc> -- <cmd>  # 容器内执行
 ```
 
 代码：`packages/framework/src/containers/`（schema/backend/docker-backend——PTL 侧运维库）。

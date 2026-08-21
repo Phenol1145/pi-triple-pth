@@ -1,0 +1,702 @@
+{
+  "version": 1,
+  "generatedAt": "2026-08-21T14:38:48.284Z",
+  "taxonomy": {
+    "docs": [
+      "index",
+      "guides",
+      "designs",
+      "contracts",
+      "reports",
+      "envelopes",
+      "decisions",
+      "operations",
+      "releases",
+      "archive",
+      "assets",
+      "artifacts"
+    ],
+    "runtime": [
+      "deps",
+      "host",
+      "container",
+      "dual",
+      "config"
+    ]
+  },
+  "docs": [
+    {
+      "path": "docs/pth/agent-construction.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/api.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/architecture.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/backlog-priority.md",
+      "category": "operations",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/concepts.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/configuration.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/console-protocol.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/container-runtime-adapter-protocol.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/deployment.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/design-tensions-adjudication.md",
+      "category": "operations",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/development.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/extensions-dev.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/framework-contracts.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/k5-eval-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/k5-pilot-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/kernel.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/modularity-reuse-audit.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/module-ownership.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/n14-sensor-controller-four-dims.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n15-lane-b1-b2-a4-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n16-v1.2-role-domain-composition-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n16-v1.2-role-expansion-review.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n16-v1.2-role-expansion.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n17-lane-a5-d1-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n18-v12-phase0-1a-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n19-v12-phase1b-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n20-v12-phase2-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n21-v12-phase3-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n22-v12-phase4-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n23-k5-eval-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n24-f1-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n24-f2-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n24-f3-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n24-f4-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n24-f5-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n24-v12-acceptance-fix-plan.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n25-human-interaction-protocol-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n26-autonomous-knowledge-intake-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n27-r1-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n27-r1-r6-fix-plan.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n27-r2-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n27-r3-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n27-r4-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n27-r5-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n27-r6-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-feasibility-acceptance-review.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n28-feasibility-envelope.json",
+      "category": "envelopes",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/n28-feasibility-reacceptance-feedback.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n28-feasibility-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n28-lane-contract-rulings.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-role-memory-orchestration-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-role-memory-orchestration-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-structure-baseline.json",
+      "category": "artifacts",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n28-structure-baseline.md",
+      "category": "artifacts",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n28-task1-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-task2-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-task3-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-task4-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-task5-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-task6-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n28-task7-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n29-canary-evidence.json",
+      "category": "artifacts",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n29-minimal-intake-acceptance.json",
+      "category": "envelopes",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/n29-minimal-intake-reacceptance-feedback.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n29-minimal-intake-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n30-runtime-observatory-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n30-runtime-observatory-envelope.json",
+      "category": "envelopes",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/n30-runtime-observatory-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n31-unified-workflow-dag-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n32-v13-professional-computing-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/n33-operator-console-envelope.json",
+      "category": "envelopes",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/n33-operator-console-reacceptance-feedback.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n33-operator-console-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/n33-v13-ptl-operator-console-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/orchestration.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/parallel-lanes.md",
+      "category": "operations",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/phase1-deps-split-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/pth-api-protocol.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/pth-console-openapi.json",
+      "category": "artifacts",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/repo-split-v15-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/sandbox-security-operations.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/split-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/storage-backend-analysis.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/tension-decisions.json",
+      "category": "decisions",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/trigger-runtime.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/v1.2-acceptance-evaluation-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/v1.2-acceptance-fix-completion.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/v1.2-acceptance-fix-revalidation-final.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/v1.2-acceptance-fix-revalidation.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/v13-professional-computing-envelope.json",
+      "category": "envelopes",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/v13-professional-computing-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/v14-operator-console-ux-envelope.json",
+      "category": "envelopes",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/v14-operator-console-ux-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/w8-task-dispatch-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/README.md",
+      "category": "index",
+      "product": "shared",
+      "status": "active"
+    }
+  ],
+  "codeRuntime": [
+    {
+      "path": "packages/shared/",
+      "runtime": "deps",
+      "note": "共享配置/路径/版本等基础能力（PTL/PTH 共用）"
+    },
+    {
+      "path": "packages/infra/",
+      "runtime": "deps",
+      "note": "模型路由/日志/平台/sdk 适配/容器运行时协议（共用基础包）"
+    },
+    {
+      "path": "packages/pth-memory/",
+      "runtime": "deps",
+      "note": "PTH 记忆库（进程内使用，非独立服务）"
+    },
+    {
+      "path": "packages/mailbox/",
+      "runtime": "deps",
+      "note": "跨会话邮箱（库，非独立服务）"
+    },
+    {
+      "path": "packages/framework/",
+      "runtime": "host",
+      "note": "PTL CLI/TUI/容器运维命令，宿主机执行"
+    },
+    {
+      "path": "scripts/",
+      "runtime": "host",
+      "note": "宿主机工具脚本（pth/pth CLI 入口、验收/维护脚本）"
+    },
+    {
+      "path": "packages/dev-container/",
+      "runtime": "host",
+      "note": "宿主机控制 dev 容器（start/mount/verify）"
+    },
+    {
+      "path": "src/pth/",
+      "runtime": "dual",
+      "note": "PTH 主服务：容器内生产运行；宿主机 node dist/pth/main.js 试运行/tsx dev"
+    },
+    {
+      "path": "packages/pth-console/",
+      "runtime": "dual",
+      "note": "PTH CLI/loopback Web：宿主机交互为主；server 组件可随部署进容器"
+    },
+    {
+      "path": "deploy/docker-monitor/",
+      "runtime": "dual",
+      "note": "本机监控服务：宿主机 MONITOR_HOST 直跑，也可入容器采集"
+    },
+    {
+      "path": "packages/pth-sandbox/",
+      "runtime": "container",
+      "note": "隔离执行容器（kernel 池 + exec API）"
+    },
+    {
+      "path": "toolstore/",
+      "runtime": "container",
+      "note": "PTH 容器内扩展代码库/策略/命名编译单元"
+    },
+    {
+      "path": "extensions/",
+      "runtime": "container",
+      "note": "PTH 容器内扩展源码"
+    },
+    {
+      "path": "deploy/Dockerfile*",
+      "runtime": "container",
+      "note": "容器镜像构建（主服务/sandbox/dev/jupyter）"
+    },
+    {
+      "path": "deploy/docker-compose*.yaml",
+      "runtime": "config",
+      "note": "compose 拓扑"
+    },
+    {
+      "path": "deploy/*.json",
+      "runtime": "config",
+      "note": "runtime lock 与部署描述"
+    },
+    {
+      "path": "deploy/.env.pth.secrets*",
+      "runtime": "config",
+      "note": "密钥（gitignore 的 secrets + 提交的 example）"
+    },
+    {
+      "path": "config/",
+      "runtime": "config",
+      "note": "pi 模板/配置面"
+    },
+    {
+      "path": "tsconfig*.json · package.json · package-lock.json",
+      "runtime": "config",
+      "note": "workspace/构建配置"
+    }
+  ]
+}
