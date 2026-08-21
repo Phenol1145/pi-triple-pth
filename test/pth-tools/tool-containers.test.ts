@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { HttpExecutionClient, EXECUTION_WIRE } from "@away_from/shared/execution";
-import { validateToolManifest, ToolManifestError } from "../../src/pth/tools/tool-manifest.js";
+import { pinToolManifestDigest, validateToolManifest, ToolManifestError } from "../../src/pth/tools/tool-manifest.js";
 import {
   defaultToolRegistryPath,
   ensureDomainTokens,
@@ -104,15 +104,26 @@ describe("T2：回环注册表（0600 + token 不迁移）", () => {
 });
 
 describe("T2：compose 生成（动态端口 + 域网络 + 认证面）", () => {
-  it("localBuild 渲染：compiled internal / secrets 无 ENGINE_TOKEN / 动态端口", () => {
+  it("localBuild 渲染：compiled internal / gateway 边车 / secrets 无 ENGINE_TOKEN / 动态端口", () => {
     const yaml = renderToolCompose(composeInput());
     expect(yaml).toContain('name: "pi-triple-tools"');
     expect(yaml).toContain('"127.0.0.1::8080"');
     expect(yaml).toContain("tools-compiled:\n    internal: true");
+    expect(yaml).toContain("tools-compiled-gateway:");
+    expect(yaml).toContain("tools-loopback: {}");
     expect(yaml).toContain("ENGINE_TOKEN");
     const secretsSection = yaml.slice(yaml.indexOf("tools-secrets:"));
     expect(secretsSection).not.toContain("ENGINE_TOKEN");
     expect(secretsSection).toContain("HOST_TOKEN");
+  });
+
+  it("pinToolManifestDigest：digest 强校验 + 域缺失 fail-closed", () => {
+    const manifest = validateToolManifest(REAL_MANIFEST);
+    const digest = "sha256:" + "a".repeat(64);
+    const pinned = pinToolManifestDigest(manifest, "compiled", digest);
+    expect(pinned.domains.compiled?.digest).toBe(digest);
+    expect(() => pinToolManifestDigest(manifest, "compiled", "sha256:bad")).toThrow(ToolManifestError);
+    expect(() => pinToolManifestDigest(manifest, "ghost" as never, digest)).toThrow(ToolManifestError);
   });
 
   it("非本地构建必须 digest 钉版；ps JSON 端口解析", () => {

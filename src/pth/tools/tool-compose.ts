@@ -88,8 +88,11 @@ export function renderToolCompose(input: ToolComposeInput): string {
       lines.push(`      ENGINE_TOKEN: ${yamlString(engineToken)}`);
     }
     lines.push(`      PORT: "${TOOL_CONTAINER_INTERNAL_PORT}"`);
-    lines.push(`    ports:`);
-    lines.push(`      - "127.0.0.1::${TOOL_CONTAINER_INTERNAL_PORT}"`);
+    if (domain !== "compiled") {
+      // compiled 不回配 loopback（OrbStack internal 网络限制）——由 gateway 边车发布
+      lines.push(`    ports:`);
+      lines.push(`      - "127.0.0.1::${TOOL_CONTAINER_INTERNAL_PORT}"`);
+    }
     lines.push(`    volumes:`);
     lines.push(`      - "./tool-manifest.json:/opt/tool-server/tool-manifest.json:ro"`);
     if (domain === "compiled") {
@@ -103,9 +106,33 @@ export function renderToolCompose(input: ToolComposeInput): string {
     lines.push(`      retries: 3`);
     lines.push(`    restart: "no"`);
   }
+  if (domains.compiled) {
+    lines.push(`  tools-compiled-gateway:`);
+    lines.push(`    image: ${yamlString(imageFor("compiled", domains.compiled.image, domains.compiled.digest, input.localBuild))}`);
+    lines.push(`    command: ["node", "/opt/tool-server/proxy.mjs"]`);
+    lines.push(`    environment:`);
+    lines.push(`      PROXY_TARGET_HOST: "tools-compiled"`);
+    lines.push(`      PROXY_TARGET_PORT: "${TOOL_CONTAINER_INTERNAL_PORT}"`);
+    lines.push(`      PORT: "${TOOL_CONTAINER_INTERNAL_PORT}"`);
+    lines.push(`    ports:`);
+    lines.push(`      - "127.0.0.1::${TOOL_CONTAINER_INTERNAL_PORT}"`);
+    lines.push(`    networks:`);
+    lines.push(`      - tools-compiled`);
+    lines.push(`      - tools-loopback`);
+    lines.push(`    depends_on:`);
+    lines.push(`      tools-compiled:`);
+    lines.push(`        condition: service_healthy`);
+    lines.push(`    healthcheck:`);
+    lines.push(`      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:${TOOL_CONTAINER_INTERNAL_PORT}/health').then(r=>{if(!r.ok)process.exit(1)})"]`);
+    lines.push(`      interval: 10s`);
+    lines.push(`      timeout: 3s`);
+    lines.push(`      retries: 3`);
+    lines.push(`    restart: "no"`);
+  }
   lines.push(`networks:`);
   lines.push(`  tools-compiled:`);
   lines.push(`    internal: true`);
+  lines.push(`  tools-loopback: {}`);
   lines.push("");
   return lines.join("\n");
 }

@@ -7,7 +7,7 @@ ARG TOOL_DOMAIN
 ENV TOOL_DOMAIN=${TOOL_DOMAIN}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash curl ca-certificates procps python3 python3-pip \
+    bash curl ca-certificates procps python3 python3-pip build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # 构建期可联网（compiled 域运行时离线由 compose internal 网络保证）
@@ -20,12 +20,12 @@ RUN case "${TOOL_DOMAIN}" in \
 COPY server/ /opt/tool-server/
 WORKDIR /opt/tool-server
 RUN npm init -y >/dev/null 2>&1 \
-    && npm install --no-audit --no-fund --omit=dev @away_from/shared@1.6.0 ws@8.18.0
+    && npm install --no-audit --no-fund --omit=dev @away_from/shared@1.6.0 ws@8.18.0 node-pty@1.1.0
 
 # T2 工具面：bf 演示解释器 + 未迁移住户占位符（T3 替换为生产二进制）
 COPY server/bin/bf.mjs /usr/local/bin/bf
 COPY server/bin/not-installed.sh /usr/local/bin/not-installed.sh
-RUN chmod +x /usr/local/bin/bf /usr/local/bin/not-installed.sh \
+RUN chmod 755 /usr/local/bin/bf /usr/local/bin/not-installed.sh \
     && chmod -R a+rX /opt/tool-server \
     && case "${TOOL_DOMAIN}" in \
          compiled) ln -s not-installed.sh /usr/local/bin/bfc \

@@ -21,6 +21,13 @@ import {
   validateExecutionRequest,
 } from "@away_from/shared/execution";
 
+let nodePty = null;
+try {
+  nodePty = await import("node-pty");
+} catch {
+  // 镜像未装 node-pty（dev/宿主直跑）——pty 请求回 INVALID_REQUEST，pipes 交互仍可用
+}
+
 const DOMAIN = process.env.TOOL_DOMAIN ?? "";
 const PORT = Number(process.env.PORT ?? 8080);
 const HOST_TOKEN = process.env.HOST_TOKEN ?? "";
@@ -57,8 +64,9 @@ function makeResult(outputs, code, signalName, timedOut, truncated, execId) {
 }
 
 class ToolJob {
-  constructor(child, limits, execId) {
+  constructor(child, limits, execId, ptyProcess) {
     this.child = child;
+    this.pty = ptyProcess;
     this.execId = execId;
     this.status = "running";
     this.outputs = [];
@@ -75,6 +83,7 @@ class ToolJob {
     let timedOut = false;
 
     const killGroup = () => {
+      if (this.pty) { try { this.pty.kill(); } catch { /* 已退出 */ } return; }
       try { process.kill(-this.child.pid, "SIGKILL"); } catch { /* 已退出 */ }
     };
     const killForLimit = (field) => {
@@ -95,14 +104,7 @@ class ToolJob {
       }
       if (keep.length < data.length) killForLimit(stream);
     };
-    const handleData = (buf, field) => push(field, (field === "stdout" ? decOut : decErr).write(buf));
-
-    child.stdout?.on("data", (buf) => handleData(buf, "stdout"));
-    child.stderr?.on("data", (buf) => handleData(buf, "stderr"));
-    const timer = setTimeout(() => { timedOut = true; killGroup(); }, limits.timeoutMs);
-    timer.unref();
-
-    child.on("close", (code, signalName) => {
+    const finish = (code, signalName) => {
       clearTimeout(timer);
       if (killedForLimit !== "stdout") push("stdout", decOut.end() ?? "");
       if (killedForLimit !== "stderr") push("stderr", decErr.end() ?? "");
@@ -114,14 +116,32 @@ class ToolJob {
       this.status = "done";
       this.settled = true;
       for (const h of [...this.handlers]) h.onDone?.(this.result);
-    });
+    };
+    const timer = setTimeout(() => { timedOut = true; killGroup(); }, limits.timeoutMs);
+    timer.unref();
+
+    if (this.pty) {
+      // pty 输出为合并流（stdout；stderr 通道保留为空）
+      this.pty.onData((data) => push("stdout", data));
+      this.pty.onExit(({ exitCode, signal }) => finish(typeof exitCode === "number" ? exitCode : null, signal ?? null));
+    } else {
+      const handleData = (buf, field) => push(field, (field === "stdout" ? decOut : decErr).write(buf));
+      child.stdout?.on("data", (buf) => handleData(buf, "stdout"));
+      child.stderr?.on("data", (buf) => handleData(buf, "stderr"));
+      child.on("close", (code, signalName) => finish(code, signalName));
+    }
   }
 
   writeStdin(data) {
+    if (this.pty) { this.pty.write(data); return; }
     if (this.child.stdin && this.child.stdin.writable) this.child.stdin.write(data);
   }
 
-  resize() { /* pipes 无 pty——resize 忽略 */ }
+  resize(cols, rows) {
+    if (this.pty && Number.isInteger(cols) && Number.isInteger(rows)) {
+      try { this.pty.resize(Math.max(1, cols), Math.max(1, rows)); } catch { /* 忽略 */ }
+    }
+  }
 
   subscribe(handlers) {
     this.handlers.add(handlers);
@@ -133,6 +153,7 @@ class ToolJob {
 
   cancel() {
     if (this.settled) return true;
+    if (this.pty) { try { this.pty.kill(); } catch { /* 已退出 */ } return true; }
     try { process.kill(-this.child.pid, "SIGKILL"); } catch { /* 已退出 */ }
     return true;
   }
@@ -185,8 +206,34 @@ const BACKEND = {
     const mode = resolveExecutionMode(req);
     if (mode === "sync") throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.invalidRequest, "startJob requires stream/interactive");
     const execId = randomUUID();
+    const limits = {
+      timeoutMs: req.timeoutMs ?? 120_000,
+      maxStdoutBytes: req.maxStdoutBytes ?? 4 * 1024 * 1024,
+      maxStderrBytes: req.maxStderrBytes ?? 4 * 1024 * 1024,
+    };
     return new Promise((resolve, reject) => {
       const argv = Array.isArray(req.cmd) ? req.cmd : ["bash", "-lc", req.cmd];
+      if (mode === "interactive" && req.pty) {
+        if (!nodePty) {
+          reject(new ExecutionClientError(EXECUTION_WIRE.errorCodes.invalidRequest, "pty requested but node-pty is unavailable"));
+          return;
+        }
+        let ptyProcess;
+        try {
+          ptyProcess = nodePty.spawn(argv[0], argv.slice(1), {
+            name: req.pty.term ?? "xterm-256color",
+            cols: req.pty.cols ?? 80,
+            rows: req.pty.rows ?? 24,
+            cwd: req.cwd,
+            env: req.env ? { ...process.env, ...req.env } : process.env,
+          });
+        } catch (error) {
+          reject(new ExecutionClientError(EXECUTION_WIRE.errorCodes.backendUnavailable, `pty spawn failed: ${error.message}`));
+          return;
+        }
+        resolve(new ToolJob(null, limits, execId, ptyProcess));
+        return;
+      }
       const child = spawn(argv[0], argv.slice(1), {
         cwd: req.cwd,
         env: req.env ? { ...process.env, ...req.env } : process.env,
@@ -194,11 +241,7 @@ const BACKEND = {
         stdio: mode === "interactive" ? ["pipe", "pipe", "pipe"] : ["ignore", "pipe", "pipe"],
       });
       child.once("error", (error) => reject(new ExecutionClientError(EXECUTION_WIRE.errorCodes.backendUnavailable, `spawn failed: ${error.message}`)));
-      child.once("spawn", () => resolve(new ToolJob(child, {
-        timeoutMs: req.timeoutMs ?? 120_000,
-        maxStdoutBytes: req.maxStdoutBytes ?? 4 * 1024 * 1024,
-        maxStderrBytes: req.maxStderrBytes ?? 4 * 1024 * 1024,
-      }, execId)));
+      child.once("spawn", () => resolve(new ToolJob(child, limits, execId)));
     });
   },
 };

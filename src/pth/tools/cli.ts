@@ -5,7 +5,7 @@
  * pull / release 面向 GHCR digest 钉版（release 需 registry push 权限，见 topology §5.5）。
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -13,7 +13,7 @@ import {
   resolveExecutionMode,
   type ExecutionRequest,
 } from "@away_from/shared/execution";
-import { validateToolManifest, type ToolDefinition, type ToolContainerDomain, type ToolManifestFile } from "./tool-manifest.js";
+import { pinToolManifestDigest, validateToolManifest, type ToolDefinition, type ToolContainerDomain, type ToolManifestFile } from "./tool-manifest.js";
 import {
   defaultToolRegistryPath,
   ensureDomainTokens,
@@ -70,7 +70,8 @@ async function refreshRegistryAfterUp(manifest: ToolManifestFile, registryFile: 
   let file = registryFile;
   for (const domain of Object.keys(manifest.domains) as ToolContainerDomain[]) {
     const domainManifest = manifest.domains[domain]!;
-    const service = services.find((s) => s.name.includes(`tools-${domain}`));
+    const serviceName = domain === "compiled" ? "tools-compiled-gateway" : `tools-${domain}`;
+    const service = services.find((s) => s.name.includes(serviceName));
     const publisher = service?.publishers.find((p) => p.targetPort === 8080);
     if (!publisher) continue;
     const tokens = file.domainTokens[domain];
@@ -312,9 +313,34 @@ async function toolsPull(manifest: ToolManifestFile): Promise<void> {
   console.log("✅ digest 钉版镜像已拉取");
 }
 
-function toolsRelease(): void {
-  console.error("pth tools release 需 GHCR push 权限：buildx --push 后把 digest 写入 tool-manifest.json（T2b）。");
-  process.exit(1);
+async function toolsRelease(manifest: ToolManifestFile, args: string[]): Promise<void> {
+  const { flags } = flagsMap(args);
+  const dryRun = flags.has("--dry-run");
+  let next = manifest;
+  for (const domain of Object.keys(manifest.domains) as ToolContainerDomain[]) {
+    const entry = manifest.domains[domain]!;
+    const tag = `${entry.image}:latest`;
+    if (dryRun) {
+      console.log(`${domain}: buildx --push ${tag}（dry-run）→ 之后 inspect digest 钉版`);
+      continue;
+    }
+    const push = await realDockerRun(["buildx", "build", "--platform", "linux/amd64,linux/arm64", "-t", tag, "--push", TOOLS_DIR]);
+    if (push.code !== 0) {
+      console.error(push.stderr || push.stdout || `release ${domain} push failed`);
+      process.exit(1);
+    }
+    const inspect = await realDockerRun(["buildx", "imagetools", "inspect", tag, "--format", "{{.Manifest.Digest}}"]);
+    if (inspect.code !== 0 || !/^sha256:[0-9a-f]{64}$/.test(inspect.stdout.trim())) {
+      console.error(`${domain} digest 查询失败: ${inspect.stderr || inspect.stdout}`);
+      process.exit(1);
+    }
+    next = pinToolManifestDigest(next, domain, inspect.stdout.trim());
+    console.log(`${domain}: ${entry.image}@${inspect.stdout.trim()}`);
+  }
+  if (!dryRun) {
+    writeFileSync(manifestPath(), JSON.stringify(next, null, 2) + "\n", "utf8");
+    console.log("✅ tool-manifest.json digest 已钉版");
+  }
 }
 
 export async function toolsCommand(args: string[]): Promise<void> {
@@ -332,7 +358,7 @@ export async function toolsCommand(args: string[]): Promise<void> {
     case "debug": return toolsDebug(manifest, rest);
     case "build": return toolsBuild(manifest);
     case "pull": return toolsPull(manifest);
-    case "release": return toolsRelease();
+    case "release": return toolsRelease(manifest, rest);
     default:
       console.log([
         "pth tools <list|up|down|status|logs|run|verify|debug|build|pull|release>",

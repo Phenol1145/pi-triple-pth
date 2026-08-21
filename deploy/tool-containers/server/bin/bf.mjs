@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // tool-server/bin/bf.mjs —— T2 内置 Brainfuck 演示解释器（T3 替换为生产 bf/bfc）。
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
-const program = process.argv[2] ? readFileSync(process.argv[2], "utf8") : readFileSync(0, "utf8");
+const arg = process.argv[2];
+const program = arg
+  ? (existsSync(arg) ? readFileSync(arg, "utf8") : arg)
+  : readFileSync(0, "utf8");
 const cells = new Uint8Array(30000);
 let ptr = 0;
 let input = "";
@@ -30,8 +33,8 @@ for (let ip = 0; ip < program.length; ip += 1) {
     case "-": cells[ptr] = (cells[ptr] - 1) & 0xff; break;
     case ".": out += String.fromCharCode(cells[ptr]); break;
     case ",": cells[ptr] = input.charCodeAt(inputPtr++) & 0xff; break;
-    case "[": if (cells[ptr] === 0) ip = jumps.get(ip)!; break;
-    case "]": if (cells[ptr] !== 0) ip = jumps.get(ip)!; break;
+    case "[": if (cells[ptr] === 0) ip = jumps.get(ip) ?? ip; break;
+    case "]": if (cells[ptr] !== 0) ip = jumps.get(ip) ?? ip; break;
     default: break;
   }
 }

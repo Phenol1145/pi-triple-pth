@@ -114,8 +114,7 @@ function validateTool(raw: unknown, domain: ToolContainerDomain, seen: Set<strin
   };
 }
 
-export function validateToolManifest(input: unknown): ToolManifestFile {
-  if (!isRecord(input)) fail("tool-manifest must be an object");
+export function validateToolManifest(input: unknown): ToolManifestFile {  if (!isRecord(input)) fail("tool-manifest must be an object");
   if (input.schemaVersion !== 1) fail("tool-manifest schemaVersion must be 1");
   if (typeof input.generatedAt !== "string" || input.generatedAt.length === 0) {
     fail("tool-manifest generatedAt must be an ISO string");
@@ -165,4 +164,20 @@ export function validateToolManifest(input: unknown): ToolManifestFile {
     };
   }
   return { schemaVersion: 1, generatedAt: input.generatedAt, domains };
+}
+
+/** release 命令：把 buildx push 后查得的 digest 钉进 manifest（域必须存在；digest 强校验）。 */
+export function pinToolManifestDigest(
+  manifest: ToolManifestFile,
+  domain: ToolContainerDomain,
+  digest: string,
+): ToolManifestFile {
+  const entry = manifest.domains[domain];
+  if (!entry) fail(`cannot pin digest for missing domain: ${domain}`);
+  if (!DIGEST_RE.test(digest)) fail(`digest must be sha256:<64hex>: ${digest}`);
+  return {
+    ...manifest,
+    generatedAt: new Date().toISOString(),
+    domains: { ...manifest.domains, [domain]: { ...entry, digest } },
+  };
 }
