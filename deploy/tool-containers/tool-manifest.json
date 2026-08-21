@@ -8,9 +8,9 @@
       "network": "internal",
       "engineVisible": true,
       "tools": [
-        { "name": "bf", "argv": ["bf"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck 解释器（compiled 域首期住户）" },
-        { "name": "bfc", "argv": ["bfc"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck 编译器" },
-        { "name": "v13-asm-toolchain", "argv": ["bash", "-lc", "as --version"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 汇编工具链（T4 吸收前占位）" }
+        { "name": "bf", "argv": ["bf"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck 解释器（beef 后端，T3 已迁移）" },
+        { "name": "bfc", "argv": ["bfc"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck → C 编译器（纯 Python，tcc 后端，T3 已迁移）" },
+        { "name": "v13-asm-toolchain", "argv": ["bash", "-lc", "as --version"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 汇编工具链（T4 迁移后替换占位符）" }
       ]
     },
     "network": {
@@ -28,8 +28,8 @@
       "network": "default",
       "engineVisible": false,
       "tools": [
-        { "name": "agent-reach", "argv": ["agent-reach"], "engineVisible": false, "hostOnly": true, "modes": ["sync", "stream", "interactive"], "description": "凭据工具（仅宿主；不 join engine 网络）" },
-        { "name": "chatgpt-share", "argv": ["chatgpt-share"], "engineVisible": false, "hostOnly": true, "modes": ["sync", "stream", "interactive"], "description": "凭据 TTY 工具（仅宿主）" }
+        { "name": "agent-reach", "argv": ["agent-reach"], "engineVisible": false, "hostOnly": true, "modes": ["sync", "stream", "interactive"], "description": "Agent Reach 凭据工具（GitHub 安装，T3 已迁移；仅宿主）" },
+        { "name": "chatgpt-share", "argv": ["chatgpt-share"], "engineVisible": false, "hostOnly": true, "modes": ["sync", "stream", "interactive"], "description": "ChatGPT share 解码工具（纯 stdlib，T3 已迁移；仅宿主）" }
       ]
     }
   }

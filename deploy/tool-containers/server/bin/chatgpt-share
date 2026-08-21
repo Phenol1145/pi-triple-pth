@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+chatgpt-share — decode ChatGPT shared-conversation links.
+
+ChatGPT share pages (https://chatgpt.com/share/<id>, /s/<id>) are JS-rendered
+React Router apps: the conversation is embedded in the HTML as turbo-stream
+payloads pushed via `streamController.enqueue(...)`. Generic web readers
+(Jina etc.) only see the login shell. This tool fetches the raw HTML, decodes
+the turbo-stream flat table and renders the conversation.
+
+Pure stdlib, no dependencies. Works as an Agent Reach backend for the
+`chatgpt_share` channel.
+
+Usage:
+  chatgpt-share read <url-or-id> [-f md|text|json|jsonl] [--all] [-o FILE]
+  chatgpt-share meta <url-or-id>
+"""
+
+import argparse
+import datetime
+import json
+import re
+import ssl
+import sys
+import urllib.error
+import urllib.request
+
+VERSION = "1.0.0"
+
+_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
+
+# turbo-stream sentinel numbers (jacob-ebey/turbo-stream)
+_SPECIAL = {
+    -1: None,               # HOLE / undefined
+    -2: float("nan"),       # NAN
+    -3: float("inf"),       # POSITIVE_INFINITY
+    -4: float("-inf"),      # NEGATIVE_INFINITY
+    -5: -0.0,               # NEGATIVE_ZERO
+}
+
+_SHARE_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?(?:chatgpt\.com|chat\.openai\.com)/(?:share|s)/"
+    r"([0-9a-fA-F-]{8,})(?:[/?#].*)?$"
+)
+_ID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F-]{10,}$")
+
+
+class DecodeError(Exception):
+    pass
+
+
+class FetchError(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- URL / fetch
+
+def normalize_url(url_or_id: str) -> str:
+    url_or_id = url_or_id.strip()
+    m = _SHARE_RE.match(url_or_id)
+    if m:
+        return f"https://chatgpt.com/share/{m.group(1)}"
+    if _ID_RE.match(url_or_id):
+        return f"https://chatgpt.com/share/{url_or_id}"
+    raise FetchError(
+        f"无法识别的分享链接: {url_or_id!r}（支持 chatgpt.com/share/<id>、"
+        f"chatgpt.com/s/<id> 或裸 share id）"
+    )
+
+
+def _fallback_ssl_context():
+    """macOS 自带 Python 常缺根证书：certifi → unverified（带警告）。"""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+    print("chatgpt-share: 警告：本机缺少根证书，已退化为不校验 TLS 证书",
+          file=sys.stderr)
+    return ssl._create_unverified_context()
+
+
+_SSL_CTX = None  # None=默认; 降级后缓存
+
+
+def fetch_html(url: str, timeout: int = 45, retries: int = 2) -> str:
+    global _SSL_CTX
+    ctx = _SSL_CTX
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": _UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8",
+            })
+            with urllib.request.urlopen(req, timeout=timeout,
+                                        context=ctx) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+        except urllib.error.URLError as e:
+            # 证书验证失败 → 惰性降级一次（缓存结果）
+            if (_SSL_CTX is None and isinstance(getattr(e, "reason", None),
+                                                ssl.SSLCertVerificationError)):
+                _SSL_CTX = ctx = _fallback_ssl_context()
+                continue
+            if attempt < retries:
+                last_err = e
+                continue
+            raise FetchError(f"网络错误访问 {url}: {e}") from e
+        except urllib.error.HTTPError as e:
+            if e.code in (403, 503) and attempt < retries:
+                last_err = e
+                continue  # Cloudflare 边缘抖动 — 重试
+            raise FetchError(f"HTTP {e.code} 访问 {url}: {e.reason}") from e
+        except (TimeoutError, OSError) as e:
+            if attempt < retries:
+                last_err = e
+                continue
+            raise FetchError(f"网络错误访问 {url}: {e}") from e
+    raise FetchError(f"重试后仍失败: {last_err}")
+
+
+# ------------------------------------------------------------- turbo-stream
+
+def extract_payloads(html: str):
+    calls = re.findall(r"streamController\.enqueue\((.*?)\);</script>", html, re.S)
+    if not calls:
+        raise DecodeError(
+            "页面中未找到 streamController.enqueue 数据。可能原因："
+            "分享已删除/链接无效，或 ChatGPT 页面结构已变更。"
+        )
+    return calls
+
+
+def decode_table(table):
+    """Decode a turbo-stream flat table into nested Python values."""
+    sys.setrecursionlimit(max(sys.getrecursionlimit(), 100000))
+    memo = {}
+
+    def decode(i):
+        if i in memo:
+            return memo[i]
+        memo[i] = None  # cycle guard
+        memo[i] = dec(table[i])
+        return memo[i]
+
+    def dec_val(x):
+        """A value slot: int index / sentinel / inline primitive."""
+        if isinstance(x, bool):
+            return x
+        if isinstance(x, int):
+            if x in _SPECIAL:
+                return _SPECIAL[x]
+            if 0 <= x < len(table):
+                return decode(x)
+            return x
+        return dec(x)
+
+    def dec(v):
+        if isinstance(v, str):
+            if v.startswith("n:"):  # hoisted number
+                try:
+                    return int(v[2:])
+                except ValueError:
+                    return float(v[2:])
+            if v == "undefined":
+                return None
+            return v
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, float):
+            return v
+        if isinstance(v, int):
+            return _SPECIAL.get(v, v)
+        if isinstance(v, list):          # array of references
+            return [dec_val(x) for x in v]
+        if isinstance(v, dict):
+            out = {}
+            for k, val in v.items():
+                if k.startswith("_"):    # "_"-prefixed: key & value are indices
+                    key = decode(int(k[1:]))
+                    key = key if isinstance(key, str) else str(key)
+                    out[key] = dec_val(val)
+                else:
+                    out[k] = dec(val)
+            return out
+        return v
+
+    return decode(0)
+
+
+def find_key(obj, key):
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == key:
+                hits.append(v)
+            hits.extend(find_key(v, key))
+    elif isinstance(obj, list):
+        for v in obj:
+            hits.extend(find_key(v, key))
+    return hits
+
+
+def load_conversation(url: str, timeout: int):
+    """Fetch + decode; returns (root_data_dict, linear_conversation_list)."""
+    html = fetch_html(url, timeout=timeout)
+    payloads = extract_payloads(html)
+    table = None
+    for call in payloads:  # pick the largest payload (the loader data)
+        try:
+            inner = json.loads(call)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(inner, str):
+            continue
+        try:
+            cand = json.loads(inner)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(cand, list) and (table is None or len(cand) > len(table)):
+            table = cand
+    if table is None:
+        raise DecodeError("无法解析页面内嵌数据（JSON 解码失败）")
+
+    root = decode_table(table)
+    convs = find_key(root, "linear_conversation")
+    if not convs:
+        raise DecodeError("解码成功但未找到 linear_conversation 字段，页面结构可能已变更")
+    return root, convs[0]
+
+
+# ------------------------------------------------------------------ render
+
+def _part_text(p) -> str:
+    if isinstance(p, str):
+        return p
+    if isinstance(p, dict):
+        t = p.get("text")
+        if isinstance(t, str):
+            return t
+        if isinstance(t, dict) and isinstance(t.get("text"), str):
+            return t["text"]
+        # thought / tool parts etc.
+        if p.get("content_type") == "thought" and isinstance(p.get("summary"), str):
+            return ""
+    return ""
+
+
+def iter_messages(conv, roles=None):
+    for entry in conv:
+        if not isinstance(entry, dict):
+            continue
+        msg = entry.get("message") or {}
+        role = (msg.get("author") or {}).get("role") or "?"
+        if roles and role not in roles:
+            continue
+        content = msg.get("content") or {}
+        parts = content.get("parts") or []
+        text = "\n".join(t for t in (_part_text(p) for p in parts) if t).strip()
+        meta = msg.get("metadata") or {}
+        yield {
+            "id": msg.get("id"),
+            "role": role,
+            "text": text,
+            "content_type": content.get("content_type"),
+            "model": meta.get("resolved_model_slug"),
+            "create_time": msg.get("create_time"),
+            "status": msg.get("status"),
+        }
+
+
+def _ts(t):
+    try:
+        return datetime.datetime.fromtimestamp(float(t)).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError, OSError):
+        return ""
+
+
+def render_md(messages):
+    blocks = []
+    for m in messages:
+        if not m["text"]:
+            continue
+        head = f"### [{m['role']}] {_ts(m['create_time'])}"
+        if m["role"] == "assistant" and m["model"]:
+            head += f" ({m['model']})"
+        blocks.append(f"{head}\n{m['text']}")
+    return "\n\n---\n\n".join(blocks) + ("\n" if blocks else "")
+
+
+def render_text(messages):
+    out = []
+    for m in messages:
+        if not m["text"]:
+            continue
+        out.append(f"{'=' * 20} [{m['role']}] {_ts(m['create_time'])} {'=' * 20}")
+        out.append(m["text"])
+    return "\n\n".join(out) + ("\n" if out else "")
+
+
+# ------------------------------------------------------------------- meta
+
+def conversation_meta(root, conv):
+    data = {}
+    hits = find_key(root, "serverResponse")
+    if hits and isinstance(hits[0], dict):
+        data = hits[0].get("data") or {}
+    msgs = list(iter_messages(conv))
+    times = [m["create_time"] for m in msgs if m.get("create_time")]
+    models = sorted({m["model"] for m in msgs if m.get("model")})
+    role_counts = {}
+    for m in msgs:
+        role_counts[m["role"]] = role_counts.get(m["role"], 0) + 1
+    return {
+        "title": data.get("title"),
+        "create_time": data.get("create_time"),
+        "message_count": len(msgs),
+        "role_counts": role_counts,
+        "models": models,
+        "time_range": [_ts(min(times)) if times else None,
+                       _ts(max(times)) if times else None],
+    }
+
+
+# -------------------------------------------------------------------- CLI
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="chatgpt-share",
+        description="解码 ChatGPT 分享会话链接（chatgpt.com/share/<id>）")
+    ap.add_argument("--version", action="version",
+                    version=f"chatgpt-share {VERSION}")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p_read = sub.add_parser("read", help="抓取并输出会话内容")
+    p_read.add_argument("url", help="分享链接或 share id")
+    p_read.add_argument("-f", "--format", default="md",
+                        choices=["md", "text", "json", "jsonl"],
+                        help="输出格式（默认 md）")
+    p_read.add_argument("--all", action="store_true",
+                        help="包含 system/tool 消息（默认仅 user/assistant）")
+    p_read.add_argument("--roles", help="逗号分隔的角色过滤，如 user,assistant")
+    p_read.add_argument("-o", "--output", help="输出文件（默认 stdout）")
+    p_read.add_argument("--timeout", type=int, default=45)
+
+    p_meta = sub.add_parser("meta", help="输出会话元信息（标题/消息数/模型/时间范围）")
+    p_meta.add_argument("url", help="分享链接或 share id")
+    p_meta.add_argument("--timeout", type=int, default=45)
+
+    args = ap.parse_args(argv)
+
+    try:
+        url = normalize_url(args.url)
+        root, conv = load_conversation(url, timeout=args.timeout)
+    except (FetchError, DecodeError) as e:
+        print(f"chatgpt-share: {e}", file=sys.stderr)
+        return 2 if isinstance(e, FetchError) else 3
+
+    if args.cmd == "meta":
+        out = json.dumps(conversation_meta(root, conv), ensure_ascii=False, indent=2)
+    else:
+        roles = None
+        if args.roles:
+            roles = {r.strip() for r in args.roles.split(",") if r.strip()}
+        elif not getattr(args, "all", False):
+            roles = {"user", "assistant"}
+        messages = list(iter_messages(conv, roles=roles))
+        if args.format == "json":
+            out = json.dumps(messages, ensure_ascii=False, indent=1)
+        elif args.format == "jsonl":
+            out = "\n".join(json.dumps(m, ensure_ascii=False) for m in messages)
+        elif args.format == "text":
+            out = render_text(messages)
+        else:
+            out = render_md(messages)
+
+    if getattr(args, "output", None):
+        with open(args.output, "w", encoding="utf-8") as f:
+            f.write(out)
+        print(f"已写入 {args.output}", file=sys.stderr)
+    else:
+        sys.stdout.write(out)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except BrokenPipeError:
+        # 下游管道提前关闭（如 | head）——静默退出，避免 flush 报错
+        import os as _os
+        _devnull = _os.open(_os.devnull, _os.O_WRONLY)
+        _os.dup2(_devnull, sys.stdout.fileno())
+        sys.exit(0)

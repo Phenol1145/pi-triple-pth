@@ -1,0 +1,25 @@
+#!/bin/bash
+# bf —— Brainfuck 解释器（dev 容器：beef 的友好入口）
+# 用法:
+#   bf -p 'CODE'    直传代码执行（等价于 beef -p）
+#   bf -c 'CODE'    同 -p（别名）
+#   bf FILE.bf      执行文件（可用 < 重定向 stdin 作为 , 输入）
+#   echo 'CODE' | bf   从 stdin 读代码执行
+if [ "$1" = "-c" ] || [ "$1" = "-e" ]; then
+  exec beef -p "$2" "${@:3}"
+fi
+if [ "$1" = "-p" ]; then
+  exec beef -p "$2" "${@:3}"
+fi
+if [ $# -ge 1 ]; then
+  # 有文件参数：直接透传（stdin 重定向由 beef 自行读取）
+  exec beef "$@"
+fi
+if [ -t 0 ]; then
+  echo "bf: 需要程序（bf -p 'CODE' 或 bf FILE.bf 或 stdin 管道）" >&2
+  exit 1
+fi
+tmp=$(mktemp /tmp/bf-XXXXXX.bf)
+trap 'rm -f "$tmp"' EXIT
+cat > "$tmp"
+exec beef "$tmp"

@@ -1,6 +1,5 @@
-# deploy/tool-containers/Dockerfile.tool —— 三域统一 tool container 镜像（T2）。
-# 域工具安装分支：network 已装真实 yt-dlp；compiled/secrets 首期住户在 T3 迁移轮安装
-# （本镜像提供 bf 演示解释器 + 明确 127 占位符，保证协议面/注册面可验收）。
+# deploy/tool-containers/Dockerfile.tool —— 三域统一 tool container 镜像（T3）。
+# 真实住户：compiled=beef+bf/bfc；network=yt-dlp；secrets=agent-reach+chatgpt-share。
 FROM node:22-slim
 
 ARG TOOL_DOMAIN
@@ -8,12 +7,15 @@ ENV TOOL_DOMAIN=${TOOL_DOMAIN}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash curl ca-certificates procps python3 python3-pip build-essential \
+    git beef tcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 构建期可联网（compiled 域运行时离线由 compose internal 网络保证）
 RUN case "${TOOL_DOMAIN}" in \
       network)  pip3 install --break-system-packages --no-cache-dir yt-dlp ;; \
-      compiled|secrets) echo "${TOOL_DOMAIN} 首期住户 T3 迁移轮安装" ;; \
+      secrets)  pip3 install --break-system-packages --no-cache-dir \
+                  "agent-reach @ git+https://github.com/Panniantong/agent-reach@main" ;; \
+      compiled) echo "compiled 工具经 COPY/apt（beef）安装" ;; \
       *)        echo "unknown tool domain: ${TOOL_DOMAIN}" && exit 1 ;; \
     esac
 
@@ -22,16 +24,17 @@ WORKDIR /opt/tool-server
 RUN npm init -y >/dev/null 2>&1 \
     && npm install --no-audit --no-fund --omit=dev @away_from/shared@1.6.0 ws@8.18.0 node-pty@1.1.0
 
-# T2 工具面：bf 演示解释器 + 未迁移住户占位符（T3 替换为生产二进制）
-COPY server/bin/bf.mjs /usr/local/bin/bf
+# 域工具落位（T3 真实住户；v13-asm-toolchain 留 T4）
+COPY server/bin/bfc-tools/ /opt/tools/bfc/
+COPY server/bin/chatgpt-share /opt/tools/chatgpt-share/chatgpt-share
 COPY server/bin/not-installed.sh /usr/local/bin/not-installed.sh
-RUN chmod 755 /usr/local/bin/bf /usr/local/bin/not-installed.sh \
+RUN chmod 755 /opt/tools/bfc/bf /opt/tools/bfc/bfc /opt/tools/chatgpt-share/chatgpt-share /usr/local/bin/not-installed.sh \
     && chmod -R a+rX /opt/tool-server \
     && case "${TOOL_DOMAIN}" in \
-         compiled) ln -s not-installed.sh /usr/local/bin/bfc \
-                   && ln -s not-installed.sh /usr/local/bin/v13-asm-toolchain ;; \
-         secrets)  ln -s not-installed.sh /usr/local/bin/agent-reach \
-                   && ln -s not-installed.sh /usr/local/bin/chatgpt-share ;; \
+         compiled) ln -sf /opt/tools/bfc/bf /usr/local/bin/bf \
+                   && ln -sf /opt/tools/bfc/bfc /usr/local/bin/bfc \
+                   && ln -sf not-installed.sh /usr/local/bin/v13-asm-toolchain ;; \
+         secrets)  ln -sf /opt/tools/chatgpt-share/chatgpt-share /usr/local/bin/chatgpt-share ;; \
        esac
 
 USER node

@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""bfc —— Brainfuck → C 编译器（纯 Python，无第三方依赖）
+
+用法:
+  bfc hello.bf -o hello          # 生成 C 源码并用 tcc/cc 编译为可执行文件
+  bfc hello.bf --emit-c          # 只输出 C 源码到 stdout
+  bfc hello.bf --emit-c -o out.c # 把 C 源码写到 out.c
+  bfc -c '++[>++<-]>.'           # 直接从命令行读取代码
+
+选项:
+  --cells N      磁带长度（默认 30000）
+  --cc CMD       C 编译器命令（默认自动探测 tcc → cc → gcc）
+  -o, --output   输出文件（编译模式必填）
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+TAPE_DEFAULT = 30000
+
+# brainfuck 语法字符（其余一律视为注释）
+BF_CHARS = set("><+-.,[]")
+
+
+def translate(src: str, cells: int = TAPE_DEFAULT) -> str:
+    """把 brainfuck 源码翻译成等价的 C 源码。"""
+    out = [
+        "#include <stdio.h>",
+        "#include <stdlib.h>",
+        "int main(void) {",
+        f"  static unsigned char tape[{cells}];",
+        "  unsigned char *p = tape;",
+    ]
+    indent = 1
+
+    def line(body: str) -> None:
+        out.append("  " * indent + body)
+
+    for ch in src:
+        if ch == ">":
+            line("p++;")
+        elif ch == "<":
+            line("p--;")
+        elif ch == "+":
+            line("(*p)++;")
+        elif ch == "-":
+            line("(*p)--;")
+        elif ch == ".":
+            line("putchar(*p);")
+        elif ch == ",":
+            line("*p = (unsigned char)getchar();")
+        elif ch == "[":
+            line("while (*p) {")
+            indent += 1
+        elif ch == "]":
+            indent -= 1
+            line("}")
+        # 其他字符：注释，忽略
+    out.append("  return 0;")
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
+def find_cc(prefer: str | None) -> str:
+    if prefer:
+        return prefer
+    for cc in ("tcc", "cc", "gcc", "clang"):
+        if shutil_which(cc):
+            return cc
+    return "tcc"
+
+
+def shutil_which(name: str) -> str | None:
+    for d in os.environ.get("PATH", "").split(":"):
+        if not d:
+            continue
+        p = os.path.join(d, name)
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        prog="bfc",
+        description="Brainfuck → C 编译器（可用 tcc/cc 生成可执行文件）",
+    )
+    ap.add_argument("file", nargs="?", help="brainfuck 源文件（缺省从 -c 或 stdin 读取）")
+    ap.add_argument("-c", dest="code", help="直接提供 brainfuck 代码字符串")
+    ap.add_argument("-o", "--output", help="输出文件：编译模式为可执行文件，--emit-c 模式为 .c 文件")
+    ap.add_argument("--emit-c", action="store_true", help="只生成 C 源码，不调用 C 编译器")
+    ap.add_argument("--cells", type=int, default=TAPE_DEFAULT, help=f"磁带长度（默认 {TAPE_DEFAULT}）")
+    ap.add_argument("--cc", default=None, help="C 编译器（默认自动探测 tcc/cc/gcc/clang）")
+    args = ap.parse_args()
+
+    # 读取源码：-c 优先，其次文件，最后 stdin
+    if args.code is not None:
+        src = args.code
+    elif args.file:
+        with open(args.file, encoding="utf-8") as f:
+            src = f.read()
+    else:
+        src = sys.stdin.read()
+
+    c_src = translate(src, args.cells)
+
+    if args.emit_c:
+        if args.output:
+            with open(args.output, "w", encoding="utf-8") as f:
+                f.write(c_src)
+            print(f"✓ C 源码已写入 {args.output}", file=sys.stderr)
+        else:
+            sys.stdout.write(c_src)
+        return 0
+
+    if not args.output:
+        ap.error("编译模式需要 -o/--output（或加 --emit-c 只输出 C 源码）")
+
+    cc = find_cc(args.cc)
+    tmp_c = args.output + ".c"
+    try:
+        with open(tmp_c, "w", encoding="utf-8") as f:
+            f.write(c_src)
+        subprocess.run([cc, "-O2", tmp_c, "-o", args.output], check=True)
+    finally:
+        if os.path.exists(tmp_c):
+            os.unlink(tmp_c)
+    print(f"✓ 已编译: {args.output} (C 编译器: {cc})", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
