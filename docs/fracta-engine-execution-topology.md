@@ -455,6 +455,8 @@ capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
 - profile 固定 `host`：请求体自报 `dev-container`/`sandbox-untrusted` 一律
   `INVALID_REQUEST`（客户端不得自我提升）。
 - 不在本执行器内实现沙箱语义；它只服务宿主机已信任的工作区。
+- **宿主前置**：elan 已安装且 `lean`/`lake` 在执行器进程 PATH 中（`elan` 标准安装即可）；
+  执行器本身不下载/安装任何工具链。
 
 ### 6.2 最小实现清单
 
@@ -578,11 +580,12 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 
 - [x] `curl /health` 无 token 通过；`curl /capabilities` 返回 `pathMapping:true`（PTL 自动化测试）
 - [x] 错误 token → `401 UNAUTHORIZED`；请求自报 `sandbox-untrusted` → `400 INVALID_REQUEST`
-- [ ] `lean --version` 经 `/exec` 返回 `exitCode:0` 与版本输出（宿主栈实测）
+- [ ] `lean --version` 经 `/exec` 返回 `exitCode:0` 与版本输出（宿主 elan 安装后实测）
 - [ ] `lake build` 在映射后的宿主 workspace 执行成功（engine 内 `cwd=/data/workspaces/...` 可用）
 - [x] 超时命令被杀进程组，`timedOut:true`；超过输出上限 `truncated` 存在
 - [x] 未登记 pathMapping → `CWD_NOT_ALLOWED`
-- [ ] engine 容器 `curl http://host.docker.internal:8787/health` 可达
+- [x] engine 容器 → `host.docker.internal:8787` 可达：engine 镜像内 `HttpExecutionClient`
+  经执行器读取映射后的宿主 workspace 文件成功（2026-08-22 实测）
 
 ## 7. 网关边界（2026-08-21 裁决：暂不引入统一网关）
 
