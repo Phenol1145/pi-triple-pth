@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 已实现；tool containers / execution/v1.1 模式框架 / jupyter 双面设计已定稿（ADR-0002）；P1–T4 待实施。**
+> 状态：**P0 + P0.1 已实现（execution/v1.1 模式框架 + ExecutionHttpServer + 客户端）；tool containers / jupyter 双面设计已定稿（ADR-0002）；P1–T4 待实施。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -31,9 +31,11 @@ execution 服务端。协议客户端 = **pth 产品面（engine + pth CLI）**�
 
 ### 2.1 单一事实源
 
-- 类型、校验、wire 常量、客户端全部来自 `@away_from/shared/execution`：
+- 类型、校验、wire 常量、客户端、服务端全部来自 `@away_from/shared/execution`：
   `EXECUTION_PROTOCOL_VERSION = "execution/v1"`、`EXECUTION_WIRE`、`validateExecutionRequest`、
-  `HttpExecutionClient`、`LocalBackend`、`DockerExecBackend`。
+  `HttpExecutionClient`、`LocalBackend`、`DockerExecBackend`；v1.1 增量 =
+  `resolveExecutionMode`、`validateExecutionCapabilities`、`HttpExecutionClient.interactive`、
+  `ExecutionHttpServer`（HTTP+WS + 模式路由 + Bearer 常数时间比较）。
 - **禁止任何执行面复制类型或手写第二份 wire**；新增执行面只允许 import 共享包。
 
 ### 2.2 固定 wire 面（每个执行面必须实现的最小集合）
@@ -50,6 +52,8 @@ execution 服务端。协议客户端 = **pth 产品面（engine + pth CLI）**�
 
 - 错误信封：`{ error: { code, message } }`，code 只取 `EXECUTION_WIRE.errorCodes`。
 - 不支持的 streaming/cancel 必须在 `capabilities` 里如实声明 `false`，客户端据此降级。
+- v1.1 增量：`GET /exec/:id/ws`（interactive，按 `capabilities.modes.interactive` 提供）与
+  `/sessions*`（persistent wire 定稿、实现后置）；均由 `ExecutionHttpServer` 统一实现。
 
 ### 2.3 后端身份与信任档
 
@@ -123,13 +127,17 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 
 ### P0.1 execution/v1.1 模式框架（pi-triple-deps，与 P0 合并发布）
 
-1. `ExecutionRequest.mode` + capabilities `modes` 位图 + `MODE_NOT_SUPPORTED`；
+**状态：✅ 已实现（2026-08-22）；npm 发布待办（与 P0 合并为 shared@1.6.0）。**
+
+1. ✅ `ExecutionRequest.mode` + capabilities `modes` 位图 + `MODE_NOT_SUPPORTED`；
    `interactive` = WS `/exec/:id/ws`（stdin/stdout/stderr/resize/pty）；`persistent`
-   wire 规范定稿（不实现）。
-2. shared 增加 `ExecutionHttpServer`（HTTP+WS、模式路由、Bearer 校验）与客户端
-   interactive 方法；旧 `stream:true` 字段映射保留。
-3. 契约测试：模式能力声明、未声明模式拒绝、WS 消息帧、v1/v1.1 客户端分支。
-4. 与 P0 合并发布 `@away_from/shared@1.6.0`（一次发布，避免空窗）。
+   wire 规范定稿（`/sessions*` 路径 + session 校验 + lease 5s..24h，实现后置）。
+2. ✅ shared 增加 `ExecutionHttpServer`（HTTP+WS、模式路由、Bearer 常数时间比较、
+   结构化错误信封）与客户端 `interactive()` 会话；旧 `stream:true` 字段映射保留，
+   v1 请求字节形状不注入 mode。
+3. ✅ 契约测试：16 files / 113 tests（v1.1 新增 20：模式能力声明、未声明模式拒绝、
+   WS 消息帧、SSE 回放、v1/v1.1 客户端分支、v1.0 fail-closed、persistent 规范）。
+4. ⏳ 发布 `@away_from/shared@1.6.0`（P0 + P0.1 合并产物，一次发布；npm 发布为用户动作）。
 
 ### P1 engine 后端注册与路由（pi-triple-pth）
 
@@ -367,6 +375,9 @@ capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
 | persistent | session create/execute/snapshot/reset/release + lease/TTL | ✅ 规范定稿，❌ 实现后置（与 sandbox kernel-host 迁移捆绑） |
 
 - 未声明模式 → `MODE_NOT_SUPPORTED`；旧 `stream:true` 字段映射到 `mode:"stream"`。
+- persistent wire 已定稿：`POST /sessions`（create）· `GET /sessions/:id` ·
+  `POST /sessions/:id/execute|snapshot|reset|release`；`leaseMs` 5s..24h（缺省 10min），
+  每次 execute 自动续租；`SESSION_EXPIRED` / `SNAPSHOT_NOT_FOUND` 错误码。
 - v1.0 客户端遇 v1.1 fail-closed；升级需部署顺序编排。
 - 服务端唯一实现：`@away_from/shared/execution` 的 `ExecutionHttpServer`（HTTP+WS+
   模式路由 + Bearer 校验）；sandbox 暂留 v1，registry 按 capabilities 协商。
