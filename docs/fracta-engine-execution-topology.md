@@ -120,11 +120,119 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 
 ### P1 engine 后端注册与路由（pi-triple-pth）
 
-1. `config/schema.ts` 增加 `PTH_EXEC_BACKENDS`；`bootstrap/pth-host.ts` 构建 registry。
-2. 专业适配器按 backend id 解析；删除「容器内 LocalBackend 直跑」作为生产默认
-   （dev 模式 `PTH_CONFIG_STRICT=0` 可显式保留）。
-3. sandbox 后端从 registry 解析（`SANDBOX_URL` 兼容别名，不破坏现网）。
-4. **退出门**：pth 全量测试绿；不配置任何 backend 时 strict 模式拒绝启动、dev 模式告警。
+**裁决（2026-08-21）：立即硬切——删除隐式 LocalBackend 直跑。未路由 runtime 一律
+unregistered；dev 也必须显式配置 backend 或 legacy execPrefix。**
+
+前置：发布 `@away_from/shared@1.6.0`（P0 产物）并升级 PTH lock；本地开发可先用
+Verdaccio 预发布包验证。
+
+#### P1.0 顺带修复（生产专业 runtime 装配空洞）
+
+`batch-process.ts` 现调 `assembleProfessionalRuntimeRegistry({ lock, factories })` 未传
+`artifactPath`，而全部默认 factory 都以 `artifactPath !== undefined` 为前置 → 生产 batch
+实际注册零 adapter。P1 必须传 `artifactPath: deps.artifactPath`（workDir/packagesDir 等
+继续由 adapter 从配置中心读取）。
+
+#### P1.1 配置面（`config/schema.ts` + `config-center.ts`）
+
+`ConfigGroup` 增加 `"execution"`；新增：
+
+| key | type | 默认 | 说明 |
+|---|---|---|---|
+| `PTH_EXEC_BACKENDS` | json | `""` | `ExecutionBackendDescriptor[]`（shared 校验器解析） |
+| `PTH_EXEC_BACKEND_ROUTES` | json | `""` | `{ "lean4":"local-lean", "assembly":"local-asm", ... }` |
+| `PTH_EXEC_BACKEND_PROBE_TIMEOUT_MS` | number | `2000` | startup 单 backend 探测超时 |
+| `PTH_EXEC_SANDBOX_ALIAS` | string | `"on"` | `off` 时不从 `SANDBOX_URL` 合成 sandbox 后端 |
+
+`PthConfig` 增加 `json(key)` accessor（解析失败抛带 key 的错误，registry 捕获包装）。
+
+#### P1.2 新模块 `src/pth/execution/backend-registry.ts`
+
+```ts
+export interface ExecutionBackendRegistry {
+  get(id: string): HttpExecutionBackend | undefined;
+  list(): ReadonlyMap<string, HttpExecutionBackend>;
+  routes: Readonly<Partial<Record<ProfessionalRuntimeId, string>>>;
+}
+export function buildExecutionBackendRegistry(input: {
+  descriptorsJson?: string; routesJson?: string;
+  env: NodeJS.ProcessEnv; strict: boolean;
+  fetchLike?: typeof fetch; capabilitiesTtlMs?: number;
+}): { registry: ExecutionBackendRegistry; warnings: string[] };
+export async function probeExecutionBackends(registry, opts: {
+  strict: boolean; timeoutMs: number; logger: { warn(...); error(...) };
+}): Promise<void>;
+```
+
+合成规则（fail-closed）：
+
+1. `PTH_EXEC_BACKENDS` 为空且 sandbox alias 开 → 合成
+   `{ id:"sandbox", url:SANDBOX_URL ?? "http://localhost:8080", profile:"sandbox-untrusted",
+   tokenEnv:"SANDBOX_SHARED_SECRET", required: strict }`。
+2. 已配置 → 逐项 `validateExecutionBackendDescriptor`；未知字段/非法 id/url/profile 抛错；
+   id 重复抛错。
+3. 配置中没有 `sandbox` 且 alias 开 → 仍合成 sandbox 合并（现网兼容；`off` 关闭）。
+4. `tokenEnv` 引用的 env 缺失：strict 且 `required:true` → 抛错；否则告警（运行时 401）。
+5. routes：key 必须合法 `ProfessionalRuntimeId`，value 必须命中已注册 backend id——typo
+   在装配期抛错。
+6. 装配不探网络；探测由 `probeExecutionBackends` 执行：并行 + 单后端 2s 超时；
+   `getCapabilities()` 的 version/安全不变量不匹配由 P0 wrapper 抛 `BACKEND_UNAVAILABLE`。
+   strict：任一 `required:true` 失败 → 抛错（main 监听端口前 / batch fork 后首个装配点）；
+   非 required 失败 → error 日志。dev：全部失败仅告警。
+
+#### P1.3 组合根（`bootstrap/pth-host.ts` / `main.ts` / `batch-process.ts`）
+
+- `BuiltPthHost` 增加 `backends` 与 `routes`；`buildPthHost(manifest, options?)` 支持注入
+  `env` / `fetchLike`（测试用）。
+- main：build → `probeExecutionBackends` → 用 `backends.get("sandbox")` 的
+  `descriptor.url/token` 喂 `SandboxExecClient` + `SandboxHealthMonitor`（无 sandbox 时回退
+  现 env 读法）。
+- batch：build → probe → PG 池；`createKernelManager` 的 `sandboxKernel.url/secret` 改从
+  sandbox descriptor 取（env 兜底）。
+
+#### P1.4 专业 runtime 路由（`professional-runtime-adapters.ts`）
+
+输入扩展：`executionBackends?`、`backendRoutes?`、`allowLegacyExecutionFallback?`
+（硬切后默认 `false`）。
+
+后端解析优先级：
+
+1. `backendRoutes[runtimeId]` → registry `get()`；
+2. 约定 id：`lean4→local-lean`、`assembly→local-asm`、`wolfram→local-wolfram`、
+   `psi4/cp2k/quantum-espresso→local-chem`、`jupyter→dev-jupyter`（registry 存在即用）；
+3. legacy 前缀 env（`PTH_LEAN4_TOOLCHAIN_EXEC` / `PTH_ASM_TOOLCHAIN_EXEC` 等）→
+   `DockerExecBackend`（仍作为显式配置受支持）；
+4. 都没有 → **不创建该 factory**（strict 与 dev 一致）→ registry 返回
+   `unregistered-runtime`。不再有任何隐式 LocalBackend。
+
+#### P1.5 adapter 侧去隐式默认（`exec-via-backend.ts` + 五个 adapter）
+
+- `executionBackendFromPrefix(prefix)`：无 prefix 不再返回 `LocalBackend`，返回
+  `undefined`；有 `["docker","exec",...]` 仍解析 `DockerExecBackend`。
+- 新增 `resolveExecutionBackend({ executionBackend?, execPrefix? })` 与
+  `unavailableAdapterExec(reason)`；五个 professional adapter 改为：
+  无 backend/prefix → exec 函数返回 `{ok:false, error:"<runtime>: no execution backend
+  configured"}` → `probe()` 自然返回 unavailable。
+- 既有集成测试迁移：原本“宿主有 lean/工具链时 undefined 前缀直跑”的用例改为显式
+  `executionBackend: new LocalBackend()`；容器路径继续用 execPrefix。
+
+#### P1.6 测试
+
+| 文件 | 用例 |
+|---|---|
+| `test/pth-execution/execution-backend-registry.test.ts`（新） | JSON 解析 / 非法 descriptor / 重复 id / route typo / token 缺失 / alias 合成与关闭 / strict 与 dev probe 语义（fake fetch） |
+| `test/pth-bootstrap/bootstrap.test.ts`（扩） | buildPthHost 返回 backends；非法 `PTH_EXEC_BACKENDS` 在监听前抛错 |
+| `test/pth-config/config.test.ts`（扩） | 新 schema 键 + `json()` accessor |
+| `test/pth-professional`（扩） | 路由优先级；未路由 runtime 不注册（硬切）；artifactPath 修复后默认 factory 激活；adapter 无 backend 时 probe unavailable |
+| 集成测试 | 直跑用例显式 `LocalBackend`，行为不变 |
+
+#### 退出门
+
+1. deps 1.6.0 依赖升级后 `npm run lint && npm run build && npm test` 全绿；
+2. strict 且无任何 backend → 启动即失败（日志可解释）；dev → 告警，专业 runtime 全部
+   unregistered（无隐式 LocalBackend）；
+3. sandbox 现网行为零变化（alias 合成 + 原客户端路径）；
+4. 三仓拓扑文档 P1 状态同步。
 
 ### P2 Lean 外移 + 本地执行器（pi-triple-ptl 为主，pth 联动）
 
