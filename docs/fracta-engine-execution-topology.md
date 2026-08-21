@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 已实现（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由）；tool containers / jupyter 双面设计已定稿（ADR-0002）；P2–T4 待实施。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移）；tool containers / jupyter 双面设计已定稿（ADR-0002）；P2 宿主栈实测与 T2–T4 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -258,15 +258,20 @@ export async function probeExecutionBackends(registry, opts: {
 
 ### P2 Lean 外移 + 本地执行器（pi-triple-ptl 为主，pth 联动）
 
-1. 按 §6 开发指南实现本地执行器（宿主机，默认 `127.0.0.1:8787`，Bearer 认证，
-   `pathMapping` 指向宿主 workspace 根；v1.1 模式框架）。
-2. `deploy/Dockerfile` 移除 elan / lean / lake 安装段；镜像构建验证不再依赖 Lean 网络源。
-3. compose 为 engine 增加 `extra_hosts: host.docker.internal:host-gateway`，并注入
-   `PTH_EXEC_BACKENDS` 含 `local-lean`（`profile: "host"`）。
-4. `lean4-runtime-adapter` 默认解析 `local-lean`；`PTH_LEAN4_TOOLCHAIN_EXEC` 前缀仅在
-   测试/临时容器场景使用。
-5. **退出门**：`lean --version`、`lake build` 样例经 engine → 本地执行器全链路通过；
-   engine 镜像不再含 Lean；超时/输出上限/错误信封契约测试通过。
+**状态：✅ 代码与编排已实现（2026-08-22）；宿主栈全链路实测待办（见 §6.5）。**
+
+1. ✅ 本地执行器：PTL `LocalSpawnBackend`（sync+stream、pathMapping 翻译、超时/截断）
+   + `startLocalExecServer`（shared `ExecutionHttpServer`，127.0.0.1，Bearer）+ `ptl local-exec`。
+2. ✅ `deploy/Dockerfile` 移除 elan / lean / lake 安装段；镜像构建不再依赖 Lean 网络源。
+3. ✅ compose：engine `extra_hosts: host.docker.internal:host-gateway` + `PTH_EXEC_BACKENDS`
+   含 `local-lean`（profile host, tokenEnv LOCAL_EXEC_SHARED_SECRET）。
+   **补充裁决（2026-08-22）**：`workspaces` 由 named volume 改为宿主 bind mount
+   （`PTH_WORKSPACES_HOST` 必填）——engine/sandbox/宿主执行器三方同目录；
+   旧 named volume 数据需一次性迁移。
+4. ✅ `lean4-runtime-adapter` 默认解析 `local-lean`（P1 约定路由）；`PTH_LEAN4_TOOLCHAIN_EXEC`
+   前缀仅在测试/临时容器场景使用。
+5. ⏳ **退出门（部分实测）**：`lean --version`、`lake build` 经 engine → 本地执行器全链路；
+   engine 镜像不再含 Lean；超时/输出上限/错误信封契约测试已过（PTL 476 tests 全绿）。
 
 ### P3 → T3：tool containers 三域迁移（取代 dev 容器）
 
@@ -571,12 +576,12 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 
 ### 6.5 验收清单
 
-- [ ] `curl /health` 无 token 通过；`curl /capabilities` 返回 `pathMapping:true`
-- [ ] 错误 token → `401 UNAUTHORIZED`；请求自报 `sandbox-untrusted` → `400 INVALID_REQUEST`
-- [ ] `lean --version` 经 `/exec` 返回 `exitCode:0` 与版本输出
+- [x] `curl /health` 无 token 通过；`curl /capabilities` 返回 `pathMapping:true`（PTL 自动化测试）
+- [x] 错误 token → `401 UNAUTHORIZED`；请求自报 `sandbox-untrusted` → `400 INVALID_REQUEST`
+- [ ] `lean --version` 经 `/exec` 返回 `exitCode:0` 与版本输出（宿主栈实测）
 - [ ] `lake build` 在映射后的宿主 workspace 执行成功（engine 内 `cwd=/data/workspaces/...` 可用）
-- [ ] 超时命令被杀进程组，`timedOut:true`；超过输出上限 `truncated` 存在
-- [ ] 未登记 pathMapping → `CWD_NOT_ALLOWED`
+- [x] 超时命令被杀进程组，`timedOut:true`；超过输出上限 `truncated` 存在
+- [x] 未登记 pathMapping → `CWD_NOT_ALLOWED`
 - [ ] engine 容器 `curl http://host.docker.internal:8787/health` 可达
 
 ## 7. 网关边界（2026-08-21 裁决：暂不引入统一网关）

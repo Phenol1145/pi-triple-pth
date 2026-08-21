@@ -7,8 +7,13 @@ services:
       dockerfile: deploy/Dockerfile
     ports:
       - "3000:3000"
+    # P2：宿主本地执行器（ptl local-exec）经 host.docker.internal 访问 engine→executor 通道
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - workspaces:/data/workspaces
+      # P2：workspaces 由 named volume 改为宿主 bind mount（engine/sandbox/宿主执行器三方同目录）。
+      # 旧 named volume 数据需一次性迁移；Linux 宿主注意目录属主（容器内 node uid=1000）。
+      - ${PTH_WORKSPACES_HOST:?PTH_WORKSPACES_HOST must be set（宿主 workspaces 绝对路径）}:/data/workspaces
       - compiled-cache:/data/compiled-cache   # 编译核持久缓存（跨调用/跨容器重启）
       - platform:/data/platform
       - tenants:/data/tenants
@@ -39,6 +44,9 @@ services:
       - PTH_EXECUTION_GRANT_SECRET=${PTH_EXECUTION_GRANT_SECRET:?PTH_EXECUTION_GRANT_SECRET must be set}
       # PTH 本容器 kernel-mode 记忆桥上游 token（与 sandbox 用同一 Redis Bearer token；不注入 sandbox workload）
       - PTH_MEMORY_BRIDGE_TOKEN=${PTH_MEMORY_BRIDGE_TOKEN:?PTH_MEMORY_BRIDGE_TOKEN must be set}
+      # P2：执行后端注册表——sandbox（required）+ 宿主 Lean 本地执行器（默认非 required，缺失时 lean4 unregistered）
+      - PTH_EXEC_BACKENDS=[{"id":"sandbox","url":"http://sandbox:8080","profile":"sandbox-untrusted","tokenEnv":"SANDBOX_SHARED_SECRET","required":true},{"id":"local-lean","url":"http://host.docker.internal:8787","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"${PTH_WORKSPACES_HOST}"},"required":${PTH_LOCAL_LEAN_REQUIRED:-false}}]
+      - LOCAL_EXEC_SHARED_SECRET=${LOCAL_EXEC_SHARED_SECRET:-}
       # 配置集中化 C3：生产严格模式——开发默认值/弱密钥 fail-fast
       - PTH_CONFIG_STRICT=1
     # kernel sandbox SPEC §3.3：REPL kernel 执行层落 sandbox 侧（持久 kernel 宿主池）
@@ -114,7 +122,7 @@ services:
       context: ..
       dockerfile: packages/pth-sandbox/Dockerfile.sandbox
     volumes:
-      - workspaces:/data/workspaces
+      - ${PTH_WORKSPACES_HOST:?PTH_WORKSPACES_HOST must be set}:/data/workspaces   # P2：与 engine/宿主执行器同目录
       - compiled-cache:/data/compiled-cache   # 编译核持久缓存（跨调用/跨容器重启）
     environment:
       - SANDBOX_SHARED_SECRET=${SANDBOX_SHARED_SECRET:?SANDBOX_SHARED_SECRET must be set}
@@ -211,7 +219,7 @@ services:
 volumes:
   toolstore:        # 扩展代码库 + 策略 + 命名编译单元（持久卷）
   compiled-cache:   # 编译核持久缓存（CCompiledKernel cacheDir——独立于 workspaces 隔离安全）
-  workspaces:
+  # workspaces 已改宿主 bind mount（PTH_WORKSPACES_HOST），不再是 named volume
   platform:
   tenants:
   components:

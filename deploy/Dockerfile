@@ -38,14 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Lean 4 锁定稳定工具链（v1.3 Task 6）：直接钉 committed lock 的 v4.33.0；
-# 禁止任何 `elan default stable` 或移动分支。
-ARG LEAN_VERSION=v4.33.0
-RUN curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
-    | sh -s -- -y --no-modify-path --default-toolchain leanprover/lean4:${LEAN_VERSION} \
-    && ln -s /root/.elan/bin/lean /usr/local/bin/lean \
-    && ln -s /root/.elan/bin/lake /usr/local/bin/lake \
-    && lean --version
+# P2：Lean 工具链（elan/lean/lake）已移出 engine 镜像——
+# 由宿主本地执行器（execution/v1.1，`ptl local-exec`，backend id `local-lean`）提供。
+# 镜像构建不再依赖 Lean 网络源。
 
 WORKDIR /app
 
