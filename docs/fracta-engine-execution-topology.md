@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；GHCR release 待凭据实测；P4/P5 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入设计定稿（U8-1 batch 已实现，U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -626,6 +626,25 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 - [x] 未登记 pathMapping → `CWD_NOT_ALLOWED`
 - [x] engine 容器 → `host.docker.internal:8787` 可达：engine 镜像内 `HttpExecutionClient`
   经执行器读取映射后的宿主 workspace 文件成功（2026-08-22 实测）
+
+### 6.6 u8proj 本地执行器接入（2026-08-22 设计定稿）
+
+团队 u8proj = 纯 C 小型 VM 工具链（`u8 compile/run/debug/analyze`；源码 .u8asm →
+二进制 .u8programme）。跨平台已验证：macOS/Linux `cc` 一条命令构建，Windows 有
+`u8.exe`。接入分两期：
+
+**U8-1（本地执行器，batch 已实现）**
+- u8 版本 0.0.2：`u8 run <programme> --reg K=V ... --io N=V ...` 非交互注入初值；
+  无参数保持交互；`debug/analyze` 仍为团队待实现（协议侧不接线）。
+- 集成基线：`deploy/local-exec/u8/`（源码 + `build-u8.sh`）；编译产物放进
+  `ptl local-exec` 进程 PATH。
+- 待接线：engine `PTH_EXEC_BACKENDS` 增加 `local-u8`（profile=host，
+  pathMapping `/data/workspaces`）+ `u8-runtime-adapter`（probe `u8 version`；
+  compile/run 经 sync + artifact port）→ 默认路由 `u8 → local-u8`。
+
+**U8-2（有状态，后置）**
+- interactive/debug 语义待 **P4 persistent** 统一实现；届时 `u8 run` 的寄存器/I/O
+  逐步输入映射到 persistent session execute，不再需要 batch 参数逐轮拼接。
 
 ## 7. 网关边界（2026-08-21 裁决：暂不引入统一网关）
 
