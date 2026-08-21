@@ -1,6 +1,6 @@
 # 执行面统一协议设计（execution/v1）
 
-> 状态：已批准（2026-08-21）· 路线 P0→P3 分阶段执行
+> 状态：已批准（2026-08-21）· **P0–P3 全部完成**（P0 契约冻结 · P1 sandbox 对齐 · P2 PTL backend · P3 调用方迁移）
 > 三仓同源：`pi-triple-deps` / `pi-triple-pth` / `pi-triple-ptl` 必须同步本文件。
 
 ## 1. 问题
@@ -90,29 +90,29 @@ interface ExecutionCapabilities {
 |----|--------|------|
 | 类型 + 校验 + client | `pi-triple-deps`（`@away_from/shared`） | `ExecutionRequest/Result`、`validateExecutionRequest`、`ExecutionClient` |
 | `SandboxBackend` | `pi-triple-pth`（pth-sandbox） | 现有 `/exec` 对齐 execution/v1，`profile=sandbox-untrusted` |
-| `LocalBackend` | `pi-triple-ptl` | 宿主 `spawn`，`profile=host` |
-| `DockerExecBackend` | `pi-triple-ptl` | `docker compose exec -T` / `docker exec`，`profile=dev-container` |
+| `LocalBackend` | `pi-triple-deps`（`@away_from/shared/execution`；PTL re-export） | 宿主 `spawn`，`profile=host` |
+| `DockerExecBackend` | `pi-triple-deps`（`@away_from/shared/execution`；PTL re-export） | `docker compose exec -T` / `docker exec`，`profile=dev-container` |
 | 调用方迁移 | PTH / PTL | professional adapters、bash/py kernel、dev-container verify |
 
 ## 5. 执行路线（每阶段独立门禁）
 
-### P0：契约冻结（deps）
+### P0 ✅ 契约冻结（deps）
 - shared 新增 `src/execution/`：类型、`validateExecutionRequest`、wire 常量（`/exec`、SSE 事件名）。
 - golden 契约测试：sandbox 当前实现的合法/非法 payload 逐字段锁定。
 - 验收：deps `lint/build/test` 全绿；类型三仓可 import。
 
-### P1：sandbox 对齐（pth）
+### P1 ✅ sandbox 对齐（pth）
 - `pth-sandbox/src/exec-api*` 改为 import shared 类型与校验（行为零变化）。
 - 新增 `/exec/:id/cancel`（当前只有超时/限额强杀）。
 - `/capabilities` 暴露能力声明。
 - 验收：sandbox 全部既有测试 + 契约测试全绿；`pth up` 栈回归。
 
-### P2：PTL 本地 backend（ptl）
+### P2 ✅ PTL 本地 backend（ptl）
 - 新增 `packages/framework/src/execution/`：`LocalBackend`、`DockerExecBackend`、client。
 - `dev-container verify`、`ptl stack exec` 改走 `ExecutionBackend`。
 - 验收：PTL 464 tests 全绿 + dev-container 命令冒烟。
 
-### P3：PTH 调用方迁移（pth）
+### P3 ✅ PTH 调用方迁移（pth）
 - 四个 professional adapters 与 bash/py kernel 改走 `ExecutionClient`/`ExecutionBackend`，
   删除各自 `execPrefix` 重复实现（保留构造参数兼容一个版本后移除）。
 - 验收：professional 垂直测试 + PTH full 全绿。
