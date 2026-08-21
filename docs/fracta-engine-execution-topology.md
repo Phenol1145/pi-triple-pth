@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**约定已定；P0 协议面冻结已实现（2026-08-21）——P1–P3 待实施**。
+> 状态：**约定已定；P0 协议面冻结已实现（2026-08-21）——P1–P3 待实施；P5（Jupyter 前端消费）已预留边界。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`。
 > 协议事实源：`@away_from/shared/execution`（execution/v1）；设计背景：`docs/execution-surface-v1-design.md`。
@@ -248,11 +248,19 @@ export async function probeExecutionBackends(registry, opts: {
 
 ### P3 dev 容器成为执行面（pi-triple-ptl）
 
+**dev 容器当前定位（截至本设计定稿）**：PTL 工具容器——agent-reach / yt-dlp / instsci /
+bf / bfc / chatgpt-share 的外接工具环境；可信可出网、无密钥注入、root 单用户、热改源码
+bind 挂载；调用方式 = 宿主机 wrapper → `docker exec -T dev <tool>`。**它不是执行面**
+（无 `/exec` HTTP 服务），也不在 pi-triple-pth 生产 compose 四服务拓扑里；jupyter 已独立
+为单独服务。P3 就是把这个容器从「工具容器」扩展为「工具容器 + `dev-container` 执行面」。
+
 1. dev 容器内新增 execution/v1 server（与本地执行器同一参考实现，profile 改
    `dev-container`）；compose 把 dev 加入 engine 可达网络并注入 token。
 2. registry 增加 `dev` 后端；PTL 侧 `DockerExecBackend` 保留为 `ptl` 运维直连通道，
-   不再作为 engine 协议路径。
-3. **退出门**：engine 可经 HTTP 在 dev 容器执行 python/bfc/yt-dlp 类命令；
+    不再作为 engine 协议路径。
+3. 同步修正 dev 容器的 compose 落位与 `packages/dev-container` 的 compose 解析默认值
+   （当前默认仍指向旧仓布局），确保 PTL 与 engine 面向同一份事实源。
+4. **退出门**：engine 可经 HTTP 在 dev 容器执行 python/bfc/yt-dlp 类命令；
    DockerExecBackend 测试不回退。
 
 ### P4 后续（不在本轮）
@@ -260,6 +268,34 @@ export async function probeExecutionBackends(registry, opts: {
 - assembly / wolfram / jupyter / computational-chemistry 按需路由到 dev/本地执行面；
 - sandbox kernel-host lease API 的 wire 版本化（与 execution/v1 同轨）；
 - engine 品牌/服务名迁移（独立立项，不在协议面范围内）。
+
+### P5 预留：Jupyter notebook 前端消费执行后端（方向与 jupyter-runtime-adapter 相反）
+
+**边界（防止漂移，已裁决）**：浏览器 / Jupyter 前端**永不直接访问执行后端**。Jupyter
+只是又一个北向消费者：`浏览器 → jupyter server → engine → 执行后端`；engine 保持唯一
+协议客户端，执行后端端口不发布、token 不进浏览器。
+
+两条方向必须区分且可共存：
+
+| | 路 A：engine 驱动 jupyter（现有） | 路 B：用户 notebook 消费执行面（P5） |
+|---|---|---|
+| 触发者 | batch worker 的 professional job | 用户在浏览器 Run cell |
+| 调用方向 | engine → jupyter（headless 跑 notebook） | jupyter → engine → 执行后端 |
+| jupyter 角色 | 被调用的执行器 | 调用方前端宿主 |
+| 授权 | professional grant（lease/角色/committed lock） | notebook 会话级 grant（待设计，不是全局 token） |
+| 结果去向 | executed-notebook + report → artifact → agent | cell 输出 → 浏览器 iopub stream |
+| 代码位置 | `jupyter-runtime-adapter` + jupyter-guide driver | jupyter 容器内 kernel provider + engine 北向路由 |
+
+落地顺序（P5a→d，届时另开设计）：
+
+1. **P5a** engine 北向 notebook 消费契约：会话级授权、backend allowlist、SSE/流式中继；
+2. **P5b** jupyter 容器内核 provider 原型（`fracta-exec` kernel spec，先接一个后端；
+   实现 Jupyter kernel 协议 ↔ engine 协议的翻译：execute_request/stream/error/interrupt）；
+3. **P5c** 有状态 REPL 模式（复用 `/api/v1/kernel/exec` 的 `repl` 语义）+ cancel/中断；
+4. **P5d** JupyterLab 体验（kernel 选择、后端状态可见性）。
+
+约束：P5 不得改变 P1–P3 的协议面；若需要新能力，先过 `@away_from/shared/execution`
+的版本化流程，不在 engine 内另开 wire。
 
 ## 5. 本地执行器开发指南（Lean 首期参考实现）
 
