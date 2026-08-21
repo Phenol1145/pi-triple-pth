@@ -137,6 +137,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_EXEC_SANDBOX_ALIAS", "string", "on", "execution", "both", "sandbox 后端自动合成开关（off 关闭；只影响未显式配置 sandbox 的情况）"),
   d("PTH_TOOL_TOOLS_DIR", "string", "", "path", "cli", "deploy/tool-containers 目录（缺省 = 仓库内）"),
   d("PTH_TOOL_REGISTRY_PATH", "string", "", "path", "cli", "宿主 tool containers 回环注册表路径（缺省 ~/.pi-triple/tool-containers.json）"),
+  d("PTH_ASM_KERNEL_INDEX_PATH", "string", "", "path", "batch", "asm-kernel index.js 生产路径（容器内 /data/toolstore/...；空 = 仓库默认）"),
   d("PTH_SERVICES_DIR", "string", "", "path", "cli", "deploy/services 根目录（缺省 = 仓库内）"),
   d("PTH_SERVICES_PROJECT", "string", "pi-triple-services", "path", "cli", "pth services 的 docker compose 项目名"),
 

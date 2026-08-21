@@ -51,6 +51,8 @@ services:
       - LOCAL_EXEC_SHARED_SECRET=${LOCAL_EXEC_SHARED_SECRET:-}
       # T4：engine 自动合并宿主 tool 回环注册表（tools-compiled/tools-network → backend）
       - PTH_TOOL_REGISTRY_PATH=/opt/pi-triple-tools/tool-containers.json
+      # T4：asm-kernel 生产路径（toolstore 卷拷贝到 /data/toolstore）
+      - PTH_ASM_KERNEL_INDEX_PATH=/data/toolstore/extensions/asm-kernel/index.js
       # 配置集中化 C3：生产严格模式——开发默认值/弱密钥 fail-fast
       - PTH_CONFIG_STRICT=1
     # kernel sandbox SPEC §3.3：REPL kernel 执行层落 sandbox 侧（持久 kernel 宿主池）
@@ -58,6 +60,8 @@ services:
       - PTH_PYTHON_MODE=${PTH_PYTHON_MODE:-sandbox-kernel}
       - PTH_BASH_MODE=${PTH_BASH_MODE:-sandbox-kernel}
       - PTH_SANDBOX_KERNEL_URL=http://sandbox:8080
+      # P2：lean4 专业任务工作区在 shared workspaces 卷内（本地执行器 pathMapping 覆盖 /data/workspaces）
+      - PTH_WORKSPACES_PATH=/data/workspaces
       # 内存硬限制：node 堆上限（主进程 + batch 子进程继承）——防大 payload OOM 主机
       - NODE_OPTIONS=--max-old-space-size=768
       # batch 构成参数化（角色:副本数逗号分隔——如 developer:3,analyst:2；未列默认 1；governance 角色显式列出启用）

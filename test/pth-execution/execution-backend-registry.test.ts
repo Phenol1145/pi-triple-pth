@@ -220,6 +220,10 @@ describe("P1.2：execution backend registry（fail-closed 合成/校验/路由/�
           tool: "bf", domain: "compiled", backendId: "tools-compiled",
           url: "http://127.0.0.1:54321", port: 54321, token: "engine-token-tools-compiled", updatedAt: "",
         },
+        as: {
+          tool: "x86_64-linux-gnu-as", domain: "compiled", backendId: "tools-compiled",
+          url: "http://127.0.0.1:54321", port: 54321, token: "engine-token-tools-compiled", updatedAt: "",
+        },
         yt: {
           tool: "yt-dlp", domain: "network", backendId: "tools-network",
           url: "http://127.0.0.1:54322", port: 54322, token: "engine-token-tools-network", updatedAt: "",
@@ -238,13 +242,14 @@ describe("P1.2：execution backend registry（fail-closed 合成/校验/路由/�
         : { stdout: "ok", stderr: "", exitCode: 0, timedOut: false };
       return { ok: true, status: 200, text: async () => JSON.stringify(body), json: async () => body } as unknown as Response;
     }) as unknown as typeof fetch;
-    const { registry } = buildExecutionBackendRegistry({
+    const { registry, warnings } = buildExecutionBackendRegistry({
       env: { PTH_EXEC_SANDBOX_ALIAS: "off" },
       strict: false,
       fetchLike,
       toolRegistry,
     });
     expect(registry.get("tools-secrets")).toBeUndefined();
+    expect(warnings.some((w) => w.includes("冲突"))).toBe(false); // 同域多工具共享 backend 不误报
     expect(registry.get("tools-compiled")?.descriptor).toMatchObject({
       url: "http://host.docker.internal:54321",
       profile: "dev-container",

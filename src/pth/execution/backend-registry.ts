@@ -102,12 +102,15 @@ export function buildExecutionBackendRegistry(
   }
 
   const toolTokens = new Map<string, string>();
+  const mergedToolIds = new Set<string>();
   for (const entry of Object.values(input.toolRegistry?.tools ?? {})) {
     if (entry.domain !== "compiled" && entry.domain !== "network") continue; // secrets 不进 engine
+    if (mergedToolIds.has(entry.backendId)) continue; // 同域多工具共享一个 backend
     if (seen.has(entry.backendId)) {
       warnings.push(`tool registry backend ${entry.backendId} 与显式 PTH_EXEC_BACKENDS 冲突——显式配置优先`);
       continue;
     }
+    mergedToolIds.add(entry.backendId);
     seen.add(entry.backendId);
     descriptors.push({
       id: entry.backendId,

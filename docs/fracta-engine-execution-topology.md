@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由；GHCR release 待凭据实测）；P4/P5 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；GHCR release 待凭据实测；P4/P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -272,7 +272,9 @@ export async function probeExecutionBackends(registry, opts: {
    前缀仅在测试/临时容器场景使用。
 5. ✅ **退出门全部通过**：`lean --version` 与 `lake build`（8 jobs 成功）经 engine 镜像 →
    本地执行器全链路通过；engine 镜像不再含 Lean；超时/输出上限/错误信封契约测试通过
-   （PTL 476 tests 全绿）。
+   （PTL 476 tests 全绿）。栈级验收补丁（2026-08-22）：compose 注入
+   `PTH_WORKSPACES_PATH=/data/workspaces`，使 lean4 专业任务工作区落在宿主执行器
+   pathMapping 内——engine 容器 probe lean4 → `{version:"4.33.0", satisfiesLock:true}`。
 
 ### P3 → T3：tool containers 三域迁移（取代 dev 容器）
 
@@ -312,6 +314,10 @@ chatgpt-share），可信可出网、无密钥注入、root 单用户，调用�
    lean4 等其他路由不变。
 5. ✅ 实测：6 个工具链二进制 `--version` 全部经 execution 协议返回正确版本；
    `pth tools verify` 16/16 healthy；registry merge 单测覆盖 token/url 改写与 secrets 隔离。
+6. ✅ 栈级验收（2026-08-22）：真实 `pth up` + `pth tools up` 栈内，engine 容器
+   `assembleProfessionalRuntimeRegistry` 经 tools-compiled probe assembly →
+   `{version:"2.40", satisfiesLock:true}`；compose 补 `PTH_ASM_KERNEL_INDEX_PATH=
+   /data/toolstore/...` 修复生产 asm-kernel 装载路径。
 
 ### P4 后续（persistent + kernel-host 迁移，不在本轮实现）
 

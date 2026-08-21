@@ -249,6 +249,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     factories: deps.professionalRuntimeFactories,
     // P1.0：artifactPath 必传——默认 factory 全部以此为前置（生产装配空洞修复）
     artifactPath: deps.artifactPath,
+    // T4：生产 asm-kernel index 路径（Dockerfile 把 toolstore 拷到 /data/toolstore）
+    ...(pthConfig().str("PTH_ASM_KERNEL_INDEX_PATH")
+      ? { asmKernelIndexPath: pthConfig().str("PTH_ASM_KERNEL_INDEX_PATH") }
+      : {}),
     // P1.4/P1.5：执行后端路由 + legacy 前缀硬切（无 backend/prefix → 不注册 runtime）
     executionBackends: host.backends,
     backendRoutes: host.routes,
