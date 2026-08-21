@@ -98,9 +98,9 @@
 
 ### 新 worker（PTL 侧）
 ```
-1. ptl hub job submit（异步委托——脱手）——或 POST /tasks（同步）
+1. pth job submit（异步委托——脱手）——或 POST /tasks（同步）
 2. 任务文本：明确目标/阶段/产物要求（结构化任务——模型按预算推进）
-3. 结果：ptl hub job fetch（顺带性能归档 .perf-bench/jobs/）
+3. 结果：pth job fetch（顺带性能归档 .perf-bench/jobs/）
 ```
 
 ## 5. 验证方法（稳定标准）
@@ -110,7 +110,7 @@
 | 单元 | vitest（1276 全绿——agent-loop/收敛/路由/存储）|
 | 端到端 | 生产任务（POST /tasks → 状态 → 产物/轨迹）|
 | 轨迹 | GET /kernel/tasks/:id/transcript（thinking + 工具调用——行为审计）|
-| 性能 | ptl hub bench（7 类任务 + 系统快照）|
+| 性能 | pth bench（7 类任务 + 系统快照）|
 | 门禁 | release-pack.sh（发布打包校验）|
 
 ## 6. 已知边界（v1 承认的）

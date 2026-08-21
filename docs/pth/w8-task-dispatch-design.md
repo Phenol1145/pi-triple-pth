@@ -122,7 +122,7 @@ tasks.await({ taskId, timeoutMs? }) →
    查 `parent.taskId` 反查未终态父任务 → 写入 `payload.childResult` 并 requeue 父任务（`submitted`）；
 3. **取消传播**：父任务取消 → 沿 `parent.taskId` 索引找到未终态子任务，递归 cancel（service 层批量）；
 3. **超时**：父 await 超时 ≠ 取消子任务（子任务继续跑，父先失败或改异步）；`tasks.await` 支持 `{detach:true}` 放弃等待。
-4. **PTL 侧回流**：复用现有 `ptl hub kernel wait` + `pth-notify` hook；新增 `--follow` 打印逐层 path 与 result 摘要。
+4. **PTL 侧回流**：调用方复用现有 `pth kernel wait` + `pth-notify` hook；新增 `--follow` 打印逐层 path 与 result 摘要。
 
 ## 7. 裁决结果（2026-08-17 用户拍板）
 
@@ -152,7 +152,7 @@ tasks.await({ taskId, timeoutMs? }) →
   `task-await-suspended`（agent-loop/runner 识别 → retryable requeue）；`task-dispatch-notifier`
   订阅 ActivityHub 子终态事件 → 父 `payload.childResult` + 清登记；`tasks.resume()` 重跑续接；
   取消传播（`TaskControlService.cancel` 递归 CTE + `POST /tasks/:id/cancel`）；
-  PTL `ptl hub kernel wait <id> --follow` 打印逐层 path/childResult 摘要；
+  调用方 `pth kernel wait <id> --follow` 打印逐层 path/childResult 摘要；
 - **P3 穿透接口**：✅ 已完成——`skill:penetrate:<child>` 类型与四段式内容/机读边信息
   （`penetration-skill.ts`）+ 注册校验（parent→child 必须命中组织权矩阵——memory-keeper
   `skills.maintain.write/propose` 调用即拒绝）+ 内存条目构造器 `buildPenetrationSkillEntry`
