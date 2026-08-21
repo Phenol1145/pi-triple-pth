@@ -135,6 +135,10 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_EXEC_BACKEND_ROUTES", "json", "", "execution", "both", "ProfessionalRuntimeId → backend id 路由表 JSON（如 {\"lean4\":\"local-lean\"}）"),
   d("PTH_EXEC_BACKEND_PROBE_TIMEOUT_MS", "number", 2000, "execution", "both", "startup 单 backend capabilities 探测超时"),
   d("PTH_EXEC_SANDBOX_ALIAS", "string", "on", "execution", "both", "sandbox 后端自动合成开关（off 关闭；只影响未显式配置 sandbox 的情况）"),
+  d("PTH_TOOL_TOOLS_DIR", "string", "", "path", "cli", "deploy/tool-containers 目录（缺省 = 仓库内）"),
+  d("PTH_TOOL_REGISTRY_PATH", "string", "", "path", "cli", "宿主 tool containers 回环注册表路径（缺省 ~/.pi-triple/tool-containers.json）"),
+  d("PTH_SERVICES_DIR", "string", "", "path", "cli", "deploy/services 根目录（缺省 = 仓库内）"),
+  d("PTH_SERVICES_PROJECT", "string", "pi-triple-services", "path", "cli", "pth services 的 docker compose 项目名"),
 
   // ── compiled kernel ──────────────────────────────────────────────
   d("PTH_COMPILED_CACHE_DIR", "string", "/data/compiled-cache/c", "compiled", "sandbox", "编译核缓存目录"),

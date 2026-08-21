@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-22T00:00:00.000Z",
+  "domains": {
+    "compiled": {
+      "image": "ghcr.io/phenol1145/pi-triple-pth-tools-compiled",
+      "digest": "",
+      "network": "internal",
+      "engineVisible": true,
+      "tools": [
+        { "name": "bf", "argv": ["bf"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck 解释器（compiled 域首期住户）" },
+        { "name": "bfc", "argv": ["bfc"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck 编译器" },
+        { "name": "v13-asm-toolchain", "argv": ["bash", "-lc", "as --version"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 汇编工具链（T4 吸收前占位）" }
+      ]
+    },
+    "network": {
+      "image": "ghcr.io/phenol1145/pi-triple-pth-tools-network",
+      "digest": "",
+      "network": "default",
+      "engineVisible": true,
+      "tools": [
+        { "name": "yt-dlp", "argv": ["yt-dlp"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "视频下载工具（engine 按角色 capability 白名单，默认关闭）" }
+      ]
+    },
+    "secrets": {
+      "image": "ghcr.io/phenol1145/pi-triple-pth-tools-secrets",
+      "digest": "",
+      "network": "default",
+      "engineVisible": false,
+      "tools": [
+        { "name": "agent-reach", "argv": ["agent-reach"], "engineVisible": false, "hostOnly": true, "modes": ["sync", "stream", "interactive"], "description": "凭据工具（仅宿主；不 join engine 网络）" },
+        { "name": "chatgpt-share", "argv": ["chatgpt-share"], "engineVisible": false, "hostOnly": true, "modes": ["sync", "stream", "interactive"], "description": "凭据 TTY 工具（仅宿主）" }
+      ]
+    }
+  }
+}

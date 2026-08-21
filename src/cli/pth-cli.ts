@@ -350,6 +350,16 @@ async function main(): Promise<void> {
       await cmdHubTrigger(passthrough, flags);
       return;
     }
+    case "tools": {
+      const { toolsCommand } = await import("../pth/tools/cli.js");
+      await toolsCommand(rest);
+      return;
+    }
+    case "services": {
+      const { servicesCommand } = await import("../pth/tools/cli.js");
+      await servicesCommand(rest);
+      return;
+    }
     case "config":
       if (rest[0] === "export") return configExport();
       return configList();
@@ -379,7 +389,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log(`用法: pth <init|up|down|status|logs|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|config|web> ...\n  生命周期: pth init / up / status / logs / down\n  任务派发: pth submit "任务描述" --role developer --tags implement\n            pth submit --template recon-doc --param url=https://x --param entryId=y\n            pth wait <taskId>\n  程序面:   pth program submit <dir> | run <name> | list\n  回退请求: pth request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: pth observe <sessions|session|trace|events>\n            pth debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            pth job submit|status|fetch · kernel tasks|batch|templates|status\n  其他:     pth roles · config · web [--port <n>]`);
+      console.log(`用法: pth <init|up|down|status|logs|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|config|web|tools|services> ...\n  生命周期: pth init / up / status / logs / down\n  工具容器: pth tools list|up|down|status|logs|run|verify|debug|build|pull · pth services status|logs\n  任务派发: pth submit "任务描述" --role developer --tags implement\n            pth submit --template recon-doc --param url=https://x --param entryId=y\n            pth wait <taskId>\n  程序面:   pth program submit <dir> | run <name> | list\n  回退请求: pth request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: pth observe <sessions|session|trace|events>\n            pth debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            pth job submit|status|fetch · kernel tasks|batch|templates|status\n  其他:     pth roles · config · web [--port <n>]`);
   }
 }
 

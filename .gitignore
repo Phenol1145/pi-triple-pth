@@ -10,3 +10,4 @@ deploy/.env.pth.secrets
 *.log
 .chem-work-*
 .edu-*-work-*
+deploy/tool-containers/.compose.generated.yaml

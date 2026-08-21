@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；tool containers / jupyter 双面设计已定稿（ADR-0002）；T2–T4 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 基础面已实现（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server）；T2 收尾（GHCR release/pty/compiled 回环发布端口适配）与 T3/T4 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -358,6 +358,9 @@ notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，�
 - 每个域容器 bind `127.0.0.1` **动态端口**（compose `127.0.0.1::PORT`），不发 LAN/公网。
 - pth CLI 维护 `~/.pi-triple/tool-containers.json`（0600）：descriptor、实际端口、
   token（本地生成，绝不随 manifest/镜像迁移）；`up`/`pull` 后刷新。
+- 已知环境坑（2026-08-22）：OrbStack / 部分 Docker Desktop 对**仅连接 internal 网络**
+  的 compiled 服务不分配 `127.0.0.1::8080` 动态端口（PublishedPort=0）；标准 Linux
+  Docker 正常。本机 dev 在 T2b 前用 `pth tools debug` 逃生舱验证 compiled 工具。
 
 ### 5.5 镜像发布与迁移（GHCR）
 
@@ -403,6 +406,13 @@ capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
 `P0.1 deps（v1.1 框架 + ExecutionHttpServer + 客户端，与 P0 合并发布 shared@1.6）`
 → `P1 registry v1/v1.1 协商` → `T2 pth tools/services + manifest + 回环注册表`
 → `T3 三域迁移 + 旧 dev 退役` → `T4 v13-asm-toolchain 吸收 + professional 路由切换`
+
+**T2 状态（2026-08-22）**：✅ 基础面已实现——`tool-manifest.json` schema+校验、
+`~/.pi-triple/tool-containers.json`（0600/token 本地生成）、`pth tools list|up|down|
+status|logs|run|verify|debug|build|pull`、三域统一镜像（yt-dlp 真实；bf 演示解释器；
+secrets 住户 T3 安装）+ 容器内 `tool-server.mjs`（白名单 + sync/stream/interactive pipes）。
+⏳ 待续：GHCR buildx release/digest 钉版命令、secrets 真实 TTY（pty）、
+compiled 域 `internal` 网络在本机 Docker 引擎不回配 loopback 动态端口的环境适配。
 → `P2 本地执行器 v1.1` → `P4 persistent 实现 + kernel-host 迁移` → `P5 jupyter 消费`。
 
 ### 5.9 风险与护栏
