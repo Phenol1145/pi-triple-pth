@@ -27,7 +27,8 @@ docker-compose.yaml
 ### 2.2 配置统一 secrets 文件（deploy/.env.pth.secrets）
 
 ```bash
-cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets
+npm run pth -- init        # 复制 example + chmod 600（已有文件会拒绝，需 --force）
+# 或手动：cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets
 # 编辑 deploy/.env.pth.secrets——替换全部 dev-only 值（该文件已 gitignore）
 ```
 
@@ -44,7 +45,17 @@ cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets
 
 性能参数仍在 §3 全表（代码内默认值；`npm run pth -- config` 可看全量）。
 
-### 2.3 拉起（依赖顺序：先数据层，再应用层）
+### 2.3 拉起（推荐：`pth up` 一条命令）
+
+```bash
+npm run pth -- up
+# 内部：up -d postgres redis → 等 healthy → up -d pi-platform sandbox → 等 healthy
+#       → 生成 64-hex operator token（tenantId=ops, role=platform-admin）写入 Redis
+#       → 验证 /health + /api/v1/self/version → 打印 PTH_API/PTH_TOKEN
+npm run pth -- status        # 栈健康 + API /health
+```
+
+手动等价命令（依赖顺序：先数据层，再应用层）：
 
 ```bash
 docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d postgres redis
@@ -52,6 +63,10 @@ docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml 
 docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d pi-platform sandbox
 docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml ps   # 四服务都应 healthy
 ```
+
+`pth up` 参数：`--tenant`（默认 ops）、`--token`（缺省自动生成）、`--no-seed-token`、`--rebuild`、
+`--timeout`（默认 300s）、`--no-verify`、`--port`（验证端口）。`pth down [--volumes]` 停止全栈；
+`pth logs [service] [--tail n] [--follow]` 看日志。
 
 ### 2.4 验证三连
 
@@ -70,8 +85,8 @@ curl -s -X POST http://localhost:3000/api/v1/kernel/tasks \
 bash scripts/check-sandbox-env.sh pi-platform-sandbox-1   # 容器名以 docker compose ps 输出为准
 ```
 
-token 写入 Redis（redis 容器无 host 端口且已开启 AUTH，必须经 compose exec 在容器内写入；外层双引号 +
-内层 `'{"..."}'` 保证值以合法 JSON 存储）：
+token 写入 Redis：`pth up` 默认已自动种入 operator token（tenant=ops, role=platform-admin）；
+需要自定义身份时仍可用手工命令（redis 容器无 host 端口且已开启 AUTH，必须经 compose exec 在容器内写入）：
 `docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml exec redis sh -c "redis-cli -a \"\$REDIS_PASSWORD\" SET auth:token:<token> '{\"tenantId\":\"ops\"}'"`（或按你的 auth 约定）。
 
 ### 2.5 Release 附件（tgz）安装（源码包方式，无需本地编译）

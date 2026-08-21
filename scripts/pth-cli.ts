@@ -3,6 +3,11 @@
  * pth-cli —— PTH 任务派发 CLI（2026-08-12：消除裸 curl 派发摩擦）
  *
  * 用法（npm run pth -- <cmd> ...）：
+ *   pth init [--force]                          # 初始化 deploy/.env.pth.secrets
+ *   pth up [--rebuild] [--no-seed-token]        # compose 拉起 PTH 全栈并验证
+ *   pth down [--volumes]                        # 停止 PTH 栈
+ *   pth status [--port <n>]                     # 栈健康（带 taskId 仍查任务）
+ *   pth logs [service] [--tail n] [--follow]    # 查看容器日志
  *   pth submit <任务描述> [--role <角色>] [--tags a,b] [--title <标题>] [--file <路径>]
  *   pth submit --template <模板id> [--param key=value]... [--tags a,b]
  *   pth status <taskId>
@@ -16,18 +21,34 @@
  *   / PTH_CREATED_BY（缺省 cli）
  *
  * 示例：
+ *   npm run pth -- init && npm run pth -- up    # 一条命令起全栈
  *   npm run pth -- submit "统计 memory 库 scorecard 数" --role memory-stats --tags stats
  *   npm run pth -- submit "写 README" --role writer --tags write --title "README"
  *   npm run pth -- submit --template recon-doc --param url=https://go.dev/ref/spec --param entryId=go-spec
  *   npm run pth -- wait <id>                    # 完成即返回（含 result）
  */
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 const API = process.env.PTH_API ?? "http://localhost:3000";
 const TOKEN = process.env.PTH_TOKEN ?? "test-token-123";
 const CREATED_BY = process.env.PTH_CREATED_BY ?? "cli";
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 const [, , cmd, ...rest] = process.argv;
+
+/** 是否存在位置参数（跳过 --flag value 的 value）。 */
+function hasPositional(args: string[], valuedFlags: string[]): boolean {
+  const flags = new Set(valuedFlags);
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i]!.startsWith("-")) {
+      if (flags.has(args[i]!)) i += 1;
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
 
 async function http(method: string, path: string, body?: unknown): Promise<unknown> {
   const res = await fetch(`${API}${path}`, {
@@ -183,7 +204,13 @@ async function main(): Promise<void> {
   switch (cmd) {
     case "submit": return submit();
     case "handoff": return handoff();
-    case "status": return status();
+    case "status": {
+      // 无位置 taskId → 栈状态；有 taskId → 任务状态（保持旧行为）
+      if (hasPositional(rest, ["--env-file", "--port"])) return status();
+      const { runPthStatus } = await import("../packages/pth-console/src/launcher.js");
+      await runPthStatus(rest, { repoRoot: REPO_ROOT });
+      return;
+    }
     case "wait": return wait();
     case "roles": return roles();
     case "tags": return tags();
@@ -195,9 +222,28 @@ async function main(): Promise<void> {
       await runPthWeb(rest);
       return;
     }
+    case "init": {
+      const { runPthInit } = await import("../packages/pth-console/src/launcher.js");
+      await runPthInit(rest, { repoRoot: REPO_ROOT });
+      return;
+    }
+    case "up": {
+      const { runPthUp } = await import("../packages/pth-console/src/launcher.js");
+      await runPthUp(rest, { repoRoot: REPO_ROOT });
+      return;
+    }
+    case "down": {
+      const { runPthDown } = await import("../packages/pth-console/src/launcher.js");
+      await runPthDown(rest, { repoRoot: REPO_ROOT });
+      return;
+    }
+    case "logs": {
+      const { runPthLogs } = await import("../packages/pth-console/src/launcher.js");
+      await runPthLogs(rest, { repoRoot: REPO_ROOT });
+      return;
+    }
     default:
-      console.log(`用法: pth <submit|handoff|status|wait|roles|tags|config|web> ...\n  示例: npm run pth -- handoff\n        npm run pth -- submit "【目标】..." --concept\n        npm run pth -- submit "任务描述" --role developer --tags implement\n        npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y\n        npm run pth -- config              # 配置分组表（secret 打码）\n        npm run pth -- config export       # PTL 迁移命令
-        npm run pth -- web [--port <n>]   # 启动人类操作台（loopback）`);
+      console.log(`用法: pth <init|up|down|status|logs|submit|handoff|wait|roles|tags|config|web> ...\n  生命周期: npm run pth -- init          # 初始化 secrets（复制 example + chmod 600）\n            npm run pth -- up            # compose 起全栈 + 种 token + 验证\n            npm run pth -- status        # 栈健康（带 taskId 查任务）\n            npm run pth -- logs pi-platform --tail 100\n            npm run pth -- down          # 停止全栈\n  任务派发: npm run pth -- submit \"任务描述\" --role developer --tags implement\n            npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y\n            npm run pth -- wait <taskId>\n  其他:     npm run pth -- handoff\n            npm run pth -- roles\n            npm run pth -- tags\n            npm run pth -- config\n            npm run pth -- config export       # PTL 迁移命令\n            npm run pth -- web [--port <n>]   # 启动人类操作台（loopback）`);
   }
 }
 
