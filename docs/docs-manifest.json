@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-21T14:38:48.284Z",
+  "generatedAt": "2026-08-21T16:49:32.608Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -25,6 +25,30 @@
     ]
   },
   "docs": [
+    {
+      "path": "docs/adr/0001-fracta-engine-external-execution-surfaces.md",
+      "category": "decisions",
+      "product": "shared",
+      "status": "active"
+    },
+    {
+      "path": "docs/execution-surface-v1-design.md",
+      "category": "archive",
+      "product": "shared",
+      "status": "historical"
+    },
+    {
+      "path": "docs/fracta-engine-execution-topology.md",
+      "category": "archive",
+      "product": "shared",
+      "status": "historical"
+    },
+    {
+      "path": "docs/POSITIONING.md",
+      "category": "archive",
+      "product": "shared",
+      "status": "historical"
+    },
     {
       "path": "docs/pth/agent-construction.md",
       "category": "guides",

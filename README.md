@@ -1,12 +1,12 @@
 # pi-triple-pth
 
-**Pi-Triple PTH（Professional Task Host）** —— 自然语言任务解释执行的宿主：HTTP API v1、kernel 装配、隔离 sandbox、操作控制台。
+**Pi-Triple PTH —— FRACTA engine（engine）的当前代码名** —— engine 运行时：worker 实现 + 面向 LLM 的 interface；执行经 `execution/v1` 交外部执行面（sandbox / dev 容器 / 本地执行器）。
 
 ![node](https://img.shields.io/badge/node-%3E%3D22-green)
 ![tests](https://img.shields.io/badge/tests-2572-brightgreen)
 ![version](https://img.shields.io/badge/version-1.5.0-blue)
 
-- **定位**：任务派发 → batch worker → kernel/sandbox 执行 → 产物沉淀记忆。
+- **定位**：engine 派发任务 → batch worker（角色/循环/LLM interface）→ `execution/v1` 外部执行面 → 产物沉淀记忆。
 - **导航**：Quick Start · [模块](#模块) · [架构](#architecture) · [开发](#development) · [仓库定位](docs/POSITIONING.md) · [文档](#documentation)
 
 ## ✨ Quick Start
@@ -41,20 +41,21 @@ pth status <taskId> && pth wait <taskId>
 ## Architecture
 
 ```
-                        ┌─────────────────────────────┐
-                        │         src/pth             │
-                        │  Fastify 网关 · batch · kernel│
-                        └──────┬──────────────┬───────┘
-                 HTTP/SSE/WS     │              │ sandbox-internal
+                        ┌──────────────────────────────────┐
+                        │ src/pth = FRACTA engine（代码名 PTH）│
+                        │ worker · role · loop · LLM interface│
+                        └───────┬──────────────┬────────────┘
+                 HTTP/SSE/WS     │              │ execution/v1（唯一执行协议）
                  pth CLI / web   │              ▼
-                 ┌───────────────▼───┐   ┌─────────────────┐
-                 │ @away_from/shared │   │ pth-sandbox     │
-                 │ @away_from/infra  │   │ exec · REPL 池  │
-                 └───────────────────┘   └─────────────────┘
-                     Redis · Postgres       workspaces 共享卷
+                 ┌───────────────▼───┐  ┌──────────────────────┐
+                 │ @away_from/shared │  │ sandbox / dev 容器 /  │
+                 │ @away_from/infra  │  │ 本地执行器（外部实现） │
+                 └───────────────────┘  └──────────────────────┘
+                     Redis · Postgres      workspaces 共享卷
 ```
 
 PTL 不依赖本仓包；PTL→PTH 全部经 `pth` CLI / HTTP API v1。
+engine 的所有执行面都在外部实现，经 `execution/v1` 以 engine 为唯一协议客户端连接（详见 [执行面拓扑](docs/fracta-engine-execution-topology.md)）。
 
 ## Development
 
@@ -68,7 +69,8 @@ npm run test:e2e   # Playwright operator console
 ## Roadmap
 
 - ✅ v1.5.0：从主仓 filter-repo 拆出；PTH-only Dockerfile/compose；`pth up` 全栈回归
-- 🚧 命名演进：PTH → **FRACTA 引擎**（规划中；代码/包名/命令品牌迁移将单独立项）
+- 🚧 命名演进：`platform = FRACTA engine` 已约定；代码/包名/命令品牌迁移将单独立项
+- 🚧 执行面外部化：协议面固定 → Lean 迁本地执行器 → dev 容器执行面（P0–P3，见 `docs/fracta-engine-execution-topology.md`）
 - 🚧 R4–R8 container-runtime 契约实现与验收
 
 ## Documentation
