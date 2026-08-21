@@ -1,6 +1,7 @@
 # PTL/PTH 仓库拆分设计（v1.5）
 
-> 状态：设计已批准；**Phase 0（ptl hub → pth 命令迁移）已完成**；Phase 1–4（filter-repo 拆仓）待执行。
+> 状态：设计已批准；**Phase 0（交互收敛）与 Phase 1（pi-triple-deps 本地拆仓+pack）已完成**；Phase 2–4 待执行。
+> Phase 1 报告：[phase1-deps-split-report.md](./phase1-deps-split-report.md)。
 > 机器清单：[repo-split-v15-manifest.json](../repo-split-v15-manifest.json)。
 > 历史依据：[2026-08-08 仓库拆分 SPEC](../superpowers/specs/2026-08-08-repo-split-design.md)（本设计是其 1.5 修订版）。
 
@@ -79,7 +80,7 @@
 ## 6. 执行顺序（每 Phase 一 lane，全门禁后再进下一 Phase）
 
 1. **Phase 0（本仓准备）✅ 已完成**：`ptl hub` → `pth`（program 程序面 + request/observe/… 同名命令）；`ptl stack`/`ptl program dev` 落位；framework 去掉 pth-console 依赖；测试随命令迁移；全量回归。
-2. **Phase 1**：filter-repo 拆 `pi-triple-deps` → 发布 `shared/infra@1.5.x`。
+2. **Phase 1 ✅ 已完成（本地）**：filter-repo 拆出 `/Users/anzhize/pi-triple-deps`；shared/infra 升 1.5.0；lint/build/72 tests 全绿；`npm pack` 两个 tgz 与 sha256 已产出；npm publish / GitHub push 命令见报告。
 3. **Phase 2**：filter-repo 拆 `pi-triple-pth` → 依赖切 npm 版本 → 构建/启动/任务回归。
 4. **Phase 3**：filter-repo 拆 `pi-triple-ptl` → 依赖切 npm 版本 → ptl 安装/PTL 回归。
 5. **Phase 4**：旧仓 archive；三仓 README/CI/文档索引独立化。
