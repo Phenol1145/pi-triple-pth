@@ -1,31 +1,33 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**约定已定；P0 协议面冻结已实现（2026-08-21）——P1–P3 待实施；P5（Jupyter 前端消费）已预留边界。**
+> 状态：**P0 已实现；tool containers / execution/v1.1 模式框架 / jupyter 双面设计已定稿（ADR-0002）；P1–T4 待实施。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
-> 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`。
-> 协议事实源：`@away_from/shared/execution`（execution/v1）；设计背景：`docs/execution-surface-v1-design.md`。
+> 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
+> `docs/adr/0002-tool-containers-execution-v11.md`。
+> 协议事实源：`@away_from/shared/execution`（execution/v1.1 模式框架）；设计背景：`docs/execution-surface-v1-design.md`。
 
 ## 1. 约定（一句话）
 
 **platform = FRACTA engine（engine）**。engine 只拥有 worker 实现与面向 LLM 的 interface；
-**所有执行面都在外部实现**（sandbox 容器 / dev 容器 / 本地执行器），全部实现 `execution/v1`
-服务端，以 engine 为唯一协议客户端连接。**先固定协议面，再迁移实现。**
+**所有执行面都在外部实现**（sandbox / tool containers / 本地执行器 / jupyter），全部实现
+execution 服务端。协议客户端 = **pth 产品面（engine + pth CLI）**；pth CLI 仅 127.0.0.1
+回环访问 tool containers。**先固定协议面，再迁移实现。**
 
 ```
                  engine（= FRACTA engine；当前代码名 PTH）
                  拥有：worker / role / loop / LLM interface
                  永不拥有：spawn、工具链、沙箱进程
-                          │ 只发 ExecutionRequest（execution/v1，Bearer 认证）
-      ┌───────────────────┼───────────────────┬────────────────────┐
-      ▼                   ▼                   ▼                    ▼
- sandbox 容器        dev 容器          本地执行器（宿主机）       （未来新执行面）
- profile=           profile=           profile=host
- sandbox-untrusted  dev-container      Lean 首期落这里
- 网络：sandbox-     网络：default       网络：default
- internal（egress 锁）                  （host.docker.internal）
+                        │ 只发 ExecutionRequest（execution/v1.1，Bearer）
+        ┌───────────────┼───────────────┬─────────────────┬──────────────┐
+        ▼               ▼               ▼                 ▼              ▼
+  sandbox 容器    tool containers   本地执行器        jupyter 服务    （未来执行面）
+  profile=        compiled/network   profile=host      单容器双面
+  sandbox-        /secrets           Lean 落这里       北:8888/南:engine
+  untrusted       127.0.0.1 回环      host.docker.internal
+  网络：sandbox-internal（egress 锁）保持
 ```
 
-## 2. 固定协议面（P0——先冻结，任何实现迁移都必须先过这里）
+## 2. 固定协议面（P0 基线 execution/v1；v1.1 模式框架见 §5.6）
 
 ### 2.1 单一事实源
 
@@ -96,11 +98,12 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 
 | 执行面 | profile | 协议状态 | 差距 |
 |---|---|---|---|
-| sandbox 容器 | `sandbox-untrusted` | ✅ `/exec`、SSE、cancel、capabilities 已对齐 execution/v1 | 无（保持 sandbox-internal egress 锁，不动网络） |
-| dev 容器 | `dev-container` | ❌ 只是工具容器，无 `/exec` HTTP 面 | 需新增 execution/v1 server（复用 shared 类型） |
-| 本地执行器 | `host` | ❌ `LocalBackend` 只在进程内 | 需新增 execution/v1 server + pathMapping；首期承载 Lean |
-| engine 侧 | — | ⚠️ 适配器已接 `ExecutionBackend`，但装配仍是 LocalBackend/DockerExecBackend 硬编码 | 需 BackendRegistry + `PTH_EXEC_BACKENDS` |
-| Lean 工具链 | — | ❌ 在 engine 镜像内（`deploy/Dockerfile` 装 elan/lean/lake） | 从镜像移除，改由本地执行器提供 |
+| sandbox 容器 | `sandbox-untrusted` | ✅ `/exec`、SSE、cancel、capabilities 已对齐 execution/v1 | 保持 v1 与 sandbox-internal egress 锁；persistent 迁移后置 |
+| tool containers（原 dev 容器） | `dev-container` | ❌ 只是工具容器，无 `/exec` HTTP 面 | 按 §5 迁移为 compiled/network/secrets 三域 + execution/v1.1 |
+| 本地执行器 | `host` | ❌ `LocalBackend` 只在进程内 | 按 v1.1 + pathMapping 实现；首期承载 Lean |
+| jupyter 服务 | — | ⚠️ 前端与 engine 无头执行两套入口（docker exec） | 单容器双面：北 8888 / 南 v1.1 registry 后端 `jupyter` |
+| engine 侧 | — | ⚠️ 适配器已接 `ExecutionBackend`，装配仍是 LocalBackend/DockerExecBackend 硬编码 | BackendRegistry + `PTH_EXEC_BACKENDS` + v1/v1.1 协商 |
+| Lean 工具链 | — | ❌ 在 engine 镜像内（`deploy/Dockerfile` 装 elan/lean/lake） | 从镜像移除，改由本地执行器（v1.1）提供 |
 
 ## 4. 优先级计划（协议面优先）
 
@@ -118,13 +121,23 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 3. ⏳ 发布 `@away_from/shared` 新版本，PTH/PTL lock 升级（npm 发布为用户动作）。
 4. ✅ 退出门（代码/测试）：deps lint/build 绿，15 files / 93 tests 全绿；三仓文档同步。
 
+### P0.1 execution/v1.1 模式框架（pi-triple-deps，与 P0 合并发布）
+
+1. `ExecutionRequest.mode` + capabilities `modes` 位图 + `MODE_NOT_SUPPORTED`；
+   `interactive` = WS `/exec/:id/ws`（stdin/stdout/stderr/resize/pty）；`persistent`
+   wire 规范定稿（不实现）。
+2. shared 增加 `ExecutionHttpServer`（HTTP+WS、模式路由、Bearer 校验）与客户端
+   interactive 方法；旧 `stream:true` 字段映射保留。
+3. 契约测试：模式能力声明、未声明模式拒绝、WS 消息帧、v1/v1.1 客户端分支。
+4. 与 P0 合并发布 `@away_from/shared@1.6.0`（一次发布，避免空窗）。
+
 ### P1 engine 后端注册与路由（pi-triple-pth）
 
 **裁决（2026-08-21）：立即硬切——删除隐式 LocalBackend 直跑。未路由 runtime 一律
 unregistered；dev 也必须显式配置 backend 或 legacy execPrefix。**
 
-前置：发布 `@away_from/shared@1.6.0`（P0 产物）并升级 PTH lock；本地开发可先用
-Verdaccio 预发布包验证。
+前置：发布 `@away_from/shared@1.6.0`（P0 + P0.1 合并产物）并升级 PTH lock；本地开发
+可先用 Verdaccio 预发布包验证。registry 按 capabilities 协商 v1/v1.1。
 
 #### P1.0 顺带修复（生产专业 runtime 装配空洞）
 
@@ -236,8 +249,8 @@ export async function probeExecutionBackends(registry, opts: {
 
 ### P2 Lean 外移 + 本地执行器（pi-triple-ptl 为主，pth 联动）
 
-1. 按 §5 开发指南实现本地执行器（宿主机，默认 `127.0.0.1:8787`，Bearer 认证，
-   `pathMapping` 指向宿主 workspace 根）。
+1. 按 §6 开发指南实现本地执行器（宿主机，默认 `127.0.0.1:8787`，Bearer 认证，
+   `pathMapping` 指向宿主 workspace 根；v1.1 模式框架）。
 2. `deploy/Dockerfile` 移除 elan / lean / lake 安装段；镜像构建验证不再依赖 Lean 网络源。
 3. compose 为 engine 增加 `extra_hosts: host.docker.internal:host-gateway`，并注入
    `PTH_EXEC_BACKENDS` 含 `local-lean`（`profile: "host"`）。
@@ -246,63 +259,151 @@ export async function probeExecutionBackends(registry, opts: {
 5. **退出门**：`lean --version`、`lake build` 样例经 engine → 本地执行器全链路通过；
    engine 镜像不再含 Lean；超时/输出上限/错误信封契约测试通过。
 
-### P3 dev 容器成为执行面（pi-triple-ptl）
+### P3 → T3：tool containers 三域迁移（取代 dev 容器）
 
-**dev 容器当前定位（截至本设计定稿）**：PTL 工具容器——agent-reach / yt-dlp / instsci /
-bf / bfc / chatgpt-share 的外接工具环境；可信可出网、无密钥注入、root 单用户、热改源码
-bind 挂载；调用方式 = 宿主机 wrapper → `docker exec -T dev <tool>`。**它不是执行面**
-（无 `/exec` HTTP 服务），也不在 pi-triple-pth 生产 compose 四服务拓扑里；jupyter 已独立
-为单独服务。P3 就是把这个容器从「工具容器」扩展为「工具容器 + `dev-container` 执行面」。
+“dev 容器”已废弃。当前事实：PTL 工具容器（agent-reach / yt-dlp / instsci / bf / bfc /
+chatgpt-share），可信可出网、无密钥注入、root 单用户，调用方式 = 宿主机 wrapper →
+`docker exec -T dev <tool>`；不是执行面，也不在 pi-triple-pth 生产 compose 里。T3 按
+§5 设计把它退役并迁移为三个实体域 + 一个预留域。
 
-1. dev 容器内新增 execution/v1 server（与本地执行器同一参考实现，profile 改
-   `dev-container`）；compose 把 dev 加入 engine 可达网络并注入 token。
-2. registry 增加 `dev` 后端；PTL 侧 `DockerExecBackend` 保留为 `ptl` 运维直连通道，
-    不再作为 engine 协议路径。
-3. 同步修正 dev 容器的 compose 落位与 `packages/dev-container` 的 compose 解析默认值
-   （当前默认仍指向旧仓布局），确保 PTL 与 engine 面向同一份事实源。
-4. **退出门**：engine 可经 HTTP 在 dev 容器执行 python/bfc/yt-dlp 类命令；
-   DockerExecBackend 测试不回退。
+1. `deploy/tool-containers/` 建 compiled / network / secrets 三个 Dockerfile + compose +
+   `tool-manifest.json`（GHCR digest 钉版；secrets 不 join engine 网络、无 ENGINE_TOKEN）。
+2. `pth tools` 命令族上线；PTL `/container` 与旧 wrapper 进入一个版本兼容期（转发），
+   随后删除；同步修正 `agent-reach` wrapper 与 `packages/dev-container` 的旧 compose 路径。
+3. 存量分流：bf/bfc + v13-asm-toolchain → compiled；yt-dlp → network；
+   agent-reach + chatgpt-share → secrets；instsci 保持宿主机。
+4. **退出门**：三个域容器可由 pth CLI 经协议（compiled/network HTTP、secrets 含 WS TTY）
+   调用；engine 可经 registry 调 compiled/network；旧 dev 容器退役；DockerExecBackend
+   测试不回退。
 
-### P4 后续（不在本轮）
+### P4 后续（persistent + kernel-host 迁移，不在本轮实现）
 
-- assembly / wolfram / jupyter / computational-chemistry 按需路由到 dev/本地执行面；
-- sandbox kernel-host lease API 的 wire 版本化（与 execution/v1 同轨）；
+- **persistent 模式实现**：v1.1 已定全规范（session create/execute/snapshot/reset/release/
+  lease/TTL）；实现与 sandbox kernel-host 私有 lease API 迁移捆绑。
+- assembly / wolfram / computational-chemistry 按需路由到 tool containers / 本地执行面。
+- engine 的 interactive 消费：待出现真实“worker 驱动 TTY”场景再设计 agent 驱动语义。
 - engine 品牌/服务名迁移（独立立项，不在协议面范围内）。
 
-### P5 预留：Jupyter notebook 前端消费执行后端（方向与 jupyter-runtime-adapter 相反）
+### P5 Jupyter：单容器双面 + 前端分工（已定稿，实现另开）
 
-**边界（防止漂移，已裁决）**：浏览器 / Jupyter 前端**永不直接访问执行后端**。Jupyter
-只是又一个北向消费者：`浏览器 → jupyter server → engine → 执行后端`；engine 保持唯一
-协议客户端，执行后端端口不发布、token 不进浏览器。
+**边界**：浏览器 / Jupyter 前端**永不直接访问执行后端**；Jupyter 是北向消费者
+（`浏览器 → jupyter server → engine → 执行后端`），token 不进浏览器。
 
-两条方向必须区分且可共存：
+**形态（ADR-0002）**：jupyter = 常驻服务，单容器一套安装、南北两面：
 
-| | 路 A：engine 驱动 jupyter（现有） | 路 B：用户 notebook 消费执行面（P5） |
+- 南面：容器内跑 shared `ExecutionHttpServer`（v1.1）；engine 经 registry 后端
+  `jupyter` 调用，`jupyter-runtime-adapter` 瘦身为薄客户端，不再 docker exec。
+- 北面：JupyterLab `:8888`（人）+ 内置终端直接跑 `pth` CLI + P5 kernel provider。
+- 共享 workspaces / artifacts 卷；由 `pth services` 管理，部署物在
+  `deploy/services/jupyter/`。
+
+两条方向（A：engine 无头跑 notebook；B：用户 notebook 消费执行面）在同一容器内共存，
+一套 jupyter 安装。
+
+**前端分工**：operator console 保留（任务/日志/巡检/动作）；JupyterLab 只承担终端与
+notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，不整体重做控制台。
+
+落地顺序（P5a→d，届时另开设计）：engine 北向 notebook 会话契约 → kernel provider 原型
+→ 有状态 REPL（persistent 实现后）/ cancel → JupyterLab 体验。
+
+## 5. tool containers 与 execution/v1.1 模式框架（ADR-0002 定稿）
+
+### 5.1 域模型与住户
+
+“dev 容器”废弃。tool containers 只承载**命令行工具（job 生命周期，含 TTY）**；常驻服务
+（jupyter 等）走独立服务容器。第一分类轴 = 功能域 + 信任 + 升级节奏，实现语言只是镜像细节。
+
+| 域 | 住户 | 运行时网络 | 协议消费者 | 备注 |
+|---|---|---|---|---|
+| `compiled` | bf/bfc + `v13-asm-toolchain`（首个真实住户） | internal（离线） | pth CLI + engine | 构建期可联网，运行时无外网 |
+| `network` | yt-dlp | default（出网） | pth CLI + engine | engine 按角色 capability 白名单，默认关闭 |
+| `secrets` | agent-reach + chatgpt-share（TTY） | default（出网） | **仅 pth CLI** | 不 join engine 网络、无 ENGINE_TOKEN |
+| `interactive` | （暂无住户） | 预留 | 未来无凭据 TTY 工具 | 协议模式本轮实现，实体容器不建 |
+
+### 5.2 所有权与部署事实源
+
+- 部署物迁至 PTH 仓：`deploy/tool-containers/`（compose + Dockerfile + `tool-manifest.json`）；
+  每个域一个 image：`ghcr.io/<owner>/pi-triple-pth-tools-<domain>`。
+- PTL `packages/dev-container` 与 `/container` deprecated：一个版本兼容期（转发到
+  `pth tools`），随后删除；旧 wrapper 由 pth CLI 重生成。
+- 每个域镜像 = 统一 base（node + 域工具） + npm 安装 `@away_from/shared` +
+  启动 shared `ExecutionHttpServer`。
+
+### 5.3 `pth tools` / `pth services` 命令面
+
+- `pth tools`：独立 compose 项目，与 engine 栈生命周期解耦——
+  `build/push/release/pull/up/down/status/logs/run/verify/mount/list/debug`。
+  `run` 走 execution 协议（compiled/network HTTP；secrets 的 TTY 走 WS）；
+  `debug` 是唯一 docker exec 逃生舱。
+- `pth services`：常驻服务生命周期（当前仅 jupyter）——`up/down/status/logs`。
+- 所有 docker 调用 argv 数组（沿用 dev-container 包的安全约定）。
+
+### 5.4 回环端点与本地注册表
+
+- 每个域容器 bind `127.0.0.1` **动态端口**（compose `127.0.0.1::PORT`），不发 LAN/公网。
+- pth CLI 维护 `~/.pi-triple/tool-containers.json`（0600）：descriptor、实际端口、
+  token（本地生成，绝不随 manifest/镜像迁移）；`up`/`pull` 后刷新。
+
+### 5.5 镜像发布与迁移（GHCR）
+
+- buildx 一次产出 `linux/arm64 + linux/amd64`；`pth tools release` push 后把 **digest**
+  钉进 `tool-manifest.json`；`up/pull` 只按 digest 拉取。
+- 跨机器迁移 = 装 pth + `pth tools pull` + `pth tools up`；token 在目标机重新生成。
+- Mach-O 原生工具不进 tool containers（留宿主）；不做 macOS/Windows 原生产物线。
+
+### 5.6 execution/v1.1 模式框架
+
+```ts
+ExecutionRequest.mode: "sync" | "stream" | "interactive" | "persistent"(预留)
+capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
+  sync: boolean, stream: boolean, interactive: boolean, persistent: boolean } }
+```
+
+| 模式 | wire | 本轮 |
 |---|---|---|
-| 触发者 | batch worker 的 professional job | 用户在浏览器 Run cell |
-| 调用方向 | engine → jupyter（headless 跑 notebook） | jupyter → engine → 执行后端 |
-| jupyter 角色 | 被调用的执行器 | 调用方前端宿主 |
-| 授权 | professional grant（lease/角色/committed lock） | notebook 会话级 grant（待设计，不是全局 token） |
-| 结果去向 | executed-notebook + report → artifact → agent | cell 输出 → 浏览器 iopub stream |
-| 代码位置 | `jupyter-runtime-adapter` + jupyter-guide driver | jupyter 容器内 kernel provider + engine 北向路由 |
+| sync | POST /exec → 同步结果 | ✅ 实现 |
+| stream | POST /exec → GET /exec/:id/stream（SSE） | ✅ 实现 |
+| interactive | POST /exec → WS /exec/:id/ws（stdin/stdout/stderr/resize/pty） | ✅ 实现 |
+| persistent | session create/execute/snapshot/reset/release + lease/TTL | ✅ 规范定稿，❌ 实现后置（与 sandbox kernel-host 迁移捆绑） |
 
-落地顺序（P5a→d，届时另开设计）：
+- 未声明模式 → `MODE_NOT_SUPPORTED`；旧 `stream:true` 字段映射到 `mode:"stream"`。
+- v1.0 客户端遇 v1.1 fail-closed；升级需部署顺序编排。
+- 服务端唯一实现：`@away_from/shared/execution` 的 `ExecutionHttpServer`（HTTP+WS+
+  模式路由 + Bearer 校验）；sandbox 暂留 v1，registry 按 capabilities 协商。
+- persistent 语义：交互核状态在后端（session/lease），engine 保持无状态；实现前
+  生产状态继续留在 sandbox kernel-host。
 
-1. **P5a** engine 北向 notebook 消费契约：会话级授权、backend allowlist、SSE/流式中继；
-2. **P5b** jupyter 容器内核 provider 原型（`fracta-exec` kernel spec，先接一个后端；
-   实现 Jupyter kernel 协议 ↔ engine 协议的翻译：execute_request/stream/error/interrupt）；
-3. **P5c** 有状态 REPL 模式（复用 `/api/v1/kernel/exec` 的 `repl` 语义）+ cancel/中断；
-4. **P5d** JupyterLab 体验（kernel 选择、后端状态可见性）。
+### 5.7 principal 与授权
 
-约束：P5 不得改变 P1–P3 的协议面；若需要新能力，先过 `@away_from/shared/execution`
-的版本化流程，不在 engine 内另开 wire。
+- 每域 `HOST_TOKEN` / `ENGINE_TOKEN`；secrets 域只有 HOST_TOKEN。
+- **角色→工具授权全部在 engine 内完成**（role capabilities；network 域默认关闭）；
+  后端对持有效 ENGINE_TOKEN 的 engine 请求视为可信。
+- manifest 标记 `engineVisible` 工具白名单与 `hostOnly` 工具；凭据工具恒 `hostOnly`。
 
-## 5. 本地执行器开发指南（Lean 首期参考实现）
+### 5.8 实施顺序（对应 §4）
 
-### 5.1 定位与安全基线
+`P0.1 deps（v1.1 框架 + ExecutionHttpServer + 客户端，与 P0 合并发布 shared@1.6）`
+→ `P1 registry v1/v1.1 协商` → `T2 pth tools/services + manifest + 回环注册表`
+→ `T3 三域迁移 + 旧 dev 退役` → `T4 v13-asm-toolchain 吸收 + professional 路由切换`
+→ `P2 本地执行器 v1.1` → `P4 persistent 实现 + kernel-host 迁移` → `P5 jupyter 消费`。
 
-- 一个宿主机长驻进程：实现 `execution/v1` 的最小服务端，内部用 `@away_from/shared` 的
-  `LocalBackend`（或等价 spawn）执行命令。
+### 5.9 风险与护栏
+
+- pty 终端注入 / escape 序列：interactive 实现必须做输出转义防护与权限边界。
+- engine 驱动 network 域 = 出网能力：role capability 默认关闭 + 审计事件。
+- compiled「运行时离线」与「构建期联网」以 Dockerfile stage 区分，运行镜像不装包。
+- v1.0→v1.1 升级窗口：先升客户端或采用兼容降级路径，再切后端版本。
+- 动态端口漂移：本地注册表每次 `up` 刷新；旧端口连接即失效。
+- 已知旧路径漂移：`agent-reach` wrapper 与 dev-container 包指向
+  `~/pi-platform/docker-compose.yaml`，T3 一并修正。
+
+## 6. 本地执行器开发指南（Lean 首期参考实现）
+
+### 6.1 定位与安全基线
+
+- 一个宿主机长驻进程：实现 `execution/v1.1` 的最小服务端（优先直接使用
+  `@away_from/shared/execution` 的 `ExecutionHttpServer`；骨架仅演示最小手工实现），
+  内部用 `LocalBackend`（或等价 spawn）执行命令。
 - 只监听 `127.0.0.1`；engine 容器经 `host.docker.internal` 访问。
 - 认证：Bearer token（如 `LOCAL_EXEC_SHARED_SECRET`），`/health` 除外；
   常数时间比较，失败返回 `401 UNAUTHORIZED`。
@@ -310,20 +411,21 @@ bind 挂载；调用方式 = 宿主机 wrapper → `docker exec -T dev <tool>`�
   `INVALID_REQUEST`（客户端不得自我提升）。
 - 不在本执行器内实现沙箱语义；它只服务宿主机已信任的工作区。
 
-### 5.2 最小实现清单
+### 6.2 最小实现清单
 
 | 项 | 内容 |
 |---|---|
-| 依赖 | `@away_from/shared@^1.5`（execution 子路径）+ Node ≥22 内置 `node:http` 即可 |
+| 依赖 | `@away_from/shared@^1.6`（execution 子路径，含 v1.1 模式框架）+ Node ≥22 内置 `node:http` 即可 |
 | 工具链 | 执行器进程 PATH 能找到 `lean` / `lake`（elan 正常安装即可） |
-| capabilities | `{ version:"execution/v1", streaming:false, cancel:false, cwdWhitelist:false, uidIsolation:false, egressLocked:false, pathMapping:true }` |
+| capabilities | `{ version:"execution/v1.1", modes:{sync:true, stream:true, interactive:false, persistent:false}, cwdWhitelist:false, uidIsolation:false, egressLocked:false, pathMapping:true }` |
 | pathMapping | 启动参数/配置登记 `hostRoot → execRoot` 映射；`POST /exec` 先翻译 `cwd`，再交给 LocalBackend |
 | 硬约束 | 超时杀进程组、stdout/stderr 上限截断、`ExecutionResult` 形状（LocalBackend 已实现） |
 
-### 5.3 参考骨架
+### 6.3 参考骨架
 
 ```ts
-// local-exec-server.ts —— 本地执行器参考实现（execution/v1 server，profile=host）
+// local-exec-server.ts —— 本地执行器参考骨架（execution/v1.1 sync 子集，profile=host；
+// 生产实现直接用 shared 的 ExecutionHttpServer，不要复制本骨架）
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -408,7 +510,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 }
 ```
 
-### 5.4 engine 侧接线（compose / env）
+### 6.4 engine 侧接线（compose / env）
 
 ```yaml
 # deploy/docker-compose.yaml · pi-platform 服务
@@ -427,7 +529,7 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
   "profile": "host", "pathMapping": { "hostRoot": "/data/workspaces", "execRoot": "<host workspace root>" } }
 ```
 
-### 5.5 验收清单
+### 6.5 验收清单
 
 - [ ] `curl /health` 无 token 通过；`curl /capabilities` 返回 `pathMapping:true`
 - [ ] 错误 token → `401 UNAUTHORIZED`；请求自报 `sandbox-untrusted` → `400 INVALID_REQUEST`
@@ -437,7 +539,7 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 - [ ] 未登记 pathMapping → `CWD_NOT_ALLOWED`
 - [ ] engine 容器 `curl http://host.docker.internal:8787/health` 可达
 
-## 6. 网关边界（2026-08-21 裁决：暂不引入统一网关）
+## 7. 网关边界（2026-08-21 裁决：暂不引入统一网关）
 
 **现状保持直连**，不新增 nginx / HAProxy 等统一网关：
 
@@ -462,7 +564,7 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 - SSE / WebSocket 必须关闭缓冲（`proxy_buffering off`、正确的 upgrade 头）；
 - engine 对各执行面的 baseUrl 仍保持直连，不改成网关前缀。
 
-## 7. 变更纪律
+## 8. 变更纪律
 
 1. 本计划任何变更先改本文件（三仓同源同步），再改代码；
 2. 协议类型/常量只改 `pi-triple-deps` 的 `packages/shared/src/execution/**`，随后 npm 发布；
