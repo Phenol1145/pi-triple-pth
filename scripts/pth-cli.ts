@@ -200,6 +200,87 @@ async function configExport(): Promise<void> {
   for (const l of lines) console.log(`  ${l}`);
 }
 
+async function bridgeArgs() {
+  const { parseCommandArgs } = await import("../packages/pth-console/src/commands/flags.js");
+  return parseCommandArgs(rest);
+}
+
+/** pth program submit|run|list —— 原 ptl hub submit/run/programs 的 PTH 交互面。 */
+async function programCommand(): Promise<void> {
+  const { flags, passthrough } = await bridgeArgs();
+  const sub = passthrough[0];
+  const args = passthrough.slice(1);
+  if (sub === "submit") {
+    const { cmdSubmit } = await import("../packages/pth-console/src/commands/submit.js");
+    await cmdSubmit(args, flags);
+    return;
+  }
+  if (sub === "run") {
+    const { cmdRun } = await import("../packages/pth-console/src/commands/run.js");
+    await cmdRun(args[0] ?? "", args.slice(1), flags);
+    return;
+  }
+  if (sub === "list") {
+    const { cmdPrograms } = await import("../packages/pth-console/src/commands/programs.js");
+    await cmdPrograms(flags);
+    return;
+  }
+  console.log("  用法: pth program <submit|run|list> …");
+}
+
+/** pth job submit|status|fetch —— 原 ptl hub job。 */
+async function jobCommand(): Promise<void> {
+  const { flags, passthrough } = await bridgeArgs();
+  const { cmdHubJobSubmit, cmdHubJobStatus, cmdHubJobFetch } = await import("../packages/pth-console/src/commands/jobs.js");
+  const [sub, ...args] = passthrough;
+  if (sub === "submit") return cmdHubJobSubmit(args, flags);
+  if (sub === "status") return cmdHubJobStatus(args, flags);
+  if (sub === "fetch") return cmdHubJobFetch(args, flags);
+  console.log("  用法: pth job submit <计划> [--tasks n] | status [id] | fetch <id>");
+}
+
+/** pth kernel … —— 原 ptl hub kernel 命令族。 */
+async function kernelCommand(): Promise<void> {
+  const { flags, passthrough } = await bridgeArgs();
+  const mod = await import("../packages/pth-console/src/commands/kernel.js");
+  const [sub, ...args] = passthrough;
+  switch (sub) {
+    case "tasks":
+      if (args[0] === "add") return mod.cmdKernelTasksAdd(args.slice(1), flags);
+      if (args[0] === "ls") return mod.cmdKernelTasksLs(flags);
+      if (args[0] === "cancel") return mod.cmdKernelTasksCancel(args.slice(1), flags);
+      console.log("  用法: pth kernel tasks add \"<描述>\" [--tags a,b] | ls [--limit n] | cancel <id> [--recursive]");
+      return;
+    case "wait":
+      return mod.cmdKernelWait(args, flags);
+    case "templates":
+      if (args[0] === "ls" || args.length === 0) return mod.cmdKernelTemplatesLs(args, flags);
+      console.log("  用法: pth kernel templates ls");
+      return;
+    case "batch":
+      if (args[0] === "add") return mod.cmdKernelBatchAdd(args.slice(1), flags);
+      if (args[0] === "remove") return mod.cmdKernelBatchRemove(args.slice(1), flags);
+      if (args[0] === "worker") return mod.cmdKernelBatchWorker(args.slice(1), flags);
+      console.log("  用法: pth kernel batch add [n] | remove [n] | worker <pause|resume|remove|add> <batchId> <role> [copies]");
+      return;
+    case "status":
+      return mod.cmdKernelStatus(args, flags);
+    default:
+      console.log([
+        "  pth kernel tasks add \"<描述>\" [--tags a,b]   发布 PTH 任务",
+        "  pth kernel tasks add --template <id> --key v… 模板发布",
+        "  pth kernel templates ls                       模板列表",
+        "  pth kernel tasks ls [--limit n]              任务列表",
+        "  pth kernel wait <taskId> [--follow]          等待任务终态",
+        "  pth kernel tasks cancel <id> [--recursive]   取消任务",
+        "  pth kernel batch add [n]                     启动 batch",
+        "  pth kernel batch remove [n]                  停止 batch",
+        "  pth kernel batch worker …                    批量 worker 控制",
+        "  pth kernel status                            运行状态全景",
+      ].join("\n"));
+  }
+}
+
 async function main(): Promise<void> {
   switch (cmd) {
     case "submit": return submit();
@@ -214,6 +295,63 @@ async function main(): Promise<void> {
     case "wait": return wait();
     case "roles": return roles();
     case "tags": return tags();
+    case "program": return programCommand();
+    case "job": return jobCommand();
+    case "kernel": return kernelCommand();
+    case "request": {
+      const { flags, passthrough } = await bridgeArgs();
+      const { cmdHubRequest } = await import("../packages/pth-console/src/commands/request.js");
+      await cmdHubRequest(passthrough, flags);
+      return;
+    }
+    case "requests": {
+      const { flags } = await bridgeArgs();
+      const { cmdHubRequests } = await import("../packages/pth-console/src/commands/request.js");
+      await cmdHubRequests(flags);
+      return;
+    }
+    case "respond": {
+      const { flags, passthrough } = await bridgeArgs();
+      const { cmdHubRespond } = await import("../packages/pth-console/src/commands/respond.js");
+      await cmdHubRespond(passthrough, flags);
+      return;
+    }
+    case "observe": {
+      const { flags, passthrough } = await bridgeArgs();
+      const { cmdHubObserve } = await import("../packages/pth-console/src/commands/observe.js");
+      await cmdHubObserve(passthrough, flags);
+      return;
+    }
+    case "debug": {
+      const { flags, passthrough } = await bridgeArgs();
+      const { cmdHubDebug } = await import("../packages/pth-console/src/commands/debug.js");
+      await cmdHubDebug(passthrough, flags);
+      return;
+    }
+    case "bench": {
+      const { flags, passthrough } = await bridgeArgs();
+      const { cmdHubBench } = await import("../packages/pth-console/src/commands/bench.js");
+      await cmdHubBench(passthrough, flags);
+      return;
+    }
+    case "console": {
+      const { flags, passthrough } = await bridgeArgs();
+      const { cmdHubConsole } = await import("../packages/pth-console/src/commands/console.js");
+      await cmdHubConsole(passthrough, flags);
+      return;
+    }
+    case "lineage": {
+      const { flags, passthrough } = await bridgeArgs();
+      const { cmdHubLineage } = await import("../packages/pth-console/src/commands/lineage.js");
+      await cmdHubLineage(passthrough, flags);
+      return;
+    }
+    case "trigger": {
+      const { flags, passthrough } = await bridgeArgs();
+      const { cmdHubTrigger } = await import("../packages/pth-console/src/commands/trigger.js");
+      await cmdHubTrigger(passthrough, flags);
+      return;
+    }
     case "config":
       if (rest[0] === "export") return configExport();
       return configList();
@@ -243,7 +381,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log(`用法: pth <init|up|down|status|logs|submit|handoff|wait|roles|tags|config|web> ...\n  生命周期: npm run pth -- init          # 初始化 secrets（复制 example + chmod 600）\n            npm run pth -- up            # compose 起全栈 + 种 token + 验证\n            npm run pth -- status        # 栈健康（带 taskId 查任务）\n            npm run pth -- logs pi-platform --tail 100\n            npm run pth -- down          # 停止全栈\n  任务派发: npm run pth -- submit \"任务描述\" --role developer --tags implement\n            npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y\n            npm run pth -- wait <taskId>\n  其他:     npm run pth -- handoff\n            npm run pth -- roles\n            npm run pth -- tags\n            npm run pth -- config\n            npm run pth -- config export       # PTL 迁移命令\n            npm run pth -- web [--port <n>]   # 启动人类操作台（loopback）`);
+      console.log(`用法: pth <init|up|down|status|logs|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|tags|config|web> ...\n  生命周期: npm run pth -- init / up / status / logs / down\n  任务派发: npm run pth -- submit "任务描述" --role developer --tags implement\n            npm run pth -- submit --template recon-doc --param url=https://x --param entryId=y\n            npm run pth -- wait <taskId>\n  程序面:   npm run pth -- program submit <dir> | run <name> | list\n  回退请求: npm run pth -- request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: npm run pth -- observe <sessions|session|trace|events>\n            npm run pth -- debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            npm run pth -- job submit|status|fetch · kernel tasks|batch|templates|status\n  其他:     npm run pth -- roles · tags · config · web [--port <n>]`);
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BENCH_TASKS, runBenchTask, listReports, type BenchReport, type BenchResult } from "../../packages/framework/src/bridge/bench.js";
+import { BENCH_TASKS, runBenchTask, listReports, type BenchReport, type BenchResult } from "../../packages/pth-console/src/commands/bench.js";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

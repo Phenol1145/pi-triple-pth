@@ -1,6 +1,6 @@
 # PTL/PTH 仓库拆分设计（v1.5）
 
-> 状态：**设计已批准待执行**（2026-08-21 用户裁决：三仓 / filter-repo / 先设计后执行）。
+> 状态：设计已批准；**Phase 0（ptl hub → pth 命令迁移）已完成**；Phase 1–4（filter-repo 拆仓）待执行。
 > 机器清单：[repo-split-v15-manifest.json](../repo-split-v15-manifest.json)。
 > 历史依据：[2026-08-08 仓库拆分 SPEC](../superpowers/specs/2026-08-08-repo-split-design.md)（本设计是其 1.5 修订版）。
 
@@ -29,7 +29,7 @@
 
 | 原命令 | 新命令 |
 |--------|--------|
-| `ptl hub submit/run/programs` | `pth submit/run/programs` |
+| `ptl hub submit/run/programs` | `pth program submit / pth program run / pth program list` |
 | `ptl hub request(s)/respond/observe/debug/bench/job/console/lineage/trigger` | `pth request(s)/respond/observe/debug/bench/job/console/lineage/trigger` |
 | `ptl hub kernel …` | `pth kernel …` |
 | `ptl hub dev <dir>` | `ptl program dev <dir>`（PTL 本地 pi 调试，不进 PTH） |
@@ -78,8 +78,7 @@
 
 ## 6. 执行顺序（每 Phase 一 lane，全门禁后再进下一 Phase）
 
-1. **Phase 0（本仓准备）**：迁移 `ptl hub` → `pth`；`ptl stack`/`ptl program dev` 落位；
-   framework 去掉 pth-console 依赖；测试随命令迁移；全量回归。
+1. **Phase 0（本仓准备）✅ 已完成**：`ptl hub` → `pth`（program 程序面 + request/observe/… 同名命令）；`ptl stack`/`ptl program dev` 落位；framework 去掉 pth-console 依赖；测试随命令迁移；全量回归。
 2. **Phase 1**：filter-repo 拆 `pi-triple-deps` → 发布 `shared/infra@1.5.x`。
 3. **Phase 2**：filter-repo 拆 `pi-triple-pth` → 依赖切 npm 版本 → 构建/启动/任务回归。
 4. **Phase 3**：filter-repo 拆 `pi-triple-ptl` → 依赖切 npm 版本 → ptl 安装/PTL 回归。
