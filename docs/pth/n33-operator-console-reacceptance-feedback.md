@@ -45,7 +45,7 @@ full green；不能将单文件复跑成功外推为 full gate 已通过。
 
 ### P0-1：真实浏览器无法加载 ES module 图
 
-[app.js](../../packages/framework/web/operator-console/app.js) `:23-25` 静态导入：
+[app.js](../../packages/pth-console/web/operator-console/app.js) `:23-25` 静态导入：
 
 ```js
 import { createDebugViewModel, DEBUG_POLL_MS } from "./debug.js";
@@ -53,7 +53,7 @@ import { createMemoryViewModel } from "./memory.js";
 import { createConfigViewModel } from "./config.js";
 ```
 
-但 [server.ts](../../packages/framework/src/operator-console/server.ts) `:91-96` 的 asset 白名单只有：
+但 [server.ts](../../packages/pth-console/src/operator-console/server.ts) `:91-96` 的 asset 白名单只有：
 
 ```text
 index.html
@@ -83,14 +83,14 @@ server 在 `:191-199` 也只预载该白名单。真实 loopback HTTP 探针结�
 
 ### P0-2：上游错误正文可泄露到浏览器
 
-[client.ts](../../packages/framework/src/bridge/client.ts) `:396-407` 的 `throwError()` 会读取 PTH 响应正文并
+[client.ts](../../packages/pth-console/src/bridge/client.ts) `:396-407` 的 `throwError()` 会读取 PTH 响应正文并
 拼入异常：
 
 ```ts
 throw new Error(`${prefix}: HTTP ${res.status}${body ? " — " + body : ""}`);
 ```
 
-[server.ts](../../packages/framework/src/operator-console/server.ts) `:398-405` 随后把 `err.message` 原样写入
+[server.ts](../../packages/pth-console/src/operator-console/server.ts) `:398-405` 随后把 `err.message` 原样写入
 浏览器 JSON。使用返回 secret sentinel 的 fake PTH 进行 loopback 探针，结果为：
 
 ```json
@@ -119,7 +119,7 @@ PTH Worker Inspection 在
 - `regionIds` / `regionWeights`
 - 结构化 `workingSet: { entryIds, skillIndexIds, activeSkillIds, counts, usage, omitted }`
 
-[debug.js](../../packages/framework/web/operator-console/debug.js) `:49-74` 却读取平铺的 `roleId`、
+[debug.js](../../packages/pth-console/web/operator-console/debug.js) `:49-74` 却读取平铺的 `roleId`、
 `roleRevision`、`taskId`、`regions[]` 和数组形 `workingSet[]`。将真实生产 DTO 直接送入 ViewModel 后，
 `roleId/taskId` 变为 null，regions 与 Working Set 均为空。
 
@@ -129,11 +129,11 @@ PTH Worker Inspection 在
 
 - 生产分页返回 `nextCursor`，见
   [system-inspection-facade.ts](../../src/pth/application/observation/system-inspection-facade.ts) `:298-303`；
-  [memory.js](../../packages/framework/web/operator-console/memory.js) `:63-66` 却读取 `page.cursor`，分页会提前终止；
-- 生产条目字段是 `memoryType`，[app.js](../../packages/framework/web/operator-console/app.js) `:247`
+  [memory.js](../../packages/pth-console/web/operator-console/memory.js) `:63-66` 却读取 `page.cursor`，分页会提前终止；
+- 生产条目字段是 `memoryType`，[app.js](../../packages/pth-console/web/operator-console/app.js) `:247`
   渲染 `type`，类型列为空；
 - Revision route 在 [routes-observe.ts](../../src/pth/gateway/routes-observe.ts) `:367-381` 返回
-  `{entryId,revisions}`，页面在 [app.js](../../packages/framework/web/operator-console/app.js) `:284-285`
+  `{entryId,revisions}`，页面在 [app.js](../../packages/pth-console/web/operator-console/app.js) `:284-285`
   将整个对象传给只接受数组的 `ingestRevisions()`，revision 永远为空；
 - detail endpoint 返回 `MemoryListItem`，不含页面在 `app.js:297-300` 需要的 `content/meta/evidence`，所以正文详情
   无法满足设计。
@@ -142,7 +142,7 @@ PTH Worker Inspection 在
 
 PTH `/observe/config` 与 `/observe/roles` 在
 [routes-observe.ts](../../src/pth/gateway/routes-observe.ts) `:409-429` 返回直接数组；页面在
-[app.js](../../packages/framework/web/operator-console/app.js) `:419-427` 预期 `{items}`。roles 的 fallback 还会
+[app.js](../../packages/pth-console/web/operator-console/app.js) `:419-427` 预期 `{items}`。roles 的 fallback 还会
 对同一个 `Response` 调用第二次 `json()`，导致 body-used 异常。真实 Role DTO 使用 `roleId`，ViewModel 使用 `id`，
 即使绕过响应包装问题也会显示 `unknown`。
 
@@ -151,10 +151,10 @@ PTH `/observe/config` 与 `/observe/roles` 在
 
 ### P0-4：Task 发布的模糊重试会创建重复任务
 
-[preview-store.ts](../../packages/framework/src/operator-console/preview-store.ts) `:478-503` 在幂等 ledger 为
+[preview-store.ts](../../packages/pth-console/src/operator-console/preview-store.ts) `:478-503` 在幂等 ledger 为
 `submitting` 时允许重新调用 native submit；`run` adapter 在
-[run-actions.ts](../../packages/framework/src/operator-console/actions/run-actions.ts) `:119-128` 只把 preview id/digest
-放进 payload。[PthClient.publishTask](../../packages/framework/src/bridge/client.ts) `:412-426` 没有传递 PTH 原生
+[run-actions.ts](../../packages/pth-console/src/operator-console/actions/run-actions.ts) `:119-128` 只把 preview id/digest
+放进 payload。[PthClient.publishTask](../../packages/pth-console/src/bridge/client.ts) `:412-426` 没有传递 PTH 原生
 idempotency key，PTH route 每次请求会创建新 task id。
 
 模拟“第一次请求已经创建 task-1，但响应丢失”后，用同一 PTL idempotency key 重试，结果：
