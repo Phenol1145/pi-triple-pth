@@ -3,6 +3,7 @@
 | 主题 | 文档 |
 |------|------|
 | 仓库定位 | [POSITIONING](POSITIONING.md)（三仓同源） |
+| 执行面协议 | [execution-surface-v1-design](execution-surface-v1-design.md)（三仓同源） |
 | 部署 / `pth up` | [deployment](pth/deployment.md) |
 | 配置中心 | [configuration](pth/configuration.md) |
 | 概念与命令映射 | [concepts](pth/concepts.md) |
