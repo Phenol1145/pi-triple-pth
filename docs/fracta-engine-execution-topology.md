@@ -421,6 +421,21 @@ capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
 - role/worker 完整协议（字段、REST 面、drain-swap、迁移映射）见 PTH 仓
   `docs/pth/role-worker-protocol-v1.md`；本表是三仓共用的边界摘要。
 
+### 5.11 执行协议边界（2026-08-22 补充裁决）
+
+- **执行协议只管“执行已知命令”**：信息回传 = 进程级（`stdout`/`stderr`/`exitCode`/`signal`/
+  `timedOut`/`truncated` + SSE `output`/`done`/`error` + WS `stdout`/`stderr`/`resize`/`done`/`error`）。
+  **不引入 stdout 之外的带类型信息通道**；机器可读结果用 stdout JSON 约定或
+  `pathMapping` 文件 artifact。将来确有 progress/artifact 事件需求时，按 **v1.2 可选事件**
+  增量定稿，不回改 v1.1 已发布客户端。
+- **工具定义查询不进执行 wire**：`/capabilities` 只描述协议能力（version/modes/pathMapping…），
+  不描述工具清单；后端**不提供** `GET /tools`。工具定义 = engine 侧 **T1 catalog**
+  （`catalog/data/tools.json`），由 `pth tools` 从 `tool-manifest.json` 生成/校验（GitOps），
+  engine 仅在装配期读取；清单条目与镜像 digest 互锁，升级经 `pth tools up/pull` 刷新。
+- **授权边界**：role capabilities 在 engine 内做工具白名单；执行面对持有效 ENGINE_TOKEN
+  的请求视为可信、不感知角色。`engineVisible`/`hostOnly` 是 manifest → catalog 的生成过滤
+  条件，不是执行协议字段。
+
 ## 6. 本地执行器开发指南（Lean 首期参考实现）
 
 ### 6.1 定位与安全基线

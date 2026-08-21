@@ -209,7 +209,7 @@
 | 层 | 内容 | 变更方式 |
 |---|---|---|
 | T0 不可修改 | contracts / execution wire / validate / grant / kernel·loop·interpreter 机制 / 装配 fail-closed / professional-runtime-lock / tool-manifest digest | PR + 门禁 + 镜像/npm 发布 |
-| T1 声明式可变 | `catalog/data/**`：role-definition/v1、worker-spec/v1、policies、observers、spaces、任务模板、skills/prompts | 本协议：proposal → 审批 → 文件 → apply（热生效） |
+| T1 声明式可变 | `catalog/data/**`：role-definition/v1、worker-spec/v1、policies、observers、spaces、任务模板、skills/prompts、tools catalog（`tools.json`，由 `tool-manifest.json` 生成） | 本协议：proposal → 审批 → 文件 → apply（热生效） |
 | T2 配置可变 | PTH_* env / PTH_EXEC_BACKENDS / 模式开关 | 配置中心 + env + 重启（部分 runtime SET） |
 
 机器断言（随实现加入 `check:pth-boundaries` 或独立脚本）：
