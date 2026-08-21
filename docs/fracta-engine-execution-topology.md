@@ -287,7 +287,32 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 - [ ] 未登记 pathMapping → `CWD_NOT_ALLOWED`
 - [ ] engine 容器 `curl http://host.docker.internal:8787/health` 可达
 
-## 6. 变更纪律
+## 6. 网关边界（2026-08-21 裁决：暂不引入统一网关）
+
+**现状保持直连**，不新增 nginx / HAProxy 等统一网关：
+
+- **北向**：pth CLI / web UI 继续直连 engine `:3000`（compose 唯一对外发布端口，已天然单入口）。
+- **南向执行面**：engine 继续经 `PTH_EXEC_BACKENDS` registry 直连各执行面；不插入物理代理、
+  不做 `/sandbox`、`/dev` 这类前缀重写（execution/v1 的 registry 就是逻辑网关）。
+- **数据面**：engine 直连 Redis / PostgreSQL（compose DNS）；PG 连接池需要时按既定路线
+  引入 PgBouncer，Redis 多节点用 Cluster/Sentinel——**都不走通用网关**。
+- **安全**：sandbox 的 `sandbox-internal` egress 锁不变。
+
+**引入北向网关的触发条件**（满足任一即重新评估，而不是直接实施）：
+
+1. 需要从非 localhost 暴露 engine 且必须 TLS 终结；
+2. 出现多 engine 实例、灰度 / canary 路由需求；
+3. 需要边缘统一鉴权 / 租户隔离 / 限流 / 集中审计；
+4. 需要跨服务统一 request-id / access log 口径（engine 内部日志已覆盖时不算）。
+
+**将来引入时的硬约束**：
+
+- 网关只反代 HTTP(S) 北向流量（CLI / web UI → engine）；
+- 不代理 PG / Redis（专用组件替代）；不拦截南向 `execution/v1` 数据面；
+- SSE / WebSocket 必须关闭缓冲（`proxy_buffering off`、正确的 upgrade 头）；
+- engine 对各执行面的 baseUrl 仍保持直连，不改成网关前缀。
+
+## 7. 变更纪律
 
 1. 本计划任何变更先改本文件（三仓同源同步），再改代码；
 2. 协议类型/常量只改 `pi-triple-deps` 的 `packages/shared/src/execution/**`，随后 npm 发布；

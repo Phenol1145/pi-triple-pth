@@ -52,6 +52,8 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
   本地执行器（`host`）。每个执行面都实现 `execution/v1` 的服务端；engine 是唯一协议客户端。
 - **网络以协议中心化，不改现状**：sandbox 保持 `sandbox-internal` egress 锁，engine 双网接入；
   dev 容器 / 本地执行器经 default 网络可达 engine（本地执行器 = `host.docker.internal`）。
+- **网关**：暂不引入统一网关；北向单入口 = engine `:3000`，南向执行面与 PG/Redis 数据面保持
+  直连。引入北向网关的触发条件与硬约束见 `docs/fracta-engine-execution-topology.md` §6。
 - **专业工具链外置**：Lean 等工具链不放在 engine 容器；Lean 放本地执行器，
   经 `execution/v1` 与 engine 连接。
 - **优先级**：先固定协议面，再做实现迁移。
