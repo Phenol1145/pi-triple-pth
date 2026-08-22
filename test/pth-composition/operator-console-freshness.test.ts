@@ -10,8 +10,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import http from "node:http";
 import {
   createDebugViewModel,
-} from "../../packages/pth-console/web/operator-console/debug.js";
-import { createMemoryViewModel } from "../../packages/pth-console/web/operator-console/memory.js";
+} from "../../packages/pth-console/web-src/src/view-models/debug.js";
+import { createMemoryViewModel } from "../../packages/pth-console/web-src/src/view-models/memory.js";
 import {
   createOperatorConsoleServer,
   type OperatorConsoleServer,

@@ -35,6 +35,7 @@ import {
 } from "../../contracts/index.js";
 import { pthConfig } from "../../config/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
+import { createJobRunContext } from "./job-runner.js";
 import { scanNotebook, type NotebookCell, type NotebookDocument, type NotebookOutput } from "../notebook-guide.js";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
@@ -222,56 +223,22 @@ export function createJupyterRuntimeAdapter(
   // ─── execute ──────────────────────────────────────────────────────────────
 
   async function execute(request: ProfessionalJobRequest<JupyterJobSpec>): Promise<ProfessionalJobResult<JupyterJobValue>> {
-    const startedAt = clock();
-    const traceId = request.traceId ?? "unknown";
-    const artifacts: ArtifactRef[] = [];
-    const diagnostics: ProfessionalDiagnostic[] = [];
-    let outputBytes = 0;
-    const state = { cancelled: false };
-    running.set(request.jobId, state);
-
-    const finish = (
-      status: ProfessionalJobResult["status"],
-      error: { code: string; message: string } | undefined,
-      value?: JupyterJobValue,
-      outputHashSource?: Uint8Array | string,
-    ): ProfessionalJobResult<JupyterJobValue> => {
-      const finishedAt = clock();
-      if (error) diagnostics.push({ code: error.code, severity: "error", message: error.message });
-      return {
-        status,
-        runtime: "jupyter",
-        runtimeVersion: deps.lockVersion,
-        inputHash: request.inputHash,
-        outputHash: status === "succeeded" && outputHashSource !== undefined ? `sha256:${sha256hex(outputHashSource)}` : null,
-        artifacts,
-        diagnostics,
-        usage: { durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()), cpuMs: 0, maxRssBytes: 0, outputBytes },
-        traceId,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        ...(value !== undefined ? { value } : {}),
-        ...(error !== undefined ? { error } : {}),
-      };
-    };
-
-    const fail = (code: string, message: string): ProfessionalJobResult<JupyterJobValue> =>
-      finish("failed", { code, message: message.slice(0, 4_000) });
-
-    const put = async (kind: string, bytes: Uint8Array, mediaType: string): Promise<ArtifactRef> => {
-      const ref = await deps.artifactPort.putOutput({ tenantId: request.tenantId, jobId: request.jobId, kind, mediaType, bytes });
-      artifacts.push(ref);
-      outputBytes += bytes.byteLength;
-      return ref;
-    };
+    const ctx = createJobRunContext<JupyterJobValue>({
+      runtime: "jupyter",
+      runtimeVersion: deps.lockVersion,
+      request,
+      artifactPort: deps.artifactPort,
+      running,
+      clock,
+    });
 
     try {
       if (!isJupyterJobSpecStructurallyValid(request.spec)) {
-        return fail("spec-invalid", "spec does not match the jupyter discriminated job spec");
+        return ctx.fail("spec-invalid", "spec does not match the jupyter discriminated job spec");
       }
       const spec = request.spec;
       const checks = parseExpectedChecks(spec);
-      if (checks === null) return fail("checks-invalid", "parameters.expectedChecksJson is not a [{name, expected}] JSON array");
+      if (checks === null) return ctx.fail("checks-invalid", "parameters.expectedChecksJson is not a [{name, expected}] JSON array");
 
       // 1. 读取草稿并清空历史输出（历史输出不能替代本轮执行记录）。
       let draft: NotebookDocument;
@@ -279,14 +246,14 @@ export function createJupyterRuntimeAdapter(
         const bytes = await deps.artifactPort.getInput(request.tenantId, spec.notebookRef);
         draft = JSON.parse(Buffer.from(bytes).toString("utf8")) as NotebookDocument;
       } catch (error) {
-        return fail("notebook-unreadable", `cannot read notebook artifact: ${(error as Error).message}`);
+        return ctx.fail("notebook-unreadable", `cannot read notebook artifact: ${(error as Error).message}`);
       }
       if (draft.nbformat !== 4 || !Array.isArray(draft.cells)) {
-        return fail("nbformat-invalid", "draft notebook must be nbformat v4 with a cells array");
+        return ctx.fail("nbformat-invalid", "draft notebook must be nbformat v4 with a cells array");
       }
       const preScan = scanNotebook(draft, { maxOutputBytes: deps.maxOutputBytes ?? 128 * 1024 });
       if (preScan.secrets.length > 0 || preScan.absolutePaths.length > 0) {
-        return fail(
+        return ctx.fail(
           "notebook-scan-failed",
           `draft contains hidden state: secrets=${preScan.secrets.length} absolutePaths=${preScan.absolutePaths.length}`,
         );
@@ -302,7 +269,7 @@ export function createJupyterRuntimeAdapter(
       const driverSource = await readFile(deps.driverPath ?? DEFAULT_DRIVER_PATH);
       await writeFile(join(wsHost, "driver.py"), driverSource);
 
-      if (state.cancelled) return finish("cancelled", { code: "cancelled", message: "job cancelled before kernel start" });
+      if (ctx.isCancelled()) return ctx.finish("cancelled", { code: "cancelled", message: "job cancelled before kernel start" });
 
       // 3. clean-kernel execute-all（driver 内 nbclient 每次全新 kernel）。
       const run = await exec(
@@ -317,9 +284,9 @@ export function createJupyterRuntimeAdapter(
         ],
         { cwd: pathForExec(wsHost), timeoutMs: execTimeoutMs },
       );
-      if (state.cancelled) return finish("cancelled", { code: "cancelled", message: "job cancelled" });
+      if (ctx.isCancelled()) return ctx.finish("cancelled", { code: "cancelled", message: "job cancelled" });
       if (run.timedOut) {
-        return fail("execution-timeout", `clean-kernel execute-all exceeded ${execTimeoutMs}ms`);
+        return ctx.fail("execution-timeout", `clean-kernel execute-all exceeded ${execTimeoutMs}ms`);
       }
 
       let report: ExecutionReport;
@@ -328,15 +295,15 @@ export function createJupyterRuntimeAdapter(
         report = JSON.parse(await readFile(join(wsHost, "report.json"), "utf8")) as ExecutionReport;
         executedRaw = await readFile(join(wsHost, "executed.ipynb"));
       } catch (error) {
-        return fail("driver-failed", `driver produced no report/executed notebook: ${(error as Error).message}; stderr=${run.stderr.slice(0, 400)}`);
+        return ctx.fail("driver-failed", `driver produced no report/executed notebook: ${(error as Error).message}; stderr=${run.stderr.slice(0, 400)}`);
       }
 
       // 4. 执行报告门：单元格错误 / 超时 → failed（隐藏状态失败可见）。
       if (!report.ok) {
         const first = report.errors[0];
         const code = report.timedOut ? "cell-timeout" : "cell-error";
-        await put("execution-report", Buffer.from(JSON.stringify(report, null, 1), "utf8"), "application/json");
-        return fail(code, `${first?.ename ?? "unknown"}: ${(first?.evalue ?? "").slice(0, 800)}`);
+        await ctx.put("execution-report", Buffer.from(JSON.stringify(report, null, 1), "utf8"), "application/json");
+        return ctx.fail(code, `${first?.ename ?? "unknown"}: ${(first?.evalue ?? "").slice(0, 800)}`);
       }
 
       // 5. 三扫本轮执行产物。
@@ -344,11 +311,11 @@ export function createJupyterRuntimeAdapter(
       try {
         executed = JSON.parse(executedRaw.toString("utf8")) as NotebookDocument;
       } catch {
-        return fail("executed-notebook-invalid", "executed notebook is not valid JSON");
+        return ctx.fail("executed-notebook-invalid", "executed notebook is not valid JSON");
       }
       const postScan = scanNotebook(executed, { maxOutputBytes: deps.maxOutputBytes ?? 128 * 1024 });
       if (postScan.secrets.length > 0 || postScan.absolutePaths.length > 0 || postScan.oversizedOutputs.length > 0) {
-        return fail(
+        return ctx.fail(
           "notebook-scan-failed",
           `executed notebook scan: secrets=${postScan.secrets.length} absolutePaths=${postScan.absolutePaths.length} oversizedOutputs=${postScan.oversizedOutputs.length}`,
         );
@@ -363,16 +330,16 @@ export function createJupyterRuntimeAdapter(
       }));
       const missed = outcomes.filter((o) => !o.matched);
       if (missed.length > 0) {
-        await put("execution-report", Buffer.from(JSON.stringify(report, null, 1), "utf8"), "application/json");
-        return fail("checks-failed", `expected checks missing from this run's outputs: ${missed.map((m) => m.name).join(", ")}`);
+        await ctx.put("execution-report", Buffer.from(JSON.stringify(report, null, 1), "utf8"), "application/json");
+        return ctx.fail("checks-failed", `expected checks missing from this run's outputs: ${missed.map((m) => m.name).join(", ")}`);
       }
 
       // 7. 产出 artifact + 成功信封。
       const reportBytes = Buffer.from(JSON.stringify(report, null, 1), "utf8");
-      await put("executed-notebook", new Uint8Array(executedRaw), "application/x-ipynb+json");
-      await put("execution-report", new Uint8Array(reportBytes), "application/json");
+      await ctx.put("executed-notebook", new Uint8Array(executedRaw), "application/x-ipynb+json");
+      await ctx.put("execution-report", new Uint8Array(reportBytes), "application/json");
       const executedNotebookHash = `sha256:${sha256hex(new Uint8Array(executedRaw))}`;
-      return finish("succeeded", undefined, {
+      return ctx.finish("succeeded", undefined, {
         operation: spec.operation,
         kernelId: spec.kernel,
         cleanKernel: true,
@@ -388,9 +355,9 @@ export function createJupyterRuntimeAdapter(
         timedOut: false,
       }, new Uint8Array(executedRaw));
     } catch (error) {
-      return fail("adapter-error", (error as Error).message);
+      return ctx.fail("adapter-error", (error as Error).message);
     } finally {
-      running.delete(request.jobId);
+      ctx.cleanup();
     }
   }
 

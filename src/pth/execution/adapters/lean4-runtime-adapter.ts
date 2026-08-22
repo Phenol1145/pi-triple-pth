@@ -33,6 +33,7 @@ import {
   type ProfessionalJobResult,
 } from "../../contracts/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
+import { createJobRunContext } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "../../contracts/index.js";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
@@ -167,60 +168,26 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
   // ─── execute ──────────────────────────────────────────────────────────────
 
   async function execute(request: ProfessionalJobRequest<Lean4JobSpec>): Promise<ProfessionalJobResult<Lean4JobValue>> {
-    const startedAt = clock();
-    const traceId = request.traceId ?? "unknown";
-    const artifacts: ArtifactRef[] = [];
-    const diagnostics: ProfessionalDiagnostic[] = [];
-    let outputBytes = 0;
-    const state = { cancelled: false };
-    running.set(request.jobId, state);
-
-    const finish = (
-      status: ProfessionalJobResult["status"],
-      error: { code: string; message: string } | undefined,
-      value?: Lean4JobValue,
-      outputHashSource?: Uint8Array | string,
-    ): ProfessionalJobResult<Lean4JobValue> => {
-      const finishedAt = clock();
-      if (error) diagnostics.push({ code: error.code, severity: "error", message: error.message });
-      return {
-        status,
-        runtime: "lean4",
-        runtimeVersion: deps.lockVersion,
-        inputHash: request.inputHash,
-        outputHash: status === "succeeded" && outputHashSource !== undefined ? `sha256:${sha256hex(outputHashSource)}` : null,
-        artifacts,
-        diagnostics,
-        usage: { durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()), cpuMs: 0, maxRssBytes: 0, outputBytes },
-        traceId,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        ...(value !== undefined ? { value } : {}),
-        ...(error !== undefined ? { error } : {}),
-      };
-    };
-
-    const fail = (code: string, message: string): ProfessionalJobResult<Lean4JobValue> =>
-      finish("failed", { code, message: message.slice(0, 4_000) });
-
-    const put = async (kind: string, bytes: Uint8Array, mediaType: string): Promise<ArtifactRef> => {
-      const ref = await deps.artifactPort.putOutput({ tenantId: request.tenantId, jobId: request.jobId, kind, mediaType, bytes });
-      artifacts.push(ref);
-      outputBytes += bytes.byteLength;
-      return ref;
-    };
+    const ctx = createJobRunContext<Lean4JobValue>({
+      runtime: "lean4",
+      runtimeVersion: deps.lockVersion,
+      request,
+      artifactPort: deps.artifactPort,
+      running,
+      clock,
+    });
 
     try {
       // 门禁 1：spec 结构（禁 command 等任意执行字段）
       if (!isLean4JobSpecStructurallyValid(request.spec)) {
-        return fail("spec-invalid", "spec 不是合法的 Lean4JobSpec（含禁键或字段越界）");
+        return ctx.fail("spec-invalid", "spec 不是合法的 Lean4JobSpec（含禁键或字段越界）");
       }
       const spec = request.spec;
 
       // 门禁 2：工具链 probe
       const probeResult = await probe();
       if (!probeResult.available) {
-        return fail("toolchain-unavailable", probeResult.reason ?? "lean4 工具链不可用");
+        return ctx.fail("toolchain-unavailable", probeResult.reason ?? "lean4 工具链不可用");
       }
       const leanVersion = probeResult.version!;
       const lakeProbe = await run("lake", ["--version"], { timeoutMs: 30_000 });
@@ -231,36 +198,36 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
       try {
         bundleBytes = await deps.artifactPort.getInput(request.tenantId, spec.projectRef);
       } catch (error) {
-        return fail("source-unreadable", `projectRef 读取失败: ${error instanceof Error ? error.message : String(error)}`);
+        return ctx.fail("source-unreadable", `projectRef 读取失败: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (bundleBytes.byteLength === 0) return fail("source-empty", "projectRef 指向空工程");
-      if (bundleBytes.byteLength > 2 * 1024 * 1024) return fail("source-too-large", `工程 ${bundleBytes.byteLength}B 超过 2MiB 上限`);
+      if (bundleBytes.byteLength === 0) return ctx.fail("source-empty", "projectRef 指向空工程");
+      if (bundleBytes.byteLength > 2 * 1024 * 1024) return ctx.fail("source-too-large", `工程 ${bundleBytes.byteLength}B 超过 2MiB 上限`);
 
       let bundle: { schemaVersion?: unknown; files?: unknown };
       try {
         bundle = JSON.parse(new TextDecoder().decode(bundleBytes)) as typeof bundle;
       } catch {
-        return fail("source-unreadable", "工程 bundle 不是合法 JSON");
+        return ctx.fail("source-unreadable", "工程 bundle 不是合法 JSON");
       }
       if (bundle.schemaVersion !== 1 || !Array.isArray(bundle.files)) {
-        return fail("source-unreadable", "工程 bundle 缺 schemaVersion:1 或 files 数组");
+        return ctx.fail("source-unreadable", "工程 bundle 缺 schemaVersion:1 或 files 数组");
       }
 
       const files: { path: string; content: string }[] = [];
       for (const f of bundle.files as unknown[]) {
-        if (typeof f !== "object" || f === null) return fail("source-unreadable", "files 元素必须是对象");
+        if (typeof f !== "object" || f === null) return ctx.fail("source-unreadable", "files 元素必须是对象");
         const { path, content } = f as { path?: unknown; content?: unknown };
         if (typeof path !== "string" || path.length === 0 || path.length > 512) {
-          return fail("project-escape", `非法文件路径: ${String(path).slice(0, 120)}`);
+          return ctx.fail("project-escape", `非法文件路径: ${String(path).slice(0, 120)}`);
         }
         if (typeof content !== "string" || content.length > 256 * 1024) {
-          return fail("source-too-large", `文件 ${path} 内容非法或超限`);
+          return ctx.fail("source-too-large", `文件 ${path} 内容非法或超限`);
         }
         if (path.startsWith("/") || path.includes("\\") || path.split("/").includes("..")) {
-          return fail("project-escape", `路径逃逸: ${path}`);
+          return ctx.fail("project-escape", `路径逃逸: ${path}`);
         }
         if (normalize(path) !== path) {
-          return fail("project-escape", `路径越界: ${path}`);
+          return ctx.fail("project-escape", `路径越界: ${path}`);
         }
         files.push({ path, content });
       }
@@ -268,18 +235,18 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
       // 门禁 4：占位源码 + 依赖锁注入/篡改
       const leanFiles = files.filter((f) => f.path.endsWith(".lean"));
       for (const f of leanFiles) {
-        if (PLACEHOLDER_RE.test(f.content)) return fail("placeholder-source", `源码含 sorry/admit 占位: ${f.path}`);
+        if (PLACEHOLDER_RE.test(f.content)) return ctx.fail("placeholder-source", `源码含 sorry/admit 占位: ${f.path}`);
       }
       if (files.some((f) => f.path === "lake-manifest.json")) {
-        return fail("dependency-lock-mismatch", "客户端不得夹带 lake-manifest.json");
+        return ctx.fail("dependency-lock-mismatch", "客户端不得夹带 lake-manifest.json");
       }
       const lakefile = files.find((f) => f.path === "lakefile.lean");
-      if (!lakefile) return fail("source-unreadable", "工程缺 lakefile.lean");
+      if (!lakefile) return ctx.fail("source-unreadable", "工程缺 lakefile.lean");
       const requireRev = REQUIRE_REV_RE.exec(lakefile.content)?.[1];
       if (!requireRev || requireRev !== deps.mathlibRev) {
-        return fail("dependency-lock-mismatch", `lakefile mathlib require rev 与 committed lock 不一致`);
+        return ctx.fail("dependency-lock-mismatch", `lakefile mathlib require rev 与 committed lock 不一致`);
       }
-      if (!SHA_RE.test(deps.mathlibRev)) return fail("dependency-lock-mismatch", "committed lock mathlib rev 非法");
+      if (!SHA_RE.test(deps.mathlibRev)) return ctx.fail("dependency-lock-mismatch", "committed lock mathlib rev 非法");
 
       // 门禁 5：工作区准备（服务端生成 manifest；共享 Mathlib cache）
       // docker 前缀时构建全程放容器 overlay 文件系统（virtiofs 挂载点上的复杂
@@ -299,7 +266,7 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
         await rm(stageDir, { recursive: true, force: true });
         const restore = await run("sh", ["-c", `rm -rf '${jobDir}' && cp -r '${cacheDir}' '${jobDir}'`], { timeoutMs: 600_000 });
         if (!restore.ok) {
-          return fail("toolchain-unavailable", `构建缓存恢复失败: ${restore.stderr.slice(0, 400)}`);
+          return ctx.fail("toolchain-unavailable", `构建缓存恢复失败: ${restore.stderr.slice(0, 400)}`);
         }
         buildFromCache = true;
         buildLog = `[cache-hit] ${cacheDir}\n`;
@@ -314,46 +281,46 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
           }
           if (usesDockerExec) {
             const mkJob = await run("mkdir", ["-p", join(jobDir, ".lake")], { timeoutMs: 60_000 });
-            if (!mkJob.ok) return fail("toolchain-unavailable", `容器 job 目录创建失败: ${mkJob.stderr.slice(0, 300)}`);
+            if (!mkJob.ok) return ctx.fail("toolchain-unavailable", `容器 job 目录创建失败: ${mkJob.stderr.slice(0, 300)}`);
             for (const f of files) {
               const cpFile = await run("cp", [join(stageDir, f.path), join(jobDir, f.path)], { timeoutMs: 60_000 });
-              if (!cpFile.ok) return fail("toolchain-unavailable", `文件 ${f.path} 拷贝失败: ${cpFile.stderr.slice(0, 300)}`);
+              if (!cpFile.ok) return ctx.fail("toolchain-unavailable", `文件 ${f.path} 拷贝失败: ${cpFile.stderr.slice(0, 300)}`);
             }
           }
           // 共享 packages：首次从模板拷贝（cache oleans 复用）
           const ensureShared = await run("sh", ["-c", `test -d '${sharedPackagesDir}' || (mkdir -p '${dirname(sharedPackagesDir)}' && cp -r '${templateDir}/.lake/packages' '${sharedPackagesDir}')`], { timeoutMs: 600_000 });
-          if (!ensureShared.ok) return fail("toolchain-unavailable", `Mathlib cache 初始化失败: ${ensureShared.stderr.slice(0, 500)}`);
+          if (!ensureShared.ok) return ctx.fail("toolchain-unavailable", `Mathlib cache 初始化失败: ${ensureShared.stderr.slice(0, 500)}`);
           const copyManifest = await run("cp", [`${templateDir}/lake-manifest.json`, `${jobDir}/lake-manifest.json`], { timeoutMs: 60_000 });
-          if (!copyManifest.ok) return fail("toolchain-unavailable", `模板 lake-manifest 拷贝失败: ${copyManifest.stderr.slice(0, 300)}`);
+          if (!copyManifest.ok) return ctx.fail("toolchain-unavailable", `模板 lake-manifest 拷贝失败: ${copyManifest.stderr.slice(0, 300)}`);
           const linkPkgs = await run("ln", ["-sfn", sharedPackagesDir, `${jobDir}/.lake/packages`], { timeoutMs: 60_000 });
-          if (!linkPkgs.ok) return fail("toolchain-unavailable", `Mathlib cache 链接失败: ${linkPkgs.stderr.slice(0, 300)}`);
+          if (!linkPkgs.ok) return ctx.fail("toolchain-unavailable", `Mathlib cache 链接失败: ${linkPkgs.stderr.slice(0, 300)}`);
         } catch (error) {
-          return fail("source-unreadable", `工程写盘失败: ${error instanceof Error ? error.message : String(error)}`);
+          return ctx.fail("source-unreadable", `工程写盘失败: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
-      if (state.cancelled) return finish("cancelled", { code: "job-cancelled", message: "job cancelled before build" });
+      if (ctx.isCancelled()) return ctx.finish("cancelled", { code: "job-cancelled", message: "job cancelled before build" });
 
       // ── lake build（check-imports 复用同一 elaboration 通道）──
       const parsed0 = parseDiagnostics(buildLog);
-      diagnostics.push(...parsed0);
+      ctx.diagnostics.push(...parsed0);
       let unclosedGoals = (buildLog.match(/unsolved goals/gi) ?? []).length;
       if (!buildFromCache) {
         const build = await run("lake", ["build"], { cwd: jobDir, timeoutMs: buildTimeoutMs, maxOutputBytes });
         buildLog = `${build.stdout}\n${build.stderr}`;
         const parsed = parseDiagnostics(buildLog);
-        diagnostics.push(...parsed);
+        ctx.diagnostics.push(...parsed);
         unclosedGoals = (buildLog.match(/unsolved goals/gi) ?? []).length;
 
-        if (build.timedOut) return fail("build-timeout", `lake build 超过 ${buildTimeoutMs}ms`);
+        if (build.timedOut) return ctx.fail("build-timeout", `lake build 超过 ${buildTimeoutMs}ms`);
         if (!build.ok) {
-          return fail("build-failed", `lake build 失败 exit=${build.code}${build.error ? ` err=${build.error}` : ""}（诊断 ${parsed.length} 条）: ${buildLog.slice(0, 800)}`);
+          return ctx.fail("build-failed", `lake build 失败 exit=${build.code}${build.error ? ` err=${build.error}` : ""}（诊断 ${parsed.length} 条）: ${buildLog.slice(0, 800)}`);
         }
         // 成功构建入库（覆盖更新），加速后续同内容工程。
         const saveCache = await run("sh", ["-c", `mkdir -p '${cacheRoot}' && rm -rf '${cacheDir}' && cp -r '${jobDir}' '${cacheDir}' && touch '${cacheDir}/.build-complete'`], { timeoutMs: 600_000 });
         if (!saveCache.ok) {
           // 缓存失败不阻断任务：只影响后续性能。
-          diagnostics.push({ code: "lean-cache-save-failed", severity: "warning", message: saveCache.stderr.slice(0, 300) });
+          ctx.diagnostics.push({ code: "lean-cache-save-failed", severity: "warning", message: saveCache.stderr.slice(0, 300) });
         }
       }
 
@@ -361,10 +328,10 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
       let axioms: string[] | undefined;
       if (spec.operation === "prove") {
         if (typeof spec.declaration !== "string" || spec.declaration.length === 0) {
-          return fail("spec-invalid", "prove 操作缺 declaration");
+          return ctx.fail("spec-invalid", "prove 操作缺 declaration");
         }
         if (typeof spec.module !== "string" || spec.module.length === 0) {
-          return fail("spec-invalid", "prove 操作缺 module");
+          return ctx.fail("spec-invalid", "prove 操作缺 module");
         }
         // Lean 顶层声明不处于模块命名空间下（import 已保证模块上下文）。
         const proveContent = `import ${spec.module}\n#print axioms ${spec.declaration}\n`;
@@ -372,37 +339,37 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
         await writeFile(join(stageDir, "__prove_check.lean"), proveContent, "utf8");
         if (usesDockerExec) {
           const cpProve = await run("cp", [join(stageDir, "__prove_check.lean"), join(jobDir, "__prove_check.lean")], { timeoutMs: 60_000 });
-          if (!cpProve.ok) return fail("toolchain-unavailable", `prove 检查文件拷贝失败: ${cpProve.stderr.slice(0, 300)}`);
+          if (!cpProve.ok) return ctx.fail("toolchain-unavailable", `prove 检查文件拷贝失败: ${cpProve.stderr.slice(0, 300)}`);
         }
         const prove = await run("lake", ["env", "lean", "__prove_check.lean"], { cwd: jobDir, timeoutMs: buildTimeoutMs, maxOutputBytes });
-        if (prove.timedOut) return fail("build-timeout", "prove 检查超时");
-        if (!prove.ok) return fail("build-failed", `prove 检查失败: ${`${prove.stdout}\n${prove.stderr}`.slice(0, 800)}`);
+        if (prove.timedOut) return ctx.fail("build-timeout", "prove 检查超时");
+        if (!prove.ok) return ctx.fail("build-failed", `prove 检查失败: ${`${prove.stdout}\n${prove.stderr}`.slice(0, 800)}`);
         const out = `${prove.stdout}\n${prove.stderr}`;
         axioms = parseAxioms(out);
       }
 
       // ── 产物 ──
-      await put("source", bundleBytes, "application/json");
-      await put("build-log", new TextEncoder().encode(buildLog), "text/plain");
+      await ctx.put("source", bundleBytes, "application/json");
+      await ctx.put("build-log", new TextEncoder().encode(buildLog), "text/plain");
       let manifestBytes: Uint8Array;
       if (usesDockerExec) {
         const catManifest = await run("cat", [join(jobDir, "lake-manifest.json")], { timeoutMs: 60_000, maxOutputBytes: 1024 * 1024 });
-        if (!catManifest.ok || catManifest.stdout.length === 0) return fail("build-failed", "lake-manifest.json 产物缺失");
+        if (!catManifest.ok || catManifest.stdout.length === 0) return ctx.fail("build-failed", "lake-manifest.json 产物缺失");
         manifestBytes = new TextEncoder().encode(catManifest.stdout);
       } else {
         try {
           manifestBytes = new Uint8Array(await readFile(join(jobDir, "lake-manifest.json")));
         } catch {
-          return fail("build-failed", "lake-manifest.json 产物缺失");
+          return ctx.fail("build-failed", "lake-manifest.json 产物缺失");
         }
       }
-      await put("lake-manifest", manifestBytes, "application/json");
+      await ctx.put("lake-manifest", manifestBytes, "application/json");
       const toolVersions = JSON.stringify(
         { lean: leanVersion, lake: lakeVersion, mathlib: deps.mathlibRev, toolchain: "leanprover/lean4:v" + leanVersion },
         null,
         2,
       );
-      await put("tool-versions", new TextEncoder().encode(toolVersions), "application/json");
+      await ctx.put("tool-versions", new TextEncoder().encode(toolVersions), "application/json");
 
       const value: Lean4JobValue = {
         operation: spec.operation,
@@ -411,11 +378,11 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
         toolchain: { lean: leanVersion, lake: lakeVersion, mathlib: deps.mathlibRev },
         ...(spec.operation === "prove" ? { declaration: spec.declaration, axioms: axioms ?? [] } : {}),
       };
-      return finish("succeeded", undefined, value, `${JSON.stringify(value)}\n${buildLog}`);
+      return ctx.finish("succeeded", undefined, value, `${JSON.stringify(value)}\n${buildLog}`);
     } catch (error) {
-      return fail("build-failed", `lean4 adapter 意外错误: ${error instanceof Error ? error.message : String(error)}`);
+      return ctx.fail("build-failed", `lean4 adapter 意外错误: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      running.delete(request.jobId);
+      ctx.cleanup();
     }
   }
 

@@ -9,7 +9,7 @@
  * 依赖 Node ≥22 内置 WebSocket（undici）——零新增依赖。
  * 协议：见 src/pth/gateway/routes-debug.ts 头注释（input/output/error/closed）。
  */
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 import type { Interface as ReadlineInterface } from "node:readline";
 
 // ─── 可测试核心：WS 调试会话客户端 ────────────────────────────────
@@ -110,12 +110,7 @@ export async function runInteractiveDebug(opts: { url: string; token: string; ta
 
 export async function cmdHubDebug(passthrough: string[], _flags: Record<string, string>): Promise<void> {
   const target = passthrough[0] ?? "sandbox";
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
+  const client = requireClient();
 
   try {
     await runInteractiveDebug({ url: client.debugUrl(target), token: client.authToken, target });

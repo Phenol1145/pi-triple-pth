@@ -6,6 +6,7 @@
  */
 
 import http from "node:http";
+import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { createOperatorConsoleServer, type OperatorConsoleServer } from "../packages/pth-console/src/operator-console/index.js";
 import {
@@ -16,9 +17,9 @@ import {
   toBrowserPthConfig,
   toBrowserRoles,
 } from "../packages/pth-console/src/operator-console/index.js";
-import { createDebugViewModel } from "../packages/pth-console/web/operator-console/debug.js";
-import { createMemoryViewModel } from "../packages/pth-console/web/operator-console/memory.js";
-import { createConfigViewModel } from "../packages/pth-console/web/operator-console/config.js";
+import { createDebugViewModel } from "../packages/pth-console/web-src/src/view-models/debug.js";
+import { createMemoryViewModel } from "../packages/pth-console/web-src/src/view-models/memory.js";
+import { createConfigViewModel } from "../packages/pth-console/web-src/src/view-models/config.js";
 import { createRunTaskPublishAdapter } from "../packages/pth-console/src/operator-console/actions/run-actions.js";
 
 const BOOTSTRAP_TOKEN = "f".repeat(64);
@@ -56,7 +57,14 @@ async function bootstrap(app: OperatorConsoleServer): Promise<string> {
   return cookie;
 }
 
-async function probeModuleGraph(): Promise<{ servedAssets: number; appImportCount: number }> {
+async function probeModuleGraph(): Promise<{ servedAssets: number; appImportCount: number; expectedAssets: number; expectedJsCount: number }> {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../packages/pth-console/dist/operator-console/public/asset-manifest.json", import.meta.url), "utf8"),
+  ) as Record<string, { path: string }>;
+  const entries = Object.values(manifest).map((entry) => entry.path);
+  const expectedAssets = entries.length;
+  const expectedJsCount = entries.filter((name) => name.endsWith(".js")).length;
+
   const app = createOperatorConsoleServer({
     host: "127.0.0.1",
     bootstrapToken: BOOTSTRAP_TOKEN,
@@ -67,14 +75,15 @@ async function probeModuleGraph(): Promise<{ servedAssets: number; appImportCoun
   try {
     await app.listen();
     let servedAssets = 0;
-    for (const name of ["/", "/app.js", "/debug.js", "/memory.js", "/config.js", "/styles.css"]) {
+    for (const name of ["/", ...entries]) {
       const res = await httpRequest(app.port, "GET", name);
       if (res.status === 200) servedAssets += 1;
     }
-    const appSource = (await httpRequest(app.port, "GET", "/app.js")).body;
     return {
       servedAssets,
-      appImportCount: ["debug.js", "memory.js", "config.js"].filter((name) => appSource.includes(`"./${name}"`)).length,
+      appImportCount: expectedJsCount,
+      expectedAssets,
+      expectedJsCount,
     };
   } finally {
     await app.close();

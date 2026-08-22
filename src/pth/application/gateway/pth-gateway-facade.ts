@@ -6,13 +6,10 @@
  * 本文件是唯一把 KernelRuntime 变换为 gateway 窄端口的 adapter。
  */
 
-import type { KernelRuntime } from "../../kernel/assembly.js";
-import type { BatchProfile } from "../../kernel/execution/worker-cluster.js";
-import type { PublishInput, Task } from "../../kernel/storage/task-store-pg.js";
+import type { KernelRuntime, BatchProfile, PublishInput, Task } from "../../kernel/index.js";
 import { DEFAULT_TENANT_ID, withMemoryTenant, type MemoryEntry } from "@away_from/pth-memory";
 import type { TaskCancelResult, TenantScope } from "../../contracts/index.js";
-import { TaskControlService } from "../../tasking/task-control-service.js";
-import { PgTaskQueries } from "../../tasking/task-queries.js";
+import { TaskControlService, PgTaskQueries } from "../../tasking/index.js";
 import {
   createPgKnowledgeVerificationRepo,
   promoteKnowledgeEntry,
@@ -225,7 +222,7 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   }
 
   async applyOptimizer(id: string, scope?: TenantScope): Promise<unknown> {
-    const { applyOptimizerSuggestion } = await import("../../kernel/execution/optimizer-apply.js");
+    const { applyOptimizerSuggestion } = await import("../../kernel/index.js");
     // N33 Task 5：有 scope 时把 memory store 钉到调用方 tenant（optimizer-apply 内部
     // 的 DEFAULT_TENANT_ID 会被 withMemoryTenant 覆盖）；canary/deopt 护栏保持不变。
     const memory = scope
@@ -261,7 +258,7 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     }
     // N15 B1：穿透稳定边提案同流（draft → 监督批准 → 执行注册 skill:penetrate:<child>）
     if (proposal?.kind === "penetration-proposal") {
-      const { approvePenetrationProposal, executeApprovedPenetrationProposal } = await import("../../tasking/penetration-discovery.js");
+      const { approvePenetrationProposal, executeApprovedPenetrationProposal } = await import("../../tasking/index.js");
       const approved = await approvePenetrationProposal(memory, id);
       if (!approved.ok) return approved;
       const executed = await executeApprovedPenetrationProposal(memory, id);

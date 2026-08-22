@@ -10,7 +10,7 @@
  *
  * print/json 双模式：缺省表格打印；--json 输出原样 JSON。
  */
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 import { printPthBanner } from "./banner.js";
 
 export async function cmdHubObserve(passthrough: string[], flags: Record<string, string>): Promise<void> {
@@ -20,12 +20,7 @@ export async function cmdHubObserve(passthrough: string[], flags: Record<string,
     process.exit(1);
   }
 
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
+  const client = requireClient();
 
   try {
     if (what === "sessions") {

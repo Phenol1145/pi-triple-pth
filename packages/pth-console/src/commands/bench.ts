@@ -23,6 +23,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 
 const BENCH_DIR = ".perf-bench";
 const POLL_MS = 1000;
@@ -70,16 +71,6 @@ export interface BenchReport {
     avgExecMs: number;
   };
   system: Record<string, unknown>;  // /kernel/status 快照
-}
-
-function requireClient(): PthClient {
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
-  return client;
 }
 
 function color(s: string, c: number): string { return `\x1b[${c}m${s}\x1b[0m`; }

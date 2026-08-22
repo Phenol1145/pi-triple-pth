@@ -17,6 +17,7 @@ import path from "node:path";
 
 export type BoundaryRule =
   | "gateway-kernel-import"
+  | "gateway-private-import"
   | "gateway-kernel-member-access"
   | "cross-module-storage-adapter"
   | "cross-module-private-import"
@@ -121,6 +122,20 @@ export async function collectBoundaryViolations(srcRoot: string): Promise<Bounda
             (targetPath === "kernel/assembly.ts" || targetPath === "kernel/storage/index.ts")
           ) {
             violations.push({ rule: "gateway-kernel-import", file: importerRel, line: imp.line, detail: targetPath });
+          }
+
+          // gateway/application-gateway 只允许走 kernel/index 与 tasking/index 公共 barrel，
+          // 不得直引 kernel/*、tasking/* 私有文件（P3c barrel 纪律）。
+          const isGatewayArea =
+            importerRel.startsWith("gateway/") || importerRel.startsWith("application/gateway/");
+          if (
+            isGatewayArea &&
+            targetPath !== null &&
+            (targetPath.startsWith("kernel/") || targetPath.startsWith("tasking/")) &&
+            targetPath !== "kernel/index.ts" &&
+            targetPath !== "tasking/index.ts"
+          ) {
+            violations.push({ rule: "gateway-private-import", file: importerRel, line: imp.line, detail: targetPath });
           }
 
           // 跨模块 storage adapter：tasking/runner/execution/catalog 不得 runtime-import

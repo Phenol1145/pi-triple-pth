@@ -28,6 +28,7 @@ import {
   type WolframJobSpec,
 } from "../../contracts/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
+import { createJobRunContext } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "../../contracts/index.js";
 
 export interface WolframExecResult {
@@ -126,50 +127,24 @@ export function createWolframRuntimeAdapter(deps: CreateWolframRuntimeAdapterDep
   }
 
   async function execute(request: ProfessionalJobRequest<WolframJobSpec>): Promise<ProfessionalJobResult<WolframJobValue>> {
-    const startedAt = clock();
-    const artifacts: ArtifactRef[] = [];
-    const diagnostics: ProfessionalDiagnostic[] = [];
-    let outputBytes = 0;
-    const state = { cancelled: false };
-    running.set(request.jobId, state);
-
-    const finish = (
-      status: ProfessionalJobResult["status"],
-      error: { code: string; message: string } | undefined,
-      value?: WolframJobValue,
-      outputHashSource?: Uint8Array | string,
-    ): ProfessionalJobResult<WolframJobValue> => {
-      const finishedAt = clock();
-      if (error) diagnostics.push({ code: error.code, severity: "error", message: error.message });
-      return {
-        status,
-        runtime: "wolfram",
-        runtimeVersion: deps.lockVersion,
-        inputHash: request.inputHash,
-        outputHash: status === "succeeded" && outputHashSource !== undefined ? `sha256:${sha256hex(outputHashSource)}` : null,
-        artifacts,
-        diagnostics,
-        usage: { durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()), cpuMs: 0, maxRssBytes: 0, outputBytes },
-        traceId: request.traceId ?? "unknown",
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        ...(value !== undefined ? { value } : {}),
-        ...(error !== undefined ? { error } : {}),
-      };
-    };
-
-    const fail = (code: string, message: string): ProfessionalJobResult<WolframJobValue> =>
-      finish("failed", { code, message: message.slice(0, 4_000) });
+    const ctx = createJobRunContext<WolframJobValue>({
+      runtime: "wolfram",
+      runtimeVersion: deps.lockVersion,
+      request,
+      artifactPort: deps.artifactPort,
+      running,
+      clock,
+    });
 
     try {
       if (!isWolframJobSpecStructurallyValid(request.spec)) {
-        return fail("spec-invalid", "spec 不是合法 WolframJobSpec（禁 command/shell/import 键或字段越界）");
+        return ctx.fail("spec-invalid", "spec 不是合法 WolframJobSpec（禁 command/shell/import 键或字段越界）");
       }
       const spec = request.spec;
 
       const probeResult = await probe();
       if (!probeResult.available) {
-        return finish("unavailable", { code: "license-unavailable", message: probeResult.reason ?? "licensed Wolfram kernel 不可用" });
+        return ctx.finish("unavailable", { code: "license-unavailable", message: probeResult.reason ?? "licensed Wolfram kernel 不可用" });
       }
 
       const jobDir = join(workDir, `wolfram-${request.jobId.replace(/[^A-Za-z0-9._-]/g, "_")}`);
@@ -190,16 +165,16 @@ export function createWolframRuntimeAdapter(deps: CreateWolframRuntimeAdapterDep
       await writeFile(wlPath, wl, "utf8");
 
       const run = await exec(kernelPath, ["-script", wlPath], { cwd: jobDir, timeoutMs, maxOutputBytes });
-      if (run.timedOut) return fail("evaluate-timeout", `Wolfram 计算超过 ${timeoutMs}ms`);
+      if (run.timedOut) return ctx.fail("evaluate-timeout", `Wolfram 计算超过 ${timeoutMs}ms`);
       if (!run.ok) {
-        return fail("evaluate-failed", `Wolfram 执行失败: ${run.stderr.slice(0, 800)}`);
+        return ctx.fail("evaluate-failed", `Wolfram 执行失败: ${run.stderr.slice(0, 800)}`);
       }
 
       let parsed: [string, string, string[]];
       try {
         parsed = JSON.parse(run.stdout.trim()) as [string, string, string[]];
       } catch {
-        return fail("evaluate-failed", `Wolfram 输出不可解析: ${run.stdout.slice(0, 400)}`);
+        return ctx.fail("evaluate-failed", `Wolfram 输出不可解析: ${run.stdout.slice(0, 400)}`);
       }
       const [result, version, messages] = parsed;
 
@@ -219,11 +194,11 @@ export function createWolframRuntimeAdapter(deps: CreateWolframRuntimeAdapterDep
         numericVerification: spec.operation === "verify" ? result : null,
         toolchain: { wolfram: version },
       };
-      return finish("succeeded", undefined, value, `${result}\n${messages.join("\n")}\n${version}`);
+      return ctx.finish("succeeded", undefined, value, `${result}\n${messages.join("\n")}\n${version}`);
     } catch (error) {
-      return fail("evaluate-failed", `wolfram adapter 意外错误: ${error instanceof Error ? error.message : String(error)}`);
+      return ctx.fail("evaluate-failed", `wolfram adapter 意外错误: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      running.delete(request.jobId);
+      ctx.cleanup();
     }
   }
 

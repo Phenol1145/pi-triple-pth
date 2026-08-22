@@ -21,7 +21,7 @@ import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade
 import type { KnowledgeBroker } from "../execution/index.js";
 import type { KnowledgeServiceAuth } from "../execution/knowledge-promotion.js";
 import type { TenantScope } from "../contracts/index.js";
-import { listPublicTemplates, resolveTemplateTask } from "../kernel/templates.js";
+import { listPublicTemplates, resolveTemplateTask } from "../kernel/index.js";
 import { pthConfig } from "../config/index.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
@@ -157,7 +157,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     if (!facade) return unavailable(reply);
     const { id } = req.params as { id: string };
     const list = await facade.listTranscripts(id);
-    const { buildScorecard } = await import("../kernel/execution/worker-scorecard.js");
+    const { buildScorecard } = await import("../kernel/index.js");
     return { taskId: id, transcripts: list.map((t: any) => ({
       id: t.id,
       agentId: t.agent_id,
@@ -433,7 +433,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     const body = (req.body ?? {}) as Record<string, unknown>;
     const count = typeof body.count === "number" ? Math.min(Math.max(Math.floor(body.count), 1), 10) : 1;
     // BatchProfile（⑤）：role → reinforced 单角色堆叠；weights → balanced 自定义权重；缺省 = 默认构成
-    let profile: import("../kernel/execution/worker-cluster.js").BatchProfile | undefined;
+    let profile: import("../kernel/index.js").BatchProfile | undefined;
     if (typeof body.role === "string" && body.role.length > 0) {
       const copies = typeof body.copies === "number" ? Math.min(Math.max(Math.floor(body.copies), 1), 8) : 1;
       profile = { mode: "reinforced", role: body.role, copies };

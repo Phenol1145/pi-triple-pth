@@ -11,17 +11,8 @@
  *   pth kernel status
  */
 import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 import { printPthBanner } from "./banner.js";
-
-function requireClient(): PthClient {
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
-  return client;
-}
 
 /** 解析 --tags a,b 与 --limit n 等 flags（hub 侧 flags 已由 dispatch 解析为 Record） */
 function parseTags(flags: Record<string, string>): string[] | undefined {

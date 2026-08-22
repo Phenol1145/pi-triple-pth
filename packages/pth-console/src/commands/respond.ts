@@ -9,7 +9,7 @@
  */
 import fs from "node:fs";
 import { packProgram } from "../bridge/pack.js";
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 
 export async function cmdHubRespond(passthrough: string[], _flags: Record<string, string>): Promise<void> {
   const requestId = passthrough[0];
@@ -37,12 +37,7 @@ export async function cmdHubRespond(passthrough: string[], _flags: Record<string
   console.log(`  \x1b[1m构件: ${packed.manifest.name}\x1b[0m  请求: ${requestId}`);
   console.log(`  文件: ${packed.files.length} 个 (${(packed.bytes / 1024).toFixed(1)} KB)`);
 
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
+  const client = requireClient();
 
   console.log("  上传中…");
   try {

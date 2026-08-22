@@ -7,7 +7,7 @@
  *   pth request "<description>" --slot <slotHint> [--urgency low|medium|high]
  *   pth requests（列表——open 优先）
  */
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 import { printPthBanner } from "./banner.js";
 
 export async function cmdHubRequest(passthrough: string[], flags: Record<string, string>): Promise<void> {
@@ -17,12 +17,7 @@ export async function cmdHubRequest(passthrough: string[], flags: Record<string,
     process.exit(1);
   }
 
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
+  const client = requireClient();
 
   try {
     const req = await client.createFallbackRequest({
@@ -40,12 +35,7 @@ export async function cmdHubRequest(passthrough: string[], flags: Record<string,
 }
 
 export async function cmdHubRequests(_flags: Record<string, string>): Promise<void> {
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
+  const client = requireClient();
 
   try {
     const reqs = await client.listFallbackRequests();

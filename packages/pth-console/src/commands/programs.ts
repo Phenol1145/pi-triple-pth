@@ -3,16 +3,11 @@
  *
  * 列出 PTH 上已提交的程序。
  */
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 import { printPthBanner } from "./banner.js";
 
 export async function cmdPrograms(_flags: Record<string, string>): Promise<void> {
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
+  const client = requireClient();
 
   try {
     const programs = await client.list();

@@ -36,6 +36,7 @@ import {
   type U8RegKey,
 } from "../../contracts/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
+import { createJobRunContext } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "../../contracts/index.js";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
@@ -213,60 +214,26 @@ export function createU8RuntimeAdapter(
   }
 
   async function execute(request: ProfessionalJobRequest<U8JobSpec>): Promise<ProfessionalJobResult<U8JobValue>> {
-    const startedAt = clock();
-    const traceId = request.traceId ?? "unknown";
-    const artifacts: ArtifactRef[] = [];
-    const diagnostics: ProfessionalDiagnostic[] = [];
-    let outputBytes = 0;
-    const state = { cancelled: false };
-    running.set(request.jobId, state);
-
-    const finish = (
-      status: ProfessionalJobResult["status"],
-      error: { code: string; message: string } | undefined,
-      value?: U8JobValue,
-      outputHashSource?: Uint8Array | string,
-    ): ProfessionalJobResult<U8JobValue> => {
-      const finishedAt = clock();
-      if (error) diagnostics.push({ code: error.code, severity: "error", message: error.message });
-      return {
-        status,
-        runtime: "u8",
-        runtimeVersion: deps.lockVersion,
-        inputHash: request.inputHash,
-        outputHash: status === "succeeded" && outputHashSource !== undefined ? `sha256:${sha256hex(outputHashSource)}` : null,
-        artifacts,
-        diagnostics,
-        usage: { durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()), cpuMs: 0, maxRssBytes: 0, outputBytes },
-        traceId,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        ...(value !== undefined ? { value } : {}),
-        ...(error !== undefined ? { error } : {}),
-      };
-    };
-
-    const fail = (code: string, message: string): ProfessionalJobResult<U8JobValue> =>
-      finish("failed", { code, message: message.slice(0, 4_000) });
-
-    const put = async (kind: string, bytes: Uint8Array, mediaType: string): Promise<ArtifactRef> => {
-      const ref = await deps.artifactPort.putOutput({ tenantId: request.tenantId, jobId: request.jobId, kind, mediaType, bytes });
-      artifacts.push(ref);
-      outputBytes += bytes.byteLength;
-      return ref;
-    };
+    const ctx = createJobRunContext<U8JobValue>({
+      runtime: "u8",
+      runtimeVersion: deps.lockVersion,
+      request,
+      artifactPort: deps.artifactPort,
+      running,
+      clock,
+    });
 
     try {
       // ── 门禁 1：spec 结构（禁 command/argv/shell；reg/io 白名单与字节范围）──
       if (!isU8JobSpecStructurallyValid(request.spec)) {
-        return fail("spec-invalid", "spec 不是合法的 U8JobSpec（含禁键、字段越界或 operation 与 artifact 引用不匹配）");
+        return ctx.fail("spec-invalid", "spec 不是合法的 U8JobSpec（含禁键、字段越界或 operation 与 artifact 引用不匹配）");
       }
       const spec = request.spec;
 
       // ── 门禁 2：工具链 probe（版本与 committed lock 一致）──
       const probeResult = await probe();
       if (!probeResult.available) {
-        return fail("toolchain-unavailable", probeResult.reason ?? "u8 工具链不可用");
+        return ctx.fail("toolchain-unavailable", probeResult.reason ?? "u8 工具链不可用");
       }
       const u8Version = probeResult.version;
 
@@ -275,7 +242,7 @@ export function createU8RuntimeAdapter(
       try {
         await mkdir(jobDir, { recursive: true });
       } catch (error) {
-        return fail("workspace-error", `job 目录创建失败: ${error instanceof Error ? error.message : String(error)}`);
+        return ctx.fail("workspace-error", `job 目录创建失败: ${error instanceof Error ? error.message : String(error)}`);
       }
 
       const wantsCompile = spec.operation === "compile" || spec.operation === "compile-run";
@@ -293,14 +260,14 @@ export function createU8RuntimeAdapter(
         try {
           sourceBytes = await deps.artifactPort.getInput(request.tenantId, spec.sourceRef!);
         } catch (error) {
-          return fail("source-unreadable", `sourceRef 读取失败: ${error instanceof Error ? error.message : String(error)}`);
+          return ctx.fail("source-unreadable", `sourceRef 读取失败: ${error instanceof Error ? error.message : String(error)}`);
         }
-        if (sourceBytes.byteLength === 0) return fail("source-empty", "sourceRef 指向空源码");
+        if (sourceBytes.byteLength === 0) return ctx.fail("source-empty", "sourceRef 指向空源码");
         if (sourceBytes.byteLength > maxSourceBytes) {
-          return fail("source-too-large", `源码 ${sourceBytes.byteLength}B 超过上限 ${maxSourceBytes}B`);
+          return ctx.fail("source-too-large", `源码 ${sourceBytes.byteLength}B 超过上限 ${maxSourceBytes}B`);
         }
         await writeFile(join(jobDir, "source.u8asm"), sourceBytes);
-        await put("source", sourceBytes, "text/x-u8asm");
+        await ctx.put("source", sourceBytes, "text/x-u8asm");
 
         const c = await exec("u8", ["compile", "source.u8asm", "programme.u8programme"], {
           cwd: jobDir,
@@ -309,23 +276,23 @@ export function createU8RuntimeAdapter(
         });
         compileStdout = `${c.stdout}${c.stderr}`;
         if (!c.ok || !c.stdout.includes(COMPILE_SUCCESS_MARKER)) {
-          return fail(
+          return ctx.fail(
             "compile-failed",
             `u8 compile 失败（exit ${c.code ?? "null"}${c.timedOut ? ", timed out" : ""}）: ${(c.error ?? `${c.stdout}\n${c.stderr}`).slice(0, 2_000)}`,
           );
         }
-        if (state.cancelled) return finish("cancelled", { code: "job-cancelled", message: "job cancelled after compile" });
+        if (ctx.isCancelled()) return ctx.finish("cancelled", { code: "job-cancelled", message: "job cancelled after compile" });
 
         try {
           programmeBytes = new Uint8Array(await readFile(join(jobDir, "programme.u8programme")));
         } catch (error) {
-          return fail("binary-missing", `编译产物缺失: ${error instanceof Error ? error.message : String(error)}`);
+          return ctx.fail("binary-missing", `编译产物缺失: ${error instanceof Error ? error.message : String(error)}`);
         }
-        if (programmeBytes.byteLength === 0) return fail("binary-empty", "编译产物为空");
+        if (programmeBytes.byteLength === 0) return ctx.fail("binary-empty", "编译产物为空");
         if (programmeBytes.byteLength > maxProgrammeBytes) {
-          return fail("binary-too-large", `编译产物 ${programmeBytes.byteLength}B 超过上限 ${maxProgrammeBytes}B`);
+          return ctx.fail("binary-too-large", `编译产物 ${programmeBytes.byteLength}B 超过上限 ${maxProgrammeBytes}B`);
         }
-        await put("programme", programmeBytes, "application/x-u8programme");
+        await ctx.put("programme", programmeBytes, "application/x-u8programme");
       }
 
       if (wantsRun) {
@@ -334,14 +301,14 @@ export function createU8RuntimeAdapter(
           try {
             programmeBytes = await deps.artifactPort.getInput(request.tenantId, spec.programmeRef!);
           } catch (error) {
-            return fail("programme-unreadable", `programmeRef 读取失败: ${error instanceof Error ? error.message : String(error)}`);
+            return ctx.fail("programme-unreadable", `programmeRef 读取失败: ${error instanceof Error ? error.message : String(error)}`);
           }
-          if (programmeBytes.byteLength === 0) return fail("programme-empty", "programmeRef 指向空二进制");
+          if (programmeBytes.byteLength === 0) return ctx.fail("programme-empty", "programmeRef 指向空二进制");
           if (programmeBytes.byteLength > maxProgrammeBytes) {
-            return fail("programme-too-large", `二进制 ${programmeBytes.byteLength}B 超过上限 ${maxProgrammeBytes}B`);
+            return ctx.fail("programme-too-large", `二进制 ${programmeBytes.byteLength}B 超过上限 ${maxProgrammeBytes}B`);
           }
           await writeFile(join(jobDir, "programme.u8programme"), programmeBytes);
-          await put("programme", programmeBytes, "application/x-u8programme");
+          await ctx.put("programme", programmeBytes, "application/x-u8programme");
         }
 
         const runArgs = ["run", "programme.u8programme", ...buildInitialArgs(spec)];
@@ -350,15 +317,15 @@ export function createU8RuntimeAdapter(
         runStderr = r.stderr;
         runExitCode = r.code ?? 0;
         if (!r.ok) {
-          return fail(
+          return ctx.fail(
             "run-failed",
             `u8 run 失败（exit ${r.code ?? "null"}${r.timedOut ? ", timed out" : ""}）: ${(r.error ?? `${r.stdout}\n${r.stderr}`).slice(0, 2_000)}`,
           );
         }
         if (RUN_ERROR_MARKER_RE.test(runStdout)) {
-          return fail("run-vm-error", `u8 VM 运行错误: ${runStdout.slice(0, 2_000)}`);
+          return ctx.fail("run-vm-error", `u8 VM 运行错误: ${runStdout.slice(0, 2_000)}`);
         }
-        if (state.cancelled) return finish("cancelled", { code: "job-cancelled", message: "job cancelled after run" });
+        if (ctx.isCancelled()) return ctx.finish("cancelled", { code: "job-cancelled", message: "job cancelled after run" });
 
         const runLog = JSON.stringify({
           schemaVersion: 1,
@@ -370,7 +337,7 @@ export function createU8RuntimeAdapter(
           exitCode: runExitCode,
           toolchain: { u8: u8Version },
         }, null, 2);
-        await put("run-log", new TextEncoder().encode(runLog), "application/json");
+        await ctx.put("run-log", new TextEncoder().encode(runLog), "application/json");
       }
 
       const value: U8JobValue = {
@@ -381,11 +348,11 @@ export function createU8RuntimeAdapter(
         toolchain: { u8: u8Version },
       };
       const outputHashSource = `${compileStdout}\n${runStdout}\n${runExitCode}\n${programmeBytes ? sha256hex(programmeBytes) : ""}`;
-      return finish("succeeded", undefined, value, outputHashSource);
+      return ctx.finish("succeeded", undefined, value, outputHashSource);
     } catch (error) {
-      return fail("adapter-error", error instanceof Error ? error.message : String(error));
+      return ctx.fail("adapter-error", error instanceof Error ? error.message : String(error));
     } finally {
-      running.delete(request.jobId);
+      ctx.cleanup();
     }
   }
 

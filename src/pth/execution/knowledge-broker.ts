@@ -13,7 +13,7 @@ import type { ExecutionGrantService } from "./authorization/execution-grant-serv
 import { assertVerifiedTaskReadScope, type VerifiedTaskReadScope, type VerifiedTaskReadScopeFactory } from "./authorization/verified-task-read-scope.js";
 import { ancestorChain } from "@away_from/pth-memory";
 import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "./knowledge-ranking.js";
-import { computeKnowledgeQueryFingerprint } from "../runner/index.js";
+import { computeKnowledgeQueryFingerprint } from "../contracts/knowledge-fingerprint.js";
 import { computeRetrievalQueryFingerprint, type LayeredKnowledgeRetriever, type LayeredSearchWaveInput, type LayeredSearchWaveResult } from "./layered-knowledge-retriever.js";
 
 export type KnowledgeOp = "query" | "retrieve" | "get" | "search";

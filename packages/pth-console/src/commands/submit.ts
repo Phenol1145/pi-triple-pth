@@ -6,7 +6,7 @@
  */
 import fs from "node:fs";
 import { packProgram } from "../bridge/pack.js";
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 
 export async function cmdSubmit(passthrough: string[], flags: Record<string, string>): Promise<void> {
   const dryRun = flags["dry-run"] === "true";
@@ -45,12 +45,7 @@ export async function cmdSubmit(passthrough: string[], flags: Record<string, str
     return;
   }
 
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
+  const client = requireClient();
 
   console.log("  上传中…");
   try {

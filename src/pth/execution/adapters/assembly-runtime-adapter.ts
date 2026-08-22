@@ -35,6 +35,7 @@ import {
   type ProfessionalJobResult,
 } from "../../contracts/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
+import { createJobRunContext } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "../../contracts/index.js";
 
 // ─── 执行通道与结果类型 ────────────────────────────────────────────────────
@@ -319,46 +320,21 @@ export function createAssemblyRuntimeAdapter(
   }
 
   async function execute(request: ProfessionalJobRequest<AssemblyJobSpec>): Promise<ProfessionalJobResult<AssemblyJobValue>> {
-    const startedAt = clock();
-    const traceId = request.traceId ?? "unknown";
-    const artifacts: ArtifactRef[] = [];
-    const diagnostics: ProfessionalDiagnostic[] = [];
-    let outputBytes = 0;
-    const state = { cancelled: false };
-    running.set(request.jobId, state);
-
-    const finish = (
-      status: ProfessionalJobResult["status"],
-      error: { code: string; message: string } | undefined,
-      value?: AssemblyJobValue,
-      outputHashSource?: Uint8Array | string,
-    ): ProfessionalJobResult<AssemblyJobValue> => {
-      const finishedAt = clock();
-      if (error) diagnostics.push({ code: error.code, severity: "error", message: error.message });
-      return {
-        status,
-        runtime: "assembly",
-        runtimeVersion: deps.lockVersion,
-        inputHash: request.inputHash,
-        outputHash: status === "succeeded" && outputHashSource !== undefined ? `sha256:${sha256hex(outputHashSource)}` : null,
-        artifacts,
-        diagnostics,
-        usage: { durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()), cpuMs: 0, maxRssBytes: 0, outputBytes },
-        traceId,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        ...(value !== undefined ? { value } : {}),
-        ...(error !== undefined ? { error } : {}),
-      };
-    };
-
+    const ctx = createJobRunContext<AssemblyJobValue>({
+      runtime: "assembly",
+      runtimeVersion: deps.lockVersion,
+      request,
+      artifactPort: deps.artifactPort,
+      running,
+      clock,
+    });
     const failTool = (code: string, toolError: string | undefined) =>
-      finish("failed", { code, message: (toolError ?? "unknown tool error").slice(0, 4_000) });
+      ctx.finish("failed", { code, message: (toolError ?? "unknown tool error").slice(0, 4_000) });
 
     try {
       // ── 门禁 1：spec 结构（禁 command/argv/shell 等任意执行字段；target 白名单）──
       if (!isAssemblyJobSpecStructurallyValid(request.spec)) {
-        return finish("failed", { code: "spec-invalid", message: "spec 不是合法的 AssemblyJobSpec（含禁键或字段越界）" });
+        return ctx.finish("failed", { code: "spec-invalid", message: "spec 不是合法的 AssemblyJobSpec（含禁键或字段越界）" });
       }
       const spec = request.spec;
       const target = TARGET_MAP[spec.target];
@@ -368,46 +344,40 @@ export function createAssemblyRuntimeAdapter(
       try {
         sourceBytes = await deps.artifactPort.getInput(request.tenantId, spec.sourceRef);
       } catch (error) {
-        return finish("failed", { code: "source-unreadable", message: `sourceRef 读取失败: ${error instanceof Error ? error.message : String(error)}` });
+        return ctx.finish("failed", { code: "source-unreadable", message: `sourceRef 读取失败: ${error instanceof Error ? error.message : String(error)}` });
       }
       if (sourceBytes.byteLength === 0) {
-        return finish("failed", { code: "source-empty", message: "sourceRef 指向空源码" });
+        return ctx.finish("failed", { code: "source-empty", message: "sourceRef 指向空源码" });
       }
       if (sourceBytes.byteLength > maxSourceBytes) {
-        return finish("failed", { code: "source-too-large", message: `源码 ${sourceBytes.byteLength}B 超过上限 ${maxSourceBytes}B` });
+        return ctx.finish("failed", { code: "source-too-large", message: `源码 ${sourceBytes.byteLength}B 超过上限 ${maxSourceBytes}B` });
       }
       const source = new TextDecoder().decode(sourceBytes);
 
       // ── 工具链版本留痕（probe 之外按目标再核一次，版本缺失即失败）──
       const versions = await toolchainVersions(exec, target);
       if (!versions) {
-        return finish("failed", { code: "toolchain-unavailable", message: `目标 ${spec.target} 工具链版本探测失败` });
+        return ctx.finish("failed", { code: "toolchain-unavailable", message: `目标 ${spec.target} 工具链版本探测失败` });
       }
 
-      const put = async (kind: string, bytes: Uint8Array, mediaType: string): Promise<ArtifactRef> => {
-        const ref = await deps.artifactPort.putOutput({ tenantId: request.tenantId, jobId: request.jobId, kind, mediaType, bytes });
-        artifacts.push(ref);
-        outputBytes += bytes.byteLength;
-        return ref;
-      };
-      const cancelled = () => state.cancelled;
+      const cancelled = () => ctx.isCancelled();
 
-      await put("source", sourceBytes, "text/x-asm");
+      await ctx.put("source", sourceBytes, "text/x-asm");
       const tools = await loadAsmKernelTools(indexPath, exec, deps.workDir);
 
       // ── assemble ──
       const a = await tools.assemble({ source, target: target.kernelTarget });
       if (!a.ok) return failTool("assemble-failed", a.error);
       const objBytes = new Uint8Array(await readFile(a.result.objPath));
-      await put("object", objBytes, "application/x-object");
-      if (cancelled()) return finish("cancelled", { code: "job-cancelled", message: "job cancelled after assemble" });
+      await ctx.put("object", objBytes, "application/x-object");
+      if (cancelled()) return ctx.finish("cancelled", { code: "job-cancelled", message: "job cancelled after assemble" });
 
       // ── link ──
       const l = await tools.link({ objRef: a.result.objRef, target: target.kernelTarget });
       if (!l.ok) return failTool("link-failed", l.error);
       const binBytes = new Uint8Array(await readFile(l.result.binaryPath));
-      await put("binary", binBytes, "application/x-executable");
-      if (cancelled()) return finish("cancelled", { code: "job-cancelled", message: "job cancelled after link" });
+      await ctx.put("binary", binBytes, "application/x-executable");
+      if (cancelled()) return ctx.finish("cancelled", { code: "job-cancelled", message: "job cancelled after link" });
 
       const wantsRun = spec.operation !== "build";
       const wantsDisasm = spec.operation === "disassemble" || spec.operation === "build-run-disassemble" || spec.operation === "verify";
@@ -418,8 +388,8 @@ export function createAssemblyRuntimeAdapter(
         const d = await tools.disasm({ binaryRef: l.result.binaryRef, target: target.kernelTarget });
         if (!d.ok) return failTool("disassemble-failed", d.error);
         disassembly = String(d.result.text);
-        await put("disassembly", new TextEncoder().encode(disassembly), "text/x-objdump");
-        if (cancelled()) return finish("cancelled", { code: "job-cancelled", message: "job cancelled after disassemble" });
+        await ctx.put("disassembly", new TextEncoder().encode(disassembly), "text/x-objdump");
+        if (cancelled()) return ctx.finish("cancelled", { code: "job-cancelled", message: "job cancelled after disassemble" });
       }
 
       // ── run ──
@@ -436,19 +406,19 @@ export function createAssemblyRuntimeAdapter(
         exitCode = Number(r.result.exitCode ?? 0);
         timedOut = r.result.timedOut === true;
         if (stdout.length > maxOutputBytes || stderr.length > maxOutputBytes) {
-          return finish("failed", { code: "output-limit-exceeded", message: `运行输出超过上限 ${maxOutputBytes}B` });
+          return ctx.finish("failed", { code: "output-limit-exceeded", message: `运行输出超过上限 ${maxOutputBytes}B` });
         }
         runLogBytes = new TextEncoder().encode(JSON.stringify({
           target: spec.target, stdout, stderr, exitCode, timedOut, timeoutMs: runTimeoutMs,
         }));
-        await put("run-log", runLogBytes, "application/json");
+        await ctx.put("run-log", runLogBytes, "application/json");
         if (timedOut) {
-          return finish("failed", { code: "run-timeout", message: `运行超过 ${runTimeoutMs}ms 被终止` });
+          return ctx.finish("failed", { code: "run-timeout", message: `运行超过 ${runTimeoutMs}ms 被终止` });
         }
         if (exitCode !== 0) {
-          return finish("failed", { code: "run-exit-nonzero", message: `程序退出码 ${exitCode}（stderr: ${stderr.slice(0, 500)}）` });
+          return ctx.finish("failed", { code: "run-exit-nonzero", message: `程序退出码 ${exitCode}（stderr: ${stderr.slice(0, 500)}）` });
         }
-        if (cancelled()) return finish("cancelled", { code: "job-cancelled", message: "job cancelled after run" });
+        if (cancelled()) return ctx.finish("cancelled", { code: "job-cancelled", message: "job cancelled after run" });
       }
 
       const value: AssemblyJobValue = {
@@ -469,11 +439,11 @@ export function createAssemblyRuntimeAdapter(
         try {
           expectedBytes = await deps.artifactPort.getInput(request.tenantId, expectedRef);
         } catch (error) {
-          return finish("failed", { code: "expected-output-missing", message: `verify 需要 ${expectedRef.uri}: ${error instanceof Error ? error.message : String(error)}` });
+          return ctx.finish("failed", { code: "expected-output-missing", message: `verify 需要 ${expectedRef.uri}: ${error instanceof Error ? error.message : String(error)}` });
         }
         const expected = new TextDecoder().decode(expectedBytes);
         if (expected !== stdout) {
-          return finish("failed", {
+          return ctx.finish("failed", {
             code: "output-mismatch",
             message: `输出与期望不符（expected ${JSON.stringify(expected.slice(0, 200))}, got ${JSON.stringify(stdout.slice(0, 200))}）`,
           });
@@ -481,11 +451,11 @@ export function createAssemblyRuntimeAdapter(
       }
 
       const outputHashSource = `${stdout}\n${stderr}\n${exitCode}\n${disassembly ?? ""}`;
-      return finish("succeeded", undefined, value, outputHashSource);
+      return ctx.finish("succeeded", undefined, value, outputHashSource);
     } catch (error) {
-      return finish("failed", { code: "adapter-error", message: error instanceof Error ? error.message : String(error) });
+      return ctx.finish("failed", { code: "adapter-error", message: error instanceof Error ? error.message : String(error) });
     } finally {
-      running.delete(request.jobId);
+      ctx.cleanup();
     }
   }
 

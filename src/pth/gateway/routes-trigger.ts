@@ -11,7 +11,7 @@
 import type { FastifyInstance } from "fastify";
 import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 import { randomUUID } from "node:crypto";
-import { checkTaskRouting } from "../kernel/execution/role-router.js";
+import { checkTaskRouting } from "../kernel/index.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 const TRIGGER_KIND = "trigger";

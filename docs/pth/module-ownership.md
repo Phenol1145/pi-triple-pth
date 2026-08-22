@@ -1,6 +1,6 @@
 # 模块归属与产品边界（PTL / PTH）
 
-> 依据：`docs/product-shape.md`（2026-08-21 产品形态基线）。
+> 依据：`docs/fracta-engine-execution-topology.md`（三仓同步的执行拓扑基线）与各仓 README。
 > 本文件回答“哪个目录属于哪个产品、允许怎么 import”，由各仓 `scripts/check-product-boundaries.ts` 机械校验。
 > v1.5 拆仓后：PTL 代码在 `pi-triple-ptl`，PTH 代码在本仓，公共能力在 `pi-triple-deps`。
 

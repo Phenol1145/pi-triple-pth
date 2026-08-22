@@ -16,19 +16,9 @@
  *   pth trigger toggle <id> [--on|--off]
  *   pth trigger reload
  */
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 
 /** 从 pi-triple.json 配置构造客户端；未配置时给出引导并退出。 */
-function requireClient(): PthClient {
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
-  return client;
-}
-
 /** 解析整数 flag（--max-fires n）；缺省/非法返回 undefined */
 function parseIntFlag(flags: Record<string, string>, key: string): number | undefined {
   const v = flags[key];

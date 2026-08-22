@@ -27,6 +27,9 @@ import {
   type VerifiedTaskReadScope,
 } from "../execution/index.js";
 
+import { computeKnowledgeQueryFingerprint } from "../contracts/knowledge-fingerprint.js";
+export { computeKnowledgeQueryFingerprint, fnv1aHex } from "../contracts/knowledge-fingerprint.js";
+
 export interface KnowledgeContextPromptRow {
   entryId: string;
   anchor: string;
@@ -109,32 +112,6 @@ export interface KnowledgeContextProviderDeps {
 export const KNOWLEDGE_CONTEXT_KINDS = ["domain-fact", "domain-method", "skill", "task-insight"] as const;
 const DEFAULT_MAX_ENTRIES = 8;
 const DEFAULT_SUMMARY_CHARS = 240;
-
-/** FNV-1a 32-bit → 8 位 hex 指纹。 */
-export function fnv1aHex(input: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
-
-/** §1 指纹函数：tenantId|space|roleId|domains(排序)|title|text|catalogVersion 的 \n join。
- *  N28 T4：workerId 存在时作为独立分量追加在 roleId 后；缺席时旧指纹逐字节不变。 */
-export function computeKnowledgeQueryFingerprint(input: KnowledgeContextInput): string {
-  const domains = [...input.domains].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  const base = [
-    input.tenantId,
-    input.space,
-    input.roleId,
-    domains.join("\n"),
-    input.title,
-    input.text,
-    input.catalogVersion,
-  ].join("\n");
-  return fnv1aHex(input.workerId !== undefined ? `${base}\nworker:${input.workerId}` : base);
-}
 
 /** N28 T4：冻结 prompt/billing 投影——只含白名单字段，绝不透传任意存储 meta。 */
 export function contextPromptProjection(entry: KnowledgeContextEntry): KnowledgeContextPromptRow {

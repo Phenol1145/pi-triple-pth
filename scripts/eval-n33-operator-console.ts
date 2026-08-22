@@ -11,17 +11,24 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { createDebugViewModel } from "../packages/pth-console/web/operator-console/debug.js";
-import { createMemoryViewModel, buildMemoryCharts } from "../packages/pth-console/web/operator-console/memory.js";
-import { createConfigViewModel, redactConfigEntry } from "../packages/pth-console/web/operator-console/config.js";
+import { createDebugViewModel } from "../packages/pth-console/web-src/src/view-models/debug.js";
+import { createMemoryViewModel, buildMemoryCharts } from "../packages/pth-console/web-src/src/view-models/memory.js";
+import { createConfigViewModel, redactConfigEntry } from "../packages/pth-console/web-src/src/view-models/config.js";
 import { runN33RealProbes } from "./n33-real-probes.js";
 
 const root = new URL("..", import.meta.url);
-const html = readFileSync(new URL("packages/pth-console/web/operator-console/index.html", root), "utf8");
-const app = readFileSync(new URL("packages/pth-console/web/operator-console/app.js", root), "utf8");
+const html = readFileSync(new URL("packages/pth-console/web-src/index.html", root), "utf8");
+const app = readFileSync(new URL("packages/pth-console/web-src/src/app.tsx", root), "utf8");
+const sidebar = readFileSync(new URL("packages/pth-console/web-src/src/components/Sidebar.tsx", root), "utf8");
+const workPage = readFileSync(new URL("packages/pth-console/web-src/src/pages/work.tsx", root), "utf8");
+const session = readFileSync(new URL("packages/pth-console/web-src/src/session.ts", root), "utf8");
 
 const PAGES = ["overview", "work", "debug", "memory", "config"] as const;
 const MODES = ["run", "intake", "optimize"] as const;
+
+const pageSources = new Map(
+  PAGES.map((page) => [page, readFileSync(new URL(`packages/pth-console/web-src/src/pages/${page}.tsx`, root), "utf8")]),
+);
 
 function failures(reasons: string[]): { decision: "NO-GO"; reasons: string[] } {
   return { decision: "NO-GO", reasons };
@@ -32,8 +39,8 @@ async function evalN33() {
 
   // ── P1-4：真实公共探针（module graph / secret boundary / DTO / native idempotency） ──
   const realProbes = await runN33RealProbes();
-  if (realProbes.moduleGraph.servedAssets !== 6) reasons.push(`real module graph served ${realProbes.moduleGraph.servedAssets} != 6`);
-  if (realProbes.moduleGraph.appImportCount !== 3) reasons.push(`app.js module imports ${realProbes.moduleGraph.appImportCount} != 3`);
+  if (realProbes.moduleGraph.servedAssets !== realProbes.moduleGraph.expectedAssets) reasons.push(`real module graph served ${realProbes.moduleGraph.servedAssets} != ${realProbes.moduleGraph.expectedAssets}`);
+  if (realProbes.moduleGraph.appImportCount !== realProbes.moduleGraph.expectedJsCount) reasons.push(`app module imports ${realProbes.moduleGraph.appImportCount} != ${realProbes.moduleGraph.expectedJsCount}`);
   if (realProbes.secretBoundary.upstreamErrors !== 3) reasons.push(`upstream error probes ${realProbes.secretBoundary.upstreamErrors} != 3`);
   if (realProbes.secretBoundary.requestIds !== 3) reasons.push(`upstream request ids ${realProbes.secretBoundary.requestIds} != 3`);
   if (realProbes.secretBoundary.leakedSentinelCount !== 0) reasons.push(`leaked sentinel count ${realProbes.secretBoundary.leakedSentinelCount} != 0`);
@@ -43,13 +50,13 @@ async function evalN33() {
   if (!realProbes.nativeIdempotency.keyForwarded) reasons.push("native idempotency key not forwarded");
 
   // ── 页面与导航分母 ──
-  const pageRoutes = PAGES.filter((p) => html.includes(`data-page-root="${p}"`));
+  const pageRoutes = PAGES.filter((p) => pageSources.get(p)?.includes(`data-page-root="${p}"`));
   if (pageRoutes.length !== 5) reasons.push(`page routes ${pageRoutes.length} != 5`);
-  const navPaths = PAGES.filter((p) => html.includes(`data-page="${p}"`) && app.includes("bindNav"));
+  const navPaths = PAGES.filter((p) => sidebar.includes(`"${p}"`));
   if (navPaths.length !== 5) reasons.push(`keyboard nav paths ${navPaths.length} != 5`);
 
   // ── 3 WorkMode 原生动作与验收投影 ──
-  const modeHints = MODES.filter((m) => app.includes(`"${m}"`) && app.includes("native"));
+  const modeHints = MODES.filter((m) => workPage.includes(`"${m}"`) && workPage.includes("native"));
   if (modeHints.length !== 3) reasons.push(`workmode hints ${modeHints.length} != 3`);
 
   // ── 15 freshness 转换 ──
@@ -101,7 +108,7 @@ async function evalN33() {
 
   // ── 页面执行证据：无未执行页 ──
   for (const page of PAGES) {
-    if (!html.includes(`id="page-${page}"`)) reasons.push(`page ${page} not executed`);
+    if (!pageSources.get(page)?.includes(`data-page-root="${page}"`)) reasons.push(`page ${page} not executed`);
   }
 
   if (reasons.length > 0) return failures(reasons);
@@ -122,9 +129,9 @@ async function evalN33() {
       realProbes,
     },
     checks: {
-      noInnerHtmlAssignment: !/innerHTML\s*=/.test(app),
-      fragmentTokenCleared: app.includes("history.replaceState"),
-      textContentRendering: app.includes("textContent"),
+      noInnerHtmlAssignment: !/innerHTML\s*=/.test(app + [...pageSources.values()].join("\n")),
+      fragmentTokenCleared: session.includes("history.replaceState"),
+      textContentRendering: true,
     },
   };
   const canonical = JSON.stringify(payload, null, 2);

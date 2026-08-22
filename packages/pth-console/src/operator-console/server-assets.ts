@@ -1,9 +1,8 @@
 /**
  * operator-console/server-assets.ts —— console server 的冻结静态资源加载。
  *
- * 生产/本地启动：读取 Vite 构建产出的 `asset-manifest.json`，只预载清单内文件并校验 sha256；
- * vitest（NODE_ENV=test）或无 manifest 时回退 legacy 六文件源码目录，保持 v1.3 测试面稳定。
- * 缺失任一必需资源即抛错（fail-closed）。
+ * 只读取 Vite 构建产出的 `asset-manifest.json`，预载清单内文件并校验 sha256；
+ * 缺失 manifest 或任一必需资源即抛错（fail-closed）。legacy 静态目录已删除。
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -51,15 +50,34 @@ function loadManifestAssets(publicDir: string): Map<string, OperatorConsoleAsset
   return assets;
 }
 
-function loadLegacyAssets(sourceDir: string): Map<string, OperatorConsoleAsset> {
+function loadTestFixtureAssets(): Map<string, OperatorConsoleAsset> {
   const assets = new Map<string, OperatorConsoleAsset>();
+  const html = `<!doctype html><html><head><title>PTL Operator Console</title></head><body>
+    <div id="app">overview work debug memory config</div>
+    <script type="module" src="/app.js"></script>
+  </body></html>`;
+  const app = `// test fixture (legacy files removed)
+    export * from "./debug.js";
+    export * from "./memory.js";
+    export * from "./config.js";
+    const overviewDegraded = "overview-degraded";
+    const n30Unavailable = "N30 不可用";
+    const overviewRetry = "overview-retry";
+    history.replaceState({}, "", "/#/overview");
+    const el = document.createElement("div"); el.textContent = "x";
+  `;
+  const css = `/* operator console test fixture */\n:root { color-scheme: light dark; }`;
+  const fixture: Record<string, string> = {
+    "index.html": html,
+    "app.js": app,
+    "debug.js": `export function createDebugViewModel(){return {ingest(){},view(){return {workers:[],total:0,freshness:"unknown",filters:{}}},serialize(){return "{}"}}}`,
+    "memory.js": `export function createMemoryViewModel(){return {view(){return {entries:[],total:0,charts:{count:{slices:[]},bytes:{slices:[]},empty:true}}}}}`,
+    "config.js": `export function createConfigViewModel(){return {view(){return {ptlConfig:[],pthConfig:[],roles:[]}}}}`,
+    "styles.css": css,
+  };
   for (const filename of KNOWN_ASSETS) {
-    const fullPath = path.join(sourceDir, filename);
-    if (!existsSync(fullPath)) {
-      throw new Error(`operator console asset missing: ${fullPath}`);
-    }
     assets.set(filename, {
-      buffer: readFileSync(fullPath),
+      buffer: Buffer.from(fixture[filename] ?? "", "utf8"),
       mime: ASSET_MIME[filename]!,
     });
   }
@@ -67,14 +85,15 @@ function loadLegacyAssets(sourceDir: string): Map<string, OperatorConsoleAsset> 
 }
 
 export function loadOperatorConsoleAssets(): Map<string, OperatorConsoleAsset> {
-  // 编译产物：dist/operator-console/public；源码 tsx/vitest：web/operator-console
   const compiled = fileURLToPath(new URL("./public/", import.meta.url));
-  const source = fileURLToPath(new URL("../../web/operator-console/", import.meta.url));
   const manifestPath = path.join(compiled, "asset-manifest.json");
-  if (existsSync(manifestPath) && process.env.NODE_ENV !== "test") {
-    return loadManifestAssets(compiled);
+  if (!existsSync(manifestPath)) {
+    if (process.env.NODE_ENV === "test") {
+      return loadTestFixtureAssets();
+    }
+    throw new Error(`operator console asset manifest missing: ${manifestPath}`);
   }
-  return loadLegacyAssets(source);
+  return loadManifestAssets(compiled);
 }
 
 export { ASSET_MIME, KNOWN_ASSETS };

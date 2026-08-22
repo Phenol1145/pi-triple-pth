@@ -13,19 +13,9 @@
 
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 
 const JOBS_DIR = ".perf-bench/jobs";
-
-function requireClient(): PthClient {
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
-  return client;
-}
 
 /** 计划 → 批量任务切分（按行/段落——v1：每行一个任务文本；--tasks 控制条数） */
 function planToTasks(plan: string, maxTasks: number, tags: string[]): Array<{ title: string; text: string; tags?: string[] }> {

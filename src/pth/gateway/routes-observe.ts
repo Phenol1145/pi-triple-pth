@@ -18,7 +18,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { SessionStore } from "../kernel/storage/session/interfaces.js";
+import type { SessionStore } from "../kernel/index.js";
 import type { AgentEngine } from "../core/agent-engine.js";
 import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
 import {

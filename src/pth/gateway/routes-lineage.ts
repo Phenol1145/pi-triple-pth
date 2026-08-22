@@ -13,8 +13,8 @@ import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade
 import {
   buildRoleLineage, renderRoleLineage, allLineageRoles, registerWorkerRole,
   type WorkerRole,
-} from "../kernel/execution/worker-cluster.js";
-import { buildRoleDoc } from "../kernel/prompt-docs.js";
+} from "../kernel/index.js";
+import { buildRoleDoc } from "../kernel/index.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 
@@ -151,7 +151,7 @@ export function registerLineageRoutes(app: FastifyInstance, facade: PthGatewayFa
 
     // 5c. worker-index 更新（2026-08-13：角色清单条目刷新——planner 的 worker 类型获取通道）
     try {
-      const { renderWorkerIndex } = await import("../kernel/execution/worker-cluster.js");
+      const { renderWorkerIndex } = await import("../kernel/index.js");
       await facade.writeMemory({
         id: "worker-index",
         kind: "worker-index",

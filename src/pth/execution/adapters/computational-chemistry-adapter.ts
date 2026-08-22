@@ -30,6 +30,7 @@ import {
   type Cp2kJobSpec,
 } from "../../contracts/index.js";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
+import { createJobRunContext } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "../../contracts/index.js";
 
 export interface ChemExecResult {
@@ -134,48 +135,22 @@ function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJo
   }
 
   async function execute(request: ProfessionalJobRequest<S>): Promise<ProfessionalJobResult<V>> {
-    const startedAt = clock();
-    const artifacts: ArtifactRef[] = [];
-    const diagnostics: ProfessionalDiagnostic[] = [];
-    let outputBytes = 0;
-    const state = { cancelled: false };
-    running.set(request.jobId, state);
-
-    const finish = (
-      status: ProfessionalJobResult["status"],
-      error: { code: string; message: string } | undefined,
-      value?: V,
-      outputHashSource?: Uint8Array | string,
-    ): ProfessionalJobResult<V> => {
-      const finishedAt = clock();
-      if (error) diagnostics.push({ code: error.code, severity: "error", message: error.message });
-      return {
-        status,
-        runtime: id,
-        runtimeVersion: deps.lockVersion,
-        inputHash: request.inputHash,
-        outputHash: status === "succeeded" && outputHashSource !== undefined ? `sha256:${sha256hex(outputHashSource)}` : null,
-        artifacts,
-        diagnostics,
-        usage: { durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()), cpuMs: 0, maxRssBytes: 0, outputBytes },
-        traceId: request.traceId ?? "unknown",
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        ...(value !== undefined ? { value } : {}),
-        ...(error !== undefined ? { error } : {}),
-      };
-    };
-
-    const fail = (code: string, message: string): ProfessionalJobResult<V> =>
-      finish("failed", { code, message: message.slice(0, 4_000) });
+    const ctx = createJobRunContext<V>({
+      runtime: id,
+      runtimeVersion: deps.lockVersion,
+      request,
+      artifactPort: deps.artifactPort,
+      running,
+      clock,
+    });
 
     try {
       if (!specGuard(request.spec)) {
-        return fail("spec-invalid", `spec 不是合法 ${id} job spec（含禁键或字段越界）`);
+        return ctx.fail("spec-invalid", `spec 不是合法 ${id} job spec（含禁键或字段越界）`);
       }
       const probeResult = await probe();
       if (!probeResult.available) {
-        return fail("toolchain-unavailable", probeResult.reason ?? `${id} 工具链不可用`);
+        return ctx.fail("toolchain-unavailable", probeResult.reason ?? `${id} 工具链不可用`);
       }
 
       const jobDir = join(workDir, `${id}-${request.jobId.replace(/[^A-Za-z0-9._-]/g, "_")}`);
@@ -191,7 +166,7 @@ function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJo
         cwd: jobDir,
         timeoutMs: deps.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       });
-      if (run.timedOut) return fail("compute-timeout", `${id} 计算超时`);
+      if (run.timedOut) return ctx.fail("compute-timeout", `${id} 计算超时`);
       // 部分引擎（mpirun+CP2K）即使计算成功也可能以非零退出并打 MPI_ABORT；
       // 成功判定以输出文件内容为准（PROGRAM ENDED / JOB DONE）。
       let outputFileContent = "";
@@ -207,11 +182,11 @@ function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJo
       const converged = (value as { converged?: boolean }).converged === true;
       if (!converged) {
         if (outputFileContent === "" && !run.ok) {
-          return fail("compute-failed", `${id} 执行失败 stderr=${run.stderr.slice(0, 400)} stdout_tail=${run.stdout.slice(-1200)}`);
+          return ctx.fail("compute-failed", `${id} 执行失败 stderr=${run.stderr.slice(0, 400)} stdout_tail=${run.stdout.slice(-1200)}`);
         }
-        return finish("not-converged", { code: "not-converged", message: `SCF/优化未收敛——结构化结果，不是成功（outputFile=${built.outputFile ?? "-"} err=${outputFileError || "read-ok"} exit=${run.code} out_tail=${outputFileContent.slice(-800)}）` }, value);
+        return ctx.finish("not-converged", { code: "not-converged", message: `SCF/优化未收敛——结构化结果，不是成功（outputFile=${built.outputFile ?? "-"} err=${outputFileError || "read-ok"} exit=${run.code} out_tail=${outputFileContent.slice(-800)}）` }, value);
       }
-      if (state.cancelled) return finish("cancelled", { code: "job-cancelled", message: "job cancelled after compute" });
+      if (ctx.isCancelled()) return ctx.finish("cancelled", { code: "job-cancelled", message: "job cancelled after compute" });
 
       await deps.artifactPort.putOutput({
         tenantId: request.tenantId, jobId: request.jobId, kind: "input", mediaType: "text/plain",
@@ -222,9 +197,9 @@ function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJo
         bytes: new TextEncoder().encode(run.stdout),
       });
 
-      return finish("succeeded", undefined, value, outputHashFor(value));
+      return ctx.finish("succeeded", undefined, value, outputHashFor(value));
     } catch (error) {
-      return fail("compute-failed", `${id} adapter 意外错误: ${error instanceof Error ? error.message : String(error)}`);
+      return ctx.fail("compute-failed", `${id} adapter 意外错误: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       running.delete(request.jobId);
     }

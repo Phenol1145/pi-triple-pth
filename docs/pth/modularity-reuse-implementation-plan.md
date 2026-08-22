@@ -8,10 +8,10 @@
 
 | 阶段 | 内容 | 优先级 | 状态 |
 |---|---|---|---|
-| Phase 0 | 增加 import 环检测 CI 门禁 | P0 | 计划 |
-| Phase 1 | 拆掉 `execution ↔ runner` 静态运行时环 | P0 | 计划 |
-| Phase 2 | 快速复用优化（CLI helper / runtime adapter / memory lib / 文档修复） | P1 | 计划 |
-| Phase 3 | 需要决策的收敛项（_shared 去重 / 双 UI 栈 / kernel 再拆分） | P2 | 待决策 |
+| Phase 0 | 增加 import 环检测 CI 门禁 | P0 | 已完成 |
+| Phase 1 | 拆掉 `execution ↔ runner` 静态运行时环 | P0 | 已完成 |
+| Phase 2 | 快速复用优化（CLI helper / runtime adapter / memory lib / 文档修复） | P1 | 已完成 |
+| Phase 3 | 需要决策的收敛项（_shared 去重 / 双 UI 栈 / kernel 再拆分） | P2 | 已完成 |
 
 ---
 

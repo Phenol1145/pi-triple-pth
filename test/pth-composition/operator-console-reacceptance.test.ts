@@ -20,9 +20,9 @@ import {
   toBrowserPthConfig,
   toBrowserRoles,
 } from "../../packages/pth-console/src/operator-console/index.js";
-import { createDebugViewModel } from "../../packages/pth-console/web/operator-console/debug.js";
-import { createMemoryViewModel } from "../../packages/pth-console/web/operator-console/memory.js";
-import { createConfigViewModel } from "../../packages/pth-console/web/operator-console/config.js";
+import { createDebugViewModel } from "../../packages/pth-console/web-src/src/view-models/debug.js";
+import { createMemoryViewModel } from "../../packages/pth-console/web-src/src/view-models/memory.js";
+import { createConfigViewModel } from "../../packages/pth-console/web-src/src/view-models/config.js";
 import { createRunTaskPublishAdapter } from "../../packages/pth-console/src/operator-console/actions/run-actions.js";
 
 const BOOTSTRAP_TOKEN = "b".repeat(64);

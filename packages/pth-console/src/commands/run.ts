@@ -4,7 +4,7 @@
  * 远端运行程序，SSE 流式打印到终端。
  * k=v 参数 → input object；孤立词 → input.text。
  */
-import { PthClient } from "../bridge/client.js";
+import { requireClient } from "./client.js";
 
 /**
  * 解析 k=v 参数：k=v 对进 object，孤立词进 text。
@@ -35,12 +35,7 @@ export async function cmdRun(name: string, args: string[], flags: Record<string,
     process.exit(1);
   }
 
-  const client = PthClient.fromConfig();
-  if (!client) {
-    console.log("  \x1b[31m❌ 未配置 PTH 连接\x1b[0m");
-    console.log("  配置: export PTH_URL=<url> PTH_TOKEN=<token>");
-    process.exit(1);
-  }
+  const client = requireClient();
 
   const input = parseInput(args);
   const version = flags.version ? parseInt(flags.version, 10) : undefined;
