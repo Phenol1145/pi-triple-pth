@@ -1,7 +1,7 @@
 # PTH 开发模式（dev loop——秒级反馈）
 
 > 改代码 → tsx watch 自动重启（主进程 + batch）→ 立即验证——**秒级循环**（免 rebuild）。
-> 依据：[修改流程优化实施计划](../superpowers/plans/2026-08-10-pth-dev-loop-speedup.md)。
+> 依据：[修改流程优化实施计划（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/plans/2026-08-10-pth-dev-loop-speedup.md)。
 
 ---
 

@@ -1,6 +1,7 @@
 # PTH 安装与性能调优
 
-> 与共享层 skill `pth-deploy` 同源（2026-08-09）。覆盖：compose 拓扑、安装步骤、验证三连、性能参数全表、调优方法论、运行时调参、容器抽象设计意图（v0.7）。
+> 覆盖：compose 拓扑、安装步骤、验证三连、性能参数全表、调优方法论、运行时调参、容器抽象演进背景。
+> §6 为 v0.7 历史注记；当前部署事实源 = `deploy/docker-compose.yaml` + `pth up`。
 >
 > **2026-08-22 状态对齐**：当前实际入口 = `pth up`（核心栈）+ `pth tools up` +
 > `pth services up`（见 §2.6）；统一入口 `pth up --profile|--all` 已定稿待实现，
@@ -26,7 +27,9 @@ docker-compose.yaml
 
 ### 2.1 前置
 - Docker + Docker Compose v2（`docker compose version` 确认）
-- 仓库 clone：`git clone https://github.com/Phenol1145/pi-triple.git && cd pi-triple`
+- 仓库 clone：`git clone https://github.com/Phenol1145/pi-triple-pth.git && cd pi-triple-pth`
+- `PTH_WORKSPACES_HOST`：宿主 workspaces 绝对路径——compose 里 `:?` 必填，engine/sandbox/
+  本地执行器/jupyter 共享同一目录；Linux 宿主注意目录属主（容器 node uid=1000）。
 
 ### 2.2 配置统一 secrets 文件（deploy/.env.pth.secrets）
 
@@ -36,11 +39,12 @@ pth init        # 复制 example + chmod 600（已有文件会拒绝，需 --for
 # 编辑 deploy/.env.pth.secrets——替换全部 dev-only 值（该文件已 gitignore）
 ```
 
-全部密钥 compose `:?` 强校验（缺任一拒绝启动）：`SANDBOX_SHARED_SECRET` /
+核心密钥 compose `:?` 强校验（缺任一拒绝启动）：`SANDBOX_SHARED_SECRET` /
 `PTH_EXECUTION_GRANT_SECRET` / `PTH_MEMORY_BRIDGE_TOKEN` / `POSTGRES_PASSWORD` /
-`REDIS_PASSWORD` / `LOCAL_EXEC_SHARED_SECRET`（宿主 local-lean/local-u8 与 engine 同值）/
-`JUPYTER_SERVICE_TOKEN`（jupyter 南面与 engine 同值；pi-kernel 的
-`JUPYTER_ENGINE_TOKEN` 建议同源）。
+`REDIS_PASSWORD`。可选后端密钥（engine compose `${VAR:-}`，缺失不阻塞核心栈，只影响
+对应后端）：`LOCAL_EXEC_SHARED_SECRET`（宿主 local-lean/local-u8 与 engine 同值）、
+`JUPYTER_SERVICE_TOKEN`（jupyter 南面与 engine 同值；jupyter compose 自身 `:?`）。
+pi-kernel 的 `JUPYTER_ENGINE_TOKEN` 必须与 operator token 同源——时序见 §2.6。
 主进程还注入 `PTH_CONFIG_STRICT=1`：弱密钥（grant secret <32、shared/bridge token <16）与
 开发默认 token 直接 fail-fast。
 
@@ -55,6 +59,7 @@ pth init        # 复制 example + chmod 600（已有文件会拒绝，需 --for
 ### 2.3 拉起（推荐：`pth up` 一条命令）
 
 ```bash
+export PTH_WORKSPACES_HOST=/abs/path/to/workspaces   # 前置必填（见 §2.1）
 pth up
 # 内部：up -d postgres redis → 等 healthy → up -d pi-platform sandbox → 等 healthy
 #       → 生成 64-hex operator token（tenantId=ops, role=platform-admin）写入 Redis
@@ -100,59 +105,55 @@ token 写入 Redis：`pth up` 默认已自动种入 operator token（tenant=ops,
 需要自定义身份时仍可用手工命令（redis 容器无 host 端口且已开启 AUTH，必须经 compose exec 在容器内写入）：
 `docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml exec redis sh -c "redis-cli -a \"\$REDIS_PASSWORD\" SET auth:token:<token> '{\"tenantId\":\"ops\"}'"`（或按你的 auth 约定）。
 
-### 2.5 Release 附件（tgz）安装（源码包方式，无需本地编译）
+### 2.5 全局 CLI（npm 包方式）
 
-发布附件 `pi-triple-v<version>.tgz` 是整仓库源码包，且**已含构建产物 dist**（`ptl` 解包即用；
-PTH 主服务可直接 `node dist/pth/main.js` 试运行，或按 §2.3 用 compose 起容器）。
-
-```bash
-VERSION=1.1.3
-curl -LO https://github.com/Phenol1145/pi-triple/releases/download/v${VERSION}/pi-triple-v${VERSION}.tgz
-shasum -a 256 pi-triple-v${VERSION}.tgz   # 与 GitHub Release 页面 / 发布说明中的 sha256 核对
-mkdir pi-triple-v${VERSION} && tar -xzf pi-triple-v${VERSION}.tgz -C pi-triple-v${VERSION}
-cd pi-triple-v${VERSION}
-npm ci
-npm link              # ptl → packages/framework/dist/pit.js（包内已构建，无需 npm run build）
-ptl --version         # 应输出 v${VERSION}
-```
-
-只想全局装 CLI（纯 PTL 使用）可以一条命令：
+当前发布物是 npm 包（不再用单仓时代的 `pi-triple-v<version>.tgz` 源码包）：
 
 ```bash
-npm install -g pi-triple-v${VERSION}.tgz && ptl --version
+npm install -g @away_from/pth-cli@1.6.1
+pth --version
+pth init && pth up      # 在目标部署目录执行；PTH_WORKSPACES_HOST 必设
 ```
+
+> 注意：`@away_from/pth-cli@1.6.x` 包内 `deploy/services/` 只含 local-lean/local-u8，
+> **尚不含 jupyter 部署物**——jupyter 随 P6-7 重发版本提供；在本仓 checkout 内使用不受此限制。
 
 ### 2.6 完整运行时（当前手工流程；P6 统一入口待实现）
 
-按需组合；顺序要求：**后端先于 engine**。
+按需组合；顺序要求：**后端先于 engine**。engine batch 只 probe 一次，所以
+数据层**不能用 `pth up`**（它会连带拉起 pi-platform）——必须用 compose 分服务起。
 
 ```bash
 # 前置宿主变量
-export PTH_WORKSPACES_HOST=/abs/path/to/workspaces          # 本地执行器/jupyter 共享卷
+export PTH_WORKSPACES_HOST=/abs/path/to/workspaces          # 三方共享卷（核心栈也必填）
 export PTH_HOST_PTH_ROOT=/abs/path/to/pi-triple-pth        # jupyter 北面 pth 透传
 
-# 数据层（engine 栈的一部分）
-pth up --no-seed-token                                    # 或手动 compose up redis/postgres/sandbox
+# 1) 数据层 + sandbox（不起 engine；compose 项目网络随之建立，jupyter 依赖它）
+docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d postgres redis sandbox
+#    等 postgres/redis/sandbox healthy 再继续
 
-# 宿主本地执行器（按需；PATH 需含工具链）
+# 2) 生成 operator token（一次生成，三处同源：engine、pi-kernel、Redis 种子）
+export JUPYTER_ENGINE_TOKEN=$(openssl rand -hex 32)
+
+# 3) 宿主本地执行器（按需；PATH 需含工具链）
 export LOCAL_EXEC_SHARED_SECRET=$(grep LOCAL_EXEC_SHARED_SECRET deploy/.env.pth.secrets | cut -d= -f2)
 PATH="$PWD/deploy/local-exec/u8:$PATH" pth services up local-lean local-u8
 
-# 工具容器（按需）
+# 4) 工具容器（按需）
 pth tools up
 
-# jupyter 单容器双面（按需；PTH_HOST_PTH_ROOT + JUPYTER_SERVICE_TOKEN 自动同源）
+# 5) jupyter 单容器双面（按需；两个 token 都必须在起容器前 export）
 export JUPYTER_SERVICE_TOKEN=$(grep JUPYTER_SERVICE_TOKEN deploy/.env.pth.secrets | cut -d= -f2)
 pth services up jupyter
 
-# engine 最后（batch 启动 probe 全部 backend）
-pth up
+# 6) engine 最后（batch 启动 probe 全部 backend；--token 复用步骤 2 的同一值并种入 Redis）
+pth up --token "$JUPYTER_ENGINE_TOKEN"
 pth status
 pth services status && pth tools status
 ```
 
-`pth down` 反向：`pth down`（engine）→ `pth services down jupyter` → `pth tools down` →
-`pth services down local-lean local-u8`。
+`pth down` 反向（core 栈为一次 compose down 的原子组）：`pth down`（engine+sandbox+pg/redis）
+→ `pth services down jupyter` → `pth tools down` → `pth services down local-lean local-u8`。
 
 ## 3. 性能参数全表（PTH_*）
 
@@ -177,9 +178,9 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `PTH_AGENT_MAX_STEPS` | 10 | 每任务 agent 步数上限（典型任务 2-3 步即完成） |
-| `PTH_AGENT_TIMEOUT_MS` | 120000 | 任务级总超时 |
-| `PTH_AGENT_LLM_TIMEOUT_MS` | 30000 | 单次 LLM 调用超时（防挂起冻结——建议保持） |
+| `PTH_AGENT_MAX_STEPS` | 300（代码默认 10；compose 注入 300） | 每任务 agent 步数上限（典型任务 2-3 步即完成） |
+| `PTH_AGENT_TIMEOUT_MS` | 10800000（代码默认 120000；compose 注入 3h） | 任务级总超时 |
+| `PTH_AGENT_LLM_TIMEOUT_MS` | 90000（代码默认 30000；compose 注入 90s） | 单次 LLM 调用超时（防挂起冻结——建议保持） |
 | `PTH_AGENT_RETRY_PARSE` | 1 | 动作解析失败重试次数 |
 | `PTH_AGENT_MODEL` | deepseek-v4-flash | agent 循环模型（选快模型——执行性价比优先） |
 
@@ -225,7 +226,7 @@ node 堆上限：`NODE_OPTIONS=--max-old-space-size=768`（pi-platform 主进程
 POST /api/v1/kernel/batch/:id/workers  {action, role, copies?}
   pause  暂停认领（保留状态）   resume 恢复   remove 永久停止+回收 python 进程
   add    动态新增角色 worker（按需扩）
-ptl stack? <pause|resume|remove|add> <batchId> <role> [copies]
+# 命令面：pth kernel batch（add/remove/worker）；ptl stack 已 deprecated
 ```
 **batch 级 add/remove 保留**：故障隔离 / 多租户 / 资源分片场景。
 **资源分配策略接口**：balanced（角色分散）/ reinforced（单角色堆叠）——策略注册表可扩展（未来算法实现 BatchCompositionStrategy 即可）。
@@ -234,7 +235,7 @@ ptl stack? <pause|resume|remove|add> <batchId> <role> [copies]
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `PTH_BATCH_AUTOSCALE` | on | 弹性开关 |
+| `PTH_BATCH_AUTOSCALE` | **off** | 弹性开关（默认 off——2026-08-09 单大 batch 化，batch 级扩缩为显式特殊手段） |
 | `PTH_BATCH_MIN` / `PTH_BATCH_MAX` | 1 / 4 | 容量上下限保护 |
 | `PTH_BATCH_SCALE_INTERVAL_MS` | 30000 | 评估周期 |
 | `PTH_BATCH_SCALE_UP_THRESHOLD` | 5 | pending 积压阈值（超过则扩容） |
@@ -315,9 +316,15 @@ await perf.analyze();                         // v1 规则诊断
 
 env 与运行时 SET 的关系：启动时 env 快照载入 → 运行时 SET 覆盖 → 重启恢复 env 值。
 
-## 6. 容器抽象（v0.7 已落地）
+## 6. 容器抽象（v0.7 历史注记）
 
-声明式部署描述 `pth.deployment.json` 为事实源——`docker-compose.yaml` 降级为历史参考（docker 后端渲染产物在 `pth.deploy/`）。**容器后端抽象**——允许不同容器技术：
+> **状态（2026-08-22）**：本节描述的 `pth.deployment.json` 事实源 + `pth.deploy/` 渲染目录 +
+> `ptl stack` 运维族已被后续裁决取代——容器生命周期统一归 `pth up`/`pth tools`/
+> `pth services`（`ptl stack` deprecated）；`pth up` 直接执行 `deploy/docker-compose.yaml`，
+> `pth.deployment.json` 现为配置核对对照物（`scripts/check-pth-config.ts`），不存在
+> `pth.deploy/` 目录。保留本节仅作容器后端抽象的演进背景。
+
+历史意图：声明式部署描述 `pth.deployment.json` 为事实源——`docker-compose.yaml` 降级为历史参考（docker 后端渲染产物在 `pth.deploy/`）。**容器后端抽象**——允许不同容器技术：
 
 ```
 ┌─ 部署描述（声明式）─────────────────────┐
@@ -338,15 +345,16 @@ env 与运行时 SET 的关系：启动时 env 快照载入 → 运行时 SET �
 pth.deployment.json（声明式部署描述——四服务拓扑/env/卷/健康检查/限额/sandbox internal 契约）
   ↓ ContainerBackend 接口（up/down/status/logs/restart/exec/available）
 docker（compose 渲染——已实现） | podman | k8s（扩展点）
-  ↓ PTL 侧工具（ptl stack 运维族——不再手写 compose 命令）
-ptl stack deploy [--rebuild]   # 部署（build + up）
+  ↓ PTL 侧工具（已废弃的 ptl stack 运维族形态——现统一 pth up/tools/services）
+ptl stack deploy [--rebuild]   # 历史：部署（build + up）
 ptl stack status [--service s] # 服务状态（彩色）
 ptl stack logs <svc> [--tail]  # 日志
 ptl stack upgrade              # 重建镜像 + 重启
 ptl stack exec <svc> -- <cmd>  # 容器内执行
 ```
 
-代码：`packages/framework/src/containers/`（schema/backend/docker-backend——PTL 侧运维库）。
+代码（历史）：`packages/framework/src/containers/`（schema/backend/docker-backend——PTL 侧运维库，
+已随 `ptl stack` 进入 deprecated 兼容期）。
 
 迁移准备（现有代码已具备）：
 - **参数不依赖 compose 插值**：全部走 `PTH_*` env（配置中心启动快照）——任何容器技术传 env 即可
@@ -370,6 +378,6 @@ ptl stack exec <svc> -- <cmd>  # 容器内执行
 
 - 任务提交（PTL 侧）：skill `pth-tasks` + `docs/ptl/pth-task-submission.md`
 - PTH 内核体系：`docs/pth/kernel.md` · `docs/pth/architecture.md`
-- 安全边界（sandbox 零敏感）：`docs/superpowers/specs/2026-08-08-pth-kernel-sandbox-design.md`
-- 安全运维（密钥轮换 / lease-drain / 回滚）：`docs/pth/sandbox-security-operations.md`
-- 环境检查：`scripts/check-sandbox-env.sh`（发布门禁 `scripts/check-release-clean.sh`）
+- 安全边界（sandbox 零敏感）：`docs/pth/kernel.md`（sandbox 域）· `docs/pth/sandbox-security-operations.md`
+- 安全运维（密钥轮换 / session-drain / 回滚）：`docs/pth/sandbox-security-operations.md`
+- 环境检查：`scripts/check-sandbox-env.sh`

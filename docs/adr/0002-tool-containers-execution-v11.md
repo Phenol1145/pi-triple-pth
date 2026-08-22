@@ -2,6 +2,11 @@
 
 **Status**: accepted
 
+> **Follow-up（2026-08-22）**：decision 4 的 persistent 已实现并发布（shared 1.7.x，
+> `/sessions*` + `ExecutionSessionManager`）；sandbox kernel-host 已迁 `/sessions`
+> （capabilities 升 v1.1、声明 persistent=true），不再是“继续 v1”；decision 7 的 jupyter
+> 双面已落地并 vertical 通过。本 ADR 其余内容保持决策时态。
+
 **Context**：“dev 容器”语义已经漂移（PTL 工具容器、jupyter 前端、宿主机 wrapper 混在一处），且 execution/v1 只覆盖单向命令执行，无法承载 TTY 交互与有状态内核。2026-08-21 裁决：把这类容器重定位为 **tool containers（工具容器）**，并把 execution 升级为**模式框架**。
 
 ## Decisions

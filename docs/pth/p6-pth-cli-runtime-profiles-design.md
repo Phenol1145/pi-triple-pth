@@ -23,7 +23,8 @@
 
 ## 3. 运行时剖面（按需启动容器运行时）
 
-定义 `deploy/runtime-profiles.json`（T1 可变层，用户可编辑）：
+定义 `deploy/runtime-profiles.json`（配置可变层，用户可编辑；区别于 topology §5.10 的
+T0 源码层与 T1 `catalog/data/**`，本文件按 T2 配置管理并随 P6-2 建立 schema 校验）：
 
 | profile | 包含 | 典型需求 |
 |---|---|---|
@@ -36,6 +37,8 @@
 
 - `--with a,b` / `--without a,b` 是剖面的临时增删；剖面本身只是便捷组合。
 - 剖面文件声明依赖；CLI 不硬编码组件清单。
+- 宿主机事实依赖：`core` 也要求 `PTH_WORKSPACES_HOST`（compose workspaces bind mount `:?`）；
+  `doctor` 与 `pth init` 必须把它列为必检项而不是 profile 可选项。
 
 ## 4. 部署流程（顺序决定 engine 能否发现后端）
 
@@ -46,21 +49,28 @@ engine 在 batch 启动时一次性 probe `PTH_EXEC_BACKENDS`；**后起的服�
 1. doctor：env / 端口 / 工具链 / 镜像 / secrets 检查（失败即停 + 修复命令）
 2. 加载 deploy/.env.pth.secrets → 注入子进程 env（token 不进命令行历史）
 3. 数据层：redis → postgres → sandbox（compose 分服务 up + health wait）
-4. 宿主服务（按 profile）：local-lean / local-u8（PATH 注入工具链）
-5. 工具容器（tools profile）：build → up → loopback registry → verify
-6. jupyter（jupyter profile）：compose up → south /health + 北 8888 可达
-7. 最后 engine（pi-platform）——local-lean/local-u8/jupyter 已 ready，启动 probe 全绿
-8. token 编排：operator token 种 Redis；JUPYTER_ENGINE_TOKEN 与 engine token 同源
+4. 生成 operator token（一次生成、复用同值：Redis 种子 + engine --token + JUPYTER_ENGINE_TOKEN）
+5. 宿主服务（按 profile）：local-lean / local-u8（PATH 注入工具链）
+6. 工具容器（tools profile）：build → up → loopback registry → verify
+7. jupyter（jupyter profile）：compose up（JUPYTER_ENGINE_TOKEN 已在步骤 4 生成）
+   → south /health + 北 8888 可达
+8. 最后 engine（pi-platform）——local-lean/local-u8/jupyter 已 ready，启动 probe 全绿；
+   以步骤 4 的 token 执行 `pth up --token`（种子 + 验证）
 9. verify：compose ps healthy / tools verify / services status / engine /health /
-   专业 runtime satisfiesLock
+   专业 runtime satisfiesLock / pi-kernel cell 往返
 ```
 
-`pth down` 严格反向：engine → jupyter/tools → host services → sandbox/pg/redis。
+`pth down` 反向：engine → jupyter/tools → host services → sandbox/pg/redis。
+core 栈当前实现为一次 compose down 的原子组；P6-3 若需要逐服务反向，先给 launcher
+增加分服务 down 原语，否则保持“core 原子组 + 外围反向”语义并写明。
 
 ## 5. 关键决策
 
 - **编排层不重写现有命令**：复用 `runPthUp` / `toolsCommand` / `servicesCommand`；
   `pth up --all` 只是顺序 + env + verify 的组合层。
+  **前置重构（P6-3 范围）**：现有 `runPthUp` 是「数据层 + 应用层 + token + verify」的一体命令，
+  没有“只起数据层/跳过 engine”开关，token 也在 engine 启动后才生成——必须先拆出
+  `upServices(subset)` / `generateToken()` / `seedToken()` 原语，否则 §4 顺序无法实现。
 - **secrets 注入自动化**：`*_SECRET/TOKEN/PASSWORD` 从 env-file 读取并注入子进程；
   `PTH_WORKSPACES_HOST` 属于宿主机事实（workspaces 绝对路径），缺失报错并提示，
   不代为猜测。
@@ -74,7 +84,8 @@ engine 在 batch 启动时一次性 probe `PTH_EXEC_BACKENDS`；**后起的服�
 - P6-2 `deploy/runtime-profiles.json`：schema + 校验 + 单测。
 - P6-3 编排器：`pth up/down --profile/--with/--without/--all`。
 - P6-4 env 自动注入：secrets 文件 → 子进程环境。
-- P6-5 token 编排：operator token + JUPYTER_ENGINE_TOKEN 同源自动种子。
+- P6-5 token 编排：operator token 在 jupyter 之前生成并同源注入
+  `JUPYTER_ENGINE_TOKEN`，engine 侧 `pth up --token` 复用同一值（§4 顺序）。
 - P6-6 `pth status --all`：三套健康 + backend/runtime 注册态聚合。
 - P6-7 重发 `@away_from/pth-cli`：重新打包当前 deploy（含 jupyter），安装版可用新服务。
 - P6-8 部署文档三仓对齐：deployment.md / POSITIONING / topology。
@@ -82,7 +93,8 @@ engine 在 batch 启动时一次性 probe `PTH_EXEC_BACKENDS`；**后起的服�
 ## 7. 验收
 
 1. 干净宿主机：`pth init && pth doctor` 通过。
-2. `pth up --profile full` 一次成功，九类组件 healthy。
+2. `pth up --profile full` 一次成功，profile 内全部组件 healthy（core 4 + lean4 + u8 +
+   tools 三域 + jupyter，按 §3 清单逐项核对）。
 3. 中间任一服务失败 → 明确报错、可重入；重跑 `pth up --profile full` 幂等。
 4. `pth down --all` 后容器/进程/注册表清理干净。
 5. 全新 `npm install -g @away_from/pth-cli` 后重复 1–4 通过。

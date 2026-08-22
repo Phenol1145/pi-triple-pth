@@ -18,6 +18,7 @@ const outFile = join(docsRoot, "docs-manifest.json");
 export type DocCategory =
   | "index"
   | "guides"
+  | "reference"
   | "designs"
   | "contracts"
   | "reports"
@@ -67,6 +68,10 @@ export function classifyDocsFile(file: string): DocEntry {
   const parts = rel.split("/");
 
   if (rel === "README.md") return { path: `docs/${rel}`, category: "index", product: "shared", status: "active" };
+  // 三仓同源活文档：每轮同步更新的规范入口，不是归档物。
+  if (rel === "POSITIONING.md" || rel === "fracta-engine-execution-topology.md") {
+    return { path: `docs/${rel}`, category: "reference", product: "shared", status: "active" };
+  }
   if (rel === "product-shape.md" || rel === "container-dev-skill.md" || rel === "code-organization-plan.md") {
     return { path: `docs/${rel}`, category: "guides", product: "shared", status: "active" };
   }
@@ -154,7 +159,7 @@ if (invokedDirectly) {
     version: 1,
     generatedAt: new Date().toISOString(),
     taxonomy: {
-      docs: ["index", "guides", "designs", "contracts", "reports", "envelopes", "decisions", "operations", "releases", "archive", "assets", "artifacts"],
+      docs: ["index", "guides", "reference", "designs", "contracts", "reports", "envelopes", "decisions", "operations", "releases", "archive", "assets", "artifacts"],
       runtime: ["deps", "host", "container", "dual", "config"],
     },
     docs: collectDocsEntries(),

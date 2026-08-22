@@ -2,6 +2,11 @@
 
 **Status**: accepted
 
+> **Follow-up（2026-08-22）**：decision 1 的 “dev 容器（dev-container）” 已由 ADR-0002
+> 重定位为 tool containers（profile `dev-container`，域 = compiled/network/secrets），
+> 本地执行器归 PTH 仓（`pth local-exec` + `pth services`），并新增 jupyter 双面执行面
+> （profile `host`）。本 ADR 其余内容保持决策时态。
+
 **Context**：engine（platform 容器）曾内嵌工具链与执行实现（本地 spawn / sandbox 转发 / Lean）。2026-08-21 约定 `platform = FRACTA engine（engine）`：engine 只负责 worker 实现与面向 LLM 的 interface；所有执行面放在外部实现，经 `execution/v1` 以 engine 为协议中心连接。
 
 ## Decision

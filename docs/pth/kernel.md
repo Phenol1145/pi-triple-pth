@@ -1,7 +1,7 @@
 # PTH Kernel 体系（任务池 · 多语言 REPL · 记忆闭环）
 
 > PTH 的 agent 运行时内核：任务发布 → 持久 REPL 执行 → 自动提炼 → 状态召回，全链路可观测。
-> 相关设计文档：[性能计量 SPEC](../superpowers/specs/2026-08-08-pth-perf-metrics-design.md) · [日志 SPEC](../superpowers/specs/2026-08-08-pth-logging-design.md) · [REPL SPEC](../superpowers/specs/2026-08-08-pth-multilang-repl-design.md) · [任务链 SPEC](../superpowers/specs/2026-08-08-pth-task-resolver-design.md)
+> 相关设计文档：[性能计量 SPEC（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/specs/2026-08-08-pth-perf-metrics-design.md) · [日志 SPEC（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/specs/2026-08-08-pth-logging-design.md) · [REPL SPEC（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/specs/2026-08-08-pth-multilang-repl-design.md) · [任务链 SPEC（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/specs/2026-08-08-pth-task-resolver-design.md)
 
 ## 架构总览
 

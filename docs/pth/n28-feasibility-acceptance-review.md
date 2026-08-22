@@ -158,7 +158,7 @@ envelope；这两者应明确区分。
 
 ### P1-5：N28 类型门禁缩窄且历史报告未绑定当前 HEAD
 
-- [tsconfig.n28.json](../../tsconfig.n28.json) `:14-22` 只包含 4 个 scripts 和 3 个测试文件，
+- [tsconfig.n28.json（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/tsconfig.n28.json) `:14-22` 只包含 4 个 scripts 和 3 个测试文件，
   没有覆盖计划列出的 31 个 focused 测试文件；
 - [n28-feasibility-report.md](./n28-feasibility-report.md) `:4, 71` 绑定的是旧提交
   `5e6a588d88c20d6628105b1cdd6afee6bee6dea4`，当前 HEAD 为 `7525c7f...`。

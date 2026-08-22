@@ -42,6 +42,26 @@ redis-cli SET "auth:token:my-token" '{"tenantId":"my-team"}'
 | GET | `/api/v1/self/tools` | 当前租户可用的工具列表 |
 | GET | `/api/v1/self/version` | 平台版本信息 |
 
+> 本节以上为交互式 Session API；engine 主工作面在 `/api/v1/kernel/*`。权威路由实现：
+> `src/pth/gateway/routes-*.ts`；Console 消费子集见
+> [pth-api-protocol.md](pth-api-protocol.md) 与 `docs/pth/pth-console-openapi.json`。
+
+### kernel 主入口（子集）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/kernel/tasks` | 发布任务（`{title,text,tags?,payload?,idempotencyKey?}`） |
+| GET | `/api/v1/kernel/tasks` · `/api/v1/kernel/tasks/:id` | 任务列表 / 单任务状态 |
+| GET | `/api/v1/kernel/status` | kernel 全景（batch/tasks/watchdog/sandbox 聚合） |
+| POST | `/api/v1/kernel/batch/add` · `/batch/remove` | batch 扩容/缩容 |
+| POST | `/api/v1/kernel/batch/:id/workers` | worker 级 pause/resume/remove/add |
+| GET | `/api/v1/kernel/lineage` · `/api/v1/kernel/roles` | 角色谱系 / 角色（roles 经 observe 域） |
+| POST | `/api/v1/kernel/notebook/execute` | P5b：notebook cell 执行（`{language:python\|bash\|ts, code, sessionId?, timeoutMs?}`；无 sessionId 时新建并返回 sessionId） |
+| POST | `/api/v1/kernel/notebook/cancel` | P5d：终止并销毁 notebook 会话（`{sessionId}`，不可恢复） |
+
+notebook 会话语义：每 `sessionId` 一个独立 KernelManager（python/bash 状态隔离）；空闲 TTL
+自动回收；cancel = abort + dispose，调用方重建 session。
+
 ---
 
 ## 端点详情

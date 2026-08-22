@@ -2,7 +2,7 @@
 
 > 日期：2026-08-18  
 > 状态：**设计已确认，尚未实施**  
-> 边界裁决：[ADR-0005](../adr/0005-pth-human-interaction-boundary.md)；角色所有权修订：[ADR-0006](../adr/0006-ptl-human-interface-role-boundary.md)
+> 边界裁决：[ADR-0005（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/adr/0005-pth-human-interaction-boundary.md)；角色所有权修订：[ADR-0006（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/adr/0006-ptl-human-interface-role-boundary.md)
 > 术语事实源：[CONTEXT.md](../../CONTEXT.md)  
 > 契约复验输入：[v1.2 F1–F5 复验报告](./v1.2-acceptance-fix-revalidation.md)
 

@@ -16,11 +16,11 @@
 ## 2. 依赖与调用关系
 
 ```
-pi-triple-deps（npm: @away_from/shared · @away_from/infra @^1.5.0）
+pi-triple-deps（npm: @away_from/shared @^1.7.4 · @away_from/infra @^1.6.0）
         ▲                            ▲
         │ 协议/类型                   │ 协议/类型
 pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth（engine）
-（宿主机：运维 + 本地执行面）                    （worker 实现 + LLM interface）
+（宿主机：本地开发工具带 + deprecated 兼容运维）   （worker 实现 + LLM interface）
 
 执行面拓扑（协议客户端 = pth 产品面：engine + pth CLI）：
   engine ── execution/v1.1 ──▶ sandbox / tool containers / 本地执行器 / jupyter
@@ -44,7 +44,8 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
 
 ## 4. 运维入口语义
 
-- `pth up`（PTH 仓）：engine 栈自服务启动（redis/postgres/pi-platform/sandbox）；P6 将扩展为 `--profile core|tools|lean4|u8|jupyter|full` 的统一编排入口（engine 最后起，保证 backend probe 全绿）。
+- `pth up`（PTH 仓）：engine 栈自服务启动（redis/postgres/pi-platform/sandbox；compose 要求
+  `PTH_WORKSPACES_HOST` 宿主绝对路径，缺失即拒绝启动）；P6 将扩展为 `--profile core|tools|lean4|u8|jupyter|full` 的统一编排入口（engine 最后起，保证 backend probe 全绿）。
 - `pth tools`（PTH 仓）：tool containers 独立 compose 项目的生命周期与协议调用。
 - `pth services`（PTH 仓）：宿主进程监督器（local-lean/local-u8）+ 常驻服务（jupyter）的统一生命周期管理；jupyter 北面内置终端的 `pth` 经宿主依赖树只读挂载透传（镜像不打包 pth）。
 - `ptl stack`（PTL 仓）：deprecated 兼容期——容器生命周期统一由 `pth up`/`pth tools`/`pth services` 管理。
@@ -56,7 +57,8 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
 
 - **engine 只负责两件事**：worker 实现（角色/循环/槽位/批处理）与面向 LLM 的 interface
   （role prompt、动作面、工具语义、`ExecutionRequest` 的构造与结果回收）。
-- **所有执行面都是外部实现**：sandbox（v1）、tool containers（v1.1）、本地执行器（v1.1）、
+- **所有执行面都是外部实现**：sandbox（v1 + v1.1 persistent，P4 已迁 `/sessions`）、tool containers
+  （v1.1）、本地执行器（v1.1）、
   jupyter 服务（v1.1 南北两面）。每个执行面都实现 execution 服务端；协议客户端 =
   **pth 产品面（engine + pth CLI）**，pth CLI 仅经 127.0.0.1 回环访问 tool containers。
 - **tool containers 四域**：compiled（运行时离线；engine + pth CLI）、network（可出网；

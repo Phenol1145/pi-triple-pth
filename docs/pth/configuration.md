@@ -60,7 +60,7 @@ npm run check:pth-config -- --report  # schema 统计 + compose 覆盖度报告
 N28 T2 新增两键（默认关闭/空，legacy 行为不变）：`PTH_COGNITIVE_RESPONSIBILITY_MODE=off`
 （可选 `feasibility` 确定性切片）与 `PTH_BATCH_ID=""`（BatchManager 注入的 batch 实例 ID）。
 
-## 4. Secrets（统一文件 + 全 `:?` fail-closed）
+## 4. Secrets（统一文件 + 核心密钥 `:?` fail-closed）
 
 - **文件**：`deploy/.env.pth.secrets`（gitignored；模板 `deploy/.env.pth.secrets.example`）。
 - **启动**：
@@ -69,8 +69,11 @@ N28 T2 新增两键（默认关闭/空，legacy 行为不变）：`PTH_COGNITIVE
   docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d
   # dev: ... -f deploy/docker-compose.dev.yaml（叠加 PTH_CONFIG_STRICT=0）
   ```
-- **全部密钥 `:?`**：`SANDBOX_SHARED_SECRET`、`PTH_EXECUTION_GRANT_SECRET`、`PTH_MEMORY_BRIDGE_TOKEN`、
+- **核心密钥 `:?`**：`SANDBOX_SHARED_SECRET`、`PTH_EXECUTION_GRANT_SECRET`、`PTH_MEMORY_BRIDGE_TOKEN`、
   `POSTGRES_PASSWORD`、`REDIS_PASSWORD` 任一缺失 → compose 拒绝启动。
+- **可选后端密钥 `:-`**：`LOCAL_EXEC_SHARED_SECRET`、`JUPYTER_SERVICE_TOKEN` 在 engine compose 中为
+  可选注入（缺失时对应 backend 运行期 401，不阻塞核心栈启动）；jupyter 自身 compose 对
+  `JUPYTER_SERVICE_TOKEN` 仍是 `:?`（起 jupyter 前必须先 export）。
 - **REDIS/DATABASE_URL 分字段拼装**（不再把密码嵌进连接串默认值）；redis 启用 AUTH。
 - **生产严格校验**：compose 注入 `PTH_CONFIG_STRICT=1`，主进程启动时拒绝弱密钥（grant secret <32、
   shared secret/token <16）与显式开发默认 token。

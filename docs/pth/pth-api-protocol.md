@@ -51,8 +51,9 @@ PTH 内部错误统一为：
 - `createdBy`/`tenantId`/`workMode` 由服务端盖章，body 值被忽略。
 
 ### Intake（原生动作）
-- `POST /api/v1/kernel/intake/subscriptions`：创建订阅；body 包含 `idempotencyKey` 与 expected policy 指纹。
-- `POST /api/v1/kernel/intake/runs/trigger`：触发一次 run；必须 `idempotencyKey`。
+- `POST /api/v1/intake/subscriptions`：创建订阅；body 包含 `idempotencyKey` 与 expected policy 指纹。
+- `POST /api/v1/intake/runs`：手动触发一次摄入 run；必须 `idempotencyKey`。
+- `GET /api/v1/intake/subscriptions/:id` / `GET /api/v1/intake/runs/:id`：状态查询（tenant 域内）。
 - 状态推进只在服务端状态机内发生；客户端不得自报 stage。
 
 ### Optimizer

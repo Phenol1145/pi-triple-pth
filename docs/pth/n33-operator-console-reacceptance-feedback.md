@@ -3,7 +3,7 @@
 > - 日期：2026-08-20
 > - 复验对象：`main@48bd5541450bdd9f14ccdf5ba05d37d62109e103`
 > - 设计：[n33-v13-ptl-operator-console-design.md](./n33-v13-ptl-operator-console-design.md)
-> - 实施计划：[2026-08-19-v13-ptl-operator-console.md](../superpowers/plans/2026-08-19-v13-ptl-operator-console.md)
+> - 实施计划：[2026-08-19-v13-ptl-operator-console.md（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/plans/2026-08-19-v13-ptl-operator-console.md)
 > - N30 依赖状态：[n30-runtime-observatory-report.md](./n30-runtime-observatory-report.md)
 > - 取证方式：源码审查、真实 loopback HTTP 探针、生产 DTO 投影探针、幂等反例、focused/full/lint/build 与官方 acceptance driver
 > - 工作树说明：复验测试产生了 `.chem-work-test-*`、`.lean-work-test-*` 未跟踪临时目录；本报告未清理或修改这些目录，也未修改实现代码

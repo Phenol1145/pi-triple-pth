@@ -2,8 +2,8 @@
 
 > 状态：设计已批准；**Phase 0–4 全部完成（2026-08-22）**——Phase 0（交互收敛）、Phase 1（pi-triple-deps 拆仓+pack）后，Phase 2（pi-triple-pth）/ Phase 3（pi-triple-ptl）已拆仓并切换 npm 版本依赖，Phase 4 三仓 README/CI/文档索引独立化完成；npm 全量发布与三仓同源校验见 `docs/fracta-engine-execution-topology.md` 状态线。
 > Phase 1 报告：[phase1-deps-split-report.md](./phase1-deps-split-report.md)。
-> 机器清单：[repo-split-v15-manifest.json](../repo-split-v15-manifest.json)。
-> 历史依据：[2026-08-08 仓库拆分 SPEC](../superpowers/specs/2026-08-08-repo-split-design.md)（本设计是其 1.5 修订版）。
+> 机器清单：[repo-split-v15-manifest.json（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/repo-split-v15-manifest.json)。
+> 历史依据：[2026-08-08 仓库拆分 SPEC（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/specs/2026-08-08-repo-split-design.md)（本设计是其 1.5 修订版）。
 
 ## 1. 目标
 
@@ -35,6 +35,10 @@
 | `ptl hub kernel …` | `pth kernel …` |
 | `ptl hub dev <dir>` | `ptl program dev <dir>`（PTL 本地 pi 调试，不进 PTH） |
 | `ptl hub deploy/status/logs/upgrade/exec` | `ptl stack deploy/status/logs/upgrade/exec`（PTL 容器运维） |
+
+> **后续裁决（2026-08-22，CLI 归属纠偏）**：上表最后一行已被取代——`ptl stack` 进入
+> deprecated 兼容期，容器生命周期统一归 `pth up/status/logs/down` + `pth tools` +
+> `pth services`；本地执行器也归 PTH（`pth local-exec`）。本表保留 Phase 0 决策时态。
 
 实现文件迁移：
 - `packages/framework/src/bridge/{submit,run,programs,request,respond,observe,debug,bench,jobs,console,lineage,trigger,kernel}.ts`

@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared 1.7.4 + infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 随 P4）；GHCR release 待凭据实测；P4 已实现并实测（shared persistent 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 迁移 + 容器内 python/bash vertical 通过；legacy /kernel lease 路由 deprecated 待清理）；P5 Jupyter 已实现主体并 vertical 通过（南面 engine→jupyter→nbclient 无头执行；北面 JupyterLab :8888 + 宿主 pth 只读挂载透传；pi-kernel provider → engine notebook API 状态化 cell 执行 + cancel 端点；剩余体验收尾）；P6 pth CLI 运行时剖面统一入口设计定稿（`pth doctor`/`up --profile`/`status --all`，实现待开，见 docs/pth/p6-pth-cli-runtime-profiles-design.md）。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared 1.7.4 + infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 待接线——persistent 基础 P4 已就绪）；GHCR release 待凭据实测；P4 已实现并实测（shared persistent 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 迁移 + 容器内 python/bash vertical 通过；legacy /kernel lease 路由 deprecated 待清理）；P5 Jupyter 已实现主体并 vertical 通过（南面 engine→jupyter→nbclient 无头执行；北面 JupyterLab :8888 + 宿主 pth 只读挂载透传；pi-kernel provider → engine notebook API 状态化 cell 执行 + cancel 端点；剩余体验收尾）；P6 pth CLI 运行时剖面统一入口设计定稿（`pth doctor`/`up --profile`/`status --all`，实现待开，见 docs/pth/p6-pth-cli-runtime-profiles-design.md）。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -53,7 +53,9 @@ execution 服务端。协议客户端 = **pth 产品面（engine + pth CLI）**�
 - 错误信封：`{ error: { code, message } }`，code 只取 `EXECUTION_WIRE.errorCodes`。
 - 不支持的 streaming/cancel 必须在 `capabilities` 里如实声明 `false`，客户端据此降级。
 - v1.1 增量：`GET /exec/:id/ws`（interactive，按 `capabilities.modes.interactive` 提供）与
-  `/sessions*`（persistent wire 定稿、实现后置）；均由 `ExecutionHttpServer` 统一实现。
+  `/sessions*`（persistent，P4 已实现并实测）。服务端统一实现 = shared `ExecutionHttpServer`；
+  sandbox 为**兼容宿主例外**（Fastify 手写 `/exec` + `/sessions`，wire 与 shared 对齐，
+  后续收口，见 P4/§5.6）。
 
 ### 2.3 后端身份与信任档
 
@@ -77,7 +79,7 @@ export interface HttpExecutionBackend extends ExecutionBackend {
 规则（引擎侧 fail-closed）：
 
 1. 客户端**不得自我提升 profile**；引擎只发该 backend 声明的 profile，执行面再校验一次。
-2. 启动时 `GET /capabilities`：`version !== "execution/v1"` 或与 descriptor 期望冲突 → 该 backend 不可用。
+2. 启动时 `GET /capabilities`：`version ∉ { execution/v1, execution/v1.1 }` 或与 descriptor 期望冲突 → 该 backend 不可用。
 3. `required: true` 的 backend 不可用 → 生产 strict 模式拒绝启动；dev 模式仅告警。
 4. 每个 backend 沿用 `SANDBOX_DEGRADED_THRESHOLD` 的连续失败降级模型（per-backend 计数）。
 
@@ -102,11 +104,11 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 
 | 执行面 | profile | 协议状态 | 差距 |
 |---|---|---|---|
-| sandbox 容器 | `sandbox-untrusted` | ✅ `/exec`、SSE、cancel、capabilities 已对齐 execution/v1 | 保持 v1 与 sandbox-internal egress 锁；persistent 迁移后置（P4） |
-| tool containers（原 dev 容器） | `tools-compiled`/`tools-network`/`tools-secrets` | ✅ T2–T4：manifest + 统一镜像 + tool-server/pty + compiled gateway，execution/v1.1 对齐并实测 | GHCR 多架构发布 + digest 钉版待凭据实测 |
+| sandbox 容器 | `sandbox-untrusted` | ✅ `/exec`、SSE、cancel、capabilities 对齐 execution/v1；P4 已实现 persistent `/sessions`（capabilities 升 v1.1 并声明 persistent=true） | legacy `/kernel/acquire\|execute\|…` 路由 deprecated 待清理；interactive 不提供（如实声明 false） |
+| tool containers（原 dev 容器） | `dev-container`（域 = compiled/network/secrets；由宿主回环注册表合成） | ✅ T2–T4：manifest + 统一镜像 + tool-server/pty + compiled gateway，execution/v1.1 对齐并实测 | GHCR 多架构发布 + digest 钉版待凭据实测 |
 | 本地执行器 | `host` | ✅ P2：`pth local-exec`（v1.1 + pathMapping）+ `pth services` 监督 local-lean/local-u8；U8-1 adapter+路由已闭环 | 其余本地域按需扩展 |
-| jupyter 服务 | `dev-container`（南面 spawn 面按 host 档） | ✅ 南面 execution/v1.1 :8889 + 北面 JupyterLab :8888 + pth 宿主挂载透传 + pi-kernel → engine notebook API；无头与 notebook vertical 均通过 | Lab 内 interrupt 交互细化/体验收尾 |
-| engine 侧 | — | ✅ P1+P2：BackendRegistry + `PTH_EXEC_BACKENDS`/`PTH_EXEC_BACKEND_ROUTES` 硬切路由 + tool/service 注册表合并消费 | interactive/persistent 消费语义（P4）；品牌/服务名迁移另立项 |
+| jupyter 服务 | `host`（south server 与 engine descriptor 均固定 host） | ✅ 南面 execution/v1.1 :8889 + 北面 JupyterLab :8888 + pth 宿主挂载透传 + pi-kernel → engine notebook API；无头与 notebook vertical 均通过 | Lab 内 interrupt 交互细化/体验收尾 |
+| engine 侧 | — | ✅ P1+P2：BackendRegistry + `PTH_EXEC_BACKENDS`/`PTH_EXEC_BACKEND_ROUTES` 硬切路由 + tool/service 注册表合并消费；P4 已迁移 SandboxKernel 到 /sessions | interactive 消费语义（待真实 TTY 场景）；legacy 清理待办；品牌/服务名迁移另立项 |
 | Lean 工具链 | — | ✅ 已从 engine 镜像移除，由 `local-lean` 宿主执行器提供（P2 实测） | 无（首期闭环完成） |
 
 ## 4. 优先级计划（协议面优先）
@@ -165,7 +167,7 @@ unregistered；dev 也必须显式配置 backend 或 legacy execPrefix。**
 | key | type | 默认 | 说明 |
 |---|---|---|---|
 | `PTH_EXEC_BACKENDS` | json | `""` | `ExecutionBackendDescriptor[]`（shared 校验器解析） |
-| `PTH_EXEC_BACKEND_ROUTES` | json | `""` | `{ "lean4":"local-lean", "assembly":"local-asm", ... }` |
+| `PTH_EXEC_BACKEND_ROUTES` | json | `""` | 覆盖 `DEFAULT_BACKEND_ROUTES`（代码默认：`lean4→local-lean`、`assembly→tools-compiled`、`jupyter→jupyter`、`u8→local-u8`、`wolfram→local-wolfram`、`psi4/cp2k/quantum-espresso→local-chem`） |
 | `PTH_EXEC_BACKEND_PROBE_TIMEOUT_MS` | number | `2000` | startup 单 backend 探测超时 |
 | `PTH_EXEC_SANDBOX_ALIAS` | string | `"on"` | `off` 时不从 `SANDBOX_URL` 合成 sandbox 后端 |
 
@@ -223,8 +225,9 @@ export async function probeExecutionBackends(registry, opts: {
 后端解析优先级：
 
 1. `backendRoutes[runtimeId]` → registry `get()`；
-2. 约定 id：`lean4→local-lean`、`assembly→local-asm`、`wolfram→local-wolfram`、
-   `psi4/cp2k/quantum-espresso→local-chem`、`jupyter→dev-jupyter`（registry 存在即用）；
+2. 代码默认路由（`DEFAULT_BACKEND_ROUTES`，registry 中存在即用）：`lean4→local-lean`、
+   `assembly→tools-compiled`（T4）、`u8→local-u8`（U8-1）、`jupyter→jupyter`（P5）、
+   `wolfram→local-wolfram`、`psi4/cp2k/quantum-espresso→local-chem`；
 3. legacy 前缀 env（`PTH_LEAN4_TOOLCHAIN_EXEC` / `PTH_ASM_TOOLCHAIN_EXEC` 等）→
    `DockerExecBackend`（仍作为显式配置受支持）；
 4. 都没有 → **不创建该 factory**（strict 与 dev 一致）→ registry 返回
@@ -324,7 +327,7 @@ chatgpt-share），可信可出网、无密钥注入、root 单用户，调用�
 
 ### P4 persistent + kernel-host 迁移（✅ 已完成，2026-08-22；legacy 清理待办）
 
-- **shared 已实现并发布（1.7.1）**：`ExecutionSessionManager`（sessionId→backend token、
+- **shared 已实现并发布（1.7.1 会话基础，1.7.2 快照 `state`，1.7.3 execute 上下文，1.7.4 execute `value`）**：`ExecutionSessionManager`（sessionId→backend token、
   lease/TTL、execute 续租、快照登记、released/expired 状态机）+ `ExecutionHttpServer`
   `/sessions*` 路由 + `HttpExecutionClient` 会话 API；v1 capabilities 装配 sessions 后
   自动升 v1.1 并声明 persistent=true。
@@ -385,8 +388,9 @@ notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，�
   `pth status --all` 聚合健康。
 - 运行时剖面：`core`（默认）/ `tools` / `lean4` / `u8` / `jupyter` / `full`，
   声明在 `deploy/runtime-profiles.json`（P6-2）。
-- 部署顺序：doctor → secrets env 注入 → 数据层 → 宿主服务 → 工具容器 → jupyter →
-  **最后 engine**（保证 batch 启动 probe 全部 backend ready）→ token 种子 → verify。
+- 部署顺序：doctor → secrets env 注入 → 数据层 → **生成 operator token（同源给
+  JUPYTER_ENGINE_TOKEN）** → 宿主服务 → 工具容器 → jupyter → **最后 engine**
+  （`pth up --token` 复用同值；保证 batch 启动 probe 全部 backend ready）→ verify。
 - 完整设计：`docs/pth/p6-pth-cli-runtime-profiles-design.md`。
 
 ## 5. tool containers 与 execution/v1.1 模式框架（ADR-0002 定稿）
@@ -448,7 +452,7 @@ notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，�
 ### 5.6 execution/v1.1 模式框架
 
 ```ts
-ExecutionRequest.mode: "sync" | "stream" | "interactive" | "persistent"(预留)
+ExecutionRequest.mode: "sync" | "stream" | "interactive" | "persistent"
 capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
   sync: boolean, stream: boolean, interactive: boolean, persistent: boolean } }
 ```
@@ -465,10 +469,11 @@ capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
   `POST /sessions/:id/execute|snapshot|reset|release`；`leaseMs` 5s..24h（缺省 10min），
   每次 execute 自动续租；`SESSION_EXPIRED` / `SNAPSHOT_NOT_FOUND` 错误码。
 - v1.0 客户端遇 v1.1 fail-closed；升级需部署顺序编排。
-- 服务端唯一实现：`@away_from/shared/execution` 的 `ExecutionHttpServer`（HTTP+WS+
-  模式路由 + Bearer 校验）；sandbox 暂留 v1，registry 按 capabilities 协商。
-- persistent 语义：交互核状态在后端（session/lease），engine 保持无状态；实现前
-  生产状态继续留在 sandbox kernel-host。
+- 服务端实现：jupyter 南面 / tool containers / 本地执行器 = shared `ExecutionHttpServer`；
+  **sandbox 为兼容宿主例外**（Fastify 手写 `/exec` + `/sessions`，与 `/kernel/*` 共享语言池、
+  wire 与 shared 对齐，后续收口到 `ExecutionHttpServer`）。registry 按 capabilities 协商 v1/v1.1。
+- persistent 语义：交互核状态在后端（session/lease），engine 保持无状态；
+  sandbox 生产路径已迁移（P4：`/sessions` 宿主 + SandboxKernel 全量切会话）。
 
 ### 5.7 principal 与授权
 
@@ -651,8 +656,10 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 extra_hosts:
   - "host.docker.internal:host-gateway"
 environment:
-  - PTH_EXEC_BACKENDS=[{"id":"sandbox","url":"http://sandbox:8080","profile":"sandbox-untrusted","tokenEnv":"SANDBOX_SHARED_SECRET","required":true},{"id":"local-lean","url":"http://host.docker.internal:8787","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"/Users/<you>/pi-triple-pth/.pi-platform-data/workspaces"}}]
-  - LOCAL_EXEC_SHARED_SECRET=${LOCAL_EXEC_SHARED_SECRET:?LOCAL_EXEC_SHARED_SECRET must be set}
+  - PTH_EXEC_BACKENDS=[{"id":"sandbox","url":"http://sandbox:8080","profile":"sandbox-untrusted","tokenEnv":"SANDBOX_SHARED_SECRET","required":true},{"id":"local-lean","url":"http://host.docker.internal:8787","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"${PTH_WORKSPACES_HOST}"},"required":false},{"id":"local-u8","url":"http://host.docker.internal:8788","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"${PTH_WORKSPACES_HOST}"},"required":false},{"id":"jupyter","url":"http://jupyter:8889","profile":"host","tokenEnv":"JUPYTER_SERVICE_TOKEN","required":false}]
+  # LOCAL_EXEC_SHARED_SECRET / JUPYTER_SERVICE_TOKEN 为可选注入（${VAR:-}）；缺失时对应 backend 运行期 401，不阻塞启动
+  - LOCAL_EXEC_SHARED_SECRET=${LOCAL_EXEC_SHARED_SECRET:-}
+  - JUPYTER_SERVICE_TOKEN=${JUPYTER_SERVICE_TOKEN:-}
 ```
 
 Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
@@ -692,9 +699,9 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
   → pathMapping → `u8 compile/run` → source/programme/run-log artifacts）。
 - 角色归属：暂不对任何专业角色开放 allowlist（`u8-programmer` 或等价角色另立项）。
 
-**U8-2（有状态，后置）**
-- interactive/debug 语义待 **P4 persistent** 统一实现；届时 `u8 run` 的寄存器/I/O
-  逐步输入映射到 persistent session execute，不再需要 batch 参数逐轮拼接。
+**U8-2（有状态，待接线）**
+- P4 persistent 已实现：`u8 run` 的寄存器/I/O 逐步输入可映射到 persistent session execute，
+  不再需要 batch 参数逐轮拼接；具体接线与 `u8-programmer` 角色立项同步推进。
 
 ### 6.7 CLI 归属纠偏（2026-08-22 补充裁决）
 
@@ -709,7 +716,8 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 
 **现状保持直连**，不新增 nginx / HAProxy 等统一网关：
 
-- **北向**：pth CLI / web UI 继续直连 engine `:3000`（compose 唯一对外发布端口，已天然单入口）。
+- **北向**：pth CLI / web UI 继续直连 engine `:3000`（核心栈唯一全网发布端口，天然单入口；
+  jupyter 北面 `:8888` 只绑 127.0.0.1 回环，不属于网关域）。
 - **南向执行面**：engine 继续经 `PTH_EXEC_BACKENDS` registry 直连各执行面；不插入物理代理、
   不做 `/sandbox`、`/dev` 这类前缀重写（execution/v1 的 registry 就是逻辑网关）。
 - **数据面**：engine 直连 Redis / PostgreSQL（compose DNS）；PG 连接池需要时按既定路线

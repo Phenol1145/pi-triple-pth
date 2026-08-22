@@ -10,7 +10,7 @@
 >
 > 配套工作模式与专业运行：[N32 v1.3 专业计算设计](./n32-v13-professional-computing-design.md)
 >
-> 实施计划：[2026-08-19 v1.3 PTL Operator Console](../superpowers/plans/2026-08-19-v13-ptl-operator-console.md)
+> 实施计划：[2026-08-19 v1.3 PTL Operator Console（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/plans/2026-08-19-v13-ptl-operator-console.md)
 
 ## 0. 执行摘要
 

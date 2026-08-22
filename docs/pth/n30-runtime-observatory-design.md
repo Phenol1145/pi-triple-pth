@@ -6,9 +6,9 @@
 >
 > 已确认视觉方案：C——统一时间轴、执行甘特图与资源折线联动
 >
-> 分层待办：[根 TODO：N30 O0–O5](../../TODO.md#n30-统一运行观测台c-方案分层待办2026-08-19-已确认布局)
+> 分层待办：[根 TODO：N30 O0–O5（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/TODO.md#n30-%E7%BB%9F%E4%B8%80%E8%BF%90%E8%A1%8C%E8%A7%82%E6%B5%8B%E5%8F%B0c-%E6%96%B9%E6%A1%88%E5%88%86%E5%B1%82%E5%BE%85%E5%8A%9E2026-08-19-%E5%B7%B2%E7%A1%AE%E8%AE%A4%E5%B8%83%E5%B1%80)
 >
-> 实施计划：[2026-08-19 N30 运行观测台实施计划](../superpowers/plans/2026-08-19-n30-runtime-observatory.md)
+> 实施计划：[2026-08-19 N30 运行观测台实施计划（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/plans/2026-08-19-n30-runtime-observatory.md)
 >
 > v1.3 操作入口：[N33 PTL 五页 Operator Console](./n33-v13-ptl-operator-console-design.md)
 

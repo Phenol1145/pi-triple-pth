@@ -1,10 +1,11 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-22T05:11:01.874Z",
+  "generatedAt": "2026-08-22T05:43:18.713Z",
   "taxonomy": {
     "docs": [
       "index",
       "guides",
+      "reference",
       "designs",
       "contracts",
       "reports",
@@ -45,15 +46,15 @@
     },
     {
       "path": "docs/fracta-engine-execution-topology.md",
-      "category": "archive",
+      "category": "reference",
       "product": "shared",
-      "status": "historical"
+      "status": "active"
     },
     {
       "path": "docs/POSITIONING.md",
-      "category": "archive",
+      "category": "reference",
       "product": "shared",
-      "status": "historical"
+      "status": "active"
     },
     {
       "path": "docs/pth/agent-construction.md",

@@ -10,9 +10,9 @@
 >
 > 配套人类操作入口：[N33 PTL 五页 Operator Console](./n33-v13-ptl-operator-console-design.md)
 >
-> 实施计划：[v1.3 专业计算实施计划](../superpowers/plans/2026-08-19-v13-professional-computing.md) ·
-> [N30 运行观测台实施计划](../superpowers/plans/2026-08-19-n30-runtime-observatory.md) ·
-> [N33 PTL 五页操作台实施计划](../superpowers/plans/2026-08-19-v13-ptl-operator-console.md)
+> 实施计划：[v1.3 专业计算实施计划（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/plans/2026-08-19-v13-professional-computing.md) ·
+> [N30 运行观测台实施计划（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/plans/2026-08-19-n30-runtime-observatory.md) ·
+> [N33 PTL 五页操作台实施计划（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/superpowers/plans/2026-08-19-v13-ptl-operator-console.md)
 
 ## 0. 执行摘要
 
