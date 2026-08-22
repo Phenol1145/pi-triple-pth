@@ -148,6 +148,8 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     });
   }
 
+  // ⚠️ P4 DEPRECATED（2026-08-22）：engine 已迁移 /sessions（kernel-session-host）；
+  // 以下 /kernel lease 路由仅保留向后兼容，新代码禁止使用，清理批删除。
   app.post("/kernel/acquire", async (req, reply) => {
     // P2-2：acquire 只接受签名 grant——SANDBOX_SHARED_SECRET 不再是 kernel 执行认证。
     if (!opts.grantVerifier) {
