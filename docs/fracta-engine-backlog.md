@@ -30,8 +30,9 @@
   1.6x 余量足够，不调值。
 - **护栏**：配置参量护栏另立 C11，本次不扩大默认值。
 
-## B4. 宿主服务自恢复（launchd 托管）
+## B4. 宿主服务自恢复（launchd 托管）✅
 
+- **状态**：✅ 已完成（2026-08-22；`pth-cli@1.6.5`）
 - **问题**：宿主机重启后 local-lean/local-u8（宿主常驻进程）不自动恢复（2026-08-22 实证：
   容器靠 restart policy 回来，宿主服务需手动 `pth up`）。
 - **方案**（草案）：
@@ -46,8 +47,9 @@
 - **影响面**：`src/pth/services/*`（新子命令），不动 supervisor 现有 spawn 语义。
 - **验收**：重启宿主机后 60s 内 `pth status --all` 四个 runtime 全注册，无需手工干预。
 
-## B5. engine 与 postgres 启动竞态
+## B5. engine 与 postgres 启动竞态 ✅
 
+- **状态**：✅ 已完成（2026-08-22；engine 镜像重建验证）
 - **问题**：宿主重启后 pi-platform 先于 postgres 就绪启动 → kernel 装配失败
   （`Connection terminated unexpectedly`），`/kernel/*` 503，需手动 `docker restart` 恢复。
 - **方案**（二选一，倾向 a）：
@@ -60,8 +62,9 @@
 - **验收**：`docker stop/start postgres` 或宿主重启后，不手工干预，`/api/v1/kernel/status`
   在 ≤2min 内回到 200。
 
-## B6. 全局 `pth` 的安装形态
+## B6. 全局 `pth` 的安装形态 ✅
 
+- **状态**：✅ 已完成（2026-08-22；`npm i -g --prefix ~/.npm-global @away_from/pth-cli@1.6.5` 验证）
 - **问题**：当前 `/usr/local/bin/pth` 是仓内 `dist/cli/pth-cli.js` 的软链；
   `npm run clean` 或移动仓库即失效。
 - **方案**：改用 `npm i -g @away_from/pth-cli@<ver>`（已发布 1.6.4）作为标准安装；
@@ -71,8 +74,9 @@
 - **影响面**：文档 + 一次安装验证；不改代码（若路径解析有问题再补 `PTH_*_DIR` env 覆盖）。
 - **验收**：干净环境 `npm i -g @away_from/pth-cli` 后 `pth doctor --profile full` 可用。
 
-## B7. tools 钉版默认策略
+## B7. tools 钉版默认策略 ✅
 
+- **状态**：✅ 已完成（2026-08-22；决策 = 有 digest 默认用钉版）
 - **问题**：GHCR digest 已钉版，但 `pth tools up` 默认本地构建，钉版镜像只在显式 `--pull`
   时使用；钉版成果默认不生效。
 - **方案**（需拍板，倾向 b）：
@@ -83,8 +87,9 @@
 - **影响面**：`src/pth/tools/cli.ts`（`toolsUp` 默认分支）。
 - **验收**：钉版状态下冷启 `pth tools up` 直接跑 GHCR 镜像；`pth tools verify` 通过。
 
-## B8. `pth status --all` 的 jupyter 显示
+## B8. `pth status --all` 的 jupyter 显示 ✅
 
+- **状态**：✅ 已完成（2026-08-22；`pth-cli@1.6.5`）
 - **问题**：jupyter 行显示 `compose compose -`，无健康态（它是独立 compose project，
   不走 core compose ps）。
 - **方案**：status 聚合时对 jupyter 单独跑 `docker compose -p pi-triple-jupyter ps --format json`
@@ -93,8 +98,9 @@
 - **影响面**：`src/cli/runtime/runtime-orchestrator.ts`（orchestrateStatusAll）。
 - **验收**：`pth status --all` jupyter 行与 `docker compose -p pi-triple-jupyter ps` 一致。
 
-## C9. P5 体验收尾（三小项）
+## C9. P5 体验收尾（三小项）✅
 
+- **状态**：✅ 已完成（2026-08-22；裸表达式 value 捕获 + interrupt 文案 + execute_result 渲染）
 - **问题**：
   1. python 裸表达式 cell（`x=1+2; x`）notebook 执行返回空 stdout（`print` 正常）；
   2. JupyterLab 内 interrupt 交互未定稿；
@@ -109,8 +115,9 @@
 - **验收**：`x=1+2; x` 回 `3`；Lab interrupt 后 cell 标记 cancelled 且会话可继续；
   表达式回显样式过 ptl 视觉走查。
 
-## C10. doctor 端口探针加固
+## C10. doctor 端口探针加固 ✅
 
+- **状态**：✅ 已完成（2026-08-22；`pth-cli@1.6.5`）
 - **问题**：OrbStack(macOS) 下 3000 已被 pi-platform 占用，doctor 仍报「空闲」
   （bind 探测语义与 Docker 端口代理行为不一致）。
 - **方案**：端口探测从「尝试 bind」改为「尝试连接 + 可选 HTTP 指纹」：
@@ -120,8 +127,9 @@
 - **验收**：栈运行中 `pth doctor --profile full` 对 3000 报「占用（pi-platform）」而非空闲；
   栈停止时报空闲。
 
-## C11. 配置参量护栏（2026-08-22 A2 新立）
+## C11. 配置参量护栏 ✅（2026-08-22 A2 新立；首批已落地）
 
+- **状态**：✅ 首批已完成（2026-08-22；`pth-cli@1.6.5` / `pth-sandbox@1.6.2`）
 - **问题**：`PTH_CONFIG_SCHEMA` 的 `d()` 仅声明类型/默认值/描述，无 `min/max` 元数据；
   sandbox 侧 `posNum()` 只做「非正/非数字回退默认」，没有上限校验——写 `PTH_KERNEL_POOL_SIZE=100000`
   会真的尝试建 10 万条池条目；doctor 也不检查「池容量 vs batch worker 数」等合理性。
@@ -148,3 +156,16 @@
   `@away_from/pth-console@1.6.2` / `@away_from/pth-cli@1.6.4`）。
 - ~~lean4 runtime 未注册~~：2026-08-22 完成（elan 入 PATH + local-lean 重启，
   注册态 `assembly, lean4, jupyter, u8`）。
+- ~~A1 全量测试基线~~：2026-08-22 完成（默认全量 2662 用例 0 失败；professional 集成
+  `PTH_PROFESSIONAL_INTEGRATION=1` 门控）。
+- ~~A2 池容量~~：2026-08-22 决策保持 24/语言；护栏 C11 落地。
+- ~~B4 launchd 自恢复~~：2026-08-22 完成（`pth services install/uninstall`；非 GUI 会话如实报错）。
+- ~~B5 engine↔pg 竞态~~：2026-08-22 完成（指数退避重试；live 停 pg 启动自愈）。
+- ~~B6 全局 pth 安装形态~~：2026-08-22 完成（`--prefix ~/.npm-global` 验证；
+  `pth doctor/services` 路径解析正确；标准流程需 `pth init`）。
+- ~~B7 tools 钉版默认策略~~：2026-08-22 完成（有 digest 默认用钉版；live 验证）。
+- ~~B8 status jupyter 显示~~：2026-08-22 完成（compose ps + secrets 插值，显示 running/healthy）。
+- ~~C9 P5 体验三小项~~：2026-08-22 完成（裸表达式 value 捕获；interrupt 文案；
+  execute_result 渲染）。
+- ~~C10 doctor 端口探针~~：2026-08-22 完成（TCP connect + HTTP 指纹；3000 报占用 pi-platform）。
+- ~~C11 配置参量护栏~~：2026-08-22 首批完成（schema min/max + doctor warn + sandbox clamp）。

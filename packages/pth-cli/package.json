@@ -1,6 +1,6 @@
 {
   "name": "@away_from/pth-cli",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "type": "module",
   "description": "pth CLI —— FRACTA engine 产品面（栈/容器/服务/本地执行器/任务派发）",
   "bin": {
