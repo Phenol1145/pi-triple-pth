@@ -51,6 +51,12 @@
       "status": "active"
     },
     {
+      "path": "docs/fracta-engine-backlog.md",
+      "category": "operations",
+      "product": "shared",
+      "status": "active"
+    },
+    {
       "path": "docs/POSITIONING.md",
       "category": "reference",
       "product": "shared",
