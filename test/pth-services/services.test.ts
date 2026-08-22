@@ -19,6 +19,7 @@ import {
   upHostService,
 } from "../../src/pth/services/service-supervisor.js";
 import { buildExecutionBackendRegistry } from "../../src/pth/execution/backend-registry.js";
+import { resolveServiceToken } from "../../src/pth/services/cli.js";
 
 const cleanup: string[] = [];
 afterEach(() => {
@@ -72,6 +73,15 @@ describe("pth services：host 进程监督器", () => {
     expect(loadServiceRegistry(path).services["local-lean"]).toEqual(entry);
     writeFileSync(path, "{broken", "utf8");
     expect(() => loadServiceRegistry(path)).toThrow(/不可解析/);
+  });
+
+  it("token 解析：tokenEnv 环境变量非空优先 → registry 既有 → 新生成", () => {
+    const entry = { id: "local-u8", url: "http://127.0.0.1:8788", port: 8788, token: "svc-existing", pid: 1, startedAt: Date.now(), logFile: "/tmp/x.log" };
+    expect(resolveServiceToken(entry, "PTH_TEST_SVC_TOKEN", { PTH_TEST_SVC_TOKEN: "env-token-123" })).toBe("env-token-123");
+    expect(resolveServiceToken(entry, "PTH_TEST_SVC_TOKEN", {})).toBe("svc-existing");
+    expect(resolveServiceToken(entry, undefined)).toBe("svc-existing");
+    expect(resolveServiceToken(undefined, "PTH_TEST_SVC_TOKEN", {})).toMatch(/^svc-/);
+    expect(resolveServiceToken(undefined, undefined)).toMatch(/^svc-/);
   });
 
   it("up → status healthy → down（pid 防误杀只杀登记 pid）", async () => {

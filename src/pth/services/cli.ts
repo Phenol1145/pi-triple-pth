@@ -51,6 +51,23 @@ function select(manifests: ServiceManifest[], ids: string[]): ServiceManifest[] 
   });
 }
 
+/**
+ * token 解析顺序（T2b 修正）：
+ *  tokenEnv 指定的环境变量非空 → 用它（compose `--env-file` 与宿主服务同源，显式 backend 可用）；
+ *  否则沿用 registry 既有 token（服务不重建时稳定）；都没有才生成新 token。
+ */
+export function resolveServiceToken(
+  entry: HostServiceRuntimeEntry | undefined,
+  tokenEnv: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  if (tokenEnv !== undefined) {
+    const configured = env[tokenEnv];
+    if (configured && configured.trim() !== "") return configured;
+  }
+  return entry?.token ?? generateServiceToken();
+}
+
 async function up(manifests: ServiceManifest[], ids: string[]): Promise<void> {
   let registry = loadServiceRegistry(defaultServiceRegistryPath());
   const selected = select(manifests, ids);
@@ -61,7 +78,7 @@ async function up(manifests: ServiceManifest[], ids: string[]): Promise<void> {
         console.log(`${manifest.id}: already running（${entry.url}）`);
         continue;
       }
-      const token = entry?.token ?? generateServiceToken();
+      const token = resolveServiceToken(entry, manifest.tokenEnv);
       const result = await upHostService(manifest, { token });
       entry = result.entry;
       registry = { ...registry, updatedAt: new Date().toISOString(), services: { ...registry.services, [manifest.id]: entry } };
