@@ -1,8 +1,8 @@
 {
   "name": "@away_from/pth-cli",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "type": "module",
-  "description": "pth CLI \u2014\u2014 FRACTA engine \u4ea7\u54c1\u9762\uff08\u6808/\u5bb9\u5668/\u670d\u52a1/\u672c\u5730\u6267\u884c\u5668/\u4efb\u52a1\u6d3e\u53d1\uff09",
+  "description": "pth CLI —— FRACTA engine 产品面（栈/容器/服务/本地执行器/任务派发）",
   "bin": {
     "pth": "./dist/cli/pth-cli.js"
   },
