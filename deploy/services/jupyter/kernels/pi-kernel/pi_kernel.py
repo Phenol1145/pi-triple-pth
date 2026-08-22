@@ -9,6 +9,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from pprint import pformat
 
 from ipykernel.kernelbase import Kernel
 
@@ -72,7 +73,8 @@ class PiKernel(Kernel):
                     urllib.request.urlopen(cancel, timeout=10).read()
                 except Exception:  # noqa: BLE001
                     pass
-            self.session_id = None
+            if not silent:
+                self.send_response(self.iopub_socket, "stream", {"name": "stderr", "text": "cell interrupted — engine session aborted（下个 cell 会自动重建会话）\n"})
             return {"status": "error", "execution_count": self.execution_count, "ename": "Interrupted", "evalue": "cell execution interrupted", "traceback": []}
         except urllib.error.HTTPError as error:
             text = error.read().decode("utf-8", "replace")[:2000]
@@ -109,8 +111,21 @@ class PiKernel(Kernel):
             }
 
         if value is not None and not silent:
-            text = repr(value)
-            self.send_response(self.iopub_socket, "stream", {"name": "stdout", "text": f"{text}\n"})
+            # C9c：表达式结果走 execute_result 渲染（JupyterLab 输出面显示 execution_count
+            # + text/plain，替代裸 stdout 文本；容器/字典用 pformat 提升可读性）。
+            try:
+                text = pformat(value, width=88, sort_dicts=False)
+            except Exception:  # noqa: BLE001
+                text = repr(value)
+            self.send_response(
+                self.iopub_socket,
+                "execute_result",
+                {
+                    "execution_count": self.execution_count,
+                    "data": {"text/plain": text},
+                    "metadata": {},
+                },
+            )
         return {
             "status": "ok",
             "execution_count": self.execution_count,
