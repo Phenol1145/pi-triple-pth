@@ -140,6 +140,8 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_ASM_KERNEL_INDEX_PATH", "string", "", "path", "batch", "asm-kernel index.js 生产路径（容器内 /data/toolstore/...；空 = 仓库默认）"),
   d("PTH_SERVICES_DIR", "string", "", "path", "cli", "deploy/services 根目录（缺省 = 仓库内）"),
   d("PTH_SERVICES_PROJECT", "string", "pi-triple-services", "path", "cli", "pth services 的 docker compose 项目名"),
+  d("PTH_SERVICE_REGISTRY_PATH", "string", "", "path", "cli", "宿主服务运行时注册表路径（缺省 ~/.pi-triple/services.json）"),
+  d("PTH_PTL_BIN", "string", "", "path", "cli", "ptl 可执行路径覆盖（缺省 PATH 中的 ptl；本地开发可用 node_modules/.bin/ptl）"),
 
   // ── compiled kernel ──────────────────────────────────────────────
   d("PTH_COMPILED_CACHE_DIR", "string", "/data/compiled-cache/c", "compiled", "sandbox", "编译核缓存目录"),

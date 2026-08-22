@@ -356,7 +356,7 @@ async function main(): Promise<void> {
       return;
     }
     case "services": {
-      const { servicesCommand } = await import("../pth/tools/cli.js");
+      const { servicesCommand } = await import("../pth/services/cli.js");
       await servicesCommand(rest);
       return;
     }

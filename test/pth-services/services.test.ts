@@ -1,0 +1,119 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  validateServiceManifest,
+  ServiceManifestError,
+  type HostServiceManifest,
+} from "../../src/pth/services/service-manifest.js";
+import {
+  defaultServiceRegistryPath,
+  generateServiceToken,
+  loadServiceRegistry,
+  saveServiceRegistry,
+} from "../../src/pth/services/service-registry.js";
+import {
+  downHostService,
+  statusHostService,
+  upHostService,
+} from "../../src/pth/services/service-supervisor.js";
+import { buildExecutionBackendRegistry } from "../../src/pth/execution/backend-registry.js";
+
+const cleanup: string[] = [];
+afterEach(() => {
+  for (const p of cleanup.splice(0)) rmSync(p, { recursive: true, force: true });
+});
+
+function tempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "pth-services-"));
+  cleanup.push(dir);
+  return dir;
+}
+
+function fakeHealthManifest(port: number): HostServiceManifest {
+  return {
+    schemaVersion: 1,
+    kind: "host",
+    id: "fake-service",
+    command: ["node", "-e", `require('http').createServer((req,res)=>{res.end('{"status":"ok"}')}).listen(${port})`],
+    tokenEnv: "FAKE_SERVICE_TOKEN",
+    healthUrl: `http://127.0.0.1:${port}/health`,
+    readyTimeoutMs: 5_000,
+    stopGraceMs: 1_000,
+  };
+}
+
+describe("pth services：host 进程监督器", () => {
+  it("实际 service.json 声明合法（local-lean/local-u8 host）", () => {
+    for (const id of ["local-lean", "local-u8"]) {
+      const manifest = validateServiceManifest(
+        JSON.parse(readFileSync(join(process.cwd(), "deploy/services", id, "service.json"), "utf8")),
+      );
+      expect(manifest).toMatchObject({ kind: "host", id, healthUrl: expect.stringContaining("/health") });
+      expect((manifest as HostServiceManifest).pathMapping?.execRootEnv).toBe("PTH_WORKSPACES_HOST");
+    }
+    expect(() => validateServiceManifest({ schemaVersion: 1, kind: "host", id: "bad", command: [], tokenEnv: "T", healthUrl: "http://x/health" }))
+      .toThrow(ServiceManifestError);
+  });
+
+  it("registry 0600 往返 + 损坏 fail-closed", () => {
+    const dir = tempDir();
+    const path = join(dir, "services.json");
+    saveServiceRegistry({ schemaVersion: 1, updatedAt: "", services: {} }, path);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    const token = generateServiceToken();
+    expect(token).toMatch(/^svc-/);
+    const entry = {
+      id: "local-lean", url: "http://127.0.0.1:8787", port: 8787, token,
+      pid: 1234, startedAt: Date.now(), logFile: join(dir, "x.log"),
+    };
+    saveServiceRegistry({ schemaVersion: 1, updatedAt: "", services: { "local-lean": entry } }, path);
+    expect(loadServiceRegistry(path).services["local-lean"]).toEqual(entry);
+    writeFileSync(path, "{broken", "utf8");
+    expect(() => loadServiceRegistry(path)).toThrow(/不可解析/);
+  });
+
+  it("up → status healthy → down（pid 防误杀只杀登记 pid）", async () => {
+    const port = 18781 + Math.floor(Math.random() * 500);
+    const manifest = fakeHealthManifest(port);
+    const logFile = join(tempDir(), "fake.log");
+    const result = await upHostService(manifest, { token: generateServiceToken(), logFile });
+    try {
+      expect(result.entry.pid).toBeGreaterThan(0);
+      const status = await statusHostService(result.entry);
+      expect(status).toMatchObject({ running: true, healthy: true });
+    } finally {
+      await downHostService(result.entry);
+    }
+    const status = await statusHostService(result.entry);
+    expect(status.running).toBe(false);
+  });
+
+  it("服务注册表合并进 engine backend（url 改写 + token 直连 + pathMapping）", async () => {
+    const token = generateServiceToken();
+    const { registry } = buildExecutionBackendRegistry({
+      env: { PTH_EXEC_SANDBOX_ALIAS: "off" },
+      strict: false,
+      serviceRegistry: {
+        schemaVersion: 1,
+        updatedAt: "",
+        services: {
+          "local-u8": {
+            id: "local-u8", url: "http://127.0.0.1:8788", port: 8788, token,
+            pid: 123, startedAt: Date.now(), logFile: "/tmp/u8.log",
+            pathMapping: { hostRoot: "/data/workspaces", execRoot: "/host/workspaces" },
+          },
+        },
+      },
+    });
+    const backend = registry.get("local-u8");
+    expect(backend?.descriptor).toMatchObject({
+      id: "local-u8",
+      url: "http://host.docker.internal:8788",
+      profile: "host",
+      pathMapping: { hostRoot: "/data/workspaces", execRoot: "/host/workspaces" },
+    });
+    expect(defaultServiceRegistryPath()).toContain(".pi-triple");
+  });
+});

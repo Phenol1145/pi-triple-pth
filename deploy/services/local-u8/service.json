@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "kind": "host",
+  "id": "local-u8",
+  "description": "u8 VM 宿主本地执行器（U8-1，execution/v1.1 · profile=host）",
+  "command": ["ptl", "local-exec", "--port", "8788"],
+  "tokenEnv": "LOCAL_EXEC_SHARED_SECRET",
+  "healthUrl": "http://127.0.0.1:8788/health",
+  "readyTimeoutMs": 30000,
+  "stopGraceMs": 5000,
+  "pathMapping": { "hostRoot": "/data/workspaces", "execRootEnv": "PTH_WORKSPACES_HOST" }
+}

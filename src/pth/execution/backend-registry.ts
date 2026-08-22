@@ -15,6 +15,7 @@ import {
 } from "@away_from/shared/execution";
 import { isProfessionalRuntimeId, type ProfessionalRuntimeId } from "../contracts/index.js";
 import type { ToolRegistryFile } from "../tools/tool-registry.js";
+import type { ServiceRegistryFile } from "../services/service-registry.js";
 
 export interface ExecutionBackendRegistry {
   get(id: string): HttpExecutionBackend | undefined;
@@ -38,6 +39,11 @@ export interface BuildExecutionBackendRegistryInput {
    * 127.0.0.1 回环改写为 host.docker.internal（engine 容器视角）。
    */
   toolRegistry?: ToolRegistryFile;
+  /**
+   * T2b：宿主服务注册表（pth services 管理的本地执行器）。
+   * 合并语义同 toolRegistry；显式 PTH_EXEC_BACKENDS 优先。
+   */
+  serviceRegistry?: ServiceRegistryFile;
 }
 
 export interface BuildExecutionBackendRegistryResult {
@@ -118,6 +124,21 @@ export function buildExecutionBackendRegistry(
       profile: "dev-container",
     });
     toolTokens.set(entry.backendId, entry.token);
+  }
+
+  for (const entry of Object.values(input.serviceRegistry?.services ?? {})) {
+    if (seen.has(entry.id)) {
+      warnings.push(`service registry backend ${entry.id} 与显式 PTH_EXEC_BACKENDS 冲突——显式配置优先`);
+      continue;
+    }
+    seen.add(entry.id);
+    descriptors.push({
+      id: entry.id,
+      url: entry.url.replace(/^http:\/\/127\.0\.0\.1:/, "http://host.docker.internal:"),
+      profile: "host",
+      ...(entry.pathMapping ? { pathMapping: entry.pathMapping } : {}),
+    });
+    toolTokens.set(entry.id, entry.token);
   }
 
   const map = new Map<string, HttpExecutionBackend>();

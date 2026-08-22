@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入设计定稿（U8-1 batch 已实现，U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入设计定稿（U8-1 batch 已实现，U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -378,7 +378,11 @@ notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，�
   `build/push/release/pull/up/down/status/logs/run/verify/mount/list/debug`。
   `run` 走 execution 协议（compiled/network HTTP；secrets 的 TTY 走 WS）；
   `debug` 是唯一 docker exec 逃生舱。
-- `pth services`：常驻服务生命周期（当前仅 jupyter）——`up/down/status/logs`。
+- `pth services`：宿主进程监督器 + 常驻服务——
+  `list/up/down/status/logs/restart`；`deploy/services/<id>/service.json` 声明
+  `kind=host`（本地执行器：detached spawn + pid/log + 健康就绪 + SIGTERM/SIGKILL）
+  或 `kind=compose`（jupyter，P5）。token 本地生成注入 `tokenEnv`，只进
+  `~/.pi-triple/services.json`（0600）。
 - 所有 docker 调用 argv 数组（沿用 dev-container 包的安全约定）。
 
 ### 5.4 回环端点与本地注册表
@@ -386,6 +390,9 @@ notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，�
 - 每个域容器 bind `127.0.0.1` **动态端口**（compose `127.0.0.1::PORT`），不发 LAN/公网。
 - pth CLI 维护 `~/.pi-triple/tool-containers.json`（0600）：descriptor、实际端口、
   token（本地生成，绝不随 manifest/镜像迁移）；`up`/`pull` 后刷新。
+- 宿主服务由 `pth services` 维护 `~/.pi-triple/services.json`（0600）：pid/port/token/
+  logFile/pathMapping；engine `buildPthHost` 同时合并 tool + service 注册表——
+  local-lean/local-u8 自动成为 registry backend（127.0.0.1 → host.docker.internal）。
 - compiled 回环发布（2026-08-22 适配）：OrbStack / 部分 Docker Desktop 不给仅连
   internal 网络的容器分配 `127.0.0.1::8080` 动态端口 → 增加 `tools-compiled-gateway`
   边车（同时连 tools-compiled + tools-loopback，原始 TCP 中继并发布动态端口）；
