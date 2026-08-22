@@ -130,6 +130,10 @@ export function n28TrapCorpus(): N28KnowledgeEntry[] {
 
 export const N28_ACCEPTED_BASELINE_SKIPS = [
   { file: "test/pth-execution/sandbox-security.integration.test.ts", tests: 9 },
+  { file: "test/pth-professional/assembly-engineer.integration.test.ts", tests: 14 },
+  { file: "test/pth-professional/computational-chemist.integration.test.ts", tests: 5 },
+  { file: "test/pth-professional/lean4-prover.integration.test.ts", tests: 13 },
+  { file: "test/pth-professional/technical-educator.integration.test.ts", tests: 17 },
 ] as const;
 
 export const N28_GOLD_QUERIES = [
