@@ -15,7 +15,7 @@
     "test:e2e:update": "playwright test --update-snapshots"
   },
   "dependencies": {
-    "@away_from/shared": "^1.5.0"
+    "@away_from/shared": "^1.6.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
