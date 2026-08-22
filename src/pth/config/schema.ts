@@ -141,7 +141,11 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_SERVICES_DIR", "string", "", "path", "cli", "deploy/services 根目录（缺省 = 仓库内）"),
   d("PTH_SERVICES_PROJECT", "string", "pi-triple-services", "path", "cli", "pth services 的 docker compose 项目名"),
   d("PTH_SERVICE_REGISTRY_PATH", "string", "", "path", "cli", "宿主服务运行时注册表路径（缺省 ~/.pi-triple/services.json）"),
-  d("PTH_PTL_BIN", "string", "", "path", "cli", "ptl 可执行路径覆盖（缺省 PATH 中的 ptl；本地开发可用 node_modules/.bin/ptl）"),
+  d("PTH_PTH_BIN", "string", "", "path", "cli", "pth 可执行路径覆盖（缺省 PATH 中的 pth；本地开发可用 node dist/cli/pth-cli.js）"),
+  d("LOCAL_EXEC_SHARED_SECRET", "string", "", "secret", "cli", "本地执行器 Bearer token（pth local-exec；缺失 fail-closed）", { secret: true }),
+  d("LOCAL_EXEC_PORT", "string", "8787", "execution", "cli", "本地执行器监听端口（pth local-exec 默认 8787）"),
+  d("LOCAL_EXEC_PATH_MAPPINGS", "json", "", "execution", "cli", "本地执行器 pathMapping JSON：[{hostRoot,execRoot}]"),
+  d("LOCAL_EXEC_WORKSPACE_ROOT", "string", "", "path", "cli", "本地执行器快捷映射：/data/workspaces → 该宿主根"),
 
   // ── compiled kernel ──────────────────────────────────────────────
   d("PTH_COMPILED_CACHE_DIR", "string", "/data/compiled-cache/c", "compiled", "sandbox", "编译核缓存目录"),

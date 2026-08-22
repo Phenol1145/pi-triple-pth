@@ -3,10 +3,18 @@
   "kind": "host",
   "id": "local-lean",
   "description": "Lean 宿主本地执行器（P2，execution/v1.1 · profile=host）",
-  "command": ["ptl", "local-exec", "--port", "8787"],
+  "command": [
+    "pth",
+    "local-exec",
+    "--port",
+    "8787"
+  ],
   "tokenEnv": "LOCAL_EXEC_SHARED_SECRET",
   "healthUrl": "http://127.0.0.1:8787/health",
   "readyTimeoutMs": 30000,
   "stopGraceMs": 5000,
-  "pathMapping": { "hostRoot": "/data/workspaces", "execRootEnv": "PTH_WORKSPACES_HOST" }
+  "pathMapping": {
+    "hostRoot": "/data/workspaces",
+    "execRootEnv": "PTH_WORKSPACES_HOST"
+  }
 }

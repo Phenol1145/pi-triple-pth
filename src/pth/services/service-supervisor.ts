@@ -81,9 +81,9 @@ export async function upHostService(
   }
 
   const command = [...manifest.command];
-  if (command[0] === "ptl") {
-    const ptlBin = pthConfig().str("PTH_PTL_BIN");
-    if (ptlBin) command[0] = ptlBin;
+  if (command[0] === "pth") {
+    const pthBin = pthConfig().str("PTH_PTH_BIN");
+    if (pthBin) command[0] = pthBin;
   }
 
   const child = spawn(command[0]!, command.slice(1), {

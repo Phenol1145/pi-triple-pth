@@ -10,8 +10,8 @@
 | 仓库 | 一句话定位 | 是 / 不是 |
 |------|-----------|----------|
 | `pi-triple-deps` | 公用 **npm 依赖层** | 是：`@away_from/shared`（跨产品协议/配置/session/program-manifest，含 `execution/v1.1` 模式框架、`HttpExecutionBackend`、`ExecutionHttpServer`）与 `@away_from/infra` 的唯一发布源。不是：产品、不可独立部署、不含产品业务逻辑 |
-| `pi-triple-pth` | **FRACTA engine**（下称 engine；当前代码名 PTH / Professional Task Host） | 是：engine 运行时（`src/pth`）——worker 实现与面向 LLM 的 interface 的唯一宿主；唯一交互面（`pth` CLI / `@away_from/pth-console`，含 `pth tools` / `pth services` 命令族）；sandbox 执行面；**tool containers 与 jupyter 服务的部署事实源**（`deploy/tool-containers/`、`deploy/services/jupyter/`）；部署物（compose/Dockerfile/monitor）。不是：执行实现（工具链/沙箱进程在外部执行面）、宿主机原生工具、不依赖 PTL 包 |
-| `pi-triple-ptl` | **宿主机本地执行与运维**（PTL） | 是：`ptl` CLI（framework）、tmux 多环境、mailbox、`ptl stack`（对 engine 的容器运维）、`ptl program dev`、**本地执行器执行面**（经 `execution/v1.1` 接入 engine）。不是：tool containers / jupyter 服务部署事实源（已迁 PTH 仓）、engine runtime 宿主、不内嵌 engine 源码；`packages/dev-container` 处于 **deprecated 兼容期**（一个版本后退役） |
+| `pi-triple-pth` | **FRACTA engine**（下称 engine；当前代码名 PTH / Professional Task Host） | 是：engine 运行时（`src/pth`）——worker 实现与面向 LLM 的 interface 的唯一宿主；唯一交互面（`pth` CLI / `@away_from/pth-console`，含 `pth tools` / `pth services` / `pth local-exec` 命令族）；sandbox 执行面；**tool containers 与 jupyter 服务的部署事实源**（`deploy/tool-containers/`、`deploy/services/jupyter/`）；部署物（compose/Dockerfile/monitor）。不是：执行实现（工具链/沙箱进程在外部执行面）、宿主机原生工具、不依赖 PTL 包 |
+| `pi-triple-ptl` | **宿主机本地开发工具带**（PTL） | 是：`ptl` CLI（framework）、tmux 会话/纸带（session/trace）、mailbox、`ptl program dev`、模板与配置。`ptl stack` 处于 **deprecated 兼容期**（容器生命周期已迁 `pth up`/`pth tools`/`pth services`）；TUI 产品形态已废弃（前端 = `pth web` operator console / JupyterLab）。不是：tool containers / jupyter 服务部署事实源（已迁 PTH 仓）、**本地执行器**（已迁 PTH：`pth local-exec` + `pth services` 进程监督器）、engine runtime 宿主、不内嵌 engine 源码；`packages/dev-container` 处于 **deprecated 兼容期**（一个版本后退役） |
 
 ## 2. 依赖与调用关系
 
@@ -26,9 +26,9 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
   engine ── execution/v1.1 ──▶ sandbox / tool containers / 本地执行器 / jupyter
   pth CLI ── execution/v1.1 ──▶ tool containers（仅 127.0.0.1 回环）
 
-- PTL → engine：零包依赖；只经 pth CLI / HTTP API v1（调用）+ execution（本地执行面服务端）
-- engine → PTL：禁止包依赖、禁止源码依赖；仅允许 engine 以 execution HTTP 客户端
-  调用 PTL 托管的本地执行器（无 PTL 包下载）
+- PTL → engine：零包依赖；只经 pth CLI / HTTP API v1（调用）
+- engine → PTL：禁止包依赖、禁止源码依赖；本地执行器由 **PTH 托管**（`pth local-exec` +
+  `pth services` 进程监督器），PTL 只提供会话/纸带/本地程序调试
 - tool containers / jupyter 部署事实源与生命周期管理均归 PTH 仓（`pth tools` / `pth services`）
 ```
 
@@ -37,7 +37,7 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
 - engine 唯一交互包：`@away_from/pth-console`（`pth` 命令族 + launcher + web console）。
 - `pth` 命令族扩展：`pth tools`（工具容器生命周期 + 协议调用）与 `pth services`
   （常驻服务，如 jupyter）由本仓实现；`docker exec` 仅保留为 `pth tools debug` 逃生舱。
-- `ptl hub` 语法已退役；engine 交互用 `pth …`；容器运维用 `ptl stack …`；本地 pi 调试用 `ptl program dev …`。
+- `ptl hub` 语法已退役；engine 交互用 `pth …`；容器运维用 `pth up`/`pth tools`/`pth services`（`ptl stack` deprecated）；本地执行器用 `pth local-exec`；本地 pi 调试用 `ptl program dev …`；`ptl tui` 已废弃（前端 = `pth web` / JupyterLab）。
 - PTL `/container` 命令族 deprecated：一个版本兼容期内转发到 `pth tools`，随后删除。
 - PTL 安装/测试不得触发 engine 源码下载。
 
@@ -45,9 +45,8 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
 
 - `pth up`（PTH 仓）：engine 栈自服务启动（redis/postgres/pi-platform/sandbox）。
 - `pth tools`（PTH 仓）：tool containers 独立 compose 项目的生命周期与协议调用。
-- `pth services`（PTH 仓）：常驻服务（jupyter）的独立生命周期管理。
-- `ptl stack`（PTL 仓）：宿主机侧外部运维入口——读取 `deploy/pth.deployment.json` 契约对
-  engine 部署做 build/up/status/logs/upgrade/exec。
+- `pth services`（PTH 仓）：宿主进程监督器（local-lean/local-u8）+ 常驻服务（jupyter）的统一生命周期管理。
+- `ptl stack`（PTL 仓）：deprecated 兼容期——容器生命周期统一由 `pth up`/`pth tools`/`pth services` 管理。
 - 部署事实源始终是 PTH 仓的 `deploy/`；PTL 仓持有契约副本用于外部运维。
 
 ## 5. 执行面归属（FRACTA engine 拓扑）

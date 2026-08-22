@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入设计定稿（U8-1 batch 已实现，U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入设计定稿（U8-1 batch 已实现，U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -260,8 +260,9 @@ export async function probeExecutionBackends(registry, opts: {
 
 **状态：✅ 已实现并实测（2026-08-22）。**
 
-1. ✅ 本地执行器：PTL `LocalSpawnBackend`（sync+stream、pathMapping 翻译、超时/截断）
-   + `startLocalExecServer`（shared `ExecutionHttpServer`，127.0.0.1，Bearer）+ `ptl local-exec`。
+1. ✅ 本地执行器：PTH `LocalSpawnBackend`（sync+stream、pathMapping 翻译、超时/截断）
+   + `startLocalExecServer`（shared `ExecutionHttpServer`，127.0.0.1，Bearer）+ `pth local-exec`。
+   （2026-08-22 纠偏：本地执行器归 PTH 产品面；`pth services` 进程监督器管理；PTL 不再直接暴露。）
 2. ✅ `deploy/Dockerfile` 移除 elan / lean / lake 安装段；镜像构建不再依赖 Lean 网络源。
 3. ✅ compose：engine `extra_hosts: host.docker.internal:host-gateway` + `PTH_EXEC_BACKENDS`
    含 `local-lean`（profile host, tokenEnv LOCAL_EXEC_SHARED_SECRET）。
@@ -380,7 +381,7 @@ notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，�
   `debug` 是唯一 docker exec 逃生舱。
 - `pth services`：宿主进程监督器 + 常驻服务——
   `list/up/down/status/logs/restart`；`deploy/services/<id>/service.json` 声明
-  `kind=host`（本地执行器：detached spawn + pid/log + 健康就绪 + SIGTERM/SIGKILL）
+  `kind=host`（本地执行器：`pth local-exec`，detached spawn + pid/log + 健康就绪 + SIGTERM/SIGKILL）
   或 `kind=compose`（jupyter，P5）。token 本地生成注入 `tokenEnv`，只进
   `~/.pi-triple/services.json`（0600）。
 - 所有 docker 调用 argv 数组（沿用 dev-container 包的安全约定）。
@@ -644,7 +645,7 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 - u8 版本 0.0.2：`u8 run <programme> --reg K=V ... --io N=V ...` 非交互注入初值；
   无参数保持交互；`debug/analyze` 仍为团队待实现（协议侧不接线）。
 - 集成基线：`deploy/local-exec/u8/`（源码 + `build-u8.sh`）；编译产物放进
-  `ptl local-exec` 进程 PATH。
+  `pth local-exec` 进程 PATH。
 - 待接线：engine `PTH_EXEC_BACKENDS` 增加 `local-u8`（profile=host，
   pathMapping `/data/workspaces`）+ `u8-runtime-adapter`（probe `u8 version`；
   compile/run 经 sync + artifact port）→ 默认路由 `u8 → local-u8`。
@@ -652,6 +653,15 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 **U8-2（有状态，后置）**
 - interactive/debug 语义待 **P4 persistent** 统一实现；届时 `u8 run` 的寄存器/I/O
   逐步输入映射到 persistent session execute，不再需要 batch 参数逐轮拼接。
+
+### 6.7 CLI 归属纠偏（2026-08-22 补充裁决）
+
+- **本地执行器归 PTH**：`pth local-exec`（`LocalSpawnBackend` + `ExecutionHttpServer`），
+  生命周期由 `pth services` 管理；`ptl local-exec` 不再存在（显示迁移提示）。
+- **容器管理归 PTH**：`ptl stack` 进入 deprecated 兼容期，全部容器生命周期 = `pth up` /
+  `pth tools` / `pth services`。
+- **TUI 正式下线**：`ptl tui` 从命令面移除（`tui-*` 源码保留只读兼容）；
+  前端 = `pth web` operator console / JupyterLab。
 
 ## 7. 网关边界（2026-08-21 裁决：暂不引入统一网关）
 
