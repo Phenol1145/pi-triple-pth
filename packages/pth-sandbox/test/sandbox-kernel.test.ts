@@ -26,7 +26,11 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
 
   beforeAll(async () => {
     process.env.SANDBOX_SHARED_SECRET = SECRET;
-    host = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
+    host = buildKernelHostApp({
+      getSecret: () => SECRET,
+      grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }),
+      registerSessions: true,
+    });
     await host.listen({ port: 0, host: "127.0.0.1" });
     baseUrl = `http://127.0.0.1:${host.server.address().port}`;
   });
@@ -77,16 +81,16 @@ describe("SandboxKernel（PTH 侧适配器 → 宿主）", () => {
     await k.disposeAndFlush();
   });
 
-  it("release 后池内复用（dispose 归还 → 状态延续，但 lease id 不同）", async () => {
+  it("release 后池内复用（dispose 归还 → 状态延续，但 session id 不同）", async () => {
     const k1 = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", grant: makeGrant() });
     await k1.execute("persist = 'kept'");
-    const lease1 = (k1 as any).lease;
+    const session1 = (k1 as any).sessionId;
     await k1.disposeAndFlush();
 
     const k2 = new SandboxKernel({ url: baseUrl, secret: SECRET, language: "python", grant: makeGrant() });
     await k2.ready;
-    const lease2 = (k2 as any).lease;
-    expect(lease2.id).not.toBe(lease1.id); // 外部租约不复用
+    const session2 = (k2 as any).sessionId;
+    expect(session2).not.toBe(session1); // 外部 session 不复用
     const r = await k2.execute("_result = persist");
     expect(r.value).toBe("kept"); // 内部条目状态延续
     await k2.disposeAndFlush();
@@ -132,17 +136,19 @@ describe("sandbox-kernel 韧性（2026-08-09 端到端：abort 杀 batch 循环�
       acquireOnInit: false,
       grant: makeGrant(),
     } as never);
-    // 注入 call 桩：第一次 acquire 失败，之后成功
-    const self = k as unknown as { call: (p: string, b?: unknown, t?: number) => Promise<unknown> };
+    // 注入 call 桩：第一次会话创建失败，之后成功
+    const self = k as unknown as {
+      call: (m: string, p: string, b?: unknown, t?: number, h?: Record<string, string>) => Promise<unknown>;
+    };
     const orig = self.call.bind(k);
-    self.call = async (path, body, timeout) => {
+    self.call = async (method, path, body, timeout, headers) => {
       calls += 1;
-      if (path === "/kernel/acquire") {
+      if (path === "/sessions") {
         if (calls === 1) throw new Error("acquire timeout");
-        return { lease: { id: "4f5e3f44-ec85-4e83-9c99-2d17d343d0e1", generation: 1, expiresAt: "2099-01-01T00:00:00.000Z" } };
+        return { sessionId: "4f5e3f44-ec85-4e83-9c99-2d17d343d0e1" };
       }
-      if (path === "/kernel/snapshot") return { variables: [], functions: [], oversized: [] };
-      return orig(path, body, timeout);
+      if (path.endsWith("/snapshot")) return { state: { variables: [], functions: [], oversized: [] } };
+      return orig(method, path, body, timeout, headers);
     };
     // 第一次 acquire 失败
     await expect((k as unknown as { execute: (c: string) => Promise<unknown> }).execute("1+1")).rejects.toThrow(/acquire timeout/);

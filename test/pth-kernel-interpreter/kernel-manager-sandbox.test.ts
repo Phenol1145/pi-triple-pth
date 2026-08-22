@@ -26,7 +26,11 @@ describe("KernelManager sandbox-kernel 模式（P5 接线）", () => {
 
   beforeAll(async () => {
     process.env.SANDBOX_SHARED_SECRET = SECRET;
-    host = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
+    host = buildKernelHostApp({
+      getSecret: () => SECRET,
+      grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }),
+      registerSessions: true,
+    });
     await host.listen({ port: 0, host: "127.0.0.1" });
     baseUrl = `http://127.0.0.1:${host.server.address().port}`;
   });

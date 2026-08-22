@@ -33,6 +33,8 @@ import { sandboxGrantFromHeader } from "./authorization/grant-verifier.js";
 
 const SESSION_LANG_HEADER = "x-sandbox-kernel-lang";
 const SESSION_GRANT_HEADER = "x-sandbox-grant";
+const SESSION_EXEC_HEADER = "x-sandbox-kernel-exec";
+const SESSION_SPACE_HEADER = "x-sandbox-kernel-space";
 
 interface KernelSessionContext {
   readonly lang: KernelLang;
@@ -88,7 +90,11 @@ class KernelPoolSessionBackend implements ExecutionSessionBackend {
     return entry;
   }
 
-  async execute(token: string, request: { cmd: string | string[]; timeoutMs?: number }): Promise<ExecutionResult> {
+  async execute(
+    token: string,
+    request: { cmd: string | string[]; timeoutMs?: number },
+    context?: unknown,
+  ): Promise<ExecutionResult> {
     const entry = this.entry(token);
     const code = typeof request.cmd === "string"
       ? request.cmd
@@ -101,8 +107,19 @@ class KernelPoolSessionBackend implements ExecutionSessionBackend {
         "sandbox persistent execute cmd must be a code string（kernel REPL，不接受 argv 数组）",
       );
     }
+    const ctx = (context ?? {}) as { exec?: unknown; space?: unknown };
+    if (ctx.exec !== undefined && ctx.exec !== "single" && ctx.exec !== "program" && ctx.exec !== "auto") {
+      throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.invalidRequest, `invalid x-sandbox-kernel-exec: ${String(ctx.exec)}`);
+    }
+    if (ctx.space !== undefined && (typeof ctx.space !== "string" || ctx.space.length === 0 || ctx.space.length > 128)) {
+      throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.invalidRequest, "invalid x-sandbox-kernel-space");
+    }
     try {
-      const result = await entry.pool.execute(entry.lease, code, { timeoutMs: request.timeoutMs });
+      const result = await entry.pool.execute(entry.lease, code, {
+        timeoutMs: request.timeoutMs,
+        ...(ctx.exec !== undefined ? { exec: ctx.exec as "single" | "program" | "auto" } : {}),
+        ...(typeof ctx.space === "string" ? { space: ctx.space } : {}),
+      });
       const truncated = result.truncated && (result.truncated.field === "stdout" || result.truncated.field === "stderr")
         ? result.truncated as ExecutionResult["truncated"]
         : undefined;
@@ -111,6 +128,7 @@ class KernelPoolSessionBackend implements ExecutionSessionBackend {
         stderr: result.stderr ?? "",
         exitCode: result.ok ? 0 : 1,
         timedOut: false,
+        ...(result.value !== undefined ? { value: result.value } : {}),
         ...(truncated ? { truncated } : {}),
       };
     } catch (error) {
@@ -121,11 +139,11 @@ class KernelPoolSessionBackend implements ExecutionSessionBackend {
     }
   }
 
-  async snapshot(token: string): Promise<{ snapshotId: string }> {
+  async snapshot(token: string): Promise<{ snapshotId: string; state?: unknown }> {
     const entry = this.entry(token);
     try {
-      await entry.pool.snapshot(entry.lease);
-      return { snapshotId: randomUUID() };
+      const state = await entry.pool.snapshot(entry.lease);
+      return { snapshotId: randomUUID(), state };
     } catch (error) {
       if (error instanceof Error && error.message.includes("stale lease")) {
         throw new ExecutionClientError(EXECUTION_WIRE.errorCodes.sessionExpired, error.message);
@@ -276,7 +294,10 @@ export function registerKernelSessionHost(app: FastifyInstance, deps: KernelSess
     try {
       const binding = requireBinding(sessionId);
       if (!verifyOptionalGrant(req, reply, binding)) return;
-      return await manager.execute(sessionId, req.body ?? {});
+      return await manager.execute(sessionId, req.body ?? {}, {
+        ...(headerValue(req, SESSION_EXEC_HEADER) !== undefined ? { exec: headerValue(req, SESSION_EXEC_HEADER) } : {}),
+        ...(headerValue(req, SESSION_SPACE_HEADER) !== undefined ? { space: headerValue(req, SESSION_SPACE_HEADER) } : {}),
+      });
     } catch (error) {
       return sendWireError(reply, error);
     }

@@ -65,22 +65,21 @@ describe("P2-3：cancel → ack → release 竞态闭环", () => {
     }
   });
 
-  it("client：cancel ack 不可达 → 不 release、本地 lease 作废，下次 execute 重新 acquire", async () => {
+  it("client：abort 后本地 session 作废且不 release，下次 execute 重新创建会话", async () => {
+    let createCalls = 0;
     let releaseCalls = 0;
     let executeCalls = 0;
     const fetchImpl = vi.fn(async (url: unknown, init?: RequestInit) => {
       const u = String(url);
-      if (u.endsWith("/kernel/acquire")) {
-        return new Response(JSON.stringify({ lease: { id: "4f5e3f44-ec85-4e83-9c99-2d17d343d0e1", generation: 1, expiresAt: "2099-01-01T00:00:00.000Z" } }), { status: 200, headers: { "content-type": "application/json" } });
+      if (u.endsWith("/sessions")) {
+        createCalls++;
+        return new Response(JSON.stringify({ sessionId: `session-${createCalls}` }), { status: 200, headers: { "content-type": "application/json" } });
       }
-      if (u.endsWith("/kernel/cancel")) {
-        throw new Error("host unreachable for cancel ack");
-      }
-      if (u.endsWith("/kernel/release")) {
+      if (u.endsWith("/release")) {
         releaseCalls++;
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
-      if (u.endsWith("/kernel/execute")) {
+      if (u.endsWith("/execute")) {
         executeCalls++;
         if (executeCalls === 1) {
           return new Promise<Response>((_resolve, reject) => {
@@ -89,7 +88,7 @@ describe("P2-3：cancel → ack → release 竞态闭环", () => {
             });
           });
         }
-        return new Response(JSON.stringify({ ok: true, value: 7, stdout: "", stderr: "", durationMs: 1, language: "python" }), { status: 200 });
+        return new Response(JSON.stringify({ ok: true, value: 7, stdout: "", stderr: "", exitCode: 0, sessionId: "session-2" }), { status: 200 });
       }
       return new Response(JSON.stringify({ error: "unknown path" }), { status: 404 });
     }) as unknown as typeof fetch;
@@ -103,11 +102,11 @@ describe("P2-3：cancel → ack → release 竞态闭环", () => {
       const r = await p;
       expect(r.ok).toBe(false);
       expect(r.error?.code).toBe("aborted");
-      expect(releaseCalls).toBe(0); // ack 不可达 → 绝不乐观 release
+      expect(releaseCalls).toBe(0); // 安全作废 → 绝不乐观 release
 
       const again = await k.execute("1+1");
       expect(again.ok).toBe(true);
-      expect(fetchImpl.mock.calls.filter((c) => String(c[0]).endsWith("/kernel/acquire")).length).toBe(2); // 重新 acquire
+      expect(createCalls).toBe(2); // 下个 execute 重新创建会话
     } finally {
       vi.unstubAllGlobals();
     }

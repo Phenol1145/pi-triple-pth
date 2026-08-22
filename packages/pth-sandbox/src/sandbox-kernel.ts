@@ -1,35 +1,49 @@
 /**
- * sandbox-kernel.ts —— PTH 侧 SandboxKernel 适配器（kernel sandbox SPEC §3.3）
+ * sandbox-kernel.ts —— PTH 侧 SandboxKernel 适配器（kernel sandbox SPEC §3.3 / P4）
  *
- * 实现统一 Interpreter 接口（execute/reset/snapshot/dispose），把调用转发到
- * sandbox 侧 kernel 宿主（HTTP）。上层（agent 循环/任务代码/KernelManager）零改动。
+ * 实现统一 Interpreter 接口（execute/reset/snapshot/dispose），经 execution/v1.1
+ * persistent /sessions 把调用转发到 sandbox 侧 kernel 宿主（HTTP）。
  *
- * 安全：与 sandbox 通信仅携带共享密钥（SANDBOX_SHARED_SECRET）；不注入业务密钥；
- *       execute 请求体无 env 字段（宿主 400 拒绝——敏感信息约束）。
- * P0-4：acquire 后只持有 opaque SandboxLease；所有操作按 lease id+generation 校验；
- *       kernelId 已从协议退役。
+ * P4 迁移（2026-08-22 裁决）：
+ *  - acquire = POST /sessions（私有头 x-sandbox-kernel-lang + x-sandbox-grant 盖章任务绑定）；
+ *  - execute/reset/snapshot/release 全部走 /sessions/:id/*，不再携带/暴露 kernel lease id；
+ *  - execute 携带 x-sandbox-kernel-exec / x-sandbox-kernel-space 私有头（wire body 不变）；
+ *  - snapshot 返回 wire 的 state 字段（InterpreterSnapshot 状态导出，非可恢复 checkpoint）；
+ *  - abort：本地 session 立即作废且**不 release**（无 in-flight 归还 = 池条目绝不乐观复用，
+ *    由 sandbox pool TTL 兜底回收）；正常 dispose 才 release 归还池。
  */
 
+import { EXECUTION_WIRE } from "@away_from/shared/execution";
 import { loadSandboxConfig } from "./config.js";
-import type { SandboxLease } from "./kernel-lease.js";
+import { sandboxGrantToHeader } from "./authorization/grant-verifier.js";
 import type { SandboxExecutionGrant, SandboxGrantContext } from "./authorization/grant-verifier.js";
 import type { ExecuteOptions, Interpreter, InterpreterResult, InterpreterSnapshot } from "./kernel/interpreter/types.js";
+
+export class SandboxKernelHttpError extends Error {
+  readonly code: string;
+  readonly status: number;
+  constructor(code: string, message: string, status: number) {
+    super(message);
+    this.name = "SandboxKernelHttpError";
+    this.code = code;
+    this.status = status;
+  }
+}
 
 export interface SandboxKernelOptions {
   /** sandbox 宿主 base URL（如 http://sandbox:8080） */
   url: string;
-  /** P2-2 遗留字段：保留兼容，但不再作为 kernel 执行认证发送 */
+  /** 共享密钥（/sessions 的 Bearer 认证） */
   secret?: string;
-  /** 执行 grant（静态或按 acquire 时机 + language 提供）——acquire 唯一授权凭据 */
+  /** 执行 grant（静态或按 acquire 时机 + language 提供）——会话创建唯一授权凭据 */
   grant?: SandboxExecutionGrant | ((language: "python" | "bash", context?: SandboxGrantContext) => Promise<SandboxExecutionGrant> | SandboxExecutionGrant);
   /** python | bash */
   language: "python" | "bash";
-  /** 构造时 acquire（默认 true）；false 供测试注入已有 lease */
+  /** 构造时创建会话（默认 true）；false 供测试/懒创建 */
   acquireOnInit?: boolean;
-  lease?: SandboxLease;
   /** 超时保护（fetch 层，默认 10s——宿主内部有执行超时） */
   requestTimeoutMs?: number;
-  /** acquire 排队等待上限（池满时 FIFO 排队——默认 60s） */
+  /** 会话创建排队等待上限（池满时 FIFO 排队——默认 60s） */
   acquireTimeoutMs?: number;
 }
 
@@ -37,25 +51,28 @@ export class SandboxKernel implements Interpreter {
   readonly language: string;
   /** 远程状态经 execute/snapshot 访问——本地同步读返回空 */
   readonly state: Record<string, unknown> = {};
-  private url: string;
-  private grant: SandboxExecutionGrant | ((language: "python" | "bash", context?: SandboxGrantContext) => Promise<SandboxExecutionGrant> | SandboxExecutionGrant) | undefined;
-  /** 任务级 grant 上下文（setGrantContext 更新——换任务时释放旧租约重新 acquire） */
+  private readonly url: string;
+  private readonly secret: string | undefined;
+  private readonly grant: SandboxKernelOptions["grant"];
+  /** 任务级 grant 上下文（setGrantContext 更新——换任务时释放旧会话重新创建） */
   private grantContext: SandboxGrantContext | null = null;
-  private leaseGrantTaskId: string | null = null;
-  private lease: SandboxLease | null;
-  private requestTimeoutMs: number;
-  private acquireTimeoutMs: number;
+  private sessionId: string | null = null;
+  private cachedGrant: SandboxExecutionGrant | null = null;
+  private sessionGrantTaskId: string | null = null;
+  private readonly requestTimeoutMs: number;
+  private readonly acquireTimeoutMs: number;
   private disposed = false;
   private releasePromise: Promise<void> | null = null;
   private acquirePromise: Promise<void> | null = null;
-  /** in-flight HTTP 请求控制器（Phase 3 条目 11——abort 终止执行中的 /kernel/execute 或 acquire） */
+  /** in-flight HTTP 请求控制器（abort 终止 execute/acquire） */
   private inflightCtrl: AbortController | null = null;
-  /** 任务级动态绑定：更新 grant 上下文（下个 execute 前换租约） */
+
+  /** 任务级动态绑定：更新 grant 上下文（下个 execute 前换会话） */
   setGrantContext(ctx: SandboxGrantContext): void {
     this.grantContext = ctx;
   }
 
-  /** 池条目分配完成的 promise（测试/依赖方等待用——懒 acquire 异步） */
+  /** 会话创建完成的 promise（测试/依赖方等待用——懒 acquire 异步） */
   get ready(): Promise<void> {
     return this.acquire();
   }
@@ -63,8 +80,8 @@ export class SandboxKernel implements Interpreter {
   constructor(opts: SandboxKernelOptions) {
     this.language = opts.language;
     this.url = opts.url.replace(/\/+$/, "");
+    this.secret = opts.secret;
     this.grant = opts.grant;
-    this.lease = opts.lease ?? null;
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 10_000;
     this.acquireTimeoutMs = opts.acquireTimeoutMs ?? 60_000;
     if (opts.acquireOnInit !== false) {
@@ -73,16 +90,27 @@ export class SandboxKernel implements Interpreter {
     }
   }
 
-  private async call<T>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
+  private async call<T>(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+    timeoutMs?: number,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<T> {
     const ctrl = new AbortController();
     this.inflightCtrl = ctrl;
     const timer = setTimeout(() => ctrl.abort(), timeoutMs ?? this.requestTimeoutMs);
     try {
-      // debug: 记录 sandbox 调用（URL/路径——诊断 abort 来源）
-      if (loadSandboxConfig().debugSandbox) console.error(`[sandbox-debug] ${this.language} call ${path} url=${this.url} timeout=${timeoutMs ?? this.requestTimeoutMs}ms lease=${this.lease?.id ?? "(未acquire)"}`);
+      if (loadSandboxConfig().debugSandbox) {
+        console.error(`[sandbox-debug] ${this.language} call ${method} ${path} url=${this.url} session=${this.sessionId ?? "(未创建)"}`);
+      }
       const res = await fetch(`${this.url}${path}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
+        method,
+        headers: {
+          ...(body !== undefined ? { "content-type": "application/json" } : {}),
+          ...(this.secret ? { authorization: `Bearer ${this.secret}` } : {}),
+          ...extraHeaders,
+        },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: ctrl.signal,
       });
@@ -91,10 +119,11 @@ export class SandboxKernel implements Interpreter {
       try {
         json = text ? JSON.parse(text) : {};
       } catch {
-        json = { error: text.slice(0, 200) };
+        json = { error: { code: EXECUTION_WIRE.errorCodes.backendUnavailable, message: text.slice(0, 200) } };
       }
       if (!res.ok) {
-        throw new Error(json.error ?? `sandbox ${path} failed: ${res.status}`);
+        const err = json.error as { code?: string; message?: string } | undefined;
+        throw new SandboxKernelHttpError(err?.code ?? EXECUTION_WIRE.errorCodes.backendUnavailable, err?.message ?? `sandbox ${path} failed: ${res.status}`, res.status);
       }
       return json as T;
     } finally {
@@ -103,20 +132,37 @@ export class SandboxKernel implements Interpreter {
     }
   }
 
-  /** 分配池条目（懒：宿主侧 kernel 进程首次 execute 才 spawn）。共享 promise 防并发双发泄漏 */
+  private async resolveGrant(): Promise<{ grant: SandboxExecutionGrant; taskId: string }> {
+    if (!this.grant) throw new Error("SandboxKernel: execution grant required（P2-2——不再使用共享密钥）");
+    const resolved = typeof this.grant === "function"
+      ? await this.grant(this.language as "python" | "bash", this.grantContext ?? undefined)
+      : this.grant;
+    return { grant: resolved, taskId: this.grantContext?.taskId ?? resolved.lease.taskId };
+  }
+
+  private grantHeaders(grant: SandboxExecutionGrant): Record<string, string> {
+    return { "x-sandbox-grant": sandboxGrantToHeader(grant) };
+  }
+
+  /** 创建会话（懒：宿主侧 kernel 进程首次 execute 才 spawn）。共享 promise 防并发双发泄漏 */
   private acquire(): Promise<void> {
     if (!this.acquirePromise) {
       this.acquirePromise = (async () => {
-        if (this.lease) return;
-        if (!this.grant) throw new Error("SandboxKernel: execution grant required（P2-2——不再使用共享密钥）");
-        const grant = typeof this.grant === "function" ? await this.grant(this.language as "python" | "bash", this.grantContext ?? undefined) : this.grant;
-        const r = await this.call<{ lease: SandboxLease }>("/kernel/acquire", { lang: this.language, grant }, this.acquireTimeoutMs);
-        this.lease = r.lease;
-        this.leaseGrantTaskId = this.grantContext?.taskId ?? null;
+        if (this.sessionId) return;
+        const { grant, taskId } = await this.resolveGrant();
+        const r = await this.call<{ sessionId: string }>(
+          "POST",
+          EXECUTION_WIRE.paths.sessions,
+          {},
+          this.acquireTimeoutMs,
+          { "x-sandbox-kernel-lang": this.language, ...this.grantHeaders(grant) },
+        );
+        this.sessionId = r.sessionId;
+        this.cachedGrant = grant;
+        this.sessionGrantTaskId = taskId;
       })().catch((e) => {
         // 失败不缓存 rejected promise（batch 反复崩时 acquire 排队超时 reject——
-        // 后续 withLease await 同一 rejected promise 再抛 → 未 catch 处杀 batch）。
-        // 重置：下次调用重新 acquire（sandbox 恢复后自动重连）。
+        // 后续 withSession await 同一 rejected promise 再抛 → 未 catch 处杀 batch）。
         this.acquirePromise = null;
         throw e;
       });
@@ -124,131 +170,128 @@ export class SandboxKernel implements Interpreter {
     return this.acquirePromise;
   }
 
-  private async withLease(): Promise<SandboxLease> {
+  private async withSession(): Promise<{ sessionId: string; grant: SandboxExecutionGrant }> {
     if (this.disposed) throw new Error("SandboxKernel disposed");
-    if (!this.lease) await this.acquire();
-    return this.lease!;
+    if (!this.sessionId) await this.acquire();
+    if (!this.sessionId || !this.cachedGrant) throw new Error("SandboxKernel: session creation failed");
+    return { sessionId: this.sessionId, grant: this.cachedGrant };
   }
 
-  /** 任务上下文切换：reset + release 旧租约（池条目状态清零——防跨任务 REPL 状态泄漏） */
+  /** 任务上下文切换：reset + release 旧会话（池条目状态清零——防跨任务 REPL 状态泄漏） */
   private async rebindForTask(): Promise<void> {
-    if (!this.grantContext || !this.leaseGrantTaskId || this.grantContext.taskId === this.leaseGrantTaskId) return;
-    const lease = this.lease;
-    this.lease = null;
+    if (!this.grantContext || !this.sessionGrantTaskId || this.grantContext.taskId === this.sessionGrantTaskId) return;
+    const sessionId = this.sessionId;
+    this.sessionId = null;
+    this.cachedGrant = null;
     this.acquirePromise = null;
-    this.leaseGrantTaskId = null;
-    if (!lease) return;
-    try { await this.call("/kernel/reset", { lease }); } catch { /* 宿主不可达——释放兜底 */ }
-    try { await this.call("/kernel/release", { lease }); } catch { /* 幂等兜底 */ }
+    this.sessionGrantTaskId = null;
+    if (!sessionId) return;
+    try { await this.call("POST", `/sessions/${sessionId}/reset`, {}); } catch { /* 宿主不可达——释放兜底 */ }
+    try { await this.call("POST", `/sessions/${sessionId}/release`, {}); } catch { /* 幂等兜底 */ }
+  }
+
+  private clearSession(): void {
+    this.sessionId = null;
+    this.cachedGrant = null;
+    this.acquirePromise = null;
+    this.sessionGrantTaskId = null;
   }
 
   async execute(program: string, opts?: ExecuteOptions): Promise<InterpreterResult> {
-    let lease: SandboxLease;
+    let session: { sessionId: string; grant: SandboxExecutionGrant };
     try {
       await this.rebindForTask();
-      lease = await this.withLease();
+      session = await this.withSession();
     } catch (e) {
       if ((e as Error).message === "SandboxKernel disposed") {
         this.revive();
-        lease = await this.withLease();   // 重新 acquire（旧条目已 release——池复用立即生效）
+        session = await this.withSession(); // 重新创建会话（旧条目已归还/回收——池复用立即生效）
       } else throw e;
     }
     try {
-      return await this.call<InterpreterResult>("/kernel/execute", {
-        lease,
-        code: program,
-        ...(this.grantContext?.taskId ? { taskId: this.grantContext.taskId } : {}),
-        ...(this.grantContext?.tenantId ? { tenantId: this.grantContext.tenantId } : {}),
-        ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
-        ...(opts?.exec ? { exec: opts.exec } : {}),   // 元命令拆分（2026-08-11）：single/program 透传 sandbox
-        ...(opts?.space ? { space: opts.space } : {}),   // 记忆桥盖章（2026-08-12 批 3）透传
-      });
+      const wire = await this.call<{
+        stdout?: string; stderr?: string; exitCode?: number | null; timedOut?: boolean;
+        value?: unknown; truncated?: InterpreterResult["truncated"];
+      }>(
+        "POST",
+        `/sessions/${session.sessionId}/execute`,
+        {
+          cmd: program,
+          ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+        },
+        opts?.timeoutMs ?? this.requestTimeoutMs,
+        {
+          ...this.grantHeaders(session.grant),
+          ...(opts?.exec ? { "x-sandbox-kernel-exec": opts.exec } : {}),
+          ...(opts?.space ? { "x-sandbox-kernel-space": opts.space } : {}),
+        },
+      );
+      const ok = (wire.exitCode ?? 0) === 0 && wire.timedOut !== true;
+      return {
+        ok,
+        ...(wire.value !== undefined ? { value: wire.value } : {}),
+        stdout: wire.stdout ?? "",
+        stderr: wire.stderr ?? "",
+        ...(!ok ? { error: { message: wire.stderr?.slice(0, 2_000) || `sandbox kernel exit ${wire.exitCode}`, code: "sandbox-kernel-error" } } : {}),
+        durationMs: 0,
+        language: this.language,
+        ...(wire.truncated ? { truncated: wire.truncated } : {}),
+      };
     } catch (e) {
       // Phase 3 条目 11：abort 触发的 AbortError → ok:false（其余错误照旧传播）
       if ((e as Error).name === "AbortError") {
         return { ok: false, error: { message: "sandbox kernel aborted", code: "aborted" }, durationMs: 0, language: this.language };
+      }
+      if (e instanceof SandboxKernelHttpError && (e.code === EXECUTION_WIRE.errorCodes.sessionExpired || e.code === EXECUTION_WIRE.errorCodes.notFound)) {
+        this.clearSession();
       }
       throw e;
     }
   }
 
   async reset(): Promise<void> {
-    const lease = await this.withLease().catch((e) => {
-      if ((e as Error).message === "SandboxKernel disposed") { this.revive(); return this.withLease(); }
+    const session = await this.withSession().catch((e) => {
+      if ((e as Error).message === "SandboxKernel disposed") { this.revive(); return this.withSession(); }
       throw e;
     });
-    await this.call("/kernel/reset", { lease });
+    await this.call("POST", `/sessions/${session.sessionId}/reset`, {}, undefined, this.grantHeaders(session.grant));
   }
 
   async snapshot(): Promise<InterpreterSnapshot> {
-    const lease = await this.withLease();
-    try {
-      return await this.call<InterpreterSnapshot>("/kernel/snapshot", { lease });
-    } catch (e) {
-      // 幂等重试 1 次（abort/瞬时故障——sandbox 恢复后自动成功）
-      return await this.call<InterpreterSnapshot>("/kernel/snapshot", { lease });
-    }
+    const session = await this.withSession();
+    const wire = await this.call<{ state?: InterpreterSnapshot }>(
+      "POST",
+      `/sessions/${session.sessionId}/snapshot`,
+      {},
+      undefined,
+      this.grantHeaders(session.grant),
+    );
+    if (!wire.state) return { variables: [], functions: [], oversized: [] };
+    return wire.state;
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    // 诊断（2026-08-12 复测发现）：dispose 来源追踪——PTH_DEBUG_SANDBOX 门控
     if (loadSandboxConfig().debugSandbox) {
       console.error(`[sandbox-debug] ${this.language} disposed（调用方堆栈）\n${new Error().stack?.split("\n").slice(1, 6).join("\n")}`);
     }
-    const lease = this.lease;
-    if (!lease) return;
-    // P2-3：有 in-flight 时不能直接 release——必须先 cancel 等 ack（见 abort）。
+    const sessionId = this.sessionId;
+    if (!sessionId) return;
+    // 有 in-flight 时不能 release（内核可能仍在执行）——走 abort（本地作废，池 TTL 回收）。
     if (this.inflightCtrl) {
       void this.abort();
       return;
     }
     // fire-and-forget：归还池（失败不阻塞——宿主不可达时环境已死）
-    this.releasePromise = this.call("/kernel/release", { lease }).then(() => undefined, () => undefined);
+    this.releasePromise = this.call("POST", `/sessions/${sessionId}/release`, {}).then(() => undefined, () => undefined);
+    this.clearSession();
   }
 
-  /** transport deadline = min(lease 到期余量, 请求预算) + 清理余量（不再用固定 10s 覆盖执行预算） */
-  private transportDeadlineMs(lease: SandboxLease): number {
-    const now = Date.now();
-    const budgets = [this.requestTimeoutMs];
-    const leaseMs = Date.parse(lease.expiresAt) - now;
-    if (Number.isFinite(leaseMs) && leaseMs > 0) budgets.push(leaseMs);
-    const grant = typeof this.grant === "object" && this.grant !== null && !Array.isArray(this.grant)
-      ? this.grant as { deadlineAt?: string }
-      : undefined;
-    const grantMs = grant?.deadlineAt ? Date.parse(grant.deadlineAt) - now : Number.NaN;
-    if (Number.isFinite(grantMs) && grantMs > 0) budgets.push(grantMs);
-    return Math.max(Math.min(...budgets), 100) + 1_000;
-  }
-
-  /** P2-3：abort in-flight → cancel 等 ack → release；ack 不可达时 lease 作废，绝不乐观复用。 */
-  private async cancelAndRelease(lease: SandboxLease): Promise<void> {
-    const deadline = this.transportDeadlineMs(lease);
-    let cancelled = false;
-    try {
-      await this.call<{ ok: boolean }>("/kernel/cancel", { lease }, deadline);
-      cancelled = true;
-    } catch {
-      // ack 不可达：本地 lease 立即作废；宿主条目由 cancel/TTL 兜底，不会被本客户端乐观复用
-    }
-    if (cancelled) {
-      try {
-        await this.call("/kernel/release", { lease }, deadline);
-      } catch {
-        // cancel 已 ack，release 失败无害（条目已 disposed）
-      }
-    }
-    if (this.lease?.id === lease.id) this.lease = null;
-  }
-
-  /** 自愈（2026-08-12 复测发现）：disposed 后 execute 自动重建（重新 acquire 池条目）——
-   * 否则 dispose 事件（batch shutdown 竞态/重启路径）后 worker 的 python 永久不可用，
-   * agent 反复失败重试拖慢任务（复测窗口 5x 慢的根因） */
+  /** 自愈：disposed 后 execute 自动重建（重新创建会话） */
   private revive(): void {
     this.disposed = false;
-    this.lease = null;
-    this.acquirePromise = null;
+    this.clearSession();
     this.releasePromise = null;
   }
 
@@ -258,15 +301,11 @@ export class SandboxKernel implements Interpreter {
     await this.releasePromise;
   }
 
-  /** 程序级制动（2026-08-14 A1 Phase 3 条目 11 + P2-3）：abort in-flight HTTP（execute/acquire 即时报错）
-   *  → cancel 请求等 controller ack（kernel abort 落地、条目 disposed）→ release。
-   *  ack 不可达：本地 lease 作废；绝不乐观 release 或复用。下个 execute 自愈 revive 重新 acquire。 */
+  /** 程序级制动：abort in-flight HTTP；本地会话立即作废且不 release——
+   *  池条目绝不乐观复用（sandbox pool TTL 兜底回收）。下个 execute 自愈重新创建。 */
   async abort(): Promise<void> {
-    const lease = this.lease;
     this.inflightCtrl?.abort();
-    if (lease) {
-      await this.cancelAndRelease(lease);
-    }
+    this.clearSession();
     this.disposed = true;
     this.releasePromise = Promise.resolve();
   }
