@@ -90,6 +90,18 @@ describe("pth services：host 进程监督器", () => {
     expect(status.running).toBe(false);
   });
 
+  it("端口占用预检：已有健康服务 → up 直接失败（不张冠李戴写 pid）", async () => {
+    const port = 18901 + Math.floor(Math.random() * 300);
+    const manifest = fakeHealthManifest(port);
+    const first = await upHostService(manifest, { token: generateServiceToken(), logFile: join(tempDir(), "first.log") });
+    try {
+      await expect(upHostService(manifest, { token: generateServiceToken(), logFile: join(tempDir(), "second.log") }))
+        .rejects.toThrow(/已有健康服务/);
+    } finally {
+      await downHostService(first.entry);
+    }
+  });
+
   it("服务注册表合并进 engine backend（url 改写 + token 直连 + pathMapping）", async () => {
     const token = generateServiceToken();
     const { registry } = buildExecutionBackendRegistry({

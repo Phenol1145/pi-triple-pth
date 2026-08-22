@@ -163,7 +163,7 @@ export async function servicesCommand(args: string[]): Promise<void> {
   }
   const tailIdx = rest.indexOf("--tail");
   const tail = tailIdx >= 0 && tailIdx + 1 < rest.length ? Math.max(1, Number(rest[tailIdx + 1]) || 50) : 50;
-  const ids = rest.filter((a, idx) => !a.startsWith("--") && idx !== tailIdx + 1);
+  const ids = rest.filter((a, idx) => !a.startsWith("--") && !(tailIdx >= 0 && idx === tailIdx + 1));
   switch (sub) {
     case "list":
       for (const m of manifests) console.log(`${m.id}\t${m.kind}\t${m.description ?? ""}`);

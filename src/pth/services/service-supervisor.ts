@@ -68,6 +68,16 @@ export async function upHostService(
 ): Promise<UpServiceResult> {
   const port = extractPort(manifest.healthUrl);
   if (!input.token || input.token.length < 16) throw new Error(`${manifest.id}: token 缺失（先经 registry 生成本地 token）`);
+  // 端口占用预检：避免把“健康探测成功”错误归因到新 spawn 的进程（pid 张冠李戴）
+  try {
+    const existing = await fetch(manifest.healthUrl, { signal: AbortSignal.timeout(1_000) });
+    if (existing.ok) {
+      throw new Error(`${manifest.id}: ${manifest.healthUrl} 已有健康服务在运行——先 pth services down ${manifest.id} 或手动清理`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("已有健康服务")) throw error;
+    // 连接失败 = 端口空闲，继续 spawn
+  }
   const logFile = input.logFile ?? ensureLogFile(manifest.id);
   const logFd = openSync(logFile, "a");
 
