@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 随 P4）；GHCR release 待凭据实测；P4 进行中（shared persistent 会话已实现并发布 1.7.1 + sandbox /sessions 宿主已实现并测试，engine SandboxKernel 迁移待续）；P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -131,7 +131,9 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 
 1. ✅ `ExecutionRequest.mode` + capabilities `modes` 位图 + `MODE_NOT_SUPPORTED`；
    `interactive` = WS `/exec/:id/ws`（stdin/stdout/stderr/resize/pty）；`persistent`
-   wire 规范定稿（`/sessions*` 路径 + session 校验 + lease 5s..24h，实现后置）。
+   wire 规范定稿（`/sessions*` 路径 + session 校验 + lease 5s..24h）；
+   2026-08-22 已实现并发布：`ExecutionSessionManager` + `ExecutionHttpServer` /sessions
+   + `HttpExecutionClient` 会话 API（`@away_from/shared@1.7.1`）。
 2. ✅ shared 增加 `ExecutionHttpServer`（HTTP+WS、模式路由、Bearer 常数时间比较、
    结构化错误信封）与客户端 `interactive()` 会话；旧 `stream:true` 字段映射保留，
    v1 请求字节形状不注入 mode。
@@ -320,10 +322,18 @@ chatgpt-share），可信可出网、无密钥注入、root 单用户，调用�
    `{version:"2.40", satisfiesLock:true}`；compose 补 `PTH_ASM_KERNEL_INDEX_PATH=
    /data/toolstore/...` 修复生产 asm-kernel 装载路径。
 
-### P4 后续（persistent + kernel-host 迁移，不在本轮实现）
+### P4 persistent + kernel-host 迁移（进行中，2026-08-22 启动）
 
-- **persistent 模式实现**：v1.1 已定全规范（session create/execute/snapshot/reset/release/
-  lease/TTL）；实现与 sandbox kernel-host 私有 lease API 迁移捆绑。
+- **shared 已实现并发布（1.7.1）**：`ExecutionSessionManager`（sessionId→backend token、
+  lease/TTL、execute 续租、快照登记、released/expired 状态机）+ `ExecutionHttpServer`
+  `/sessions*` 路由 + `HttpExecutionClient` 会话 API；v1 capabilities 装配 sessions 后
+  自动升 v1.1 并声明 persistent=true。
+- **sandbox /sessions 宿主已实现（2026-08-22 裁决）**：与 /kernel/* 共享同一对语言池；
+  wire body 不变，create 经私有头 `x-sandbox-kernel-lang` + `x-sandbox-grant`
+  （base64url(JSON) 签名 grant）在会话层盖章 task/tenant 绑定；snapshot 只导出状态，
+  reset 仅支持回会话初始，reset(snapshotId) = MODE_NOT_SUPPORTED。
+- **待续**：engine `SandboxKernel` 从 /kernel/acquire+lease 迁移到 /sessions；
+  迁移完成并实测后退役 /kernel/* 私有 lease 路由。
 - assembly / wolfram / computational-chemistry 按需路由到 tool containers / 本地执行面。
 - engine 的 interactive 消费：待出现真实“worker 驱动 TTY”场景再设计 agent 驱动语义。
 - engine 品牌/服务名迁移（独立立项，不在协议面范围内）。
@@ -419,7 +429,7 @@ capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
 | sync | POST /exec → 同步结果 | ✅ 实现 |
 | stream | POST /exec → GET /exec/:id/stream（SSE） | ✅ 实现 |
 | interactive | POST /exec → WS /exec/:id/ws（stdin/stdout/stderr/resize/pty） | ✅ 实现 |
-| persistent | session create/execute/snapshot/reset/release + lease/TTL | ✅ 规范定稿，❌ 实现后置（与 sandbox kernel-host 迁移捆绑） |
+| persistent | session create/execute/snapshot/reset/release + lease/TTL | ✅ shared 服务端/客户端已实现（1.7.1）；sandbox /sessions 宿主已实现；engine kernel 客户端迁移中 |
 
 - 未声明模式 → `MODE_NOT_SUPPORTED`；旧 `stream:true` 字段映射到 `mode:"stream"`。
 - persistent wire 已定稿：`POST /sessions`（create）· `GET /sessions/:id` ·

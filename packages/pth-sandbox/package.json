@@ -17,6 +17,7 @@
   "dependencies": {
     "@away_from/infra": "^1.6.0",
     "@away_from/pth-memory": "file:../pth-memory",
+    "@away_from/shared": "^1.7.1",
     "@sinclair/typebox": "^0.34.52",
     "fastify": "^5.0.0"
   }

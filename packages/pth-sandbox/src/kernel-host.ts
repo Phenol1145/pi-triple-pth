@@ -27,6 +27,7 @@ import { CCompiledKernel } from "./compiled-kernel.js";
 import { CDebugSession } from "./gdb-mi.js";
 import { SandboxHealthState } from "./health-state.js";
 import { registerKernelDebugRoutes } from "./kernel-host-debug.js";
+import { registerKernelSessionHost, type KernelSessionHostHandle } from "./kernel-session-host.js";
 import { loadSandboxConfig } from "./config.js";
 
 /** 编译核统计（/kernel/status 聚合——PTH obs.kernels 可查） */
@@ -47,6 +48,8 @@ export interface KernelHostOptions {
   getBridgeToken?: () => string | undefined;
   /** P2-2：/kernel/acquire 的执行 grant 校验器（缺省未装配 → acquire 503 fail-closed） */
   grantVerifier?: SandboxGrantVerifier;
+  /** P4：在同一对语言池上注册 execution/v1.1 persistent /sessions（缺省关闭） */
+  registerSessions?: boolean;
   onStderr?: (lang: string, line: string) => void;
 }
 
@@ -81,6 +84,11 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
   const leasePools = new Map<string, KernelPool>();
   /** leaseId → 任务绑定（sandbox grant 动态绑定——acquire 时盖章，execute 按任务校验） */
   const leaseBindings = new Map<string, { taskId: string; tenantId: string }>();
+
+  // P4：persistent /sessions 与 /kernel/* 共享同一对语言池（不复制容量）。
+  const sessionHost: KernelSessionHostHandle | undefined = opts.registerSessions
+    ? registerKernelSessionHost(app, { pools, getSecret, grantVerifier: opts.grantVerifier })
+    : undefined;
 
   // S1-5：degraded 观测——依赖条件缺失/饱和时置位，/kernel/status 暴露，状态跃迁打日志。
   const health = new SandboxHealthState({
@@ -434,6 +442,7 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     async dispose() {
       if (disposed) return;
       disposed = true;
+      await sessionHost?.manager.close();
       await Promise.all([pools.python.dispose(), pools.bash.dispose()]);
       await debug.dispose();
       leasePools.clear();

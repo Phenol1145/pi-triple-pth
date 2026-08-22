@@ -28,8 +28,10 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { cp, mkdir, rm, chmod, chown, readdir, lstat } from "node:fs/promises";
 import {
+  EXECUTION_PROTOCOL_VERSION_V11,
   EXECUTION_WIRE,
   type ExecutionCapabilities,
+  type ExecutionModes,
   type ExecutionRequest,
   type ExecutionResult,
 } from "@away_from/shared/execution";
@@ -56,6 +58,8 @@ export interface ExecApiOptions {
   maxStderrBytes?: number;
   /** P2-6：/ready 的额外就绪检查（如 kernel grant verifier 是否装配） */
   readinessChecks?: Array<{ name: string; check: () => boolean | Promise<boolean> }>;
+  /** P4：显式 v1.1 modes 位图（persistent 随 kernel session host 一并声明；缺省 = execution/v1） */
+  capabilitiesModes?: ExecutionModes;
 }
 
 // ─── 流式任务注册表 ────────────────────────────────────────────────
@@ -235,15 +239,26 @@ export function buildExecApp(options: ExecApiOptions = {}): FastifyInstance {
   const jobs = new Map<string, StreamJob>();
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
-  const capabilities: ExecutionCapabilities = {
-    version: EXECUTION_WIRE.version,
-    streaming: true,
-    cancel: true,
-    cwdWhitelist: true,
-    uidIsolation: true,
-    egressLocked: true,
-    pathMapping: false,
-  };
+  const capabilities: ExecutionCapabilities = options.capabilitiesModes
+    ? {
+        version: EXECUTION_PROTOCOL_VERSION_V11,
+        streaming: true,
+        cancel: true,
+        cwdWhitelist: true,
+        uidIsolation: true,
+        egressLocked: true,
+        pathMapping: false,
+        modes: options.capabilitiesModes,
+      }
+    : {
+        version: EXECUTION_WIRE.version,
+        streaming: true,
+        cancel: true,
+        cwdWhitelist: true,
+        uidIsolation: true,
+        egressLocked: true,
+        pathMapping: false,
+      };
 
   // S1-4：shutdown dispose——app.close() 时终止全部在飞 stream 子进程并清注册表
   app.addHook("onClose", async () => {

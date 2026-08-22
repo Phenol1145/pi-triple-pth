@@ -123,6 +123,21 @@ export interface SandboxGrantVerifier {
   verify(grant: unknown): { ok: true; grant: SandboxExecutionGrant } | { ok: false; error: string };
 }
 
+/** persistent 会话私有头：签名 grant 经 base64url(JSON) 传输（wire body 不变，2026-08-22 裁决）。 */
+export const SANDBOX_GRANT_HEADER = "x-sandbox-grant";
+
+export function sandboxGrantToHeader(grant: SandboxExecutionGrant): string {
+  return Buffer.from(JSON.stringify(grant), "utf8").toString("base64url");
+}
+
+export function sandboxGrantFromHeader(header: string): unknown {
+  try {
+    return JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 export function createSandboxGrantVerifier(opts: SandboxGrantVerifierOptions): SandboxGrantVerifier {
   const keyProvider = createSandboxHmacKeyProvider({ secret: opts.secret });
   const clock = opts.clock ?? (() => new Date());

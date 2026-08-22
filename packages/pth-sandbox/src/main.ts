@@ -16,9 +16,14 @@ const grantSecret = loadSandboxConfig().executionGrantSecret;
 const app = buildExecApp({
   // P2-6：readiness 聚合 kernel grant verifier 装配状态
   readinessChecks: [{ name: "execution-grant-verifier", check: () => Boolean(grantSecret) }],
+  // P4：persistent /sessions 由 kernel session host 提供
+  capabilitiesModes: { sync: true, stream: true, interactive: false, persistent: true },
 });
 // kernel sandbox SPEC：kernel 宿主与 exec API 同端口（internal 网络内 PTH 可达）
-registerKernelHost(app, grantSecret ? { grantVerifier: createSandboxGrantVerifier({ secret: grantSecret }) } : {});
+registerKernelHost(app, {
+  ...(grantSecret ? { grantVerifier: createSandboxGrantVerifier({ secret: grantSecret }) } : {}),
+  registerSessions: true,
+});
 
 try {
   await app.listen({ port, host: "0.0.0.0" });

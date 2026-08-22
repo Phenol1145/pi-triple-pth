@@ -36,7 +36,7 @@
     "@away_from/pth-console": "file:packages/pth-console",
     "@away_from/pth-memory": "file:packages/pth-memory",
     "@away_from/pth-sandbox": "file:packages/pth-sandbox",
-    "@away_from/shared": "^1.6.0",
+    "@away_from/shared": "^1.7.1",
     "@earendil-works/pi-ai": "^0.82.1",
     "@earendil-works/pi-coding-agent": "^0.82.1",
     "@fastify/websocket": "^11.0.0",
