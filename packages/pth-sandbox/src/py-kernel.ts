@@ -26,7 +26,7 @@ const DEFAULT_MAX_VALUE_CHARS = 8 * 1024;
 // Python 常驻 runtime：逐行读 stdin JSON → 分发 exec/snapshot → 回 JSON。
 // _result 约定：cell 设置全局 _result 即结构化返回值。
 export const PY_RUNTIME = `
-import sys, json, io, traceback, inspect
+import sys, json, io, traceback, inspect, ast
 
 print("__pth_ready__", flush=True)   # 启动就绪信号（防 stdin 写入丢失）
 
@@ -103,7 +103,19 @@ def main():
                     err_msg = None
                 else:
                     _NAMESPACE["_LAST_CODE"] = _NAMESPACE.get("_LAST_CODE", "") + "\\n" + code   # 累积（供无源函数源码提取）
-                    exec(code, _NAMESPACE)
+                    # P5 收尾（2026-08-22）：auto/program 末尾是表达式时捕获 completion value
+                    # （对齐 Python REPL 回显；修复「x=1+2; x」返回空 stdout 的问题）。
+                    # 用 AST 把最后一个表达式改写为「_result = <expr>」——只求值一次，不重复副作用。
+                    _tree = ast.parse(code, mode="exec")
+                    if _tree.body and isinstance(_tree.body[-1], ast.Expr):
+                        _tree.body[-1] = ast.Assign(
+                            targets=[ast.Name(id="_result", ctx=ast.Store())],
+                            value=_tree.body[-1].value,
+                        )
+                        ast.fix_missing_locations(_tree)
+                        exec(compile(_tree, "<cell>", "exec"), _NAMESPACE)
+                    else:
+                        exec(code, _NAMESPACE)
                     result = _NAMESPACE.pop("_result", None)   # 取出即清（防会话残留）
                     ok = True
                     err_msg = None

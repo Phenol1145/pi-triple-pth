@@ -152,6 +152,21 @@ describe("PyKernel exec 模式（2026-08-11 元命令拆分——single=eval/pro
     expect(r.ok).toBe(true);
     expect(r.value).toEqual([0, 1, 4]);
   });
+
+  it("auto：末尾表达式捕获 completion value（x=1+2; x → 3；副作用只执行一次）", async () => {
+    const k2 = new PyKernel({ pythonBin: "python3" });
+    try {
+      const r = await k2.execute("x = 1 + 2; x");
+      expect(r.ok).toBe(true);
+      expect(r.value).toBe(3);
+      const side = await k2.execute("y = 0\ny += 1\ny");
+      expect(side.ok).toBe(true);
+      expect(side.value).toBe(1);
+      expect(side.stdout).toBe("");
+    } finally {
+      k2.dispose();
+    }
+  });
 });
 
 describe("记忆库注入（2026-08-11 库化——pth-memory-lib）", () => {
