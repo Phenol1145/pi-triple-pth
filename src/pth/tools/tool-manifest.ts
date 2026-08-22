@@ -166,6 +166,10 @@ export function validateToolManifest(input: unknown): ToolManifestFile {  if (!i
   return { schemaVersion: 1, generatedAt: input.generatedAt, domains };
 }
 
+export function hasAllDomainDigests(manifest: ToolManifestFile): boolean {
+  return Object.values(manifest.domains).every((d) => typeof d.digest === "string" && d.digest.length > 0);
+}
+
 /** release 命令：把 buildx push 后查得的 digest 钉进 manifest（域必须存在；digest 强校验）。 */
 export function pinToolManifestDigest(
   manifest: ToolManifestFile,

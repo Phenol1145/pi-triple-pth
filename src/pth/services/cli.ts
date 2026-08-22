@@ -140,6 +140,24 @@ async function down(manifests: ServiceManifest[], ids: string[]): Promise<void> 
   }
 }
 
+async function composePsState(manifest: ServiceManifest & { kind: "compose" }): Promise<{ name?: string; state: string; health?: string }> {
+  const composeFile = join(SERVICES_DIR, manifest.id, manifest.composeFile);
+  const envFile = join(REPO_ROOT, "deploy", ".env.pth.secrets");
+  const args = ["compose"];
+  if (existsSync(envFile)) args.push("--env-file", envFile);
+  args.push("-p", manifest.projectName, "-f", composeFile, "ps", "--format", "json");
+  const result = await realDockerRun(args);
+  if (result.code !== 0) return { state: "unknown" };
+  for (const line of result.stdout.split("\n").map((s) => s.trim()).filter(Boolean)) {
+    try {
+      const e = JSON.parse(line) as { Service?: string; Name?: string; State?: string; Health?: string };
+      if (!e.State) continue;
+      return { name: e.Name, state: e.State, ...(e.Health ? { health: e.Health } : {}) };
+    } catch { /* 忽略非 JSON 行 */ }
+  }
+  return { state: "not-running" };
+}
+
 async function status(manifests: ServiceManifest[]): Promise<void> {
   const registry = loadServiceRegistry(defaultServiceRegistryPath());
   const rows = [["SERVICE", "KIND", "STATUS", "URL", "LAUNCHD"]];
@@ -150,7 +168,9 @@ async function status(manifests: ServiceManifest[]): Promise<void> {
       const ld = await statusLaunchdService(manifest.id);
       rows.push([manifest.id, "host", s.running && s.healthy ? "healthy" : s.detail, entry?.url ?? "-", ld.installed ? (ld.loaded ? "installed/loaded" : "installed/unloaded") : "-"]);
     } else {
-      rows.push([manifest.id, "compose", "compose", "-", "-"]);
+      const cs = await composePsState(manifest);
+      const health = cs.health && cs.health !== "" ? `${cs.state}/${cs.health}` : cs.state;
+      rows.push([manifest.id, "compose", health, "-", "-"]);
     }
   }
   const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => (r[i] ?? "").length)));

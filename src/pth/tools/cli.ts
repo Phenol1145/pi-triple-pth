@@ -13,7 +13,7 @@ import {
   resolveExecutionMode,
   type ExecutionRequest,
 } from "@away_from/shared/execution";
-import { pinToolManifestDigest, validateToolManifest, type ToolDefinition, type ToolContainerDomain, type ToolManifestFile } from "./tool-manifest.js";
+import { hasAllDomainDigests, pinToolManifestDigest, validateToolManifest, type ToolDefinition, type ToolContainerDomain, type ToolManifestFile } from "./tool-manifest.js";
 import {
   defaultToolRegistryPath,
   ensureDomainTokens,
@@ -135,7 +135,9 @@ async function toolsList(manifest: ToolManifestFile): Promise<void> {
 
 async function toolsUp(manifest: ToolManifestFile, args: string[]): Promise<void> {
   const { flags } = flagsMap(args);
-  const localBuild = !flags.has("--pull");
+  // B7（2026-08-22）：默认策略 = 全部域已钉 digest → 用 GHCR 钉版；否则本地构建。
+  // --build 强制本地重建；--pull 强制拉取钉版（未钉版时 fail-closed）。
+  const localBuild = flags.has("--build") ? true : flags.has("--pull") ? false : !hasAllDomainDigests(manifest);
   let registry = loadToolRegistry(registryPath());
   registry = ensureDomainTokens(registry, Object.keys(manifest.domains) as ToolContainerDomain[]);
   saveToolRegistry(registry, registryPath());

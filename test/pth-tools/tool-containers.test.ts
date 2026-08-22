@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { HttpExecutionClient, EXECUTION_WIRE } from "@away_from/shared/execution";
-import { pinToolManifestDigest, validateToolManifest, ToolManifestError } from "../../src/pth/tools/tool-manifest.js";
+import { hasAllDomainDigests, pinToolManifestDigest, validateToolManifest, ToolManifestError } from "../../src/pth/tools/tool-manifest.js";
 import {
   defaultToolRegistryPath,
   ensureDomainTokens,
@@ -57,6 +57,13 @@ describe("T2：tool-manifest 规范（T0 fail-closed）", () => {
       expect(tool.modes).toContain("interactive");
     }
     expect(manifest.domains.compiled?.tools.map((t) => t.name)).toContain("bf");
+  });
+
+  it("hasAllDomainDigests：全钉版 true；任一空 digest false（B7 默认策略输入）", () => {
+    expect(hasAllDomainDigests(validateToolManifest(REAL_MANIFEST))).toBe(true);
+    const noDigest = JSON.parse(JSON.stringify(REAL_MANIFEST)) as { domains: Record<string, { digest?: string }> };
+    noDigest.domains.compiled!.digest = "";
+    expect(hasAllDomainDigests(validateToolManifest(noDigest))).toBe(false);
   });
 
   it("非法 manifest fail-closed：未知域 / digest / 域网络漂移 / 重名工具 / secrets 越界", () => {
