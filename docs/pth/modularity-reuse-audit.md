@@ -1,87 +1,126 @@
-# 模块化与代码复用率审计（v1.3.0 预发布）
+# 模块化与代码复用率审计（2026-08-22 刷新）
 
-- 扫描范围：`src/`、`scripts/`、8 个 `packages/*/src`、`deploy/docker-monitor/`、`test/`（排除 node_modules/dist/.worktrees）
-- 规模：**803** 文件（生产 483 / 测试 320）
-- 行数：生产 **93,777** LOC，测试 **58,886** LOC
+> 本文件替代旧版 v1.3.0 审计。旧版数据已过期：文件数、循环依赖、重复代码结论均与本版不一致。
+> 扫描范围：`pi-triple-deps` / `pi-triple-pth` / `pi-triple-ptl` 三个仓库的 **git 跟踪文件**（排除 node_modules、dist、gitignore 生成物，如 `packages/pth-cli/deploy`）。
+> 规模：**990** 个跟踪文件（生产 **602** / 测试 **388**），生产 LOC 约 **113.8k**。
 
-## 1. 模块边界与 barrel 使用
+## 1. 总体结论
 
-| 指标 | 数值 |
-|---|---|
-| `src/pth` 相对导入总数 | 890 |
-| 同域导入 | 463（52.0%） |
-| 跨域经公共 barrel（index.ts） | 192（21.6%） |
-| 跨域深路径私有导入 | 235（26.4%；**与 check-pth-boundaries 允许基线一致，无新增违规**） |
+1. **产品级拆仓方向正确**：PTL/PTH 产品边界 0 违规，`deps` 公共包被两个产品复用，包依赖大体单向。
+2. **PTH 引擎内部仍未真正模块化**：`src/pth` 272 文件 / 56.9k LOC 仍是单块；`kernel` 87 文件 / 16.2k LOC、`execution` 35 文件 / 10.5k LOC。
+3. **存在 1 个静态运行时循环依赖**，旧审计“0 循环”结论已失效。
+4. **代码复用健康度中等**：公共包 fan-in 健康，但 runtime adapter、CLI 命令、web 页面、版本检查等存在成体系重复。
 
-典型跨域深路径导入（多为 application → kernel/tasking/execution 的网关适配面）：
+## 2. 规模指标
 
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/kernel/assembly.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/kernel/execution/worker-cluster.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/kernel/storage/task-store-pg.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/tasking/task-control-service.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/tasking/task-queries.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/execution/knowledge-promotion.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/execution/knowledge-broker.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/execution/knowledge-verdicts.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/kernel/execution/optimizer-apply.js`
-- `src/pth/application/gateway/pth-gateway-facade.ts` → `src/pth/tasking/penetration-discovery.js`
+| 仓库 | 生产文件 | 测试文件 | 生产 LOC（约） |
+|---|---:|---:|---:|
+| pi-triple-deps | 47 | 17 | 6.8k |
+| pi-triple-pth | 446 | 306 | 96.3k |
+| pi-triple-ptl | 109 | 65 | 12.2k |
+| **合计** | **602** | **388** | **113.8k** |
 
-## 2. 循环依赖
+### 主要模块/包规模
 
-- 检测到的强连通分量：**0**，文件 **0** 个（无循环依赖）。
+| 模块/包 | 文件数 | LOC |
+|---|---:|---:|
+| `src/pth/kernel` | 87 | 16,218 |
+| `src/pth/execution` | 35 | 10,541 |
+| `src/pth/catalog` | 21 | 5,385 |
+| `packages/pth-console/src` | 40 | 7,528 |
+| `packages/pth-sandbox/src` | 23 | 4,854 |
+| `packages/pth-memory/src` | 14 | 3,322 |
+| `packages/framework/src` | 78 | 9,868 |
+| `packages/pth-console/web-src` | — | 2,764 |
 
-## 3. 复用面（fan-in 最高的模块）
+## 3. 产品边界与分包
 
-| 模块 | 被引用文件数 |
-|---|---|
-| `test/helpers.ts` | 24 |
-| `src/pth/kernel/storage/pg.ts` | 8 |
-| `src/pth/kernel/storage/schema.ts` | 7 |
-| `deploy/docker-monitor/ui-state.js` | 4 |
-| `src/pth/impls/roles/default-roles.ts` | 4 |
-| `src/pth/kernel/assembly.ts` | 4 |
-| `deploy/docker-monitor/server.js` | 4 |
-| `src/pth/kernel/storage/index.ts` | 4 |
-| `src/pth/impls/kernels/ts-interpreter.ts` | 3 |
-| `deploy/docker-monitor/ring-buffer.js` | 3 |
+- ✅ `check:product-boundaries`：PTH/PTL 均 0 违规。
+- ✅ 公共包复用面：`@away_from/shared` 66 个 importer、`@away_from/pth-memory` 55、`@away_from/infra` 32、`@away_from/pth-console` 22、`@away_from/pth-sandbox` 22。
+- ⚠️ `pth-console` 仍有 **22 个 transitional 文件**（`bridge/**` + `operator-console/**`），迁移未收尾。
+- ⚠️ `pth-sandbox` 依赖 `pth-memory` 仅为了 `PTH_MEMORY_LIB_B64`，属于执行层反向依赖存储层，建议下沉常量。
 
-命名的导出符号复用 Top 10（近似；vitest 与 node:os 属于框架性复用）：
+## 4. 循环依赖
 
-- `describe`：314 个 importer
-- `it`：313 个 importer
-- `expect`：313 个 importer
-- `beforeAll`：79 个 importer
-- `afterAll`：76 个 importer
-- `vi`：71 个 importer
-- `beforeEach`：51 个 importer
-- `tmpdir`：46 个 importer
-- `createHash`：43 个 importer
-- `join`：43 个 importer
+### 静态运行时环（1 个，需优先处理）
 
-## 4. 重复代码估算（8 行归一化窗口）
+```
+execution/index.ts
+  → execution/knowledge-broker.ts
+    → runner/index.ts
+      → runner/cognitive-working-set.ts
+        → execution/index.ts
+```
 
-- 生产代码：重复块 372，估算重复行 8，估算重复率 **0.01%**，完全重复文件 5
-- 测试代码：重复块 582，估算重复行 160，估算重复率 **0.27%**
+根因：`execution/knowledge-broker.ts` 反向 import `runner/index` 获取 `computeKnowledgeQueryFingerprint`；`runner/cognitive-working-set.ts` 又 import `execution/index`。建议把该纯函数下沉到 `contracts` 或共享层。
 
-生产重复 Top（可作为复用机会）：
+### 其它环
 
-- src/pth/execution/adapters/assembly-runtime-adapter.ts / src/pth/execution/adapters/computational-chemistry-adapter.ts / src/pth/execution/adapters/jupyter-runtime-adapter.ts — 片段: `const artifacts: ArtifactRef[] = [];`
-- src/pth/execution/adapters/computational-chemistry-adapter.ts / src/pth/execution/adapters/jupyter-runtime-adapter.ts / src/pth/execution/adapters/lean4-runtime-adapter.ts — 片段: `let stdout = "";`
-- src/pth/execution/adapters/computational-chemistry-adapter.ts / src/pth/execution/adapters/jupyter-runtime-adapter.ts / src/pth/execution/adapters/lean4-runtime-adapter.ts — 片段: `let stderr = "";`
-- packages/framework/src/bridge/bench.ts / packages/framework/src/bridge/jobs.ts / packages/framework/src/bridge/kernel.ts — 片段: `function requireClient(): PthClient {`
-- packages/framework/src/bridge/bench.ts / packages/framework/src/bridge/jobs.ts / packages/framework/src/bridge/kernel.ts — 片段: `const client = PthClient.fromConfig();`
+- `kernel` 工具注册相关环主要来自动态 import，静态初始化不构成环，但调用期仍耦合。
+- `web-src` 存在 `app.tsx ↔ Sidebar/CommandPalette` 的 type-only 环。
+- `catalog / runner / execution` 之间存在大范围 type-level 环，说明 barrel 互相 re-export 过多。
 
-测试重复 Top（可抽取共享 helper）：
+## 5. 深路径耦合
 
-- test/pth-composition/r6-acceptance.test.ts / test/pth-composition/work-mode-classification.test.ts / test/pth-execution/knowledge-broker.pg.test.ts — 片段: `async function hasDocker(): Promise<boolean> {`
-- test/pth-composition/r6-acceptance.test.ts / test/pth-composition/work-mode-classification.test.ts / test/pth-execution/knowledge-broker.pg.test.ts — 片段: `if (process.env.PTH_TEST_NO_DOCKER === "1") return false;`
-- test/pth-composition/r6-acceptance.test.ts / test/pth-composition/work-mode-classification.test.ts / test/pth-execution/knowledge-broker.pg.test.ts — 片段: `try {`
-- test/pth-composition/r6-acceptance.test.ts / test/pth-execution/knowledge-broker.pg.test.ts / test/pth-execution/knowledge-verdicts.test.ts — 片段: `await getContainerRuntimeClient();`
-- test/unit/agent-engine-recover.test.ts / test/unit/f-wp2-integration.test.ts / test/unit/f-wp3-integration.test.ts — 片段: `let redis: RedisType;`
+`src/pth` 内部相对 import 共 **853** 条：
 
-## 5. 结论
+| 类型 | 数量 | 占比 |
+|---|---:|---:|
+| 同模块内 | 443 | 52.0% |
+| 跨模块走 barrel | 190 | 22.3% |
+| 跨模块深路径私有导入 | 220 | 25.8% |
 
-1. **模块化健康**：生产代码无循环依赖；pth 跨域访问 192/235 走/未走 barrel 的比例处于基线内，且权威 lint（`check-pth-boundaries`）为 0 新增违规。
-2. **复用健康**：生产重复率约 0.01%，主要重复来自四个 runtime adapter 的 exec 收尾样板（可抽共享 helper 但收益很小）。
-3. **测试复用机会**：PG/docker 可用性守卫 `hasDocker` 在多个测试文件重复（Top 命中 18 次），可统一收敛到 `test/helpers.ts`，预期减少约 160 行重复。
-4. 本审计为静态估算，不计注释与生成物，不替代边界 lint 与类型系统。
+典型深路径：`application/gateway/pth-gateway-facade.ts` → `kernel/storage/task-store-pg.ts`、`tasking/task-control-service.ts`、`execution/knowledge-broker.ts` 等。组合根 `bootstrap` 的深路径可接受，gateway/application 的直接私有访问应逐步收敛到公共 API。
+
+## 6. 重复代码
+
+### 整文件重复（跟踪文件，3 组）
+
+- `deps/packages/shared/src/presence.ts` ≡ `ptl/extensions/_shared/presence.ts`
+- `pth/scripts/check-doc-links.ts` ≡ `ptl/scripts/check-doc-links.ts`
+- `pth/scripts/check-product-boundaries.ts` ≡ `ptl/scripts/check-product-boundaries.ts`
+
+其中 check 脚本属于拆仓 `copyBoth` 有意复制，但仍是双份维护成本；`presence.ts` 建议收敛。
+
+### 成体系重复样板
+
+- **6 个 professional runtime adapter**：`assembly / lean4 / wolfram / computational-chemistry / jupyter / u8` 重复 job 状态机、输出收集、结果组装、`put` 逻辑。
+- **CLI 命令**：`bench / debug / jobs / kernel / observe / programs / request / run / submit / trigger` 反复出现 `requireClient() + PthClient.fromConfig() + 未配置报错`。
+- **Web 页面**：`config / debug / overview / work` 重复 `setLoadState / setErrorCode / useEffect` 错误处理样板。
+- **版本检查**：`deps/shared`、`ptl/extensions/_shared`、`ptl/packages/mailbox` 三处各有一份相似实现。
+
+### 生成物说明
+
+`packages/pth-cli/deploy` 与根 `deploy` 的整目录重复是 `build-pth-cli-package.sh` 的 rsync 产物，且已被 gitignore，**不计入源码重复**。
+
+## 7. 认知成本与可维护性
+
+### 偏大的文件
+
+- `discipline-catalog-data.ts` **2,965 行**
+- `knowledge-intake-pg.ts` **1,496 行**
+- `knowledge-intake/service.ts` **1,285 行**
+- `batch-process.ts` **1,255 行**
+- `memory-store-pg.ts` **1,056 行**
+
+### 双 UI 栈
+
+`pth-console` 同时存在 `web-src/`（Preact + Vite 新操作台）和 `web/operator-console/`（legacy 静态 JS，测试与 `server-assets` fallback 仍在使用）。这是明显的迁移过渡态，建议明确去留。
+
+### 文档过期
+
+- 旧版 `modularity-reuse-audit.md` 数据为 v1.3.0，已由本文件替代。
+- `docs/pth/module-ownership.md` 引用的 `docs/product-shape.md` 在当前三仓中不存在，需修复引用。
+
+## 8. 建议优先级
+
+| 优先级 | 建议 | 预期收益 |
+|---|---|---|
+| P0 | 拆掉 `execution ↔ runner` 静态运行时环，并在 CI 加循环检测 | 消除真实 ESM 环，恢复“0 环”可信度 |
+| P1 | 抽取 runtime adapter 公共执行脚手架 | 去掉 6 个 adapter 的大段重复 |
+| P1 | 抽取 CLI `requireClient()` 公共 helper | 去掉 10+ 个命令的重复样板 |
+| P1 | 把 `PTH_MEMORY_LIB_B64` 从 `pth-memory` 下沉到共享层 | 修正 sandbox 反向依赖 |
+| P1 | 刷新 `module-ownership.md` 的失效引用 | 文档与代码一致 |
+| P2 | 收敛 `_shared` 与 `shared` 的重复（presence/version-check） | 降低跨仓同步成本 |
+| P2 | 明确 operator console 双栈去留 | 减少两个 UI 的维护面 |
+| P2 | 进一步拆分 `src/pth/kernel`，或至少强制 barrel-only 跨模块导入 | 降低 PTH 引擎内部认知成本 |

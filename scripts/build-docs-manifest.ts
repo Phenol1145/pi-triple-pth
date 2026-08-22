@@ -72,6 +72,9 @@ export function classifyDocsFile(file: string): DocEntry {
   if (rel === "POSITIONING.md" || rel === "fracta-engine-execution-topology.md") {
     return { path: `docs/${rel}`, category: "reference", product: "shared", status: "active" };
   }
+  if (rel === "fracta-engine-backlog.md") {
+    return { path: `docs/${rel}`, category: "operations", product: "shared", status: "active" };
+  }
   if (rel === "product-shape.md" || rel === "container-dev-skill.md" || rel === "code-organization-plan.md") {
     return { path: `docs/${rel}`, category: "guides", product: "shared", status: "active" };
   }
@@ -101,6 +104,9 @@ export function classifyDocsFile(file: string): DocEntry {
   if (PTH_GUIDES.has(base)) return { path: `docs/${rel}`, category: "guides", product: "pth", status: "active" };
   if (PTH_OPERATIONS.has(base)) return { path: `docs/${rel}`, category: "operations", product: "pth", status: "reference" };
   if (CONTRACT_RE.test(base)) return { path: `docs/${rel}`, category: "contracts", product: "pth", status: "reference" };
+  if (base === "modularity-reuse-audit.md") {
+    return { path: `docs/${rel}`, category: "reports", product: "pth", status: "reference" };
+  }
   if (base.includes("report") || base.includes("feedback") || base.includes("audit")
     || base.includes("analysis") || base.includes("acceptance") || base.includes("evaluation")) {
     return { path: `docs/${rel}`, category: "reports", product: "pth", status: "historical" };

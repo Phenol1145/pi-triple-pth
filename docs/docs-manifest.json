@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-22T06:07:55.990Z",
+  "generatedAt": "2026-08-22T14:49:16.151Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -45,14 +45,14 @@
       "status": "historical"
     },
     {
-      "path": "docs/fracta-engine-execution-topology.md",
-      "category": "reference",
+      "path": "docs/fracta-engine-backlog.md",
+      "category": "operations",
       "product": "shared",
       "status": "active"
     },
     {
-      "path": "docs/fracta-engine-backlog.md",
-      "category": "operations",
+      "path": "docs/fracta-engine-execution-topology.md",
+      "category": "reference",
       "product": "shared",
       "status": "active"
     },
@@ -162,7 +162,13 @@
       "path": "docs/pth/modularity-reuse-audit.md",
       "category": "reports",
       "product": "pth",
-      "status": "historical"
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/modularity-reuse-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
     },
     {
       "path": "docs/pth/module-ownership.md",
