@@ -9,6 +9,7 @@ import { access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { constants } from "node:fs";
 import { createServer } from "node:net";
+import { parseSecretsEnvFile } from "./runtime-secrets.js";
 
 export type DoctorStatus = "pass" | "warn" | "fail";
 
@@ -91,21 +92,6 @@ function wants(profile: DoctorProfile, kind: "tools" | "lean4" | "u8" | "jupyter
   return profile === kind || profile === "full";
 }
 
-export function parseSecretsEnvFile(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const withoutExport = line.startsWith("export ") ? line.slice(7).trim() : line;
-    const eq = withoutExport.indexOf("=");
-    if (eq <= 0) continue;
-    const key = withoutExport.slice(0, eq).trim();
-    const value = withoutExport.slice(eq + 1).trim();
-    if (key) out[key] = value;
-  }
-  return out;
-}
-
 async function portFree(port: number): Promise<boolean> {
   return new Promise((resolvePromise) => {
     const server = createServer();
@@ -125,6 +111,15 @@ async function isExecutable(path: string): Promise<boolean> {
 }
 
 export async function runDoctor(args: string[], options: DoctorOptions = {}): Promise<DoctorReport> {
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log([
+      "用法: pth doctor [--profile core|tools|lean4|u8|jupyter|full] [--json]",
+      "  --profile X   体检剖面（默认 core）",
+      "  --json        输出 JSON 报告",
+      "退出码：0=通过/仅警告，1=有阻断项",
+    ].join("\n"));
+    return { ok: true, profile: "core", items: [] };
+  }
   const { profile, json } = parseDoctorArgs(args);
   const repoRoot = resolve(options.repoRoot ?? process.cwd());
   const env = options.env ?? process.env;

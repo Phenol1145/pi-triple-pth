@@ -294,6 +294,12 @@ async function main(): Promise<void> {
       return;
     }
     case "status": {
+      // P6-6：聚合状态
+      if (rest.includes("--all")) {
+        const { orchestrateStatusAll } = await import("./runtime/runtime-orchestrator.js");
+        await orchestrateStatusAll(rest, { repoRoot: REPO_ROOT });
+        return;
+      }
       // 无位置 taskId → 栈状态；有 taskId → 任务状态（保持旧行为）
       if (hasPositional(rest, ["--env-file", "--port"])) return status();
       const { runPthStatus } = await import("@away_from/pth-console");
@@ -388,11 +394,21 @@ async function main(): Promise<void> {
       return;
     }
     case "up": {
+      const { hasOrchestrationFlags, orchestrateUp } = await import("./runtime/runtime-orchestrator.js");
+      if (hasOrchestrationFlags(rest)) {
+        await orchestrateUp(rest, { repoRoot: REPO_ROOT });
+        return;
+      }
       const { runPthUp } = await import("@away_from/pth-console");
       await runPthUp(rest, { repoRoot: REPO_ROOT });
       return;
     }
     case "down": {
+      const { hasOrchestrationFlags, orchestrateDown } = await import("./runtime/runtime-orchestrator.js");
+      if (hasOrchestrationFlags(rest)) {
+        await orchestrateDown(rest, { repoRoot: REPO_ROOT });
+        return;
+      }
       const { runPthDown } = await import("@away_from/pth-console");
       await runPthDown(rest, { repoRoot: REPO_ROOT });
       return;
