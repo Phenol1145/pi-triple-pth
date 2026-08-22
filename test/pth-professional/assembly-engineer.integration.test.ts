@@ -264,6 +264,10 @@ function makeAdapter(extra: { runTimeoutMs?: number } = {}) {
   });
 }
 
+const RUN = process.env.PTH_PROFESSIONAL_INTEGRATION === "1";
+
+describe.skipIf(!RUN)("professional integration (gated)", () => {
+
 beforeAll(async () => {
   artifactRoot = await mkdtemp(join(tmpdir(), "asm-vertical-"));
   await mkdir(WORK_DIR, { recursive: true });
@@ -444,4 +448,5 @@ describe("assembly engineer vertical slice", () => {
       );
     }, 120_000);
   });
+});
 });

@@ -62,6 +62,26 @@ async function waitHealthy(url: string, timeoutMs: number, signal?: AbortSignal)
   throw new Error(`service health check timeout after ${timeoutMs}ms: ${url}`);
 }
 
+/** 组装 host 服务子进程环境：tokenEnv + pathDirs(PATH 前置) + pathMapping(execRoot 映射)。 */
+export function buildHostServiceEnvironment(
+  manifest: HostServiceManifest,
+  token: string,
+  input: { pathDirs?: string[]; baseEnv?: NodeJS.ProcessEnv } = {},
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...(input.baseEnv ?? process.env), [manifest.tokenEnv]: token };
+  if (input.pathDirs && input.pathDirs.length > 0) {
+    const existing = env.PATH ?? "";
+    env.PATH = [...input.pathDirs, existing].filter((p) => p.length > 0).join(delimiter);
+  }
+  if (manifest.pathMapping) {
+    const execRoot = env[manifest.pathMapping.execRootEnv];
+    if (!execRoot) throw new Error(`${manifest.id}: pathMapping.execRootEnv ${manifest.pathMapping.execRootEnv} 未设置`);
+    // ptl local-exec 的映射注入面：LOCAL_EXEC_PATH_MAPPINGS=[{hostRoot,execRoot}]
+    env.LOCAL_EXEC_PATH_MAPPINGS = JSON.stringify([{ hostRoot: manifest.pathMapping.hostRoot, execRoot }]);
+  }
+  return env;
+}
+
 export async function upHostService(
   manifest: HostServiceManifest,
   input: { token: string; logFile?: string; pathDirs?: string[] },
@@ -81,18 +101,8 @@ export async function upHostService(
   const logFile = input.logFile ?? ensureLogFile(manifest.id);
   const logFd = openSync(logFile, "a");
 
-  const env: NodeJS.ProcessEnv = { ...process.env, [manifest.tokenEnv]: input.token };
-  if (input.pathDirs && input.pathDirs.length > 0) {
-    const existing = env.PATH ?? "";
-    env.PATH = [...input.pathDirs, existing].filter((p) => p.length > 0).join(delimiter);
-  }
-  let execRoot: string | undefined;
-  if (manifest.pathMapping) {
-    execRoot = process.env[manifest.pathMapping.execRootEnv];
-    if (!execRoot) throw new Error(`${manifest.id}: pathMapping.execRootEnv ${manifest.pathMapping.execRootEnv} 未设置`);
-    // ptl local-exec 的映射注入面：LOCAL_EXEC_PATH_MAPPINGS=[{hostRoot,execRoot}]
-    env.LOCAL_EXEC_PATH_MAPPINGS = JSON.stringify([{ hostRoot: manifest.pathMapping.hostRoot, execRoot }]);
-  }
+  const env = buildHostServiceEnvironment(manifest, input.token, { pathDirs: input.pathDirs });
+  const execRoot = manifest.pathMapping ? env[manifest.pathMapping.execRootEnv] : undefined;
 
   const command = [...manifest.command];
   if (command[0] === "pth") {

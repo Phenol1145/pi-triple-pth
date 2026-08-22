@@ -10,25 +10,25 @@
 
 ---
 
-## A1. 全量测试基线
+## A1. 全量测试基线 ✅（2026-08-22 收口）
 
 - **问题**：`npx vitest run` 全量曾 600s 无输出被 kill；受影响面绿不等于全量绿。
-- **方案**：
-  1. 后台跑全量（`--reporter=json --outputFile`），先定位是「慢」还是「挂」（testcontainers/
-     Docker 依赖最可疑）；
-  2. 若为慢：提高总时限 + 分片（按目录拆两个 job）；若为挂：给容器类测试加统一
-     `hookTimeout` 与失败即转存日志；
-  3. 结论固化进 `package.json` 的 `test:full` 脚本与 CI。
-- **影响面**：仅测试基建，不动产品代码。
-- **验收**：`npm run test:full` 有确定结果（绿或明确失败清单），无「无输出超时」。
+- **方案**（已落地）：
+  1. 全量可跑完（不再超时），基线为 **2662 总用例：2610 通过 / 43 失败 / 9 跳过**；
+  2. 43 个失败全部来自 5 个无条件运行的集成/单元文件，非产品代码缺陷：
+     `assembly-engineer / computational-chemist / lean4-prover / technical-educator`
+     四个 professional 集成（缺外部工具链容器）+ `tool-containers`（GHCR 钉版后
+     单元测试断言过期）；
+  3. 给四个 professional 集成加 `PTH_PROFESSIONAL_INTEGRATION=1` 门控（默认 skip，
+     真集成时显式开）；`tool-containers` 测试改为「去 digest 副本验证 fail-closed」。
+- **验收**：`npm run test` 默认全量绿；`PTH_PROFESSIONAL_INTEGRATION=1` 时集成照常执行。
 
-## A2. sandbox 池容量拍板
+## A2. sandbox 池容量 ✅（2026-08-22 决策：保持 24）
 
-- **问题**：compose 默认 `PTH_KERNEL_POOL_SIZE=24`，live 实跑用到 48；默认值与实际负载脱节。
-- **方案**：以「并发 worker 数 × 语言数」为基准定默认值；把 48 的由来（worker 数、lean/python
-  并发）写进 compose 注释；`pth doctor` 增加一条「池容量 vs batch worker 数」提示（仅提示不阻断）。
-- **影响面**：`deploy/docker-compose.yaml`、`runtime-doctor.ts`。
-- **验收**：默认值有推导依据；冷启 `up --profile full` 不再需要手工改 env。
+- **问题**：compose 默认 `PTH_KERNEL_POOL_SIZE=24`，与 live 负载是否匹配需确认。
+- **决策**：保持默认 **24/语言**（python/bash 各 24）；当前 batch worker 约 15，
+  1.6x 余量足够，不调值。
+- **护栏**：配置参量护栏另立 C11，本次不扩大默认值。
 
 ## B4. 宿主服务自恢复（launchd 托管）
 
@@ -119,6 +119,23 @@
 - **影响面**：`src/cli/runtime/runtime-doctor.ts`。
 - **验收**：栈运行中 `pth doctor --profile full` 对 3000 报「占用（pi-platform）」而非空闲；
   栈停止时报空闲。
+
+## C11. 配置参量护栏（2026-08-22 A2 新立）
+
+- **问题**：`PTH_CONFIG_SCHEMA` 的 `d()` 仅声明类型/默认值/描述，无 `min/max` 元数据；
+  sandbox 侧 `posNum()` 只做「非正/非数字回退默认」，没有上限校验——写 `PTH_KERNEL_POOL_SIZE=100000`
+  会真的尝试建 10 万条池条目；doctor 也不检查「池容量 vs batch worker 数」等合理性。
+- **方案**：
+  1. `d()` 增加可选 `min/max`（数字键）与 `pattern`（字符串键）元数据；
+  2. 启动/`pth doctor` 对越界配置 fail-closed 或显式阻断提示（敏感/必填键 fail-closed，
+     可选键 warn+回退默认）；
+  3. 首批覆盖 `PTH_KERNEL_POOL_SIZE`（min=1, max=256）、`PTH_COMPILED_CONCURRENCY`、
+     `PTH_BATCH_MIN/MAX`、`PTH_DEBUG_SESSIONS` 等资源型参数；
+  4. compose 注释同步写默认值与护栏范围。
+- **影响面**：`src/pth/config/schema.ts`、`src/cli/runtime/runtime-doctor.ts`、
+  `packages/pth-sandbox/src/config.ts`、`deploy/docker-compose.yaml`。
+- **验收**：越界配置（如 pool=0 / pool=100000）在 doctor/启动时被明确拒绝或回退并告警；
+  合法范围内行为不变。
 
 ---
 

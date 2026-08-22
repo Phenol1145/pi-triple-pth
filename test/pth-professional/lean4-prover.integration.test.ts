@@ -171,6 +171,10 @@ function makeAdapter(extra: { buildTimeoutMs?: number; lockVersion?: string } = 
   });
 }
 
+const RUN = process.env.PTH_PROFESSIONAL_INTEGRATION === "1";
+
+describe.skipIf(!RUN)("professional integration (gated)", () => {
+
 beforeAll(async () => {
   artifactRoot = await mkdtemp(join(tmpdir(), "lean4-vertical-"));
   await mkdir(WORK_DIR, { recursive: true });
@@ -394,4 +398,5 @@ describe("lean4 prover vertical slice", () => {
       expect(result.error?.code).toBe("toolchain-unavailable");
     }, 120_000);
   });
+});
 });

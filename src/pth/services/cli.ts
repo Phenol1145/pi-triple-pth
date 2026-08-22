@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateServiceManifest, type HostServiceManifest, type ServiceManifest } from "./service-manifest.js";
 import {
+  defaultServiceLogDir,
   defaultServiceRegistryPath,
   generateServiceToken,
   loadServiceRegistry,
@@ -19,7 +20,15 @@ import {
   statusHostService,
   tailServiceLog,
   upHostService,
+  buildHostServiceEnvironment,
 } from "./service-supervisor.js";
+import {
+  installLaunchdService,
+  isLaunchdInstalled,
+  launchdPlistPath,
+  statusLaunchdService,
+  uninstallLaunchdService,
+} from "./launchd.js";
 import { realDockerRun } from "../tools/tool-compose.js";
 import { pthConfig } from "../config/index.js";
 
@@ -133,14 +142,15 @@ async function down(manifests: ServiceManifest[], ids: string[]): Promise<void> 
 
 async function status(manifests: ServiceManifest[]): Promise<void> {
   const registry = loadServiceRegistry(defaultServiceRegistryPath());
-  const rows = [["SERVICE", "KIND", "STATUS", "URL"]];
+  const rows = [["SERVICE", "KIND", "STATUS", "URL", "LAUNCHD"]];
   for (const manifest of manifests) {
     if (manifest.kind === "host") {
       const entry = registry.services[manifest.id];
       const s = entry ? await statusHostService(entry) : { running: false, healthy: false, detail: "not-up" };
-      rows.push([manifest.id, "host", s.running && s.healthy ? "healthy" : s.detail, entry?.url ?? "-"]);
+      const ld = await statusLaunchdService(manifest.id);
+      rows.push([manifest.id, "host", s.running && s.healthy ? "healthy" : s.detail, entry?.url ?? "-", ld.installed ? (ld.loaded ? "installed/loaded" : "installed/unloaded") : "-"]);
     } else {
-      rows.push([manifest.id, "compose", "compose", "-"]);
+      rows.push([manifest.id, "compose", "compose", "-", "-"]);
     }
   }
   const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => (r[i] ?? "").length)));
@@ -163,15 +173,61 @@ async function restart(manifests: ServiceManifest[], ids: string[]): Promise<voi
   await up(manifests, ids);
 }
 
+async function install(manifests: ServiceManifest[], ids: string[]): Promise<void> {
+  const registry = loadServiceRegistry(defaultServiceRegistryPath());
+  for (const manifest of select(manifests, ids)) {
+    if (manifest.kind !== "host") {
+      console.error(`❌ ${manifest.id}: 只有 host 服务可 launchd 托管（compose 服务由 Docker restart policy 负责）`);
+      process.exitCode = 1;
+      continue;
+    }
+    const entry = registry.services[manifest.id];
+    if (entry && (await statusHostService(entry)).running) {
+      console.error(`❌ ${manifest.id}: 正在由监督器运行——先 pth services down ${manifest.id} 再 install（二选一托管）`);
+      process.exitCode = 1;
+      continue;
+    }
+    if (isLaunchdInstalled(manifest.id)) {
+      console.log(`${manifest.id}: 已存在 launchd plist，先卸载旧的再重装`);
+      await uninstallLaunchdService(manifest.id);
+    }
+    const token = resolveServiceToken(entry, manifest.tokenEnv);
+    const serviceDir = join(SERVICES_DIR, manifest.id);
+    const pathDirs = manifest.pathDirs?.map((p) => resolve(serviceDir, p));
+    const env = buildHostServiceEnvironment(manifest, token, pathDirs?.length ? { pathDirs } : {});
+    const logFile = entry?.logFile ?? join(defaultServiceLogDir(), `${manifest.id}.log`);
+    await installLaunchdService(manifest, env, { logFile });
+    console.log(`✅ ${manifest.id}: launchd 已安装（${launchdPlistPath(manifest.id)}；日志 ${logFile}）`);
+  }
+}
+
+async function uninstall(manifests: ServiceManifest[], ids: string[]): Promise<void> {
+  for (const manifest of select(manifests, ids)) {
+    if (manifest.kind !== "host") {
+      console.error(`❌ ${manifest.id}: 只有 host 服务有 launchd 托管`);
+      process.exitCode = 1;
+      continue;
+    }
+    if (!isLaunchdInstalled(manifest.id)) {
+      console.log(`${manifest.id}: launchd 未安装`);
+      continue;
+    }
+    await uninstallLaunchdService(manifest.id);
+    console.log(`✅ ${manifest.id}: launchd 已卸载`);
+  }
+}
+
 function printUsage(): void {
   console.log([
-    "pth services <list|up|down|status|logs|restart> [id…]",
+    "pth services <list|up|down|status|logs|restart|install|uninstall> [id…]",
     "  list            列出声明文件（host/compose）",
     "  up [id…]        启动 host 进程（健康轮询就绪）或 compose 服务",
     "  down [id…]      SIGTERM 宽限 → SIGKILL；compose down",
-    "  status          pid 存活 + /health 探测",
+    "  status          pid 存活 + /health 探测 + launchd 托管状态",
     "  logs [id…]      宿主服务日志 tail（--tail n 可调）",
     "  restart [id…]   down + up",
+    "  install [id…]   生成 LaunchAgent plist 并 launchctl bootstrap（仅 host；需先 down）",
+    "  uninstall [id…] launchctl bootout + 删除 plist（回到监督器模式）",
   ].join("\n"));
 }
 
@@ -196,6 +252,8 @@ export async function servicesCommand(args: string[]): Promise<void> {
     case "status": return status(manifests);
     case "logs": return logs(manifests, ids, tail);
     case "restart": return restart(manifests, ids);
+    case "install": return install(manifests, ids);
+    case "uninstall": return uninstall(manifests, ids);
     default: printUsage();
   }
 }

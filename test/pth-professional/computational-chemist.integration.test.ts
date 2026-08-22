@@ -60,6 +60,10 @@ const SI_CELL = `5.431 0.000 0.000
 Si 0.0000 0.0000 0.0000
 Si 1.3578 1.3578 1.3578`;
 
+const RUN = process.env.PTH_PROFESSIONAL_INTEGRATION === "1";
+
+describe.skipIf(!RUN)("professional integration (gated)", () => {
+
 beforeAll(async () => {
   artifactRoot = await mkdtemp(join(tmpdir(), "chem-vertical-"));
   await mkdir(WORK_DIR, { recursive: true });
@@ -223,4 +227,5 @@ describe("computational chemist vertical", () => {
     expect(missingPp.status).not.toBe("succeeded");
     expect(missingPp.outputHash).toBeNull();
   }, 120_000);
+});
 });

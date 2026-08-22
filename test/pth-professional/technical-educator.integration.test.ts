@@ -354,6 +354,10 @@ function lessonFor(vertical: string): NotebookLesson {
 
 // ─── setup / teardown ─────────────────────────────────────────────────────
 
+const RUN = process.env.PTH_PROFESSIONAL_INTEGRATION === "1";
+
+describe.skipIf(!RUN)("professional integration (gated)", () => {
+
 beforeAll(async () => {
   artifactRoot = await mkdtemp(join(tmpdir(), "edu-vertical-"));
   for (const dir of [ASM_WORK_DIR, LEAN_WORK_DIR, CHEM_WORK_DIR, JUPYTER_WORK_DIR]) {
@@ -643,4 +647,5 @@ describe("review gates", () => {
     );
     expect(result.ok).toBe(false);
   });
+});
 });

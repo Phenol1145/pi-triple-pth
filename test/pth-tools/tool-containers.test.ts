@@ -127,7 +127,12 @@ describe("T2：compose 生成（动态端口 + 域网络 + 认证面）", () => 
   });
 
   it("非本地构建必须 digest 钉版；ps JSON 端口解析", () => {
-    expect(() => renderToolCompose(composeInput({ localBuild: false }))).toThrow(/必须钉 digest/);
+    // GHCR release 后 REAL_MANIFEST 已钉版——用去掉 digest 的副本验证 fail-closed
+    const noDigest = JSON.parse(JSON.stringify(REAL_MANIFEST));
+    for (const domain of Object.keys((noDigest as { domains: Record<string, { digest?: string }> }).domains)) {
+      (noDigest as { domains: Record<string, { digest?: string }> }).domains[domain]!.digest = "";
+    }
+    expect(() => renderToolCompose(composeInput({ manifest: validateToolManifest(noDigest), localBuild: false }))).toThrow(/必须钉 digest/);
     const withDigest = JSON.parse(JSON.stringify(REAL_MANIFEST));
     withDigest.domains.compiled.digest = "sha256:" + "a".repeat(64);
     withDigest.domains.network.digest = "sha256:" + "b".repeat(64);
