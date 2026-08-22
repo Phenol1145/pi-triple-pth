@@ -1,6 +1,6 @@
 # 模块化后续 + N28/N29 复验收口实施计划（2026-08-22）
 
-> 状态：**实施中；Phase A 已完成，Phase B 已完成（N28 重新验收 GO，envelope 已落盘），Phase C 已完成（N29 重新验收 MIN_INNER_LOOP_GO，envelope 已落盘），Phase D 已完成（D1-D5 全部落地，全量测试确认），Phase E 进行中（全量门禁已绿，文档/发布收尾）**
+> 状态：**已完成；Phase A 已完成，Phase B 已完成（N28 重新验收 GO，envelope 已落盘），Phase C 已完成（N29 重新验收 MIN_INNER_LOOP_GO，envelope 已落盘），Phase D 已完成（D1-D5 全部落地，全量测试确认），Phase E 已完成（全量门禁、文档回填、发布均完成）**
 > 范围：modularity/reuse 计划遗留的后续清理 + N28 Role/Memory/Worker 复验修复 + N29 最小可信知识摄入内环复验修复
 > 依据：
 > - `docs/pth/modularity-reuse-implementation-plan.md`
@@ -25,7 +25,7 @@
 | Phase B | N28 复验修复（P0/P1 + 重新验收） | 已完成 |
 | Phase C | N29 复验修复（P0/P1 + 重新验收） | 已完成（21befb4 GO） |
 | Phase D | 工程纪律与结构收口（import-cycle / barrel / 大文件 / kernel 子包） | 已完成（全量测试确认） |
-| Phase E | 全量验收、文档、发布 | 进行中（E1 全量门禁已绿；E2/E3 收尾） |
+| Phase E | 全量验收、文档、发布 | 已完成（2026-08-23：deps/pth/ptl 门禁全绿；文档回填；发布 `pth-contracts/config/kernel-*@1.6.0`、`pth-memory@1.6.2`、`pth-console@1.6.4`、`pth-cli@1.6.6`） |
 
 依赖关系：
 
@@ -372,6 +372,12 @@ Phase E（全量门禁 + 发布）
 ---
 
 ## Phase E：全量验收、文档与发布
+
+> ✅ 已完成（2026-08-23）。
+> - E1：deps lint/build/120 tests + docs links；pth lint/build/297 files 2619 passed/58 skipped；ptl lint/build/full tests + docs links 全绿。
+> - E2：`modularity-reuse-implementation-plan.md` 入口、`modularity-reuse-audit.md` 遗留状态、`fracta-engine-backlog.md` N28/N29 状态、N28/N29 报告 Phase E 复核均已回填。
+> - E3：已按依赖顺序发布 `@away_from/pth-contracts@1.6.0`、`@away_from/pth-config@1.6.0`、`@away_from/pth-memory@1.6.2`、`@away_from/pth-kernel-storage@1.6.0`、`@away_from/pth-kernel-interpreter@1.6.0`、`@away_from/pth-kernel-execution@1.6.0`、`@away_from/pth-console@1.6.4`、`@away_from/pth-cli@1.6.6`。
+> - E4：三仓工作树 clean，均已 push 到各自 `origin/main`。
 
 ### E1. 全量门禁
 
