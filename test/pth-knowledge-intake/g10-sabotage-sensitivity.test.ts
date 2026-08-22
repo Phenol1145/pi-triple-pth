@@ -13,9 +13,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHash, generateKeyPairSync, sign as edSign } from "node:crypto";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
-import { createKnowledgeIntakeRepository } from "../../src/pth/kernel/storage/knowledge-intake-pg.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { createKnowledgeIntakeRepository } from "@away_from/pth-kernel-storage";
 import { PgMemoryStore } from "@away_from/pth-memory";
 import {
   canonicalPolicySigningBytes,
@@ -24,8 +24,8 @@ import {
   loadVerifiedTrustPolicy,
   selectEvidenceQuoteVerifier,
 } from "../../src/pth/execution/knowledge-intake/index.js";
-import { attestVerifiedTrustPolicy } from "../../src/pth/contracts/knowledge-intake-attestation.js";
-import type { TrustPolicyManifest } from "../../src/pth/contracts/index.js";
+import { attestVerifiedTrustPolicy } from "@away_from/pth-contracts";
+import type { TrustPolicyManifest } from "@away_from/pth-contracts";
 import type { PolicyBoundSourceAcquisitionEnvelope } from "../../src/pth/execution/knowledge-intake/fetch-broker.js";
 
 const TENANT = "t-g10";

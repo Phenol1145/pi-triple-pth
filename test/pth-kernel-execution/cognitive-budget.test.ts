@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CognitiveBudgetLedger } from "../../src/pth/kernel/execution/cognitive-budget.js";
-import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "../../src/pth/contracts/index.js";
+import { CognitiveBudgetLedger } from "@away_from/pth-kernel-execution";
+import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "@away_from/pth-contracts";
 import { N28_WORKERS } from "../../scripts/n28-feasibility-fixture.js";
 
 describe("CognitiveBudgetLedger", () => {

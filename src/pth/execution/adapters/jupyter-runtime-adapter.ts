@@ -32,8 +32,8 @@ import {
   type ProfessionalDiagnostic,
   type ProfessionalJobRequest,
   type ProfessionalJobResult,
-} from "../../contracts/index.js";
-import { pthConfig } from "../../config/index.js";
+} from "@away_from/pth-contracts";
+import { pthConfig } from "@away_from/pth-config";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
 import { createJobRunContext } from "./job-runner.js";
 import { scanNotebook, type NotebookCell, type NotebookDocument, type NotebookOutput } from "../notebook-guide.js";

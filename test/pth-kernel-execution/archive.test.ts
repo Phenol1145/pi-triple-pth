@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { archiveTask } from "../../src/pth/kernel/execution/archive";
+import { archiveTask } from "@away_from/pth-kernel-execution";
 
 describe("archive task", () => {
   it("creates transcript with program/result/summary and artifact path", async () => {

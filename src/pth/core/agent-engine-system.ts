@@ -13,8 +13,8 @@ import { EXTERNAL_EVENT_CHANNEL, OBSERVE_EVENTS_REQUEST_CHANNEL, OBSERVE_EVENTS_
 import crypto from "node:crypto";
 import type { SessionPool, PoolSession } from "./session-pool.js";
 import type { ModelRouter, WorkspaceManager, Logger } from "@away_from/infra";
-import type { SessionStore } from "../kernel/storage/session/interfaces.js";
-import type { ToolPlatform } from "../tools/platform.js";
+import type { SessionStore } from "@away_from/pth-kernel-storage";
+import type { ToolPlatform } from "../tools/index.js";
 import type { ManagedSessionInfo, Result, VersionSnapshot } from "./types.js";
 import type { InlineExtension } from "@away_from/infra";
 

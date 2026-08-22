@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { translateTask } from "../../src/pth/kernel/execution/nl-translator.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
+import { translateTask } from "@away_from/pth-kernel-execution";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 
 // 任务池纯化（2026-08-10 D1）：isNaturalLanguageTask 已删除——任务池全 NL，无需判定。
 // 本文件只保留 translateTask（降级通道）测试。

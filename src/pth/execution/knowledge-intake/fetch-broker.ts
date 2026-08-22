@@ -34,7 +34,7 @@ import {
   type TrustPolicyManifest,
   type TrustPolicyRule,
   type VerifiedTrustPolicy,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import {
   secureWebFetch,
   WebTransportError,
@@ -42,7 +42,7 @@ import {
   type WebLookup,
   type WebRequest,
   type WebTimerApi,
-} from "../../impls/kernels/web-transport.js";
+} from "../../impls/index.js";
 import type { TrustPolicyClock } from "./trust-policy.js";
 
 // ─── 通用工具 ─────────────────────────────────────────────────────────

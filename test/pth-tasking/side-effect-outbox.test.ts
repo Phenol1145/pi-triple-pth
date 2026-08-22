@@ -6,10 +6,10 @@ import {
   PgSideEffectOutbox,
   createSideEffectDrainer,
   type SideEffectOutboxPort,
-} from "../../src/pth/tasking/side-effect-outbox.js";
+} from "@away_from/pth-kernel-storage";
 import { createPgTaskRepository } from "../../src/pth/tasking/adapters/pg-task-repository.js";
-import type { TaskOutcome } from "../../src/pth/contracts/index.js";
-import { SCHEMA_SQL } from "../../src/pth/kernel/storage/schema.js";
+import type { TaskOutcome } from "@away_from/pth-contracts";
+import { SCHEMA_SQL } from "@away_from/pth-kernel-storage";
 
 // --- Docker 可用性守卫（无 docker 环境 SKIP 而非 FAIL——真实 PG 探针）---
 async function hasDocker(): Promise<boolean> {
@@ -374,7 +374,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
   });
 
   it("N29 P0-3：transaction-bound enqueue 复用调用方 client（回滚 → 零行）", async () => {
-    const mod = await import("../../src/pth/tasking/side-effect-outbox.js");
+    const mod = await import("@away_from/pth-kernel-storage");
     const enqueueInTx = (mod as unknown as {
       enqueueSideEffectInTx?: (client: unknown, input: unknown) => Promise<unknown>;
     }).enqueueSideEffectInTx;
@@ -402,7 +402,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
   });
 
   it("N29 P0-3：事务内 conflict 抛错 → 调用方事务可整体回滚（不静默丢弃）", async () => {
-    const mod = await import("../../src/pth/tasking/side-effect-outbox.js");
+    const mod = await import("@away_from/pth-kernel-storage");
     const enqueueInTx = (mod as unknown as {
       enqueueSideEffectInTx?: (client: unknown, input: unknown) => Promise<unknown>;
     }).enqueueSideEffectInTx!;

@@ -12,7 +12,7 @@
  * 本模块不提供 readWholeCorpus()——按设计，Index Memory 不存在整份语料读取面。
  */
 
-import { canonicalExposureChars, CognitiveBudgetExceededError, type CognitiveBudgetLedger } from "../kernel/execution/cognitive-budget.js";
+import { canonicalExposureChars, CognitiveBudgetExceededError, type CognitiveBudgetLedger } from "@away_from/pth-kernel-execution";
 import { assertVerifiedTaskReadScope, type VerifiedTaskReadScope } from "./authorization/verified-task-read-scope.js";
 
 export const INDEX_LOCATOR_KINDS = ["heading", "symbol", "line-range", "json-pointer"] as const;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { AGENT_TOOLS, toolsForExecTool } from "../../src/pth/kernel/execution/agent-tools.js";
-import { spaceRegistry } from "../../src/pth/kernel/execution/space-registry.js";
+import { AGENT_TOOLS, toolsForExecTool } from "@away_from/pth-kernel-execution";
+import { spaceRegistry } from "@away_from/pth-kernel-interpreter";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

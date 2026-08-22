@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Logger } from "@away_from/infra";
-import type { Metrics } from "../observability/metrics.js";
+import type { Metrics } from "../observability/index.js";
 
 export interface ReloadResult {
   loaded: string[];

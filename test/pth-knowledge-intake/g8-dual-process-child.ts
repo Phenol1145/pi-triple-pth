@@ -9,8 +9,8 @@
  *       等待父进程 SIGKILL（模拟 handler 中途崩溃，lease 残留）。
  */
 
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { PgSideEffectOutbox } from "../../src/pth/tasking/side-effect-outbox.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { PgSideEffectOutbox } from "@away_from/pth-kernel-storage";
 
 const [mode, uri, tenant] = process.argv.slice(2);
 const seconds = Number(process.argv[5] ?? "8");

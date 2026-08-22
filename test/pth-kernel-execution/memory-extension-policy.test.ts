@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { memoryExtension } from "../../src/pth/kernel/extensions/memory.js";
+import { memoryExtension } from "@away_from/pth-kernel-interpreter";
 
 /**
  * core 扩展适配层（extensions/memory.ts → pth-memory 包）的 worker 面端到端规则。

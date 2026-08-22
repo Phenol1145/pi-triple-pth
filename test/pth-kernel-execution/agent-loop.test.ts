@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { runAgentTask, filterCapabilityDoc } from "../../src/pth/kernel/execution/agent-loop.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
-import type { WorkerKernel } from "../../src/pth/kernel/interpreter/index.js";
+import { runAgentTask, filterCapabilityDoc } from "@away_from/pth-kernel-execution";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 
 function mockKernel(): WorkerKernel {
   return {
@@ -153,7 +153,7 @@ describe("runAgentTask（agent 循环）", () => {
 
 describe("PTC 程序模式（P1）", () => {
   it("探索核候选块（backlog 差距 11）：角色声明 exploreKernels 时注入 A/B 并存引导；未声明不注入", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const withKernels = await buildAgentSystemPrompt(
       { id: "tester", labelPatterns: [], prompt: "你是测试者", exploreKernels: ["python", "bash"] } as never, "t");
     expect(withKernels).toContain("探索核候选");
@@ -164,7 +164,7 @@ describe("PTC 程序模式（P1）", () => {
   });
 
   it("system prompt 包含程序模式引导（ts 组合多 kernel + 示例）", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" }, "t");
     expect(prompt).toContain("程序模式（PTC");
     expect(prompt).toContain("完整程序");
@@ -173,7 +173,7 @@ describe("PTC 程序模式（P1）", () => {
   });
 
   it("prompt 中 memory.query 指引全部带 meta（ASP 可见性 fail-closed——2026-08-15 实机崩溃修复）", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt({ id: "planner", tags: [], labelPatterns: [], prompt: "你是计划者" }, "t", { mode: "lazy" });
     const queries = [...prompt.matchAll(/memory\.query\("([^"]+)"\)/g)].map((m) => m[1]!);
     expect(queries.length).toBeGreaterThanOrEqual(4);   // 世界观/能力索引/project-map/skill 指针
@@ -181,7 +181,7 @@ describe("PTC 程序模式（P1）", () => {
   });
 
   it("lazy 模式：角色/能力指针（不注入全文——LLM 按需 query）", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" }, "t", { mode: "lazy" });
     expect(prompt).toContain("role-doc:developer");
     expect(prompt).toContain("capability-index");
@@ -190,7 +190,7 @@ describe("PTC 程序模式（P1）", () => {
   });
 
   it("eager 模式：memory 有 role-doc/capability-index 时注入全文", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const memory = { query: async (sql: string) => {
       if (sql.includes("role-doc")) return [{ content: "# 角色：developer 全文角色文档" }];
       return [{ content: "# PTH 能力索引 fs.task.write 写任务工作区" }];
@@ -201,7 +201,7 @@ describe("PTC 程序模式（P1）", () => {
   });
 
   it("ts 工具回填 value + stdout（组合输出）", async () => {
-    const { AGENT_TOOLS } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { AGENT_TOOLS } = await import("@away_from/pth-kernel-execution");
     const kernel = mockKernel();
     (kernel.ts.execute as any).mockResolvedValueOnce({
       ok: true, value: { sum: 5050 }, stdout: "中间输出1\n中间输出2", durationMs: 1, language: "ts",
@@ -322,17 +322,17 @@ describe("done 收尾引导（worker 设计 2026-08-09——三层防御：schem
 
 describe("role.thinking 生效（推理深度→system prompt——PTH worker 实现 2026-08-10）", () => {
   it("thinking=low（scout）→ system prompt 含浅推理预算行", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt({ id: "scout", labelPatterns: [], prompt: "p", thinking: "low" } as never, "t", { mode: "lazy" });
     expect(prompt).toContain("浅——快速行动");
   });
   it("thinking=high（planner）→ 深推理预算行", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt({ id: "planner", labelPatterns: [], prompt: "p", thinking: "high" } as never, "t", { mode: "lazy" });
     expect(prompt).toContain("深度推理");
   });
   it("无 thinking 角色 → 零行为回归（不含推理预算行）", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt(undefined, "t", { mode: "lazy" });
     expect(prompt).not.toContain("推理预算");
   });
@@ -403,7 +403,7 @@ describe("执行面授权（2026-08-12 审计 HIGH-2 修复）", () => {
     });
     expect(r.ok).toBe(true);
     expect(traces.some((t) => t.includes("未知工具"))).toBe(true);   // 已移出工具面——空间生成走治理通道
-    const { spaceRegistry } = await import("../../src/pth/kernel/execution/space-registry.js");
+    const { spaceRegistry } = await import("@away_from/pth-kernel-interpreter");
     expect(spaceRegistry.get("auth-x")).toBeUndefined();   // 未注册
   });
 

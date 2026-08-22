@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { decideScale, evaluateAndScale } from "../../src/pth/kernel/execution/batch-scaler.js";
+import { decideScale, evaluateAndScale } from "@away_from/pth-kernel-execution";
 
 describe("batch 自动扩缩容决策（纯函数）", () => {
   const base = { pendingCount: 0, idleRatio: 1, batchCount: 1, min: 1, max: 4, upThreshold: 5 };

@@ -16,7 +16,7 @@
  * （P1 硬切，不隐式直跑）。U8-2 的 interactive/debug 语义随 P4 persistent 实现。
  */
 
-import { pthConfig } from "../../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -34,10 +34,10 @@ import {
   type U8JobSpec,
   type U8Operation,
   type U8RegKey,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
 import { createJobRunContext } from "./job-runner.js";
-import type { ProfessionalArtifactPort } from "../../contracts/index.js";
+import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
 

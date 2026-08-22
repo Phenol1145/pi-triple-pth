@@ -23,9 +23,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Redis } from "ioredis";
-import type { ProgramManifest, Result } from "../contracts/index.js";
+import type { ProgramManifest, Result } from "@away_from/pth-contracts";
 import type { ComponentManifest, ComponentInfo, ComponentVersion } from "./types.js";
-import type { AuditWriter } from "../observability/audit.js";
+import type { AuditWriter } from "../observability/index.js";
 import { SlotBindingStore, validateSlotId } from "./slot-binding.js";
 import { parseTarEntries } from "./tar-utils.js";
 

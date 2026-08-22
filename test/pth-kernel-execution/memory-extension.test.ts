@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { memoryExtension } from "../../src/pth/kernel/extensions/memory.js";
+import { memoryExtension } from "@away_from/pth-kernel-interpreter";
 
 /**
  * ts 程序 memory 白名单（2026-08-12 审计 CRITICAL-1 修复）：bindAll(store) 曾把 raw

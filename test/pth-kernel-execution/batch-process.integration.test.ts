@@ -5,10 +5,10 @@ import { fork } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPgPool } from "../../src/pth/kernel/storage/pg";
-import { applySchema } from "../../src/pth/kernel/storage/schema";
-import { createDataWorld } from "../../src/pth/kernel/storage/index";
-import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { createDataWorld } from "@away_from/pth-kernel-storage";
+import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
 import { installDefaultRoles } from "../helpers";
 
 beforeEach(() => installDefaultRoles());

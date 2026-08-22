@@ -29,7 +29,7 @@ import type {
   Lean4JobSpec,
   ProfessionalJobRequest,
   ProfessionalRuntimeLock,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import { createProfessionalArtifactPort } from "../../src/pth/bootstrap/professional-runtime-adapters.js";
 import {
   createLean4RuntimeAdapter,

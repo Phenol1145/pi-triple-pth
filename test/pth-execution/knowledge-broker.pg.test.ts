@@ -6,7 +6,7 @@ import { MEMORY_SCHEMA_SQL, isVisible, runReadOnlyQuery, setSpaceLookup } from "
 import { createKnowledgeBroker } from "../../src/pth/execution/knowledge-broker.js";
 import { createExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
-import type { ExecutionGrant } from "../../src/pth/contracts/index.js";
+import type { ExecutionGrant } from "@away_from/pth-contracts";
 
 // Docker 可用性守卫：无 docker 环境 SKIP（与 packages/pth-memory/test/memory-store-pg.test.ts 同模式）。
 async function hasDocker(): Promise<boolean> {

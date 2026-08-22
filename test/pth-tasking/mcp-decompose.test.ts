@@ -6,7 +6,7 @@ import {
   parseMcpBundle,
   type McpBundleTool,
   type McpToolBundle,
-} from "../../src/pth/tasking/mcp-decompose.js";
+} from "@away_from/pth-kernel-interpreter";
 import type { MemoryEntry } from "@away_from/pth-memory";
 
 function tool(over: Partial<McpBundleTool> = {}): McpBundleTool {

@@ -6,7 +6,7 @@
  */
 
 import type pg from "pg";
-import { TASK_MAX_CLAIMS, type TaskReadModel, type TaskWorkItem, type TenantScope } from "../contracts/index.js";
+import { TASK_MAX_CLAIMS, type TaskReadModel, type TaskWorkItem, type TenantScope } from "@away_from/pth-contracts";
 import { toTaskWorkItem, type TaskWorkRow } from "./task-work-item-reader.js";
 
 const QUERY_SCOPE: TenantScope = { tenantId: "default", principalId: "system:query", roles: ["system"], traceId: "query" };

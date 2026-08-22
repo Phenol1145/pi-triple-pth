@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { installDefaultRoles } from "../helpers";
-import { createToolstore } from "../../src/pth/kernel/interpreter/toolstore.js";
-import { ExtRegistry } from "../../src/pth/kernel/extensions/ext-registry.js";
-import { getEventBus, resetEventBus } from "../../src/pth/kernel/execution/event-bus.js";
-import { allWorkerRoles, resetExtraRoles, getExtraRoles, registerWorkerRole } from "../../src/pth/kernel/execution/worker-cluster.js";
-import { routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
+import { createToolstore } from "@away_from/pth-kernel-interpreter";
+import { ExtRegistry } from "@away_from/pth-kernel-interpreter";
+import { getEventBus, resetEventBus } from "@away_from/pth-kernel-interpreter";
+import { allWorkerRoles, resetExtraRoles, getExtraRoles, registerWorkerRole } from "@away_from/pth-kernel-execution";
+import { routeTaskRole } from "@away_from/pth-kernel-execution";
 
 beforeEach(() => installDefaultRoles());
 
@@ -45,7 +45,7 @@ describe("hello-world 扩展端到端（P4）", () => {
   });
 
   it("角色冲突拒绝：重复注册 greeting-agent → 抛错", async () => {
-    const { registerWorkerRole } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { registerWorkerRole } = await import("@away_from/pth-kernel-execution");
     expect(() => registerWorkerRole({ id: "greeting-agent", tags: ["x"], prompt: "p" })).toThrow(/已存在/);
     expect(() => registerWorkerRole({ id: "new-role", tags: ["code"], prompt: "p" })).toThrow(/冲突/)   // 标签冲突由 tag-registry 接管;
   });

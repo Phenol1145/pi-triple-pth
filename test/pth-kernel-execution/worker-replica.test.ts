@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createWorkerReplica, roleDefinitionRevision } from "../../src/pth/kernel/execution/worker-replica.js";
+import { createWorkerReplica, roleDefinitionRevision } from "@away_from/pth-kernel-execution";
 
 describe("WorkerReplica", () => {
   it("creates independently addressable replicas for the same role", () => {

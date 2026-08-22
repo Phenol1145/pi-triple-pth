@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TASK_TEMPLATES, getTemplate, renderTaskTemplate, validateTemplateParams } from "../../src/pth/kernel/templates.js";
+import { TASK_TEMPLATES, getTemplate, renderTaskTemplate, validateTemplateParams } from "@away_from/pth-kernel-interpreter";
 import { stripTypeScriptTypes } from "node:module";
 
 describe("task templates", () => {

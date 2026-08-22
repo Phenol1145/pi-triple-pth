@@ -35,9 +35,9 @@ import { createHash, generateKeyPairSync, randomUUID, sign as edSign } from "nod
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { isVisible, PgMemoryStore } from "@away_from/pth-memory";
 
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
-import { createKnowledgeIntakeRepository } from "../../src/pth/kernel/storage/knowledge-intake-pg.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { createKnowledgeIntakeRepository } from "@away_from/pth-kernel-storage";
 import {
   canonicalPolicySigningBytes,
   computePolicyDigest,
@@ -63,13 +63,13 @@ import {
 } from "../../src/pth/execution/index.js";
 import { createSideEffectDrainer, PgSideEffectOutbox } from "../../src/pth/tasking/index.js";
 import type { ResolvedAddress, WebResponse } from "../../src/pth/impls/kernels/web-transport.js";
-import type { LlmFn, LlmMessage, LlmResult } from "../../src/pth/kernel/interpreter/llm-fn.js";
+import type { LlmFn, LlmMessage, LlmResult } from "@away_from/pth-kernel-interpreter";
 import type {
   ExecutionGrant,
   SourceSubscription,
   TrustPolicyManifest,
   VerifiedTrustPolicy,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 /** 测试内 SQL 行形状（`src/types/pg.d.ts` 的 QueryResult 行默认 unknown；这里显式给出行形状以纳入 N29 typecheck 门禁）。 */
 type SqlRow = Record<string, any>;

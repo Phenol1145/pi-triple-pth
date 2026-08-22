@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { PgTaskStore, type DisciplineResolverPort } from "../../src/pth/kernel/storage/task-store-pg.js";
+import { PgTaskStore, type DisciplineResolverPort } from "@away_from/pth-kernel-storage";
 import { DisciplineCatalogBuilder } from "../../src/pth/catalog/discipline-catalog.js";
 import { createDisciplineResolver } from "../../src/pth/catalog/discipline-resolver.js";
 

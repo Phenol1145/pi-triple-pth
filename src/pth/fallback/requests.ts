@@ -18,8 +18,8 @@
 
 import { randomUUID } from "node:crypto";
 import type { Redis } from "ioredis";
-import type { AuditWriter } from "../observability/audit.js";
-import type { Result } from "../programs/types.js";
+import type { AuditWriter } from "../observability/index.js";
+import type { Result } from "../programs/index.js";
 
 export const URGENCIES = ["low", "medium", "high"] as const;
 export type Urgency = (typeof URGENCIES)[number];

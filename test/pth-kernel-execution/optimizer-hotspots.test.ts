@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { detectHotspots, renderSuggestion } from "../../src/pth/kernel/execution/optimizer-hotspots.js";
-import type { WorkerScorecard } from "../../src/pth/kernel/execution/worker-scorecard.js";
+import { detectHotspots, renderSuggestion } from "@away_from/pth-kernel-execution";
+import type { WorkerScorecard } from "@away_from/pth-kernel-execution";
 
 /** 构造 scorecard（指标级——避免 trace 组装；guard-kill-spike 测试用 guards 段） */
 function sc(partial: Partial<WorkerScorecard> & { toolFreq?: Record<string, number> }): WorkerScorecard {

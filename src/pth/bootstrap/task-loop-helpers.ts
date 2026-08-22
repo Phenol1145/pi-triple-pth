@@ -1,7 +1,7 @@
 /**
  * task-loop-helpers.ts —— 任务完成通知 + 原因分类（模块专项 ② 大文件拆分：自 task-loop.ts 抽出）。
  */
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 
 /**
  * 任务完成通知（2026-08-13 hook 机制）：POST 到 PTL 侧 pth-notify 扩展

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { reconstructThinkingPath } from "../../src/pth/kernel/execution/thinking-path.js";
-import { buildScorecard } from "../../src/pth/kernel/execution/worker-scorecard.js";
-import type { AgentTraceEvent } from "../../src/pth/kernel/execution/agent-loop.js";
+import { reconstructThinkingPath } from "@away_from/pth-kernel-execution";
+import { buildScorecard } from "@away_from/pth-kernel-execution";
+import type { AgentTraceEvent } from "@away_from/pth-kernel-execution";
 
 const events: AgentTraceEvent[] = [
   { type: "llm-call", step: 1, contentPreview: "先查记忆" },

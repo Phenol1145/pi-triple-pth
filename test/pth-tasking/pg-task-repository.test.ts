@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
 import {
   createPgTaskRepository,
   type PgTaskRepository,
 } from "../../src/pth/tasking/adapters/pg-task-repository.js";
-import type { TenantScope, TaskOutcome } from "../../src/pth/contracts/index.js";
+import type { TenantScope, TaskOutcome } from "@away_from/pth-contracts";
 
 async function hasDocker(): Promise<boolean> {
   if (process.env.PTH_TEST_NO_DOCKER === "1") return false;

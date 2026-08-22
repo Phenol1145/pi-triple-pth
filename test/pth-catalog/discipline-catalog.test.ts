@@ -15,7 +15,7 @@ import {
   validateDomainBinding,
   validateDomainDefinition,
   type DomainDefinition,
-} from "../../src/pth/contracts/domains.js";
+} from "@away_from/pth-contracts";
 
 let seq = 0;
 

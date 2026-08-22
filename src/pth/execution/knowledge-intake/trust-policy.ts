@@ -18,7 +18,7 @@ import {
   attestVerifiedTrustPolicy,
   type AttestedPolicy,
   type VerifiedPolicyAttestation,
-} from "../../contracts/knowledge-intake-attestation.js";
+} from "@away_from/pth-contracts";
 import {
   isTrustPolicyManifestStructurallyValid,
   type FetchAuthorizationInput,
@@ -28,7 +28,7 @@ import {
   type UseAuthorizationInput,
   type UsePolicyDecision,
   type VerifiedTrustPolicy,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 
 export type TrustPolicyKeyring = Readonly<Record<string, string>>;
 export type TrustPolicyClock = Readonly<{ now(): Date }> | (() => Date);

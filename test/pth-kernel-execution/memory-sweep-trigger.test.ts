@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildMemorySweepTrigger, memorySweepSeconds, MEMORY_SWEEP_TRIGGER_NAME } from "../../src/pth/kernel/execution/memory-sweep-trigger.js";
-import { renderTaskTemplate } from "../../src/pth/kernel/templates.js";
+import { buildMemorySweepTrigger, memorySweepSeconds, MEMORY_SWEEP_TRIGGER_NAME } from "@away_from/pth-kernel-execution";
+import { renderTaskTemplate } from "@away_from/pth-kernel-interpreter";
 
 /** B1 / N7：记忆维护定期触发接线 */
 describe("memory-sweep-trigger（B1/N7）", () => {

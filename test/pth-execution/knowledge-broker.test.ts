@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createKnowledgeBroker, type KnowledgeMemoryEntry } from "../../src/pth/execution/knowledge-broker.js";
 import { createExecutionGrantService, createMemoryReplayGuard } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
-import type { ExecutionGrant } from "../../src/pth/contracts/index.js";
+import type { ExecutionGrant } from "@away_from/pth-contracts";
 import { buildMemoryDirectorySnapshot, regionEntryIds } from "../../src/pth/execution/memory-directory.js";
 import { createLayeredKnowledgeRetriever } from "../../src/pth/execution/layered-knowledge-retriever.js";
 import { createVerifiedTaskReadScopeFactory } from "../../src/pth/execution/authorization/verified-task-read-scope.js";

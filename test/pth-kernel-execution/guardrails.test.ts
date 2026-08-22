@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ConsecutiveGuard, createGuardRegistry, GUARD_DEFS, GUARD_EXEMPTIONS } from "../../src/pth/kernel/execution/guardrails";
+import { ConsecutiveGuard, createGuardRegistry, GUARD_DEFS, GUARD_EXEMPTIONS } from "@away_from/pth-kernel-execution";
 
 /** 可运行时改阈值的配置函数（模拟 perf-params configNumber） */
 function makeLimit(bag: Record<string, number>) {

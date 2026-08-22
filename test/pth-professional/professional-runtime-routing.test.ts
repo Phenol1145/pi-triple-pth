@@ -9,7 +9,7 @@ import {
 import { createLean4RuntimeAdapter } from "../../src/pth/execution/adapters/lean4-runtime-adapter.js";
 import { buildExecutionBackendRegistry } from "../../src/pth/execution/backend-registry.js";
 import type { ExecutionBackend, ExecutionCapabilities, ExecutionResult } from "@away_from/shared/execution";
-import type { ProfessionalRuntimeLock } from "../../src/pth/contracts/index.js";
+import type { ProfessionalRuntimeLock } from "@away_from/pth-contracts";
 
 const cleanup: string[] = [];
 afterEach(async () => {

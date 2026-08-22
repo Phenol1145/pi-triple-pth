@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildExtensions } from "../../src/pth/kernel/extensions/index.js";
-import { resetConfig } from "../../src/pth/kernel/extensions/perf-params.js";
+import { buildExtensions } from "@away_from/pth-kernel-interpreter";
+import { resetConfig } from "@away_from/pth-kernel-interpreter";
 import type { ToolRegSpec } from "@away_from/pth-memory";
 
 /**

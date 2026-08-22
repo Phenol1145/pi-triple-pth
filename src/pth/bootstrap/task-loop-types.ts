@@ -1,13 +1,13 @@
 /**
  * task-loop-types.ts —— TaskLoop 依赖类型（模块专项 ② 大文件拆分：自 task-loop.ts 抽出）。
  */
-import type { WorkerKernel } from "../kernel/interpreter/index.js";
-import type { Task, TaskStore } from "../kernel/storage/task-store-pg.js";
-import type { WorkerRole } from "../kernel/execution/worker-cluster.js";
-import type { TaskWorkspaceManager } from "../kernel/execution/workspace.js";
-import type { TaskRepository } from "../contracts/index.js";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
+import type { WorkerRole } from "@away_from/pth-kernel-execution";
+import type { TaskWorkspaceManager } from "@away_from/pth-kernel-execution";
+import type { TaskRepository } from "@away_from/pth-contracts";
 import type { KnowledgeContextProvider } from "../runner/index.js";
-import type { SideEffectOutboxPort } from "../tasking/index.js";
+import type { SideEffectOutboxPort } from "@away_from/pth-kernel-storage";
 
 export interface TaskLoopDeps {
   kernel: WorkerKernel;
@@ -15,11 +15,11 @@ export interface TaskLoopDeps {
   taskStore: TaskStore;
   workspaceMgr: TaskWorkspaceManager;
   /** Refine 钩子（T4）：任务完成后快照+提炼+持久化。默认 undefined = 不 refine。 */
-  refiner?: Pick<import("../kernel/execution/refiner.js").Refiner, "refine">;
+  refiner?: Pick<import("@away_from/pth-kernel-execution").Refiner, "refine">;
   /** 优化循环（2026-08-12 大项）：任务完成点收集 scorecard → 窗口检测 → 建议（draft）。默认 undefined = 不启用。 */
-  optimizer?: Pick<import("../kernel/execution/optimizer-loop.js").Optimizer, "collect">;
+  optimizer?: Pick<import("@away_from/pth-kernel-execution").Optimizer, "collect">;
   /** 日志（日志体系 T2）：链路 ctx（taskId/role）自动携带 */
-  logger?: import("../kernel/logger.js").KernelLogger;
+  logger?: import("@away_from/pth-kernel-execution").KernelLogger;
   /** 性能计量（SPEC L2）：任务事件 → IPC 转发主进程 */
   onTaskMetric?: (m: Record<string, unknown>) => void;
   /** 活动事件流（console --follow 数据源）：任务接取/agent step（含 token 用量）/完成——实时上报 */
@@ -27,7 +27,7 @@ export interface TaskLoopDeps {
   /** 运行过程保留（2026-08-09）：transcript store（agent 轨迹持久化） */
   transcripts?: { create(input: { taskId?: string; agentId: string; body: unknown[]; summary?: string }): Promise<string> };
   /** 自然语言任务转译（NL→代码）；undefined = 不转译（NL 任务直接 reject） */
-  llm?: import("../kernel/interpreter/llm-fn.js").LlmFn;
+  llm?: import("@away_from/pth-kernel-interpreter").LlmFn;
   /** agent 循环的 capability 白名单（web/state/fs/memory——与 vm 注入同一份） */
   agentCaps?: Record<string, unknown>;
   /** P1-6：注入即启用 tasking dispatcher 路径（claim→run→commit）；缺省走 legacy 兼容路径 */
@@ -35,9 +35,9 @@ export interface TaskLoopDeps {
   /** P1-6：归档钩子注入（BatchTaskLoop 组合用；缺省用 protected archive 默认实现） */
   archiveFn?: (task: Task, ws: { dir: string; tenant: string }, result: unknown) => Promise<void>;
   /** N14 P2：tool-reg 注册表读取口（任务开始冻结快照——T3 防线）；缺省 = 注册面关闭 */
-  toolRegStore?: import("../kernel/execution/tool-registry.js").ToolRegStoreLike;
+  toolRegStore?: import("@away_from/pth-kernel-interpreter").ToolRegStoreLike;
   /** N14 P2：agent 态注册工具执行缝（穿透 runChild 同一闭包——深度限 1 由实现保证） */
-  toolRegRunChild?: import("../kernel/execution/tool-registry.js").ToolRegRunChild;
+  toolRegRunChild?: import("@away_from/pth-kernel-interpreter").ToolRegRunChild;
   /** K3：任务知识上下文 provider（batch-process 装配注入；缺省 = 关闭知识上下文） */
   knowledgeContextProvider?: KnowledgeContextProvider;
   /** F5：durable side-effect outbox（post-commit observer enqueue 用；缺省 = 关闭 outbox）。 */
@@ -45,7 +45,7 @@ export interface TaskLoopDeps {
   /** F5：每轮 claim 前 kick 一次 side-effect drain（生产注入 drainer 回调；不阻塞 claim）。 */
   drainSideEffects?: () => void;
   /** N28 T2：运行时副本（仅在 feasibility 模式注入）；缺省 = 无副本身份（legacy 形状不变）。 */
-  replica?: import("../kernel/execution/worker-replica.js").WorkerReplica;
+  replica?: import("@away_from/pth-kernel-execution").WorkerReplica;
   /** N28 T6：feasibility 依赖透传（off 全部 undefined）。 */
   memoryDirectory?: import("../execution/index.js").MemoryDirectorySnapshot;
   cognitiveWorkingSetProvider?: import("../runner/index.js").CognitiveWorkingSetProvider;

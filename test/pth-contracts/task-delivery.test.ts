@@ -10,7 +10,7 @@ import {
   TASK_RESULT_MAX_BYTES,
   type ArtifactRef,
   type TaskDelivery,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 describe("contracts/tasking W8 P0：TaskDelivery 契约", () => {
   it("buildEntryDelivery：入口任务 path=[role]，lineageId=自身 id，不设 parent", () => {

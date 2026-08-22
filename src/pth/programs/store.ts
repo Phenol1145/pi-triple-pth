@@ -12,8 +12,8 @@
  */
 
 import type { Redis } from "ioredis";
-import { ComponentStore } from "../components/store.js";
-import type { AuditWriter } from "../observability/audit.js";
+import { ComponentStore } from "../components/index.js";
+import type { AuditWriter } from "../observability/index.js";
 import type { ProgramManifest, ProgramInfo, ProgramVersion, Result } from "./types.js";
 
 /**

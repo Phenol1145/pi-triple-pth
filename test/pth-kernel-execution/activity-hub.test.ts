@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ActivityHub, type ActivityEvent } from "../../src/pth/kernel/execution/activity-hub.js";
+import { ActivityHub, type ActivityEvent } from "@away_from/pth-kernel-execution";
 
 describe("ActivityHub（流式活动状态——console --follow 数据源）", () => {
   it("publish → subscribe 实时收到", () => {

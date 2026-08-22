@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { TagRegistry } from "../../src/pth/kernel/execution/tag-registry.js";
+import { TagRegistry } from "@away_from/pth-kernel-execution";
 
 describe("tag-registry（标签总表——注册通道）", () => {
   let reg: TagRegistry;
@@ -79,7 +79,7 @@ describe("tag-registry（标签总表——注册通道）", () => {
 
 describe("tag-registry × worker-cluster（内置角色自动挂载）", () => {
   it("origin + DEFAULT_ROLES 标签随 setDefaultRoles 注入注册（2026-08-13 审计 P2——装配期）", async () => {
-    const { tagRegistry: global } = await import("../../src/pth/kernel/execution/tag-registry.js");
+    const { tagRegistry: global } = await import("@away_from/pth-kernel-execution");
     const { installDefaultRoles } = await import("../helpers");
     installDefaultRoles();
     // origin 升级链标签
@@ -95,8 +95,8 @@ describe("tag-registry × worker-cluster（内置角色自动挂载）", () => {
   });
 
   it("registerWorkerRole 自动挂载扩展角色标签", async () => {
-    const { registerWorkerRole } = await import("../../src/pth/kernel/execution/worker-cluster.js");
-    const { tagRegistry: global } = await import("../../src/pth/kernel/execution/tag-registry.js");
+    const { registerWorkerRole } = await import("@away_from/pth-kernel-execution");
+    const { tagRegistry: global } = await import("@away_from/pth-kernel-execution");
     registerWorkerRole({ id: "auto-tag-role", labelPatterns: [], tags: ["auto-tag-x"], prompt: "测试" });
     expect(global.get("auto-tag-x")).toMatchObject({ kind: "role", role: "auto-tag-role", registeredBy: "role:auto-tag-role" });
   });

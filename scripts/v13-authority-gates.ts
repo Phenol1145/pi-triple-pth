@@ -13,11 +13,11 @@ import {
   type ArtifactRef,
   type CognitiveBudget,
   type NotebookGuideManifest,
-} from "../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import { validateIndexMemoryRecord } from "../src/pth/execution/index.js";
-import { CognitiveBudgetLedger } from "../src/pth/kernel/execution/cognitive-budget.js";
-import { parseRoleWeights, setProfessionalRoles } from "../src/pth/kernel/execution/worker-cluster.js";
-import { PROFESSIONAL_ROLES, professionalRuntimeIdsForRole } from "../src/pth/kernel/execution/professional-roles.js";
+import { CognitiveBudgetLedger } from "@away_from/pth-kernel-execution";
+import { parseRoleWeights, setProfessionalRoles } from "@away_from/pth-kernel-execution";
+import { PROFESSIONAL_ROLES, professionalRuntimeIdsForRole } from "@away_from/pth-kernel-execution";
 
 export interface V13SabotageGate {
   readonly gate: string;

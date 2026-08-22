@@ -24,9 +24,8 @@ import type {
   KnowledgeIntakeRepository,
   SourceSubscription,
   VerifiedTrustPolicy,
-} from "../../contracts/index.js";
-import { withTx } from "../../kernel/storage/pg.js";
-import { enqueueSideEffectInTx } from "../../tasking/index.js";
+} from "@away_from/pth-contracts";
+import { withTx, enqueueSideEffectInTx } from "@away_from/pth-kernel-storage";
 import {
   createKnowledgeIntakeSubscriptionService,
   INTAKE_STAGE_OUTBOX_KINDS,

@@ -16,14 +16,14 @@ import type {
   TaskWorkItem,
   TenantScope,
   WorkerReplicaRef,
-} from "../../src/pth/contracts/index.js";
-import type { WorkerKernel } from "../../src/pth/kernel/interpreter/index.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
-import type { RoleDefinition } from "../../src/pth/kernel/execution/worker-cluster.js";
-import { roleDefinitionRevision } from "../../src/pth/kernel/execution/worker-replica.js";
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
+} from "@away_from/pth-contracts";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
+import { roleDefinitionRevision } from "@away_from/pth-kernel-execution";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
 
-vi.mock("../../src/pth/kernel/execution/agent-loop.js", () => ({
+vi.mock("@away_from/pth-kernel-execution", () => ({
   runAgentTask: vi.fn(),
 }));
 

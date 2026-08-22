@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseWorkerRoleRecovery, parseSpaceRecovery } from "../../src/pth/kernel/execution/recovery-validation.js";
+import { parseWorkerRoleRecovery, parseSpaceRecovery } from "@away_from/pth-kernel-execution";
 
 describe("装配恢复来源校验（H7）", () => {
   const role = { id: "auditor", parent: "origin", tags: ["audit"], prompt: "p" };

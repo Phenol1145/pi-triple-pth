@@ -3,10 +3,10 @@ import { installDefaultRoles } from "../helpers.js";
 
 beforeEach(() => installDefaultRoles());
 import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
-import { AGENT_TOOL_IDS } from "../../src/pth/kernel/execution/parse-agent-action.js";
-import { AGENT_CAPABILITY_DOC, AGENT_TOOLS_DESCRIPTION } from "../../src/pth/kernel/execution/agent-tools.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
+import { AGENT_TOOL_IDS } from "@away_from/pth-kernel-execution";
+import { AGENT_CAPABILITY_DOC, AGENT_TOOLS_DESCRIPTION } from "@away_from/pth-kernel-execution";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 
 /**
  * 工具面收敛终态（2026-08-09）：
@@ -187,7 +187,7 @@ describe("能力函数动作降级（LLM 误写 memory.query 为动作）", () =
 
 describe("asm-kernel 接线（2026-08-12：dev.build/dev.run .s 分发）", () => {
   it("dev.build .s 文件 → asm 惰性注册 + execute(\"asm\") 路由（C 路径不触碰）", async () => {
-    const { AGENT_TOOLS: agentTools } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { AGENT_TOOLS: agentTools } = await import("@away_from/pth-kernel-execution");
     const calls: string[] = [];
     const kernel = {
       c: { execute: async () => { calls.push("c"); return { ok: true, value: {} }; } },
@@ -216,7 +216,7 @@ describe("asm-kernel 接线（2026-08-12：dev.build/dev.run .s 分发）", () =
   });
 
   it("dev.build 非 .s（.c）→ 原 C 路径（分发不误伤）", async () => {
-    const { AGENT_TOOLS: agentTools } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { AGENT_TOOLS: agentTools } = await import("@away_from/pth-kernel-execution");
     const calls: string[] = [];
     const ctx = {
       kernel: { c: { execute: async () => { calls.push("c"); return { ok: true, value: {} }; } } },
@@ -242,7 +242,7 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
 
   it("developer 面（0.16.4 收口后）：内部类型 = 基本工具面（dev/debug/write 下沉 coder/tester/writer）", async () => {
     const { DEFAULT_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
-    const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { filterToolSchemas } = await import("@away_from/pth-kernel-execution");
     const dev = DEFAULT_ROLES.find((r) => r.id === "developer")!;
     const schemas = filterToolSchemas(dev.actionTools);
     const names = Object.keys(schemas);
@@ -258,7 +258,7 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
 
   it("acceptor 只读面：dev.run/dev.list/write.read/write.list——无 dev.write/write.create（验收不写）", async () => {
     const { DEFAULT_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
-    const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { filterToolSchemas } = await import("@away_from/pth-kernel-execution");
     const acc = DEFAULT_ROLES.find((r) => r.id === "acceptor")!;
     const schemas = filterToolSchemas(acc.actionTools);
     const names = Object.keys(schemas);
@@ -280,7 +280,7 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
   });
 
   it("toolsDescription 与 schema 同步（裁剪后 prompt 面一致——in-tokens 削减）", async () => {
-    const { filterToolSchemas, toolsDescription } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { filterToolSchemas, toolsDescription } = await import("@away_from/pth-kernel-execution");
     const schemas = filterToolSchemas(["execTs", "nav", "cache"]);
     const desc = toolsDescription(["execTs", "nav", "cache"]);
     for (const n of Object.keys(schemas)) {
@@ -293,7 +293,7 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
   });
 
   it("toolsDescription done 去重 + 下划线命名一致（2026-08-15 审计 LOW）", async () => {
-    const { toolsDescription } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { toolsDescription } = await import("@away_from/pth-kernel-execution");
     const desc = toolsDescription();
     expect(desc.match(/- done:/g)).toHaveLength(1);          // schema 内 done 与协议固定段不重复
     expect(desc).toContain("- ts_run:");
@@ -302,7 +302,7 @@ describe("动作面裁剪（2026-08-12：目标驱动最小工具面——推理
   });
 
   it("toolsDescription 非 ASP 面剔除 ASP-only（schema/prompt 与执行面同源——2026-08-15 审计 MEDIUM）", async () => {
-    const { toolsDescription } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { toolsDescription } = await import("@away_from/pth-kernel-execution");
     const nonAsp = toolsDescription(undefined, { asp: false });
     expect(nonAsp).not.toContain("asp.cd");
     expect(nonAsp).not.toContain("asp.index");
@@ -333,7 +333,7 @@ describe("0.16.4 分拆 worker 工具面收口（2026-08-18——内部类型 = 
 
   it("内部类型过滤后工具面 = 基本工具 8 件（无执行核/生产核/治理面）", async () => {
     const { DEFAULT_ROLES, MID_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
-    const { filterToolSchemas } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { filterToolSchemas } = await import("@away_from/pth-kernel-execution");
     const all = [...DEFAULT_ROLES, ...MID_ROLES];
     for (const id of INTERNAL_TYPES) {
       const names = Object.keys(filterToolSchemas(all.find((r) => r.id === id)!.actionTools)).sort();

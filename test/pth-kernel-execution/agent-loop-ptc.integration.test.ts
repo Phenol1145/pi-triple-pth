@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 
 /**
  * PTC 程序模式集成测试（P1）：真实 TsInterpreter（vm）+ 真实 PyKernel/BashKernel。

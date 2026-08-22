@@ -47,7 +47,7 @@ import type {
   TrustPolicyRule,
   UseAuthorizationInput,
   VerifiedTrustPolicy,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 // ─── 固定时钟与哈希工具 ──────────────────────────────────────────────
 

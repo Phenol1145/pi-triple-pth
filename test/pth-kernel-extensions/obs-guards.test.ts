@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
  * dataWorld 用 mock（queryReadOnly 返回 task-scorecard 行——content::jsonb->'guards' 段）。
  */
 async function makeObs(rows: Array<{ role: string | null; guards: unknown }>) {
-  const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+  const { obsExtension } = await import("@away_from/pth-kernel-interpreter");
   const calls: string[] = [];
   const obs = obsExtension.provide!({
     dataWorld: {
@@ -67,7 +67,7 @@ describe("obs.guards（N12 二期观测面——sensor:rule 数据源）", () =>
   });
 
   it("数据源失败降级 error 对象（不打崩调用方）", async () => {
-    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const { obsExtension } = await import("@away_from/pth-kernel-interpreter");
     const obs = obsExtension.provide!({
       dataWorld: { queryReadOnly: async () => { throw new Error("pg down"); } } as never,
     } as never)["obs"] as Record<string, () => Promise<Record<string, unknown>>>;

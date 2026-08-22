@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { KernelEventBus, getEventBus, resetEventBus, type KernelEvent } from "../../src/pth/kernel/execution/event-bus.js";
+import { KernelEventBus, getEventBus, resetEventBus, type KernelEvent } from "@away_from/pth-kernel-interpreter";
 
 describe("PTH 事件总线（兼容性扩展接口 P1）", () => {
   beforeEach(() => resetEventBus());

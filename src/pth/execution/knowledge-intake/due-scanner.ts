@@ -20,7 +20,7 @@
  * pending/expired outbox 行本身就是恢复点。
  */
 
-import type { DueScanOptions, IntakeRun, KnowledgeIntakeRepository } from "../../contracts/index.js";
+import type { DueScanOptions, IntakeRun, KnowledgeIntakeRepository } from "@away_from/pth-contracts";
 
 /** due scan 默认批量（一次唤醒最多建多少个 run）。 */
 export const DUE_SCAN_DEFAULT_LIMIT = 25;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createWorkerReplica, roleDefinitionRevision, type WorkerReplica } from "../../src/pth/kernel/execution/worker-replica.js";
-import type { RoleDefinition } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { createWorkerReplica, roleDefinitionRevision, type WorkerReplica } from "@away_from/pth-kernel-execution";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 import { WorkerSlotRuntime, type WorkerSlotEvent } from "../../src/pth/bootstrap/worker-slot-runtime.js";
 
 const role: RoleDefinition = { id: "researcher", tags: ["research"], prompt: "p" };

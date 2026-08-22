@@ -4,7 +4,7 @@
  * 输出：stdout markdown（人工 review / CI 检查——运行时注入由 injectPromptDocs 完成）
  * 单源：复用 src/pth/kernel/prompt-docs.ts 的 buildProjectMap（职责表只维护一份）
  */
-import { buildProjectMap } from "../src/pth/kernel/prompt-docs.ts";
+import { buildProjectMap } from "@away_from/pth-kernel-execution";
 
 const map = await buildProjectMap();
 console.log(map);

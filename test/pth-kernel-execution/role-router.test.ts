@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { routeTaskRole, checkTaskRouting } from "../../src/pth/kernel/execution/role-router.js";
+import { routeTaskRole, checkTaskRouting } from "@away_from/pth-kernel-execution";
 import { installDefaultRoles } from "../helpers";
 
 beforeEach(() => installDefaultRoles());
@@ -84,7 +84,7 @@ describe("checkTaskRouting（publish 前严格校验）", () => {
 
 describe("GOVERNANCE_ROLES（控制论骨架——2026-08-12 体系自制）", () => {
   it("谱系可见：sensor/controller 16 角色在 allLineageRoles（默认不派发）", async () => {
-    const { allLineageRoles, allWorkerRoles } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { allLineageRoles, allWorkerRoles } = await import("@away_from/pth-kernel-execution");
     const { GOVERNANCE_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     expect(GOVERNANCE_ROLES.length).toBe(16);   // 10 + controller:adversarial（B4 W7）+ N14 六点位（sensor/controller × tool-face/tool-single/rule）
     const lineage = allLineageRoles().map((r) => r.id);
@@ -100,7 +100,7 @@ describe("GOVERNANCE_ROLES（控制论骨架——2026-08-12 体系自制）", (
   });
 
   it("PTH_WORKER_ROLES 显式列出 governance 角色可派发（parseRoleWeights known 含）", async () => {
-    const { parseRoleWeights } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { parseRoleWeights } = await import("@away_from/pth-kernel-execution");
     const w = parseRoleWeights("sensor:worker-opt:1,controller:resource:1");
     expect(w.get("sensor:worker-opt")).toBe(1);
     expect(w.get("controller:resource")).toBe(1);
@@ -110,19 +110,19 @@ describe("GOVERNANCE_ROLES（控制论骨架——2026-08-12 体系自制）", (
 
 describe("governance 角色路由（2026-08-12 router 接线修复）", () => {
   it("flow 显式指定 governance 角色 → 通过校验（controller:worker-opt）", async () => {
-    const { checkTaskRouting } = await import("../../src/pth/kernel/execution/role-router.js");
+    const { checkTaskRouting } = await import("@away_from/pth-kernel-execution");
     const r = checkTaskRouting({ tags: ["analysis"], payload: { flow: { stages: [{ task: { role: "controller:worker-opt" } }] } } });
     expect(r.ok).toBe(true);
   });
 
   it("routeTaskRole flow 优先 → governance 角色", async () => {
-    const { routeTaskRole } = await import("../../src/pth/kernel/execution/role-router.js");
+    const { routeTaskRole } = await import("@away_from/pth-kernel-execution");
     const role = routeTaskRole({ id: "t1", tags: ["analysis"], payload: { flow: { stages: [{ task: { role: "controller:worker-opt" } }] } } });
     expect(role).toBe("controller:worker-opt");
   });
 
   it("sensor 角色同样可路由", async () => {
-    const { checkTaskRouting } = await import("../../src/pth/kernel/execution/role-router.js");
+    const { checkTaskRouting } = await import("@away_from/pth-kernel-execution");
     const r = checkTaskRouting({ tags: ["analysis"], payload: { flow: { stages: [{ task: { role: "sensor:system-opt" } }] } } });
     expect(r.ok).toBe(true);
   });

@@ -17,7 +17,7 @@
  * Mathlib cache 经 sharedPackagesDir（容器内共享 .lake/packages 目录）复用，
  * 首次运行从 templateDir 拷贝。
  */
-import { pthConfig } from "../../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, normalize, resolve } from "node:path";
@@ -31,10 +31,10 @@ import {
   type ProfessionalDiagnostic,
   type ProfessionalJobRequest,
   type ProfessionalJobResult,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
 import { createJobRunContext } from "./job-runner.js";
-import type { ProfessionalArtifactPort } from "../../contracts/index.js";
+import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
 

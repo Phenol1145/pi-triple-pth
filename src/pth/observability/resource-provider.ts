@@ -12,7 +12,7 @@
  */
 
 import os from "node:os";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 
 export interface CpuSnapshot {
   usagePercent: number;

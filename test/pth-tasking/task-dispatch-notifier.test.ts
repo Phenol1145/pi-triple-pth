@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
 import { TaskDispatchNotifier } from "../../src/pth/tasking/task-dispatch-notifier.js";
 
 async function hasDocker(): Promise<boolean> {

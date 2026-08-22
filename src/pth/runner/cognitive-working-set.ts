@@ -7,9 +7,9 @@
  */
 
 import type { MemoryEntry, SkillSummary } from "@away_from/pth-memory";
-import type { CognitiveBudget, TaskWorkingSetPolicy, WorkerLoadEnvelope, WorkerReplicaRef } from "../contracts/index.js";
+import type { CognitiveBudget, TaskWorkingSetPolicy, WorkerLoadEnvelope, WorkerReplicaRef } from "@away_from/pth-contracts";
 import { knowledgeQueryTokenHits } from "../execution/index.js";
-import { canonicalExposureChars, CognitiveBudgetExceededError, CognitiveBudgetLedger } from "../kernel/execution/cognitive-budget.js";
+import { canonicalExposureChars, CognitiveBudgetExceededError, CognitiveBudgetLedger } from "@away_from/pth-kernel-execution";
 import type { AuthorizedTaskReads } from "./authorized-task-reads.js";
 
 export function createTaskWorkingSetPolicy(input: {

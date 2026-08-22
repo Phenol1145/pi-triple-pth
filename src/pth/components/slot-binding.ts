@@ -15,7 +15,7 @@
 
 import type { Redis } from "ioredis";
 import type { ComponentType } from "./types.js";
-import type { Result } from "../contracts/index.js";
+import type { Result } from "@away_from/pth-contracts";
 
 /** 空位绑定记录（slot 查询/审计追溯用） */
 export interface SlotBinding {

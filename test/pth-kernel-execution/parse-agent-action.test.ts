@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAgentAction, isKnownTool } from "../../src/pth/kernel/execution/parse-agent-action.js";
+import { parseAgentAction, isKnownTool } from "@away_from/pth-kernel-execution";
 
 describe("parseAgentAction（LLM 输出 → 动作解析）", () => {
   it("纯 JSON 动作", () => {

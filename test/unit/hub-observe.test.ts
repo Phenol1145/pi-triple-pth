@@ -6,10 +6,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify from "fastify";
-import { RedisSessionStore } from "../../src/pth/kernel/storage/session/redis-session-store.js";
+import { RedisSessionStore } from "@away_from/pth-kernel-storage";
 import { createAuthHook } from "../../src/pth/gateway/auth.js";
 import { registerObserveRoutes } from "../../src/pth/gateway/routes-observe.js";
-import type { SessionEntry } from "../../src/pth/kernel/storage/session/types.js";
+import type { SessionEntry } from "@away_from/pth-kernel-storage";
 
 // ── mock Redis（observe 用：get/set/del/incr + zset——RedisSessionStore 依赖）─────
 

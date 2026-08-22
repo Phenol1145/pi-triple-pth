@@ -9,8 +9,8 @@ import {
 } from "@away_from/infra";
 import type { SessionPool, PoolSession } from "./session-pool.js";
 import type { ModelRouter, Logger } from "@away_from/infra";
-import type { ToolPlatform } from "../tools/platform.js";
-import type { AuditWriter } from "../observability/audit.js";
+import type { ToolPlatform } from "../tools/index.js";
+import type { AuditWriter } from "../observability/index.js";
 import type { ManagedSessionInfo, Result } from "./types.js";
 import fs from "node:fs";
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { createKernelLogger, LOG_COMPONENTS, isKnownComponent, type KernelLogger } from "../../src/pth/kernel/logger";
+import { createKernelLogger, LOG_COMPONENTS, isKnownComponent, type KernelLogger } from "@away_from/pth-kernel-execution";
 
 function capture(env: Record<string, string> = {}) {
   const orig = { ...process.env };

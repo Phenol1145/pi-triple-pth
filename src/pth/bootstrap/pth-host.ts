@@ -9,15 +9,15 @@ import { validateModuleManifest, type PthModuleManifest } from "./module-manifes
 import { buildBuiltinCatalog } from "../catalog/adapters/index.js";
 import { setRuntimeCatalog } from "../catalog/index.js";
 import type { RuntimeCatalogSnapshot } from "../catalog/index.js";
-import { PROFESSIONAL_ROLES } from "../kernel/execution/professional-roles.js";
-import { setProfessionalRoles } from "../kernel/execution/worker-cluster.js";
+import { PROFESSIONAL_ROLES } from "@away_from/pth-kernel-execution";
+import { setProfessionalRoles } from "@away_from/pth-kernel-execution";
 import {
   buildExecutionBackendRegistry,
   type ExecutionBackendRegistry,
 } from "../execution/index.js";
 import { loadToolRegistry, type ToolRegistryFile } from "../tools/tool-registry.js";
 import { loadServiceRegistry, type ServiceRegistryFile } from "../services/service-registry.js";
-import type { ProfessionalRuntimeId } from "../contracts/index.js";
+import type { ProfessionalRuntimeId } from "@away_from/pth-contracts";
 
 export interface BuiltPthHost {
   manifest: PthModuleManifest;

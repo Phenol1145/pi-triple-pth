@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createReadSource } from "../../src/pth/kernel/interpreter/read-source.js";
-import { SELF_MODIFY_GUIDE } from "../../src/pth/kernel/self-modify.js";
+import { createReadSource } from "@away_from/pth-kernel-interpreter";
+import { SELF_MODIFY_GUIDE } from "@away_from/pth-kernel-execution";
 import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

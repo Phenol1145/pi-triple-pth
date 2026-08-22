@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isForwardableKernelEvent, toKernelActivityEvent } from "../../src/pth/kernel/execution/kernel-event-bridge.js";
+import { isForwardableKernelEvent, toKernelActivityEvent } from "@away_from/pth-kernel-execution";
 
 describe("kernel-event-bridge（trigger 统一化事件桥上行）", () => {
   it("白名单：task.execute/submit/reject、kernel.execute、worker.* 转发", () => {

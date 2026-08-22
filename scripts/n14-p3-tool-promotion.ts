@@ -189,7 +189,7 @@ try {
     promoted++;
 
     // ③ 快照可见性验证（official 才进面——§7-4）
-    const { loadToolRegSnapshot } = await import("../src/pth/kernel/execution/tool-registry.ts");
+    const { loadToolRegSnapshot } = await import("@away_from/pth-kernel-execution");
     const snap = await loadToolRegSnapshot(store);
     const inFace = snap.entries.has(spec.name) && snap.entries.get(spec.name)!.visibility.roles.includes("developer");
     console.log(`${inFace ? "✓" : "✗"} 快照可见性：${snap.version} ${inFace ? `含 ${spec.name}` : `缺 ${spec.name}`}`);

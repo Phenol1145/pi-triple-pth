@@ -1,8 +1,8 @@
-import type { WorkerKernel } from "../kernel/interpreter/index.js";
-import type { Task, TaskStore } from "../kernel/storage/task-store-pg.js";
-import type { WorkerRole } from "../kernel/execution/worker-cluster.js";
-import type { TaskWorkspaceManager } from "../kernel/execution/workspace.js";
-import type { TaskOutcome, TaskRepository, TenantScope, TaskDispatchContext } from "../contracts/index.js";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
+import type { WorkerRole } from "@away_from/pth-kernel-execution";
+import type { TaskWorkspaceManager } from "@away_from/pth-kernel-execution";
+import type { TaskOutcome, TaskRepository, TenantScope, TaskDispatchContext } from "@away_from/pth-contracts";
 import { TaskDispatcher } from "../tasking/index.js";
 import { TaskOutcomeCommitter } from "../tasking/index.js";
 import { BoundedBackgroundQueue } from "../tasking/index.js";
@@ -14,17 +14,17 @@ import { createMetricsObserver } from "../runner/index.js";
 import { createNotifierObserver } from "../runner/index.js";
 import { buildRefineSideEffects } from "../runner/index.js";
 import { createOptimizerObserver } from "../runner/index.js";
-import { buildScorecard, computeTimeReuse } from "../kernel/execution/worker-scorecard.js";
-import { translateTask } from "../kernel/execution/nl-translator.js";
-import { runPtcProgram } from "../kernel/ptc/runner.js";
-import { runAgentTask } from "../kernel/execution/agent-loop.js";
-import { getEventBus } from "../kernel/execution/event-bus.js";
-import { publishDebugCaseTask } from "../kernel/execution/debug-case-dispatch.js";
+import { buildScorecard, computeTimeReuse } from "@away_from/pth-kernel-execution";
+import { translateTask } from "@away_from/pth-kernel-execution";
+import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
+import { getEventBus } from "@away_from/pth-kernel-interpreter";
+import { publishDebugCaseTask } from "@away_from/pth-kernel-interpreter";
 import { notifyTaskDone, classifyReason } from "./task-loop-helpers.js";
 import { readWorkItemDomainBinding, readWorkItemDomains, type ObserverFailureRecord } from "../tasking/index.js";
 import type { TaskLoopDeps } from "./task-loop-types.js";
 export type { TaskLoopDeps } from "./task-loop-types.js";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 
 export class TaskLoop {
   constructor(private deps: TaskLoopDeps) {}
@@ -137,7 +137,7 @@ export class TaskLoop {
       const execStart = Date.now();
       const trig = (task.payload as { triggeredBy?: { depth?: number; triggerId?: string } } | undefined)?.triggeredBy;
       const chain = { chainDepth: Number(trig?.depth ?? 0), ...(trig?.triggerId ? { triggerId: trig.triggerId } : {}) };
-      const traceEvents: import("../kernel/execution/agent-loop.js").AgentTraceEvent[] = [];
+      const traceEvents: import("@away_from/pth-kernel-execution").AgentTraceEvent[] = [];
       const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
       const runner = new AgentTaskRunner({
         kernel: this.deps.kernel,
@@ -394,18 +394,18 @@ export class TaskLoop {
       const agentMode = pthConfig().str("PTH_AGENT_MODE") !== "off";
       let code: string | null = null;
       let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
-      let cacheStore: import("../kernel/execution/cache-store.js").CacheStore | undefined;   // 任务完成点取利用率（N3）
+      let cacheStore: import("@away_from/pth-kernel-execution").CacheStore | undefined;   // 任务完成点取利用率（N3）
       if (agentMode && this.deps.llm && this.deps.agentCaps) {
           // 任务工作区 = 正式工作区（workspaceMgr.allocate 的 ws.dir——archive 归档同一目录——
           // fs.task 白名单含 /tasks/ ✓——agent 产物随归档持久化——不丢）
           const taskWorkspace: string | undefined = ws?.dir;
           // 运行过程保留（2026-08-09）：轨迹事件收集 → 任务结束写 transcript（结构化审计/复现）
-          const traceEvents: import("../kernel/execution/agent-loop.js").AgentTraceEvent[] = [
+          const traceEvents: import("@away_from/pth-kernel-execution").AgentTraceEvent[] = [
             { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
           ];
           (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;  // refine 任务 3 输入
           // 随身缓存（ASP——任务级行李）：元空间级状态——agent-loop 元工具与 ts vm 注入同源
-          const { CacheStore } = await import("../kernel/execution/cache-store.js");
+          const { CacheStore } = await import("@away_from/pth-kernel-execution");
           cacheStore = new CacheStore();
           const cs = cacheStore;   // 闭包内非空收窄（TS 控制流不穿透闭包）
           // 任务级能力装配（2026-08-14 A1 Phase 3 条目 12）：cache 注入收敛进 runner——
@@ -429,13 +429,13 @@ export class TaskLoop {
             });
           // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
           const toolRegistry = this.deps.toolRegStore
-            ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: task.tenantId ?? "default" })
+            ? await (await import("@away_from/pth-kernel-interpreter")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: task.tenantId ?? "default" })
             : undefined;
           const r = await runAgentTask({
             llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
             task: { title: task.title, text: task.text },
             taskWorkspace,
-            toolstore: (kernel as unknown as { toolstore?: import("../kernel/interpreter/toolstore.js").Toolstore }).toolstore,
+            toolstore: (kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
             role,
             asp: pthConfig().str("PTH_ASP_MODE") === "on",   // ASP 状态机（compose 默认 on——全件落地）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
@@ -555,8 +555,8 @@ export class TaskLoop {
         const traceForOpt = (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents;
         if (Array.isArray(traceForOpt) && traceForOpt.length > 0) {
           try {
-            const { buildScorecard, computeTimeReuse } = await import("../kernel/execution/worker-scorecard.js");
-            const { getEventBus } = await import("../kernel/execution/event-bus.js");
+            const { buildScorecard, computeTimeReuse } = await import("@away_from/pth-kernel-execution");
+            const { getEventBus } = await import("@away_from/pth-kernel-interpreter");
             const sc = buildScorecard(traceForOpt as never);
             // 时间复用率（2026-08-13 监测量）：planner 产出计划扁平度——done result 解析
             const value = (result as { value?: unknown } | undefined)?.value as Record<string, unknown> | undefined;

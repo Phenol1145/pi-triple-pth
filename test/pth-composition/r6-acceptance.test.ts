@@ -25,8 +25,8 @@ import {
   setSpaceLookup,
   type KnowledgeEvidenceRef,
 } from "@away_from/pth-memory";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
-import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg.js";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { PgTaskStore } from "@away_from/pth-kernel-storage";
 import { TaskControlService } from "../../src/pth/tasking/task-control-service.js";
 import { PgTaskQueries } from "../../src/pth/tasking/task-queries.js";
 import { createPgTaskRepository } from "../../src/pth/tasking/adapters/pg-task-repository.js";
@@ -36,7 +36,7 @@ import {
   PgSideEffectOutbox,
   createSideEffectDrainer,
   type SideEffectOutboxPort,
-} from "../../src/pth/tasking/side-effect-outbox.js";
+} from "@away_from/pth-kernel-storage";
 import { createKnowledgeContextProvider } from "../../src/pth/runner/knowledge-context.js";
 import {
   createKnowledgeBroker,
@@ -61,7 +61,7 @@ import {
 } from "../../src/pth/catalog/index.js";
 import { createExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
-import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
+import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
 import { installDefaultRoles } from "../helpers.js";
 import type {
   ExecutionGrant,
@@ -70,7 +70,7 @@ import type {
   TaskRunner,
   TaskWorkItem,
   TenantScope,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import type { KnowledgeContext } from "../../src/pth/runner/knowledge-context.js";
 
 // ── Docker 守卫 ──────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import type {
   TaskRunner,
   TaskWorkItem,
   TenantScope,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 const scope: TenantScope = { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-1" };
 

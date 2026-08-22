@@ -3,7 +3,7 @@ import { computeRetrievalQueryFingerprint, createLayeredKnowledgeRetriever } fro
 import { createVerifiedTaskReadScopeFactory, type VerifiedTaskReadScope } from "../../src/pth/execution/authorization/verified-task-read-scope.js";
 import { createExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
-import type { TaskLease, TaskWorkItem } from "../../src/pth/contracts/index.js";
+import type { TaskLease, TaskWorkItem } from "@away_from/pth-contracts";
 import { buildMemoryDirectorySnapshot, regionEntryIds } from "../../src/pth/execution/memory-directory.js";
 import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "../../src/pth/execution/knowledge-ranking.js";
 import {

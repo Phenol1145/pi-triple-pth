@@ -5,7 +5,7 @@
  * 通过后才允许进入 ExecutionPort；无 grant 不得执行。
  */
 
-import type { ExecutionGrant, ExecutionPort, ExecutionRequest, ExecutionResult } from "../contracts/index.js";
+import type { ExecutionGrant, ExecutionPort, ExecutionRequest, ExecutionResult } from "@away_from/pth-contracts";
 import type { ExecutionGrantService } from "./authorization/execution-grant-service.js";
 
 export interface ExecutionServiceDeps {

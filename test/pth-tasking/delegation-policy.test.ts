@@ -6,7 +6,7 @@ import {
   hasDelegationAuthority,
   isGovernanceFaceRole,
 } from "../../src/pth/tasking/delegation-policy.js";
-import { allKnownRoles } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { allKnownRoles } from "@away_from/pth-kernel-execution";
 
 beforeAll(() => {
   installDefaultRoles();

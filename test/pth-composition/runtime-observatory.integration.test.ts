@@ -12,8 +12,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
 import { RuntimeObservationFacade } from "../../src/pth/application/observation/runtime-observation-facade.js";
 import { registerRuntimeObservationRoutes } from "../../src/pth/gateway/routes-observe.js";
 import { createMonitorServer } from "../../deploy/docker-monitor/server.js";

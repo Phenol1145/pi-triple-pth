@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createWorkerCluster, type WorkerRole } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { createWorkerCluster, type WorkerRole } from "@away_from/pth-kernel-execution";
 import { DEFAULT_ROLES } from "../../src/pth/impls/roles/default-roles.js";
 import { installDefaultRoles } from "../helpers.js";
 
@@ -46,7 +46,7 @@ describe("worker cluster", () => {
 
 describe("时间复用率（2026-08-13 监测量——planner 计划扁平化）", () => {
   it("computeTimeReuse：全并行 → 高复用；全串行 → 0；单任务 → null", async () => {
-    const { computeTimeReuse } = await import("../../src/pth/kernel/execution/worker-scorecard.js");
+    const { computeTimeReuse } = await import("@away_from/pth-kernel-execution");
     // 全并行：3 任务互不依赖——关键路径 1——复用率 0.67
     expect(computeTimeReuse([
       { id: "a", dependsOn: [] }, { id: "b", dependsOn: [] }, { id: "c", dependsOn: [] },
@@ -61,7 +61,7 @@ describe("时间复用率（2026-08-13 监测量——planner 计划扁平化）
   });
 
   it("detectHotspots：低复用窗口 → plan-deep 建议；无计划/高复用 → 无", async () => {
-    const { detectHotspots } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { detectHotspots } = await import("@away_from/pth-kernel-execution");
     const base = { steps: 3, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 0, gatedActions: 0, aspNav: { cds: 0, indexes: 0 }, guards: { hits: {}, guide: {}, soft: {}, hard: {} }, finish: { ok: true } };
     const lowReuse = { ...base, timeReuse: 0.2 };
     const highReuse = { ...base, timeReuse: 0.6 };
@@ -73,7 +73,7 @@ describe("时间复用率（2026-08-13 监测量——planner 计划扁平化）
 
 describe("worker-index 渲染（2026-08-13——planner 的 worker 类型获取通道）", () => {
   it("渲染含全部可派发角色（内置+扩展——id/标签/代数/职责一行）", async () => {
-    const { renderWorkerIndex, registerWorkerRole, resetExtraRoles, allWorkerRoles } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { renderWorkerIndex, registerWorkerRole, resetExtraRoles, allWorkerRoles } = await import("@away_from/pth-kernel-execution");
     registerWorkerRole({
       id: "wi-probe", tags: ["probe-tag"], prompt: "p", description: "探针角色", parent: "origin", generation: 1, differentiation: "测试",
     } as never);
@@ -89,12 +89,12 @@ describe("worker-index 渲染（2026-08-13——planner 的 worker 类型获取�
 
 describe("RoleDefinition 兼容名（N28 T1）", () => {
   it("keeps WorkerRole as a compatibility alias for RoleDefinition", () => {
-    const role: import("../../src/pth/kernel/execution/worker-cluster.js").RoleDefinition = {
+    const role: import("@away_from/pth-kernel-execution").RoleDefinition = {
       id: "compat-role",
       tags: ["compat"],
       prompt: "compat",
     };
-    const legacy: import("../../src/pth/kernel/execution/worker-cluster.js").WorkerRole = role;
+    const legacy: import("@away_from/pth-kernel-execution").WorkerRole = role;
     expect(legacy.id).toBe("compat-role");
   });
 });

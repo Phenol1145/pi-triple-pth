@@ -7,8 +7,8 @@
  * 提供 approved mapping。真实 store adapter 为后续工作。
  */
 
-import type { MemoryType } from "../contracts/index.js";
-import type { KnowledgeMemoryEntry } from "./knowledge-broker.js";
+import type { MemoryType } from "@away_from/pth-contracts";
+import type { KnowledgeMemoryEntry } from "./knowledge-types.js";
 
 export type MemoryTypeClassifier = (entry: Pick<KnowledgeMemoryEntry, "kind">) => MemoryType | undefined;
 

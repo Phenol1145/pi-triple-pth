@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { Optimizer, detectHotspots, renderSuggestion, READ_TOOLS } from "../../src/pth/kernel/execution/optimizer-loop.js";
-import { buildScorecard } from "../../src/pth/kernel/execution/worker-scorecard.js";
-import type { WorkerScorecard } from "../../src/pth/kernel/execution/worker-scorecard.js";
+import { Optimizer, detectHotspots, renderSuggestion, READ_TOOLS } from "@away_from/pth-kernel-execution";
+import { buildScorecard } from "@away_from/pth-kernel-execution";
+import type { WorkerScorecard } from "@away_from/pth-kernel-execution";
 
 /** 构造 scorecard（指标级——避免 trace 组装） */
 function sc(partial: Partial<WorkerScorecard> & { toolFreq?: Record<string, number> }): WorkerScorecard {
@@ -170,7 +170,7 @@ describe("Optimizer 环——振荡防护（待决点 4：死区 + 应用上限�
 
 describe("scorecard 聚合快照（2026-08-12 审批面 B 实施）", () => {
   it("collect 同步 upsert 聚合（读-改-写——两任务累积）", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const entries: Array<Record<string, unknown>> = [];
     const aggs = new Map<string, Record<string, number>>();
     const memory = {
@@ -200,7 +200,7 @@ describe("scorecard 聚合快照（2026-08-12 审批面 B 实施）", () => {
 
 describe("deopt 回滚（2026-08-13 稳定循环刹车）", () => {
   it("指标劣化 → 移除规则 stamp + rolled_back；未劣化 → 移除基线不再复测", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     // 假 store：聚合/建议/文档 + update 记录
     const agg = { taskCount: 12, sumFails: 24, sumSteps: 60 };   // 当前（基线后 +2 任务——窗口 2）
     const docs = new Map<string, string>([
@@ -236,7 +236,7 @@ describe("deopt 回滚（2026-08-13 稳定循环刹车）", () => {
 
 describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/全局聚合）", () => {
   it("collect verifyOf → 只进 verify-aggregate（不进热点窗口/角色聚合）", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const aggs = new Map<string, Record<string, number>>();
     const writes: Array<Record<string, unknown>> = [];
     const memory = {
@@ -261,7 +261,7 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
   });
 
   it("checkDeopt：复测任务证据成熟 → 劣化回滚（verify-task 通道优先于有机流量）", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const docs = new Map<string, string>([
       ["role-doc:dev", "前文\n\n【优化规则 · v-pattern（2026-08-14 批准）】\n- 规则行\n后文"],
     ]);
@@ -291,7 +291,7 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
   });
 
   it("checkDeopt：复测任务证据达标 → verified（不劣化——验证闭合）", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
     const mem = {
       write: async () => {},
@@ -318,7 +318,7 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
   });
 
   it("checkDeopt：超时零进展 → verify_expired + 洞察（诚实缺口可见）", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
     const writes: Array<Record<string, unknown>> = [];
     const mem = {
@@ -344,7 +344,7 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
   });
 
   it("checkDeopt：capability-index 目标走全局聚合（rollup 跨角色）", async () => {
-    const { Optimizer, rollupAggregateRows } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer, rollupAggregateRows } = await import("@away_from/pth-kernel-execution");
     // rollup 助手单测
     expect(rollupAggregateRows([{ content: JSON.stringify({ taskCount: 5, sumFails: 10, sumSteps: 20 }) }, { content: JSON.stringify({ taskCount: 3, sumFails: 2, sumSteps: 12 }) }])).toEqual({ taskCount: 8, sumFails: 12, sumSteps: 32, sumGuardHits: 0, sumGuardSoft: 0, sumGuardHard: 0, sumGuardKills: 0 });
     const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
@@ -378,7 +378,7 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
   });
 
   it("sweep()：trigger 下行公开入口——不经 collect 直接巡检 deopt（每 batch 一次）", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
     const mem = {
       write: async () => {},
@@ -398,7 +398,7 @@ describe("复测一等化（2026-08-14 N6——独立复测任务/超时闭合/�
   });
 
   it("sweep()：无 memory 查询面 → no-op（不抛）", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const opt = new Optimizer({ verifySweepMs: 0 });
     await expect(opt.sweep()).resolves.toBeUndefined();
   });
@@ -445,7 +445,7 @@ describe("A4 护栏 JIT——guard-config deopt 回滚（2026-08-18）", () => {
   }
 
   it("劣化（avgKills 升 50%+）→ sweep 后 runtimeConfig 恢复原值 + rolledBack + guard-deopt 洞察", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const rt = guardRuntime({ PTH_GUARD_NEGATIVE_LIMIT: "23" });
     const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
     const writes: Array<Record<string, unknown>> = [];
@@ -473,7 +473,7 @@ describe("A4 护栏 JIT——guard-config deopt 回滚（2026-08-18）", () => {
   });
 
   it("未劣化 → verified（runtimeConfig 不动）", async () => {
-    const { Optimizer } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
+    const { Optimizer } = await import("@away_from/pth-kernel-execution");
     const rt = guardRuntime({ PTH_GUARD_NEGATIVE_LIMIT: "23" });
     const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
     const mem = {

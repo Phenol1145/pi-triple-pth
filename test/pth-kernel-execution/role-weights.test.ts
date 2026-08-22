@@ -4,7 +4,7 @@ import {
   parseRoleWeights, expandRoleWeights, MAX_WORKER_COPIES,
   profileToWeights, COMPOSITION_STRATEGIES, reinforcedStrategy, weightsToEnv,
   registerWorkerRole, resetExtraRoles, validateWeights,
-} from "../../src/pth/kernel/execution/worker-cluster.js";
+} from "@away_from/pth-kernel-execution";
 
 beforeEach(() => installDefaultRoles());
 

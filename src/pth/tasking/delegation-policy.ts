@@ -11,7 +11,7 @@
  * 本文件只做纯推导；roles 参数可注入（测试钉死），缺省 allKnownRoles()。
  */
 
-import { allKnownRoles, type WorkerRole } from "../kernel/execution/worker-cluster.js";
+import { allKnownRoles, type WorkerRole } from "@away_from/pth-kernel-execution";
 
 export const EXECUTION_FAMILY_ROOT = "executor";
 

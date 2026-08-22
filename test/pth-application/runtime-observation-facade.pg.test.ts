@@ -13,9 +13,9 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
-import { validateRuntimeInterval } from "../../src/pth/contracts/runtime-observation.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { validateRuntimeInterval } from "@away_from/pth-contracts";
 import {
   RuntimeObservationError,
   RuntimeObservationFacade,

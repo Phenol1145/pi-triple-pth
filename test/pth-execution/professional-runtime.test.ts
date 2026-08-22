@@ -19,7 +19,7 @@ import type {
   ProfessionalRuntimeLock,
   TaskLeaseReference,
   WorkerReplicaRef,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 let nowMs = Date.parse("2030-01-01T00:00:00.000Z");
 const clock = () => new Date(nowMs);

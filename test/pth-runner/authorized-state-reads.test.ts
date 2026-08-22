@@ -3,7 +3,7 @@ import { createAuthorizedStateReadPort } from "../../src/pth/runner/authorized-s
 import { createExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
 import { createVerifiedTaskReadScopeFactory } from "../../src/pth/execution/authorization/verified-task-read-scope.js";
-import type { TaskLease, TaskWorkItem, WorkerReplicaRef } from "../../src/pth/contracts/index.js";
+import type { TaskLease, TaskWorkItem, WorkerReplicaRef } from "@away_from/pth-contracts";
 
 let nowMs = Date.parse("2030-01-01T00:00:00.000Z");
 const clock = () => new Date(nowMs);

@@ -10,7 +10,7 @@
  * 公共纪律：引擎输入文件服务端生成，绝不接受原始命令；版本 == committed lock；
  * `not-converged` 是合法结构化结果但绝不 success；资源/收敛/版本全部结构化。
  */
-import { pthConfig } from "../../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -28,10 +28,10 @@ import {
   type ProfessionalJobResult,
   type QuantumEspressoJobSpec,
   type Cp2kJobSpec,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
 import { createJobRunContext } from "./job-runner.js";
-import type { ProfessionalArtifactPort } from "../../contracts/index.js";
+import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 export interface ChemExecResult {
   ok: boolean;

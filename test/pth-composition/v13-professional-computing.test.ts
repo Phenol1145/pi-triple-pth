@@ -21,7 +21,7 @@ import {
   type TaskLease,
   type TaskWorkItem,
   type WorkerReplicaRef,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import {
   createExecutionGrantService,
   createHmacGrantKeyProvider,
@@ -33,8 +33,8 @@ import {
   type VerifiedTaskReadScope,
 } from "../../src/pth/execution/index.js";
 import { createTaskWorkingSetPolicy } from "../../src/pth/runner/index.js";
-import { createWorkerReplica } from "../../src/pth/kernel/execution/worker-replica.js";
-import { CognitiveBudgetLedger } from "../../src/pth/kernel/execution/cognitive-budget.js";
+import { createWorkerReplica } from "@away_from/pth-kernel-execution";
+import { CognitiveBudgetLedger } from "@away_from/pth-kernel-execution";
 import { runV13SabotageProbes, V13_SABOTAGE_GATES } from "../../scripts/v13-authority-gates.js";
 
 const TENANT = "tenant-a";

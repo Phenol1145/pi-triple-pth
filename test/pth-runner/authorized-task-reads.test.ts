@@ -3,7 +3,7 @@ import { createAuthorizedTaskReadFactory, expandTaskReadGrantCapabilities } from
 import { createExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
 import { createVerifiedTaskReadScopeFactory } from "../../src/pth/execution/authorization/verified-task-read-scope.js";
-import type { PendingRetrievalTrace, TaskLease, TaskWorkItem, WorkerReplicaRef } from "../../src/pth/contracts/index.js";
+import type { PendingRetrievalTrace, TaskLease, TaskWorkItem, WorkerReplicaRef } from "@away_from/pth-contracts";
 
 const clock = () => new Date("2030-01-01T00:00:00.000Z");
 const grantService = createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: "n28-task-read-test-secret-0123456789" }), clock });

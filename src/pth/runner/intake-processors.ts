@@ -18,7 +18,7 @@
  *    admitted revision 的 normalized representation 重算（`intakeEvidenceForClaim`）。
  */
 
-import type { LlmFn, LlmMessage } from "../kernel/interpreter/llm-fn.js";
+import type { LlmFn, LlmMessage } from "@away_from/pth-kernel-interpreter";
 import {
   intakeEvidenceForClaim,
   sha256Hex,
@@ -28,7 +28,7 @@ import {
   type VerificationCheckRecord,
   type VerificationPlanRecord,
 } from "../execution/index.js";
-import type { IntakeClaimInput, SourceRevision } from "../contracts/index.js";
+import type { IntakeClaimInput, SourceRevision } from "@away_from/pth-contracts";
 
 /** 四个职责分离的 principal（与 contracts 的 `IntakeVerificationPrincipals` 结构一致）。 */
 export interface IntakeReviewPrincipals {

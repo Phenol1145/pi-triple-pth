@@ -15,7 +15,7 @@ import {
   type TaskLeaseReference,
   type TenantScope,
   type WorkspaceRef,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import type { GrantKeyProvider } from "./grant-key-provider.js";
 
 export interface ExecutionGrantIssueInput {

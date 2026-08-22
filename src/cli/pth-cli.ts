@@ -115,7 +115,7 @@ async function submit(): Promise<void> {
   const tags = tagsRaw ? tagsRaw.split(",").map((s) => s.trim()).filter(Boolean) : [];
   if (concept) {
     // D3 / T9：概念设计交接——PTL 侧完整理解需求 → PTH 生成实施方案
-    const { validateConceptDesign, CONCEPT_DESIGN_TEMPLATE } = await import("../pth/kernel/concept-design.js");
+    const { validateConceptDesign, CONCEPT_DESIGN_TEMPLATE } = await import("@away_from/pth-kernel-execution");
     const check = validateConceptDesign(text);
     if (!check.ok) {
       throw new Error(`概念设计不完整，缺少段落: ${check.missing.join(", ")}\n\n模板:\n${CONCEPT_DESIGN_TEMPLATE}`);
@@ -132,7 +132,7 @@ async function submit(): Promise<void> {
 }
 
 async function handoff(): Promise<void> {
-  const { CONCEPT_DESIGN_TEMPLATE } = await import("../pth/kernel/concept-design.js");
+  const { CONCEPT_DESIGN_TEMPLATE } = await import("@away_from/pth-kernel-execution");
   console.log(CONCEPT_DESIGN_TEMPLATE);
 }
 
@@ -164,7 +164,7 @@ async function wait(): Promise<void> {
 }
 
 async function roles(): Promise<void> {
-  const { allKnownRoles, setDefaultRoles } = await import("../pth/kernel/execution/worker-cluster.js");
+  const { allKnownRoles, setDefaultRoles } = await import("@away_from/pth-kernel-execution");
   const { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } = await import("../pth/impls/roles/default-roles.js");
   setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);   // 2026-08-13 审计 P2：CLI 本地角色面同样走注入
   console.log("可派发角色（--role 指定；governance 需 PTH_WORKER_ROLES 显式启用进 batch）:");
@@ -175,7 +175,7 @@ async function roles(): Promise<void> {
 
 async function configList(): Promise<void> {
   // 配置集中化 C4：schema 是唯一真相源——分组打印当前有效值（secret 打码）
-  const { PTH_CONFIG_SCHEMA, pthConfig } = await import("../pth/config/index.js");
+  const { PTH_CONFIG_SCHEMA, pthConfig } = await import("@away_from/pth-config");
   const cfg = pthConfig();
   const groups = new Map<string, typeof PTH_CONFIG_SCHEMA>();
   for (const def of PTH_CONFIG_SCHEMA) {
@@ -196,7 +196,7 @@ async function configList(): Promise<void> {
 
 async function configExport(): Promise<void> {
   // PTL 信息迁移通道：输出 ptl config set 命令（token 默认不打；--include-token 显式导出）
-  const { exportPtlMigration } = await import("../pth/config/index.js");
+  const { exportPtlMigration } = await import("@away_from/pth-config");
   const lines = exportPtlMigration(process.env, rest.includes("--include-token"));
   console.log("PTL 迁移命令（复制执行）:");
   for (const l of lines) console.log(`  ${l}`);

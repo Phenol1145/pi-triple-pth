@@ -14,7 +14,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import type { ArtifactRef, ProfessionalJobSpec, ProfessionalRuntimeId, ProfessionalRuntimeLock } from "../contracts/index.js";
+import type { ArtifactRef, ProfessionalJobSpec, ProfessionalRuntimeId, ProfessionalRuntimeLock } from "@away_from/pth-contracts";
 import type { ExecutionBackendRegistry } from "../execution/index.js";
 import {
   createAssemblyRuntimeAdapter,

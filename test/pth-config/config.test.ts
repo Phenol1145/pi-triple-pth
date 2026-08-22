@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   config, resetConfig, configNumber, pthConfig, resetPthConfig,
   validatePthConfig, exportPtlMigration, getConfigDef,
-} from "../../src/pth/config/index.js";
+} from "@away_from/pth-config";
 
 describe("PTH config 集中化（C1：schema 默认值 + ConfigCenter 权威化）", () => {
   beforeEach(() => resetPthConfig({}));

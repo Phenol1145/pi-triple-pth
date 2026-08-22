@@ -30,16 +30,16 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { pthConfig } from "../src/pth/config/index.js";
-import { createPgPool } from "../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../src/pth/kernel/storage/schema.js";
-import { createKnowledgeIntakeRepository } from "../src/pth/kernel/storage/knowledge-intake-pg.js";
+import { pthConfig } from "@away_from/pth-config";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { createKnowledgeIntakeRepository } from "@away_from/pth-kernel-storage";
 import {
   createKnowledgeIntakeSubscriptionService,
   loadVerifiedTrustPolicy,
   type TrustPolicyKeyring,
 } from "../src/pth/execution/knowledge-intake/index.js";
-import type { TrustPolicyManifest } from "../src/pth/contracts/index.js";
+import type { TrustPolicyManifest } from "@away_from/pth-contracts";
 
 const USAGE = `用法：
   npx tsx scripts/pth-intake-subscribe.ts --manifest <path> --keyring <path> \\

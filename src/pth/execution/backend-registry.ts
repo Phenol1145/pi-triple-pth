@@ -13,9 +13,9 @@ import {
   validateExecutionBackendDescriptor,
   type ExecutionBackendDescriptor,
 } from "@away_from/shared/execution";
-import { isProfessionalRuntimeId, type ProfessionalRuntimeId } from "../contracts/index.js";
-import type { ToolRegistryFile } from "../tools/tool-registry.js";
-import type { ServiceRegistryFile } from "../services/service-registry.js";
+import { isProfessionalRuntimeId, type ProfessionalRuntimeId } from "@away_from/pth-contracts";
+import type { ToolRegistryFile } from "../tools/index.js";
+import type { ServiceRegistryFile } from "../services/index.js";
 
 export interface ExecutionBackendRegistry {
   get(id: string): HttpExecutionBackend | undefined;

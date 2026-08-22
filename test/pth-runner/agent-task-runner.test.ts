@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { AgentTaskRunner } from "../../src/pth/runner/agent-task-runner.js";
-import type { ExecutionGrant, TaskLease, TaskWorkItem, TenantScope, WorkerReplicaRef } from "../../src/pth/contracts/index.js";
+import type { ExecutionGrant, TaskLease, TaskWorkItem, TenantScope, WorkerReplicaRef } from "@away_from/pth-contracts";
 import type { ProfessionalArtifactPort } from "../../src/pth/runner/professional-task-capability.js";
 import type { ProfessionalRuntimeRegistry } from "../../src/pth/execution/professional-runtime.js";
 import type { ExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
-import type { WorkerKernel } from "../../src/pth/kernel/interpreter/index.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
 
-vi.mock("../../src/pth/kernel/execution/agent-loop.js", () => ({
+vi.mock("@away_from/pth-kernel-execution", () => ({
   runAgentTask: vi.fn(),
 }));
 

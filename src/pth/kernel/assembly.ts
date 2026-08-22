@@ -1,20 +1,10 @@
-import { createPgPool, applySchema, createDataWorld } from "./storage/index.js";
+import { createPgPool, applySchema, createDataWorld } from "@away_from/pth-kernel-storage";
 import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
-import { BatchManager } from "./execution/batch-manager.js";
-import { getEventBus } from "./execution/event-bus.js";
-import { toKernelActivityEvent } from "./execution/kernel-event-bridge.js";
-import { parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles } from "./execution/worker-cluster.js";
-import { checkTaskRouting, routeTaskRole } from "./execution/role-router.js";
-import { parseWorkerRoleRecovery, parseSpaceRecovery } from "./execution/recovery-validation.js";
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "./execution/builtin-roles.js";
-import { PROFESSIONAL_ROLES } from "./execution/professional-roles.js";
-import { TaskResolver } from "./execution/task-resolver.js";
-import { evaluateAndScale, loadScalerConfig } from "./execution/batch-scaler.js";
-import { registerSystemTriggers } from "./execution/system-triggers.js";
-import { createPenetrationDiscoveryService } from "../tasking/penetration-discovery.js";
-import { createKernelLogger } from "./logger.js";
-import { pthConfig } from "../config/index.js";
+import { BatchManager, toKernelActivityEvent, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles, checkTaskRouting, routeTaskRole, parseWorkerRoleRecovery, parseSpaceRecovery, ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES, PROFESSIONAL_ROLES, TaskResolver, evaluateAndScale, loadScalerConfig, registerSystemTriggers, createKernelLogger } from "@away_from/pth-kernel-execution";
+import { getEventBus } from "@away_from/pth-kernel-interpreter";
+import { createPenetrationDiscoveryService } from "../tasking/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import type pg from "pg";
 
 export interface KernelRuntimeOptions {
@@ -114,16 +104,16 @@ export interface KernelRuntime {
   dataWorld: ReturnType<typeof createDataWorld>;
   batchManager: BatchManager;
   /** 活动事件流聚合器（console --follow / SSE /api/v1/kernel/events 数据源） */
-  activityHub: import("./execution/activity-hub.js").ActivityHub;
+  activityHub: import("@away_from/pth-kernel-execution").ActivityHub;
   /** trigger 引擎（事件触发任务——订阅 activityHub——trigger 定义存 memory kind='trigger'） */
-  triggerEngine: import("./execution/trigger-engine.js").TriggerEngine;
+  triggerEngine: import("@away_from/pth-kernel-execution").TriggerEngine;
   /** W8 P2 任务派发回流 notifier（子终态 → 父 childResult） */
   taskDispatchNotifier: import("../tasking/index.js").TaskDispatchNotifier;
   watchdog: KernelWatchdog;
   /** TaskResolver（任务池即工作流 T3）：独立解析循环 */
-  resolver: import("./execution/task-resolver.js").TaskResolver;
+  resolver: import("@away_from/pth-kernel-execution").TaskResolver;
   /** kernel 直连执行通道（任务池纯化 D2——调试/运维代码执行不占任务池——stateless/repl 双模式） */
-  execChannel: import("./exec-channel.js").KernelExecChannel;
+  execChannel: import("@away_from/pth-kernel-execution").KernelExecChannel;
   shutdown: () => Promise<void>;
 }
 
@@ -174,8 +164,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入；
   // 内置空间注册移出 space-registry 模块（断 core 实现层环）
   const { setSpaceLookup } = await import("@away_from/pth-memory");
-  const { spaceRegistry } = await import("./execution/space-registry.js");
-  const { registerBuiltinSpaces } = await import("./execution/builtin-spaces.js");
+  const { spaceRegistry } = await import("@away_from/pth-kernel-interpreter");
+  const { registerBuiltinSpaces } = await import("@away_from/pth-kernel-execution");
   registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
 
@@ -188,14 +178,14 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     { requireTenant: true },
   );
   const assemblyLogger = createKernelLogger();
-  const { ActivityHub } = await import("./execution/activity-hub.js");
+  const { ActivityHub } = await import("@away_from/pth-kernel-execution");
   const activityHub = new ActivityHub();
   // trigger 统一化（事件桥）：主进程 EventBus 的 batch 生命周期事件 → ActivityHub（trigger 事件源统一）
   const offMainBus = getEventBus().on("*", (evt) => {
     if (evt.type !== "batch.spawn" && evt.type !== "batch.kill") return;
     activityHub.publish(toKernelActivityEvent(evt, process.pid));
   });
-  const { TriggerEngine } = await import("./execution/trigger-engine.js");
+  const { TriggerEngine } = await import("@away_from/pth-kernel-execution");
   const triggerEngine = new TriggerEngine({
     activityHub,
     tasks: dataWorld.tasks,
@@ -241,7 +231,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   // 自修改（v1）：注入源码指南到公共记忆区（developer 单步修改用——幂等）
   try {
-    const { injectSelfModifyGuide } = await import("./self-modify.js");
+    const { injectSelfModifyGuide } = await import("@away_from/pth-kernel-execution");
     await injectSelfModifyGuide(dataWorld.memory);
   } catch (e) {
     assemblyLogger?.warn?.(`[self-modify] 指南注入失败（放行）: ${(e as Error).message}`);
@@ -249,7 +239,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // Prompt 框架化（2026-08-09）：角色文档 + 能力索引入 memory（prompt 数据源——
   // eager 注入 / lazy 指针——新核/新角色零 prompt 改动）
   try {
-    const { injectPromptDocs } = await import("./prompt-docs.js");
+    const { injectPromptDocs } = await import("@away_from/pth-kernel-execution");
     await injectPromptDocs(dataWorld.memory);
   } catch (e) {
     assemblyLogger?.warn?.(`[prompt-docs] 文档注入失败（放行）: ${(e as Error).message}`);
@@ -259,7 +249,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // resolveLoop（有产出 → 快周期；空转 → 2s→5s→10s→15s 动态退避——注册见 system-triggers）。
   const resolver = new TaskResolver({ taskStore: dataWorld.tasks, pool });
   // kernel 直连通道（任务池纯化 D2）：调试/运维代码执行——不占任务池
-  const { KernelExecChannel } = await import("./exec-channel.js");
+  const { KernelExecChannel } = await import("@away_from/pth-kernel-execution");
   const execChannel = new KernelExecChannel({ dataWorld });
 
   // 兼容性扩展装载（2026-08-09）：toolstore/extensions 扫描 → 角色注册到谱系——
@@ -268,8 +258,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const toolstorePath = opts.toolstorePath ?? pthConfig().str("PTH_TOOLSTORE_PATH");
   if (toolstorePath) {
     try {
-      const { createToolstore } = await import("./interpreter/toolstore.js");
-      const { ExtRegistry } = await import("./extensions/ext-registry.js");
+      const { createToolstore, ExtRegistry } = await import("@away_from/pth-kernel-interpreter");
       const reg = new ExtRegistry({
         toolstore: createToolstore(toolstorePath),
         extContext: { log: (m: unknown) => assemblyLogger?.info?.(`[ext] ${String(m)}`) },
@@ -354,7 +343,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // worker-index 条目维护（2026-08-13：planner 的 worker 类型获取通道——ts 程序内可查；
   // eager prompt 注入走内存渲染——本条目供 memory.query 自助/lazy 模式）
   try {
-    const { renderWorkerIndex } = await import("./execution/worker-cluster.js");
+    const { renderWorkerIndex } = await import("@away_from/pth-kernel-execution");
     await dataWorld.memory.write({
       id: "worker-index",
       tenantId: DEFAULT_TENANT_ID,
@@ -369,7 +358,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   // 持久化子空间恢复（2026-08-13 鲁棒性：asp.create 注册的子空间重启后恢复——
   // 与 worker-role 对称——空间树不因重启丢失）
   try {
-    const { spaceRegistry } = await import("./execution/space-registry.js");
+    const { spaceRegistry } = await import("@away_from/pth-kernel-interpreter");
     const spaces = await dataWorld.memory.retrieve({ kinds: ["space-reg"], status: ["official"], tenantId: DEFAULT_TENANT_ID });
     let restored = 0;
     for (const e of spaces) {

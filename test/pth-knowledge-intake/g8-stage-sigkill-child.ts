@@ -23,8 +23,8 @@
 
 import { generateKeyPairSync, sign as edSign } from "node:crypto";
 import { PgMemoryStore } from "@away_from/pth-memory";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { createKnowledgeIntakeRepository } from "../../src/pth/kernel/storage/knowledge-intake-pg.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { createKnowledgeIntakeRepository } from "@away_from/pth-kernel-storage";
 import {
   canonicalPolicySigningBytes,
   computePolicyDigest,
@@ -49,8 +49,8 @@ import {
   type SideEffectOutboxPort,
 } from "../../src/pth/tasking/index.js";
 import type { ResolvedAddress, WebResponse } from "../../src/pth/impls/kernels/web-transport.js";
-import type { LlmFn, LlmMessage, LlmResult } from "../../src/pth/kernel/interpreter/llm-fn.js";
-import type { KnowledgeIngestor, TrustPolicyManifest } from "../../src/pth/contracts/index.js";
+import type { LlmFn, LlmMessage, LlmResult } from "@away_from/pth-kernel-interpreter";
+import type { KnowledgeIngestor, TrustPolicyManifest } from "@away_from/pth-contracts";
 
 const SPACE = "space-a";
 const DOMAIN = "mathematics";

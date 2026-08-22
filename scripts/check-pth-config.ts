@@ -11,7 +11,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { PTH_CONFIG_SCHEMA, getConfigDef } from "../src/pth/config/schema.js";
+import { PTH_CONFIG_SCHEMA, getConfigDef } from "@away_from/pth-config";
 
 const SRC_ROOT = path.resolve("src/pth");
 const SANDBOX_SRC_ROOT = path.resolve("packages/pth-sandbox/src");

@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import type { AgentEngine } from "../core/agent-engine.js";
-import type { ProgramStore } from "../programs/store.js";
-import type { ProgramManifest } from "../programs/types.js";
-import type { ComponentManifest, ComponentType } from "../components/store.js";
-import type { FallbackRequestStore } from "../fallback/requests.js";
-import { COMPONENT_TYPES } from "../components/store.js";
+import type { AgentEngine } from "../core/index.js";
+import type { ProgramStore } from "../programs/index.js";
+import type { ProgramManifest } from "../programs/index.js";
+import type { ComponentManifest, ComponentType } from "../components/index.js";
+import type { FallbackRequestStore } from "../fallback/index.js";
+import { COMPONENT_TYPES } from "../components/index.js";
 import { writeSSE } from "./sse.js";
 import { randomUUID } from "node:crypto";
 

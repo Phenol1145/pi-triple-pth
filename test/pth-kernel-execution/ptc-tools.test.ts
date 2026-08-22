@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { PTC_TOOL_DEFS, buildToolSchemas, renderToolDescription } from "../../src/pth/kernel/ptc/tools";
-import { toolSchemaFor, toolsToSchema } from "../../src/pth/kernel/execution/agent-tools";
+import { PTC_TOOL_DEFS, buildToolSchemas, renderToolDescription } from "@away_from/pth-kernel-interpreter";
+import { toolSchemaFor, toolsToSchema } from "@away_from/pth-kernel-execution";
 
 /** 旧手写顺序（prompt 文本顺序——golden 钉死；2026-08-14 N8：asp.create/destroy 退役——35→33） */
 const GOLDEN_NAMES = [

@@ -7,9 +7,9 @@
  * batch-process 只保留 PG/schema/config 装配，不得二次组装 worker 或解释 worker control。
  */
 
-import { createWorkerReplica, roleDefinitionRevision, WorkerReplica } from "../kernel/execution/worker-replica.js";
-import type { WorkerReplicaRef } from "../contracts/index.js";
-import type { RoleDefinition } from "../kernel/execution/worker-cluster.js";
+import { createWorkerReplica, roleDefinitionRevision, WorkerReplica } from "@away_from/pth-kernel-execution";
+import type { WorkerReplicaRef } from "@away_from/pth-contracts";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 import { WorkerSlotRuntime, type WorkerControlMessage, type WorkerSlot, type WorkerSlotEvent } from "./worker-slot-runtime.js";
 
 export interface BatchRuntimeDeps {

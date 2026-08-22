@@ -20,14 +20,14 @@ import {
   validateMemorySummary,
   validateRoleInspection,
   validateWorkerInspection,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import type {
   ConfigInspectionEntry,
   MemoryListItem,
   MemorySummary,
   RoleInspection,
   WorkerInspection,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import {
   SystemInspectionError,
   SystemInspectionFacade,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyOptimizerSuggestion, extractRuleLine } from "../../src/pth/kernel/execution/optimizer-apply.js";
+import { applyOptimizerSuggestion, extractRuleLine } from "@away_from/pth-kernel-execution";
 import type { PgMemoryStore } from "@away_from/pth-memory";
 
 /** 内存 fake store（get/update 语义对齐 PgMemoryStore） */

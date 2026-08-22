@@ -1,12 +1,12 @@
 import type pg from "pg";
-import type { LlmFn } from "../../kernel/interpreter/llm-fn.js";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import type { Interpreter } from "@away_from/pth-sandbox";
-import type { DataWorldAccess } from "../../kernel/storage/index.js";
+import type { DataWorldAccess } from "@away_from/pth-kernel-storage";
 import { DEFAULT_TENANT_ID, withMemoryTenant, type PgMemoryStore } from "@away_from/pth-memory";
-import type { Toolstore } from "../../kernel/interpreter/toolstore.js";
-import { buildExtensions } from "../../kernel/extensions/index.js";
-import { createExtCapability } from "../../kernel/interpreter/ext-capability.js";
-import { wrapValidated, PtcContractError } from "../../kernel/ptc/contract.js";
+import type { Toolstore } from "@away_from/pth-kernel-interpreter";
+import { buildExtensions } from "@away_from/pth-kernel-interpreter";
+import { createExtCapability } from "@away_from/pth-kernel-interpreter";
+import { wrapValidated, PtcContractError } from "@away_from/pth-kernel-interpreter";
 import type {
   TaskAwaitInput,
   TaskAwaitResult,
@@ -16,7 +16,7 @@ import type {
   TaskPenetrateInput,
   TaskPenetrateResult,
   TenantScope,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, reviewToolProposal } from "@away_from/pth-memory";
 import { validatePenetrationSkillRegistration, PENETRATION_SKILL_NAME_PREFIX } from "../../tasking/index.js";
 import {
@@ -24,8 +24,8 @@ import {
   promoteKnowledgeEntry,
   recordKnowledgeVerdict,
   type KnowledgeVerificationRepo,
-} from "../../execution/knowledge-promotion.js";
-import { pthConfig } from "../../config/index.js";
+} from "../../execution/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import {
   defaultWebLookup,
   defaultWebRequest,

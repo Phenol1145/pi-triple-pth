@@ -7,7 +7,7 @@
  * 生产 assembly/batch/evaluator 都使用同一份生成数据。
  */
 
-import type { DomainDefinition } from "../../contracts/domains.js";
+import type { DomainDefinition } from "@away_from/pth-contracts";
 
 export interface DisciplineAliasOverride {
   id: string; // 必须已存在于 DISCIPLINE_DEFINITIONS

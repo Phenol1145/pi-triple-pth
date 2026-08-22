@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, writeFile, mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createToolstore, listToolstoreIndex } from "../../src/pth/kernel/interpreter/toolstore";
+import { createToolstore, listToolstoreIndex } from "@away_from/pth-kernel-interpreter";
 
 describe("toolstore 文件通道", () => {
   let dir: string;

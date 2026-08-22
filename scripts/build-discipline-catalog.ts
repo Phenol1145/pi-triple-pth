@@ -21,7 +21,7 @@ import {
   validateDomainDefinition,
   type DomainDefinition,
   type DomainLevel,
-} from "../src/pth/contracts/domains.js";
+} from "@away_from/pth-contracts";
 import {
   applyDisciplineAliasOverrides,
   PRODUCTION_DOMAIN_ALIAS_OVERRIDES,
@@ -150,7 +150,7 @@ function renderSource(defs: DomainDefinition[], counts: ReturnType<typeof levelC
  * 数量断言（manifest 复算）：category=${counts.category}、discipline=${counts.discipline}、
  *   sub-discipline=${counts.subDiscipline}、total=${counts.total}。
  */
-import type { DomainDefinition } from "../../contracts/domains.js";
+import type { DomainDefinition } from "@away_from/pth-contracts";
 
 export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = ${json};
 `;

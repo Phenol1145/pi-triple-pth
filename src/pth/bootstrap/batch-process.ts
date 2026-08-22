@@ -1,21 +1,21 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { resolve as resolvePath, relative as relativePath, isAbsolute, sep } from "node:path";
-import { createPgPool } from "../kernel/storage/pg.js";
-import { applySchema } from "../kernel/storage/schema.js";
-import { createDataWorld } from "../kernel/storage/index.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { createDataWorld } from "@away_from/pth-kernel-storage";
 import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver, type DisciplineCatalogSnapshot } from "../catalog/index.js";
 import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../impls/kernels/index.js";
-import type { InterpreterResult } from "../kernel/interpreter/index.js";
-import type { Task } from "../kernel/storage/task-store-pg.js";
-import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles, setProfessionalRoles } from "../kernel/execution/worker-cluster.js";
+import type { InterpreterResult } from "@away_from/pth-kernel-interpreter";
+import type { Task } from "@away_from/pth-kernel-storage";
+import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles, setProfessionalRoles } from "@away_from/pth-kernel-execution";
 import { DEFAULT_TENANT_ID, isVisible, setSpaceLookup } from "@away_from/pth-memory";
-import { spaceRegistry } from "../kernel/execution/space-registry.js";
-import { registerBuiltinSpaces } from "../kernel/execution/builtin-spaces.js";
-import { checkTaskRouting, routeTaskRole } from "../kernel/execution/role-router.js";
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../kernel/execution/builtin-roles.js";
-import { PROFESSIONAL_ROLES } from "../kernel/execution/professional-roles.js";
-import { getEventBus } from "../kernel/execution/event-bus.js";
-import { isForwardableKernelEvent, toKernelActivityEvent } from "../kernel/execution/kernel-event-bridge.js";
+import { spaceRegistry } from "@away_from/pth-kernel-interpreter";
+import { registerBuiltinSpaces } from "@away_from/pth-kernel-execution";
+import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "@away_from/pth-kernel-execution";
+import { PROFESSIONAL_ROLES } from "@away_from/pth-kernel-execution";
+import { getEventBus } from "@away_from/pth-kernel-interpreter";
+import { isForwardableKernelEvent, toKernelActivityEvent } from "@away_from/pth-kernel-execution";
 import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
 import { createKnowledgeContextProvider } from "../runner/index.js";
 import {
@@ -27,27 +27,26 @@ import {
   createPenetrationRunner,
   penetrationBudgetError,
   recordPenetrationUse,
-  PgSideEffectOutbox,
-  createSideEffectDrainer,
   type PenetrationBudgetConfig,
   type PenetrationLedger,
 } from "../tasking/index.js";
-import { DefaultTaskWorkspaceManager } from "../kernel/execution/workspace.js";
-import { archiveTask, type ArchiveDeps } from "../kernel/execution/archive.js";
-import { createKernelModelRouter } from "../kernel/execution/model-router.js";
-import { createLlmFn } from "../kernel/interpreter/llm-fn.js";
-import { Refiner, type RefineInput } from "../kernel/execution/refiner.js";
-import { Optimizer } from "../kernel/execution/optimizer-loop.js";
-import { createToolstore } from "../kernel/interpreter/toolstore.js";
-import { createKernelLogger } from "../kernel/logger.js";
-import { loadKernelConfig } from "../kernel/interpreter/kernel-config.js";
-import { pthConfig } from "../config/index.js";
-import { runAgentTask } from "../kernel/execution/agent-loop.js";
+import { PgSideEffectOutbox, createSideEffectDrainer } from "@away_from/pth-kernel-storage";
+import { DefaultTaskWorkspaceManager } from "@away_from/pth-kernel-execution";
+import { archiveTask, type ArchiveDeps } from "@away_from/pth-kernel-execution";
+import { createKernelModelRouter } from "@away_from/pth-kernel-execution";
+import { createLlmFn } from "@away_from/pth-kernel-interpreter";
+import { Refiner, type RefineInput } from "@away_from/pth-kernel-execution";
+import { Optimizer } from "@away_from/pth-kernel-execution";
+import { createToolstore } from "@away_from/pth-kernel-interpreter";
+import { createKernelLogger } from "@away_from/pth-kernel-execution";
+import { loadKernelConfig } from "@away_from/pth-kernel-interpreter";
+import { pthConfig } from "@away_from/pth-config";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
 import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
 import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
-import { roleDefinitionRevision, type WorkerReplica } from "../kernel/execution/worker-replica.js";
+import { roleDefinitionRevision, type WorkerReplica } from "@away_from/pth-kernel-execution";
 import type { WorkerControlMessage, WorkerSlot } from "./worker-slot-runtime.js";
-import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type ProfessionalRuntimeLock, type WorkerReplicaRef } from "../contracts/index.js";
+import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type ProfessionalRuntimeLock, type WorkerReplicaRef } from "@away_from/pth-contracts";
 import { assembleProfessionalRuntimeRegistry, createProfessionalArtifactPort, type ProfessionalRuntimeAdapterFactory } from "./professional-runtime-adapters.js";
 import { assertMemoryDirectoryResponsibilityCapacity, buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createKnowledgeBroker, createLayeredKnowledgeRetriever, createVerifiedTaskReadScopeFactory, filterKnowledgeEntriesByQueryText, rankKnowledgeEntries, regionEntryIds, responsibilitiesForWorker, type DirectoryEntryInput, type KnowledgeMemoryEntry, type LayeredSearchWaveInput, type LayeredSearchWaveResult, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
 import { KNOWLEDGE_CONTEXT_KINDS } from "../runner/index.js";
@@ -68,17 +67,17 @@ import {
   type KnowledgeIntakeDueScanner,
   type TrustPolicyKeyring,
 } from "../execution/index.js";
-import { createKnowledgeIntakeRepository } from "../kernel/storage/index.js";
+import { createKnowledgeIntakeRepository } from "@away_from/pth-kernel-storage";
 import {
   assertIntakeFullAcceptance,
   selectIntakeStageHandlers,
   type IntakeAcceptanceEnvelopeLike,
   type IntakeMode,
 } from "./intake-mode-gates.js";
-import type { SideEffectDrainerHandlers } from "../tasking/index.js";
-import type { TrustPolicyManifest } from "../contracts/index.js";
+import type { SideEffectDrainerHandlers } from "@away_from/pth-kernel-storage";
+import type { TrustPolicyManifest } from "@away_from/pth-contracts";
 import type { SkillStoreLike } from "@away_from/pth-memory";
-import type { RoleDefinition } from "../kernel/execution/worker-cluster.js";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 
 export interface RunBatchProcessDeps {
   databaseUrl: string;
@@ -104,7 +103,7 @@ export interface RunBatchProcessDeps {
     requestedReplica?: WorkerReplicaRef;
   }) => WorkerReplica;
   /** Task 4：专业 runtime adapter 工厂（缺省 = committed lock 下零 adapter，后续垂直切片注入）。 */
-  professionalRuntimeFactories?: Readonly<Partial<Record<import("../contracts/index.js").ProfessionalRuntimeId, ProfessionalRuntimeAdapterFactory<any, any>>>>;
+  professionalRuntimeFactories?: Readonly<Partial<Record<import("@away_from/pth-contracts").ProfessionalRuntimeId, ProfessionalRuntimeAdapterFactory<any, any>>>>;
 }
 
 /**
@@ -290,8 +289,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const extPath = pthConfig().str("PTH_TOOLSTORE_PATH");
     if (extPath) {
       try {
-        const { createToolstore } = await import("../kernel/interpreter/toolstore.js");
-        const { ExtRegistry } = await import("../kernel/extensions/ext-registry.js");
+        const { createToolstore } = await import("@away_from/pth-kernel-interpreter");
+        const { ExtRegistry } = await import("@away_from/pth-kernel-interpreter");
         const reg = new ExtRegistry({ toolstore: createToolstore(extPath), extContext: { log: () => {} }, roleRegistrar: registerWorkerRole });
         await reg.loadAll();
       } catch (e) {
@@ -318,7 +317,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   const authoritativeWorkingSets = new Map<string, {
     taskId: string;
     directorySnapshotId: string;
-    snapshot: ReturnType<import("../kernel/execution/cognitive-budget.js").CognitiveBudgetLedger["snapshot"]>;
+    snapshot: ReturnType<import("@away_from/pth-kernel-execution").CognitiveBudgetLedger["snapshot"]>;
   }>();
 
   // N28 T6 + 复核 Layer2：feasibility 模式 provider + 启动前责任容量硬闸（缺依赖=启动错误，绝不省略）。
@@ -451,7 +450,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     if (msg?.type === "set-param" && typeof msg.key === "string") {
       // 性能自持（v0.8）：主进程 autopilot 下发调参 → batch 进程内 config（perf 扩展同源）
       try {
-        const { config } = require("../kernel/extensions/perf-params.js") as typeof import("../kernel/extensions/perf-params.js");
+        const { config } = require("@away_from/pth-kernel-interpreter") as typeof import("@away_from/pth-kernel-interpreter");
         config().set(msg.key, msg.value);
         batchLogger?.info?.(`[autopilot] set-param ${msg.key}=${msg.value}`);
         process.send?.({ type: "param-status", batchPid: process.pid, key: msg.key, ok: true });
@@ -767,7 +766,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // 不设置 → 默认 7 角色 ×1（原行为）。启动时解析一次——运行时改权重需 batch remove+add。
   const workerRoles = expandRoleWeights(parseRoleWeights(pthConfig().str("PTH_WORKER_ROLES")));
   // worker 注册表（worker 级控制面：pause/resume/remove/add——IPC 指令寻址）
-  const loops: Array<BatchTaskLoop & { role: import("../kernel/execution/worker-cluster.js").WorkerRole }> = [];
+  const loops: Array<BatchTaskLoop & { role: import("@away_from/pth-kernel-execution").WorkerRole }> = [];
 
   // N15 B2：穿透执行预算账本（key = req.caller.taskId，单 batch 进程生命周期；
   // 任务不跨 batch 进程迁移——与现有「穿透共享父任务工作区」假设一致）。
@@ -780,7 +779,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   };
 
   /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
-  const createWorker = (role: import("../kernel/execution/worker-cluster.js").WorkerRole, forcedReplica?: WorkerReplica) => {
+  const createWorker = (role: import("@away_from/pth-kernel-execution").WorkerRole, forcedReplica?: WorkerReplica) => {
     // N28 T2：身份装配（off=legacy 双 principal；feasibility=worker:<uuid> 双面统一）。
     // feasibility 下经 assembleBatchRuntime 组合时传入其校验过的 replica；动态 add 用 helper 新建。
     const identity = assembleWorkerSlotIdentity({ mode, role, batchId });
@@ -792,7 +791,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       ? { ...role, capabilities: [...new Set([...role.capabilities, ...(canDelegate ? ["tasks"] : [])])] }
       : role;
     // W8 P1：任务身份引用（task-loop 每任务盖章；delegate/await 调用者上下文）
-    const taskContext: { current: import("../contracts/index.js").TaskDispatchContext | null } = { current: null };
+    const taskContext: { current: import("@away_from/pth-contracts").TaskDispatchContext | null } = { current: null };
     // 0.16.3 穿透执行面（2026-08-18 用户裁决：显式原语 tasks.penetrate / 深度限 1 /
     // 失败报错由父决策 / 本批只做执行面）。runChild = 嵌套子 agent 执行缝：
     // 建子 kernel（子角色能力面，无 taskControl/penetration——深度限 1）→ 嵌套
@@ -852,7 +851,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
               // 深度限 1：不传 taskControl/penetration——嵌套子 agent 纯执行，不再派发/穿透
               registerKernel: (language, interpreter) => childManager.registerKernel(language, interpreter as never),
               readSource: pthConfig().str("PTH_SOURCE_ROOT")
-                ? (relPath) => import("../kernel/interpreter/read-source.js").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
+                ? (relPath) => import("@away_from/pth-kernel-interpreter").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
                 : undefined,
               taskWorkspaceResolve: (relPath) => {
                 const cwd = (childKernel.ts as unknown as { currentCwd?: string | null }).currentCwd;
@@ -987,7 +986,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       taskContext,
       registerKernel: (language, interpreter) => manager.registerKernel(language, interpreter as never),
       readSource: pthConfig().str("PTH_SOURCE_ROOT")
-        ? (relPath) => import("../kernel/interpreter/read-source.js").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
+        ? (relPath) => import("@away_from/pth-kernel-interpreter").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
         : undefined,
       // 任务工作区（fs.task——白名单：仅 tasks/<taskId>/——kernel.ts.currentCwd 动态定位 + 防穿越）
       // 2026-08-15 筛查 H4：词法归一化 + 包含校验——`sub/../../etc/passwd` 不再逃逸工作区
@@ -1030,7 +1029,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       autoApplyReversible: autoApply,
       applySuggestion: autoApply
         ? async (id) => {
-            const { applyOptimizerSuggestion } = await import("../kernel/execution/optimizer-apply.js");
+            const { applyOptimizerSuggestion } = await import("@away_from/pth-kernel-execution");
             // 复测任务派发（2026-08-14 N6 一等化）：flow 路由到目标角色——受控复现
             return applyOptimizerSuggestion(dataWorld.memory, id, dataWorld.queryReadOnly, (t) =>
               dataWorld.tasks.publish({ title: t.title, text: t.text, createdBy: "optimizer", tags: t.tags, payload: t.payload }));
@@ -1078,8 +1077,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     if (mode !== "feasibility") {
       (loop as unknown as { kernel?: unknown }).kernel = kernel;   // remove 时 dispose 用
       (loop as unknown as { optimizer?: { stop?: () => void } }).optimizer = optimizer;   // remove 时停复测巡检表
-      (loop as unknown as { role?: import("../kernel/execution/worker-cluster.js").WorkerRole }).role = role;  // remove 寻址用
-      loops.push(loop as BatchTaskLoop & { role: import("../kernel/execution/worker-cluster.js").WorkerRole });
+      (loop as unknown as { role?: import("@away_from/pth-kernel-execution").WorkerRole }).role = role;  // remove 寻址用
+      loops.push(loop as BatchTaskLoop & { role: import("@away_from/pth-kernel-execution").WorkerRole });
     }
     return { loop, kernel, optimizer, replica, role: effectiveRole };
   };

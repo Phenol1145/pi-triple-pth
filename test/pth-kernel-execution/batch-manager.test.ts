@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BatchManager } from "../../src/pth/kernel/execution/batch-manager.js";
+import { BatchManager } from "@away_from/pth-kernel-execution";
 
 /** 轮询等待 pid 进程完全消失（Node 子进程被回收后 kill(pid,0) 抛 ESRCH） */
 async function waitUntilGone(pid: number, timeoutMs = 2000): Promise<void> {

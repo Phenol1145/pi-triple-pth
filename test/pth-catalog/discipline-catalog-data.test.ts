@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { DisciplineCatalogBuilder } from "../../src/pth/catalog/discipline-catalog.js";
-import { DOMAIN_ID_RE, type DomainDefinition } from "../../src/pth/contracts/domains.js";
+import { DOMAIN_ID_RE, type DomainDefinition } from "@away_from/pth-contracts";
 import { DISCIPLINE_DEFINITIONS } from "../../src/pth/catalog/data/discipline-catalog-data.js";
 import { PRODUCTION_DOMAIN_ALIAS_OVERRIDES } from "../../src/pth/catalog/data/discipline-alias-overrides.js";
 

@@ -9,7 +9,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
+import type { PthGatewayFacade } from "../application/index.js";
 import {
   buildRoleLineage, renderRoleLineage, allLineageRoles, registerWorkerRole,
   type WorkerRole,

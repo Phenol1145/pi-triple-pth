@@ -6,9 +6,9 @@
  * CognitiveWorkingSetProvider、真实 AgentTaskRunner/runAgentTask。仅 LLM 输出用确定性 stub。
  */
 
-import type { LlmFn } from "../src/pth/kernel/interpreter/llm-fn.js";
-import type { WorkerKernel } from "../src/pth/kernel/interpreter/index.js";
-import type { TaskLease, TaskWorkItem } from "../src/pth/contracts/index.js";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import type { TaskLease, TaskWorkItem } from "@away_from/pth-contracts";
 import { createExecutionGrantService } from "../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../src/pth/execution/authorization/grant-key-provider.js";
 import { createVerifiedTaskReadScopeFactory, type VerifiedTaskReadScope } from "../src/pth/execution/authorization/verified-task-read-scope.js";
@@ -21,7 +21,7 @@ import { createAuthorizedStateReadPort } from "../src/pth/runner/authorized-stat
 import { createAuthorizedTaskReadFactory, createScopedSkillPort, expandTaskReadGrantCapabilities } from "../src/pth/runner/authorized-task-reads.js";
 import { createCognitiveWorkingSetProvider } from "../src/pth/runner/cognitive-working-set.js";
 import { AgentTaskRunner, type AgentTaskRunnerDeps } from "../src/pth/runner/agent-task-runner.js";
-import { N28_FEASIBILITY_BUDGET } from "../src/pth/contracts/index.js";
+import { N28_FEASIBILITY_BUDGET } from "@away_from/pth-contracts";
 import {
   N28_DOMAIN_IDS, N28_REGIONS, N28_REGIONS as REGIONS, N28_RESPONSIBILITIES, N28_ROLE,
   N28_ROLE_LOAD_POLICIES, N28_WORKERS, n28AuthorizedCorpus, n28DirectoryInputs,
@@ -29,7 +29,7 @@ import {
 } from "./n28-feasibility-fixture.js";
 
 export interface N28VerticalObservation {
-  outcome: import("../src/pth/contracts/index.js").TaskOutcome;
+  outcome: import("@away_from/pth-contracts").TaskOutcome;
   toolsByTurn: string[][];
   systemPrompt: string;
   traces: Array<{ type: string; phase?: string; toolNames?: string[]; directorySnapshotId?: string; retrievalTraceIds?: string[] }>;

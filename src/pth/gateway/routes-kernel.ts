@@ -17,12 +17,12 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
+import type { PthGatewayFacade } from "../application/index.js";
 import type { KnowledgeBroker } from "../execution/index.js";
-import type { KnowledgeServiceAuth } from "../execution/knowledge-promotion.js";
-import type { TenantScope } from "../contracts/index.js";
+import type { KnowledgeServiceAuth } from "../execution/index.js";
+import type { TenantScope } from "@away_from/pth-contracts";
 import { listPublicTemplates, resolveTemplateTask } from "../kernel/index.js";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 

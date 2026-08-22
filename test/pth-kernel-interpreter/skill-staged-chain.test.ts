@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildCapabilities } from "../../src/pth/impls/kernels/capability.js";
-import { TriggerEngine } from "../../src/pth/kernel/execution/trigger-engine.js";
-import { registerSystemTriggers } from "../../src/pth/kernel/execution/system-triggers.js";
-import { resetPthConfig } from "../../src/pth/config/config-center.js";
+import { TriggerEngine } from "@away_from/pth-kernel-execution";
+import { registerSystemTriggers } from "@away_from/pth-kernel-execution";
+import { resetPthConfig } from "@away_from/pth-config";
 import { approveSkillProposal, buildKnowledgeProvenance, executeApprovedSkillProposal } from "@away_from/pth-memory";
 import {
   computeCandidateHash,

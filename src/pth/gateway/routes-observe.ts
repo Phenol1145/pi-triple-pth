@@ -19,22 +19,22 @@
 
 import type { FastifyInstance } from "fastify";
 import type { SessionStore } from "../kernel/index.js";
-import type { AgentEngine } from "../core/agent-engine.js";
-import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
+import type { AgentEngine } from "../core/index.js";
+import type { PthGatewayFacade } from "../application/index.js";
 import {
   SystemInspectionError,
   SystemInspectionFacade,
   SYSTEM_INSPECTION_MAX_REVISIONS,
-} from "../application/observation/system-inspection-facade.js";
+} from "../application/index.js";
 import {
   SYSTEM_INSPECTION_DEFAULT_LIMIT,
   SYSTEM_INSPECTION_MAX_LIMIT,
-} from "../contracts/system-inspection.js";
+} from "@away_from/pth-contracts";
 import {
   RUNTIME_TIMELINE_MAX_LIMIT,
   RUNTIME_TIMELINE_MAX_RANGE_MS,
   type RuntimeTimelineQuery,
-} from "../application/observation/runtime-observation-facade.js";
+} from "../application/index.js";
 import {
   isRuntimeIntervalKind,
   isRuntimeIntervalStatus,
@@ -45,7 +45,7 @@ import {
   type RuntimeIntervalKind,
   type RuntimeIntervalStatus,
   type RuntimeWorkModeFilter,
-} from "../contracts/runtime-observation.js";
+} from "@away_from/pth-contracts";
 
 /**
  * 事件查询过滤参数解析（eventType/since/until/limit——与 EventLog.query 对齐）。

@@ -7,7 +7,7 @@ import {
 } from "../../src/pth/bootstrap/professional-runtime-adapters.js";
 import { buildExecutionBackendRegistry } from "../../src/pth/execution/backend-registry.js";
 import type { ExecutionCapabilities, ExecutionResult } from "@away_from/shared/execution";
-import type { ProfessionalRuntimeLock } from "../../src/pth/contracts/index.js";
+import type { ProfessionalRuntimeLock } from "@away_from/pth-contracts";
 
 /**
  * P5：jupyter 默认路由 → backend id `jupyter`（单容器双面南口）。

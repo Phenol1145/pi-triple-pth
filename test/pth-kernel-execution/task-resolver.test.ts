@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { TaskResolver } from "../../src/pth/kernel/execution/task-resolver";
+import { TaskResolver } from "@away_from/pth-kernel-execution";
 
 function mockTaskStore() {
   return {

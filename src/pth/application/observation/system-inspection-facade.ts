@@ -27,17 +27,17 @@ import {
   type RoleInspection,
   type WorkerInspection,
   type WorkerLifecycle,
-} from "../../contracts/index.js";
-import { PTH_CONFIG_SCHEMA } from "../../config/schema.js";
+} from "@away_from/pth-contracts";
+import { PTH_CONFIG_SCHEMA } from "@away_from/pth-config";
 import {
   SYSTEM_INSPECTION_MEMORY_ENTRY_SQL,
   SYSTEM_INSPECTION_MEMORY_LIST_SQL,
   SYSTEM_INSPECTION_MEMORY_REVISIONS_SQL,
   SYSTEM_INSPECTION_MEMORY_SUMMARY_SQL,
 } from "./system-inspection-sql.js";
-import { classifyFeasibilityMemoryType } from "../../execution/memory-type-classifier.js";
-import { roleDefinitionRevision } from "../../kernel/execution/worker-replica.js";
-import { getRuntimeCatalog } from "../../catalog/role-routing-policy.js";
+import { classifyFeasibilityMemoryType } from "../../execution/index.js";
+import { roleDefinitionRevision } from "@away_from/pth-kernel-execution";
+import { getRuntimeCatalog } from "../../catalog/index.js";
 
 export const SYSTEM_INSPECTION_MAX_REVISIONS = 10;
 

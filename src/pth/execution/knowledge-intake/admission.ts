@@ -23,8 +23,8 @@ import {
   type TrustPolicyRule,
   type UsePolicyDecision,
   type VerifiedTrustPolicy,
-} from "../../contracts/index.js";
-import { isPrivateIpLiteral } from "../../impls/kernels/web-transport.js";
+} from "@away_from/pth-contracts";
+import { isPrivateIpLiteral } from "../../impls/index.js";
 import {
   contentTypeEssence,
   intakeNow,

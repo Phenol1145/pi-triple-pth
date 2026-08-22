@@ -15,7 +15,7 @@ import { PromotionConflictError, type PgMemoryStore } from "@away_from/pth-memor
 // N29/P0-3：outbox 身份为 (tenant_id, key) + 稳定 payload_hash——晋升索引行改用同一事务绑定
 // enqueue（不再自写 `ON CONFLICT (key) DO NOTHING`：既避免跨 tenant 撞 key 静默丢弃，
 // 也让不同 payload 的同 key 显式 conflict 并回滚整个晋升事务）。
-import { enqueueSideEffectInTx } from "../tasking/index.js";
+import { enqueueSideEffectInTx } from "@away_from/pth-kernel-storage";
 import {
   canPromote,
   candidateIntakeBindingOf,

@@ -7,9 +7,9 @@
 
 import { CatalogBuilder } from "../catalog-builder.js";
 import type { RuntimeCatalogSnapshot } from "../runtime-catalog.js";
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/roles/default-roles.js";
-import { PROFESSIONAL_ROLES } from "../../kernel/execution/professional-roles.js";
-import { BUILTIN_SPACE_DEFS } from "../../impls/spaces/builtin-spaces.js";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../impls/index.js";
+import { PROFESSIONAL_ROLES } from "@away_from/pth-kernel-execution";
+import { BUILTIN_SPACE_DEFS } from "../../impls/index.js";
 
 export function buildBuiltinCatalog(): RuntimeCatalogSnapshot {
   const builder = new CatalogBuilder();

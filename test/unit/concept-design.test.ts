@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CONCEPT_DESIGN_TEMPLATE, validateConceptDesign, buildConceptDesignSubmit, REQUIRED_SECTIONS } from "../../src/pth/kernel/concept-design.js";
+import { CONCEPT_DESIGN_TEMPLATE, validateConceptDesign, buildConceptDesignSubmit, REQUIRED_SECTIONS } from "@away_from/pth-kernel-execution";
 
 /** D3 / T9：PTL→PTH 概念设计交接 */
 describe("concept-design 交接（T9/D3）", () => {

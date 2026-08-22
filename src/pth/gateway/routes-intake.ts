@@ -19,7 +19,7 @@ import {
   IntakeManualControlError,
   type IntakeManualControlService,
   type ManualSubscribeInput,
-} from "../execution/knowledge-intake/manual-control.js";
+} from "../execution/index.js";
 
 const INTAKE_UNAVAILABLE = {
   error: "intake unavailable",

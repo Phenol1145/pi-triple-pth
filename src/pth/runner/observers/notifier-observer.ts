@@ -5,7 +5,7 @@
  */
 
 import type { TaskOutcomeObserverFn } from "../../tasking/index.js";
-import { pthConfig } from "../../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 
 export function notifyTaskDone(ev: { taskId: string; role: string; status: "completed" | "rejected"; summary?: string; error?: string }): void {
   const url = pthConfig().str("PTH_NOTIFY_URL");

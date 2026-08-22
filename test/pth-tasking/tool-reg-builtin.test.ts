@@ -9,9 +9,9 @@ import {
   reconcileBuiltinToolRegs,
   toolPackOf,
 } from "../../src/pth/tasking/tool-reg-builtin.js";
-import { PTC_TOOL_DEFS } from "../../src/pth/kernel/ptc/tools.js";
-import { AGENT_TOOLS } from "../../src/pth/kernel/execution/agent-tools-registry.js";
-import { ASP_ONLY_TOOLS } from "../../src/pth/kernel/execution/agent-tools.js";
+import { PTC_TOOL_DEFS } from "@away_from/pth-kernel-interpreter";
+import { AGENT_TOOLS } from "@away_from/pth-kernel-execution";
+import { ASP_ONLY_TOOLS } from "@away_from/pth-kernel-execution";
 import { parseToolRegContent, type ToolRegSpec } from "@away_from/pth-memory";
 
 describe("N14 P0：存量登记器（Q4 一次性全登记）", () => {

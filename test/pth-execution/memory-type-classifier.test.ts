@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyFeasibilityMemoryType } from "../../src/pth/execution/memory-type-classifier.js";
-import type { MemoryRegion } from "../../src/pth/contracts/index.js";
+import type { MemoryRegion } from "@away_from/pth-contracts";
 
 describe("memory-type-classifier（五类投影边界）", () => {
   it("五类映射全部覆盖", () => {

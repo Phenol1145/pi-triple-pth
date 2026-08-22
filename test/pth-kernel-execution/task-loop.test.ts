@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // 任务池纯化（2026-08-10 D1）：agent 循环是唯一主路径——mock runAgentTask 隔离 LLM
-vi.mock("../../src/pth/kernel/execution/agent-loop.js", () => ({
+vi.mock("@away_from/pth-kernel-execution", () => ({
   runAgentTask: vi.fn(),
 }));
 
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
 import { TaskLoop } from "../../src/pth/bootstrap/task-loop.js";
-import { createWorkerReplica, roleDefinitionRevision } from "../../src/pth/kernel/execution/worker-replica.js";
+import { createWorkerReplica, roleDefinitionRevision } from "@away_from/pth-kernel-execution";
 
 const mockedRunAgent = vi.mocked(runAgentTask);
 

@@ -14,13 +14,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { setSpaceLookup } from "@away_from/pth-memory";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
 import {
   validateMemoryListItem,
   validateMemoryRevisionEvent,
   validateMemorySummary,
-} from "../../src/pth/contracts/system-inspection.js";
+} from "@away_from/pth-contracts";
 import {
   SystemInspectionFacade,
 } from "../../src/pth/application/observation/system-inspection-facade.js";

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { PerfAutopilot } from "../../src/pth/kernel/execution/perf-autopilot.js";
+import { PerfAutopilot } from "@away_from/pth-kernel-execution";
 import { Registry, Counter, Histogram, Gauge } from "prom-client";
 
 /** 构造带指标的 registry（L1/L2/LLM——模拟 batch IPC 计量后的形态） */

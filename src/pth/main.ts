@@ -3,7 +3,7 @@ import { detectPlatform, createLogger } from "@away_from/infra";
 import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { createKernelMetrics } from "./observability/kernel-metrics.js";
 import { AuditWriter } from "./observability/audit.js";
-import { RedisSessionStore } from "./kernel/storage/session/redis-session-store.js";
+import { RedisSessionStore } from "@away_from/pth-kernel-storage";
 import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@away_from/infra";
 import { ToolRegistry } from "./tools/registry.js";
 import { ToolPlatform } from "./tools/platform.js";
@@ -24,7 +24,7 @@ import { createPthKnowledgeBroker } from "./execution/adapters/pth-knowledge-bro
 import { loadBootstrapConfig } from "./bootstrap/bootstrap-config.js";
 import { buildPthHost, isStrictExecutionEnv } from "./bootstrap/pth-host.js";
 import { probeExecutionBackends } from "./execution/index.js";
-import { pthConfig, validatePthConfig } from "./config/index.js";
+import { pthConfig, validatePthConfig } from "@away_from/pth-config";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -204,7 +204,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   // Program store（ptl submit 提交物）/ ComponentStore 泛化（F/WP4 Task 17）：
   // components 卷落在 DATA_DIR/components/<tenantId>/<type>/<name>/<version>/；
   // 旧 programs 目录（DATA_DIR/programs/programs/...）不做自动迁移，ProgramStore 读侧双查兼容（plan N4）。
-  const { ProgramStore } = await import("./programs/store.js");
+  const { ProgramStore } = await import("./programs/index.js");
   const programStore = new ProgramStore(redis, dataDir, audit);
   // F/WP4 Task 20：fallback_requests 回退请求队列（手动建单先行；自动触发留 E）
   const fallbackStore = new FallbackRequestStore(redis, audit);
@@ -223,7 +223,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   // P3-4：单 Host bootstrap——manifest 校验、catalog 构建与执行后端注册均已在上方完成（监听端口前 fail-closed）
   let kernelRuntime: Awaited<ReturnType<typeof createKernelRuntime>> | null = null;
   // 性能自持（v0.8）：PerfAutopilot 自愈闭环——创建于 kernel 装配后（registry + batchManager 就绪）
-  let autopilot: import("./kernel/execution/perf-autopilot.js").PerfAutopilot | null = null;
+  let autopilot: import("@away_from/pth-kernel-execution").PerfAutopilot | null = null;
   if (databaseUrl) {
     // B5（2026-08-22）：宿主重启后 pg 可能尚未就绪——装配带指数退避重试，
     // 避免 kernel 永久 503 直到人工 docker restart。
@@ -299,7 +299,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
       // 性能自持（v0.8）：PerfAutopilot 自愈闭环——PTH_AUTOPILOT_MODE=on 启用
       if (pthConfig().str("PTH_AUTOPILOT_MODE") === "on" && kernelRuntime) {
         const rt = kernelRuntime;  // 非空收紧
-        const { PerfAutopilot } = await import("./kernel/execution/perf-autopilot.js");
+        const { PerfAutopilot } = await import("@away_from/pth-kernel-execution");
         const batchManager = kernelRuntime.batchManager;
         const autopilotIntervalMs = pthConfig().num("PTH_AUTOPILOT_INTERVAL_MS");
         autopilot = new PerfAutopilot(
@@ -378,14 +378,14 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   // 需要 kernel（pg pool）+ 已验签 TrustPolicy（PTH_TRUST_POLICY_MANIFEST/KEYRING）；
   // 任一缺席 → /api/v1/intake/* 503，PTH 其余功能照常（与 kernel fail-open 约定一致）。
   // 已验签 policy 启动时加载一次（manifest 是不可变签名事实——轮换需重启）。
-  let intakeManualControl: import("./execution/knowledge-intake/manual-control.js").IntakeManualControlService | null = null;
+  let intakeManualControl: import("./execution/index.js").IntakeManualControlService | null = null;
   const intakeManifestPath = pthConfig().str("PTH_TRUST_POLICY_MANIFEST");
   const intakeKeyringPath = pthConfig().str("PTH_TRUST_POLICY_KEYRING");
   if (kernelRuntime && intakeManifestPath && intakeKeyringPath) {
     try {
-      const { loadVerifiedTrustPolicy } = await import("./execution/knowledge-intake/trust-policy.js");
-      const { createKnowledgeIntakeRepository } = await import("./kernel/storage/knowledge-intake-pg.js");
-      const { createIntakeManualControlService } = await import("./execution/knowledge-intake/manual-control.js");
+      const { loadVerifiedTrustPolicy } = await import("./execution/index.js");
+      const { createKnowledgeIntakeRepository } = await import("@away_from/pth-kernel-storage");
+      const { createIntakeManualControlService } = await import("./execution/index.js");
       const manifest = JSON.parse(await fs.promises.readFile(intakeManifestPath, "utf8")) as Parameters<typeof loadVerifiedTrustPolicy>[0];
       const keyring = JSON.parse(await fs.promises.readFile(intakeKeyringPath, "utf8")) as Parameters<typeof loadVerifiedTrustPolicy>[1];
       const verifiedPolicy = await loadVerifiedTrustPolicy(manifest, keyring);

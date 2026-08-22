@@ -27,8 +27,8 @@ import type {
   SourceDependencyInput,
   SourceRevision,
   VerifiedTrustPolicy,
-} from "../../contracts/index.js";
-import { withTx } from "../../kernel/storage/pg.js";
+} from "@away_from/pth-contracts";
+import { withTx } from "@away_from/pth-kernel-storage";
 import {
   createVerificationPlan,
   type IntakeSourceBindingRecheck,

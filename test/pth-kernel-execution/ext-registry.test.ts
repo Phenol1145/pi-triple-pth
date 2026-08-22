@@ -2,11 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createToolstore } from "../../src/pth/kernel/interpreter/toolstore.js";
-import { ExtRegistry } from "../../src/pth/kernel/extensions/ext-registry.js";
-import { parseExtManifest } from "../../src/pth/kernel/extensions/ext-manifest.js";
-import { getEventBus, resetEventBus } from "../../src/pth/kernel/execution/event-bus.js";
-import { registerWorkerRole } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { createToolstore } from "@away_from/pth-kernel-interpreter";
+import { ExtRegistry } from "@away_from/pth-kernel-interpreter";
+import { parseExtManifest } from "@away_from/pth-kernel-interpreter";
+import { getEventBus, resetEventBus } from "@away_from/pth-kernel-interpreter";
+import { registerWorkerRole } from "@away_from/pth-kernel-execution";
 
 describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
   let dir: string;
@@ -89,7 +89,7 @@ describe("兼容性扩展装载器（ExtRegistry——P2）", () => {
 
 describe("扩展 SDK 标准通道（2026-08-12 完善——buildStdExtChannels）", () => {
   it("exec：正常执行 + 超时/输出上限受控 + 白名单", async () => {
-    const { buildStdExtChannels } = await import("../../src/pth/kernel/extensions/ext-registry.js");
+    const { buildStdExtChannels } = await import("@away_from/pth-kernel-interpreter");
     const ch = buildStdExtChannels({ dbQuery: async () => [] });
     const r = await ch.exec!("node", ["-e", "console.log(1+1)"]);
     expect(r.ok).toBe(true);
@@ -102,7 +102,7 @@ describe("扩展 SDK 标准通道（2026-08-12 完善——buildStdExtChannels�
   });
 
   it("http.get：协议约束（ftp 拒绝 / https 允许）+ 超时", async () => {
-    const { buildStdExtChannels } = await import("../../src/pth/kernel/extensions/ext-registry.js");
+    const { buildStdExtChannels } = await import("@away_from/pth-kernel-interpreter");
     const ch = buildStdExtChannels({ dbQuery: async () => [] });
     const bad = await ch.http!.get("ftp://x.example/f");
     expect(bad.ok).toBe(false);
@@ -113,7 +113,7 @@ describe("扩展 SDK 标准通道（2026-08-12 完善——buildStdExtChannels�
 
   it("db.query：表白名单 + where 过滤构建 + limit 上限", async () => {
     const seen: Array<{ table: string; sql: string }> = [];
-    const { buildStdExtChannels } = await import("../../src/pth/kernel/extensions/ext-registry.js");
+    const { buildStdExtChannels } = await import("@away_from/pth-kernel-interpreter");
     const ch = buildStdExtChannels({ dbQuery: async (table, sql) => { seen.push({ table, sql }); return [{ id: "t1" }]; } });
     const r = await ch.db!.query("tasks", { where: { status: "pending", assigned_role: "developer" }, limit: 5 });
     expect(r.ok).toBe(true);

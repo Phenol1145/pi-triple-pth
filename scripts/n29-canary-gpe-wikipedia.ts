@@ -22,9 +22,9 @@ import { createHash, generateKeyPairSync, sign as edSign } from "node:crypto";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { PgMemoryStore } from "@away_from/pth-memory";
 
-import { createPgPool } from "../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../src/pth/kernel/storage/schema.js";
-import { createKnowledgeIntakeRepository } from "../src/pth/kernel/storage/knowledge-intake-pg.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { createKnowledgeIntakeRepository } from "@away_from/pth-kernel-storage";
 import {
   canonicalPolicySigningBytes,
   computePolicyDigest,
@@ -44,11 +44,11 @@ import { createPgKnowledgeVerificationRepo } from "../src/pth/execution/index.js
 import { createSideEffectDrainer, PgSideEffectOutbox } from "../src/pth/tasking/index.js";
 import { defaultWebRequest, assertPublicResolvedAddresses } from "../src/pth/impls/kernels/web-transport.js";
 import type { ResolvedAddress } from "../src/pth/impls/kernels/web-transport.js";
-import { createLlmFn } from "../src/pth/kernel/interpreter/llm-fn.js";
+import { createLlmFn } from "@away_from/pth-kernel-interpreter";
 import { ModelRouter } from "@away_from/infra";
 import { EnvCredentialProvider } from "@away_from/infra";
 import { createLogger } from "@away_from/infra";
-import type { TrustPolicyManifest } from "../src/pth/contracts/index.js";
+import type { TrustPolicyManifest } from "@away_from/pth-contracts";
 
 const TENANT = "tenant-n29-canary";
 const SPACE = "space-a";

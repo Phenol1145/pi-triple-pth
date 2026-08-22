@@ -14,7 +14,7 @@ import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ProfessionalJobRequest, WolframJobSpec } from "../../src/pth/contracts/index.js";
+import type { ProfessionalJobRequest, WolframJobSpec } from "@away_from/pth-contracts";
 import { createProfessionalArtifactPort } from "../../src/pth/bootstrap/professional-runtime-adapters.js";
 import { createWolframRuntimeAdapter } from "../../src/pth/execution/adapters/wolfram-runtime-adapter.js";
 

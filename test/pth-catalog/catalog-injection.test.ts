@@ -4,7 +4,7 @@ import { createRoleRoutingPolicy, setRuntimeCatalog } from "../../src/pth/catalo
 import { createSpaceLookup } from "../../src/pth/catalog/space-lookup.js";
 import { BUILTIN_SPACE_DEFS } from "../../src/pth/impls/spaces/builtin-spaces.js";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../src/pth/impls/roles/default-roles.js";
-import { PROFESSIONAL_ROLES } from "../../src/pth/kernel/execution/professional-roles.js";
+import { PROFESSIONAL_ROLES } from "@away_from/pth-kernel-execution";
 import { installDefaultRoles } from "../helpers";
 
 installDefaultRoles();
@@ -45,7 +45,7 @@ describe("P3-2：catalog 注入等价性", () => {
 
   it("注入快照后 role-router 走 catalog 路径（新生产代码不再依赖全局 getter 语义）", async () => {
     setRuntimeCatalog(buildBuiltinCatalog());
-    const { checkTaskRouting } = await import("../../src/pth/kernel/execution/role-router.js");
+    const { checkTaskRouting } = await import("@away_from/pth-kernel-execution");
     expect(checkTaskRouting({ tags: ["code"] })).toEqual({ ok: true });
     expect(checkTaskRouting({ tags: ["totally-unknown-tag"] }).ok).toBe(false);
   });

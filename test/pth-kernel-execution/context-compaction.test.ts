@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { serializeMessages, compressContext, COT_TEMPLATE } from "../../src/pth/kernel/execution/context-compaction.js";
-import type { AgentTraceEvent } from "../../src/pth/kernel/execution/agent-loop.js";
+import { serializeMessages, compressContext, COT_TEMPLATE } from "@away_from/pth-kernel-execution";
+import type { AgentTraceEvent } from "@away_from/pth-kernel-execution";
 
 describe("context-compaction（压缩基础设施）", () => {
   it("序列化：标记化 + system 跳过 + tool result 截断", () => {
@@ -58,7 +58,7 @@ describe("context-compaction（压缩基础设施）", () => {
 });
 
 // E3：scorecard 聚合器
-import { buildScorecard } from "../../src/pth/kernel/execution/worker-scorecard.js";
+import { buildScorecard } from "@away_from/pth-kernel-execution";
 
 describe("worker-scorecard（事件流轻聚合）", () => {
   const EVENTS: AgentTraceEvent[] = [
@@ -94,7 +94,7 @@ describe("worker-scorecard（事件流轻聚合）", () => {
 
 describe("shouldCompressInLoop（pi SDK 复用——任务中压缩触发）", () => {
   it("上下文未超阈值 → false；超阈值 → true", async () => {
-    const { shouldCompressInLoop } = await import("../../src/pth/kernel/execution/context-compaction.js");
+    const { shouldCompressInLoop } = await import("@away_from/pth-kernel-execution");
     const small = [{ role: "user", content: "短任务" }] as never;
     expect(shouldCompressInLoop(small, 128000)).toBe(false);
     // 构造超阈值的会话（contextWindow 调小模拟）
@@ -103,7 +103,7 @@ describe("shouldCompressInLoop（pi SDK 复用——任务中压缩触发）", (
   });
 
   it("tool/assistant/toolCalls 形状正确估算（不抛错）", async () => {
-    const { shouldCompressInLoop } = await import("../../src/pth/kernel/execution/context-compaction.js");
+    const { shouldCompressInLoop } = await import("@away_from/pth-kernel-execution");
     const msgs = [
       { role: "user", content: "任务" },
       { role: "assistant", content: "思考", toolCalls: [{ name: "ts", arguments: { code: "x".repeat(500) } }] },

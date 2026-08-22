@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { EXTENSIONS, buildExtensions, buildSeeds, buildDoc } from "../../src/pth/kernel/extensions/index.js";
+import { EXTENSIONS, buildExtensions, buildSeeds, buildDoc } from "@away_from/pth-kernel-interpreter";
 
 /**
  * 标准扩展包注册机制（Phase 1——memory/context/model 迁入整理）。
@@ -46,7 +46,7 @@ describe("ts REPL 标准扩展包", () => {
   });
 
   it("AGENT_CAPABILITY_DOC 与扩展包 doc 一致（聚合生效）", async () => {
-    const { AGENT_CAPABILITY_DOC } = await import("../../src/pth/kernel/execution/agent-tools.js");
+    const { AGENT_CAPABILITY_DOC } = await import("@away_from/pth-kernel-execution");
     expect(AGENT_CAPABILITY_DOC).toContain(buildDoc().slice(0, 50));
     expect(AGENT_CAPABILITY_DOC).toContain("model");
   });
@@ -75,7 +75,7 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
   });
 
   it("model 管理面裁剪（权限 v2 R3）：worker 面只读（set 摘除，get/usage 保留）", async () => {
-    const { modelState } = await import("../../src/pth/kernel/extensions/model.js");
+    const { modelState } = await import("@away_from/pth-kernel-interpreter");
     const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const manager = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
     const kernel = createWorkerKernelWithManager({
@@ -98,7 +98,7 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
   });
 
   it("perf 管理面裁剪（权限 v2 R3）：worker 面只读（params 可读，set 摘除）", async () => {
-    const { resetConfig } = await import("../../src/pth/kernel/extensions/perf-params.js");
+    const { resetConfig } = await import("@away_from/pth-kernel-interpreter");
     resetConfig({ PTH_AGENT_MODEL: "m1" });
     const { createKernelManager, createWorkerKernelWithManager } = await import("../../src/pth/impls/kernels/kernel-manager.js");
     const manager = createKernelManager({ pythonMode: "kernel", bashMode: "kernel", kernelConfig: { lazySpawn: true, idleMs: 0, resetMode: "ns" } });
@@ -118,9 +118,9 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
   });
 
   it("perf 全量面（set/publish/apply）仍在扩展层——系统通道用（不经 worker 注入）", async () => {
-    const { resetConfig } = await import("../../src/pth/kernel/extensions/perf-params.js");
+    const { resetConfig } = await import("@away_from/pth-kernel-interpreter");
     resetConfig({ PTH_AGENT_MODEL: "m1" });
-    const { perfExtension } = await import("../../src/pth/kernel/extensions/perf.js");
+    const { perfExtension } = await import("@away_from/pth-kernel-interpreter");
     const caps = perfExtension.provide({ dataWorld: {} } as never) as { perf: Record<string, Function> };
     const s = caps.perf["set"]({ key: "PTH_AGENT_MODEL", value: "m2" });
     expect((s as any).ok).toBe(true);
@@ -131,13 +131,13 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
   });
 
   it("perf.publish/apply/list：策略闭环（扩展层——权限 v2 后不经 worker kernel）", async () => {
-    const { resetConfig } = await import("../../src/pth/kernel/extensions/perf-params.js");
+    const { resetConfig } = await import("@away_from/pth-kernel-interpreter");
     resetConfig({ PTH_AGENT_MODEL: "m1" });
     const os = await import("node:os");
     const fs = await import("node:fs");
     const path = await import("node:path");
     const stratDir = fs.mkdtempSync(path.join(os.tmpdir(), "perf-strat-"));
-    const { perfExtension } = await import("../../src/pth/kernel/extensions/perf.js");
+    const { perfExtension } = await import("@away_from/pth-kernel-interpreter");
     const perf = (perfExtension.provide({ dataWorld: {}, strategiesDir: stratDir } as never) as { perf: Record<string, Function> }).perf;
     const pub = await perf["publish"]({ id: "fast-agent", params: { PTH_AGENT_MODEL: "deepseek-v4-flash", PTH_BATCH_SCALE_UP_THRESHOLD: "3" } }) as any;
     expect(pub.ok).toBe(true);
@@ -156,7 +156,7 @@ describe("model 会话切换 + perf 能力面（Phase 3）", () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const stratDir = fs.mkdtempSync(path.join(os.tmpdir(), "perf-strat-actions-"));
-    const { perfExtension } = await import("../../src/pth/kernel/extensions/perf.js");
+    const { perfExtension } = await import("@away_from/pth-kernel-interpreter");
     const published: Array<{ title: string; text: string; createdBy: string; tags?: string[]; payload?: Record<string, unknown> }> = [];
     const dataWorld = {
       tasks: {
@@ -207,7 +207,7 @@ describe("obs 可监控数据调查（Phase 4）", () => {
         return [{ status: "completed", n: "5" }];
       },
     } as any;
-    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const { obsExtension } = await import("@away_from/pth-kernel-interpreter");
     const obs = obsExtension.provide!({ dataWorld: dw } as any)["obs"] as any;
     const r = await obs.tasks({ status: "completed", role: "developer", limit: 10 });
     expect(r).toEqual([{ status: "completed", n: "5" }]);
@@ -222,7 +222,7 @@ describe("obs 可监控数据调查（Phase 4）", () => {
   it("obs.kernels：sandbox URL 未配置 → 明确错误", async () => {
     delete process.env.PTH_SANDBOX_KERNEL_URL;
     delete process.env.SANDBOX_URL;
-    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const { obsExtension } = await import("@away_from/pth-kernel-interpreter");
     const obs = obsExtension.provide!({ dataWorld: { queryReadOnly: async () => [] } as any } as any)["obs"] as any;
     const r = await obs.kernels();
     expect(r.error).toContain("未配置");
@@ -231,14 +231,14 @@ describe("obs 可监控数据调查（Phase 4）", () => {
   it("obs.search：SQL 注入转义（单引号翻倍）", async () => {
     const seen: string[] = [];
     const dw = { queryTemplate: async (sql: string) => { seen.push(sql); return []; } } as any;   // A2 Phase 4 受信模板通道
-    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const { obsExtension } = await import("@away_from/pth-kernel-interpreter");
     const obs = obsExtension.provide!({ dataWorld: dw } as any)["obs"] as any;
     await obs.search({ query: "o'Reilly" });
     expect(seen[0]).toContain("o''Reilly");
   });
 
   it("obs.metrics/batches：IPC 不可用 → 明确错误（非 batch 进程）", async () => {
-    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const { obsExtension } = await import("@away_from/pth-kernel-interpreter");
     const obs = obsExtension.provide!({ dataWorld: { queryReadOnly: async () => [] } as any } as any)["obs"] as any;
     const r = await obs.metrics({ pattern: "pth_" });
     expect(r.error).toBeDefined();

@@ -11,8 +11,8 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createToolstore } from "../src/pth/kernel/interpreter/toolstore.js";
-import { ExtRegistry, buildStdExtChannels, type ExtContext } from "../src/pth/kernel/extensions/ext-registry.js";
+import { createToolstore } from "@away_from/pth-kernel-interpreter";
+import { ExtRegistry, buildStdExtChannels, type ExtContext } from "@away_from/pth-kernel-interpreter";
 import { classifyExtensionDir } from "../src/pth/catalog/extensions/extension-policy.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -63,7 +63,7 @@ async function main(): Promise<number> {
     let declared: string[] = [];
     try {
       const manifestText = await ts.readText(`extensions/${id}/plugin.json`);
-      const { parseExtManifest } = await import("../src/pth/kernel/extensions/ext-manifest.js");
+      const { parseExtManifest } = await import("@away_from/pth-kernel-interpreter");
       const manifest = parseExtManifest(manifestText);
       declared = manifest.contracts.tools ?? [];
       console.log(`  ✓ manifest 校验通过（tools: ${declared.join(",") || "-"}）`);

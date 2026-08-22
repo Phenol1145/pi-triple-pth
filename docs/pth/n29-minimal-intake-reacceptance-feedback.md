@@ -95,7 +95,7 @@ fetch/extract/review/promote 的领域副作用发生在最终 Run CAS 之前，
 [pg-task-repository.ts](../../src/pth/tasking/adapters/pg-task-repository.ts) `:65-76` 直接使用
 `TaskCommitSideEffect.tenantId`；它没有与已通过 Task CAS 的 tenant 对账。
 
-[knowledge-intake-pg.ts](../../src/pth/kernel/storage/knowledge-intake-pg.ts) `:695-701` 同样接受
+[knowledge-intake-pg.ts](../../packages/pth-kernel-storage/src/knowledge-intake-pg.ts) `:695-701` 同样接受
 `IntakeSideEffect.tenantId`，而冻结合同已经写明“跨 tenant 入队不允许”。
 
 因此，Task/Run 本身的 tenant-scoped CAS 成功，并不能阻止同一事务向另一个 tenant 写 outbox。
@@ -106,7 +106,7 @@ fetch/extract/review/promote 的领域副作用发生在最终 Run CAS 之前，
 
 ### P0-2：Run CAS 忽略 `fromStage`
 
-[knowledge-intake-pg.ts](../../src/pth/kernel/storage/knowledge-intake-pg.ts) `:632-670` 的 UPDATE 校验
+[knowledge-intake-pg.ts](../../packages/pth-kernel-storage/src/knowledge-intake-pg.ts) `:632-670` 的 UPDATE 校验
 tenant、lease token、generation、rowVersion、status 和 expiry，但 SQL 没有 `stage = input.fromStage`，
 也没有合法状态迁移矩阵。
 
@@ -118,7 +118,7 @@ tenant、lease token、generation、rowVersion、status 和 expiry，但 SQL 没
 
 ### P0-3：Trust Policy 的“已验证”边界可结构伪造
 
-[knowledge-intake-pg.ts](../../src/pth/kernel/storage/knowledge-intake-pg.ts) `:354-395` 只验证 manifest
+[knowledge-intake-pg.ts](../../packages/pth-kernel-storage/src/knowledge-intake-pg.ts) `:354-395` 只验证 manifest
 字段与 digest 非空，然后持久化 `VerifiedTrustPolicy`。TypeScript 的结构接口不是运行时 attestation；任意内部
 调用者都能构造同形对象，绕过 [trust-policy.ts](../../src/pth/execution/knowledge-intake/trust-policy.ts)
 中的 Ed25519 验证。
@@ -134,7 +134,7 @@ tenant、lease token、generation、rowVersion、status 和 expiry，但 SQL 没
 
 ### P0-4：Repository 没有守住 SourceRevision / Artifact 不变量
 
-[knowledge-intake-pg.ts](../../src/pth/kernel/storage/knowledge-intake-pg.ts) `:711-760` 对 admitted 只检查
+[knowledge-intake-pg.ts](../../packages/pth-kernel-storage/src/knowledge-intake-pg.ts) `:711-760` 对 admitted 只检查
 `usePolicyDecision` 是否存在，没有检查：
 
 - decision 必须为 `allow`；
@@ -212,11 +212,11 @@ revision、candidate、verdict、official 或 Subscription 更新，而 Run CAS 
 
 ### P0-9：`draft` 与 `full` 没有形成不同安全级别
 
-[schema.ts](../../src/pth/config/schema.ts) `:109` 定义 draft=仅私有草稿、full=完整内环且 GO 前不得启用；
+[schema.ts](../../packages/pth-config/src/schema.ts) `:109` 定义 draft=仅私有草稿、full=完整内环且 GO 前不得启用；
 但 [batch-process.ts](../../src/pth/bootstrap/batch-process.ts) `:535-582` 对 draft/full 注册相同的 fetch、extract、
 domain review、adversarial review、promote handlers。
 
-[config-center.ts](../../src/pth/config/config-center.ts) `:180-188` 只做枚举校验，没有读取或校验绑定当前
+[config-center.ts](../../packages/pth-config/src/config-center.ts) `:180-188` 只做枚举校验，没有读取或校验绑定当前
 commit 的 `MIN_INNER_LOOP_GO` envelope。设置 `full` 在配置层不会被阻止。
 
 **关闭条件：** draft 最多运行到 private draft + open plan；promote handler 必须不注册。full 必须由启动时

@@ -9,15 +9,15 @@
  *       实现 = 本目录（12 核实现文件 + 本装配入口）。
  */
 import type { ModelRouter } from "@away_from/infra";
-import type { DataWorldAccess } from "../../kernel/storage/index.js";
+import type { DataWorldAccess } from "@away_from/pth-kernel-storage";
 import type { InterpreterSnapshot } from "@away_from/pth-sandbox";
 import { TsInterpreter } from "./ts-interpreter.js";
 import { BashInterpreter } from "@away_from/pth-sandbox";
 import { PythonInterpreter } from "./python-interpreter.js";
-import { createLlmFn, type LlmFn } from "../../kernel/interpreter/llm-fn.js";
+import { createLlmFn, type LlmFn } from "@away_from/pth-kernel-interpreter";
 import { buildCapabilities } from "./capability.js";
-import type { Interpreter, InterpreterResult, WorkerKernel, WorkerKernelDeps } from "../../kernel/interpreter/index.js";
-import { setKernelExecFactory } from "../../kernel/execution/kernel-factories.js";
+import type { Interpreter, InterpreterResult, WorkerKernel, WorkerKernelDeps } from "@away_from/pth-kernel-interpreter";
+import { setKernelExecFactory } from "@away_from/pth-kernel-execution";
 
 // 模块化 v2 P0-5：pth-sandbox 的契约类型与网关用沙箱客户端符号统一经本 re-export 点
 // 进入 PTH 业务代码（守护拆分裁决：内核契约留在 pth-sandbox，业务代码不散落直接 import 包）。

@@ -6,11 +6,11 @@
  */
 
 import type { KnowledgeMemoryEntry } from "../src/pth/execution/knowledge-broker.js";
-import { N28_FEASIBILITY_BUDGET, type CognitiveBudget } from "../src/pth/contracts/index.js";
+import { N28_FEASIBILITY_BUDGET, type CognitiveBudget } from "@away_from/pth-contracts";
 import { classifyFeasibilityMemoryType } from "../src/pth/execution/memory-type-classifier.js";
-import { MID_ROLES } from "../src/pth/kernel/execution/builtin-roles.js";
-import type { RoleDefinition } from "../src/pth/kernel/execution/worker-cluster.js";
-import { roleDefinitionRevision } from "../src/pth/kernel/execution/worker-replica.js";
+import { MID_ROLES } from "@away_from/pth-kernel-execution";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
+import { roleDefinitionRevision } from "@away_from/pth-kernel-execution";
 
 const researcher = MID_ROLES.find((role) => role.id === "researcher")!;
 export const N28_ROLE = {

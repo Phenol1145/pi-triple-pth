@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { WorkspaceManager } from "@away_from/infra";
-import type { ToolPlatform } from "../tools/platform.js";
+import type { ToolPlatform } from "../tools/index.js";
 import type { VersionSnapshot, ManagedSessionInfo } from "./types.js";
 import type { PoolSession } from "./session-pool.js";
 

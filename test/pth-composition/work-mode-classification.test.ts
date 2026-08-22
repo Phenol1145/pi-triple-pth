@@ -1,14 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
-import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { PgTaskStore } from "@away_from/pth-kernel-storage";
 import { TaskControlService } from "../../src/pth/tasking/task-control-service.js";
 import { PgTaskQueries } from "../../src/pth/tasking/task-queries.js";
 import { createPgTaskRepository } from "../../src/pth/tasking/adapters/pg-task-repository.js";
-import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
-import { resolveTemplateTask } from "../../src/pth/kernel/templates.js";
+import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
+import { resolveTemplateTask } from "@away_from/pth-kernel-interpreter";
 import { installDefaultRoles } from "../helpers.js";
 import {
   createCrossModeWork,
@@ -16,7 +16,7 @@ import {
   type CrossModeWorkRequest,
   type TenantScope,
   type WorkMode,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 // ── 纯权威矩阵：跨模式必须新 workId + 完整 causation + 四条固定 handoff ──────────
 
@@ -200,7 +200,7 @@ pg("work-mode classification: PG 权威矩阵", () => {
 
   it("IntakeRun 固定 intake：due run 返回 workMode=intake", async () => {
     // 直接落一个 due subscription（租户/空间/domain 均最小可用），复用 schema 与仓库逻辑。
-    const { createKnowledgeIntakeRepository } = await import("../../src/pth/kernel/storage/knowledge-intake-pg.js");
+    const { createKnowledgeIntakeRepository } = await import("@away_from/pth-kernel-storage");
     const repo = createKnowledgeIntakeRepository(pool);
     await pool.query(
       `INSERT INTO knowledge_trust_policies

@@ -6,7 +6,7 @@
  */
 
 import { pathToFileURL } from "node:url";
-import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "../src/pth/contracts/index.js";
+import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "@away_from/pth-contracts";
 import { buildMemoryDirectorySnapshot, regionEntryIds } from "../src/pth/execution/memory-directory.js";
 import { createLayeredKnowledgeRetriever } from "../src/pth/execution/layered-knowledge-retriever.js";
 import { createVerifiedTaskReadScopeFactory } from "../src/pth/execution/authorization/verified-task-read-scope.js";
@@ -19,14 +19,14 @@ import { createKnowledgeContextProvider } from "../src/pth/runner/knowledge-cont
 import { createAuthorizedStateReadPort, createScopedSkillPort } from "../src/pth/runner/index.js";
 import { createBudgetedTaskCapabilities, createTaskWorkingSetPolicy } from "../src/pth/runner/cognitive-working-set.js";
 import type { AuthorizedTaskReads } from "../src/pth/runner/authorized-task-reads.js";
-import { createWorkerReplica, roleDefinitionRevision } from "../src/pth/kernel/execution/worker-replica.js";
+import { createWorkerReplica, roleDefinitionRevision } from "@away_from/pth-kernel-execution";
 import { WorkerSlotRuntime } from "../src/pth/bootstrap/worker-slot-runtime.js";
 import { assembleBatchRuntime, runBatchHost } from "../src/pth/bootstrap/batch-runtime-assembly.js";
 import { isVisible, setSpaceLookup, type ToolRegSpec } from "@away_from/pth-memory";
-import { runAgentTask } from "../src/pth/kernel/execution/agent-loop.js";
-import type { LlmFn } from "../src/pth/kernel/interpreter/llm-fn.js";
-import type { WorkerKernel } from "../src/pth/kernel/interpreter/index.js";
-import type { ToolRegSnapshot } from "../src/pth/kernel/execution/tool-registry.js";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import type { ToolRegSnapshot } from "@away_from/pth-kernel-interpreter";
 import { createN28InMemoryBundle } from "./n28-feasibility-harness.js";
 import { createAuditObserver } from "../src/pth/runner/index.js";
 import { assembleWorkerSlotIdentity } from "../src/pth/bootstrap/worker-slot-assembly.js";

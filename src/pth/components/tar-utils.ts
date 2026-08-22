@@ -2,7 +2,7 @@
  * components/tar-utils.ts —— tar 归档解析（模块专项 ② 大文件拆分：自 store.ts 抽出）。
  */
 import path from "node:path";
-import type { Result } from "../contracts/index.js";
+import type { Result } from "@away_from/pth-contracts";
 
 // ── tar extraction limits ──────────────────────────────────────
 

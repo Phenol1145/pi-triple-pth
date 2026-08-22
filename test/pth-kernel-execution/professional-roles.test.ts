@@ -8,17 +8,17 @@ import {
   PROFESSIONAL_ROLES,
   assertProfessionalRoleBudgetsWithinN28,
   professionalRuntimeIdsForRole,
-} from "../../src/pth/kernel/execution/professional-roles.js";
+} from "@away_from/pth-kernel-execution";
 import {
   allKnownRoles,
   allWorkerRoles,
   expandRoleWeights,
   parseRoleWeights,
-} from "../../src/pth/kernel/execution/worker-cluster.js";
+} from "@away_from/pth-kernel-execution";
 import {
   N28_FEASIBILITY_BUDGET,
   checkResponsibilityCapacity,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import { createTaskWorkingSetPolicy } from "../../src/pth/runner/cognitive-working-set.js";
 
 beforeEach(() => installDefaultRoles());

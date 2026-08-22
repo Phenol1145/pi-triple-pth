@@ -54,7 +54,7 @@ export async function handler(kernel: KernelRuntime) {
   it("flags tasking/runner/execution/catalog imports of kernel storage adapters and other modules' private files", async () => {
     const src = await writeSrcTree(root, {
       "kernel/storage/task-store-pg.ts": `export class PgTaskStore {}`,
-      "tasking/service.ts": `import { PgTaskStore } from "../kernel/storage/task-store-pg.js";`,
+      "tasking/service.ts": `import { PgTaskStore } from "@away_from/pth-kernel-storage";`,
       "runner/loop.ts": `import { hidden } from "../tasking/adapters/secret.js";`,
       "tasking/adapters/secret.ts": `export const hidden = 1;`,
       "tasking/index.ts": `export const tasking = 1;`,

@@ -76,7 +76,7 @@ H1 的独立寻址/控制命题则因探针不完整而保持 INCONCLUSIVE。
 
 ### P0-2：重复 ID 可绕过统一认知预算
 
-[cognitive-budget.ts](../../src/pth/kernel/execution/cognitive-budget.ts) `:63-72` 在一次 admission
+[cognitive-budget.ts](../../packages/pth-kernel-execution/src/execution/cognitive-budget.ts) `:63-72` 在一次 admission
 中按 ID 去重，第二个相同 ID 会被跳过。随后
 [cognitive-working-set.ts](../../src/pth/runner/cognitive-working-set.ts) `:73-77` 把 accepted ID
 转换为 `Set`，并返回所有命中该 ID 的原始 rows。
@@ -171,7 +171,7 @@ sabotage 及其 sentinel：
 
 ### P1-2：Worker 控制端口会把 unknown 回执当成功
 
-[batch-manager.ts](../../src/pth/kernel/execution/batch-manager.ts) `:143-150` 在接收 replica 回执时
+[batch-manager.ts](../../packages/pth-kernel-execution/src/execution/batch-manager.ts) `:143-150` 在接收 replica 回执时
 丢弃 `accepted` 字段；`:278-283` 对 pause / resume 只判断 `state !== "error"`。子进程返回
 `state="unknown", accepted=false` 时，主进程仍解析为成功。
 

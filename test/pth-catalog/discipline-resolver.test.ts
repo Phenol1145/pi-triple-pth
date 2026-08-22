@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { DisciplineCatalogBuilder } from "../../src/pth/catalog/discipline-catalog.js";
 import { createDisciplineResolver } from "../../src/pth/catalog/discipline-resolver.js";
-import { validateDomainBinding } from "../../src/pth/contracts/domains.js";
+import { validateDomainBinding } from "@away_from/pth-contracts";
 
 function buildCatalog() {
   return new DisciplineCatalogBuilder()

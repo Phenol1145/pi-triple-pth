@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { assertVerifiedTaskReadScope, createVerifiedTaskReadScopeFactory } from "../../src/pth/execution/authorization/verified-task-read-scope.js";
 import { createExecutionGrantService } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
-import type { ExecutionGrant, TaskLease, TaskWorkItem, WorkerReplicaRef } from "../../src/pth/contracts/index.js";
+import type { ExecutionGrant, TaskLease, TaskWorkItem, WorkerReplicaRef } from "@away_from/pth-contracts";
 
 let nowMs = Date.parse("2030-01-01T00:00:00.000Z");
 const clock = () => new Date(nowMs);

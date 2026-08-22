@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION } from "../../src/pth/kernel/execution/agent-tools.js";
-import type { AgentToolCtx } from "../../src/pth/kernel/execution/agent-tools.js";
-import type { WorkerKernel } from "../../src/pth/kernel/interpreter/index.js";
+import { AGENT_TOOLS, AGENT_TOOLS_DESCRIPTION } from "@away_from/pth-kernel-execution";
+import type { AgentToolCtx } from "@away_from/pth-kernel-execution";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 
 /**
  * 输出模式（③）：LLM 控制感知带宽——mode 枚举裁剪回填。

@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createToolstore } from "../../src/pth/kernel/interpreter/toolstore.js";
-import { scanExtensions, createExtCapability } from "../../src/pth/kernel/interpreter/ext-capability.js";
+import { createToolstore } from "@away_from/pth-kernel-interpreter";
+import { scanExtensions, createExtCapability } from "@away_from/pth-kernel-interpreter";
 import { createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";
 
 /** 代码库式扩展（hello-world——复用 toolstore/extensions/hello-world 真实示例） */

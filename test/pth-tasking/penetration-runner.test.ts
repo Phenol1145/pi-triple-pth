@@ -6,7 +6,7 @@ import {
   type PenetrationRunChildRequest,
 } from "../../src/pth/tasking/penetration-runner.js";
 import { buildPenetrationSkillContent } from "../../src/pth/tasking/penetration-skill.js";
-import type { TaskDispatchContext, TenantScope } from "../../src/pth/contracts/index.js";
+import type { TaskDispatchContext, TenantScope } from "@away_from/pth-contracts";
 
 beforeAll(() => {
   installDefaultRoles();

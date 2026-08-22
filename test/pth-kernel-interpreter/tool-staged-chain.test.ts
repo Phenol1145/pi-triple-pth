@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildCapabilities } from "../../src/pth/impls/kernels/capability.js";
-import { buildExtensions } from "../../src/pth/kernel/extensions/index.js";
-import { resetConfig } from "../../src/pth/kernel/extensions/perf-params.js";
-import { TriggerEngine } from "../../src/pth/kernel/execution/trigger-engine.js";
-import { registerSystemTriggers } from "../../src/pth/kernel/execution/system-triggers.js";
-import { loadToolRegSnapshot } from "../../src/pth/kernel/execution/tool-registry.js";
+import { buildExtensions } from "@away_from/pth-kernel-interpreter";
+import { resetConfig } from "@away_from/pth-kernel-interpreter";
+import { TriggerEngine } from "@away_from/pth-kernel-execution";
+import { registerSystemTriggers } from "@away_from/pth-kernel-execution";
+import { loadToolRegSnapshot } from "@away_from/pth-kernel-interpreter";
 import { approveToolProposal, executeApprovedToolProposal, type ToolRegSpec } from "@away_from/pth-memory";
 
 /**

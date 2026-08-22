@@ -6,7 +6,7 @@ import {
   type MemoryRegion,
   type MemoryResponsibility,
   type WorkerReplicaRef,
-} from "../../src/pth/contracts/cognitive-responsibility.js";
+} from "@away_from/pth-contracts";
 
 const worker: WorkerReplicaRef = {
   workerId: "10000000-0000-4000-8000-000000000001",

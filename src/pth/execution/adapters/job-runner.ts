@@ -11,7 +11,7 @@ import {
   type ProfessionalDiagnostic,
   type ProfessionalJobRequest,
   type ProfessionalJobResult,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 
 export interface JobRunContextDeps<TValue> {
   readonly runtime: ProfessionalJobResult["runtime"];

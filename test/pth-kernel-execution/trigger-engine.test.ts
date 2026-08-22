@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { TriggerEngine } from "../../src/pth/kernel/execution/trigger-engine.js";
-import { ActivityHub } from "../../src/pth/kernel/execution/activity-hub.js";
+import { TriggerEngine } from "@away_from/pth-kernel-execution";
+import { ActivityHub } from "@away_from/pth-kernel-execution";
 
 function mockMemory(defs: Array<{ id: string; def: object; status?: string }>) {
   const entries = defs.map((d) => ({

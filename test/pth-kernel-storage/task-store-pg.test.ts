@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool } from "../../src/pth/kernel/storage/pg";
-import { applySchema } from "../../src/pth/kernel/storage/schema";
-import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg";
-import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { PgTaskStore } from "@away_from/pth-kernel-storage";
+import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
 import { installDefaultRoles } from "../helpers";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---

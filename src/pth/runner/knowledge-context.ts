@@ -13,8 +13,7 @@
 
 import type { KnowledgeEvidenceRef } from "@away_from/pth-memory";
 import { knowledgeEvidenceRefsFromMeta } from "@away_from/pth-memory";
-import type { DomainId, PendingRetrievalTrace, RetrievalWaveTrace } from "../contracts/index.js";
-import type { DisciplineCatalogSnapshot } from "../catalog/index.js";
+import type { DisciplineCatalogLike, DomainId, PendingRetrievalTrace, RetrievalWaveTrace } from "@away_from/pth-contracts";
 import {
   assertVerifiedTaskReadScope,
   computeRetrievalQueryFingerprint,
@@ -27,8 +26,8 @@ import {
   type VerifiedTaskReadScope,
 } from "../execution/index.js";
 
-import { computeKnowledgeQueryFingerprint } from "../contracts/knowledge-fingerprint.js";
-export { computeKnowledgeQueryFingerprint, fnv1aHex } from "../contracts/knowledge-fingerprint.js";
+import { computeKnowledgeQueryFingerprint } from "@away_from/pth-contracts";
+export { computeKnowledgeQueryFingerprint, fnv1aHex } from "@away_from/pth-contracts";
 
 export interface KnowledgeContextPromptRow {
   entryId: string;
@@ -98,7 +97,7 @@ export interface KnowledgeContextProviderDeps {
     retrieve(opts: { anchors?: string[]; kinds?: string[]; status?: string[]; tenantId?: string }): Promise<KnowledgeMemoryEntry[]>;
   };
   /** K2 同一份 catalog 快照——提供 catalogVersion + ancestors 展开。 */
-  catalog?: DisciplineCatalogSnapshot;
+  catalog?: DisciplineCatalogLike;
   /** K1a 同款空间可见性判定。 */
   isVisible(meta: Record<string, unknown> | undefined, space: string): boolean;
   maxEntries?: number;

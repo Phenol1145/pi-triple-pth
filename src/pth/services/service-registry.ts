@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 
 export interface HostServiceRuntimeEntry {
   id: string;

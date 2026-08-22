@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool } from "../../src/pth/kernel/storage/pg";
-import { applySchema } from "../../src/pth/kernel/storage/schema";
-import { createDataWorld } from "../../src/pth/kernel/storage/index";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { createDataWorld } from "@away_from/pth-kernel-storage";
 
 /**
  * claim 超时回收（batch 崩溃/重启时 claimed 任务不回池的缺口）。

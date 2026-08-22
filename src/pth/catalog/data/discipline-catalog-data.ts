@@ -8,7 +8,7 @@
  * 数量断言（manifest 复算）：category=5、discipline=32、
  *   sub-discipline=147、total=184。
  */
-import type { DomainDefinition } from "../../contracts/domains.js";
+import type { DomainDefinition } from "@away_from/pth-contracts";
 
 export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = [
   {

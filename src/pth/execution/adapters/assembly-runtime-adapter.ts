@@ -16,7 +16,7 @@
  * 仓库以同路径挂载进容器，路径透明。环境变量 PTH_ASM_TOOLCHAIN_EXEC（空格分隔）
  * 是 execPrefix 的缺省来源。
  */
-import { pthConfig } from "../../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -33,10 +33,10 @@ import {
   type ProfessionalDiagnostic,
   type ProfessionalJobRequest,
   type ProfessionalJobResult,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
 import { createJobRunContext } from "./job-runner.js";
-import type { ProfessionalArtifactPort } from "../../contracts/index.js";
+import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 // ─── 执行通道与结果类型 ────────────────────────────────────────────────────
 

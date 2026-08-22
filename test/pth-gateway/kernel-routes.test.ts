@@ -232,9 +232,9 @@ describe("kernel routes", () => {
 
 describe("flow role 路由（body.flow 顶层——发布即路由到指定角色）", () => {
   it("顶层 flow 并入 payload——routeTaskRole 命中显式 role", async () => {
-    const { PgTaskStore } = await import("../../src/pth/kernel/storage/task-store-pg.js");
-    const { routeTaskRole } = await import("../../src/pth/kernel/execution/role-router.js");
-    const { allWorkerRoles } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { PgTaskStore } = await import("@away_from/pth-kernel-storage");
+    const { routeTaskRole } = await import("@away_from/pth-kernel-execution");
+    const { allWorkerRoles } = await import("@away_from/pth-kernel-execution");
     const roles = allWorkerRoles();
     // 模拟 routes-kernel 的 payload 构造（body.flow 顶层并入）
     const bodyFlow = { stages: [{ task: { role: "developer" } }] };

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { createToolstore } from "../../src/pth/kernel/interpreter/toolstore.js";
-import { AGENT_TOOLS } from "../../src/pth/kernel/execution/agent-tools.js";
+import { createToolstore } from "@away_from/pth-kernel-interpreter";
+import { AGENT_TOOLS } from "@away_from/pth-kernel-execution";
 
 // 2026-08-11 生产核裁决迁移：c.saveUnit/executeUnit/listUnits 能力函数撤销 →
 // dev 空间动作工具（dev.write/dev.save/dev.list/dev.run）——toolstore 单元机制不变

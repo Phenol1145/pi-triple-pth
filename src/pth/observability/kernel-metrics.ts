@@ -10,7 +10,7 @@
 
 import { Registry, Gauge, Histogram, Counter } from "prom-client";
 import { createResourceProvider } from "./resource-provider.js";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 
 // buckets 分层（已裁决：可配置，不硬编码）
 const KERNEL_BUCKETS = [0.001, 0.01, 0.1, 1, 5, 30];

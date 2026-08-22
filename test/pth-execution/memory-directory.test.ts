@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "../../src/pth/contracts/index.js";
+import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "@away_from/pth-contracts";
 import { assertMemoryDirectoryResponsibilityCapacity, assertMemoryDirectorySnapshotIntegrity, buildMemoryDirectorySnapshot, membershipsForEntry } from "../../src/pth/execution/memory-directory.js";
 import { N28_DOMAIN_IDS, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS, n28AuthorizedCorpus, n28DirectoryInputs, type N28KnowledgeEntry } from "../../scripts/n28-feasibility-fixture.js";
 

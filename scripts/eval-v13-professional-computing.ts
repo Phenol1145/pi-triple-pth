@@ -11,7 +11,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { MEMORY_TYPES, type ProfessionalRuntimeLock } from "../src/pth/contracts/index.js";
+import { MEMORY_TYPES, type ProfessionalRuntimeLock } from "@away_from/pth-contracts";
 import { runV13SabotageProbes } from "./v13-authority-gates.js";
 
 const repoRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));

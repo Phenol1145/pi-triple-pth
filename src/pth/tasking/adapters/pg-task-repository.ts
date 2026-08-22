@@ -24,7 +24,7 @@
 
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import { withTx } from "../../kernel/storage/pg.js";
+import { withTx } from "@away_from/pth-kernel-storage";
 import {
   buildCompletedResultWriteback,
   buildErrorResultWriteback,
@@ -32,7 +32,7 @@ import {
   isWorkMode,
   resolveTaskCommitTenantId,
   TASK_MAX_CLAIMS,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import type {
   TaskCommitOptions,
   TaskCommitSideEffect,
@@ -41,9 +41,9 @@ import type {
   TaskRepository,
   TaskWorkItem,
   TenantScope,
-} from "../../contracts/index.js";
+} from "@away_from/pth-contracts";
 import { readWorkItemDomainBinding, readWorkItemDomains } from "../task-work-item-reader.js";
-import { enqueueSideEffectInTx } from "../side-effect-outbox.js";
+import { enqueueSideEffectInTx } from "@away_from/pth-kernel-storage";
 
 export interface PgTaskRepositoryOptions {
   /** 新 lease 有效期（默认 10 分钟——与旧 claim 超时余量一致，可由调度器覆盖） */

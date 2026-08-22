@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createDataWorld } from "../../src/pth/kernel/storage/index.js";
+import { createDataWorld } from "@away_from/pth-kernel-storage";
 import { createPthGatewayFacade } from "../../src/pth/application/gateway/pth-gateway-facade.js";
 import type { KernelRuntime } from "../../src/pth/kernel/assembly.js";
 

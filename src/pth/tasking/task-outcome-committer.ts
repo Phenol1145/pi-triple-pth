@@ -10,7 +10,7 @@
  * side effect 的类型契约同步上移到 contracts（identity=(tenantId,key)）。
  */
 
-import type { TaskCommitOptions, TaskCommitSideEffect, TaskOutcome, TaskRepository } from "../contracts/index.js";
+import type { TaskCommitOptions, TaskCommitSideEffect, TaskOutcome, TaskRepository } from "@away_from/pth-contracts";
 
 /** side effect 契约已上移 contracts（`TaskCommitSideEffect`）；保留别名供既有装配点引用。 */
 export type TaskOutcomeSideEffect = TaskCommitSideEffect;

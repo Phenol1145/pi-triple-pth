@@ -4,7 +4,7 @@ import {
   createServerWorkEnvelope,
   WORK_MODES,
   type WorkMode,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 describe("work-mode pure contract (M0)", () => {
   it("WORK_MODES 是三值且顺序固定为 intake/optimize/run", () => {

@@ -8,13 +8,15 @@
  *  - query 必须返回 meta 列，否则 400（H3 可见性过滤依据）。
  */
 
-import type { ExecutionGrant, WorkerReplicaRef, PendingRetrievalTrace, RetrievalWaveTrace } from "../contracts/index.js";
+import type { ExecutionGrant, WorkerReplicaRef, PendingRetrievalTrace, RetrievalWaveTrace } from "@away_from/pth-contracts";
 import type { ExecutionGrantService } from "./authorization/execution-grant-service.js";
 import { assertVerifiedTaskReadScope, type VerifiedTaskReadScope, type VerifiedTaskReadScopeFactory } from "./authorization/verified-task-read-scope.js";
 import { ancestorChain } from "@away_from/pth-memory";
 import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "./knowledge-ranking.js";
-import { computeKnowledgeQueryFingerprint } from "../contracts/knowledge-fingerprint.js";
+import { computeKnowledgeQueryFingerprint } from "@away_from/pth-contracts";
 import { computeRetrievalQueryFingerprint, type LayeredKnowledgeRetriever, type LayeredSearchWaveInput, type LayeredSearchWaveResult } from "./layered-knowledge-retriever.js";
+import type { KnowledgeMemoryEntry, KnowledgeSearchOpts } from "./knowledge-types.js";
+export type { KnowledgeMemoryEntry, KnowledgeSearchOpts } from "./knowledge-types.js";
 
 export type KnowledgeOp = "query" | "retrieve" | "get" | "search";
 
@@ -37,26 +39,6 @@ export interface KnowledgeRequest {
   worker?: WorkerReplicaRef;
   /** N28 T4：live task 的 lease deadline（与 grant deadline 取更早者）。 */
   leaseDeadlineAt?: string;
-}
-
-export interface KnowledgeMemoryEntry {
-  id: string;
-  kind: string;
-  anchors: string[];
-  status: string;
-  content: string;
-  meta?: Record<string, unknown>;
-  /** N28 T3：repository 顶层租户字段（可选；Directory 输入会收紧为必填）。不镜像进 meta。 */
-  tenantId?: string;
-}
-
-export interface KnowledgeSearchOpts {
-  anchors?: string[];
-  kinds?: string[];
-  status?: string[];
-  tenantId?: string;
-  queryText?: string;
-  limit?: number;
 }
 
 export interface KnowledgeBrokerDeps {

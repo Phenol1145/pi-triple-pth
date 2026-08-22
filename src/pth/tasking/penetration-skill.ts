@@ -13,7 +13,7 @@
 import {
   allowedDelegationTargets,
 } from "./delegation-policy.js";
-import { knownRoleById } from "../kernel/execution/worker-cluster.js";
+import { knownRoleById } from "@away_from/pth-kernel-execution";
 
 export const PENETRATION_SKILL_ID_PREFIX = "skill:penetrate:";
 export const PENETRATION_SKILL_NAME_PREFIX = "penetrate:";

@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { PendingRetrievalTrace, RetrievalWaveTrace, WorkerReplicaRef } from "../contracts/index.js";
+import type { PendingRetrievalTrace, RetrievalWaveTrace, WorkerReplicaRef } from "@away_from/pth-contracts";
 import { knowledgeQueryTokenHits, rankKnowledgeEntries, type RankableKnowledgeEntry } from "./knowledge-ranking.js";
 import { assertMemoryDirectorySnapshotIntegrity, responsibilitiesForWorker, type DirectoryEntryInput, type MemoryDirectorySnapshot } from "./memory-directory.js";
 import { assertVerifiedTaskReadScope, type VerifiedTaskReadScope } from "./authorization/verified-task-read-scope.js";

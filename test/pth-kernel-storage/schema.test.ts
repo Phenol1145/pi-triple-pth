@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool } from "../../src/pth/kernel/storage/pg";
-import { applySchema, SCHEMA_VERSION } from "../../src/pth/kernel/storage/schema";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema, SCHEMA_VERSION } from "@away_from/pth-kernel-storage";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // 模式同 Task 1（test/pth-kernel-storage/pg.test.ts）：getContainerRuntimeClient() 内部执行

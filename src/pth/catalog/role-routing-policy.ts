@@ -5,8 +5,8 @@
  */
 
 import type { CatalogRole, RuntimeCatalogSnapshot } from "./runtime-catalog.js";
-import type { RoleRoutingPolicy } from "../contracts/index.js";
-import { setKernelRoleRoutingPolicy } from "../kernel/execution/role-router.js";
+import type { RoleRoutingPolicy } from "@away_from/pth-contracts";
+import { setKernelRoleRoutingPolicy } from "@away_from/pth-kernel-execution";
 
 export type { RoleRoutingPolicy };
 

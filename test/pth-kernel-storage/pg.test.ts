@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool, withTx } from "../../src/pth/kernel/storage/pg";
+import { createPgPool, withTx } from "@away_from/pth-kernel-storage";
 
 // --- Docker 可用性守卫（Global Constraints：无 docker 环境必须 SKIP 而非 FAIL）---
 // review finding 建议的 `new Docker().ping()` 在 testcontainers 12.1.0 已不存在

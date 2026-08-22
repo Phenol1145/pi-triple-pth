@@ -6,7 +6,7 @@ import { Redis } from "ioredis";
 import { detectPlatform, createLogger } from "@away_from/infra";
 import { createMetrics } from "../../src/pth/observability/metrics.js";
 import { AuditWriter } from "../../src/pth/observability/audit.js";
-import { RedisSessionStore } from "../../src/pth/kernel/storage/session/redis-session-store.js";
+import { RedisSessionStore } from "@away_from/pth-kernel-storage";
 import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@away_from/infra";
 import { ToolRegistry } from "../../src/pth/tools/registry.js";
 import { ToolPlatform } from "../../src/pth/tools/platform.js";

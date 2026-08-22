@@ -10,8 +10,8 @@
  *    `worker-removed` 事件；disposal/removal 幂等。
  */
 
-import type { WorkerReplica, WorkerReplicaStatus } from "../kernel/execution/worker-replica.js";
-import type { RoleDefinition } from "../kernel/execution/worker-cluster.js";
+import type { WorkerReplica, WorkerReplicaStatus } from "@away_from/pth-kernel-execution";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 
 export type WorkerControlMessage =
   | { type: "worker-pause"; workerId: string }

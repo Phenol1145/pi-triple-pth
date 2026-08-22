@@ -9,12 +9,12 @@ import {
 } from "../../src/pth/bootstrap/professional-runtime-adapters.js";
 import { createU8RuntimeAdapter } from "../../src/pth/execution/adapters/u8-runtime-adapter.js";
 import { buildExecutionBackendRegistry } from "../../src/pth/execution/backend-registry.js";
-import { isU8JobSpecStructurallyValid } from "../../src/pth/contracts/index.js";
+import { isU8JobSpecStructurallyValid } from "@away_from/pth-contracts";
 import type {
   ProfessionalJobRequest,
   ProfessionalRuntimeLock,
   U8JobSpec,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import type { ExecutionBackend, ExecutionCapabilities, ExecutionResult } from "@away_from/shared/execution";
 
 const cleanup: string[] = [];

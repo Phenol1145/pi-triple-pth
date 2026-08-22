@@ -15,7 +15,7 @@ import {
   validateDomainDefinition,
   type DomainDefinition,
   type DomainId,
-} from "../contracts/domains.js";
+} from "@away_from/pth-contracts";
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;

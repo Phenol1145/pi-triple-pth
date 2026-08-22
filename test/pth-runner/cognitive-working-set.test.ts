@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createBudgetedTaskCapabilities, createTaskWorkingSetPolicy } from "../../src/pth/runner/cognitive-working-set.js";
-import { N28_FEASIBILITY_BUDGET } from "../../src/pth/contracts/index.js";
+import { N28_FEASIBILITY_BUDGET } from "@away_from/pth-contracts";
 import { N28_WORKERS } from "../../scripts/n28-feasibility-fixture.js";
 import type { AuthorizedTaskReads } from "../../src/pth/runner/authorized-task-reads.js";
-import type { PendingRetrievalTrace } from "../../src/pth/contracts/index.js";
+import type { PendingRetrievalTrace } from "@away_from/pth-contracts";
 
 const pendingTrace = (): PendingRetrievalTrace => ({
   directorySnapshotId: "md-1", workerId: N28_WORKERS.algebra.workerId, queryFingerprint: "q-1",

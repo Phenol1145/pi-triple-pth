@@ -7,7 +7,7 @@ import {
   DEFAULT_TENANT_ID,
   PgMemoryStore,
 } from "@away_from/pth-memory";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
+import { applySchema } from "@away_from/pth-kernel-storage";
 import {
   canPromote,
   candidateHashForEntry,

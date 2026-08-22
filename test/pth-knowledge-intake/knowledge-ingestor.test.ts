@@ -22,9 +22,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHash, generateKeyPairSync, sign as edSign } from "node:crypto";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { PgMemoryStore } from "@away_from/pth-memory";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
-import { createKnowledgeIntakeRepository } from "../../src/pth/kernel/storage/knowledge-intake-pg.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { createKnowledgeIntakeRepository } from "@away_from/pth-kernel-storage";
 import {
   canonicalPolicySigningBytes,
   computePolicyDigest,
@@ -49,7 +49,7 @@ import type {
   SourceRevision,
   TrustPolicyManifest,
   VerifiedTrustPolicy,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 /** 测试内 SQL 行形状（`src/types/pg.d.ts` 的 QueryResult 行默认 unknown；这里显式给出行形状以纳入 N29 typecheck 门禁）。 */
 type SqlRow = Record<string, any>;

@@ -13,7 +13,7 @@ import {
   IntakeManualControlError,
   type IntakeManualControlService,
 } from "../../src/pth/execution/knowledge-intake/manual-control";
-import type { IntakeRun, SourceSubscription } from "../../src/pth/contracts/index";
+import type { IntakeRun, SourceSubscription } from "@away_from/pth-contracts";
 
 const AUTH = { tenantId: "t-1", role: "platform-admin", principalId: "p-1", space: "ts" };
 

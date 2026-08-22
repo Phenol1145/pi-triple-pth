@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
-import { createKernelModelRouter } from "../src/pth/kernel/execution/model-router.js";
-import { createLlmFn } from "../src/pth/kernel/interpreter/llm-fn.js";
-import { runAgentTask } from "../src/pth/kernel/execution/agent-loop.js";
+import { createKernelModelRouter } from "@away_from/pth-kernel-execution";
+import { createLlmFn } from "@away_from/pth-kernel-interpreter";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
 import { createKernelManager, createWorkerKernelWithManager } from "../src/pth/impls/kernels/kernel-manager.js";
 
 describe("agent debug full2", () => {

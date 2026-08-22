@@ -1,0 +1,27 @@
+{
+  "name": "@away_from/pth-kernel-execution",
+  "version": "1.6.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@away_from/infra": "^1.6.0",
+    "@away_from/pth-config": "^1.6.0",
+    "@away_from/pth-contracts": "^1.6.0",
+    "@away_from/pth-kernel-interpreter": "^1.6.0",
+    "@away_from/pth-kernel-storage": "^1.6.0",
+    "@away_from/pth-memory": "^1.6.1",
+    "@earendil-works/pi-coding-agent": "^0.82.1",
+    "pg": "^8.22.0",
+    "prom-client": "^15.0.0"
+  }
+}

@@ -12,7 +12,7 @@ import {
   type TaskOutcome,
   type TenantScope,
   type WorkspaceRef,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 const scope: TenantScope = {
   tenantId: "tenant-a",

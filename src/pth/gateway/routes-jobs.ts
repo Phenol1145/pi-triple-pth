@@ -13,8 +13,8 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { PthGatewayFacade } from "../application/gateway/pth-gateway-facade.js";
-import type { TenantScope } from "../contracts/index.js";
+import type { PthGatewayFacade } from "../application/index.js";
+import type { TenantScope } from "@away_from/pth-contracts";
 
 export function registerJobRoutes(app: FastifyInstance, facade: PthGatewayFacade | null): void {
   const unavailable = (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) =>

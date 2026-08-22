@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import {
   allowedDelegationTargets,
 } from "./delegation-policy.js";
-import { knownRoleById } from "../kernel/execution/worker-cluster.js";
+import { knownRoleById } from "@away_from/pth-kernel-execution";
 import {
   PENETRATION_SKILL_ID_PREFIX,
   buildPenetrationSkillContent,
@@ -20,7 +20,7 @@ import {
   validatePenetrationSkillRegistration,
   type PenetrationEdgeSpec,
 } from "./penetration-skill.js";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 
 export const PENETRATION_PROPOSAL_KIND = "penetration-proposal";

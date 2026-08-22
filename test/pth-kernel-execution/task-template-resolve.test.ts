@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveTemplateTask, interpolateEventVars, listPublicTemplates } from "../../src/pth/kernel/templates.js";
+import { resolveTemplateTask, interpolateEventVars, listPublicTemplates } from "@away_from/pth-kernel-interpreter";
 
 describe("resolveTemplateTask（任务模板统一收口 A+：发布/trigger/perf 共用解析器）", () => {
   it("基本解析：recon-doc → title=[id] name、tags=[roleTag]、payload 含 template/params", () => {

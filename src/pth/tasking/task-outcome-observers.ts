@@ -9,7 +9,7 @@
  *  - 慢 observer（optimizer）走有界后台队列，不阻塞下一轮 claim。
  */
 
-import type { TaskLease, TaskOutcome, TaskWorkItem } from "../contracts/index.js";
+import type { TaskLease, TaskOutcome, TaskWorkItem } from "@away_from/pth-contracts";
 
 export interface TaskOutcomeObserverEvent {
   outcome: TaskOutcome;

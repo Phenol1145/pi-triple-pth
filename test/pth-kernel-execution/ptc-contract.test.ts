@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { PTC_CAPABILITIES, PtcContractError, wrapValidated, buildCapabilityAsActionMap } from "../../src/pth/kernel/ptc/contract";
-import { AGENT_CAPABILITY_AS_ACTION, AGENT_CAPABILITY_IDS } from "../../src/pth/kernel/execution/parse-agent-action";
+import { PTC_CAPABILITIES, PtcContractError, wrapValidated, buildCapabilityAsActionMap } from "@away_from/pth-kernel-interpreter";
+import { AGENT_CAPABILITY_AS_ACTION, AGENT_CAPABILITY_IDS } from "@away_from/pth-kernel-execution";
 
 describe("PTC 契约注册表（A1 Phase 1）", () => {
   it("注册表覆盖全部降级能力且三要素齐全", () => {

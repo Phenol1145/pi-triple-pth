@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { createKernelManager, createWorkerKernelWithManager, sandboxGrantCapabilities } from "../../src/pth/impls/kernels/kernel-manager";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 
 describe("KernelManager（多语言路由）", () => {
   it("F2：sandbox grant 能力映射 memory → memory.read（不授 memory.query）", () => {

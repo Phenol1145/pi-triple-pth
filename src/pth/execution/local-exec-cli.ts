@@ -9,7 +9,7 @@
  */
 
 import { startLocalExecServer } from "./local-exec-server.js";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import type { ExecutionPathMapping } from "@away_from/shared/execution";
 
 export async function cmdLocalExec(args: string[]): Promise<void> {

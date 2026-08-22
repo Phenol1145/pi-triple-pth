@@ -10,8 +10,8 @@ import {
   createProfessionalRuntimeRegistry,
   type ProfessionalRuntimeAdapter,
 } from "../../src/pth/execution/professional-runtime.js";
-import { roleDefinitionRevision } from "../../src/pth/kernel/execution/worker-replica.js";
-import type { RoleDefinition } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { roleDefinitionRevision } from "@away_from/pth-kernel-execution";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 import type {
   AssemblyJobSpec,
   ExecutionGrant,
@@ -20,7 +20,7 @@ import type {
   TaskWorkItem,
   TenantScope,
   WorkerReplicaRef,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 /**
  * Task 4 / Step 1: denial-before-backing-call tests.

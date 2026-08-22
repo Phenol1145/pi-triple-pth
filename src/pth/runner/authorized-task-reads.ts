@@ -8,7 +8,7 @@
 
 import type { MemoryEntry, SkillStoreLike, SkillSummary } from "@away_from/pth-memory";
 import { getSkill, listSkills, parseSkillSummary } from "@away_from/pth-memory";
-import type { PendingRetrievalTrace, TaskLease, TaskWorkItem, WorkerReplicaRef } from "../contracts/index.js";
+import type { PendingRetrievalTrace, TaskLease, TaskWorkItem, WorkerReplicaRef } from "@away_from/pth-contracts";
 import { assertVerifiedTaskReadScope, type KnowledgeBroker, type VerifiedTaskReadScope } from "../execution/index.js";
 import type { AuthorizedStateReadPort } from "./authorized-state-reads.js";
 

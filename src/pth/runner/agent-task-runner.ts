@@ -12,28 +12,28 @@
  *  - 取消信号：进入前 aborted 直接 cancelled；运行中 aborted 触发 kernel.abort()。
  */
 
-import type { TaskLease, TaskOutcome, TaskRunner, TaskWorkItem } from "../contracts/index.js";
-import { TASK_AWAIT_SUSPENDED_CODE } from "../contracts/index.js";
-import type { WorkerKernel } from "../kernel/interpreter/index.js";
-import type { LlmFn } from "../kernel/interpreter/llm-fn.js";
-import type { WorkerRole } from "../kernel/execution/worker-cluster.js";
-import { runAgentTask, type AgentTraceEvent } from "../kernel/execution/agent-loop.js";
-import { translateTask } from "../kernel/execution/nl-translator.js";
-import { runPtcProgram } from "../kernel/ptc/runner.js";
+import type { TaskLease, TaskOutcome, TaskRunner, TaskWorkItem } from "@away_from/pth-contracts";
+import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
+import type { WorkerRole } from "@away_from/pth-kernel-execution";
+import { runAgentTask, type AgentTraceEvent } from "@away_from/pth-kernel-execution";
+import { translateTask } from "@away_from/pth-kernel-execution";
+import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
 import { defaultRunnerConfig, type RunnerConfig } from "./runner-config.js";
 import type { TaskWorkspace } from "./task-workspace.js";
 import type { KnowledgeContext, KnowledgeContextProvider } from "./knowledge-context.js";
 import { contextPromptProjection, formatKnowledgeContextPromptRows } from "./knowledge-context.js";
-import type { WorkerReplicaRef } from "../contracts/index.js";
+import type { WorkerReplicaRef } from "@away_from/pth-contracts";
 import type { MemoryDirectorySnapshot, VerifiedTaskReadScopeFactory } from "../execution/index.js";
 import type { CognitiveWorkingSetProvider } from "./cognitive-working-set.js";
 import type { AuthorizedTaskReadFactory } from "./authorized-task-reads.js";
 import type { ExecutionGrantService, ProfessionalRuntimeRegistry } from "../execution/index.js";
 
 import { createProfessionalTaskCapability, type ProfessionalArtifactPort } from "./professional-task-capability.js";
-import { canonicalExposureChars } from "../kernel/execution/cognitive-budget.js";
-import { taskToolUnion, normalizeToolName } from "../kernel/execution/agent-loop-prompt.js";
-import { visibleRegistryTools } from "../kernel/execution/tool-registry.js";
+import { canonicalExposureChars } from "@away_from/pth-kernel-execution";
+import { taskToolUnion, normalizeToolName } from "@away_from/pth-kernel-execution";
+import { visibleRegistryTools } from "@away_from/pth-kernel-interpreter";
 
 export interface AgentTaskRunnerDeps {
   kernel: WorkerKernel;
@@ -49,9 +49,9 @@ export interface AgentTaskRunnerDeps {
   onStep?: (step: { n: number; tool: string; durationMs: number; ok: boolean; args?: string }) => void;
   logger?: (msg: string) => void;
   /** N14 P2：tool-reg 注册表读取口（任务开始冻结快照——T3 防线）；缺省 = 注册面关闭 */
-  toolRegStore?: import("../kernel/execution/tool-registry.js").ToolRegStoreLike;
+  toolRegStore?: import("@away_from/pth-kernel-interpreter").ToolRegStoreLike;
   /** N14 P2：agent 态注册工具执行缝（穿透 runChild 同一闭包——深度限 1 由实现保证） */
-  toolRegRunChild?: import("../kernel/execution/tool-registry.js").ToolRegRunChild;
+  toolRegRunChild?: import("@away_from/pth-kernel-interpreter").ToolRegRunChild;
   /** K3：任务知识上下文 provider（claim 后一次性快照；抛错 → logger warn + 原文执行，降级不阻塞） */
   knowledgeContextProvider?: KnowledgeContextProvider;
   /** N28 T4：本任务副本身份（feasibility 模式注入）。 */
@@ -125,7 +125,7 @@ export class AgentTaskRunner implements TaskRunner {
 
     if (config.agentMode && llm && caps) {
       const traceEvents: AgentTraceEvent[] = [];
-      const { CacheStore } = await import("../kernel/execution/cache-store.js");
+      const { CacheStore } = await import("@away_from/pth-kernel-execution");
       const cacheStore = new CacheStore();
       const cs = cacheStore;
       const feasibility = this.deps.cognitiveResponsibilityMode === "feasibility";
@@ -149,7 +149,7 @@ export class AgentTaskRunner implements TaskRunner {
 
       // N28 T6：ToolReg 快照 hoist——provider 与 agent-loop 共用同一份冻结快照（不得二次加载）。
       const toolRegistry = this.deps.toolRegStore
-        ? await (await import("../kernel/execution/tool-registry.js")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: work.scope.tenantId })
+        ? await (await import("@away_from/pth-kernel-interpreter")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: work.scope.tenantId })
         : undefined;
 
       // N28 T4/T6：verified scope 每任务恰好 mint 一次。
@@ -358,7 +358,7 @@ export class AgentTaskRunner implements TaskRunner {
         caps: taskCaps,
         task: { title: work.title, text: taskText },
         taskWorkspace: this.deps.workspace.dir,
-        toolstore: (kernel as unknown as { toolstore?: import("../kernel/interpreter/toolstore.js").Toolstore }).toolstore,
+        toolstore: (kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
         role,
         asp: config.aspMode,
         sessionRef,

@@ -12,7 +12,7 @@ import {
   type DomainBinding,
   type DomainId,
   type DomainMatch,
-} from "../contracts/domains.js";
+} from "@away_from/pth-contracts";
 import type { DisciplineCatalogSnapshot } from "./discipline-catalog.js";
 
 export interface DisciplineResolveInput {

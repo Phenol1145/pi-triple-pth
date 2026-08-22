@@ -10,7 +10,7 @@ import { join, resolve } from "node:path";
 import { constants } from "node:fs";
 import { createConnection } from "node:net";
 import { parseSecretsEnvFile } from "./runtime-secrets.js";
-import { validatePthConfig } from "../../pth/config/index.js";
+import { validatePthConfig } from "@away_from/pth-config";
 
 export type DoctorStatus = "pass" | "warn" | "fail";
 

@@ -23,7 +23,7 @@ import {
   type ProfessionalRuntimeLock,
   type TaskLeaseReference,
   type WorkerReplicaRef,
-} from "../contracts/index.js";
+} from "@away_from/pth-contracts";
 import { canonicalGrantPayload, type ExecutionGrantService } from "./authorization/execution-grant-service.js";
 
 // ─── 已验证专业 Job auth（一次性 grantService.verify() 后 mint 的 branded envelope） ───

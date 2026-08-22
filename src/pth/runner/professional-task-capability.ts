@@ -20,9 +20,9 @@ import {
   type TaskLease,
   type TaskWorkItem,
   type WorkerReplicaRef,
-} from "../contracts/index.js";
-import { roleDefinitionRevision } from "../kernel/execution/worker-replica.js";
-import type { RoleDefinition } from "../kernel/execution/worker-cluster.js";
+} from "@away_from/pth-contracts";
+import { roleDefinitionRevision } from "@away_from/pth-kernel-execution";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 import {
   createProfessionalJobAuthVerifier,
   PROFESSIONAL_RUNTIME_ROLE_ALLOWLIST,
@@ -35,7 +35,7 @@ import type { ExecutionGrantService } from "../execution/index.js";
 /** Task 4 服务端输出预算上限：LLM 单次 professional.execute 声明的输出总量不得超过此值。 */
 export const PROFESSIONAL_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
-import type { ProfessionalArtifactPort } from "../contracts/index.js";
+import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 export type { ProfessionalArtifactPort };
 
 export interface ProfessionalOutputSpec {

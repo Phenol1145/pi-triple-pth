@@ -21,10 +21,10 @@
  *   ref 约定：27 键直引 AGENT_TOOLS；ASP-only 6 件 ref="asp-inline:<name>"。
  */
 
-import { PTC_TOOL_DEFS } from "../kernel/ptc/tools.js";
-import { ASP_ONLY_TOOLS, TOOL_GROUPS, expandToolGroups } from "../kernel/execution/agent-tools.js";
-import { AGENT_TOOLS } from "../kernel/execution/agent-tools-registry.js";
-import { DEFAULT_ROLES, GOVERNANCE_ROLES, MID_ROLES, ORIGIN_ROLE } from "../kernel/execution/builtin-roles.js";
+import { PTC_TOOL_DEFS } from "@away_from/pth-kernel-interpreter";
+import { ASP_ONLY_TOOLS, TOOL_GROUPS, expandToolGroups } from "@away_from/pth-kernel-execution";
+import { AGENT_TOOLS } from "@away_from/pth-kernel-execution";
+import { DEFAULT_ROLES, GOVERNANCE_ROLES, MID_ROLES, ORIGIN_ROLE } from "@away_from/pth-kernel-execution";
 import { buildToolRegContent, type ToolRegSpec } from "@away_from/pth-memory";
 
 /** done 的工具包归属（固定协议——不在任何工具族内） */

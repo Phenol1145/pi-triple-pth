@@ -18,20 +18,20 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHash, generateKeyPairSync, sign as edSign } from "node:crypto";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
 import {
   createKnowledgeIntakeRepository,
   KnowledgeIntakeConflictError,
   KnowledgeIntakeValidationError,
-} from "../../src/pth/kernel/storage/knowledge-intake-pg.js";
+} from "@away_from/pth-kernel-storage";
 import {
   canonicalPolicySigningBytes,
   computePolicyDigest,
   loadVerifiedTrustPolicy,
 } from "../../src/pth/execution/knowledge-intake/index.js";
 // P0-3 对抗测专用：直接使用内部 attestation 模块（故意不从 contracts barrel 导出）。
-import { attestVerifiedTrustPolicy } from "../../src/pth/contracts/knowledge-intake-attestation.js";
+import { attestVerifiedTrustPolicy } from "@away_from/pth-contracts";
 import type {
   IntakeRunStage,
   IntakeRunStatus,
@@ -41,7 +41,7 @@ import type {
   StoreAcquisitionInput,
   TrustPolicyManifest,
   VerifiedTrustPolicy,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 /** 测试内 SQL 行形状（`src/types/pg.d.ts` 的 QueryResult 行默认 unknown；这里显式给出行形状以纳入 N29 typecheck 门禁）。 */
 type SqlRow = Record<string, any>;

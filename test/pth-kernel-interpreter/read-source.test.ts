@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createReadSource } from "../../src/pth/kernel/interpreter/read-source.js";
+import { createReadSource } from "@away_from/pth-kernel-interpreter";
 import { mkdtemp, writeFile, mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

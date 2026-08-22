@@ -22,7 +22,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { AuditWriter } from "../observability/audit.js";
+import type { AuditWriter } from "../observability/index.js";
 import { SandboxExecClient, SandboxForwardError } from "../impls/kernels/index.js";
 import type { AuthContext } from "./auth.js";
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { Redis } from "ioredis";
-import { RedisSessionStore } from "../../src/pth/kernel/storage/session/redis-session-store.js";
-import type { SessionMeta, SessionEntry, Snapshot } from "../../src/pth/kernel/storage/session/types.js";
+import { RedisSessionStore } from "@away_from/pth-kernel-storage";
+import type { SessionMeta, SessionEntry, Snapshot } from "@away_from/pth-kernel-storage";
 
 const TENANT = "test-storage";
 const PROJECT = "integration";

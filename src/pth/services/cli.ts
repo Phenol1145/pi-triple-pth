@@ -29,8 +29,8 @@ import {
   statusLaunchdService,
   uninstallLaunchdService,
 } from "./launchd.js";
-import { realDockerRun } from "../tools/tool-compose.js";
-import { pthConfig } from "../config/index.js";
+import { realDockerRun } from "../tools/index.js";
+import { pthConfig } from "@away_from/pth-config";
 
 const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 const SERVICES_DIR = resolve(pthConfig().str("PTH_SERVICES_DIR") || join(REPO_ROOT, "deploy", "services"));

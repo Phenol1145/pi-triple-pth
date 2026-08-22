@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { contentHashOf } from "@away_from/pth-memory";
-import { Refiner, buildRefinePrompt, parseRefineResult, type RefineInput } from "../../src/pth/kernel/execution/refiner";
+import { Refiner, buildRefinePrompt, parseRefineResult, type RefineInput } from "@away_from/pth-kernel-execution";
 
 describe("buildRefinePrompt", () => {
   it("包含快照内容与任务信息", () => {
@@ -160,7 +160,7 @@ describe("Refiner.refine", () => {
 
 describe("任务 3：角色分化分析（有监督自动化——differentiation proposal）", () => {
   it("parseRefineResult 解析 differentiation（分化建议——结构容错）", async () => {
-    const { parseRefineResult } = await import("../../src/pth/kernel/execution/refiner.js");
+    const { parseRefineResult } = await import("@away_from/pth-kernel-execution");
     const text = JSON.stringify({
       functions: [], insights: ["insight-1"],
       differentiation: {
@@ -181,21 +181,21 @@ describe("任务 3：角色分化分析（有监督自动化——differentiatio
   });
 
   it("differentiable=false（单一同质任务）→ 不建议分化", async () => {
-    const { parseRefineResult } = await import("../../src/pth/kernel/execution/refiner.js");
+    const { parseRefineResult } = await import("@away_from/pth-kernel-execution");
     const r = parseRefineResult(JSON.stringify({ functions: [], insights: [], differentiation: { differentiable: false, subtasks: [] } }));
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.differentiation?.differentiable).toBe(false);
   });
 
   it("缺 differentiation 字段（旧格式）→ 容错 undefined", async () => {
-    const { parseRefineResult } = await import("../../src/pth/kernel/execution/refiner.js");
+    const { parseRefineResult } = await import("@away_from/pth-kernel-execution");
     const r = parseRefineResult(JSON.stringify({ functions: [], insights: [] }));
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.differentiation).toBeUndefined();
   });
 
   it("buildRefinePrompt 含分化分析指引 + 轨迹摘要", async () => {
-    const { buildRefinePrompt } = await import("../../src/pth/kernel/execution/refiner.js");
+    const { buildRefinePrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = buildRefinePrompt({
       task: { id: "t1", title: "实现+验证", tags: ["implement"], claimed_by: "developer" },
       snapshot: { functions: [], variables: [] },
@@ -212,7 +212,7 @@ describe("任务 3：角色分化分析（有监督自动化——differentiatio
 
 describe("refine 解硬编码（任务清单数据化——memory 真相源——可演化）", () => {
   it("buildRefinePrompt 按清单动态拼接（禁用任务的段落不出现）", async () => {
-    const { buildRefinePrompt, DEFAULT_REFINE_TASKS } = await import("../../src/pth/kernel/execution/refiner.js");
+    const { buildRefinePrompt, DEFAULT_REFINE_TASKS } = await import("@away_from/pth-kernel-execution");
     const noDiff = DEFAULT_REFINE_TASKS.map((t) => t.id === "differentiation" ? { ...t, enabled: false } : t);
     const prompt = buildRefinePrompt({ task: { id: "t", title: "x", tags: [] }, snapshot: { functions: [], variables: [] } }, noDiff);
     expect(prompt).toContain("functions");
@@ -222,7 +222,7 @@ describe("refine 解硬编码（任务清单数据化——memory 真相源—�
   });
 
   it("自定义任务（raw）出现在 prompt + parseRefineResult extra 提取", async () => {
-    const { buildRefinePrompt, parseRefineResult, DEFAULT_REFINE_TASKS } = await import("../../src/pth/kernel/execution/refiner.js");
+    const { buildRefinePrompt, parseRefineResult, DEFAULT_REFINE_TASKS } = await import("@away_from/pth-kernel-execution");
     type TaskDef = (typeof DEFAULT_REFINE_TASKS)[number];
     const custom: TaskDef = {
       id: "risk-scan", promptRules: ["- riskScan: 列出任务执行中遇到的风险点"],
@@ -239,7 +239,7 @@ describe("refine 解硬编码（任务清单数据化——memory 真相源—�
   });
 
   it("Refiner.loadTasks——memory 清单优先（fallback 默认）", async () => {
-    const { Refiner, DEFAULT_REFINE_TASKS } = await import("../../src/pth/kernel/execution/refiner.js");
+    const { Refiner, DEFAULT_REFINE_TASKS } = await import("@away_from/pth-kernel-execution");
     // memory 空 → fallback 默认
     const r1 = new Refiner({ llm: async () => ({ content: "{}", model: "m" }), memory: { write: async () => ({}), retrieve: async () => [] } as never });
     expect((await r1.loadTasks()).length).toBe(DEFAULT_REFINE_TASKS.length);
@@ -260,7 +260,7 @@ describe("refine 解硬编码（任务清单数据化——memory 真相源—�
   });
 
   it("raw 自定义任务持久化（persistKind 自定义——draft——不改代码加 refine 任务）", async () => {
-    const { Refiner, DEFAULT_REFINE_TASKS } = await import("../../src/pth/kernel/execution/refiner.js");
+    const { Refiner, DEFAULT_REFINE_TASKS } = await import("@away_from/pth-kernel-execution");
     const custom = {
       id: "risk-scan", promptRules: ["- riskScan: 风险点"], outputField: "riskScan",
       outputSchema: `"riskScan": ["<风险>"]`, persistKind: "risk-report", persistAs: "raw", enabled: true,

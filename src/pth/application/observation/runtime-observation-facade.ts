@@ -11,7 +11,7 @@
  */
 
 import type pg from "pg";
-import { isWorkMode } from "../../contracts/work-mode.js";
+import { isWorkMode } from "@away_from/pth-contracts";
 import {
   buildRuntimeIntervalId,
   isRuntimeIntervalKind,
@@ -23,7 +23,7 @@ import {
   type RuntimeIntervalStatus,
   type RuntimeWorkMode,
   type RuntimeWorkModeFilter,
-} from "../../contracts/runtime-observation.js";
+} from "@away_from/pth-contracts";
 
 export const RUNTIME_TIMELINE_MAX_RANGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RUNTIME_TIMELINE_DEFAULT_LIMIT = 500;

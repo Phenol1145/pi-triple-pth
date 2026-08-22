@@ -18,7 +18,7 @@ import { mkdtemp, rm, mkdir, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DefaultTaskWorkspaceManager } from "../../src/pth/kernel/execution/workspace";
+import { DefaultTaskWorkspaceManager } from "@away_from/pth-kernel-execution";
 
 describe("task workspace", () => {
   let base: string;
@@ -62,7 +62,7 @@ describe("task workspace", () => {
 
 describe("archive EXDEV fallback", () => {
   it("rename 跨设备失败 → 复制+删除（产物完整落 artifacts）", async () => {
-    const { DefaultTaskWorkspaceManager } = await import("../../src/pth/kernel/execution/workspace.js");
+    const { DefaultTaskWorkspaceManager } = await import("@away_from/pth-kernel-execution");
     const fsp = await import("node:fs/promises");
     const os = await import("node:os");
     const path = await import("node:path");

@@ -7,8 +7,8 @@
  */
 
 import type pg from "pg";
-import type { Task, TaskStore } from "../kernel/storage/task-store-pg.js";
-import type { PublishInput } from "../kernel/storage/task-store-pg.js";
+import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
+import type { PublishInput } from "@away_from/pth-kernel-storage";
 import {
   buildEntryDelivery,
   isTaskDeliveryStructurallyValid,
@@ -23,13 +23,13 @@ import {
   type TaskDispatchContext,
   type TenantScope,
   type WorkMode,
-} from "../contracts/index.js";
-import type { DomainBinding } from "../contracts/domains.js";
+} from "@away_from/pth-contracts";
+import type { DomainBinding } from "@away_from/pth-contracts";
 import { PgTaskQueries } from "./task-queries.js";
 import { allowedDelegationTargets } from "./delegation-policy.js";
-import { tagRegistry } from "../kernel/execution/tag-registry.js";
-import { resolveTemplateTask } from "../kernel/templates.js";
-import { PtcContractError } from "../kernel/ptc/contract.js";
+import { tagRegistry } from "@away_from/pth-kernel-execution";
+import { resolveTemplateTask } from "@away_from/pth-kernel-interpreter";
+import { PtcContractError } from "@away_from/pth-kernel-interpreter";
 
 export interface TaskControlServiceDeps {
   store: Pick<TaskStore, "publish">;

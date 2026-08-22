@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { roleAnchorOf, hasRoleAnchor, filterOwnEntries, filterOwnRows, requireAnchorRows } from "../../src/pth/kernel/execution/memory-scope.js";
+import { roleAnchorOf, hasRoleAnchor, filterOwnEntries, filterOwnRows, requireAnchorRows } from "@away_from/pth-kernel-execution";
 
 describe("memoryScope=own 角色域过滤（模块优化 ⑤）", () => {
   it("role anchor 与条目过滤", () => {

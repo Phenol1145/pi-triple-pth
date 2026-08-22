@@ -8,7 +8,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, statSync, truncateSync, readFileSync, openSync, closeSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import type { HostServiceManifest } from "./service-manifest.js";
 import {
   defaultServiceLogDir,

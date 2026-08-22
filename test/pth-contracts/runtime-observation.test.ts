@@ -12,7 +12,7 @@ import {
   type ResourceSample,
   type RuntimeInterval,
   type RuntimeSnapshot,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 const freshness: FreshnessStamp = {
   sourceObservedAt: 1200,

@@ -7,7 +7,7 @@
  */
 
 import { isVisible } from "@away_from/pth-memory";
-import type { DataWorldAccess } from "../../kernel/storage/index.js";
+import type { DataWorldAccess } from "@away_from/pth-kernel-storage";
 import type { ExecutionGrantService } from "../authorization/execution-grant-service.js";
 import { createKnowledgeBroker, searchKnowledgeEntries, type KnowledgeBroker } from "../knowledge-broker.js";
 

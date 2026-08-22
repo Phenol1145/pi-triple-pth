@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
-import type { WorkerKernel } from "../../src/pth/kernel/interpreter/index.js";
-import type { ToolRegSnapshot } from "../../src/pth/kernel/execution/tool-registry.js";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import type { ToolRegSnapshot } from "@away_from/pth-kernel-interpreter";
 import type { ToolRegSpec } from "@away_from/pth-memory";
 
 function fakeKernel(): WorkerKernel {

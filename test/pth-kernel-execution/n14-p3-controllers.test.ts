@@ -58,7 +58,7 @@ describe("N14 P3：controller 三新点位注册（builtin-roles）", () => {
   });
 
   it("谱系可见 + 显式可派发（parseRoleWeights known 集合含新点位）", async () => {
-    const { allLineageRoles, allWorkerRoles, parseRoleWeights } = await import("../../src/pth/kernel/execution/worker-cluster.js");
+    const { allLineageRoles, allWorkerRoles, parseRoleWeights } = await import("@away_from/pth-kernel-execution");
     const lineage = allLineageRoles().map((r) => r.id);
     const dispatched = allWorkerRoles().map((r) => r.id);
     for (const id of NEW_CONTROLLERS) {

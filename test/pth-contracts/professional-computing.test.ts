@@ -13,7 +13,7 @@ import {
   type TaskLeaseReference,
   type WolframJobSpec,
   type WorkerReplicaRef,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 const artifact: ArtifactRef = {
   kind: "source",

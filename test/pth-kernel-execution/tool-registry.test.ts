@@ -5,12 +5,12 @@ import {
   registryToolToSchema,
   visibleRegistryTools,
   type ToolRegStoreLike,
-} from "../../src/pth/kernel/execution/tool-registry.js";
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
+} from "@away_from/pth-kernel-interpreter";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
 import { buildToolRegContent, type ToolRegSpec } from "@away_from/pth-memory";
-import { resetConfig } from "../../src/pth/kernel/extensions/perf-params.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
-import type { WorkerKernel } from "../../src/pth/kernel/interpreter/index.js";
+import { resetConfig } from "@away_from/pth-kernel-interpreter";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
+import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 
 /** 构造合法注册条目 spec（缺省 program 态） */
 function spec(name: string, roles: string[], overrides: Partial<ToolRegSpec> = {}): ToolRegSpec {

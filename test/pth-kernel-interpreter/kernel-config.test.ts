@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadKernelConfig } from "../../src/pth/kernel/interpreter/kernel-config.js";
+import { loadKernelConfig } from "@away_from/pth-kernel-interpreter";
 
 describe("kernel config（参数化，仿 PG 可调）", () => {
   it("默认值：懒 spawn 开 / 空闲回收 5min / reset 模式 ns", () => {

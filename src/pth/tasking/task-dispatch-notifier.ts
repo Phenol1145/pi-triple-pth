@@ -12,7 +12,7 @@
  */
 
 import type pg from "pg";
-import type { TaskAwaitResult, TaskDelivery } from "../contracts/index.js";
+import type { TaskAwaitResult, TaskDelivery } from "@away_from/pth-contracts";
 
 export interface TaskDispatchNotifierDeps {
   pool: pg.Pool;

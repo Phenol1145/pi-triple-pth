@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { runPtcProgram } from "../../src/pth/kernel/ptc/runner";
-import { buildCapabilityIndexDoc, renderCapabilityLine } from "../../src/pth/kernel/ptc/docs";
-import { PTC_CAPABILITIES } from "../../src/pth/kernel/ptc/contract";
+import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
+import { buildCapabilityIndexDoc, renderCapabilityLine } from "@away_from/pth-kernel-interpreter";
+import { PTC_CAPABILITIES } from "@away_from/pth-kernel-interpreter";
 
 function mockTs(impl?: (code: string, opts: any) => Promise<any>) {
   return {

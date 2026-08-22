@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   validateNotebookGuideManifest,
   type NotebookGuideManifest,
-} from "../../src/pth/contracts/notebook-guide.js";
+} from "@away_from/pth-contracts";
 import {
   buildNotebookGuide,
   scanNotebook,

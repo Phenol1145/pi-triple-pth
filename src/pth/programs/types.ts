@@ -1,7 +1,7 @@
 /**
  * PTH agent program manifest (agent.json schema).
  */
-import type { ProgramManifest, Result } from "../contracts/index.js";
+import type { ProgramManifest, Result } from "@away_from/pth-contracts";
 
 export type { ProgramManifest, Result };
 

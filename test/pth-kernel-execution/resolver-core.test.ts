@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchesRule, validateFlow, isResolvable } from "../../src/pth/kernel/execution/resolver-core";
+import { matchesRule, validateFlow, isResolvable } from "@away_from/pth-kernel-execution";
 
 describe("matchesRule（JSON 匹配）", () => {
   it("精确匹配 payload 顶层字段", () => {

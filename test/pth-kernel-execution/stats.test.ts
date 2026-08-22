@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { collectStats, suggest } from "../../src/pth/kernel/execution/stats";
+import { collectStats, suggest } from "@away_from/pth-kernel-execution";
 
 describe("load stats", () => {
   it("collectStats reads pending count and idle ratio", async () => {

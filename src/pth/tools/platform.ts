@@ -1,6 +1,6 @@
 import type { ToolRegistry } from "./registry.js";
-import type { AuditWriter } from "../observability/audit.js";
-import type { Metrics } from "../observability/metrics.js";
+import type { AuditWriter } from "../observability/index.js";
+import type { Metrics } from "../observability/index.js";
 import type { Logger } from "@away_from/infra";
 import type { ToolCallRequest, ToolResult } from "./types.js";
 

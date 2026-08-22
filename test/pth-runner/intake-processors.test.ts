@@ -20,7 +20,7 @@ import {
   type IntakeReviewRequest,
 } from "../../src/pth/runner/intake-processors.js";
 import { computeCandidateHash, type VerificationPlanRecord } from "../../src/pth/execution/index.js";
-import type { LlmFn, LlmResult } from "../../src/pth/kernel/interpreter/llm-fn.js";
+import type { LlmFn, LlmResult } from "@away_from/pth-kernel-interpreter";
 
 const TENANT = "tenant-a";
 const DOMAIN = "mathematics";

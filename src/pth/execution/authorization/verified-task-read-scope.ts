@@ -8,7 +8,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { ExecutionGrant, TaskLease, TaskWorkItem, WorkerReplicaRef } from "../../contracts/index.js";
+import type { ExecutionGrant, TaskLease, TaskWorkItem, WorkerReplicaRef } from "@away_from/pth-contracts";
 import { canonicalGrantPayload, type ExecutionGrantService } from "./execution-grant-service.js";
 
 const SCOPE_BRAND = new WeakSet<object>();

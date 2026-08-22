@@ -11,7 +11,7 @@ import { createTranscriptObserver } from "../../src/pth/runner/observers/transcr
 import { createActivityObserver } from "../../src/pth/runner/observers/activity-observer.js";
 import { createMetricsObserver } from "../../src/pth/runner/observers/metrics-observer.js";
 import { buildRefineSideEffects } from "../../src/pth/runner/observers/refine-observer.js";
-import type { TaskLease, TaskOutcome, TaskWorkItem } from "../../src/pth/contracts/index.js";
+import type { TaskLease, TaskOutcome, TaskWorkItem } from "@away_from/pth-contracts";
 
 function lease(): TaskLease {
   return {

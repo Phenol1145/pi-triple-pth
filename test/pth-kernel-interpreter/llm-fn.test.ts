@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createLlmFn } from "../../src/pth/kernel/interpreter/llm-fn";
+import { createLlmFn } from "@away_from/pth-kernel-interpreter";
 
 /** mock ModelRuntime（对齐 pi ModelRuntime.completeSimple 签名） */
 function mockRuntime(impl?: (model: any, context: any) => Promise<any>) {

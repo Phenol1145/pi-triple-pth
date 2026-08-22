@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { spaceRegistry } from "../../src/pth/kernel/execution/space-registry.js";
-import { runAgentTask } from "../../src/pth/kernel/execution/agent-loop.js";
-import type { LlmFn } from "../../src/pth/kernel/interpreter/llm-fn.js";
+import { spaceRegistry } from "@away_from/pth-kernel-interpreter";
+import { runAgentTask } from "@away_from/pth-kernel-execution";
+import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 
 describe("space-registry（空间注册表——数据驱动）", () => {
   it("内置空间随模块加载（meta + ts/python/bash/dev/write——2026-08-11 c 撤销/生产核 dev 上线；2026-08-12 批 2 write 上线）", () => {
@@ -160,7 +160,7 @@ describe("asp.index（空间索引——双聚合模式）", () => {
   });
 
   it("ts 空间 by-package：扩展包展开（memory/llm/fs 各包能力键）", async () => {
-    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const { buildSpaceIndex } = await import("@away_from/pth-kernel-execution");
     const out = await buildSpaceIndex({ mode: "by-package" }, { currentSpace: "ts", kernel: kernelWithSnap(), caps: capsWith });
     expect(out).toContain("memory: query/write");
     expect(out).toContain("llm: complete");
@@ -168,7 +168,7 @@ describe("asp.index（空间索引——双聚合模式）", () => {
   });
 
   it("ts 空间 by-type：变量/函数快照", async () => {
-    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const { buildSpaceIndex } = await import("@away_from/pth-kernel-execution");
     const out = await buildSpaceIndex({ mode: "by-type", space: "ts" }, { currentSpace: "meta", kernel: kernelWithSnap(), caps: capsWith });
     expect(out).toContain("total");
     expect(out).toContain("helper");
@@ -176,21 +176,21 @@ describe("asp.index（空间索引——双聚合模式）", () => {
   });
 
   it("python 空间：snapshot 分区视图", async () => {
-    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const { buildSpaceIndex } = await import("@away_from/pth-kernel-execution");
     const out = await buildSpaceIndex({ space: "python" }, { currentSpace: "meta", kernel: kernelWithSnap(), caps: capsWith });
     expect(out).toContain("py_var");
     expect(out).toContain("python 空间");
   });
 
   it("指定未知空间 → 错误提示含已注册清单", async () => {
-    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const { buildSpaceIndex } = await import("@away_from/pth-kernel-execution");
     const out = await buildSpaceIndex({ space: "narnia" }, { currentSpace: "meta", kernel: kernelWithSnap(), caps: capsWith });
     expect(out).toContain("未知空间");
     expect(out).toContain("ts");
   });
 
   it("输出体积纪律：单层 ≤ ~2KB", async () => {
-    const { buildSpaceIndex } = await import("../../src/pth/kernel/execution/space-index.js");
+    const { buildSpaceIndex } = await import("@away_from/pth-kernel-execution");
     const bigCaps: Record<string, unknown> = {};
     for (let i = 0; i < 50; i++) bigCaps[`pkg_${i}`] = Object.fromEntries(Array.from({ length: 20 }, (_, j) => [`fn_${j}`, () => {}]));
     const out = await buildSpaceIndex({ mode: "by-package" }, { currentSpace: "ts", kernel: kernelWithSnap(), caps: bigCaps });
@@ -235,7 +235,7 @@ describe("审计修复（2026-08-12）", () => {
 
 
 // ── N8 空间-角色绑定（2026-08-14——生成即绑定：注册事实 + 进入校验）────────────────
-import { isRoleBoundToSpace } from "../../src/pth/kernel/execution/space-registry.js";
+import { isRoleBoundToSpace } from "@away_from/pth-kernel-interpreter";
 
 describe("space-registry 绑定（N8——注册事实）", () => {
   afterEach(() => {

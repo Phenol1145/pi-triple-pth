@@ -12,7 +12,7 @@ import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ProfessionalJobRequest, Psi4JobSpec, QuantumEspressoJobSpec } from "../../src/pth/contracts/index.js";
+import type { ProfessionalJobRequest, Psi4JobSpec, QuantumEspressoJobSpec } from "@away_from/pth-contracts";
 import { createProfessionalArtifactPort } from "../../src/pth/bootstrap/professional-runtime-adapters.js";
 import {
   createPsi4RuntimeAdapter,

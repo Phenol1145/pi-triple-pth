@@ -10,7 +10,7 @@ import {
   type PgMemoryStorePromoteOfficialOptions,
   type PgMemoryStorePromotionMeta,
 } from "@away_from/pth-memory";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
+import { applySchema } from "@away_from/pth-kernel-storage";
 import {
   canPromote,
   computeCandidateHash,

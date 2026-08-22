@@ -12,8 +12,8 @@ import {
   validateDomainBinding,
   type DomainBinding,
   type DomainId,
-} from "../contracts/domains.js";
-import { isWorkMode, type TaskWorkItem, type TenantScope, type WorkMode } from "../contracts/index.js";
+} from "@away_from/pth-contracts";
+import { isWorkMode, type TaskWorkItem, type TenantScope, type WorkMode } from "@away_from/pth-contracts";
 
 export interface TaskWorkRow {
   id: string;

@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
-import { PgTaskStore } from "../../src/pth/kernel/storage/task-store-pg.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { PgTaskStore } from "@away_from/pth-kernel-storage";
 import { TaskControlService, TaskAwaitSuspendedError } from "../../src/pth/tasking/task-control-service.js";
 import { PgTaskQueries } from "../../src/pth/tasking/task-queries.js";
 import { readWorkItemDomainBinding, readWorkItemDomains } from "../../src/pth/tasking/task-work-item-reader.js";
 import { createPgTaskRepository } from "../../src/pth/tasking/adapters/pg-task-repository.js";
-import { checkTaskRouting, routeTaskRole } from "../../src/pth/kernel/execution/role-router.js";
+import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
 import { installDefaultRoles } from "../helpers.js";
-import type { TenantScope } from "../../src/pth/contracts/index.js";
+import type { TenantScope } from "@away_from/pth-contracts";
 
 async function hasDocker(): Promise<boolean> {
   if (process.env.PTH_TEST_NO_DOCKER === "1") return false;

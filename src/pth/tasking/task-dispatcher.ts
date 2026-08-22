@@ -16,7 +16,7 @@ import {
   type TaskRepository,
   type TaskRunner,
   type TenantScope,
-} from "../contracts/index.js";
+} from "@away_from/pth-contracts";
 import type { TaskOutcomeCommitter, TaskOutcomeSideEffect } from "./task-outcome-committer.js";
 import {
   notifyObservers,

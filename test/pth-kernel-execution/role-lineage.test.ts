@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   allLineageRoles, buildRoleLineage, renderRoleLineage,
   registerWorkerRole, resetExtraRoles,
-} from "../../src/pth/kernel/execution/worker-cluster.js";
+} from "@away_from/pth-kernel-execution";
 import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES } from "../../src/pth/impls/roles/default-roles.js";
-import { PROFESSIONAL_ROLES } from "../../src/pth/kernel/execution/professional-roles.js";
+import { PROFESSIONAL_ROLES } from "@away_from/pth-kernel-execution";
 import { installDefaultRoles } from "../helpers.js";
 
 beforeEach(() => installDefaultRoles());
-import { buildRoleDoc } from "../../src/pth/kernel/prompt-docs.js";
+import { buildRoleDoc } from "@away_from/pth-kernel-execution";
 
 describe("角色谱系树（树状分化——Origin 根 → 任务分化诱导逐代生长）", () => {
   it("Origin 根角色定义（generation=0——无 parent——全能）", () => {

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { AgentEngine } from "../core/agent-engine.js";
+import type { AgentEngine } from "../core/index.js";
 import { writeSSE } from "./sse.js";
 
 export function registerSessionRoutes(app: FastifyInstance, engine: AgentEngine) {

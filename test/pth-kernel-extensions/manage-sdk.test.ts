@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildExtensions } from "../../src/pth/kernel/extensions/index.js";
-import { runReadOnlyPgView } from "../../src/pth/kernel/storage/index.js";
+import { buildExtensions } from "@away_from/pth-kernel-interpreter";
+import { runReadOnlyPgView } from "@away_from/pth-kernel-storage";
 import type pg from "pg";
 
 /** 构造测试 ExtContext（内存 fake memory store） */
@@ -238,7 +238,7 @@ describe("管理 SDK——obs 观测面扩展", () => {
 
 describe("obs.callpoint SQL（2026-08-12 sensor 上报的基础设施缺陷修复）", () => {
   it("content 是 text 列——::jsonb 转换后字段可读（修复前 jsonb 操作符报错）", async () => {
-    const sql = await (await import("../../src/pth/kernel/extensions/obs.js")).default;
+    const sql = await (await import("@away_from/pth-kernel-interpreter")).default;
     // 直接验证 SQL 字符串形态（content::jsonb 转换存在——避免对 DB 的依赖）
     const src = (await (await import("node:fs/promises")).readFile("src/pth/kernel/extensions/obs.ts", "utf8"));
     expect(src).toContain("content::jsonb->>'steps'");
@@ -248,7 +248,7 @@ describe("obs.callpoint SQL（2026-08-12 sensor 上报的基础设施缺陷修�
 
 describe("token 缓存命中率链路（2026-08-12 用户问询补齐）", () => {
   it("scorecard 聚合 cacheRead/cacheWrite（llm-call usage 透传）", async () => {
-    const { buildScorecard } = await import("../../src/pth/kernel/execution/worker-scorecard.js");
+    const { buildScorecard } = await import("@away_from/pth-kernel-execution");
     const sc = buildScorecard([
       { type: "llm-call", step: 1, contentPreview: "", usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 700, cacheWriteTokens: 200 } },
       { type: "llm-call", step: 2, contentPreview: "", usage: { inputTokens: 500, outputTokens: 50, cacheReadTokens: 400, cacheWriteTokens: 0 } },

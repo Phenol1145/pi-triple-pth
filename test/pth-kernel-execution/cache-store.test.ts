@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CacheStore } from "../../src/pth/kernel/execution/cache-store.js";
+import { CacheStore } from "@away_from/pth-kernel-execution";
 
 describe("CacheStore（随身缓存——硬容量限制）", () => {
   it("load/get/cancel 基本循环", () => {

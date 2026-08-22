@@ -22,7 +22,7 @@ import {
   saveToolRegistry,
   type ToolRegistryFile,
 } from "./tool-registry.js";
-import { pthConfig } from "../config/index.js";
+import { pthConfig } from "@away_from/pth-config";
 import {
   realDockerRun,
   renderToolCompose,

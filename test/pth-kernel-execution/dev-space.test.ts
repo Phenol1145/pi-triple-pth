@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { AGENT_TOOLS } from "../../src/pth/kernel/execution/agent-tools.js";
-import { toolsForExecTool } from "../../src/pth/kernel/execution/agent-tools.js";
+import { AGENT_TOOLS } from "@away_from/pth-kernel-execution";
+import { toolsForExecTool } from "@away_from/pth-kernel-execution";
 
 /** 生产核 dev 空间（2026-08-11）：工具面族展开 + debug.* handler（debugApi 注入 mock） */
 describe("生产核 dev 空间工具面", () => {

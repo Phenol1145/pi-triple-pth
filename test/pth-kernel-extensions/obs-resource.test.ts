@@ -13,7 +13,7 @@ describe("obs.resource 聚合含 kernels（S1-1）", () => {
   });
 
   async function makeObs() {
-    const { obsExtension } = await import("../../src/pth/kernel/extensions/obs.js");
+    const { obsExtension } = await import("@away_from/pth-kernel-interpreter");
     return obsExtension.provide!({
       dataWorld: {
         pgStat: async () => [],

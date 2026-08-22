@@ -8,9 +8,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { checkResponsibilityCapacity } from "../contracts/index.js";
-import type { MemoryRegion, MemoryResponsibility, MemoryType, ResponsibilityCapacity, WorkerReplicaRef } from "../contracts/index.js";
-import type { KnowledgeMemoryEntry } from "./knowledge-broker.js";
+import { checkResponsibilityCapacity } from "@away_from/pth-contracts";
+import type { MemoryRegion, MemoryResponsibility, MemoryType, ResponsibilityCapacity, WorkerReplicaRef } from "@away_from/pth-contracts";
+import type { KnowledgeMemoryEntry } from "./knowledge-types.js";
 
 export interface RegionMembership {
   tenantId: string;

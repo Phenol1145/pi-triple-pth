@@ -10,7 +10,7 @@ import type {
   ExecutionLanguage,
   TenantScope,
   WorkspaceRef,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 const key = createHmacGrantKeyProvider({ secret: "test-signing-key-0123456789abcdef" });
 const otherKey = createHmacGrantKeyProvider({ secret: "other-signing-key-0123456789abcdef" });

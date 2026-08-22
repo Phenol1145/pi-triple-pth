@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import type {
   ProfessionalRuntimeId,
   ProfessionalRuntimeLock,
-} from "../src/pth/contracts/professional-computing.js";
+} from "@away_from/pth-contracts";
 
 const LOCK_PATH = fileURLToPath(new URL("../deploy/professional-runtime-lock.json", import.meta.url));
 

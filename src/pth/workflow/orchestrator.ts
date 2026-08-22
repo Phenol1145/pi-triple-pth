@@ -1,8 +1,8 @@
 import type { Redis } from "ioredis";
-import type { AgentEngine } from "../core/agent-engine.js";
-import type { SessionStore } from "../kernel/storage/session/interfaces.js";
+import type { AgentEngine } from "../core/index.js";
+import type { SessionStore } from "@away_from/pth-kernel-storage";
 import type { Logger } from "@away_from/infra";
-import type { Metrics } from "../observability/metrics.js";
+import type { Metrics } from "../observability/index.js";
 import type { WorkflowDefinition, WorkflowState, WorkflowStep } from "./types.js";
 
 export class WorkflowOrchestrator {

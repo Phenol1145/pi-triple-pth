@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { resetConfig, config, configNumber } from "../../src/pth/kernel/extensions/perf-params.js";
+import { resetConfig, config, configNumber } from "@away_from/pth-kernel-interpreter";
 
 /**
  * 配置中心（Phase 2——perf 底座）：env 快照加载 + 运行时 set + 订阅。

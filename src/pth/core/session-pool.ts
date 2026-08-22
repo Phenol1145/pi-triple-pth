@@ -1,6 +1,6 @@
 import type { Logger } from "@away_from/infra";
-import type { Metrics } from "../observability/metrics.js";
-import type { SessionStore } from "../kernel/storage/session/interfaces.js";
+import type { Metrics } from "../observability/index.js";
+import type { SessionStore } from "@away_from/pth-kernel-storage";
 import type { VersionSnapshot } from "./types.js";
 import type { Redis } from "ioredis";
 

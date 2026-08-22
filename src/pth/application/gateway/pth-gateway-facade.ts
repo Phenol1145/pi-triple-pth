@@ -8,7 +8,7 @@
 
 import type { KernelRuntime, BatchProfile, PublishInput, Task } from "../../kernel/index.js";
 import { DEFAULT_TENANT_ID, withMemoryTenant, type MemoryEntry } from "@away_from/pth-memory";
-import type { TaskCancelResult, TenantScope } from "../../contracts/index.js";
+import type { TaskCancelResult, TenantScope } from "@away_from/pth-contracts";
 import { TaskControlService, PgTaskQueries } from "../../tasking/index.js";
 import {
   createPgKnowledgeVerificationRepo,
@@ -16,9 +16,9 @@ import {
   recordKnowledgeVerdict,
   type KnowledgeServiceAuth,
   type KnowledgeVerificationRepo,
-} from "../../execution/knowledge-promotion.js";
-import { buildRestrictedKnowledgeQuery } from "../../execution/knowledge-broker.js";
-import type { KnowledgeVerdict } from "../../execution/knowledge-verdicts.js";
+} from "../../execution/index.js";
+import { buildRestrictedKnowledgeQuery } from "../../execution/index.js";
+import type { KnowledgeVerdict } from "../../execution/index.js";
 import {
   RuntimeObservationFacade,
   type RuntimeObservationScope,

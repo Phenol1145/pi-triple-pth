@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { roleDefinitionRevision, WorkerReplica } from "../../src/pth/kernel/execution/worker-replica.js";
-import type { RoleDefinition } from "../../src/pth/kernel/execution/worker-cluster.js";
-import type { WorkerReplicaRef } from "../../src/pth/contracts/index.js";
+import { roleDefinitionRevision, WorkerReplica } from "@away_from/pth-kernel-execution";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
+import type { WorkerReplicaRef } from "@away_from/pth-contracts";
 import { assembleBatchRuntime, runBatchHost } from "../../src/pth/bootstrap/batch-runtime-assembly.js";
 
 const role: RoleDefinition = { id: "researcher", tags: ["research"], prompt: "p" };

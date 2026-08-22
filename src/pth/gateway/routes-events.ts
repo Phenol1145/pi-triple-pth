@@ -16,8 +16,8 @@
 
 import crypto from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import type { AgentEngine } from "../core/agent-engine.js";
-import type { AuditWriter } from "../observability/audit.js";
+import type { AgentEngine } from "../core/index.js";
+import type { AuditWriter } from "../observability/index.js";
 
 export function registerEventsRoutes(app: FastifyInstance, engine: AgentEngine, audit?: AuditWriter) {
   app.post("/api/v1/events", async (req, reply) => {

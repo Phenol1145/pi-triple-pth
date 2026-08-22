@@ -10,7 +10,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import type { FallbackRequestStore } from "../fallback/requests.js";
+import type { FallbackRequestStore } from "../fallback/index.js";
 
 export function registerFallbackRoutes(app: FastifyInstance, store: FallbackRequestStore) {
   app.post("/api/v1/fallback-requests", async (req, reply) => {

@@ -6,8 +6,8 @@
  * 绝不折叠成单一 ambiguous principalId；测试不得重述分支逻辑。
  */
 
-import { createWorkerReplica, roleDefinitionRevision, type WorkerReplica } from "../kernel/execution/worker-replica.js";
-import type { RoleDefinition } from "../kernel/execution/worker-cluster.js";
+import { createWorkerReplica, roleDefinitionRevision, type WorkerReplica } from "@away_from/pth-kernel-execution";
+import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 
 export interface WorkerSlotIdentity {
   /** off 模式为 undefined（legacy 无副本身份）；feasibility 模式为新建副本。 */

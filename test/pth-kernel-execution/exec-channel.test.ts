@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { KernelExecChannel } from "../../src/pth/kernel/exec-channel.js";
+import { KernelExecChannel } from "@away_from/pth-kernel-execution";
 
 /** 假 kernel 工厂（真实装配走 sandbox/python——单测只验通道行为） */
 function fakeKernelFactory(calls: { n: number }) {

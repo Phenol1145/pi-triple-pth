@@ -39,7 +39,30 @@ export interface ScannedImport {
   targetPath: string | null;
 }
 
-const CROSS_MODULES = ["tasking", "runner", "execution", "catalog", "bootstrap"] as const;
+/** src/pth 下所有顶层模块目录。跨模块深路径一律走各模块 index.ts（bootstrap 组合根除外）。 */
+const PTH_MODULES = [
+  "application",
+  "bootstrap",
+  "catalog",
+  "components",
+  "config",
+  "contracts",
+  "core",
+  "execution",
+  "fallback",
+  "gateway",
+  "impls",
+  "kernel",
+  "observability",
+  "programs",
+  "runner",
+  "self-modify",
+  "services",
+  "tasking",
+  "tools",
+  "workflow",
+] as const;
+const CROSS_MODULES = PTH_MODULES;
 const CONTRACTS_FORBIDDEN = new Set(["fastify", "pg", "ioredis", "redis", "@away_from/pth-sandbox"]);
 const SANDBOX_PACKAGE = "@away_from/pth-sandbox";
 const SANDBOX_ALLOWED_PREFIXES = ["impls/kernels/", "bootstrap/"];
@@ -138,16 +161,18 @@ export async function collectBoundaryViolations(srcRoot: string): Promise<Bounda
             violations.push({ rule: "gateway-private-import", file: importerRel, line: imp.line, detail: targetPath });
           }
 
-          // 跨模块 storage adapter：tasking/runner/execution/catalog 不得 runtime-import
+          // 跨模块 storage adapter：非 kernel/bootstrap 模块不得 runtime-import
           // kernel/storage/* adapter；type-only 引用与 pg.ts 事务工具放行（adapter 本身可持有）。
           // 模块化优化 P0 例外：bootstrap 是组合根（task-loop/batch-process 装配点），
           // 负责把 PG 适配器绑定进 kernel——允许 runtime-import kernel/storage/*。
           const module = importerRel.split("/")[0];
           if (
             module !== "bootstrap" &&
+            module !== "kernel" &&
             (CROSS_MODULES as readonly string[]).includes(module) &&
             targetPath !== null &&
             targetPath.startsWith("kernel/storage/") &&
+            targetPath.split("/")[0] !== module &&
             targetPath !== "kernel/storage/pg.ts" &&
             imp.kind === "runtime"
           ) {
@@ -155,7 +180,9 @@ export async function collectBoundaryViolations(srcRoot: string): Promise<Bounda
           }
 
           // 跨模块私有 import：模块之间只允许走他方 index.ts 公共 API
+          // bootstrap 是组合根，允许显式装配深路径（batch-process/task-loop 等）。
           if (
+            module !== "bootstrap" &&
             (CROSS_MODULES as readonly string[]).includes(module) &&
             targetPath !== null &&
             targetPath.includes("/") &&

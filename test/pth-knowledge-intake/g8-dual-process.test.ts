@@ -14,9 +14,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
-import { applySchema } from "../../src/pth/kernel/storage/schema.js";
-import { PgSideEffectOutbox } from "../../src/pth/tasking/side-effect-outbox.js";
+import { createPgPool } from "@away_from/pth-kernel-storage";
+import { applySchema } from "@away_from/pth-kernel-storage";
+import { PgSideEffectOutbox } from "@away_from/pth-kernel-storage";
 
 const TENANT = "t-g8";
 const HERE = path.dirname(fileURLToPath(import.meta.url));

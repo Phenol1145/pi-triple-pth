@@ -3,8 +3,8 @@ import {
   buildCapabilities,
   type TaskDispatchPort,
 } from "../../src/pth/impls/kernels/capability.js";
-import { PtcContractError } from "../../src/pth/kernel/ptc/contract.js";
-import type { TaskDispatchContext } from "../../src/pth/contracts/index.js";
+import { PtcContractError } from "@away_from/pth-kernel-interpreter";
+import type { TaskDispatchContext } from "@away_from/pth-contracts";
 
 function fakeDataWorld(): Record<string, unknown> {
   return {

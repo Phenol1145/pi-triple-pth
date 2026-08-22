@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createServer, type AddressInfo } from "node:http";
-import { spaceRegistry } from "../../src/pth/kernel/execution/space-registry.js";
-import { buildSpaceIndex } from "../../src/pth/kernel/execution/space-index.js";
+import { spaceRegistry } from "@away_from/pth-kernel-interpreter";
+import { buildSpaceIndex } from "@away_from/pth-kernel-execution";
 import { PyKernel } from "@away_from/pth-sandbox";
 import { BashKernel } from "@away_from/pth-sandbox";
 

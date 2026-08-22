@@ -31,11 +31,11 @@ import type {
   ProfessionalJobRequest,
   ProfessionalJobResult,
   ProfessionalRuntimeLock,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 import {
   validateNotebookGuideDomainReview,
   validateNotebookGuideManifest,
-} from "../../src/pth/contracts/notebook-guide.js";
+} from "@away_from/pth-contracts";
 import { buildNotebookGuide, type NotebookLesson } from "../../src/pth/execution/notebook-guide.js";
 import { createProfessionalArtifactPort } from "../../src/pth/bootstrap/professional-runtime-adapters.js";
 import { createAssemblyRuntimeAdapter, type AssemblyJobValue } from "../../src/pth/execution/adapters/assembly-runtime-adapter.js";
@@ -141,7 +141,7 @@ async function persistJobResult(vertical: SourceJobRecord["vertical"], jobId: st
   return record;
 }
 
-function educatorRequest(jobId: string, notebookRef: ArtifactRef, checks: readonly { name: string; expected: string }[]): ProfessionalJobRequest<import("../../src/pth/contracts/index.js").JupyterJobSpec> {
+function educatorRequest(jobId: string, notebookRef: ArtifactRef, checks: readonly { name: string; expected: string }[]): ProfessionalJobRequest<import("@away_from/pth-contracts").JupyterJobSpec> {
   return {
     jobId,
     taskId: "task-edu",

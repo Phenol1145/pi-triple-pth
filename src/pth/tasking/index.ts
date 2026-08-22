@@ -3,7 +3,7 @@
  * 跨模块消费方只允许 import 本文件（或 contracts）。
  */
 export * from "./task-outcome-observers.js";
-export * from "./side-effect-outbox.js";
+// side-effect-outbox 已迁至 @away_from/pth-kernel-storage（N29/P0-3 存储实现归 kernel-storage 子包）
 export * from "./task-dispatcher.js";
 export * from "./task-outcome-committer.js";
 export * from "./adapters/pg-task-repository.js";
@@ -16,4 +16,4 @@ export * from "./penetration-skill.js";
 export * from "./penetration-budget.js";
 export * from "./penetration-runner.js";
 export * from "./penetration-discovery.js";
-export * from "./mcp-decompose.js";
+// mcp-decompose 已迁至 @away_from/pth-kernel-interpreter（N17 D1 纯解析/导入助手）

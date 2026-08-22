@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findOutOfBoundsRoots, buildSurfaceGuidance, capabilityRoots } from "../../src/pth/kernel/ptc/surface";
+import { findOutOfBoundsRoots, buildSurfaceGuidance, capabilityRoots } from "@away_from/pth-kernel-interpreter";
 
 const KNOWN = new Set(["memory", "llm", "web", "fs", "env", "state", "cache", "skills", "bash", "python", "results", "context"]);
 

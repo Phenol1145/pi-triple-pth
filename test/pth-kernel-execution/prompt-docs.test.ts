@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { buildRoleDoc, buildCapabilityIndex } from "../../src/pth/kernel/prompt-docs.js";
+import { buildRoleDoc, buildCapabilityIndex } from "@away_from/pth-kernel-execution";
 import { DEFAULT_ROLES } from "../../src/pth/impls/roles/default-roles.js";
 import { installDefaultRoles } from "../helpers.js";
 
@@ -69,7 +69,7 @@ describe("系统文档保护（静态上下文——worker 不可覆盖）", () 
 
 describe("角色 SOP 种子（B4 Phase 1 / B4-2 裁决 A——四段式 skill）", () => {
   it("injectPromptDocs 注入 3 条四段式种子（official + 受保护 + 每步代价）", async () => {
-    const { injectPromptDocs } = await import("../../src/pth/kernel/prompt-docs.js");
+    const { injectPromptDocs } = await import("@away_from/pth-kernel-execution");
     const written: Array<{ id?: string; kind?: string; status?: string; content?: string; meta?: Record<string, unknown> }> = [];
     const store = {
       write: async (entry: { id?: string; kind?: string; status?: string; content?: string; meta?: Record<string, unknown> }) => {
@@ -102,7 +102,7 @@ describe("角色 SOP 种子（B4 Phase 1 / B4-2 裁决 A——四段式 skill）
 
 describe("API 调查技能（skill:api-investigation——探索方法论）", () => {
   it("skill 文档含调查方法（对象构成/签名/形状/读源码/试错）", async () => {
-    const { API_INVESTIGATION_SKILL } = await import("../../src/pth/kernel/prompt-docs.js");
+    const { API_INVESTIGATION_SKILL } = await import("@away_from/pth-kernel-execution");
     expect(API_INVESTIGATION_SKILL).toContain("Object.keys");
     expect(API_INVESTIGATION_SKILL).toContain("fn.toString");
     expect(API_INVESTIGATION_SKILL).toContain("readSource");
@@ -111,7 +111,7 @@ describe("API 调查技能（skill:api-investigation——探索方法论）", (
   });
 
   it("system prompt 含 API 调查技能触发指引（什么时候用+在哪读）", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], prompt: "p" }, "t", { mode: "lazy" });
     expect(prompt).toContain("API 调查技能");
     expect(prompt).toContain("skill:api-investigation");
@@ -126,7 +126,7 @@ describe("API 调查技能（skill:api-investigation——探索方法论）", (
 
 describe("PTH Worker 世界观（pth-worker-system——身份/工作流/框架）", () => {
   it("system prompt 含世界观（你在哪/工作流/框架事实/约束）——所有模式", async () => {
-    const { buildAgentSystemPrompt, PTH_WORKER_SYSTEM } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt, PTH_WORKER_SYSTEM } = await import("@away_from/pth-kernel-execution");
     expect(PTH_WORKER_SYSTEM).toContain("PTH（Pi-Triple-Heavy）任务池的 worker");
     expect(PTH_WORKER_SYSTEM).toContain("任务池 → 角色路由 → worker 执行 → 产物提交");
     expect(PTH_WORKER_SYSTEM).toContain("先查 memory 既有资产");
@@ -145,7 +145,7 @@ describe("PTH Worker 世界观（pth-worker-system——身份/工作流/框架�
 
 describe("项目全貌（project-map——代码库结构——worker 一次读知道在哪读什么）", () => {
   it("buildProjectMap 生成全貌（任务流/代码库结构/职责映射）", async () => {
-    const { buildProjectMap } = await import("../../src/pth/kernel/prompt-docs.js");
+    const { buildProjectMap } = await import("@away_from/pth-kernel-execution");
     const map = await buildProjectMap();
     expect(map).toContain("PTH 项目全貌");
     expect(map).toContain("任务流");
@@ -163,14 +163,14 @@ describe("项目全貌（project-map——代码库结构——worker 一次读�
 
 describe("指针正确性回归（2026-08-10 bug——kind 误用导致 role-doc 从未生效）", () => {
   it("lazy roleBlock 指针按 id 查询（role-doc 存储结构：kind='role-doc' + id='role-doc:<id>'）", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], prompt: "p" }, "t", { mode: "lazy" });
     expect(prompt).toContain("id='role-doc:developer'");
     expect(prompt).not.toContain("kind='role-doc:developer'");
   });
 
   it("eager 角色文档加载按 id 查询（能真正命中存储）", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     let capturedSql: string[] = [];
     const memory = { query: async (sql: string) => { capturedSql.push(sql); return [{ content: "角色文档全文" }]; } };
     const prompt = await buildAgentSystemPrompt({ id: "tester", tags: [], prompt: "p" }, "t", { mode: "eager", memory });
@@ -181,7 +181,7 @@ describe("指针正确性回归（2026-08-10 bug——kind 误用导致 role-doc
   });
 
   it("skill 指针按 id 查询（skill:api-investigation 存储 kind='skill'）", async () => {
-    const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { buildAgentSystemPrompt } = await import("@away_from/pth-kernel-execution");
     const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], prompt: "p" }, "t", { mode: "lazy" });
     expect(prompt).toContain("id='skill:api-investigation'");
     expect(prompt).not.toContain("kind='skill:");
@@ -190,13 +190,13 @@ describe("指针正确性回归（2026-08-10 bug——kind 误用导致 role-doc
 
 describe("buildCapabilityIndex 分节（Agent-JIT 路径 B——filterCapabilityDoc 裁剪契约）", () => {
   it("含按包分节（基础/memory/fs/探索核/web-llm/扩展注册）", async () => {
-    const { buildCapabilityIndex } = await import("../../src/pth/kernel/prompt-docs.js");
+    const { buildCapabilityIndex } = await import("@away_from/pth-kernel-execution");
     const doc = buildCapabilityIndex();
     for (const sec of ["## 基础（全角色", "## memory", "## fs", "## 探索核", "## web/llm/state/ext/env", "## 扩展注册"]) {
       expect(doc).toContain(sec);
     }
     // 与 filterCapabilityDoc 契约：memory 角色裁剪后只留基础+memory
-    const { filterCapabilityDoc } = await import("../../src/pth/kernel/execution/agent-loop.js");
+    const { filterCapabilityDoc } = await import("@away_from/pth-kernel-execution");
     const out = filterCapabilityDoc(doc, ["memory"]);
     expect(out).toContain("memory.query");
     expect(out).not.toContain("fs.readText");

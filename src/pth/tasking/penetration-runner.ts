@@ -23,9 +23,9 @@
  *   5. 机读边 parent 必须等于调用方角色（skill id 按 child 寻址，边属特定 parent→child）。
  */
 
-import type { TaskDispatchContext, TaskPenetrateInput, TaskPenetrateResult, TenantScope } from "../contracts/index.js";
-import { PtcContractError } from "../kernel/ptc/contract.js";
-import { knownRoleById } from "../kernel/execution/worker-cluster.js";
+import type { TaskDispatchContext, TaskPenetrateInput, TaskPenetrateResult, TenantScope } from "@away_from/pth-contracts";
+import { PtcContractError } from "@away_from/pth-kernel-interpreter";
+import { knownRoleById } from "@away_from/pth-kernel-execution";
 import { allowedDelegationTargets } from "./delegation-policy.js";
 import {
   PENETRATION_SKILL_ID_PREFIX,

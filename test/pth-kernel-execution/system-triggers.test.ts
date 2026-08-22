@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { registerSystemTriggers, SYSTEM_ACTION } from "../../src/pth/kernel/execution/system-triggers.js";
-import type { TriggerActionHandler, TriggerDef, TriggerFireContext } from "../../src/pth/kernel/execution/trigger-engine.js";
+import { registerSystemTriggers, SYSTEM_ACTION } from "@away_from/pth-kernel-execution";
+import type { TriggerActionHandler, TriggerDef, TriggerFireContext } from "@away_from/pth-kernel-execution";
 
 /** 捕获型 fake engine——验证注册面（不启动真实调度） */
 function captureEngine() {

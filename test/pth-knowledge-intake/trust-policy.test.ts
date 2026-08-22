@@ -19,14 +19,14 @@ import {
   isVerifiedTrustPolicyAttested,
   POLICY_VERIFIED_BRAND,
   readVerifiedPolicyAttestation,
-} from "../../src/pth/contracts/knowledge-intake-attestation.js";
+} from "@away_from/pth-contracts";
 import type {
   FetchAuthorizationInput,
   HumanPrincipalRef,
   TrustPolicyManifest,
   TrustPolicyRule,
   UseAuthorizationInput,
-} from "../../src/pth/contracts/index.js";
+} from "@away_from/pth-contracts";
 
 const CLOCK = { now: () => new Date("2026-08-20T00:00:00.000Z") };
 

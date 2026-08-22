@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evalCondition } from "../../src/pth/kernel/execution/resolver-core";
+import { evalCondition } from "@away_from/pth-kernel-execution";
 
 describe("evalCondition（条件表达式）", () => {
   const ctx = {
