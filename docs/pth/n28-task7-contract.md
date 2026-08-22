@@ -287,3 +287,11 @@ TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept-n28-feasibi
   `npm run lint` 的根 `tsc --noEmit` 继续承担源码类型正确性。
 - 效力：本修订作为 Task 7 合同 v1.1 的一部分，与 §1–§10 同等效力；若未来扩回
   31 文件 typecheck，需另立 v1.2 修订并再次人工批准。
+
+## 12. 人工批准修订 v1.2（恢复 35 文件 typecheck）
+
+- 批准人：本会话用户（复验收 Phase B D-2 选择「恢复 35 文件（推荐）」）。
+- 批准内容：恢复原 Task 7/实施计划要求的 **35 文件 typecheck**——`tsconfig.n28.json`
+  覆盖 4 个 scripts + 31 个 focused tests，不再使用 C7 的 7 文件收窄口径。
+- 效力：本修订取代 v1.1 的 C7 收窄；n28Typecheck 证据以 35 文件 zero-skip typecheck 为准，
+  与实施计划 `:2723-2786` 的文件清单一致。

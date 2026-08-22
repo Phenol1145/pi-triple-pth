@@ -33,7 +33,7 @@ describe("agent-loop working-set（不 mock runAgentTask）", () => {
     const seen: Array<{ tools: string[] }> = [];
     const llm: LlmFn = {
       complete: async (_messages, options) => {
-        seen.push({ tools: (options.tools ?? []).map((tool) => tool.name) });
+        seen.push({ tools: (options?.tools ?? []).map((tool) => tool.name) });
         if (seen.length === 1) return { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c1", name: "registry_omitted", arguments: { probe: true } }] };
         return { content: "", model: "stub", usage: {}, toolCalls: [{ id: "c2", name: "done", arguments: { result: { ok: true } } }] };
       },

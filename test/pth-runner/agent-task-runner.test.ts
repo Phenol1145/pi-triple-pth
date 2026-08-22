@@ -81,7 +81,7 @@ function fakeKernel(opts: { resetMs?: number; executeOk?: boolean } = {}) {
 }
 
 const fakeLlm: LlmFn = {
-  complete: async () => ({ content: "return { ok: true };" }),
+  complete: async () => ({ content: "return { ok: true };", model: "stub", usage: {} }),
 };
 
 describe("AgentTaskRunner（P1-4）", () => {

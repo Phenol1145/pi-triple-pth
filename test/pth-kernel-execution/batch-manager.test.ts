@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BatchManager } from "../../src/pth/kernel/execution/batch-manager";
+import { BatchManager } from "../../src/pth/kernel/execution/batch-manager.js";
 
 /** 轮询等待 pid 进程完全消失（Node 子进程被回收后 kill(pid,0) 抛 ESRCH） */
 async function waitUntilGone(pid: number, timeoutMs = 2000): Promise<void> {
@@ -221,6 +221,26 @@ describe("N28 T2：replica 级控制传输/关联（BatchManager）", () => {
     const batch = (await mgr.listBatches()).find((x) => x.id === handle.id)!;
     expect("replicas" in batch).toBe(false);   // 旧形状不新增键
     expect(await mgr.removeReplica(handle.id, "w-none")).toBe(false);
+    await mgr.killBatch(handle.id);
+  }, 7000);
+
+  it("unknown 回执（state=unknown, accepted=false）的 pause/resume/remove 一律返回 false（P1-2）", async () => {
+    const unknownPath = join(dir, "unknown-batch.mjs");
+    await writeFile(unknownPath, `
+      process.on("message", (msg) => {
+        if (msg.type === "worker-pause" || msg.type === "worker-resume" || msg.type === "worker-remove") {
+          process.send?.({ type: "worker-status", workerId: msg.workerId, state: "unknown", accepted: false });
+        }
+        if (msg.type === "shutdown") process.exit(0);
+      });
+      process.send?.({ type: "status", tasks: [], replicas: [{ workerId: "w-unknown", batchId: "b", role: { roleId: "researcher", revision: "v1" }, state: "unknown" }], ts: Date.now() });
+    `);
+    const mgr = new BatchManager({ batchProcessPath: unknownPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(await mgr.pauseReplica(handle.id, "w-unknown")).toBe(false);
+    expect(await mgr.resumeReplica(handle.id, "w-unknown")).toBe(false);
+    expect(await mgr.removeReplica(handle.id, "w-unknown")).toBe(false);
     await mgr.killBatch(handle.id);
   }, 7000);
 });

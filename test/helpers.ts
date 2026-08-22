@@ -1,8 +1,8 @@
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../src/pth/impls/roles/default-roles";
-import { setDefaultRoles, setProfessionalRoles } from "../src/pth/kernel/execution/worker-cluster";
-import { PROFESSIONAL_ROLES } from "../src/pth/kernel/execution/professional-roles";
-import { registerBuiltinSpaces } from "../src/pth/impls/spaces/builtin-spaces";
-import { spaceRegistry } from "../src/pth/kernel/execution/space-registry";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../src/pth/impls/roles/default-roles.js";
+import { setDefaultRoles, setProfessionalRoles } from "../src/pth/kernel/execution/worker-cluster.js";
+import { PROFESSIONAL_ROLES } from "../src/pth/kernel/execution/professional-roles.js";
+import { registerBuiltinSpaces } from "../src/pth/impls/spaces/builtin-spaces.js";
+import { spaceRegistry } from "../src/pth/kernel/execution/space-registry.js";
 import {
   PROMOTION_EVALUATOR_REQUIRED,
   PromotionConflictError,

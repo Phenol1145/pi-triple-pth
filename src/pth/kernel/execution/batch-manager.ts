@@ -168,6 +168,14 @@ export class BatchManager {
       } else if (msg?.type === "worker-status" && typeof msg.workerId === "string") {
         // N28 T2：replica 级控制回执（feasibility 模式按 workerId 关联）。
         const key = `worker:${msg.workerId}`;
+        // P1-2 修复：unknown/accepted=false/error 同样结算 removal 等待者，避免 remove 把失败当成功。
+        if (msg.accepted === false || msg.state === "unknown" || msg.state === "error") {
+          const removalWaiters = record.pendingRemovalCtl.get(key);
+          if (removalWaiters?.length) {
+            record.pendingRemovalCtl.delete(key);
+            for (const w of removalWaiters) w({ state: msg.state, error: msg.error, accepted: false });
+          }
+        }
         const waiters = record.pendingCtl.get(key);
         if (waiters?.length) {
           record.pendingCtl.delete(key);
@@ -301,13 +309,16 @@ export class BatchManager {
         resolve(ok);
       };
       const onAck = (status: { state?: string; error?: string; accepted?: boolean }) => {
+        // P1-2 修复：unknown/accepted=false/error 一律不得当成功（remove 的中间 draining 回执除外）。
+        if (status.accepted === false || status.state === "unknown" || status.state === "error") {
+          finish(false);
+          return;
+        }
         if (expectRemoved) {
           if (status.state === "removed") finish(true);
           return;
         }
-        // P1-2 修复：unknown/accepted=false 不得当成功。
-        if (status.accepted === false || status.state === "unknown" || status.state === "error") finish(false);
-        else finish(true);
+        finish(true);
       };
       try {
         if (!rec.child.connected) {

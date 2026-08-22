@@ -40,7 +40,7 @@ describe("authorized task read factory", () => {
   it("全部 7 个 read surface 映射到 queryVerified / state / skills 端口", async () => {
     const pending: PendingRetrievalTrace = {
       directorySnapshotId: "md-1", workerId: worker.workerId, queryFingerprint: "q-1",
-      waves: [{ wave: 0, regionIds: [], candidateCount: 1, visibleCount: 1, selectedCount: 1, scannedCount: 1, completeForQuery: true, reason: "primary" }],
+      waves: [{ wave: 0, regionIds: [], candidateCount: 1, visibleCount: 1, selectedCount: 1, scannedCount: 1, completeForQuery: true, reason: "primary", selectedEntryIds: [] }],
       globalFallback: false, omitted: {}, status: "found",
     };
     const brokerCalls: Array<{ op: string; body: unknown }> = [];

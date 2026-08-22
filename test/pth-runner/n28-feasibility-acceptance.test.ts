@@ -24,11 +24,11 @@ function passingEnvelope(overrides: Partial<N28AcceptanceEnvelope> = {}): N28Acc
   return {
     evaluatedCommit: "head", implementationTreeClean: true,
     contractDisposition: {
-      version: "v1.1", approved: true,
+      version: "v1.2", approved: true,
       approvalSource: "user-selected-option-in-reacceptance-session",
       amendmentDoc: "docs/pth/n28-task7-contract.md",
-      amendmentClause: "## 11. 人工批准修订 v1.1",
-      typecheckScope: "tsconfig.n28.json (4 scripts + vertical/evaluator/acceptance tests)",
+      amendmentClause: "## 12. 人工批准修订 v1.2（恢复 35 文件 typecheck）",
+      typecheckScope: "tsconfig.n28.json (4 scripts + 31 focused tests)",
     },
     evaluator: { first, second: first, byteIdentical: true },
     focused: gate(),

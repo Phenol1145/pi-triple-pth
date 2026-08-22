@@ -7,7 +7,7 @@ import type { PendingRetrievalTrace } from "../../src/pth/contracts/index.js";
 
 const pendingTrace = (): PendingRetrievalTrace => ({
   directorySnapshotId: "md-1", workerId: N28_WORKERS.algebra.workerId, queryFingerprint: "q-1",
-  waves: [{ wave: 0, regionIds: [], candidateCount: 3, visibleCount: 3, selectedCount: 3, scannedCount: 3, completeForQuery: true, reason: "primary" }],
+  waves: [{ wave: 0, regionIds: [], candidateCount: 3, visibleCount: 3, selectedCount: 3, scannedCount: 3, completeForQuery: true, reason: "primary", selectedEntryIds: [] }],
   globalFallback: false, omitted: {}, status: "found",
 });
 
@@ -29,7 +29,7 @@ function adapters(overrides: Partial<AuthorizedTaskReads> = {}): AuthorizedTaskR
       { id: "skill:a", anchor: "a", whenToUse: "w", effect: "e", status: "official" },
       { id: "skill:b", anchor: "b", whenToUse: "w", effect: "e", status: "official" },
     ]),
-    getSkill: vi.fn(async (id: string) => ({ id, tenantId: "tenant-a", kind: id, anchors: [], content: "full skill", status: "official", meta: {} })),
+    getSkill: vi.fn(async (id: string) => ({ id, tenantId: "tenant-a", kind: id, anchors: [], content: "full skill", status: "official" as const, meta: {} })),
     ...overrides,
   };
 }
@@ -112,6 +112,41 @@ describe("cognitive working set（policy + budgeted facade）", () => {
     expect(snapshot.omitted["state:function:f2#row1"]).toBe(1);
     expect(snapshot.omitted["state:insight:i1#row0"]).toBe(1);
     expect(snapshot.omitted["state:insight:i2#row1"]).toBe(1);
+  });
+
+  it("重复 ID 多行不得绕过预算：每行独立计账，omitted 行不可见（P0-2 红→绿）", async () => {
+    const { policy, ledger } = createTaskWorkingSetPolicy({
+      taskId: "task-n28", worker: N28_WORKERS.algebra, directorySnapshotId: "md-1",
+      budget: { ...N28_FEASIBILITY_BUDGET.task, maxMemoryEntries: 2, maxMemoryChars: 4096 },
+      skillIndexItems: [],
+      pinnedToolNames: ["done"],
+      candidateToolNames: [],
+    });
+    const fake = adapters({
+      retrieveMemory: async () => ({
+        entries: [
+          { id: "dup", content: "row-0" },
+          { id: "dup", content: "row-1" },
+          { id: "dup", content: "row-2" },
+        ],
+        trace: pendingTrace(),
+      }),
+      queryMemory: async () => [
+        { id: "dup", meta: { n: 1 } },
+        { id: "dup", meta: { n: 2 } },
+        { id: "dup", meta: { n: 3 } },
+      ],
+    });
+    const caps = createBudgetedTaskCapabilities({}, policy, ledger, fake, { skillSummaries: Object.freeze([]) });
+    const memory = caps["memory"] as { retrieve(o: unknown): Promise<Array<{ id: string; content?: string }>>; query(sql: string): Promise<Array<{ id: string }>> };
+
+    const retrieved = await memory.retrieve({});
+    expect(retrieved.map((e) => e.content)).toEqual(["row-0", "row-1"]);   // 第三行超条目预算被 omit
+    const queried = await memory.query("SELECT 1");
+    expect(queried).toHaveLength(2);   // query 同一 ID 三行也只暴露账本允许的两行
+    const snapshot = ledger.snapshot();
+    expect(snapshot.usage.memoryEntries).toBe(2);
+    expect(snapshot.omitted["dup#row2"]).toBeGreaterThanOrEqual(1);
   });
 
   it("超预算展开：memory.get / skills.get 抛 CognitiveBudgetExceededError 且不暴露", async () => {

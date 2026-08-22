@@ -46,6 +46,8 @@ export interface RoleDefinition {
   actionTools?: string[];
   /** Optional immutable policy reference; absence means the host system ceiling. */
   loadPolicyRef?: string;
+  /** 任务标题/文本标签模式（N28 PTC 集成测试与 prompt 注入共用；未声明时不参与标签匹配）。 */
+  labelPatterns?: string[];
 }
 
 /** @deprecated Use RoleDefinition. Kept while runtime call sites migrate by layer. */

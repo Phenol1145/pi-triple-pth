@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { installDefaultRoles } from "../helpers";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
+import { installDefaultRoles } from "../helpers.js";
 
 beforeEach(() => installDefaultRoles());
 import { createKernelManager, createWorkerKernelWithManager } from "../../src/pth/impls/kernels/kernel-manager.js";

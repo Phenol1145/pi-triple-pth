@@ -1,11 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   allLineageRoles, buildRoleLineage, renderRoleLineage,
   registerWorkerRole, resetExtraRoles,
 } from "../../src/pth/kernel/execution/worker-cluster.js";
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES } from "../../src/pth/impls/roles/default-roles";
+import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES } from "../../src/pth/impls/roles/default-roles.js";
 import { PROFESSIONAL_ROLES } from "../../src/pth/kernel/execution/professional-roles.js";
-import { installDefaultRoles } from "../helpers";
+import { installDefaultRoles } from "../helpers.js";
 
 beforeEach(() => installDefaultRoles());
 import { buildRoleDoc } from "../../src/pth/kernel/prompt-docs.js";

@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { createWorkerCluster, type WorkerRole } from "../../src/pth/kernel/execution/worker-cluster";
-import { DEFAULT_ROLES } from "../../src/pth/impls/roles/default-roles";
-import { installDefaultRoles } from "../helpers";
+import { describe, it, expect, beforeEach } from "vitest";
+import { createWorkerCluster, type WorkerRole } from "../../src/pth/kernel/execution/worker-cluster.js";
+import { DEFAULT_ROLES } from "../../src/pth/impls/roles/default-roles.js";
+import { installDefaultRoles } from "../helpers.js";
 
 beforeEach(() => installDefaultRoles());
 
@@ -62,7 +62,7 @@ describe("时间复用率（2026-08-13 监测量——planner 计划扁平化）
 
   it("detectHotspots：低复用窗口 → plan-deep 建议；无计划/高复用 → 无", async () => {
     const { detectHotspots } = await import("../../src/pth/kernel/execution/optimizer-loop.js");
-    const base = { steps: 3, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 0, gatedActions: 0, aspNav: { cds: 0, indexes: 0 }, finish: { ok: true } };
+    const base = { steps: 3, toolFreq: {}, tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, failedActions: 0, gatedActions: 0, aspNav: { cds: 0, indexes: 0 }, guards: { hits: {}, guide: {}, soft: {}, hard: {} }, finish: { ok: true } };
     const lowReuse = { ...base, timeReuse: 0.2 };
     const highReuse = { ...base, timeReuse: 0.6 };
     expect(detectHotspots([lowReuse]).some((h) => h.pattern === "plan-deep")).toBe(true);

@@ -348,6 +348,10 @@ async function probeGoldAndDirectory(sabotage?: N28Sabotage) {
     ? directory.memberships.map((m) => ({ ...m, regionIds: [...m.regionIds], body: "copied:alg-01" }))
     : directory.memberships;
   // P0-3/H2 修复：ownerless 与正文复制由真实扫描得出，不用常量。
+  // Working Set snapshot projection roots：只允许 entryId 等元数据，出现 content/body 即视为正文复制。
+  const workingSetProjection = sabotage === "directory-body-copy"
+    ? { entries: corpus.map((entry) => ({ id: entry.id, body: entry.content })) }
+    : { entries: corpus.map((entry) => ({ id: entry.id })) };
   const ownerlessRegions = directory.regions.filter((region) =>
     !directory.responsibilities.some((r) => r.regionId === region.regionId && r.kind === "primary"),
   ).length;
@@ -367,6 +371,7 @@ async function probeGoldAndDirectory(sabotage?: N28Sabotage) {
     scannedMemberships,
     directory.regions,
     directory.responsibilities,
+    workingSetProjection,
   ]);
 
   return {
@@ -407,7 +412,7 @@ async function probeBudgetAndResponsibility(sabotage?: N28Sabotage) {
       directorySnapshotId: "md-1",
       workerId: N28_WORKERS.algebra.workerId,
       queryFingerprint: `q-${seed}`,
-      waves: [{ wave: 0 as const, regionIds: [], candidateCount: memoryRows.length, visibleCount: memoryRows.length, selectedCount: memoryRows.length, scannedCount: memoryRows.length, completeForQuery: true, reason: "primary" }],
+      waves: [{ wave: 0 as const, regionIds: [], candidateCount: memoryRows.length, visibleCount: memoryRows.length, selectedCount: memoryRows.length, scannedCount: memoryRows.length, completeForQuery: true, reason: "primary", selectedEntryIds: [] }],
       globalFallback: false,
       omitted: {},
       status: "found" as const,

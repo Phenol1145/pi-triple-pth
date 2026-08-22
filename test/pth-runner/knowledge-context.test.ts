@@ -318,7 +318,7 @@ describe("N28 T4：layered Context 与 prompt 投影", () => {
       workers: Object.values(N28_WORKERS), regions: N28_REGIONS, responsibilities: N28_RESPONSIBILITIES,
       entries: directoryEntries,
     });
-    const retriever = createLayeredKnowledgeRetriever(directory, { knownDomainIds: N28_DOMAIN_IDS, entries: directoryEntries }, { clock });
+    const retriever = createLayeredKnowledgeRetriever<KnowledgeMemoryEntry>(directory, { knownDomainIds: N28_DOMAIN_IDS, entries: directoryEntries }, { clock });
     const wavePort = async ({ authorization: waveAuth, candidateScope, regionIds, queryText, limit }: import("../../src/pth/execution/layered-knowledge-retriever.js").LayeredSearchWaveInput) => {
       const regionSet = new Set(regionIds.flatMap((id) => regionEntryIds(directory, id)));
       const authorized = corpus.filter((e) => e.tenantId === waveAuth.tenantId && e.status === "official");

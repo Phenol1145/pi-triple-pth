@@ -86,7 +86,8 @@ describe("task loop（任务池纯化——agent 循环唯一主路径）", () =
       tags: ["debug-case"],
       payload: expect.objectContaining({ source: "developer-fix-completed", parentTaskId: "t1" }),
     }));
-    expect(String(publish.mock.calls[0]![0].text)).toContain("bug: 计数偶发错误");
+    const publishCall = (publish.mock.calls[0] as unknown as Array<{ text?: string }>)[0];
+    expect(String(publishCall?.text ?? "")).toContain("bug: 计数偶发错误");
   });
 
   it("P3.6：payload.debugCases=off 关闭自动派发", async () => {
@@ -267,7 +268,7 @@ describe("task loop refiner 钩子", () => {
       dispose: () => {},
     } as any;
     const loop = new TaskLoop(
-      { kernel, role, taskStore: store, workspaceMgr: wsMgr, llm: { complete: async () => ({ content: "ok" }) } as any, agentCaps: {} as any, refiner },
+      { kernel, role, taskStore: store as any, workspaceMgr: wsMgr, llm: { complete: async () => ({ content: "ok" }) } as any, agentCaps: {} as any, refiner },
     );
     return loop.runOnce();
   }
@@ -307,7 +308,7 @@ describe("task loop refiner 钩子", () => {
       dispose: () => {},
     } as any;
     const loop = new TaskLoop(
-      { kernel, role, taskStore: store, workspaceMgr: wsMgr, llm: { complete: async () => ({ content: "ok" }) } as any, agentCaps: {} as any, refiner },
+      { kernel, role, taskStore: store as any, workspaceMgr: wsMgr, llm: { complete: async () => ({ content: "ok" }) } as any, agentCaps: {} as any, refiner },
     );
     await loop.runOnce();
     expect(store.submit).toHaveBeenCalled();   // 任务仍提交（completed）
@@ -520,7 +521,7 @@ describe("N28 T2：replica 生命周期与身份戳记（TaskLoop）", () => {
     expect(dispatch[0]).toMatchObject({ taskId: "t1", roleId: "developer", worker: replica.ref });
     expect(grants[0]).toMatchObject({ taskId: "t1", principalId: `worker:${workerId}` });
     expect(activities.some((e) => (e as { kind: string }).kind === "task.claim" && (e as { workerId?: string }).workerId === workerId)).toBe(true);
-    const auditCall = auditWrite.mock.calls.at(-1)?.[0] as { actor?: string; workerId?: string; payload?: { roleId?: string } };
+    const auditCall = (auditWrite.mock.calls as unknown as Array<Array<{ actor?: string; workerId?: string; payload?: { roleId?: string } }>>).at(-1)?.[0];
     expect(auditCall).toMatchObject({ actor: `worker:${workerId}`, workerId, payload: { roleId: "developer" } });
   });
 
@@ -546,7 +547,7 @@ describe("N28 T2：replica 生命周期与身份戳记（TaskLoop）", () => {
     const task = { id: "t4", text: "slow", title: "s" };
     const store = mockTaskStore({ candidates: vi.fn(async () => [task]), claimTopN: vi.fn(async () => [task]) });
     let release!: (v: unknown) => void;
-    mockedRunAgent.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    mockedRunAgent.mockImplementation(() => new Promise<any>((resolve) => { release = resolve; }));
     const replica = makeReplica();
     const loop = new TaskLoop({ ...agentDeps(mockKernel(), role, store), replica });
     const run = loop.runOnce();

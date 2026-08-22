@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { buildRoleDoc, buildCapabilityIndex } from "../../src/pth/kernel/prompt-docs.js";
 import { DEFAULT_ROLES } from "../../src/pth/impls/roles/default-roles.js";
-import { installDefaultRoles } from "../helpers";
+import { installDefaultRoles } from "../helpers.js";
 
 beforeEach(() => installDefaultRoles());
 

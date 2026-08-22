@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createKnowledgeBroker } from "../../src/pth/execution/knowledge-broker.js";
+import { createKnowledgeBroker, type KnowledgeMemoryEntry } from "../../src/pth/execution/knowledge-broker.js";
 import { createExecutionGrantService, createMemoryReplayGuard } from "../../src/pth/execution/authorization/execution-grant-service.js";
 import { createHmacGrantKeyProvider } from "../../src/pth/execution/authorization/grant-key-provider.js";
 import type { ExecutionGrant } from "../../src/pth/contracts/index.js";
@@ -365,7 +365,7 @@ describe("KnowledgeBroker layered 路径（N28 T4）", () => {
     workers: Object.values(N28_WORKERS), regions: N28_REGIONS, responsibilities: N28_RESPONSIBILITIES,
     entries: directoryEntries,
   });
-  const retriever = createLayeredKnowledgeRetriever(directory, { knownDomainIds: N28_DOMAIN_IDS, entries: directoryEntries }, { clock });
+  const retriever = createLayeredKnowledgeRetriever<KnowledgeMemoryEntry>(directory, { knownDomainIds: N28_DOMAIN_IDS, entries: directoryEntries }, { clock });
   let waveCalls = 0;
   const broker = createKnowledgeBroker({
     grantService: layeredGrantService,

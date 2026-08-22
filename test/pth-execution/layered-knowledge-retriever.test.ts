@@ -35,6 +35,18 @@ describe("layered knowledge retrieval", () => {
     }
   });
 
+  it("wave trace counts are honest：candidate >= visible >= selected 且 scanned/selectedEntryIds 自洽（B7）", async () => {
+    for (const query of N28_GOLD_QUERIES) {
+      const result = await harness(N28_WORKERS[query.workerKey].workerId).search(query.text, 8);
+      for (const wave of result.trace.waves) {
+        expect(wave.candidateCount, query.id).toBeGreaterThanOrEqual(wave.visibleCount);
+        expect(wave.visibleCount, query.id).toBeGreaterThanOrEqual(wave.selectedCount);
+        expect(wave.scannedCount, query.id).toBeGreaterThanOrEqual(wave.selectedCount);
+        expect(wave.selectedEntryIds, query.id).toHaveLength(wave.selectedCount);
+      }
+    }
+  });
+
   it("distinguishes a complete no-answer from incomplete and failed retrieval", async () => {
     expect((await harness(N28_WORKERS.algebra.workerId).search("no-such-token", 8)).status).toBe("exhausted-empty");
     expect((await harness(N28_WORKERS.algebra.workerId, { completeForQuery: false }).search("no-such-token", 8)).status).toBe("retrieval-incomplete");

@@ -1,6 +1,6 @@
 # 模块化后续 + N28/N29 复验收口实施计划（2026-08-22）
 
-> 状态：**实施中；Phase A 已完成，Phase B–E 未开始**
+> 状态：**实施中；Phase A 已完成，Phase B 已完成（重新验收 envelope 待落盘），Phase C–E 未开始**
 > 范围：modularity/reuse 计划遗留的后续清理 + N28 Role/Memory/Worker 复验修复 + N29 最小可信知识摄入内环复验修复
 > 依据：
 > - `docs/pth/modularity-reuse-implementation-plan.md`
@@ -22,7 +22,7 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | Phase A | 低风险遗留清理（ptl / web / 重复脚本 / adapter 例外） | 已完成 |
-| Phase B | N28 复验修复（P0/P1 + 重新验收） | 未开始 |
+| Phase B | N28 复验修复（P0/P1 + 重新验收） | 已完成 |
 | Phase C | N29 复验修复（P0/P1 + 重新验收） | 未开始 |
 | Phase D | 工程纪律与结构收口（import-cycle / barrel / 大文件 / kernel 子包） | 未开始 |
 | Phase E | 全量验收、文档、发布 | 未开始 |

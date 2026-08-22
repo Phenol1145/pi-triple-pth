@@ -44,7 +44,7 @@ describe("PTC 程序模式（真实 vm + kernel 集成）", () => {
     const r = await runAgentTask({
       llm, kernel, caps: kernel.capabilities,
       task: { title: "ptc-int", text: "用 ts 程序组合 python 算 1..100 和 + bash 验证" },
-      role: { id: "developer", labelPatterns: [], prompt: "你是开发者" },
+      role: { id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" },
       maxSteps: 5,
     });
 

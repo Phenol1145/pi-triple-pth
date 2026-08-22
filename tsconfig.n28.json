@@ -1,0 +1,52 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "paths": {
+      "@away_from/infra": ["./packages/infra/src/index.ts"],
+      "@away_from/shared": ["./packages/shared/src/index.ts"],
+      "@away_from/pth-memory": ["./packages/pth-memory/src/index.ts"],
+      "@away_from/pth-sandbox": ["./packages/pth-sandbox/src/index.ts"]
+    }
+  },
+  "files": [
+    "scripts/n28-feasibility-fixture.ts",
+    "scripts/n28-feasibility-harness.ts",
+    "scripts/eval-n28-feasibility.ts",
+    "scripts/accept-n28-feasibility.ts",
+    "test/pth-contracts/cognitive-responsibility.test.ts",
+    "test/pth-kernel-execution/worker-cluster.test.ts",
+    "test/pth-kernel-execution/role-lineage.test.ts",
+    "test/pth-config/config.test.ts",
+    "test/pth-kernel-execution/worker-replica.test.ts",
+    "test/pth-kernel-execution/worker-slot-assembly.test.ts",
+    "test/pth-kernel-execution/worker-slot-runtime.test.ts",
+    "test/pth-kernel-execution/batch-runtime-assembly.test.ts",
+    "test/pth-kernel-execution/task-loop.test.ts",
+    "test/pth-kernel-execution/batch-manager.test.ts",
+    "test/pth-execution/memory-type-classifier.test.ts",
+    "test/pth-execution/memory-directory.test.ts",
+    "test/pth-execution/knowledge-ranking.test.ts",
+    "test/pth-execution/verified-task-read-scope.test.ts",
+    "test/pth-execution/layered-knowledge-retriever.test.ts",
+    "test/pth-execution/knowledge-broker.test.ts",
+    "test/pth-kernel-execution/cognitive-budget.test.ts",
+    "test/pth-runner/authorized-state-reads.test.ts",
+    "test/pth-runner/authorized-task-reads.test.ts",
+    "test/pth-runner/cognitive-working-set.test.ts",
+    "test/pth-tasking/task-outcome-observers.test.ts",
+    "test/pth-runner/knowledge-context.test.ts",
+    "test/pth-runner/agent-task-runner.test.ts",
+    "test/pth-kernel-execution/agent-loop.test.ts",
+    "test/pth-kernel-execution/prompt-docs.test.ts",
+    "test/pth-kernel-execution/agent-tool-convergence.test.ts",
+    "test/pth-kernel-execution/agent-loop-working-set.integration.test.ts",
+    "test/pth-kernel-execution/agent-loop-ptc.integration.test.ts",
+    "test/pth-runner/cognitive-responsibility.vertical.test.ts",
+    "test/pth-runner/n28-feasibility-evaluator.test.ts",
+    "test/pth-runner/n28-feasibility-acceptance.test.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

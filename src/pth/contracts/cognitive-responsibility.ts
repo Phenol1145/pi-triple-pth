@@ -85,6 +85,8 @@ export interface RetrievalWaveTrace {
   scannedCount: number;
   completeForQuery: boolean;
   reason: string;
+  /** N28 T7/P1-1：每波实际进入 merged/rank/limit 的 entry id 列表（final Working Set 精确对账用）。 */
+  selectedEntryIds: readonly string[];
 }
 
 export interface PendingRetrievalTrace {

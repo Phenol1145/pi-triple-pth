@@ -66,7 +66,7 @@ describe("runAgentTask（agent 循环）", () => {
     const r = await runAgentTask({
       llm, kernel, caps: CAPS,
       task: { title: "t", text: "算 fib(25)" },
-      role: { id: "developer", labelPatterns: [], prompt: "你是开发者" },
+      role: { id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" },
       maxSteps: 5,
     });
     expect(r.ok).toBe(true);
@@ -159,13 +159,13 @@ describe("PTC 程序模式（P1）", () => {
     expect(withKernels).toContain("探索核候选");
     expect(withKernels).toContain("python/bash");
     expect(withKernels).toContain("A/B 并存");
-    const without = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t");
+    const without = await buildAgentSystemPrompt({ id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" }, "t");
     expect(without).not.toContain("探索核候选");
   });
 
   it("system prompt 包含程序模式引导（ts 组合多 kernel + 示例）", async () => {
     const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
-    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t");
+    const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" }, "t");
     expect(prompt).toContain("程序模式（PTC");
     expect(prompt).toContain("完整程序");
     // eager 模式：无 memory 时回退 role.prompt（不崩）
@@ -174,7 +174,7 @@ describe("PTC 程序模式（P1）", () => {
 
   it("prompt 中 memory.query 指引全部带 meta（ASP 可见性 fail-closed——2026-08-15 实机崩溃修复）", async () => {
     const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
-    const prompt = await buildAgentSystemPrompt({ id: "planner", labelPatterns: [], prompt: "你是计划者" }, "t", { mode: "lazy" });
+    const prompt = await buildAgentSystemPrompt({ id: "planner", tags: [], labelPatterns: [], prompt: "你是计划者" }, "t", { mode: "lazy" });
     const queries = [...prompt.matchAll(/memory\.query\("([^"]+)"\)/g)].map((m) => m[1]!);
     expect(queries.length).toBeGreaterThanOrEqual(4);   // 世界观/能力索引/project-map/skill 指针
     for (const q of queries) expect(q, q).toContain("meta");
@@ -182,7 +182,7 @@ describe("PTC 程序模式（P1）", () => {
 
   it("lazy 模式：角色/能力指针（不注入全文——LLM 按需 query）", async () => {
     const { buildAgentSystemPrompt } = await import("../../src/pth/kernel/execution/agent-loop.js");
-    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t", { mode: "lazy" });
+    const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" }, "t", { mode: "lazy" });
     expect(prompt).toContain("role-doc:developer");
     expect(prompt).toContain("capability-index");
     expect(prompt).toContain("memory.query");
@@ -195,7 +195,7 @@ describe("PTC 程序模式（P1）", () => {
       if (sql.includes("role-doc")) return [{ content: "# 角色：developer 全文角色文档" }];
       return [{ content: "# PTH 能力索引 fs.task.write 写任务工作区" }];
     } };
-    const prompt = await buildAgentSystemPrompt({ id: "developer", labelPatterns: [], prompt: "你是开发者" }, "t", { mode: "eager", memory: memory as never });
+    const prompt = await buildAgentSystemPrompt({ id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" }, "t", { mode: "eager", memory: memory as never });
     expect(prompt).toContain("全文角色文档");
     expect(prompt).toContain("fs.task.write");
   });
@@ -223,7 +223,7 @@ describe("PTC 程序模式（P1）", () => {
     const r = await runAgentTask({
       llm, kernel, caps: CAPS,
       task: { title: "t", text: "算 fib(25) 并验证" },
-      role: { id: "developer", labelPatterns: [], prompt: "你是开发者" },
+      role: { id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" },
       maxSteps: 5,
     });
     expect(r.ok).toBe(true);
@@ -510,7 +510,7 @@ describe("负结果收敛（S6 死循环机制——2026-08-13）", () => {
     });
     // bash 执行结果 ok:false + error "No such file"（负结果语义）——N=15 强制终止
     expect(r.ok).toBe(true);
-    expect(r.warning).toContain("负验证循环");
+    if (r.ok) expect(r.warning).toContain("负验证循环");
   });
 
   it("正结果中断重置——负结果计数清零", async () => {
