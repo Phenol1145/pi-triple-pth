@@ -1,7 +1,7 @@
 # N29 最小可信知识摄入内环验收报告（M0）——最终权威版
 
-> 日期：2026-08-19
-> evaluated commit：`c6d01563764b07af04914a3b02a1018dfbed1d61`
+> 日期：2026-08-22
+> evaluated commit：`21befb4d02b3bb6f0e46e1b0f3ad4b538d34957e`
 > 最终决定：**MIN_INNER_LOOP_GO**（§8 十二项重新验收条件全部满足；driver exit 0）
 > 决定来源：`scripts/accept-n29-minimal-intake.ts`（唯一终审权威）
 > 完整权威 envelope：`docs/pth/n29-minimal-intake-acceptance.json`
@@ -11,8 +11,8 @@
 ## 0. 结论
 
 第二轮复核的九项 P0、三项 P1 全部修复并有红→绿回归钉住；31 个负向 sentinel 全部 exact
-覆盖（无 missing、无 failing）；focused 22 文件 361/361 零 skip；build、lint、N29/root/N28
-三组 typecheck 全绿；full regression 301 文件 2624 用例（2615 passed + 9 冻结 skip，deepseek-v4-flash）
+覆盖（无 missing、无 failing）；focused 22 文件 366/366 零 skip；build、lint、N29/root/N28
+三组 typecheck 全绿；full regression 297 文件 2677 用例（2619 passed + 58 冻结 skip，deepseek-v4-flash）
 exit 0。六项 realism gates 全部 satisfied：
 
 - **G8-a**：两个独立 OS 进程并发 drain 同一 PG outbox，恰好一次。
@@ -26,17 +26,17 @@ exit 0。六项 realism gates 全部 satisfied：
 至此 §8 十二项条件全部满足；`MIN_INNER_LOOP_GO` 只覆盖 N26 设计的**单来源最小可信摄入内环**。
 生产配置默认值是否从 `off` 切到 `full` 属于部署决策，本报告不自动改配置。
 
-## 1. 验收门禁（clean worktree，同 commit `c6d0156`）
+## 1. 验收门禁（clean worktree，同 commit `21befb4`）
 
 | 门禁 | 结果 |
 |---|---|
-| N29 focused 22 文件 | **exit 0，361/361 passed，skips=[]** |
-| `npx tsc -p tsconfig.n29.json --noEmit` | exit 0 |
+| N29 focused 22 文件 | **exit 0，366/366 passed，skips=[]** |
+| `npx tsc -p tsconfig.n29.json --noEmit` | exit 0（本阶段重建 `tsconfig.n29.json`） |
 | `npx tsc --noEmit`（root） | exit 0 |
 | `npx tsc -p tsconfig.n28.json --noEmit` | exit 0 |
 | `npm run lint` | exit 0（boundaries 0 / config 直读 0） |
 | `npm run build` | exit 0 |
-| `npm test`（full） | **exit 0**：301 文件 2615 passed + 0 failed + 9 冻结 skip（deepseek-v4-flash） |
+| `npm test`（full） | **exit 0**：297 文件 2619 passed + 0 failed + 58 冻结 skip（deepseek-v4-flash） |
 
 ## 2. 第二轮复核 P0/P1 修复对照
 
@@ -50,7 +50,7 @@ exit 0。六项 realism gates 全部 satisfied：
 | P0-6 unchanged 绕过 use-policy | unchanged 分支遇 verdict=deny 先撤权（stale）并 dead-letter | 集成负向：策略轮换后 unchanged 重爬 dead-letter + 依赖撤出 |
 | P0-7 晋升复核 byteLength=0 | 从 artifact 元数据读真实 byteLength 复核当前策略 | maxBytes 收紧到 1 → 晋升拒绝（candidate 保持 draft） |
 | P0-8 领域写在 Run CAS 前 | 各阶段 transitionRun 返回 null 一律抛 IntakeStageRetryableError（handler 重试、幂等重放），不再静默 skipped | CAS 失败路径由既有 CAS 回归 + 集成套件覆盖 |
-| P0-9 draft/full 同级 | draft 剔除 promote handler；full 启动必须出示绑定当前 commit 的 MIN_INNER_LOOP_GO envelope（assertIntakeFullAcceptance） | intake-mode-gates 单测 6 条 |
+| P0-9 draft/full 同级 | draft 剔除 promote handler；full 启动必须出示绑定当前 commit 的 MIN_INNER_LOOP_GO envelope（assertIntakeFullAcceptance），且 D-5 要求 CI/发布密钥签名并启动时验签 | intake-mode-gates 单测 9 条（含 D-5 签名验签 3 条） |
 | P1-1 特殊 IP 分类 | 数值前缀解析：IPv6 multicast/link/ULA、IPv4-mapped 全展开、benchmark/TEST-NET/reserved 全拒绝 | web-transport-ip 单测 7 条 |
 | P1-2 reviewer execution 分离 | evaluatePlanVerdicts 要求 domain/adversarial executionId 不同 | 同 executionId 负测拒绝 |
 | P1-3 sentinel 宽泛匹配 | 冻结 31 个逐项 sentinel；派生按"每 matcher 至少一条 passed"精确覆盖；acceptance 任一未覆盖/failing 即 NO-GO | driver 测试 13 条 + 新 sentinel 全部覆盖 |
@@ -61,7 +61,7 @@ exit 0。六项 realism gates 全部 satisfied：
 |---|---|---|
 | G9-a 受控 TLS（生产 transport） | **satisfied** | fetch-broker TLS 全链路用例 passed |
 | G9-b 受控 TLS 完整生产组合 | **satisfied** | minimal-loop-tls.integration：真实 TLS socket + 生产 transport 跑完 initial/unchanged(304)/changed(stale+supersede) |
-| G9-c release canary（真实公网来源） | **satisfied** | `n29-canary-evidence.json`：`https://gpe.wikipedia.org/wiki/Wikipedia`（人类批准签名 policy，CC BY-SA 4.0）经 DoH 真实公网 IP + SSRF pin + 生产 transport/ingestor/双 verdict/promotion 完成 initial → official；evidenceCount=1，locator/quoteHash/artifactHash 可回放；绑定 commit 为当前 HEAD 祖先 |
+| G9-c release canary（真实公网来源） | **satisfied** | `n29-canary-evidence.json`（2026-08-22 重跑）：`https://gpe.wikipedia.org/wiki/Wikipedia`（人类批准签名 policy，CC BY-SA 4.0）经 DoH 真实公网 IP + SSRF pin + 生产 transport/ingestor/双 verdict/promotion 完成 initial → official；evidenceCount=1，locator/quoteHash/artifactHash 可回放；绑定 commit `d017c63` 为当前 HEAD 祖先 |
 | G8-a 双 OS 进程 drainer | **satisfied** | 两个独立 tsx 子进程并发消费同一 outbox，(tenant,key) 唯一约束证明恰好一次 |
 | G8-b SIGKILL 恢复 | **satisfied** | `g8-stage-sigkill.test.ts` 三故障点：artifact 写入前（storeAcquisition 端口包装挂起→kill -9→零 artifact 中间态→新进程重跑 fetch）、aggregate+outbox commit 后（transitionRun 真实提交后挂起→run=admit+extract outbox pending→新进程接管）、handler 写结果后（ingest 真实落 candidate/plan 后挂起→extract 重放幂等）；每例断言唯一 run/official/plan、双 verdict、intake outbox 五行全 done、被杀行 attempts≥2。另有 outbox 级 SIGKILL 用例（attempts=2、结果行唯一） |
 | G10 sabotage 敏感度 | **satisfied** | 五项全部通过真实生产注入缝：trust-policy-attestation-bypass → fakePolicyInstall；evidence-gate-skip（注入恒接受 evidenceQuoteVerifier 后篡改 quoteHash 通过/缺省服务端复算拒绝）→ evidenceQuoteRecheck；digest-binding-skip → legacyEmptyBindingPromotion；lease-gate-skip（注入恒 true leaseGuard 后过期 lease 仍可阶段提交+写 outbox/缺省严格门禁零行）→ expiredLease；stale-gate-skip → unchangedUsePolicyDeny |
@@ -81,13 +81,13 @@ exit 0。六项 realism gates 全部 satisfied：
 | 9 | 特殊 IP/redirect/DNS rebinding/预算/条件请求矩阵 | 通过（P1-1 + privateIpSpecialRanges 等） |
 | 10 | G8 双 OS/SIGKILL、G9 TLS/canary、G10 sabotage 全部完成 | 通过（realism gates 六项 satisfied） |
 | 11 | focused/build/lint/三 typecheck/full 全 exit 0，skip 无新增 | 通过（§1 门禁表） |
-| 12 | envelope/报告绑定同一实现 commit | 通过（`c6d01563764b07af04914a3b02a1018dfbed1d61`，clean tree） |
+| 12 | envelope/报告绑定同一实现 commit | 通过（`21befb4d02b3bb6f0e46e1b0f3ad4b538d34957e`，clean tree） |
 
 ## 5. 环境说明（曾阻断、已恢复）
 
 - 本轮中段 `deepseek` 账户欠费（余额 -0.24 CNY）与 `openrouter` 免费层日配额耗尽曾导致
   full regression 的两条真实 LLM 用例失败；用户续费 deepseek 后以 `deepseek-v4-flash`
-  重跑，full 全绿（2615 passed + 9 冻结 skip）。
+  重跑，full 全绿（2619 passed + 58 冻结 skip）。
 - 附加固：`engine-lifecycle` 多轮用例超时从 60s 提升到 180s；acceptance driver 的 focused/full
   vitest 命令统一加 `--hookTimeout 60000`（Docker 高负载下 `container.stop()` teardown 偶发超过
   vitest 默认 10s，属于环境 flake，不属于产品缺陷）。
@@ -105,4 +105,6 @@ promotion=2、Broker+Context retrieval=4——全部 `ok=true`（envelope `posit
 本结果验证的是 N26 设计中的**单来源最小可信知识摄入内环**在受控环境 + 一个人类批准真实
 HTTPS 来源上的组合成立，不构成来源发现外环、自动扩源、多域广度、生产默认阈值或持续运营的
 GO 宣告。生产默认值仍为 `off`；启用 `full` 必须另行经过部署审批，并由启动门
-`assertIntakeFullAcceptance()` 校验本 envelope 与当前 commit 的绑定。
+`assertIntakeFullAcceptance()` 校验本 envelope 与当前 commit 的绑定，且 envelope 必须由
+CI/发布密钥签名（`scripts/sign-n29-acceptance.ts` + `PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PUBLIC_KEY_PATH`）
+——未签名/签名不符/commit 不符的 envelope 一律启动失败。
