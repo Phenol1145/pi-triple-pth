@@ -225,8 +225,12 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   // 性能自持（v0.8）：PerfAutopilot 自愈闭环——创建于 kernel 装配后（registry + batchManager 就绪）
   let autopilot: import("./kernel/execution/perf-autopilot.js").PerfAutopilot | null = null;
   if (databaseUrl) {
-    try {
-      kernelRuntime = await createKernelRuntime({
+    // B5（2026-08-22）：宿主重启后 pg 可能尚未就绪——装配带指数退避重试，
+    // 避免 kernel 永久 503 直到人工 docker restart。
+    let kernelLastError: unknown;
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      try {
+        kernelRuntime = await createKernelRuntime({
         databaseUrl,
         basePath: path.join(dataDir, "workspaces"),
         artifactPath: path.join(dataDir, "artifacts"),
@@ -339,8 +343,22 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
           enabled: true,
         });
       }
-    } catch (err) {
-      logger.warn({ err: String(err), event: "kernel_assembly_failed", note: "kernel 装配失败——/kernel/* 路由 503，PTH 其余功能照常" });
+        break;
+      } catch (err) {
+        kernelLastError = err;
+        const delayMs = Math.min(1000 * 2 ** (attempt - 1), 30_000);
+        logger.warn({
+          attempt,
+          delayMs,
+          err: String(err),
+          event: "kernel_assembly_retry",
+          note: "pg/kernel 装配未就绪，将重试",
+        });
+        if (attempt < 10) await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    if (!kernelRuntime) {
+      logger.warn({ err: String(kernelLastError), event: "kernel_assembly_failed", note: "kernel 装配失败（重试耗尽）——/kernel/* 路由 503，PTH 其余功能照常" });
     }
   } else {
     logger.warn({ event: "kernel_disabled", note: "未设置 DATABASE_URL——kernel 未装配" });
