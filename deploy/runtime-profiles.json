@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "components": [
+    { "id": "redis", "kind": "compose", "phase": "data", "services": ["redis"] },
+    { "id": "postgres", "kind": "compose", "phase": "data", "services": ["postgres"] },
+    { "id": "sandbox", "kind": "compose", "phase": "data", "services": ["sandbox"] },
+    { "id": "engine", "kind": "pth-up", "phase": "engine" },
+    { "id": "tools", "kind": "tools", "phase": "optional" },
+    { "id": "local-lean", "kind": "service", "phase": "optional", "serviceId": "local-lean", "requiredHostFacts": ["PATH_HAS_LEAN"] },
+    { "id": "local-u8", "kind": "service", "phase": "optional", "serviceId": "local-u8", "requiredHostFacts": ["U8_BUILT"] },
+    {
+      "id": "jupyter",
+      "kind": "service",
+      "phase": "optional",
+      "serviceId": "jupyter",
+      "requiredHostFacts": ["PTH_WORKSPACES_HOST"],
+      "secretKeys": ["JUPYTER_SERVICE_TOKEN", "JUPYTER_ENGINE_TOKEN"]
+    }
+  ],
+  "profiles": {
+    "core": { "description": "pi-platform + sandbox + postgres + redis", "components": ["redis", "postgres", "sandbox", "engine"] },
+    "tools": { "description": "core + compiled/network/secrets 工具容器", "extends": "core", "components": ["tools"] },
+    "lean4": { "description": "core + local-lean（Lean4 证明）", "extends": "core", "components": ["local-lean"] },
+    "u8": { "description": "core + local-u8（U8 VM 编译/运行）", "extends": "core", "components": ["local-u8"] },
+    "jupyter": { "description": "core + jupyter（双面 + pi-kernel）", "extends": "core", "components": ["jupyter"] },
+    "full": {
+      "description": "全部运行时",
+      "extends": "core",
+      "components": ["tools", "local-lean", "local-u8", "jupyter"]
+    }
+  }
+}
