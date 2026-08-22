@@ -94,7 +94,8 @@ const DEFAULT_BACKEND_ROUTES: Readonly<Partial<Record<ProfessionalRuntimeId, str
   psi4: "local-chem",
   cp2k: "local-chem",
   "quantum-espresso": "local-chem",
-  jupyter: "dev-jupyter",
+  // P5：单容器双面——engine 经 registry backend `jupyter` 调南面 execution/v1.1
+  jupyter: "jupyter",
   // U8-1：u8proj 本地执行器（host，batch compile/run；U8-2 interactive 随 P4）
   u8: "local-u8",
 };

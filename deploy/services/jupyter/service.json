@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "kind": "compose",
+  "id": "jupyter",
+  "description": "Jupyter 单容器双面：北 8888 JupyterLab（人）/ 南 8889 execution v1.1（engine 无头 notebook 执行）",
+  "composeFile": "docker-compose.yaml",
+  "projectName": "pi-triple-jupyter"
+}

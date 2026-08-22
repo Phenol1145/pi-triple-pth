@@ -47,8 +47,10 @@ services:
       # PTH 本容器 kernel-mode 记忆桥上游 token（与 sandbox 用同一 Redis Bearer token；不注入 sandbox workload）
       - PTH_MEMORY_BRIDGE_TOKEN=${PTH_MEMORY_BRIDGE_TOKEN:?PTH_MEMORY_BRIDGE_TOKEN must be set}
       # P2：执行后端注册表——sandbox（required）+ 宿主 Lean 本地执行器（默认非 required，缺失时 lean4 unregistered）
-      - PTH_EXEC_BACKENDS=[{"id":"sandbox","url":"http://sandbox:8080","profile":"sandbox-untrusted","tokenEnv":"SANDBOX_SHARED_SECRET","required":true},{"id":"local-lean","url":"http://host.docker.internal:8787","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"${PTH_WORKSPACES_HOST}"},"required":${PTH_LOCAL_LEAN_REQUIRED:-false}},{"id":"local-u8","url":"http://host.docker.internal:8788","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"${PTH_WORKSPACES_HOST}"},"required":false}]
+      - PTH_EXEC_BACKENDS=[{"id":"sandbox","url":"http://sandbox:8080","profile":"sandbox-untrusted","tokenEnv":"SANDBOX_SHARED_SECRET","required":true},{"id":"local-lean","url":"http://host.docker.internal:8787","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"${PTH_WORKSPACES_HOST}"},"required":${PTH_LOCAL_LEAN_REQUIRED:-false}},{"id":"local-u8","url":"http://host.docker.internal:8788","profile":"host","tokenEnv":"LOCAL_EXEC_SHARED_SECRET","pathMapping":{"hostRoot":"/data/workspaces","execRoot":"${PTH_WORKSPACES_HOST}"},"required":false},{"id":"jupyter","url":"http://jupyter:8889","profile":"host","tokenEnv":"JUPYTER_SERVICE_TOKEN","required":false}]
       - LOCAL_EXEC_SHARED_SECRET=${LOCAL_EXEC_SHARED_SECRET:-}
+      # P5：jupyter 南面 execution/v1.1 的共享 token（pth services up jupyter 时同值注入）
+      - JUPYTER_SERVICE_TOKEN=${JUPYTER_SERVICE_TOKEN:-}
       # T4：engine 自动合并宿主 tool 回环注册表（tools-compiled/tools-network → backend）
       - PTH_TOOL_REGISTRY_PATH=/opt/pi-triple-tools/tool-containers.json
       # T4：asm-kernel 生产路径（toolstore 卷拷贝到 /data/toolstore）

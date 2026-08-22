@@ -1,0 +1,33 @@
+# P5：jupyter 单容器双面（pth services up jupyter）
+# 环境变量：PTH_WORKSPACES_HOST（workspaces 宿主绝对路径）、
+#           JUPYTER_SERVICE_TOKEN（南面 Bearer——与 engine compose 注入同值）
+services:
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pi-triple-jupyter:dev
+    container_name: pi-triple-jupyter-jupyter-1
+    ports:
+      - "127.0.0.1:8888:8888"   # 北面：只绑回环；浏览器/内置终端经宿主访问
+    environment:
+      - JUPYTER_SERVICE_TOKEN=${JUPYTER_SERVICE_TOKEN:?JUPYTER_SERVICE_TOKEN must be set}
+      - JUPYTER_SOUTH_PORT=8889
+    volumes:
+      - ${PTH_WORKSPACES_HOST:?PTH_WORKSPACES_HOST must be set}:/data/workspaces
+    networks:
+      - default
+      - engine
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8889/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+networks:
+  default:
+    name: pi-triple-jupyter_default
+  engine:
+    external: true
+    name: pi-triple-pth_default
