@@ -1,6 +1,6 @@
 # PTL/PTH 仓库拆分设计（v1.5）
 
-> 状态：设计已批准；**Phase 0（交互收敛）与 Phase 1（pi-triple-deps 本地拆仓+pack）已完成**；Phase 2–4 待执行。
+> 状态：设计已批准；**Phase 0–4 全部完成（2026-08-22）**——Phase 0（交互收敛）、Phase 1（pi-triple-deps 拆仓+pack）后，Phase 2（pi-triple-pth）/ Phase 3（pi-triple-ptl）已拆仓并切换 npm 版本依赖，Phase 4 三仓 README/CI/文档索引独立化完成；npm 全量发布与三仓同源校验见 `docs/fracta-engine-execution-topology.md` 状态线。
 > Phase 1 报告：[phase1-deps-split-report.md](./phase1-deps-split-report.md)。
 > 机器清单：[repo-split-v15-manifest.json](../repo-split-v15-manifest.json)。
 > 历史依据：[2026-08-08 仓库拆分 SPEC](../superpowers/specs/2026-08-08-repo-split-design.md)（本设计是其 1.5 修订版）。

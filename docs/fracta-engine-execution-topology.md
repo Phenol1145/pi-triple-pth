@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入设计定稿（U8-1 batch 已实现，U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入设计定稿（U8-1 batch 已实现，U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -102,18 +102,18 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 
 | 执行面 | profile | 协议状态 | 差距 |
 |---|---|---|---|
-| sandbox 容器 | `sandbox-untrusted` | ✅ `/exec`、SSE、cancel、capabilities 已对齐 execution/v1 | 保持 v1 与 sandbox-internal egress 锁；persistent 迁移后置 |
-| tool containers（原 dev 容器） | `dev-container` | ❌ 只是工具容器，无 `/exec` HTTP 面 | 按 §5 迁移为 compiled/network/secrets 三域 + execution/v1.1 |
-| 本地执行器 | `host` | ❌ `LocalBackend` 只在进程内 | 按 v1.1 + pathMapping 实现；首期承载 Lean |
-| jupyter 服务 | — | ⚠️ 前端与 engine 无头执行两套入口（docker exec） | 单容器双面：北 8888 / 南 v1.1 registry 后端 `jupyter` |
-| engine 侧 | — | ✅ P1：BackendRegistry + `PTH_EXEC_BACKENDS`/`PTH_EXEC_BACKEND_ROUTES` 硬切路由（无隐式 LocalBackend，v1/v1.1 协商） | P2 消费本地执行器 v1.1 |
-| Lean 工具链 | — | ❌ 在 engine 镜像内（`deploy/Dockerfile` 装 elan/lean/lake） | 从镜像移除，改由本地执行器（v1.1）提供 |
+| sandbox 容器 | `sandbox-untrusted` | ✅ `/exec`、SSE、cancel、capabilities 已对齐 execution/v1 | 保持 v1 与 sandbox-internal egress 锁；persistent 迁移后置（P4） |
+| tool containers（原 dev 容器） | `tools-compiled`/`tools-network`/`tools-secrets` | ✅ T2–T4：manifest + 统一镜像 + tool-server/pty + compiled gateway，execution/v1.1 对齐并实测 | GHCR 多架构发布 + digest 钉版待凭据实测 |
+| 本地执行器 | `host` | ✅ P2：`pth local-exec`（v1.1 + pathMapping）+ `pth services` 监督 local-lean/local-u8 | u8 专业 runtime wiring（U8-1）；其余本地域按需扩展 |
+| jupyter 服务 | — | ⚠️ 前端与 engine 无头执行两套入口（docker exec） | 单容器双面：北 8888 / 南 v1.1 registry 后端 `jupyter`（P5，未开工） |
+| engine 侧 | — | ✅ P1+P2：BackendRegistry + `PTH_EXEC_BACKENDS`/`PTH_EXEC_BACKEND_ROUTES` 硬切路由 + tool/service 注册表合并消费 | interactive/persistent 消费语义（P4）；品牌/服务名迁移另立项 |
+| Lean 工具链 | — | ✅ 已从 engine 镜像移除，由 `local-lean` 宿主执行器提供（P2 实测） | 无（首期闭环完成） |
 
 ## 4. 优先级计划（协议面优先）
 
 ### P0 协议面冻结（pi-triple-deps，无行为迁移）
 
-**状态：✅ 已实现（2026-08-21）；npm 发布待办。**
+**状态：✅ 已实现并发布（2026-08-21 实现；2026-08-22 发布 `@away_from/shared@1.6.0` + `@away_from/infra@1.6.0`）。**
 
 1. ✅ shared 增加 `ExecutionBackendDescriptor` + `HttpExecutionBackend`（封装
    `HttpExecutionClient`：id、descriptor、capabilities 缓存与 profile 校验）。
