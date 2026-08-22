@@ -13,8 +13,15 @@ services:
     environment:
       - JUPYTER_SERVICE_TOKEN=${JUPYTER_SERVICE_TOKEN:?JUPYTER_SERVICE_TOKEN must be set}
       - JUPYTER_SOUTH_PORT=8889
+      - PTH_HOST_PTH_ENTRY=${PTH_HOST_PTH_ENTRY:-}
+      # 北向 kernel provider → engine API（token 需与 engine redis auth:token 同值）
+      - PTH_API=${PTH_API:-http://pi-platform:3000}
+      - JUPYTER_ENGINE_TOKEN=${JUPYTER_ENGINE_TOKEN:-}
+      - JUPYTER_ENGINE_LANG=${JUPYTER_ENGINE_LANG:-python}
     volumes:
       - ${PTH_WORKSPACES_HOST:?PTH_WORKSPACES_HOST must be set}:/data/workspaces
+      # pth CLI 轻量透传：宿主 pth 依赖树只读挂载（缺省空目录 = Lab 终端 pth 不可用，不阻塞服务）
+      - ${PTH_HOST_PTH_ROOT:-/tmp/pth-host-empty}:/opt/pth-host:ro
     networks:
       - default
       - engine

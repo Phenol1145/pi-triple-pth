@@ -18,8 +18,16 @@ COPY package.json package.json
 RUN npm install --omit=dev --no-audit --no-fund
 COPY server server
 
-# 北面内置终端跑 pth CLI：镜像构建期 npm registry 不可达时暂缓安装；
-# 后续经 pip/npm 离线包或镜像内 pth-cli tgz 注入（P5b 跟进，不影响南面 vertical）。
+# P5c：engine kernel provider（cell 转发 engine notebook API，不本地执行）
+COPY kernels /tmp/kernels
+RUN python -m jupyter kernelspec install /tmp/kernels/pi-kernel \
+    --name pi-kernel --prefix /usr/local \
+    && rm -rf /tmp/kernels
+
+# 北面内置终端跑 pth CLI：轻量透传——宿主机 pth 依赖树由 compose 只读挂载到
+# /opt/pth-host（PTH_HOST_PTH_ROOT），镜像不打包 pth（2026-08-22 用户裁决）。
+COPY pth-wrapper.sh /usr/local/bin/pth
+RUN chmod +x /usr/local/bin/pth
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

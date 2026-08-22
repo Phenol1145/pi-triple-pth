@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 随 P4）；GHCR release 待凭据实测；P4 已实现并实测（shared persistent 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 迁移 + 容器内 python/bash vertical 通过；legacy /kernel lease 路由 deprecated 待清理）；P5 Jupyter 南面已实现并容器内 vertical 通过（engine → backend jupyter → nbclient 无头执行；北面 JupyterLab :8888 运行中，镜像内 pth CLI 注入与 P5b→d 待续）。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 随 P4）；GHCR release 待凭据实测；P4 已实现并实测（shared persistent 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 迁移 + 容器内 python/bash vertical 通过；legacy /kernel lease 路由 deprecated 待清理）；P5 Jupyter 已实现主体并 vertical 通过（南面 engine→jupyter→nbclient 无头执行；北面 JupyterLab :8888 + 宿主 pth 只读挂载透传；pi-kernel provider → engine notebook API 状态化 cell 执行 + cancel 端点；剩余体验收尾）。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -105,7 +105,7 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 | sandbox 容器 | `sandbox-untrusted` | ✅ `/exec`、SSE、cancel、capabilities 已对齐 execution/v1 | 保持 v1 与 sandbox-internal egress 锁；persistent 迁移后置（P4） |
 | tool containers（原 dev 容器） | `tools-compiled`/`tools-network`/`tools-secrets` | ✅ T2–T4：manifest + 统一镜像 + tool-server/pty + compiled gateway，execution/v1.1 对齐并实测 | GHCR 多架构发布 + digest 钉版待凭据实测 |
 | 本地执行器 | `host` | ✅ P2：`pth local-exec`（v1.1 + pathMapping）+ `pth services` 监督 local-lean/local-u8；U8-1 adapter+路由已闭环 | 其余本地域按需扩展 |
-| jupyter 服务 | `dev-container`（南面 spawn 面按 host 档） | ✅ 南面 execution/v1.1 :8889 + 北面 JupyterLab :8888；engine 经 backend `jupyter` 无头执行已 vertical | 镜像内 pth CLI 注入 + P5b→d（kernel provider/有状态 REPL） |
+| jupyter 服务 | `dev-container`（南面 spawn 面按 host 档） | ✅ 南面 execution/v1.1 :8889 + 北面 JupyterLab :8888 + pth 宿主挂载透传 + pi-kernel → engine notebook API；无头与 notebook vertical 均通过 | Lab 内 interrupt 交互细化/体验收尾 |
 | engine 侧 | — | ✅ P1+P2：BackendRegistry + `PTH_EXEC_BACKENDS`/`PTH_EXEC_BACKEND_ROUTES` 硬切路由 + tool/service 注册表合并消费 | interactive/persistent 消费语义（P4）；品牌/服务名迁移另立项 |
 | Lean 工具链 | — | ✅ 已从 engine 镜像移除，由 `local-lean` 宿主执行器提供（P2 实测） | 无（首期闭环完成） |
 
@@ -355,9 +355,14 @@ chatgpt-share），可信可出网、无密钥注入、root 单用户，调用�
   已是薄客户端（probe/execute 全部经 backend），不再 docker exec。
   vertical 已通过：engine 容器内 adapter → `http://jupyter:8889` → nbclient
   clean-kernel execute-all → executed-notebook/report artifacts + 输出核对。
-- ✅ 北面基础：JupyterLab `:8888`（回环发布）同容器运行，workspaces 共享卷；
-  **待续**：镜像内 `pth` CLI 注入（构建期 npm registry 不可达，转离线包方案）+
-  P5 kernel provider。
+- ✅ 北面：JupyterLab `:8888`（回环发布）同容器运行，workspaces 共享卷；
+  `pth` CLI 经宿主依赖树只读挂载 `/opt/pth-host` + wrapper 透传（镜像零 pth 字节，
+  2026-08-22 用户裁决；不可用时终端给出明确指引）。
+- ✅ kernel provider 原型：`pi-kernel`（cell → engine `/api/v1/kernel/notebook/execute`，
+  sessionId 在 kernel 实例内保持；nbconvert 执行真实 notebook 已通过）。
+- ✅ engine 北向 notebook 契约：`POST /api/v1/kernel/notebook/execute|cancel`
+  （python/bash/ts，每 session 独立 KernelManager + idle TTL；python/bash 随
+  PTH_*_MODE 走 sandbox-kernel 持久会话）。
 - 共享 workspaces / artifacts 卷；由 `pth services` 管理（`pth services up jupyter`），
   部署物在 `deploy/services/jupyter/`（service.json + Dockerfile + compose +
   south-server + entrypoint）。
@@ -368,8 +373,11 @@ chatgpt-share），可信可出网、无密钥注入、root 单用户，调用�
 **前端分工**：operator console 保留（任务/日志/巡检/动作）；JupyterLab 只承担终端与
 notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，不整体重做控制台。
 
-落地顺序（P5a→d）：✅ 南面部署物 + engine 无头 notebook vertical（P5a 主体）→
-kernel provider 原型 → 有状态 REPL（persistent 已实现）/ cancel → JupyterLab 体验。
+落地顺序（P5a→d）：✅ P5a 南面部署物 + engine 无头 notebook vertical →
+✅ P5b engine notebook 会话契约（execute/cancel，session 隔离 + TTL）→
+✅ P5c pi-kernel provider（nbconvert 真实 notebook 通过）→
+✅ P5d 有状态 REPL（persistent 已实现）/ cancel 端点 + JupyterLab 基础体验；
+剩余：Lab 内 interrupt 交互细化与体验收尾（可另开小批）。
 
 ## 5. tool containers 与 execution/v1.1 模式框架（ADR-0002 定稿）
 

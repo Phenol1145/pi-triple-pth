@@ -41,8 +41,31 @@ export interface ExecResult {
   sessionId?: string;
 }
 
+export interface NotebookCellRequest {
+  /** python | bash | ts（python/bash 随 PTH_*_MODE 走 kernel/sandbox-kernel） */
+  language: "python" | "bash" | "ts";
+  code: string;
+  /** 缺省新建 session 并返回；携带则续用该 session 的 kernel 状态 */
+  sessionId?: string;
+  timeoutMs?: number;
+}
+
+export interface NotebookCellResult {
+  ok: boolean;
+  value?: unknown;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+  durationMs: number;
+  sessionId: string;
+}
+
 type ExecKernel = { ts: Interpreter; abort(): Promise<void> };
-interface KernelManagerLike { dispose(): void }
+interface KernelManagerLike {
+  execute(language: string, program: string, opts?: { timeoutMs?: number; exec?: string; space?: string }): Promise<InterpreterResult>;
+  dispose(): void;
+  abort?(): Promise<void>;
+}
 
 export interface ExecChannelDeps {
   dataWorld: DataWorldAccess;
@@ -59,6 +82,8 @@ export class KernelExecChannel {
   private llm: LlmFn | null = null;
   private toolstore: Toolstore | null = null;
   private readonly sessions = new Map<string, { kernel: ExecKernel; lastUsed: number }>();
+  /** P5b：notebook 会话——每 session 一个独立 KernelManager（python/bash 状态隔离） */
+  private readonly notebookSessions = new Map<string, { manager: KernelManagerLike; lastUsed: number }>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private readonly ttlMs: number;
 
@@ -68,20 +93,33 @@ export class KernelExecChannel {
     this.sweepTimer.unref?.();
   }
 
+  private createManager(): KernelManagerLike {
+    const createKernelManager = getKernelExecFactory().createKernelManager as (opts: unknown) => KernelManagerLike;
+    return createKernelManager({
+      pythonMode: pthConfig().str("PTH_PYTHON_MODE") as "kernel" | "interpreter" | "sandbox-kernel",
+      bashMode: pthConfig().str("PTH_BASH_MODE") as "kernel" | "interpreter" | "sandbox-kernel",
+      sandboxKernel: {
+        url: pthConfig().str("PTH_SANDBOX_KERNEL_URL"),
+        secret: pthConfig().str("SANDBOX_SHARED_SECRET"),
+        // P5b：notebook cell 走 sandbox-kernel 时自动签发 grant（与 batch 同款）。
+        // 会话创建即绑定；跨任务动态绑定由 notebook session 级 manager 隔离。
+        grantSecret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET"),
+        grantIdentity: {
+          principalId: "engine:notebook-exec-channel",
+          roleId: "developer",
+          capabilities: ["memory.read"],
+          tenantId: "system",
+        },
+      },
+      kernelConfig: loadKernelConfig(process.env),
+    });
+  }
+
   /** 通道级共享资源懒初始化（manager/llm/toolstore——首次执行时建立） */
   private async ensureKernel(): Promise<ExecKernel> {
     if (this.deps.kernelFactory) return this.deps.kernelFactory();
     if (!this.manager) {
-      const createKernelManager = getKernelExecFactory().createKernelManager as (opts: unknown) => KernelManagerLike;
-      this.manager = createKernelManager({
-        pythonMode: pthConfig().str("PTH_PYTHON_MODE") as "kernel" | "interpreter" | "sandbox-kernel",
-        bashMode: pthConfig().str("PTH_BASH_MODE") as "kernel" | "interpreter" | "sandbox-kernel",
-        sandboxKernel: {
-          url: pthConfig().str("PTH_SANDBOX_KERNEL_URL"),
-          secret: pthConfig().str("SANDBOX_SHARED_SECRET"),
-        },
-        kernelConfig: loadKernelConfig(process.env),
-      });
+      this.manager = this.createManager();
     }
     if (!this.llm) {
       try {
@@ -125,11 +163,54 @@ export class KernelExecChannel {
     return { ok: r.ok, value: r.value, error: r.error?.message, durationMs: r.durationMs, mode, sessionId: sid };
   }
 
+  /** P5b：notebook cell 执行——每 session 独立 KernelManager，python/bash/ts 全路由。 */
+  async executeNotebookCell(req: NotebookCellRequest): Promise<NotebookCellResult> {
+    if (!["python", "bash", "ts"].includes(req.language)) {
+      throw new Error(`exec-channel: unsupported notebook language ${req.language}`);
+    }
+    if (typeof req.code !== "string" || req.code.length === 0) {
+      throw new Error("exec-channel: notebook code required");
+    }
+    const sid = req.sessionId || randomUUID();
+    let session = this.notebookSessions.get(sid);
+    if (!session) {
+      session = { manager: this.createManager(), lastUsed: Date.now() };
+      this.notebookSessions.set(sid, session);
+    }
+    session.lastUsed = Date.now();
+    const r = await session.manager.execute(req.language, req.code, { timeoutMs: req.timeoutMs });
+    return {
+      ok: r.ok,
+      ...(r.value !== undefined ? { value: r.value } : {}),
+      ...(r.stdout !== undefined ? { stdout: r.stdout } : {}),
+      ...(r.stderr !== undefined ? { stderr: r.stderr } : {}),
+      ...(r.error !== undefined ? { error: r.error.message } : {}),
+      durationMs: r.durationMs,
+      sessionId: sid,
+    };
+  }
+
+  /** P5d：notebook session cancel——abort in-flight 核后 dispose（不可恢复，caller 重建）。 */
+  async cancelNotebook(sessionId: string): Promise<boolean> {
+    const session = this.notebookSessions.get(sessionId);
+    if (!session) return false;
+    await session.manager.abort?.().catch(() => undefined);
+    session.manager.dispose();
+    this.notebookSessions.delete(sessionId);
+    return true;
+  }
+
   /** idle 会话回收（TTL——防 session 泄漏） */
   private sweep(): void {
     const now = Date.now();
     for (const [sid, s] of this.sessions) {
       if (now - s.lastUsed > this.ttlMs) this.sessions.delete(sid);  // ts context GC；共享 manager 不动
+    }
+    for (const [sid, s] of this.notebookSessions) {
+      if (now - s.lastUsed > this.ttlMs) {
+        s.manager.dispose();
+        this.notebookSessions.delete(sid);
+      }
     }
   }
 
@@ -141,6 +222,8 @@ export class KernelExecChannel {
   async shutdown(): Promise<void> {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sessions.clear();
+    for (const session of this.notebookSessions.values()) session.manager.dispose();
+    this.notebookSessions.clear();
     this.manager?.dispose();   // 归还 sandbox kernel 租约（防池泄漏）
     this.manager = null;
   }

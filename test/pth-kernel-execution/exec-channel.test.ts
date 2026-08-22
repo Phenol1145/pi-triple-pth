@@ -68,6 +68,13 @@ describe("KernelExecChannel（kernel 直连通道——任务池纯化 D2）", (
     await ch.shutdown();
   });
 
+  it("notebook cell 门禁：语言白名单 + 非空 code（fail-closed）", async () => {
+    const ch = new KernelExecChannel({ dataWorld: {} as never });
+    await expect(ch.executeNotebookCell({ language: "ruby" as never, code: "1" })).rejects.toThrow(/unsupported notebook language/);
+    await expect(ch.executeNotebookCell({ language: "python", code: "" })).rejects.toThrow(/notebook code required/);
+    await ch.shutdown();
+  });
+
   it("idle TTL 回收：超时 session 被清理", async () => {
     vi.useFakeTimers();
     try {

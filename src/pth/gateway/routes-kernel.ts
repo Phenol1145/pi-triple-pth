@@ -127,6 +127,31 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     return reply.status(result.ok ? 200 : 422).send(result);
   });
 
+  // ── P5b：jupyter 北向 notebook cell 执行（session 持久；python/bash/ts）──────
+  app.post("/api/v1/kernel/notebook/execute", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const language = body.language === "python" || body.language === "bash" || body.language === "ts" ? body.language : null;
+    const code = typeof body.code === "string" ? body.code : "";
+    if (!language || !code.trim()) {
+      return reply.status(400).send({ error: "language (python|bash|ts) and non-empty code required" });
+    }
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+    const timeoutMs = typeof body.timeoutMs === "number" && body.timeoutMs > 0 ? Math.min(body.timeoutMs, 600_000) : undefined;
+    const result = await facade.execNotebook({ language, code, sessionId, timeoutMs }) as { ok: boolean };
+    return reply.status(result.ok ? 200 : 422).send(result);
+  });
+
+  // ── P5d：notebook session cancel（abort + dispose；不可恢复）──────
+  app.post("/api/v1/kernel/notebook/cancel", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+    if (!sessionId) return reply.status(400).send({ error: "sessionId required" });
+    const cancelled = await facade.cancelNotebook(sessionId);
+    return cancelled ? { ok: true } : reply.status(404).send({ error: "notebook session not found" });
+  });
+
   // ── 运行过程保留（2026-08-09）：任务轨迹查询 ──────────────────
   app.get("/api/v1/kernel/tasks/:id/transcript", async (req, reply) => {
     if (!facade) return unavailable(reply);

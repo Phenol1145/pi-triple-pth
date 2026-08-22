@@ -1,0 +1,8 @@
+{
+  "argv": ["python", "-m", "pi_kernel", "-f", "{connection_file}"],
+  "display_name": "Pi-Triple Engine (python/bash/ts)",
+  "language": "python",
+  "env": {
+    "PYTHONPATH": "/usr/local/share/jupyter/kernels/pi-kernel"
+  }
+}

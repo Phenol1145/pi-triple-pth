@@ -53,6 +53,10 @@ export interface PthGatewayFacade {
   bridgeRetrieve(anchors: string[], kinds: string[] | undefined, tenantId: string): Promise<MemoryEntry[]>;
   bridgeGet(id: string, tenantId: string): Promise<MemoryEntry | null>;
   execKernel(input: { code: string; mode: "stateless" | "repl"; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>>;
+  /** P5b：jupyter 北向 notebook cell 执行（sessionId 持久；python/bash/ts） */
+  execNotebook(input: { language: "python" | "bash" | "ts"; code: string; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>>;
+  /** P5d：notebook session cancel（abort + dispose；不可恢复） */
+  cancelNotebook(sessionId: string): Promise<boolean>;
   listTranscripts(taskId: string): Promise<Array<Record<string, unknown>>>;
   publishTask(input: PublishInput, scope?: TenantScope): Promise<Task>;
   listTasks(limit: number, scope?: TenantScope): Promise<Array<Record<string, unknown>>>;
@@ -138,6 +142,15 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   async execKernel(input: { code: string; mode: "stateless" | "repl"; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>> {
     const result = await this.#kernel.execChannel.execute(input);
     return result as unknown as Record<string, unknown>;
+  }
+
+  async execNotebook(input: { language: "python" | "bash" | "ts"; code: string; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>> {
+    const result = await this.#kernel.execChannel.executeNotebookCell(input);
+    return result as unknown as Record<string, unknown>;
+  }
+
+  async cancelNotebook(sessionId: string): Promise<boolean> {
+    return this.#kernel.execChannel.cancelNotebook(sessionId);
   }
 
   async listTranscripts(taskId: string): Promise<Array<Record<string, unknown>>> {
