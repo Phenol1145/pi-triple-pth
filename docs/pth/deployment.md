@@ -1,6 +1,10 @@
 # PTH 安装与性能调优
 
 > 与共享层 skill `pth-deploy` 同源（2026-08-09）。覆盖：compose 拓扑、安装步骤、验证三连、性能参数全表、调优方法论、运行时调参、容器抽象设计意图（v0.7）。
+>
+> **2026-08-22 状态对齐**：当前实际入口 = `pth up`（核心栈）+ `pth tools up` +
+> `pth services up`（见 §2.6）；统一入口 `pth up --profile|--all` 已定稿待实现，
+> 见 `docs/pth/p6-pth-cli-runtime-profiles-design.md`。
 
 PTH（Pi-Triple-Heavy）是**自耦自然语言解释器**：输入自然语言意图，直接产出执行结果（解释即执行）。Fastify 网关 + kernel 任务池 + sandbox 隔离执行是其内部机制。本文档带你从零安装并用参数压到目标吞吐。
 
@@ -33,7 +37,10 @@ pth init        # 复制 example + chmod 600（已有文件会拒绝，需 --for
 ```
 
 全部密钥 compose `:?` 强校验（缺任一拒绝启动）：`SANDBOX_SHARED_SECRET` /
-`PTH_EXECUTION_GRANT_SECRET` / `PTH_MEMORY_BRIDGE_TOKEN` / `POSTGRES_PASSWORD` / `REDIS_PASSWORD`。
+`PTH_EXECUTION_GRANT_SECRET` / `PTH_MEMORY_BRIDGE_TOKEN` / `POSTGRES_PASSWORD` /
+`REDIS_PASSWORD` / `LOCAL_EXEC_SHARED_SECRET`（宿主 local-lean/local-u8 与 engine 同值）/
+`JUPYTER_SERVICE_TOKEN`（jupyter 南面与 engine 同值；pi-kernel 的
+`JUPYTER_ENGINE_TOKEN` 建议同源）。
 主进程还注入 `PTH_CONFIG_STRICT=1`：弱密钥（grant secret <32、shared/bridge token <16）与
 开发默认 token 直接 fail-fast。
 
@@ -67,6 +74,10 @@ docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml 
 `pth up` 参数：`--tenant`（默认 ops）、`--token`（缺省自动生成）、`--no-seed-token`、`--rebuild`、
 `--timeout`（默认 300s）、`--no-verify`、`--port`（验证端口）。`pth down [--volumes]` 停止全栈；
 `pth logs [service] [--tail n] [--follow]` 看日志。
+
+> ⚠️ 当前 `pth up` 只起核心栈。engine batch 启动时一次性 probe `PTH_EXEC_BACKENDS`，
+> 因此**完整运行时必须先起宿主服务/工具容器/jupyter，最后再 `pth up`**（P6 编排器
+> 将自动执行该顺序）。
 
 ### 2.4 验证三连
 
@@ -110,6 +121,38 @@ ptl --version         # 应输出 v${VERSION}
 ```bash
 npm install -g pi-triple-v${VERSION}.tgz && ptl --version
 ```
+
+### 2.6 完整运行时（当前手工流程；P6 统一入口待实现）
+
+按需组合；顺序要求：**后端先于 engine**。
+
+```bash
+# 前置宿主变量
+export PTH_WORKSPACES_HOST=/abs/path/to/workspaces          # 本地执行器/jupyter 共享卷
+export PTH_HOST_PTH_ROOT=/abs/path/to/pi-triple-pth        # jupyter 北面 pth 透传
+
+# 数据层（engine 栈的一部分）
+pth up --no-seed-token                                    # 或手动 compose up redis/postgres/sandbox
+
+# 宿主本地执行器（按需；PATH 需含工具链）
+export LOCAL_EXEC_SHARED_SECRET=$(grep LOCAL_EXEC_SHARED_SECRET deploy/.env.pth.secrets | cut -d= -f2)
+PATH="$PWD/deploy/local-exec/u8:$PATH" pth services up local-lean local-u8
+
+# 工具容器（按需）
+pth tools up
+
+# jupyter 单容器双面（按需；PTH_HOST_PTH_ROOT + JUPYTER_SERVICE_TOKEN 自动同源）
+export JUPYTER_SERVICE_TOKEN=$(grep JUPYTER_SERVICE_TOKEN deploy/.env.pth.secrets | cut -d= -f2)
+pth services up jupyter
+
+# engine 最后（batch 启动 probe 全部 backend）
+pth up
+pth status
+pth services status && pth tools status
+```
+
+`pth down` 反向：`pth down`（engine）→ `pth services down jupyter` → `pth tools down` →
+`pth services down local-lean local-u8`。
 
 ## 3. 性能参数全表（PTH_*）
 
