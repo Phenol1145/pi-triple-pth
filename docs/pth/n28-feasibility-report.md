@@ -1,7 +1,7 @@
-# N28 可行性验证报告（ROLE/MEMORY/WORKER 编排）——第二轮复核修复后权威版
+# N28 可行性验证报告（ROLE/MEMORY/WORKER 编排）——Phase B 重新验收后权威版
 
-> 日期：2026-08-19
-> evaluated commit：`7e761806e7c9a3b5bef75ecfa7d52c7775b88b4a`
+> 日期：2026-08-22
+> evaluated commit：`d4f363dc69b15a9811e214b106e44f27ad45389a`
 > 最终决定：**GO**（provisional evaluator 与 acceptance envelope 均为 GO）
 > 决定来源：`scripts/accept-n28-feasibility.ts`（唯一终审权威）
 > 完整权威 envelope：`docs/pth/n28-feasibility-envelope.json`
@@ -9,24 +9,21 @@
 ## 0. 结论
 
 **GO。** H1–H6 全部非空分母且全部 PASS；两次 evaluator byte-identical；focused 31 文件
-zero-skip、合同一致的 7 文件 typecheck、full regression（冻结 9 skip）、lint 四道门禁全绿。
-合同 disposition 为人工批准的 Task 7 合同 **v1.1**（C7 收窄合法化）。
+zero-skip、**35 文件 typecheck**（4 scripts + 31 focused tests）、full regression（冻结 58 skip）、
+lint 四道门禁全绿。合同 disposition 为人工批准的 Task 7 合同 **v1.2**（恢复 35 文件 typecheck）。
 
 GO 只授权编写生产化实施计划（persistent lease/Region 表/outbox 投影/权重校准/重平衡），
 不授权数据库迁移、自动扩缩容或默认开启。
 
-> 独立符合性处置保持：外部第二轮复核报告的 **NOT ACCEPTED / NO-GO** 处置属于复核方；
-> 本报告只陈述自动验收结果与修复证据，不代表复核方已改判。
-
-## 1. 验收门禁（clean worktree 上真实执行，同 commit `7e76180`）
+## 1. 验收门禁（clean worktree 上真实执行，同 commit `d4f363d`）
 
 | 门禁 | 结果 |
 |---|---|
 | 两次 evaluator | byte-identical，provisional GO |
 | 六条 sabotage 敏感度 | 每条 NO-GO 且只翻转其映射 H，sentinel > baseline（见 §3） |
-| `npx tsc -p tsconfig.n28.json --noEmit` | exit 0（合同 v1.1：4 scripts + vertical/evaluator/acceptance 三测试） |
+| `npx tsc -p tsconfig.n28.json --noEmit` | exit 0（合同 v1.2：4 scripts + 31 focused tests） |
 | N28 focused 31 文件 | exit 0，skips=[] |
-| `npm test` | exit 0，skip manifest = 冻结清单 9（sandbox-security） |
+| `npm test` | exit 0，skip manifest = 冻结清单 58（sandbox-security + 4 个 professional integration） |
 | `npm run lint` | exit 0（boundaries 0 / config 0） |
 
 ## 2. H1–H6 对账（全部 PASS）
@@ -54,40 +51,46 @@ GO 只授权编写生产化实施计划（persistent lease/Region 表/outbox 投
 敏感度测试 `test/pth-runner/n28-feasibility-evaluator.test.ts` 逐条断言：decision=NO-GO、
 映射假设 FAIL、其余五条假设保持 PASS。sabotage 只改变共享 harness 输入/依赖/动作，不直写 metric。
 
-## 4. 第二轮复核阻断项修复对照
+## 4. 复验阻断项修复对照（Phase B）
 
 | 阻断项 | 修复 | 落点 |
 |---|---|---|
 | P0-1 身份对齐 | batch feasibility 从 `deps.memoryDirectory.workers` 派生 workerSpecs（`requestedReplica` + `roleDefinitionRevision`），unknown worker 抛错 | `batch-process.ts` |
-| P0-2 重复 ID 硬限 | state recall/memory retrieve/query 逐行 `#rowN` token 计费并按 token 过滤，omitted 不可见 | `cognitive-working-set.ts` |
-| P0-3 扫描常量 | 删除 H2 常量覆盖；ownerless 与三类 projection 正文复制由扫描得出 | `eval-n28-feasibility.ts` |
-| P0-4 六 sabotage | 六条冻结哨兵全部实现 + 敏感度测试 | 同上 + evaluator test |
-| P0-5 合同收窄 | Task 7 合同 **v1.1** 人工批准修订（用户选项）；envelope 绑定 `contractDisposition` 并纳入终审校验 | `n28-task7-contract.md` §11、`accept-n28-feasibility.ts` |
+| P0-2 重复 ID 硬限 | state recall/memory retrieve/query 逐行 `#rowN` token 计费并按 token 过滤，omitted 不可见；新增重复 ID 多行回归 | `cognitive-working-set.ts`、`cognitive-working-set.test.ts` |
+| P0-3 扫描常量 | 删除 H2 常量覆盖；ownerless 与 Directory/Responsibility/Working Set projection 正文复制由真实扫描得出 | `eval-n28-feasibility.ts` |
+| P0-4 六 sabotage | 六条冻结哨兵全部实现 + 敏感度测试 | `eval-n28-feasibility.ts`、evaluator test |
+| P0-5 合同收窄 | Task 7 合同 **v1.2** 人工批准修订（用户选择恢复 35 文件 typecheck）；envelope 绑定 `contractDisposition` 并纳入终审校验 | `n28-task7-contract.md` §12、`accept-n28-feasibility.ts` |
 | P1-1 分母真实化 | pause/resume、逐 worker heartbeat、四类失效穿 8 surface、visibility allow/deny 双向、H5 facade 反序、H6 精确集合相等；`freezeSkillIndex` 顺序确定性缺陷根修 | `eval-n28-feasibility.ts`、`cognitive-budget.ts` |
-| P1-2 unknown 回执/waiter | `accepted` 字段 + unknown/false/error 判失败，超时清理 waiter | `batch-manager.ts` |
-| P1-3 trace 三态 | `candidateCount=all`、`visibleCount=inWave`、`scannedCount=all` 分列 | `batch-process.ts` |
-| P1-4 混合门禁优先 | started 非零先判 NO-GO，再判 EVALUATION-INCOMPLETE | `accept-n28-feasibility.ts` |
+| P1-2 unknown 回执/waiter | `accepted` 字段 + unknown/false/error 判失败（含 removal 失败回执），超时清理 waiter；新增 unknown 负测 | `batch-manager.ts`、`batch-manager.test.ts` |
+| P1-3 trace 三态 | `candidateCount=all`、`visibleCount=inWave`、`scannedCount=all` 分列；新增 candidate>=visible>=selected 断言 | `batch-process.ts`、`layered-knowledge-retriever.test.ts` |
+| P1-4 混合门禁优先 | started 非零先判 NO-GO，再判 EVALUATION-INCOMPLETE；Redis preflight 被门禁消费 | `accept-n28-feasibility.ts` |
 
 ## 5. 最终 acceptance envelope（摘要；完整 JSON 见同目录 envelope 文件）
 
 ```json
 {
-  "evaluatedCommit": "7e761806e7c9a3b5bef75ecfa7d52c7775b88b4a",
+  "evaluatedCommit": "d4f363dc69b15a9811e214b106e44f27ad45389a",
   "implementationTreeClean": true,
   "contractDisposition": {
-    "version": "v1.1",
+    "version": "v1.2",
     "approved": true,
     "approvalSource": "user-selected-option-in-reacceptance-session",
     "amendmentDoc": "docs/pth/n28-task7-contract.md",
-    "amendmentClause": "## 11. 人工批准修订 v1.1",
-    "typecheckScope": "tsconfig.n28.json (4 scripts + vertical/evaluator/acceptance tests)"
+    "amendmentClause": "## 12. 人工批准修订 v1.2（恢复 35 文件 typecheck）",
+    "typecheckScope": "tsconfig.n28.json (4 scripts + 31 focused tests)"
   },
   "evaluator": { "byteIdentical": true, "first": "GO", "second": "GO" },
   "focused": { "started": true, "exitCode": 0, "skipped": [] },
   "n28Typecheck": { "started": true, "exitCode": 0, "skipped": [] },
   "fullRegression": {
     "started": true, "exitCode": 0,
-    "skipped": [{ "file": "test/pth-execution/sandbox-security.integration.test.ts", "tests": 9 }]
+    "skipped": [
+      { "file": "test/pth-execution/sandbox-security.integration.test.ts", "tests": 9 },
+      { "file": "test/pth-professional/assembly-engineer.integration.test.ts", "tests": 14 },
+      { "file": "test/pth-professional/computational-chemist.integration.test.ts", "tests": 5 },
+      { "file": "test/pth-professional/lean4-prover.integration.test.ts", "tests": 13 },
+      { "file": "test/pth-professional/technical-educator.integration.test.ts", "tests": 17 }
+    ]
   },
   "lint": { "started": true, "exitCode": 0, "skipped": [] },
   "decision": "GO", "reasons": []
