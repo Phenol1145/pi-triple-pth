@@ -66,6 +66,18 @@ const PROBES: readonly ProbeSpec[] = [
     args: ["--version"],
     extract: /([0-9]+\.[0-9]+\.[0-9]+)/,
   },
+  {
+    runtimeId: "cp2k",
+    tool: "cp2k",
+    args: ["--version"],
+    extract: /CP2K version ([0-9]+\.[0-9]+)/,
+  },
+  {
+    runtimeId: "u8",
+    tool: "u8",
+    args: ["version"],
+    extract: /U8 version:([0-9]+\.[0-9]+\.[0-9]+)/,
+  },
 ];
 
 function stable(value: unknown): unknown {

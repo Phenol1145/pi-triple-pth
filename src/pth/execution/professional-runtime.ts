@@ -117,6 +117,8 @@ export const PROFESSIONAL_RUNTIME_ROLE_ALLOWLIST: Readonly<Record<ProfessionalRu
   "quantum-espresso": Object.freeze(["computational-chemist"]),
   cp2k: Object.freeze(["computational-chemist"]),
   jupyter: Object.freeze(["technical-educator"]),
+  // U8-1（2026-08-22）：adapter/路由已接线；专业角色归属另立项，暂不对任何角色开放。
+  u8: Object.freeze([]),
 });
 
 function isRoleAllowedForRuntime(roleId: string, runtimeId: ProfessionalRuntimeId): boolean {
@@ -145,6 +147,8 @@ export interface ProfessionalRuntimeProbe {
 
 export interface ProfessionalRuntimeRegistry {
   register<S extends ProfessionalJobSpec, R>(adapter: ProfessionalRuntimeAdapter<S, R>): void;
+  /** 已注册（probe 通过且满足 committed lock）的 runtime id 快照，供启动观测。 */
+  list(): readonly ProfessionalRuntimeId[];
   probe(id: ProfessionalRuntimeId): Promise<ProfessionalRuntimeProbe>;
   execute<S extends ProfessionalJobSpec, R>(
     request: ProfessionalJobRequest<S>,
@@ -241,6 +245,10 @@ export function createProfessionalRuntimeRegistry(deps: {
         throw new Error(`professional runtime registry: duplicate adapter id ${adapter.id}`);
       }
       adapters.set(adapter.id, adapter as ProfessionalRuntimeAdapter<any, any>);
+    },
+
+    list() {
+      return [...adapters.keys()];
     },
 
     async probe(id) {

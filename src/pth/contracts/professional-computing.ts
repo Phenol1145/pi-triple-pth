@@ -39,6 +39,7 @@ export const PROFESSIONAL_RUNTIME_IDS = [
   "quantum-espresso",
   "cp2k",
   "jupyter",
+  "u8",
 ] as const;
 export type ProfessionalRuntimeId = (typeof PROFESSIONAL_RUNTIME_IDS)[number];
 
@@ -270,6 +271,64 @@ export function isJupyterJobSpecStructurallyValid(v: unknown): v is JupyterJobSp
   return true;
 }
 
+// ── u8 ──
+
+export const U8_OPERATIONS = ["compile", "run", "compile-run"] as const;
+export type U8Operation = (typeof U8_OPERATIONS)[number];
+export const U8_REG_KEYS = ["A", "B", "X", "Y", "PC", "SP", "CCR"] as const;
+export type U8RegKey = (typeof U8_REG_KEYS)[number];
+
+export interface U8JobSpec {
+  readonly operation: U8Operation;
+  /** compile / compile-run：.u8asm 源码 artifact。 */
+  readonly sourceRef?: ArtifactRef;
+  /** run：已编译 .u8programme 二进制 artifact。 */
+  readonly programmeRef?: ArtifactRef;
+  /** 非交互初始寄存器注入（0–255）。 */
+  readonly regs?: Readonly<Partial<Record<U8RegKey, number>>>;
+  /** 非交互初始 I/O 端口注入（键 0–15 或 a–f，值 0–255）。 */
+  readonly io?: Readonly<Record<string, number>>;
+}
+
+function isU8ByteValue(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 255;
+}
+
+function isU8InitialMap(v: unknown, validKeys: readonly string[]): v is Record<string, number> {
+  if (!isObject(v)) return false;
+  const entries = Object.entries(v as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  return entries.every(([key, value]) => validKeys.includes(key) && isU8ByteValue(value));
+}
+
+const U8_IO_KEY_RE = /^(?:[0-9]|1[0-5]|[a-fA-F])$/;
+
+export function isU8JobSpecStructurallyValid(v: unknown): v is U8JobSpec {
+  if (!isObject(v) || hasForbiddenKeys(v)) return false;
+  if (!hasOnlyKeys(v, ["operation", "sourceRef", "programmeRef", "regs", "io"])) return false;
+  if (!NON_EMPTY_STRING(v.operation) || !(U8_OPERATIONS as readonly string[]).includes(v.operation)) return false;
+  const sourceOk = v.sourceRef === undefined || isArtifactRefStructurallyValid(v.sourceRef);
+  const programmeOk = v.programmeRef === undefined || isArtifactRefStructurallyValid(v.programmeRef);
+  if (!sourceOk || !programmeOk) return false;
+  if (v.operation === "compile" || v.operation === "compile-run") {
+    if (!isArtifactRefStructurallyValid(v.sourceRef) || v.programmeRef !== undefined) return false;
+  }
+  if (v.operation === "run") {
+    if (!isArtifactRefStructurallyValid(v.programmeRef) || v.sourceRef !== undefined) return false;
+  }
+  if (v.regs !== undefined) {
+    if (!isU8InitialMap(v.regs, U8_REG_KEYS as readonly string[])) return false;
+    if (Object.keys(v.regs as Record<string, unknown>).some((k) => !(U8_REG_KEYS as readonly string[]).includes(k))) return false;
+  }
+  if (v.io !== undefined) {
+    if (!isObject(v.io)) return false;
+    const entries = Object.entries(v.io as Record<string, unknown>);
+    if (entries.length === 0) return false;
+    if (!entries.every(([key, value]) => NON_EMPTY_STRING(key) && U8_IO_KEY_RE.test(key) && isU8ByteValue(value))) return false;
+  }
+  return true;
+}
+
 // ── 判别联合与请求/结果信封 ────────────────────────────────────────────────
 
 export type ProfessionalJobSpec =
@@ -279,7 +338,8 @@ export type ProfessionalJobSpec =
   | Psi4JobSpec
   | QuantumEspressoJobSpec
   | Cp2kJobSpec
-  | JupyterJobSpec;
+  | JupyterJobSpec
+  | U8JobSpec;
 
 export interface ProfessionalJobRequest<S extends ProfessionalJobSpec = ProfessionalJobSpec> {
   readonly jobId: string;
@@ -359,6 +419,7 @@ function isSpecStructurallyValidForRuntime(runtimeId: ProfessionalRuntimeId, spe
     case "quantum-espresso": return isQuantumEspressoJobSpecStructurallyValid(spec);
     case "cp2k": return isCp2kJobSpecStructurallyValid(spec);
     case "jupyter": return isJupyterJobSpecStructurallyValid(spec);
+    case "u8": return isU8JobSpecStructurallyValid(spec);
   }
 }
 

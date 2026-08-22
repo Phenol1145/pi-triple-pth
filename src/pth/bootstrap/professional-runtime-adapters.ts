@@ -24,6 +24,7 @@ import {
   createQuantumEspressoRuntimeAdapter,
   createCp2kRuntimeAdapter,
   createJupyterRuntimeAdapter,
+  createU8RuntimeAdapter,
 } from "../execution/index.js";
 import {
   createProfessionalRuntimeRegistry,
@@ -71,6 +72,9 @@ export interface AssembleProfessionalRuntimeRegistryInput {
   readonly jupyterWorkDir?: string;
   readonly jupyterExecPrefix?: readonly string[];
   readonly jupyterPathForExec?: (hostPath: string) => string;
+  /** U8-1：u8 VM 工具链执行（生产路由 local-u8；缺省 PTH_WORKSPACES_PATH 做 job 根）。 */
+  readonly u8WorkDir?: string;
+  readonly u8ExecPrefix?: readonly string[];
   /**
    * P1 硬切：执行后端注册表（优先 backendRoutes → 约定 id；无命中且无 legacy 前缀
    * → 不创建该 runtime 的执行面，probe 返回 unavailable）。
@@ -91,6 +95,8 @@ const DEFAULT_BACKEND_ROUTES: Readonly<Partial<Record<ProfessionalRuntimeId, str
   cp2k: "local-chem",
   "quantum-espresso": "local-chem",
   jupyter: "dev-jupyter",
+  // U8-1：u8proj 本地执行器（host，batch compile/run；U8-2 interactive 随 P4）
+  u8: "local-u8",
 };
 
 function runtimeExecutionBackend(
@@ -140,7 +146,7 @@ export async function assembleProfessionalRuntimeRegistry(
   if (!factories.lean4 && input.artifactPath !== undefined) {
     const artifactPath = input.artifactPath;
     const entry = input.lock.runtimes.lean4;
-    const mathlibRev = (entry as { dependencies?: { mathlib?: { rev?: string } } }).dependencies?.mathlib?.rev;
+    const mathlibRev = entry ? (entry as { dependencies?: { mathlib?: { rev?: string } } }).dependencies?.mathlib?.rev : undefined;
     if (entry && typeof mathlibRev === "string" && /^[0-9a-f]{40}$/.test(mathlibRev)) {
       factories.lean4 = () =>
         createLean4RuntimeAdapter({
@@ -224,6 +230,20 @@ export async function assembleProfessionalRuntimeRegistry(
           executionBackend: runtimeExecutionBackend(input, "jupyter"),
           execPrefix: legacyExecPrefix(input, input.jupyterExecPrefix),
           ...(input.jupyterPathForExec !== undefined ? { pathForExec: input.jupyterPathForExec } : {}),
+        });
+    }
+  }
+  if (!factories.u8 && input.artifactPath !== undefined) {
+    const artifactPath = input.artifactPath;
+    const entry = input.lock.runtimes.u8;
+    if (entry) {
+      factories.u8 = () =>
+        createU8RuntimeAdapter({
+          artifactPort: createProfessionalArtifactPort({ artifactPath }),
+          lockVersion: entry.version,
+          ...(input.u8WorkDir !== undefined ? { workDir: input.u8WorkDir } : {}),
+          executionBackend: runtimeExecutionBackend(input, "u8"),
+          execPrefix: legacyExecPrefix(input, input.u8ExecPrefix),
         });
     }
   }

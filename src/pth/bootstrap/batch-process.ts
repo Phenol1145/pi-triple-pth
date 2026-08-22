@@ -257,6 +257,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     executionBackends: host.backends,
     backendRoutes: host.routes,
   });
+  const registeredProfessionalRuntimes = professionalRuntimeRegistry.list();
+  batchLogger.info(`professional runtimes registered: ${registeredProfessionalRuntimes.length === 0 ? "(none)" : registeredProfessionalRuntimes.join(", ")}`, {
+    runtimes: registeredProfessionalRuntimes,
+  });
   const professionalArtifacts = createProfessionalArtifactPort({ artifactPath: deps.artifactPath });
   let professionalGrantService: ReturnType<typeof createExecutionGrantService> | undefined;
   try {

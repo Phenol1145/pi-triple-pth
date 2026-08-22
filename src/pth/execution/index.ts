@@ -24,4 +24,5 @@ export * from "./adapters/lean4-runtime-adapter.js";
 export * from "./adapters/wolfram-runtime-adapter.js";
 export * from "./adapters/computational-chemistry-adapter.js";
 export * from "./adapters/jupyter-runtime-adapter.js";
+export * from "./adapters/u8-runtime-adapter.js";
 export * from "./notebook-guide.js";

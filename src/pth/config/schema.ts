@@ -198,6 +198,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_WOLFRAM_LICENSE_PROVIDER", "string", "", "mode", "batch", "v1.3 P3：license provider 标识（license 值由运行时安全注入，schema 绝不记录密钥本身）"),
   d("PTH_ASM_TOOLCHAIN_EXEC", "string", "", "mode", "batch", "v1.3 P2：assembly adapter 测试容器注入前缀（生产缺省直跑）"),
   d("PTH_LEAN4_TOOLCHAIN_EXEC", "string", "", "mode", "batch", "v1.3 P3：lean4 adapter 测试容器注入前缀"),
+  d("PTH_U8_TOOLCHAIN_EXEC", "string", "", "mode", "batch", "U8-1：u8 adapter 测试容器注入前缀（生产缺省经 local-u8 执行面）"),
   d("PTH_LEAN4_PACKAGES_DIR", "string", "/home/node/lean-packages", "path", "batch", "v1.3 P3：Mathlib 共享 cache 目录（容器内）"),
   d("PTH_LEAN4_TEMPLATE_DIR", "string", "/home/node/lean-template", "path", "batch", "v1.3 P3：已构建 Mathlib 模板工程目录"),
 

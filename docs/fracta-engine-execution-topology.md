@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入设计定稿（U8-1 batch 已实现，U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 随 P4）；GHCR release 待凭据实测；P4/P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -104,7 +104,7 @@ engine 容器的 workspace 是 `/data/workspaces`，宿主机本地执行器看�
 |---|---|---|---|
 | sandbox 容器 | `sandbox-untrusted` | ✅ `/exec`、SSE、cancel、capabilities 已对齐 execution/v1 | 保持 v1 与 sandbox-internal egress 锁；persistent 迁移后置（P4） |
 | tool containers（原 dev 容器） | `tools-compiled`/`tools-network`/`tools-secrets` | ✅ T2–T4：manifest + 统一镜像 + tool-server/pty + compiled gateway，execution/v1.1 对齐并实测 | GHCR 多架构发布 + digest 钉版待凭据实测 |
-| 本地执行器 | `host` | ✅ P2：`pth local-exec`（v1.1 + pathMapping）+ `pth services` 监督 local-lean/local-u8 | u8 专业 runtime wiring（U8-1）；其余本地域按需扩展 |
+| 本地执行器 | `host` | ✅ P2：`pth local-exec`（v1.1 + pathMapping）+ `pth services` 监督 local-lean/local-u8；U8-1 adapter+路由已闭环 | 其余本地域按需扩展 |
 | jupyter 服务 | — | ⚠️ 前端与 engine 无头执行两套入口（docker exec） | 单容器双面：北 8888 / 南 v1.1 registry 后端 `jupyter`（P5，未开工） |
 | engine 侧 | — | ✅ P1+P2：BackendRegistry + `PTH_EXEC_BACKENDS`/`PTH_EXEC_BACKEND_ROUTES` 硬切路由 + tool/service 注册表合并消费 | interactive/persistent 消费语义（P4）；品牌/服务名迁移另立项 |
 | Lean 工具链 | — | ✅ 已从 engine 镜像移除，由 `local-lean` 宿主执行器提供（P2 实测） | 无（首期闭环完成） |
@@ -641,14 +641,17 @@ Lean 请求形态（engine 侧 `lean4-runtime-adapter` 构造）：
 二进制 .u8programme）。跨平台已验证：macOS/Linux `cc` 一条命令构建，Windows 有
 `u8.exe`。接入分两期：
 
-**U8-1（本地执行器，batch 已实现）**
+**U8-1（本地执行器，2026-08-22 全链已实现并实测）**
 - u8 版本 0.0.2：`u8 run <programme> --reg K=V ... --io N=V ...` 非交互注入初值；
   无参数保持交互；`debug/analyze` 仍为团队待实现（协议侧不接线）。
 - 集成基线：`deploy/local-exec/u8/`（源码 + `build-u8.sh`）；编译产物放进
   `pth local-exec` 进程 PATH。
-- 待接线：engine `PTH_EXEC_BACKENDS` 增加 `local-u8`（profile=host，
-  pathMapping `/data/workspaces`）+ `u8-runtime-adapter`（probe `u8 version`；
-  compile/run 经 sync + artifact port）→ 默认路由 `u8 → local-u8`。
+- 已接线：engine `PTH_EXEC_BACKENDS` 注册 `local-u8`（profile=host，
+  pathMapping `/data/workspaces`，tokenEnv `LOCAL_EXEC_SHARED_SECRET`）+
+  `u8-runtime-adapter`（probe `u8 version`；compile/run 经 sync + artifact port）
+  → 默认路由 `u8 → local-u8`；vertical 实测通过（engine → host.docker.internal:8788
+  → pathMapping → `u8 compile/run` → source/programme/run-log artifacts）。
+- 角色归属：暂不对任何专业角色开放 allowlist（`u8-programmer` 或等价角色另立项）。
 
 **U8-2（有状态，后置）**
 - interactive/debug 语义待 **P4 persistent** 统一实现；届时 `u8 run` 的寄存器/I/O
