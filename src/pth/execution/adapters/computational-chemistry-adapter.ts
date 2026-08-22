@@ -201,7 +201,7 @@ function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJo
     } catch (error) {
       return ctx.fail("compute-failed", `${id} adapter 意外错误: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      running.delete(request.jobId);
+      ctx.cleanup();
     }
   }
 

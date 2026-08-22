@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import { apiFetch, ApiError } from "../api";
+import { apiFetch } from "../api";
+import { useLoadState } from "../hooks/useLoadState";
 import {
   Badge,
   Button,
@@ -52,8 +53,6 @@ interface Snapshot {
   sources?: SourceRow[];
 }
 
-type LoadState = "loading" | "ready" | "error";
-
 function stateTone(state: string): BadgeTone {
   if (state === "fresh" || state === "healthy") return "success";
   if (state === "stale" || state === "degraded") return "warning";
@@ -75,20 +74,14 @@ function formatTime(value: string | number | null | undefined): string {
 }
 
 export default function OverviewPage() {
-  const [loadState, setLoadState] = useState<LoadState>("loading");
-  const [errorCode, setErrorCode] = useState("http-0");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const { loadState, errorCode, run } = useLoadState();
 
   const load = useCallback(async () => {
-    setLoadState("loading");
-    try {
+    await run(async () => {
       setSnapshot(await apiFetch<Snapshot>("/observe/snapshot"));
-      setLoadState("ready");
-    } catch (error) {
-      setErrorCode(error instanceof ApiError ? error.code : "unknown-error");
-      setLoadState("error");
-    }
-  }, []);
+    });
+  }, [run]);
 
   useEffect(() => {
     void load();

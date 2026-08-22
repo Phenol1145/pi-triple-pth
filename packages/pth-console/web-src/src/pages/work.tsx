@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { apiFetch, ApiError } from "../api";
+import { useLoadState } from "../hooks/useLoadState";
 import {
   Badge,
   Button,
@@ -66,9 +67,8 @@ type Step = "form" | "preview" | "submitted";
 
 export default function WorkPage() {
   const [actions, setActions] = useState<ActionListing[]>([]);
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
-  const [errorCode, setErrorCode] = useState("http-0");
   const [mode, setMode] = useState<WorkMode>("run");
+  const { loadState, errorCode, run } = useLoadState();
   const [action, setAction] = useState<string>("");
   const [input, setInput] = useState<Record<string, string>>({});
   const [step, setStep] = useState<Step>("form");
@@ -88,16 +88,11 @@ export default function WorkPage() {
   const fields = selected?.descriptor.fields ?? [];
 
   const loadActions = useCallback(async () => {
-    setLoadState("loading");
-    try {
+    await run(async () => {
       const payload = await apiFetch<{ actions: ActionListing[] }>("/api/v1/work/actions");
       setActions(payload.actions ?? []);
-      setLoadState("ready");
-    } catch (error) {
-      setErrorCode(error instanceof ApiError ? error.code : "unknown-error");
-      setLoadState("error");
-    }
-  }, []);
+    });
+  }, [run]);
 
   useEffect(() => {
     void loadActions();

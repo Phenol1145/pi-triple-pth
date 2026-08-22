@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import { apiFetch, ApiError } from "../api";
+import { apiFetch } from "../api";
+import { useLoadState } from "../hooks/useLoadState";
 import {
   Badge,
   Button,
@@ -56,13 +57,11 @@ export default function ConfigPage() {
   const [ptl, setPtl] = useState<ConfigEntry[]>([]);
   const [pth, setPth] = useState<ConfigEntry[]>([]);
   const [roles, setRoles] = useState<RoleEntry[]>([]);
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
-  const [errorCode, setErrorCode] = useState("http-0");
   const [search, setSearch] = useState("");
+  const { loadState, errorCode, run } = useLoadState();
 
   const load = useCallback(async () => {
-    setLoadState("loading");
-    try {
+    await run(async () => {
       const [ptlPayload, pthPayload, rolesPayload] = await Promise.all([
         apiFetch<{ items: ConfigEntry[] }>("/api/v1/config/ptl"),
         apiFetch<{ items: ConfigEntry[] }>("/api/v1/config/pth"),
@@ -71,12 +70,8 @@ export default function ConfigPage() {
       setPtl(ptlPayload.items ?? []);
       setPth(pthPayload.items ?? []);
       setRoles(rolesPayload.items ?? []);
-      setLoadState("ready");
-    } catch (error) {
-      setErrorCode(error instanceof ApiError ? error.code : "unknown-error");
-      setLoadState("error");
-    }
-  }, []);
+    });
+  }, [run]);
 
   useEffect(() => {
     void load();

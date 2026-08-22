@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import { apiFetch, ApiError } from "../api";
+import { apiFetch } from "../api";
+import { useLoadState } from "../hooks/useLoadState";
 import {
   Badge,
   Button,
@@ -39,23 +40,17 @@ function lifecycleTone(lifecycle: string): BadgeTone {
 
 export default function DebugPage() {
   const [workers, setWorkers] = useState<WorkerRow[]>([]);
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
-  const [errorCode, setErrorCode] = useState("http-0");
   const [roleFilter, setRoleFilter] = useState("");
   const [modeFilter, setModeFilter] = useState("all");
   const [lifecycleFilter, setLifecycleFilter] = useState("all");
+  const { loadState, errorCode, run } = useLoadState();
 
   const load = useCallback(async () => {
-    setLoadState("loading");
-    try {
+    await run(async () => {
       const payload = await apiFetch<{ workers: WorkerRow[] }>("/api/v1/debug/workers");
       setWorkers(payload.workers ?? []);
-      setLoadState("ready");
-    } catch (error) {
-      setErrorCode(error instanceof ApiError ? error.code : "unknown-error");
-      setLoadState("error");
-    }
-  }, []);
+    });
+  }, [run]);
 
   useEffect(() => {
     void load();

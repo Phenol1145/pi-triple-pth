@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import { apiFetch, ApiError } from "../api";
+import { apiFetch } from "../api";
+import { useLoadState } from "../hooks/useLoadState";
 import {
   Badge,
   Button,
@@ -48,17 +49,15 @@ export default function MemoryPage() {
   const [summary, setSummary] = useState<MemorySummary | null>(null);
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
-  const [errorCode, setErrorCode] = useState("http-0");
   const [typeFilter, setTypeFilter] = useState("");
   const [detail, setDetail] = useState<MemoryItem | null>(null);
   const [revisions, setRevisions] = useState<RevisionRow[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const { loadState, errorCode, run, fail } = useLoadState();
 
   const loadFirstPage = useCallback(async () => {
-    setLoadState("loading");
-    try {
+    await run(async () => {
       const [nextSummary, page] = await Promise.all([
         apiFetch<MemorySummary>("/api/v1/memory/summary"),
         apiFetch<MemoryPageResponse>(
@@ -68,12 +67,8 @@ export default function MemoryPage() {
       setSummary(nextSummary);
       setItems(page.items ?? []);
       setCursor(page.cursor);
-      setLoadState("ready");
-    } catch (error) {
-      setErrorCode(error instanceof ApiError ? error.code : "unknown-error");
-      setLoadState("error");
-    }
-  }, [typeFilter]);
+    });
+  }, [run, typeFilter]);
 
   useEffect(() => {
     void loadFirstPage();
@@ -89,7 +84,7 @@ export default function MemoryPage() {
       setItems((prev) => [...prev, ...(page.items ?? [])]);
       setCursor(page.cursor);
     } catch (error) {
-      setErrorCode(error instanceof ApiError ? error.code : "unknown-error");
+      fail(error);
     } finally {
       setLoadingMore(false);
     }
