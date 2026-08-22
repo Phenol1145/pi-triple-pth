@@ -197,6 +197,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_TRUST_POLICY_MANIFEST", "string", "", "path", "both", "N29：人类签名 Trust Policy manifest 只读路径（JSON；PTL Human Interface 签发）"),
   d("PTH_TRUST_POLICY_KEYRING", "string", "", "path", "both", "N29：Trust Policy 验证公钥 keyring 只读路径（JSON；stable human principal -> PEM public key）"),
   d("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH", "string", "", "path", "both", "N29 refix P0-9：full 模式启动必须出示的验收 envelope 只读路径（decision=MIN_INNER_LOOP_GO 且绑定当前 evaluated commit，否则启动失败）"),
+  d("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PUBLIC_KEY_PATH", "string", "", "path", "both", "N29 refix D-5：full 模式验收 envelope 签名公钥只读路径（Ed25519 PEM；full 启动必须验签，否则启动失败）"),
   d("PTH_WOLFRAM_KERNEL_PATH", "string", "", "path", "batch", "v1.3 P3：Wolfram Engine 内核路径（仅服务端；license 数据绝不进任务载荷/产物/日志）"),
   d("PTH_WOLFRAM_LICENSE_PROVIDER", "string", "", "mode", "batch", "v1.3 P3：license provider 标识（license 值由运行时安全注入，schema 绝不记录密钥本身）"),
   d("PTH_ASM_TOOLCHAIN_EXEC", "string", "", "mode", "batch", "v1.3 P2：assembly adapter 测试容器注入前缀（生产缺省直跑）"),

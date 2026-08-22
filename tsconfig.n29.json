@@ -1,0 +1,41 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "paths": {
+      "@away_from/infra": ["./packages/infra/src/index.ts"],
+      "@away_from/shared": ["./packages/shared/src/index.ts"],
+      "@away_from/pth-memory": ["./packages/pth-memory/src/index.ts"],
+      "@away_from/pth-sandbox": ["./packages/pth-sandbox/src/index.ts"]
+    }
+  },
+  "files": [
+    "scripts/eval-n29-minimal-intake.ts",
+    "scripts/accept-n29-minimal-intake.ts",
+    "scripts/sign-n29-acceptance.ts",
+    "scripts/n29-canary-gpe-wikipedia.ts",
+    "test/pth-knowledge-intake/trust-policy.test.ts",
+    "test/pth-knowledge-intake/knowledge-intake-pg.test.ts",
+    "test/pth-knowledge-intake/fetch-broker.test.ts",
+    "test/pth-knowledge-intake/knowledge-ingestor.test.ts",
+    "test/pth-knowledge-intake/minimal-loop.integration.test.ts",
+    "test/pth-runner/intake-processors.test.ts",
+    "test/pth-knowledge-intake/g10-sabotage-sensitivity.test.ts",
+    "test/pth-knowledge-intake/g8-dual-process.test.ts",
+    "test/pth-knowledge-intake/g8-stage-sigkill.test.ts",
+    "test/pth-knowledge-intake/minimal-loop-tls.integration.test.ts",
+    "test/pth-execution/knowledge-promotion.test.ts",
+    "test/pth-execution/knowledge-verdicts.test.ts",
+    "test/pth-execution/knowledge-broker.test.ts",
+    "test/pth-runner/knowledge-context.test.ts",
+    "test/pth-kernel-assembly/templates.test.ts",
+    "packages/pth-memory/test/memory-policy.test.ts",
+    "packages/pth-memory/test/memory-store-pg.test.ts",
+    "test/pth-kernel-interpreter/web-transport-ip.test.ts",
+    "test/pth-kernel-assembly/intake-mode-gates.test.ts",
+    "test/pth-runner/n29-minimal-intake-acceptance.test.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

@@ -624,14 +624,26 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     // 缺失/不绑定/非 GO 一律启动期 fail closed，不靠运维约定。
     if (intakeMode === "full") {
       const acceptancePath = pthConfig().str("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH");
+      const acceptancePublicKeyPath = pthConfig().str("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PUBLIC_KEY_PATH");
       if (!acceptancePath) {
         throw new Error(
           "PTH_KNOWLEDGE_INTAKE_MODE=full 需要 PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH"
           + "（指向 decision=MIN_INNER_LOOP_GO 的验收 envelope；否则 full 不得启动）",
         );
       }
+      if (!acceptancePublicKeyPath) {
+        throw new Error(
+          "PTH_KNOWLEDGE_INTAKE_MODE=full 需要 PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PUBLIC_KEY_PATH"
+          + "（D-5：验收 envelope 必须由 CI/发布密钥签名并在启动时验签；否则 full 不得启动）",
+        );
+      }
       const envelope = JSON.parse(await readFile(acceptancePath, "utf8")) as IntakeAcceptanceEnvelopeLike;
-      assertIntakeFullAcceptance(envelope, (process.env["PTH_BUILD_COMMIT"] ?? "").trim() || undefined);
+      const acceptancePublicKeyPem = await readFile(acceptancePublicKeyPath, "utf8");
+      assertIntakeFullAcceptance(
+        envelope,
+        (process.env["PTH_BUILD_COMMIT"] ?? "").trim() || undefined,
+        { publicKeyPem: acceptancePublicKeyPem, requireSignature: true },
+      );
     }
     // 已验签 policy 在进程启动时加载一次；轮换需重启 batch（manifest 是不可变签名事实）。
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as TrustPolicyManifest;

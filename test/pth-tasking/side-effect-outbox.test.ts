@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
 import {
@@ -26,7 +26,7 @@ const dockerAvailable = await hasDocker();
 const suite = dockerAvailable ? describe : describe.skip;
 
 suite("PgSideEffectOutbox（真实 PG）", () => {
-  let container: PostgreSqlContainer;
+  let container: StartedPostgreSqlContainer;
   let pool: Pool;
   let poolB: Pool;
   let outbox: PgSideEffectOutbox;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { createPgPool } from "../../src/pth/kernel/storage/pg.js";
 import { applySchema } from "../../src/pth/kernel/storage/schema.js";
@@ -39,7 +39,7 @@ async function insertTask(
 }
 
 suite("pg task repository（P1-2）", () => {
-  let container: PostgreSqlContainer;
+  let container: StartedPostgreSqlContainer;
   let pool: Awaited<ReturnType<typeof createPgPool>>;
   let repo: PgTaskRepository;
 

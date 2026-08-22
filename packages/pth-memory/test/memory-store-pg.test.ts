@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
 import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, PgMemoryStore, provenanceFromMeta, runReadOnlyQuery, withMemoryTenant } from "@away_from/pth-memory";
@@ -29,7 +29,7 @@ const dockerAvailable = await hasDocker();
 const suite = dockerAvailable ? describe : describe.skip;
 
 suite("memory store pg", () => {
-  let container: PostgreSqlContainer;
+  let container: StartedPostgreSqlContainer;
   let pool: Pool;
   let store: PgMemoryStore;
 

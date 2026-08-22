@@ -121,9 +121,13 @@ export const N29_FOCUSED_TEST_FILES = [
   ...N29_FOCUSED_DRIVER_TESTS,
 ] as const;
 
-/** full regression 允许的既有冻结 skip（沙箱安全集成套件）。 */
+/** full regression 允许的既有冻结 skip（沙箱安全 + 4 个专业集成套件，与 N28 基线一致）。 */
 export const N29_ACCEPTED_FULL_SKIPS = [
   { file: "test/pth-execution/sandbox-security.integration.test.ts", tests: 9 },
+  { file: "test/pth-professional/assembly-engineer.integration.test.ts", tests: 14 },
+  { file: "test/pth-professional/computational-chemist.integration.test.ts", tests: 5 },
+  { file: "test/pth-professional/lean4-prover.integration.test.ts", tests: 13 },
+  { file: "test/pth-professional/technical-educator.integration.test.ts", tests: 17 },
 ] as const;
 
 // ─── 负向 / 故障矩阵：sentinel → 必须 passed 的具体用例 ─────────────────

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
 import {
@@ -31,7 +31,7 @@ import {
   type KnowledgeServiceAuth,
   type KnowledgeVerificationRepo,
 } from "../../src/pth/execution/knowledge-promotion.js";
-import { createInMemoryPromoteOfficial } from "../helpers";
+import { createInMemoryPromoteOfficial } from "../helpers.js";
 
 const TENANT = DEFAULT_TENANT_ID;
 const content = "The Earth orbits the Sun.";
@@ -354,7 +354,7 @@ const dockerAvailable = await hasDocker();
 const pgSuite = dockerAvailable ? describe : describe.skip;
 
 pgSuite("knowledge promotion pg (real PostgreSQL, R3)", () => {
-  let container: PostgreSqlContainer;
+  let container: StartedPostgreSqlContainer;
   let pool: Pool;
   let store: PgMemoryStore;
   let repo: KnowledgeVerificationRepo;

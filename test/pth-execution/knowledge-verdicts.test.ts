@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
 import {
@@ -147,7 +147,7 @@ describe("knowledge verdicts pure（R5 sourceBindingsDigest fill-in）", () => {
 const TENANT = DEFAULT_TENANT_ID;
 
 suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
-  let container: PostgreSqlContainer;
+  let container: StartedPostgreSqlContainer;
   let pool: Pool;
   let store: PgMemoryStore;
   let repo: KnowledgeVerificationRepo;
@@ -277,10 +277,6 @@ suite("knowledge verdicts（R3/P0-3，real PostgreSQL）", () => {
       domainId: undefined,
       evidence: [],
       at: 1,
-      planId: row.planId,
-      checkId: row.checkId,
-      principalId: row.principalId,
-      executionId: row.executionId,
       ...row,
     } as Omit<KnowledgeVerdictRowRecord, "id" | "rowVersion" | "createdAt">;
     await pool.query(

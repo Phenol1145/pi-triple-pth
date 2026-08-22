@@ -1,7 +1,7 @@
 {
   "kind": "n29-release-canary",
-  "evaluatedCommit": "99897071e0bbcae433df0cf937a61fb8511e7e4a",
-  "executedAt": "2026-08-19T11:08:42.816Z",
+  "evaluatedCommit": "d017c6397cbaa2e6700f003b864e677faeb536c3",
+  "executedAt": "2026-08-22T16:40:45.064Z",
   "source": {
     "canonicalUri": "https://gpe.wikipedia.org/wiki/Wikipedia",
     "origin": "https://gpe.wikipedia.org",
@@ -12,36 +12,36 @@
     "policyId": "policy-n29-canary-gpe",
     "version": "1",
     "digest": "2oH8Jg0kj7AoFGEbT4R56CBfMAj2B3yhGxE4cNvMOxE",
-    "signerPublicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2azOYaqX8Sb8pPLIrBbOkHAiQ5YeS5Tr+q714bviH1Y=\n-----END PUBLIC KEY-----\n"
+    "signerPublicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAcsuYoeQeaHbvwlapkouNqPtr7H4eWEIaJrYincpRxWk=\n-----END PUBLIC KEY-----\n"
   },
   "run": {
-    "id": "ed4e817f-bb4b-481f-92e8-8434608b2ffe",
+    "id": "c952bf91-0bbf-44f0-9bcf-07da98328092",
     "status": "completed",
     "stage": "complete",
-    "attempts": 5
+    "attempts": 6
   },
   "subscription": {
-    "id": "c69a8150-4bdc-4321-a4ac-a03f6844868f",
+    "id": "62a9a2e2-c023-439f-a831-50edaaaf18ca",
     "status": "active"
   },
   "revisions": [
     {
-      "id": "147d9642-3c0d-4814-8c4e-dbece141f69c",
-      "disposition": "raw-quarantine",
+      "id": "8775dbdd-dde0-4dca-ae15-5a0be3479c07",
+      "disposition": "admitted",
       "rawHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729"
     },
     {
-      "id": "3535debf-5852-437a-a41c-d4c579764f06",
-      "disposition": "admitted",
+      "id": "e852676f-e953-497c-b9ca-570c6cf436cb",
+      "disposition": "raw-quarantine",
       "rawHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729"
     }
   ],
-  "admittedRevisionId": "3535debf-5852-437a-a41c-d4c579764f06",
+  "admittedRevisionId": "8775dbdd-dde0-4dca-ae15-5a0be3479c07",
   "artifactHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729",
   "official": {
-    "entryId": "intake-candidate:3535debf-5852-437a-a41c-d4c579764f06:367b4569efdb991e",
+    "entryId": "intake-candidate:8775dbdd-dde0-4dca-ae15-5a0be3479c07:f90e0347dcdbd21b",
     "contentHash": "84bf3a324299d0a8e0ee80cb22e90d8375f17772a2dd6e0f7a260eff2f7c1fba",
-    "sourceRevisionId": "3535debf-5852-437a-a41c-d4c579764f06",
+    "sourceRevisionId": "8775dbdd-dde0-4dca-ae15-5a0be3479c07",
     "artifactHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729",
     "evidenceCount": 1,
     "firstEvidence": {
@@ -52,9 +52,9 @@
       "quoteHash": "84bf3a324299d0a8e0ee80cb22e90d8375f17772a2dd6e0f7a260eff2f7c1fba",
       "artifactHash": "1a9c95b87c01aaf14ef8196654475cb7112c53cc71147b7d9947a31375e85729",
       "representation": "normalized-text",
-      "sourceRevisionId": "3535debf-5852-437a-a41c-d4c579764f06",
-      "policyDecisionDigest": "24a8ab866dff902cc20b2ab3b1be4569919bd67cd46a9dd31bf65626b9b1d68c",
-      "sourceSubscriptionId": "c69a8150-4bdc-4321-a4ac-a03f6844868f"
+      "sourceRevisionId": "8775dbdd-dde0-4dca-ae15-5a0be3479c07",
+      "policyDecisionDigest": "3a210703f8e9095afd063afe8767a5796483896f716bbc30ca770f11f38b2174",
+      "sourceSubscriptionId": "62a9a2e2-c023-439f-a831-50edaaaf18ca"
     }
   },
   "verdicts": "domain+adversarial pass（不同 principal/execution，详见 PG knowledge_verdicts）"
