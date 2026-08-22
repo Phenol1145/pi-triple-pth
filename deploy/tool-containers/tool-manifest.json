@@ -1,49 +1,265 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-22T00:00:00.000Z",
+  "generatedAt": "2026-08-22T13:56:30.721Z",
   "domains": {
     "compiled": {
       "image": "ghcr.io/phenol1145/pi-triple-pth-tools-compiled",
-      "digest": "",
       "network": "internal",
       "engineVisible": true,
       "tools": [
-        { "name": "bf", "argv": ["bf"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck 解释器（beef 后端，T3 已迁移）" },
-        { "name": "bfc", "argv": ["bfc"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "Brainfuck → C 编译器（纯 Python，tcc 后端，T3 已迁移）" },
-        { "name": "which", "argv": ["which"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "asm-kernel 工具链探测（T4）" },
-        { "name": "objdump", "argv": ["objdump"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "宿主 objdump（asm-kernel 反汇编，T4）" },
-        { "name": "x86_64-linux-gnu-as", "argv": ["x86_64-linux-gnu-as"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel x86-64 汇编器（T4）" },
-        { "name": "x86_64-linux-gnu-ld", "argv": ["x86_64-linux-gnu-ld"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel x86-64 链接器（T4）" },
-        { "name": "x86_64-linux-gnu-objdump", "argv": ["x86_64-linux-gnu-objdump"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel x86-64 反汇编（T4）" },
-        { "name": "aarch64-linux-gnu-as", "argv": ["aarch64-linux-gnu-as"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel aarch64 汇编器（T4）" },
-        { "name": "aarch64-linux-gnu-ld", "argv": ["aarch64-linux-gnu-ld"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel aarch64 链接器（T4）" },
-        { "name": "aarch64-linux-gnu-objdump", "argv": ["aarch64-linux-gnu-objdump"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel aarch64 反汇编（T4）" },
-        { "name": "riscv64-linux-gnu-as", "argv": ["riscv64-linux-gnu-as"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel riscv64 汇编器（T4）" },
-        { "name": "riscv64-linux-gnu-ld", "argv": ["riscv64-linux-gnu-ld"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel riscv64 链接器（T4）" },
-        { "name": "riscv64-linux-gnu-objdump", "argv": ["riscv64-linux-gnu-objdump"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel riscv64 反汇编（T4）" },
-        { "name": "qemu-x86_64", "argv": ["qemu-x86_64"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel x86-64 执行器（T4）" },
-        { "name": "qemu-aarch64", "argv": ["qemu-aarch64"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel aarch64 执行器（T4）" },
-        { "name": "qemu-riscv64", "argv": ["qemu-riscv64"], "engineVisible": true, "hostOnly": false, "modes": ["sync"], "description": "v13 asm-kernel riscv64 执行器（T4）" }
-      ]
+        {
+          "name": "bf",
+          "argv": [
+            "bf"
+          ],
+          "description": "Brainfuck 解释器（beef 后端，T3 已迁移）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync",
+            "stream"
+          ]
+        },
+        {
+          "name": "bfc",
+          "argv": [
+            "bfc"
+          ],
+          "description": "Brainfuck → C 编译器（纯 Python，tcc 后端，T3 已迁移）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync",
+            "stream"
+          ]
+        },
+        {
+          "name": "which",
+          "argv": [
+            "which"
+          ],
+          "description": "asm-kernel 工具链探测（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "objdump",
+          "argv": [
+            "objdump"
+          ],
+          "description": "宿主 objdump（asm-kernel 反汇编，T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "x86_64-linux-gnu-as",
+          "argv": [
+            "x86_64-linux-gnu-as"
+          ],
+          "description": "v13 asm-kernel x86-64 汇编器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "x86_64-linux-gnu-ld",
+          "argv": [
+            "x86_64-linux-gnu-ld"
+          ],
+          "description": "v13 asm-kernel x86-64 链接器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "x86_64-linux-gnu-objdump",
+          "argv": [
+            "x86_64-linux-gnu-objdump"
+          ],
+          "description": "v13 asm-kernel x86-64 反汇编（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "aarch64-linux-gnu-as",
+          "argv": [
+            "aarch64-linux-gnu-as"
+          ],
+          "description": "v13 asm-kernel aarch64 汇编器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "aarch64-linux-gnu-ld",
+          "argv": [
+            "aarch64-linux-gnu-ld"
+          ],
+          "description": "v13 asm-kernel aarch64 链接器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "aarch64-linux-gnu-objdump",
+          "argv": [
+            "aarch64-linux-gnu-objdump"
+          ],
+          "description": "v13 asm-kernel aarch64 反汇编（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "riscv64-linux-gnu-as",
+          "argv": [
+            "riscv64-linux-gnu-as"
+          ],
+          "description": "v13 asm-kernel riscv64 汇编器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "riscv64-linux-gnu-ld",
+          "argv": [
+            "riscv64-linux-gnu-ld"
+          ],
+          "description": "v13 asm-kernel riscv64 链接器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "riscv64-linux-gnu-objdump",
+          "argv": [
+            "riscv64-linux-gnu-objdump"
+          ],
+          "description": "v13 asm-kernel riscv64 反汇编（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "qemu-x86_64",
+          "argv": [
+            "qemu-x86_64"
+          ],
+          "description": "v13 asm-kernel x86-64 执行器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "qemu-aarch64",
+          "argv": [
+            "qemu-aarch64"
+          ],
+          "description": "v13 asm-kernel aarch64 执行器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        },
+        {
+          "name": "qemu-riscv64",
+          "argv": [
+            "qemu-riscv64"
+          ],
+          "description": "v13 asm-kernel riscv64 执行器（T4）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync"
+          ]
+        }
+      ],
+      "digest": "sha256:59de0adb15fe87d1fc4234547cc2116e822094e0fcbceda83829b6c5dcb2510b"
     },
     "network": {
       "image": "ghcr.io/phenol1145/pi-triple-pth-tools-network",
-      "digest": "",
       "network": "default",
       "engineVisible": true,
       "tools": [
-        { "name": "yt-dlp", "argv": ["yt-dlp"], "engineVisible": true, "hostOnly": false, "modes": ["sync", "stream"], "description": "视频下载工具（engine 按角色 capability 白名单，默认关闭）" }
-      ]
+        {
+          "name": "yt-dlp",
+          "argv": [
+            "yt-dlp"
+          ],
+          "description": "视频下载工具（engine 按角色 capability 白名单，默认关闭）",
+          "engineVisible": true,
+          "hostOnly": false,
+          "modes": [
+            "sync",
+            "stream"
+          ]
+        }
+      ],
+      "digest": "sha256:aba98f7cd612b6621cd98098079c9f94bc11534abe405abc8f5900c75d75e6e7"
     },
     "secrets": {
       "image": "ghcr.io/phenol1145/pi-triple-pth-tools-secrets",
-      "digest": "",
       "network": "default",
       "engineVisible": false,
       "tools": [
-        { "name": "agent-reach", "argv": ["agent-reach"], "engineVisible": false, "hostOnly": true, "modes": ["sync", "stream", "interactive"], "description": "Agent Reach 凭据工具（GitHub 安装，T3 已迁移；仅宿主）" },
-        { "name": "chatgpt-share", "argv": ["chatgpt-share"], "engineVisible": false, "hostOnly": true, "modes": ["sync", "stream", "interactive"], "description": "ChatGPT share 解码工具（纯 stdlib，T3 已迁移；仅宿主）" }
-      ]
+        {
+          "name": "agent-reach",
+          "argv": [
+            "agent-reach"
+          ],
+          "description": "Agent Reach 凭据工具（GitHub 安装，T3 已迁移；仅宿主）",
+          "engineVisible": false,
+          "hostOnly": true,
+          "modes": [
+            "sync",
+            "stream",
+            "interactive"
+          ]
+        },
+        {
+          "name": "chatgpt-share",
+          "argv": [
+            "chatgpt-share"
+          ],
+          "description": "ChatGPT share 解码工具（纯 stdlib，T3 已迁移；仅宿主）",
+          "engineVisible": false,
+          "hostOnly": true,
+          "modes": [
+            "sync",
+            "stream",
+            "interactive"
+          ]
+        }
+      ],
+      "digest": "sha256:67adbbee96b80357edeca6b2b6805ce5c4da1bbd5da99fe3b9ee58a29b7be4b8"
     }
   }
 }
