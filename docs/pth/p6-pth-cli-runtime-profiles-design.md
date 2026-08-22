@@ -1,6 +1,6 @@
 # P6：pth CLI 运行时生命周期统一入口设计
 
-> 状态：**设计已确认（2026-08-22）；实现待开**（P6-1..P6-8，见 §6）。
+> 状态：**已实现（2026-08-22，P6-1..P6-8 全绿；`@away_from/pth-cli@1.6.2` 已发布）**。
 > 关联：`docs/fracta-engine-execution-topology.md` §5.8、`docs/POSITIONING.md` §4、
 > `docs/pth/deployment.md`。
 
@@ -80,15 +80,15 @@ core 栈当前实现为一次 compose down 的原子组；P6-3 若需要逐服�
 
 ## 6. 实现清单（依赖序）
 
-- P6-1 `pth doctor`：前置检查 + 修复指引（u8 未构建时提示 `build-u8.sh` 等）。
-- P6-2 `deploy/runtime-profiles.json`：schema + 校验 + 单测。
-- P6-3 编排器：`pth up/down --profile/--with/--without/--all`。
-- P6-4 env 自动注入：secrets 文件 → 子进程环境。
-- P6-5 token 编排：operator token 在 jupyter 之前生成并同源注入
-  `JUPYTER_ENGINE_TOKEN`，engine 侧 `pth up --token` 复用同一值（§4 顺序）。
-- P6-6 `pth status --all`：三套健康 + backend/runtime 注册态聚合。
-- P6-7 重发 `@away_from/pth-cli`：重新打包当前 deploy（含 jupyter），安装版可用新服务。
-- P6-8 部署文档三仓对齐：deployment.md / POSITIONING / topology。
+- ✅ P6-1 `pth doctor`：前置检查 + 修复指引（`src/cli/runtime/runtime-doctor.ts`）。
+- ✅ P6-2 `deploy/runtime-profiles.json`：schema + 校验 + 单测（`src/cli/runtime/runtime-profiles.ts`）。
+- ✅ P6-3 编排器：`pth up/down --profile/--with/--without/--all`（`src/cli/runtime/runtime-orchestrator.ts`）。
+- ✅ P6-4 env 自动注入：secrets 文件 → 子进程环境（`runtime-secrets.ts`）。
+- ✅ P6-5 token 编排：operator token 在 jupyter 之前生成、同源注入 `JUPYTER_ENGINE_TOKEN`，
+  engine 侧 `pth up --token` 复用同一值。
+- ✅ P6-6 `pth status --all`：core/services/tools + 专业 runtime 注册态聚合。
+- ✅ P6-7 重发 `@away_from/pth-cli@1.6.2`：tarball 含 jupyter 部署物与 `deploy/runtime-profiles.json`。
+- ✅ P6-8 部署文档三仓对齐：deployment.md / POSITIONING / topology。
 
 ## 7. 验收
 

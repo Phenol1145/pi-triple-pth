@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared 1.7.4 + infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 待接线——persistent 基础 P4 已就绪）；GHCR release 待凭据实测；P4 已实现并实测（shared persistent 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 迁移 + 容器内 python/bash vertical 通过；legacy /kernel lease 路由 deprecated 待清理）；P5 Jupyter 已实现主体并 vertical 通过（南面 engine→jupyter→nbclient 无头执行；北面 JupyterLab :8888 + 宿主 pth 只读挂载透传；pi-kernel provider → engine notebook API 状态化 cell 执行 + cancel 端点；剩余体验收尾）；P6 pth CLI 运行时剖面统一入口设计定稿（`pth doctor`/`up --profile`/`status --all`，实现待开，见 docs/pth/p6-pth-cli-runtime-profiles-design.md）。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared 1.7.4 + infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x；P6-7 重发 @away_from/pth-cli@1.6.2 含 jupyter deploy）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 待接线——persistent 基础 P4 已就绪）；GHCR release 待凭据实测；P4 已实现并实测（shared persistent 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 迁移 + 容器内 python/bash vertical 通过；legacy /kernel lease 路由 deprecated 待清理）；P5 Jupyter 已实现主体并 vertical 通过（南面 engine→jupyter→nbclient 无头执行；北面 JupyterLab :8888 + 宿主 pth 只读挂载透传；pi-kernel provider → engine notebook API 状态化 cell 执行 + cancel 端点；剩余体验收尾）；P6 pth CLI 运行时剖面统一入口已实现（2026-08-22：`pth doctor`/`up --profile`/`down --profile`/`status --all`；profiles 声明在 `deploy/runtime-profiles.json`；token 同源编排；@away_from/pth-cli@1.6.2 含 jupyter deploy；离线单测 38 例全绿）。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -382,15 +382,16 @@ notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，�
 ✅ P5d 有状态 REPL（persistent 已实现）/ cancel 端点 + JupyterLab 基础体验；
 剩余：Lab 内 interrupt 交互细化与体验收尾（可另开小批）。
 
-### P6 pth CLI 统一入口（设计定稿，实现待开）
+### P6 pth CLI 统一入口（✅ 已实现，2026-08-22）
 
-- `pth doctor` 前置体检；`pth up/down --profile|--with|--without|--all` 编排；
-  `pth status --all` 聚合健康。
-- 运行时剖面：`core`（默认）/ `tools` / `lean4` / `u8` / `jupyter` / `full`，
-  声明在 `deploy/runtime-profiles.json`（P6-2）。
-- 部署顺序：doctor → secrets env 注入 → 数据层 → **生成 operator token（同源给
-  JUPYTER_ENGINE_TOKEN）** → 宿主服务 → 工具容器 → jupyter → **最后 engine**
+- ✅ `pth doctor [--profile X] [--json]` 前置体检；`pth up/down --profile|--with|--without|--all`
+  编排；`pth status --all` 聚合健康。
+- ✅ 运行时剖面：`core`（默认）/ `tools` / `lean4` / `u8` / `jupyter` / `full`，
+  声明在 `deploy/runtime-profiles.json`（schema 校验 + 展开）。
+- ✅ 部署顺序：doctor → secrets env 注入 → 数据层分服务 up → **生成 operator token
+  （同源给 JUPYTER_ENGINE_TOKEN）** → 宿主服务 → 工具容器 → jupyter → **最后 engine**
   （`pth up --token` 复用同值；保证 batch 启动 probe 全部 backend ready）→ verify。
+- ✅ npm 发布：`@away_from/pth-cli@1.6.2`（deploy 含 jupyter 与 runtime-profiles.json）。
 - 完整设计：`docs/pth/p6-pth-cli-runtime-profiles-design.md`。
 
 ## 5. tool containers 与 execution/v1.1 模式框架（ADR-0002 定稿）
@@ -494,7 +495,7 @@ status|logs|run|verify|debug|build|pull|release`、三域统一镜像 + 容器�
 `tool-server.mjs`（argv 白名单 + sync/stream/interactive；secrets pty 经 node-pty +
 resize）+ compiled gateway 边车。三域真实住户由 T3 装入并实测。⏳ 待续：GHCR buildx
 release 实测（需 push 凭据）。
-→ `P2 本地执行器 v1.1` → `✅ P4 persistent 实现 + kernel-host 迁移（2026-08-22；legacy 清理待办）` → `✅ P5 jupyter 双面（2026-08-22；体验收尾待办）` → `P6 pth CLI 统一入口（设计定稿，实现待开）`。
+→ `P2 本地执行器 v1.1` → `✅ P4 persistent 实现 + kernel-host 迁移（2026-08-22；legacy 清理待办）` → `✅ P5 jupyter 双面（2026-08-22；体验收尾待办）` → `✅ P6 pth CLI 统一入口（2026-08-22；pth-cli 1.6.2 已发布）`。
 
 ### 5.9 风险与护栏
 

@@ -3,9 +3,9 @@
 > 覆盖：compose 拓扑、安装步骤、验证三连、性能参数全表、调优方法论、运行时调参、容器抽象演进背景。
 > §6 为 v0.7 历史注记；当前部署事实源 = `deploy/docker-compose.yaml` + `pth up`。
 >
-> **2026-08-22 状态对齐**：当前实际入口 = `pth up`（核心栈）+ `pth tools up` +
-> `pth services up`（见 §2.6）；统一入口 `pth up --profile|--all` 已定稿待实现，
-> 见 `docs/pth/p6-pth-cli-runtime-profiles-design.md`。
+> **2026-08-22 状态对齐**：统一入口已实现——`pth doctor` + `pth up --profile|--all` +
+> `pth status --all` + `pth down --all`（P6 全量完成；npm 包 `@away_from/pth-cli@1.6.2`
+> 已含 jupyter 部署物）。手工等价流程见 §2.6 尾段。
 
 PTH（Pi-Triple-Heavy）是**自耦自然语言解释器**：输入自然语言意图，直接产出执行结果（解释即执行）。Fastify 网关 + kernel 任务池 + sandbox 隔离执行是其内部机制。本文档带你从零安装并用参数压到目标吞吐。
 
@@ -80,9 +80,9 @@ docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml 
 `--timeout`（默认 300s）、`--no-verify`、`--port`（验证端口）。`pth down [--volumes]` 停止全栈；
 `pth logs [service] [--tail n] [--follow]` 看日志。
 
-> ⚠️ 当前 `pth up` 只起核心栈。engine batch 启动时一次性 probe `PTH_EXEC_BACKENDS`，
-> 因此**完整运行时必须先起宿主服务/工具容器/jupyter，最后再 `pth up`**（P6 编排器
-> 将自动执行该顺序）。
+> ⚠️ 不带 profile 的 `pth up` 只起核心栈。engine batch 启动时一次性 probe `PTH_EXEC_BACKENDS`，
+> 因此完整运行时请用 `pth up --profile full`（P6 编排器自动保证后端先于 engine）；
+> 手工组合时也必须先起宿主服务/工具容器/jupyter，最后再 `pth up`。
 
 ### 2.4 验证三连
 
@@ -110,23 +110,41 @@ token 写入 Redis：`pth up` 默认已自动种入 operator token（tenant=ops,
 当前发布物是 npm 包（不再用单仓时代的 `pi-triple-v<version>.tgz` 源码包）：
 
 ```bash
-npm install -g @away_from/pth-cli@1.6.1
+npm install -g @away_from/pth-cli@1.6.2
 pth --version
 pth init && pth up      # 在目标部署目录执行；PTH_WORKSPACES_HOST 必设
 ```
 
-> 注意：`@away_from/pth-cli@1.6.x` 包内 `deploy/services/` 只含 local-lean/local-u8，
-> **尚不含 jupyter 部署物**——jupyter 随 P6-7 重发版本提供；在本仓 checkout 内使用不受此限制。
+> 注意：`@away_from/pth-cli@1.6.2` 起包内含 `deploy/services/jupyter/` 与
+> `deploy/runtime-profiles.json`；1.6.1 及更早版本不含 jupyter 部署物。
 
-### 2.6 完整运行时（当前手工流程；P6 统一入口待实现）
+### 2.6 完整运行时（P6 统一入口）
 
-按需组合；顺序要求：**后端先于 engine**。engine batch 只 probe 一次，所以
-数据层**不能用 `pth up`**（它会连带拉起 pi-platform）——必须用 compose 分服务起。
+P6 起一条命令按剖面拉起；顺序由编排器保证：**doctor → secrets 注入 → 数据层 → 宿主服务 →
+工具容器 → jupyter → 最后 engine**（engine batch 只 probe 一次）。
 
 ```bash
-# 前置宿主变量
-export PTH_WORKSPACES_HOST=/abs/path/to/workspaces          # 三方共享卷（核心栈也必填）
-export PTH_HOST_PTH_ROOT=/abs/path/to/pi-triple-pth        # jupyter 北面 pth 透传
+export PTH_WORKSPACES_HOST=/abs/path/to/workspaces   # 三方共享卷（core 也必填）
+export PTH_HOST_PTH_ROOT=/abs/path/to/pi-triple-pth  # jupyter 北面 pth 透传（full/jupyter 用）
+
+pth doctor --profile full      # 前置体检；有 ❌ 先按提示修复
+pth up --profile full          # 完整运行时（core+tools+lean4+u8+jupyter；engine 最后）
+# 或按需：pth up --profile core | tools | lean4 | u8 | jupyter
+# 临时增删：pth up --profile full --without tools --with jupyter
+
+pth status --all               # core/services/tools/runtime 注册态聚合
+pth down --all                 # 外围反向停止 → core 原子组
+```
+
+token 编排由 `pth up --profile` 自动完成：operator token 在 jupyter 之前生成、同源注入
+`JUPYTER_ENGINE_TOKEN`，最后以同一值 `pth up --token` 种入 Redis；`--token <t>` 可显式指定，
+`--no-seed-token` 与 jupyter 组合会直接报错。
+
+**手工等价流程（调试/逃生舱；顺序要求：后端先于 engine）**：
+
+```bash
+export PTH_WORKSPACES_HOST=/abs/path/to/workspaces
+export PTH_HOST_PTH_ROOT=/abs/path/to/pi-triple-pth
 
 # 1) 数据层 + sandbox（不起 engine；compose 项目网络随之建立，jupyter 依赖它）
 docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml up -d postgres redis sandbox
@@ -152,7 +170,7 @@ pth status
 pth services status && pth tools status
 ```
 
-`pth down` 反向（core 栈为一次 compose down 的原子组）：`pth down`（engine+sandbox+pg/redis）
+手工反向（core 栈为一次 compose down 的原子组）：`pth down`（engine+sandbox+pg/redis）
 → `pth services down jupyter` → `pth tools down` → `pth services down local-lean local-u8`。
 
 ## 3. 性能参数全表（PTH_*）

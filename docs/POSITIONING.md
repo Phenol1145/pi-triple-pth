@@ -38,14 +38,16 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
 - `pth` 命令族扩展：`pth tools`（工具容器生命周期 + 协议调用）与 `pth services`
   （常驻服务，如 jupyter）由本仓实现；`docker exec` 仅保留为 `pth tools debug` 逃生舱。
 - `ptl hub` 语法已退役；engine 交互用 `pth …`；容器运维用 `pth up`/`pth tools`/`pth services`（`ptl stack` deprecated）；本地执行器用 `pth local-exec`；本地 pi 调试用 `ptl program dev …`；`ptl tui` 已废弃（前端 = `pth web` / JupyterLab）。
-- P6 已定稿待实现：`pth doctor` / `pth up --profile|--all` / `pth status --all` 成为统一运维入口（设计：`docs/pth/p6-pth-cli-runtime-profiles-design.md`）。
+- P6 已实现（2026-08-22）：`pth doctor` / `pth up --profile|--all` / `pth down --all` /
+  `pth status --all` 是统一运维入口（设计：`docs/pth/p6-pth-cli-runtime-profiles-design.md`）。
 - PTL `/container` 命令族 deprecated：一个版本兼容期内转发到 `pth tools`，随后删除。
 - PTL 安装/测试不得触发 engine 源码下载。
 
 ## 4. 运维入口语义
 
 - `pth up`（PTH 仓）：engine 栈自服务启动（redis/postgres/pi-platform/sandbox；compose 要求
-  `PTH_WORKSPACES_HOST` 宿主绝对路径，缺失即拒绝启动）；P6 将扩展为 `--profile core|tools|lean4|u8|jupyter|full` 的统一编排入口（engine 最后起，保证 backend probe 全绿）。
+  `PTH_WORKSPACES_HOST` 宿主绝对路径，缺失即拒绝启动）；`--profile core|tools|lean4|u8|jupyter|full`
+  的统一编排入口已实现（engine 最后起，保证 backend probe 全绿）。
 - `pth tools`（PTH 仓）：tool containers 独立 compose 项目的生命周期与协议调用。
 - `pth services`（PTH 仓）：宿主进程监督器（local-lean/local-u8）+ 常驻服务（jupyter）的统一生命周期管理；jupyter 北面内置终端的 `pth` 经宿主依赖树只读挂载透传（镜像不打包 pth）。
 - `ptl stack`（PTL 仓）：deprecated 兼容期——容器生命周期统一由 `pth up`/`pth tools`/`pth services` 管理。
