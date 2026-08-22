@@ -138,7 +138,27 @@ function assertCounts(defs: DomainDefinition[]) {
   return counts;
 }
 
-function renderSource(defs: DomainDefinition[], counts: ReturnType<typeof levelCounts>): string {
+const PART_A_FILE = "discipline-catalog-data-a-f.ts";
+const PART_B_FILE = "discipline-catalog-data-g-m.ts";
+const PART_C_FILE = "discipline-catalog-data-n-z.ts";
+const PART_A_EXPORT = "DISCIPLINE_DEFINITIONS_A_F";
+const PART_B_EXPORT = "DISCIPLINE_DEFINITIONS_G_M";
+const PART_C_EXPORT = "DISCIPLINE_DEFINITIONS_N_Z";
+
+function partitionDefs(defs: DomainDefinition[]): { aF: DomainDefinition[]; gM: DomainDefinition[]; nZ: DomainDefinition[] } {
+  const aF: DomainDefinition[] = [];
+  const gM: DomainDefinition[] = [];
+  const nZ: DomainDefinition[] = [];
+  for (const def of defs) {
+    const first = def.id.charAt(0).toLowerCase();
+    if (first >= "a" && first <= "f") aF.push(def);
+    else if (first >= "g" && first <= "m") gM.push(def);
+    else nZ.push(def);
+  }
+  return { aF, gM, nZ };
+}
+
+function renderPart(defs: DomainDefinition[], exportName: string, counts: ReturnType<typeof levelCounts>): string {
   const json = JSON.stringify(defs, null, 2);
   return `/**
  * GENERATED FILE — 请勿手改。
@@ -152,7 +172,31 @@ function renderSource(defs: DomainDefinition[], counts: ReturnType<typeof levelC
  */
 import type { DomainDefinition } from "@away_from/pth-contracts";
 
-export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = ${json};
+export const ${exportName}: DomainDefinition[] = ${json};
+`;
+}
+
+function renderMain(counts: ReturnType<typeof levelCounts>): string {
+  return `/**
+ * GENERATED FILE — 请勿手改。
+ *
+ * 生成源：docs/pth/n16-v1.2-role-expansion.md §2.1–§2.5
+ * （只取 | id | 3/4/5 | parent | 职责 | 行；§2.6 非 researcher 不导入）
+ * + src/pth/catalog/data/discipline-alias-overrides.ts（生产别名覆盖，F4 AB-06）。
+ * 生成命令：npx tsx scripts/build-discipline-catalog.ts
+ * 数量断言（manifest 复算）：category=${counts.category}、discipline=${counts.discipline}、
+ *   sub-discipline=${counts.subDiscipline}、total=${counts.total}。
+ */
+import type { DomainDefinition } from "@away_from/pth-contracts";
+import { ${PART_A_EXPORT} } from "./${PART_A_FILE.replace(/\.ts$/, ".js")}";
+import { ${PART_B_EXPORT} } from "./${PART_B_FILE.replace(/\.ts$/, ".js")}";
+import { ${PART_C_EXPORT} } from "./${PART_C_FILE.replace(/\.ts$/, ".js")}";
+
+export const DISCIPLINE_DEFINITIONS: DomainDefinition[] = [
+  ...${PART_A_EXPORT},
+  ...${PART_B_EXPORT},
+  ...${PART_C_EXPORT},
+];
 `;
 }
 
@@ -161,13 +205,26 @@ function main(): void {
   const baseDefs = buildDefinitions(parseRows(markdown));
   const defs = applyDisciplineAliasOverrides(baseDefs, PRODUCTION_DOMAIN_ALIAS_OVERRIDES);
   const counts = assertCounts(defs);
-  const source = renderSource(defs, counts);
+  const { aF, gM, nZ } = partitionDefs(defs);
+  const partA = renderPart(aF, PART_A_EXPORT, counts);
+  const partB = renderPart(gM, PART_B_EXPORT, counts);
+  const partC = renderPart(nZ, PART_C_EXPORT, counts);
+  const mainSource = renderMain(counts);
   const checkMode = process.argv.includes("--check");
 
+  const generatedFiles: Array<{ file: string; content: string }> = [
+    { file: OUT_FILE, content: mainSource },
+    { file: resolve(dirname(OUT_FILE), PART_A_FILE), content: partA },
+    { file: resolve(dirname(OUT_FILE), PART_B_FILE), content: partB },
+    { file: resolve(dirname(OUT_FILE), PART_C_FILE), content: partC },
+  ];
+
   if (checkMode) {
-    const disk = readFileSync(OUT_FILE, "utf8");
-    if (disk !== source) {
-      fail("--check 失败：磁盘文件与重新解析内容不一致——请运行 npx tsx scripts/build-discipline-catalog.ts 重新生成");
+    for (const { file, content } of generatedFiles) {
+      const disk = readFileSync(file, "utf8");
+      if (disk !== content) {
+        fail(`--check 失败：${relative(ROOT, file)} 与重新解析内容不一致——请运行 npx tsx scripts/build-discipline-catalog.ts 重新生成`);
+      }
     }
     console.log(
       `✓ --check 一致：category=${counts.category} discipline=${counts.discipline} ` +
@@ -177,8 +234,10 @@ function main(): void {
   }
 
   mkdirSync(dirname(OUT_FILE), { recursive: true });
-  writeFileSync(OUT_FILE, source, "utf8");
-  console.log(`✓ 已生成 ${relative(ROOT, OUT_FILE)}`);
+  for (const { file, content } of generatedFiles) {
+    writeFileSync(file, content, "utf8");
+    console.log(`✓ 已生成 ${relative(ROOT, file)}`);
+  }
   console.log(
     `✓ manifest 复算：category=${counts.category} discipline=${counts.discipline} ` +
       `sub-discipline=${counts.subDiscipline} total=${counts.total}`,
