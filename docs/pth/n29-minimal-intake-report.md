@@ -28,6 +28,13 @@ exit 0。六项 realism gates 全部 satisfied：
 
 ## 1. 验收门禁（clean worktree，同 commit `21befb4`）
 
+> **Phase E 复核（2026-08-23）**：官方 `MIN_INNER_LOOP_GO` envelope 仍绑定 `21befb4`（Phase C
+> 验收 commit）。Phase D 为结构重构（kernel 子包拆分、大文件拆分、barrel 纪律），未改变 N29
+> 最小内环语义；当前 HEAD `f9b7afa` 全量门禁再次通过：lint（含 import-cycles/boundaries）exit 0、
+> build exit 0、`npm test` 297 files / 2619 passed / 58 frozen skipped / 0 failed，且 G8/G10 等
+> 真实性用例在本次全量回归中继续通过。若后续要把 `PTH_KNOWLEDGE_INTAKE_MODE=full` 绑定到新 commit，
+> 应重新运行 `scripts/accept-n29-minimal-intake.ts` 并走 D-5 签名流程生成新 envelope。
+
 | 门禁 | 结果 |
 |---|---|
 | N29 focused 22 文件 | **exit 0，366/366 passed，skips=[]** |

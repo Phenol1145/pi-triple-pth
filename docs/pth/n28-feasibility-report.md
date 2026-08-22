@@ -17,6 +17,12 @@ GO 只授权编写生产化实施计划（persistent lease/Region 表/outbox 投
 
 ## 1. 验收门禁（clean worktree 上真实执行，同 commit `d4f363d`）
 
+> **Phase E 复核（2026-08-23）**：官方 GO envelope 仍绑定 `d4f363d`（Phase B 验收 commit）。
+> Phase C/D 为结构重构（kernel 子包拆分、大文件拆分、barrel 纪律），未改变 N28 合同语义；
+> 当前 HEAD `f9b7afa` 全量门禁再次通过：lint（含 import-cycles/boundaries）exit 0、build exit 0、
+> `npm test` 297 files / 2619 passed / 58 frozen skipped / 0 failed。若后续需要把 full/intake 或
+> N28 生产化 gate 绑定到新 commit，应重新运行 `scripts/accept-n28-feasibility.ts` 生成新 envelope。
+
 | 门禁 | 结果 |
 |---|---|
 | 两次 evaluator | byte-identical，provisional GO |

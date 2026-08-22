@@ -1,6 +1,6 @@
 # 模块化后续 + N28/N29 复验收口实施计划（2026-08-22）
 
-> 状态：**实施中；Phase A 已完成，Phase B 已完成（N28 重新验收 GO，envelope 已落盘），Phase C 已完成（N29 重新验收 MIN_INNER_LOOP_GO，envelope 已落盘），Phase D 已完成（D1-D5 全部落地，待全量测试确认），Phase E 未开始**
+> 状态：**实施中；Phase A 已完成，Phase B 已完成（N28 重新验收 GO，envelope 已落盘），Phase C 已完成（N29 重新验收 MIN_INNER_LOOP_GO，envelope 已落盘），Phase D 已完成（D1-D5 全部落地，全量测试确认），Phase E 进行中（全量门禁已绿，文档/发布收尾）**
 > 范围：modularity/reuse 计划遗留的后续清理 + N28 Role/Memory/Worker 复验修复 + N29 最小可信知识摄入内环复验修复
 > 依据：
 > - `docs/pth/modularity-reuse-implementation-plan.md`
@@ -24,8 +24,8 @@
 | Phase A | 低风险遗留清理（ptl / web / 重复脚本 / adapter 例外） | 已完成 |
 | Phase B | N28 复验修复（P0/P1 + 重新验收） | 已完成 |
 | Phase C | N29 复验修复（P0/P1 + 重新验收） | 已完成（21befb4 GO） |
-| Phase D | 工程纪律与结构收口（import-cycle / barrel / 大文件 / kernel 子包） | 已完成（待全量测试确认） |
-| Phase E | 全量验收、文档、发布 | 未开始 |
+| Phase D | 工程纪律与结构收口（import-cycle / barrel / 大文件 / kernel 子包） | 已完成（全量测试确认） |
+| Phase E | 全量验收、文档、发布 | 进行中（E1 全量门禁已绿；E2/E3 收尾） |
 
 依赖关系：
 

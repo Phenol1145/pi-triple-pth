@@ -13,6 +13,10 @@
 | Phase 2 | 快速复用优化（CLI helper / runtime adapter / memory lib / 文档修复） | P1 | 已完成 |
 | Phase 3 | 需要决策的收敛项（_shared 去重 / 双 UI 栈 / kernel 再拆分） | P2 | 已完成 |
 
+> 后续执行入口：本计划 Phase 0–3 的收尾与 N28/N29 复验、kernel 子包拆分、发布统一在
+> [`docs/pth/modularity-and-feasibility-followup-implementation-plan.md`](./modularity-and-feasibility-followup-implementation-plan.md)
+> 的 Phase A–E 中推进。截至 2026-08-23，Phase A–D 已完成，Phase E 全量验收/文档/发布收尾中。
+
 ---
 
 ## Phase 0：循环依赖门禁

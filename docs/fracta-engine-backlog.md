@@ -149,6 +149,10 @@
 
 ## 已完成项（本批之前回填）
 
+- ~~N28 复验~~：2026-08-22 重新验收 **GO**（`docs/pth/n28-feasibility-envelope.json`；
+  恢复 35 文件 typecheck；P0/P1 修复全部红→绿）。
+- ~~N29 复验~~：2026-08-22 重新验收 **MIN_INNER_LOOP_GO**（`docs/pth/n29-minimal-intake-acceptance.json`；
+  D-5 签名 acceptance envelope + 启动验签；默认 `PTH_KNOWLEDGE_INTAKE_MODE=off` 保持）。
 - ~~legacy `/kernel/*` 租约路由清理~~：2026-08-22 完成（`@away_from/pth-sandbox@1.6.1`，
   live 六路由 404 + /sessions 全链路绿）。
 - ~~GHCR release~~：2026-08-22 完成（三域多架构推送 + digest 钉版 + live `--pull` 切换）。

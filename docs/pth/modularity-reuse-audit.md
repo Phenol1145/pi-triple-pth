@@ -112,15 +112,17 @@ execution/index.ts
 - 旧版 `modularity-reuse-audit.md` 数据为 v1.3.0，已由本文件替代。
 - `docs/pth/module-ownership.md` 引用的 `docs/product-shape.md` 在当前三仓中不存在，需修复引用。
 
-## 8. 建议优先级
+## 8. 建议优先级与实施后状态
 
-| 优先级 | 建议 | 预期收益 |
-|---|---|---|
-| P0 | 拆掉 `execution ↔ runner` 静态运行时环，并在 CI 加循环检测 | 消除真实 ESM 环，恢复“0 环”可信度 |
-| P1 | 抽取 runtime adapter 公共执行脚手架 | 去掉 6 个 adapter 的大段重复 |
-| P1 | 抽取 CLI `requireClient()` 公共 helper | 去掉 10+ 个命令的重复样板 |
-| P1 | 把 `PTH_MEMORY_LIB_B64` 从 `pth-memory` 下沉到共享层 | 修正 sandbox 反向依赖 |
-| P1 | 刷新 `module-ownership.md` 的失效引用 | 文档与代码一致 |
-| P2 | 收敛 `_shared` 与 `shared` 的重复（presence/version-check） | 降低跨仓同步成本 |
-| P2 | 明确 operator console 双栈去留 | 减少两个 UI 的维护面 |
-| P2 | 进一步拆分 `src/pth/kernel`，或至少强制 barrel-only 跨模块导入 | 降低 PTH 引擎内部认知成本 |
+> 状态更新：2026-08-23 Phase A–D 已完成。下表“实施后状态”反映当前三仓代码/门禁实际状态。
+
+| 优先级 | 建议 | 预期收益 | 实施后状态 |
+|---|---|---|---|
+| P0 | 拆掉 `execution ↔ runner` 静态运行时环，并在 CI 加循环检测 | 消除真实 ESM 环，恢复“0 环”可信度 | ✅ 已完成：`check:import-cycles` static-runtime/static-all/dynamic SCC 均为 0，且纳入 lint |
+| P1 | 抽取 runtime adapter 公共执行脚手架 | 去掉 6 个 adapter 的大段重复 | ✅ 已完成：`job-runner.ts` 公共脚手架 + adapter 收敛 |
+| P1 | 抽取 CLI `requireClient()` 公共 helper | 去掉 10+ 个命令的重复样板 | ✅ 已完成：`packages/pth-console/src/commands/client.ts` |
+| P1 | 把 `PTH_MEMORY_LIB_B64` 从 `pth-memory` 下沉到共享层 | 修正 sandbox 反向依赖 | ✅ 已完成：`@away_from/shared` 导出 `PTH_MEMORY_LIB_B64`，`pth-sandbox` 不再依赖 `pth-memory` |
+| P1 | 刷新 `module-ownership.md` 的失效引用 | 文档与代码一致 | ✅ 已完成：不再引用不存在的 `docs/product-shape.md` |
+| P2 | 收敛 `_shared` 与 `shared` 的重复（presence/version-check） | 降低跨仓同步成本 | ✅ 已完成：同步守卫测试钉住 `presence.ts` / `extension-version-check.ts` 与 shared 一致 |
+| P2 | 明确 operator console 双栈去留 | 减少两个 UI 的维护面 | 🔶 部分完成：legacy 静态 UI 已删除，Preact+Vite 新 UI 为生产面；`bridge/**` + `operator-console/**` 过渡文件仍保留在 `check:product-boundaries` 观察清单（22 个） |
+| P2 | 进一步拆分 `src/pth/kernel`，或至少强制 barrel-only 跨模块导入 | 降低 PTH 引擎内部认知成本 | ✅ 已完成：barrel 纪律扩展到整个 `src/pth`；kernel 子包拆为 `pth-contracts/config/kernel-storage/interpreter/execution` 独立 workspace 包；大文件拆分完成 |
