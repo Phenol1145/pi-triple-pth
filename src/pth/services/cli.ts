@@ -79,7 +79,9 @@ async function up(manifests: ServiceManifest[], ids: string[]): Promise<void> {
         continue;
       }
       const token = resolveServiceToken(entry, manifest.tokenEnv);
-      const result = await upHostService(manifest, { token });
+      const serviceDir = join(SERVICES_DIR, manifest.id);
+      const pathDirs = manifest.pathDirs?.map((p) => resolve(serviceDir, p));
+      const result = await upHostService(manifest, { token, ...(pathDirs?.length ? { pathDirs } : {}) });
       entry = result.entry;
       registry = { ...registry, updatedAt: new Date().toISOString(), services: { ...registry.services, [manifest.id]: entry } };
       saveServiceRegistry(registry, defaultServiceRegistryPath());
@@ -118,8 +120,12 @@ async function down(manifests: ServiceManifest[], ids: string[]): Promise<void> 
       const composeFile = join(SERVICES_DIR, manifest.id, manifest.composeFile);
       if (existsSync(composeFile)) {
         const result = await realDockerRun(["compose", "-p", manifest.projectName, "-f", composeFile, "down"]);
-        if (result.code !== 0) process.exitCode = 1;
-        else console.log(`✅ ${manifest.id}: compose down`);
+        if (result.code !== 0) {
+          console.error(`❌ ${manifest.id}: compose down 失败（exit ${result.code}）`);
+          if (result.stderr.trim()) console.error(result.stderr.trim());
+          else if (result.stdout.trim()) console.error(result.stdout.trim());
+          process.exitCode = 1;
+        } else console.log(`✅ ${manifest.id}: compose down`);
       }
     }
   }

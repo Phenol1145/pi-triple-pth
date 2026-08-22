@@ -13,6 +13,9 @@
   "healthUrl": "http://127.0.0.1:8788/health",
   "readyTimeoutMs": 30000,
   "stopGraceMs": 5000,
+  "pathDirs": [
+    "../../local-exec/u8"
+  ],
   "pathMapping": {
     "hostRoot": "/data/workspaces",
     "execRootEnv": "PTH_WORKSPACES_HOST"

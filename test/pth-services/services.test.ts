@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import {
   validateServiceManifest,
   ServiceManifestError,
@@ -54,8 +54,14 @@ describe("pth services：host 进程监督器", () => {
       expect(manifest).toMatchObject({ kind: "host", id, healthUrl: expect.stringContaining("/health") });
       expect((manifest as HostServiceManifest).pathMapping?.execRootEnv).toBe("PTH_WORKSPACES_HOST");
     }
+    const u8 = validateServiceManifest(
+      JSON.parse(readFileSync(join(process.cwd(), "deploy/services/local-u8/service.json"), "utf8")),
+    ) as HostServiceManifest;
+    expect(u8.pathDirs).toEqual(["../../local-exec/u8"]);
     expect(() => validateServiceManifest({ schemaVersion: 1, kind: "host", id: "bad", command: [], tokenEnv: "T", healthUrl: "http://x/health" }))
       .toThrow(ServiceManifestError);
+    expect(() => validateServiceManifest({ schemaVersion: 1, kind: "host", id: "bad", command: ["x"], tokenEnv: "T", healthUrl: "http://127.0.0.1:9999/health", pathDirs: ["/abs"] }))
+      .toThrow(/pathDirs/);
   });
 
   it("registry 0600 往返 + 损坏 fail-closed", () => {
@@ -98,6 +104,32 @@ describe("pth services：host 进程监督器", () => {
     }
     const status = await statusHostService(result.entry);
     expect(status.running).toBe(false);
+  });
+
+  it("pathDirs 前置注入子进程 PATH（local-u8 工具链可见性修复）", async () => {
+    const dir = tempDir();
+    const binDir = join(dir, "bin");
+    mkdirSync(binDir, { recursive: true });
+    const pathOut = join(dir, "path.txt");
+    const port = 19381 + Math.floor(Math.random() * 500);
+    const manifest: HostServiceManifest = {
+      schemaVersion: 1,
+      kind: "host",
+      id: "path-dir-service",
+      command: ["node", "-e", `require('fs').writeFileSync(${JSON.stringify(pathOut)}, process.env.PATH||''); require('http').createServer((req,res)=>res.end('{"status":"ok"}')).listen(${port})`],
+      tokenEnv: "PATH_DIR_SERVICE_TOKEN",
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      readyTimeoutMs: 5_000,
+      stopGraceMs: 1_000,
+    };
+    const result = await upHostService(manifest, { token: generateServiceToken(), logFile: join(dir, "path-dir.log"), pathDirs: [binDir] });
+    try {
+      expect((await statusHostService(result.entry)).healthy).toBe(true);
+      const seenPath = readFileSync(pathOut, "utf8");
+      expect(seenPath.startsWith(`${binDir}${delimiter}`)).toBe(true);
+    } finally {
+      await downHostService(result.entry);
+    }
   });
 
   it("端口占用预检：已有健康服务 → up 直接失败（不张冠李戴写 pid）", async () => {

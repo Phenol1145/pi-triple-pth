@@ -189,13 +189,13 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
   const repoRoot = resolve(deps.repoRoot);
   const envFile = flagValue(args, "--env-file") ?? join(repoRoot, "deploy", ".env.pth.secrets");
   const timeoutMs = Number(flagValue(args, "--timeout") ?? "300") * 1000;
+  const secrets = await loadSecretsFile(repoRoot, flagValue(args, "--env-file"));
 
   const profiles = deps.profiles ?? await loadProfilesFile(repoRoot);
   const resolvedProfile = resolveProfile(profiles, parsed.profile, {
     withIds: parsed.withIds,
     withoutIds: parsed.withoutIds,
   });
-  const secrets = await loadSecretsFile(repoRoot, flagValue(args, "--env-file"));
   const baseEnv = injectSecrets(deps.env ?? process.env, secrets);
   if (deps.env === undefined) applySecretsToProcessEnv(secrets);
 
@@ -222,9 +222,10 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
 
   // 2) 数据层（分服务 up + health wait；不先起 engine）
   let step = 1;
+  const totalSteps = dataComponents.length + optionalComponents.length + 1;
   const coreArgs = coreComposeArgs(repoRoot, envFile);
   for (const component of dataComponents) {
-    log(`▶ ${step++}/${2 + optionalComponents.length} 数据层 ${component.id}（${component.services?.join(",") ?? ""}）…`);
+    log(`▶ ${step++}/${totalSteps} 数据层 ${component.id}（${component.services?.join(",") ?? ""}）…`);
     const result = await runner("docker", [...coreArgs, "up", "-d", ...(component.services ?? [])], { env });
     if (result.code !== 0) throw new Error(`数据层 ${component.id} 启动失败: ${result.stderr || result.stdout}`);
     await waitHealthy(runner, coreArgs, component.services ?? [], timeoutMs, env);
@@ -235,7 +236,7 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
   const services = deps.servicesCommand ?? await defaultServicesCommand();
   const tools = deps.toolsCommand ?? await defaultToolsCommand();
   for (const component of optionalComponents) {
-    log(`▶ ${step++}/${2 + optionalComponents.length} 可选组件 ${component.id} …`);
+    log(`▶ ${step++}/${totalSteps} 可选组件 ${component.id} …`);
     if (component.kind === "tools") {
       await tools(["up"]);
     } else if (component.kind === "service") {
@@ -251,7 +252,7 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
   }
 
   // 4) engine 最后（复用 runPthUp；幂等 re-up 数据层）
-  log(`▶ ${step}/${2 + optionalComponents.length} engine 最后启动（probe 全部 backend）…`);
+  log(`▶ ${step}/${totalSteps} engine 最后启动（probe 全部 backend）…`);
   const upArgs = [...parsed.forward];
   if (seed && explicitToken === undefined) upArgs.push("--token", token!);
   const pthUp = deps.pthUp ?? await defaultPthLauncher("up");
@@ -269,6 +270,12 @@ export async function orchestrateDown(args: string[], deps: OrchestratorDeps): P
     withIds: parsed.withIds,
     withoutIds: parsed.withoutIds,
   });
+
+  // P6 live 验证修复（2026-08-22）：down 与 up 同源注入 secrets——
+  // jupyter compose 的 JUPYTER_SERVICE_TOKEN/PTH_WORKSPACES_HOST 为 :? 必填，
+  // 缺 env 时 docker compose down 会插值失败（services CLI 不传 --env-file）。
+  const secrets = await loadSecretsFile(repoRoot, flagValue(args, "--env-file"));
+  if (deps.env === undefined) applySecretsToProcessEnv(secrets);
 
   const optional = resolvedProfile.components.filter((c) => c.phase === "optional").reverse();
   const services = deps.servicesCommand ?? await defaultServicesCommand();
@@ -308,8 +315,9 @@ export async function orchestrateStatusAll(args: string[], deps: OrchestratorDep
 
   log("");
   log("── engine 专业 runtime 注册态 ──");
-  const logs = await runner("docker", [...coreComposeArgs(repoRoot, envFile), "logs", "--tail", "200", "pi-platform"], { env });
-  const marker = /professional runtimes registered[^\n]*/i.exec(logs.stdout);
+  const logs = await runner("docker", [...coreComposeArgs(repoRoot, envFile), "logs", "--tail", "500", "pi-platform"], { env });
+  const logText = `${logs.stdout}\n${logs.stderr}`;
+  const marker = /professional runtimes registered[^"\n]*/i.exec(logText);
   log(marker ? `  ${marker[0].trim()}` : "  未观察到注册日志（engine 未启动或日志被轮转；docker compose logs pi-platform 查看）");
 
   const token = env.PTH_TOKEN;

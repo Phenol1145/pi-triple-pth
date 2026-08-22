@@ -247,6 +247,41 @@ describe("orchestrateDown", () => {
     });
     expect(order).toEqual(["services down jupyter", "services down local-u8", "services down local-lean", "tools down", "pthDown"]);
   });
+
+  it("down 与 up 同源注入 secrets（jupyter compose :? 插值修复）", async () => {
+    const repoRoot = await makeRepo();
+    const before: Record<string, string | undefined> = {
+      JUPYTER_SERVICE_TOKEN: process.env.JUPYTER_SERVICE_TOKEN,
+      REDIS_PASSWORD: process.env.REDIS_PASSWORD,
+      POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD,
+    };
+    delete process.env.JUPYTER_SERVICE_TOKEN;
+    delete process.env.REDIS_PASSWORD;
+    delete process.env.POSTGRES_PASSWORD;
+    try {
+      await orchestrateDown(["--all"], {
+        repoRoot,
+        runner: healthyRunner(repoRoot),
+        profiles: DEFAULT_RUNTIME_PROFILES,
+        ...makeFakes({
+          order: [],
+          services: async () => {},
+          tools: async () => {},
+          pthUp: async () => {},
+          pthDown: async () => {},
+          pthStatus: async () => {},
+        }),
+      });
+      expect(process.env.JUPYTER_SERVICE_TOKEN).toBe("jupyter-service-token-000000000000000000");
+      expect(process.env.REDIS_PASSWORD).toBe("redis-password-00000000000000000000000000");
+      expect(process.env.POSTGRES_PASSWORD).toBe("pg-password-0000000000000000000000000000");
+    } finally {
+      for (const [key, value] of Object.entries(before)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
 });
 
 describe("orchestrateStatusAll", () => {

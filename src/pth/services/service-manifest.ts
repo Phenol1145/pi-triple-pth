@@ -24,6 +24,8 @@ export interface HostServiceManifest {
   readyTimeoutMs?: number;
   /** 优雅停止宽限 ms（默认 5s；超时 SIGKILL） */
   stopGraceMs?: number;
+  /** 相对 service 目录的工具 bin 目录——spawn 时前置到 PATH（如 local-u8 的 deploy/local-exec/u8） */
+  pathDirs?: string[];
   /** 宿主 pathMapping（engine 合并 services.json 时写进 descriptor） */
   pathMapping?: {
     hostRoot: string;
@@ -77,7 +79,7 @@ export function validateServiceManifest(input: unknown): ServiceManifest {
   if (input.kind === "host") {
     const raw = input;
     const id = String(raw.id ?? "");
-    validateCommon(raw, ["schemaVersion", "kind", "id", "description", "command", "tokenEnv", "healthUrl", "readyTimeoutMs", "stopGraceMs", "pathMapping"], id);
+    validateCommon(raw, ["schemaVersion", "kind", "id", "description", "command", "tokenEnv", "healthUrl", "readyTimeoutMs", "stopGraceMs", "pathDirs", "pathMapping"], id);
     if (!Array.isArray(raw.command) || raw.command.length === 0 || raw.command.some((c) => typeof c !== "string" || c.length === 0)) {
       fail(`${id}: command must be a non-empty argv array`);
     }
@@ -87,6 +89,14 @@ export function validateServiceManifest(input: unknown): ServiceManifest {
     if (typeof raw.healthUrl !== "string" || !/^http:\/\/127\.0\.0\.1:\d{1,5}\/.*$/.test(raw.healthUrl)) {
       fail(`${id}: healthUrl must be http://127.0.0.1:<port>/...`);
     }
+    const pathDirs = Array.isArray(raw.pathDirs)
+      ? raw.pathDirs.map((p) => {
+        if (typeof p !== "string" || p.trim() === "" || p.startsWith("/")) {
+          fail(`${id}: pathDirs entries must be non-empty relative paths`);
+        }
+        return p;
+      })
+      : undefined;
     const num = (v: unknown, field: string) => {
       if (v !== undefined && (!Number.isFinite(v) || (v as number) <= 0)) fail(`${id}: ${field} must be positive`);
     };
@@ -111,6 +121,7 @@ export function validateServiceManifest(input: unknown): ServiceManifest {
       ...(typeof raw.description === "string" ? { description: raw.description } : {}),
       ...(typeof raw.readyTimeoutMs === "number" ? { readyTimeoutMs: raw.readyTimeoutMs } : {}),
       ...(typeof raw.stopGraceMs === "number" ? { stopGraceMs: raw.stopGraceMs } : {}),
+      ...(pathDirs ? { pathDirs } : {}),
       ...(pathMapping ? { pathMapping } : {}),
     };
   }

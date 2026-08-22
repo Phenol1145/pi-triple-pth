@@ -7,7 +7,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, statSync, truncateSync, readFileSync, openSync, closeSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { pthConfig } from "../config/index.js";
 import type { HostServiceManifest } from "./service-manifest.js";
 import {
@@ -64,7 +64,7 @@ async function waitHealthy(url: string, timeoutMs: number, signal?: AbortSignal)
 
 export async function upHostService(
   manifest: HostServiceManifest,
-  input: { token: string; logFile?: string },
+  input: { token: string; logFile?: string; pathDirs?: string[] },
 ): Promise<UpServiceResult> {
   const port = extractPort(manifest.healthUrl);
   if (!input.token || input.token.length < 16) throw new Error(`${manifest.id}: token 缺失（先经 registry 生成本地 token）`);
@@ -82,6 +82,10 @@ export async function upHostService(
   const logFd = openSync(logFile, "a");
 
   const env: NodeJS.ProcessEnv = { ...process.env, [manifest.tokenEnv]: input.token };
+  if (input.pathDirs && input.pathDirs.length > 0) {
+    const existing = env.PATH ?? "";
+    env.PATH = [...input.pathDirs, existing].filter((p) => p.length > 0).join(delimiter);
+  }
   let execRoot: string | undefined;
   if (manifest.pathMapping) {
     execRoot = process.env[manifest.pathMapping.execRootEnv];
