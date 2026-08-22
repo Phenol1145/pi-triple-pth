@@ -40,6 +40,9 @@ export interface PthConfigDef {
   default: string | number | boolean | null;
   secret?: boolean;
   runtime?: boolean;
+  /** C11：number 类型资源的护栏范围（越界 warn + 回退/clamp） */
+  min?: number;
+  max?: number;
   group: ConfigGroup;
   scope: ConfigScope;
   description: string;
@@ -52,7 +55,7 @@ const d = (
   group: ConfigGroup,
   scope: ConfigScope,
   description: string,
-  opts: { secret?: boolean; runtime?: boolean } = {},
+  opts: { secret?: boolean; runtime?: boolean; min?: number; max?: number } = {},
 ): PthConfigDef => ({ key, type, default: defaultValue, group, scope, description, ...opts });
 
 export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
@@ -97,8 +100,8 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
 
   // ── batch / scaler ───────────────────────────────────────────────
   d("PTH_BATCH_AUTOSCALE", "string", "off", "scaler", "main", "batch 自动扩缩开关（on 启用）", { runtime: true }),
-  d("PTH_BATCH_MIN", "number", 1, "scaler", "main", "batch 数量下限"),
-  d("PTH_BATCH_MAX", "number", 4, "scaler", "main", "batch 数量上限"),
+  d("PTH_BATCH_MIN", "number", 1, "scaler", "main", "batch 数量下限", { min: 1, max: 32 }),
+  d("PTH_BATCH_MAX", "number", 4, "scaler", "main", "batch 数量上限", { min: 1, max: 64 }),
   d("PTH_BATCH_SCALE_INTERVAL_MS", "number", 30_000, "scaler", "main", "batch-scaler trigger 周期", { runtime: true }),
   d("PTH_BATCH_SCALE_UP_THRESHOLD", "number", 5, "scaler", "main", "pending 扩容阈值", { runtime: true }),
   d("PTH_AUTOSCALE_MODE", "string", "balanced", "scaler", "main", "扩容模式：balanced / reinforced", { runtime: true }),
@@ -123,7 +126,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_KERNEL_LAZY_SPAWN", "string", "1", "kernel", "batch", "懒 spawn（0=构造即起）", { runtime: true }),
   d("PTH_KERNEL_IDLE_MS", "number", 300_000, "kernel", "batch", "kernel 空闲回收（0=禁用）", { runtime: true }),
   d("PTH_KERNEL_RESET_MODE", "string", "ns", "kernel", "batch", "reset 语义：ns / restart", { runtime: true }),
-  d("PTH_KERNEL_POOL_SIZE", "number", 24, "kernel", "sandbox", "sandbox kernel 宿主池容量"),
+  d("PTH_KERNEL_POOL_SIZE", "number", 24, "kernel", "sandbox", "sandbox kernel 宿主池容量", { min: 1, max: 256 }),
   d("PTH_KERNEL_ACQUIRE_TIMEOUT_MS", "number", 10_000, "kernel", "sandbox", "池 acquire 排队超时"),
   d("PTH_KERNEL_ENTRY_TTL_MS", "number", 30 * 60_000, "kernel", "sandbox", "kernel 池条目 TTL"),
   d("PTH_PYTHON_MODE", "string", "kernel", "kernel", "batch", "python 执行模式：kernel / sandbox-kernel"),
@@ -152,7 +155,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_COMPILED_CACHE_MAX_MB", "number", 200, "compiled", "sandbox", "编译缓存容量上限（MB）"),
   d("PTH_COMPILED_MAX_CACHE", "number", 50, "compiled", "sandbox", "编译缓存条目上限"),
   d("PTH_COMPILED_TIMEOUT_MS", "number", 60_000, "compiled", "sandbox", "编译超时"),
-  d("PTH_COMPILED_CONCURRENCY", "number", 4, "compiled", "sandbox", "编译并发上限"),
+  d("PTH_COMPILED_CONCURRENCY", "number", 4, "compiled", "sandbox", "编译并发上限", { min: 0, max: 64 }),
 
   // ── 记忆 / 桥 ────────────────────────────────────────────────────
   d("PTH_MEMORY_BRIDGE", "string", "http://localhost:3000/api/v1/kernel/memory-bridge", "memory", "batch", "记忆桥上游 URL"),
@@ -189,7 +192,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_EXEC_PRIVATE_ROOT", "string", "/srv/workload", "path", "sandbox", "工作负载私有根"),
   d("PTH_DEBUG_WORKDIR", "string", "/data/workspaces", "path", "sandbox", "调试会话工作根"),
   d("PTH_DEBUG_IDLE_MS", "number", 30 * 60_000, "path", "sandbox", "调试会话空闲回收"),
-  d("PTH_DEBUG_SESSIONS", "number", 4, "path", "sandbox", "调试会话并发上限"),
+  d("PTH_DEBUG_SESSIONS", "number", 4, "path", "sandbox", "调试会话并发上限", { min: 1, max: 64 }),
   d("PTH_DEBUG_SANDBOX", "string", "0", "path", "sandbox", "sandbox 诊断日志开关"),
   d("PTH_TRUST_POLICY_MANIFEST", "string", "", "path", "both", "N29：人类签名 Trust Policy manifest 只读路径（JSON；PTL Human Interface 签发）"),
   d("PTH_TRUST_POLICY_KEYRING", "string", "", "path", "both", "N29：Trust Policy 验证公钥 keyring 只读路径（JSON；stable human principal -> PEM public key）"),

@@ -8,8 +8,9 @@ import { spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { constants } from "node:fs";
-import { createServer } from "node:net";
+import { createConnection } from "node:net";
 import { parseSecretsEnvFile } from "./runtime-secrets.js";
+import { validatePthConfig } from "../../pth/config/index.js";
 
 export type DoctorStatus = "pass" | "warn" | "fail";
 
@@ -92,13 +93,27 @@ function wants(profile: DoctorProfile, kind: "tools" | "lean4" | "u8" | "jupyter
   return profile === kind || profile === "full";
 }
 
-async function portFree(port: number): Promise<boolean> {
-  return new Promise((resolvePromise) => {
-    const server = createServer();
-    server.once("error", () => resolvePromise(false));
-    server.once("listening", () => server.close(() => resolvePromise(true)));
-    server.listen(port, "127.0.0.1");
+/** C10（2026-08-22）：端口探测改「TCP 连接」而非「尝试 bind」——OrbStack/Docker
+ *  端口代理下 bind 可能误报空闲；连上即占用，并对已知端口做 HTTP 指纹标注归属。 */
+async function portProbe(port: number): Promise<{ occupied: boolean; owner?: string }> {
+  const connected = await new Promise<boolean>((resolvePromise) => {
+    const socket = createConnection({ host: "127.0.0.1", port, timeout: 800 });
+    socket.once("connect", () => { socket.destroy(); resolvePromise(true); });
+    socket.once("timeout", () => { socket.destroy(); resolvePromise(false); });
+    socket.once("error", () => resolvePromise(false));
   });
+  if (!connected) return { occupied: false };
+
+  let owner: string | undefined;
+  if (port === 3000) {
+    try {
+      const res = await fetch("http://127.0.0.1:3000/health", { signal: AbortSignal.timeout(1_000) });
+      if (res.ok) owner = "pi-platform";
+    } catch { /* 非 HTTP 或探测失败——仍视为占用 */ }
+  } else if (port === 8888) {
+    owner = "jupyter/jupyterlab";
+  }
+  return { occupied: true, ...(owner ? { owner } : {}) };
 }
 
 async function isExecutable(path: string): Promise<boolean> {
@@ -179,12 +194,22 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
     }
   }
 
+  // 3.5) C11 配置参量护栏（越界 warn 展示）
+  const configIssues = validatePthConfig(env);
+  const rangeIssues = configIssues.filter((i) => i.level === "warn" && i.message.includes("护栏范围"));
+  if (rangeIssues.length > 0) {
+    add("config-guardrails", "warn", `配置越界: ${rangeIssues.map((i) => i.key).join(", ")}`, "按护栏范围修正 env（资源型参数会自动 clamp/回退默认）");
+  } else {
+    add("config-guardrails", "pass", "配置护栏范围内");
+  }
+
   // 4) 端口
   const ports: Array<[string, number]> = [["port-3000", 3000]];
   if (wants(profile, "jupyter")) ports.push(["port-8888", 8888]);
   for (const [check, port] of ports) {
-    if (await portFree(port)) add(check, "pass", `端口 ${port} 空闲`);
-    else add(check, "warn", `端口 ${port} 被占用`, `lsof -i :${port} 查看占用进程`);
+    const probe = await portProbe(port);
+    if (!probe.occupied) add(check, "pass", `端口 ${port} 空闲`);
+    else add(check, "warn", `端口 ${port} 被占用${probe.owner ? `（${probe.owner}）` : ""}`, `lsof -i :${port} 查看占用进程`);
   }
 
   // 5) 镜像

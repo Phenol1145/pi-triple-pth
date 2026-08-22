@@ -62,6 +62,13 @@ function posNum(env: NodeJS.ProcessEnv, key: string, def: number): number {
   return v > 0 ? v : def;
 }
 
+/** C11：资源型参数护栏——非有限数回退默认；越界 clamp 到 [min,max]（配合 schema 元数据）。 */
+function rangeNum(env: NodeJS.ProcessEnv, key: string, def: number, min: number, max: number): number {
+  const v = num(env, key, def);
+  if (!Number.isFinite(v)) return def;
+  return Math.min(max, Math.max(min, v));
+}
+
 function posInt(env: NodeJS.ProcessEnv, key: string): number | undefined {
   const v = Number(env[key]);
   return Number.isInteger(v) && v > 0 ? v : undefined;
@@ -73,19 +80,19 @@ export function loadSandboxConfig(env: NodeJS.ProcessEnv = process.env): Sandbox
     // src/pth schema 中同键默认是 host/batch 侧 http://localhost:3000/api/v1/kernel/memory-bridge。
     memoryBridge: env.PTH_MEMORY_BRIDGE ?? "http://localhost:8080/kernel/memory-bridge",
     memoryBridgeToken: env.PTH_MEMORY_BRIDGE_TOKEN ?? "",
-    kernelPoolSize: posNum(env, "PTH_KERNEL_POOL_SIZE", 24),
+    kernelPoolSize: rangeNum(env, "PTH_KERNEL_POOL_SIZE", 24, 1, 256),
     kernelAcquireTimeoutMs: posNum(env, "PTH_KERNEL_ACQUIRE_TIMEOUT_MS", 10_000),
     kernelEntryTtlMs: posNum(env, "PTH_KERNEL_ENTRY_TTL_MS", 30 * 60_000),
     compiledCacheDir: env.PTH_COMPILED_CACHE_DIR ?? "/data/compiled-cache/c",
     compiledCacheMaxMb: posNum(env, "PTH_COMPILED_CACHE_MAX_MB", 200),
     compiledMaxCache: posNum(env, "PTH_COMPILED_MAX_CACHE", 50),
     compiledTimeoutMs: posNum(env, "PTH_COMPILED_TIMEOUT_MS", 60_000),
-    compiledConcurrency: num(env, "PTH_COMPILED_CONCURRENCY", 4),
+    compiledConcurrency: rangeNum(env, "PTH_COMPILED_CONCURRENCY", 4, 0, 64),
     bridgeUrl: (env.PTH_BRIDGE_URL ?? "http://pi-platform:3000").replace(/\/+$/, ""),
     execPrivateRoot: env.PTH_EXEC_PRIVATE_ROOT,
     debugWorkdir: env.PTH_DEBUG_WORKDIR ?? "/data/workspaces",
     debugIdleMs: posNum(env, "PTH_DEBUG_IDLE_MS", 30 * 60_000),
-    debugSessions: posNum(env, "PTH_DEBUG_SESSIONS", 4),
+    debugSessions: rangeNum(env, "PTH_DEBUG_SESSIONS", 4, 1, 64),
     debugSandbox: Boolean(env.PTH_DEBUG_SANDBOX),
     workloadUid: posInt(env, "PTH_WORKLOAD_UID"),
     workloadGid: posInt(env, "PTH_WORKLOAD_GID"),

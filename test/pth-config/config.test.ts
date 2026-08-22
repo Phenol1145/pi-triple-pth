@@ -70,6 +70,12 @@ describe("PTH config 集中化（C1：schema 默认值 + ConfigCenter 权威化�
       .some((i) => i.key === "PTH_EXECUTION_GRANT_SECRET")).toBe(true);
   });
 
+  it("validatePthConfig：资源型参数越界记 warn（C11 护栏）", () => {
+    const issues = validatePthConfig({ PTH_KERNEL_POOL_SIZE: "100000" });
+    expect(issues.some((i) => i.key === "PTH_KERNEL_POOL_SIZE" && i.level === "warn" && i.message.includes("护栏范围"))).toBe(true);
+    expect(issues.some((i) => i.key === "PTH_KERNEL_POOL_SIZE" && i.level === "error")).toBe(false);
+  });
+
   it("exportPtlMigration：输出 ptl config set 通道（token 默认打码）", () => {
     const lines = exportPtlMigration({ PTH_URL: "http://host:3000", PTH_TOKEN: "tok-123" });
     expect(lines[0]).toBe("ptl config set pth.url http://host:3000");

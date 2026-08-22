@@ -223,6 +223,22 @@ export function validatePthConfig(env: NodeJS.ProcessEnv = process.env): ConfigI
     });
   }
 
+  // C11（2026-08-22）：资源型 number 配置的护栏范围——越界记 warn（启动不阻断，
+  // 消费侧 clamp/回退默认；doctor 可复用此通道展示）。
+  for (const def of PTH_CONFIG_SCHEMA) {
+    if (def.type !== "number" || def.min === undefined || def.max === undefined) continue;
+    const raw = env[def.key];
+    if (raw === undefined || raw === "") continue;
+    const v = Number(raw);
+    if (Number.isFinite(v) && (v < def.min || v > def.max)) {
+      issues.push({
+        key: def.key,
+        level: "warn",
+        message: `${def.key}=${v} 超出护栏范围 [${def.min}, ${def.max}]（资源型参数将 clamp/回退默认）`,
+      });
+    }
+  }
+
   const secretLen = (key: string, min = 16) => {
     const v = cfg.str(key);
     if (strict && v !== "" && v.length < min) {
