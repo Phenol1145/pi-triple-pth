@@ -1,6 +1,6 @@
 # FRACTA engine 执行面拓扑与协议面固定计划
 
-> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 随 P4）；GHCR release 待凭据实测；P4 进行中（shared persistent 已发布 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 已迁移并测试；/kernel 私有 lease 路由待退役）；P5 待办。**
+> 状态：**P0 + P0.1 + P1 + P2 已实现并实测（execution/v1.1 模式框架 + ExecutionHttpServer + engine 后端注册硬切路由 + 本地执行器/Lean 外移全链路通过）；T2 + T3 + T4 已实现并实测（manifest 规范/回环注册表/pth tools 命令面/统一镜像 + tool-server + compiled gateway + secrets pty + 三域真实住户迁移 + v13-asm-toolchain 吸收与 assembly 路由）；宿主服务监督器已实现（pth services 管理 local-lean/local-u8 进程 + services.json 自动注册）；CLI 归属纠偏完成（local-exec 归 pth、ptl stack deprecated、TUI 下线）；npm 全量发布完成（2026-08-22：shared/infra 1.6.0 + framework/mailbox/dev-container/pth-console/pth-memory/pth-sandbox/pth-cli 1.6.x，含 @away_from/pth-cli 瘦包）；部署密钥已轮换（2026-08-22 泄露后全部换新）；栈级验收通过（sandbox healthy + assembly/lean4 双专业 runtime satisfiesLock）；u8proj 本地执行器接入：U8-1 全链已实现并实测（u8-runtime-adapter + u8→local-u8 默认路由 + engine compile/run vertical，专业角色另立项；U8-2 随 P4）；GHCR release 待凭据实测；P4 已实现并实测（shared persistent 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 迁移 + 容器内 python/bash vertical 通过；legacy /kernel lease 路由 deprecated 待清理）；P5 待办。**
 > 三仓同源：pi-triple-deps / pi-triple-pth / pi-triple-ptl。任何变更三仓同步。
 > 决策依据：`docs/adr/0001-fracta-engine-external-execution-surfaces.md`、
 > `docs/adr/0002-tool-containers-execution-v11.md`。
@@ -322,7 +322,7 @@ chatgpt-share），可信可出网、无密钥注入、root 单用户，调用�
    `{version:"2.40", satisfiesLock:true}`；compose 补 `PTH_ASM_KERNEL_INDEX_PATH=
    /data/toolstore/...` 修复生产 asm-kernel 装载路径。
 
-### P4 persistent + kernel-host 迁移（进行中，2026-08-22 启动）
+### P4 persistent + kernel-host 迁移（✅ 已完成，2026-08-22；legacy 清理待办）
 
 - **shared 已实现并发布（1.7.1）**：`ExecutionSessionManager`（sessionId→backend token、
   lease/TTL、execute 续租、快照登记、released/expired 状态机）+ `ExecutionHttpServer`
@@ -335,8 +335,10 @@ chatgpt-share），可信可出网、无密钥注入、root 单用户，调用�
 - **engine 已迁移（2026-08-22）**：`SandboxKernel` 全量走 /sessions（私有头
   lang/grant/exec/space；REPL `value` 与 snapshot `state` 经 wire 保真；abort 后本地
   会话作废不 release，池 TTL 兜底）；kernel-manager 集成测试真实 python/bash 通过。
-- **待续**：退役 /kernel/* 私有 lease 路由（acquire/execute/reset/snapshot/release/
-  cancel）并清理其测试；重建沙箱镜像做容器内 vertical 验收。
+- **容器内 vertical 已通过（2026-08-22）**：engine 容器内 SandboxKernel → sandbox
+  `/sessions` → python value/reset/snapshot + bash 输出全链实测。
+- **legacy 清理待办**：`/kernel/acquire|execute|reset|snapshot|release|cancel` 已标
+  DEPRECATED（新代码禁止使用），后续清理批连同旧测试一并删除。
 - assembly / wolfram / computational-chemistry 按需路由到 tool containers / 本地执行面。
 - engine 的 interactive 消费：待出现真实“worker 驱动 TTY”场景再设计 agent 驱动语义。
 - engine 品牌/服务名迁移（独立立项，不在协议面范围内）。
@@ -432,7 +434,7 @@ capabilities: { version: "execution/v1" | "execution/v1.1", modes: {
 | sync | POST /exec → 同步结果 | ✅ 实现 |
 | stream | POST /exec → GET /exec/:id/stream（SSE） | ✅ 实现 |
 | interactive | POST /exec → WS /exec/:id/ws（stdin/stdout/stderr/resize/pty） | ✅ 实现 |
-| persistent | session create/execute/snapshot/reset/release + lease/TTL | ✅ shared 服务端/客户端已实现（1.7.x）+ sandbox /sessions 宿主 + engine SandboxKernel 已迁移；/kernel 私有路由退役中 |
+| persistent | session create/execute/snapshot/reset/release + lease/TTL | ✅ 已实现并容器内实测（shared 1.7.x + sandbox /sessions 宿主 + engine SandboxKernel 迁移；legacy /kernel lease 路由 deprecated 待清理） |
 
 - 未声明模式 → `MODE_NOT_SUPPORTED`；旧 `stream:true` 字段映射到 `mode:"stream"`。
 - persistent wire 已定稿：`POST /sessions`（create）· `GET /sessions/:id` ·
@@ -463,7 +465,7 @@ status|logs|run|verify|debug|build|pull|release`、三域统一镜像 + 容器�
 `tool-server.mjs`（argv 白名单 + sync/stream/interactive；secrets pty 经 node-pty +
 resize）+ compiled gateway 边车。三域真实住户由 T3 装入并实测。⏳ 待续：GHCR buildx
 release 实测（需 push 凭据）、`pth services` jupyter 部署物（P5）。
-→ `P2 本地执行器 v1.1` → `P4 persistent 实现 + kernel-host 迁移` → `P5 jupyter 消费`。
+→ `P2 本地执行器 v1.1` → `✅ P4 persistent 实现 + kernel-host 迁移（2026-08-22；legacy 清理待办）` → `P5 jupyter 消费`。
 
 ### 5.9 风险与护栏
 
