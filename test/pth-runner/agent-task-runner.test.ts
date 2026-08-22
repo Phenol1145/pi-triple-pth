@@ -8,9 +8,10 @@ import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import { runAgentTask } from "@away_from/pth-kernel-execution";
 
-vi.mock("@away_from/pth-kernel-execution", () => ({
-  runAgentTask: vi.fn(),
-}));
+vi.mock("@away_from/pth-kernel-execution", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@away_from/pth-kernel-execution")>();
+  return { ...actual, runAgentTask: vi.fn() };
+});
 
 const scope: TenantScope = { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-1" };
 const lease: TaskLease = {

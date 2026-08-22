@@ -41,7 +41,7 @@ import {
   createIntakeExtractProcessor,
 } from "../../src/pth/runner/index.js";
 import { createPgKnowledgeVerificationRepo } from "../../src/pth/execution/index.js";
-import { createSideEffectDrainer, PgSideEffectOutbox } from "../../src/pth/tasking/index.js";
+import { createSideEffectDrainer, PgSideEffectOutbox } from "@away_from/pth-kernel-storage";
 import { defaultWebRequest } from "../../src/pth/impls/kernels/web-transport.js";
 import type { ResolvedAddress } from "../../src/pth/impls/kernels/web-transport.js";
 import type { LlmFn, LlmMessage, LlmResult } from "@away_from/pth-kernel-interpreter";

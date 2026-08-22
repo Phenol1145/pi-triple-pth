@@ -240,7 +240,7 @@ describe("obs.callpoint SQL（2026-08-12 sensor 上报的基础设施缺陷修�
   it("content 是 text 列——::jsonb 转换后字段可读（修复前 jsonb 操作符报错）", async () => {
     const sql = await (await import("@away_from/pth-kernel-interpreter")).default;
     // 直接验证 SQL 字符串形态（content::jsonb 转换存在——避免对 DB 的依赖）
-    const src = (await (await import("node:fs/promises")).readFile("src/pth/kernel/extensions/obs.ts", "utf8"));
+    const src = (await (await import("node:fs/promises")).readFile("packages/pth-kernel-interpreter/src/extensions/obs.ts", "utf8"));
     expect(src).toContain("content::jsonb->>'steps'");
     expect(src).toContain("content::jsonb->'tokens'");
   });
@@ -261,7 +261,7 @@ describe("token 缓存命中率链路（2026-08-12 用户问询补齐）", () =>
   });
 
   it("obs.callpoint 查询含 cache_hit_pct（观测面）", async () => {
-    const src = (await (await import("node:fs/promises")).readFile("src/pth/kernel/extensions/obs.ts", "utf8"));
+    const src = (await (await import("node:fs/promises")).readFile("packages/pth-kernel-interpreter/src/extensions/obs.ts", "utf8"));
     expect(src).toContain("cache_hit_pct");
   });
 });

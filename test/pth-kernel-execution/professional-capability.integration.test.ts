@@ -23,9 +23,10 @@ import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 import { roleDefinitionRevision } from "@away_from/pth-kernel-execution";
 import { runAgentTask } from "@away_from/pth-kernel-execution";
 
-vi.mock("@away_from/pth-kernel-execution", () => ({
-  runAgentTask: vi.fn(),
-}));
+vi.mock("@away_from/pth-kernel-execution", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@away_from/pth-kernel-execution")>();
+  return { ...actual, runAgentTask: vi.fn() };
+});
 
 const scope: TenantScope = {
   tenantId: "tenant-a",

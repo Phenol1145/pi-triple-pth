@@ -6,6 +6,7 @@ import { createPthGatewayFacade } from "../../src/pth/application/gateway/pth-ga
 import type { KernelRuntime } from "../../src/pth/kernel/assembly.js";
 
 const SRC = path.resolve(import.meta.dirname, "../../src/pth");
+const REPO_ROOT = path.resolve(import.meta.dirname, "../../");
 
 async function walk(dir: string): Promise<string[]> {
   const out: string[] = [];
@@ -19,7 +20,7 @@ async function walk(dir: string): Promise<string[]> {
 
 describe("P0-4：DataWorldAccess 收缩为 assembly-only legacy", () => {
   it("storage/index.ts 将 DataWorldAccess/createDataWorld 标注为 deprecated legacy", async () => {
-    const source = await readFile(path.join(SRC, "kernel/storage/index.ts"), "utf8");
+    const source = await readFile(path.join(REPO_ROOT, "packages/pth-kernel-storage/src/index.ts"), "utf8");
     expect(source).toContain("@deprecated");
     expect(source).toContain("assembly-only");
   });

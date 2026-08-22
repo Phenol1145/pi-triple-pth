@@ -47,7 +47,7 @@ import {
   PgSideEffectOutbox,
   type SideEffectClaimOptions,
   type SideEffectOutboxPort,
-} from "../../src/pth/tasking/index.js";
+} from "@away_from/pth-kernel-storage";
 import type { ResolvedAddress, WebResponse } from "../../src/pth/impls/kernels/web-transport.js";
 import type { LlmFn, LlmMessage, LlmResult } from "@away_from/pth-kernel-interpreter";
 import type { KnowledgeIngestor, TrustPolicyManifest } from "@away_from/pth-contracts";

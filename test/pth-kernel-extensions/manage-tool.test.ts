@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { buildExtensions } from "@away_from/pth-kernel-interpreter";
 import { resetConfig } from "@away_from/pth-kernel-interpreter";
+import { toolFaceBudgetCheck } from "@away_from/pth-kernel-execution";
 import type { ToolRegSpec } from "@away_from/pth-memory";
 
 /**
@@ -55,6 +56,7 @@ function makeCtx() {
     strategiesDir: "/tmp/pth-manage-tool-test-strategies",
     sessionRef: { current: null },
     onActivity: (e: { kind: string; detail?: string }) => activities.push(e),
+    toolFaceBudgetCheck,
   } as never;
   return {
     rows,

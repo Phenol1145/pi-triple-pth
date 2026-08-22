@@ -3,7 +3,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import { getContainerRuntimeClient } from "testcontainers";
 import { Pool } from "pg";
 import { buildKnowledgeProvenance, DEFAULT_TENANT_ID, PgMemoryStore, provenanceFromMeta, runReadOnlyQuery, withMemoryTenant } from "@away_from/pth-memory";
-import { applySchema } from "../../../src/pth/kernel/storage/schema.js";
+import { applySchema } from "@away_from/pth-kernel-storage";
 import {
   createPgKnowledgeVerificationRepo,
   promoteKnowledgeEntry,

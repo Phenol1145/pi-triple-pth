@@ -1,6 +1,6 @@
 # 模块化后续 + N28/N29 复验收口实施计划（2026-08-22）
 
-> 状态：**实施中；Phase A 已完成，Phase B 已完成（N28 重新验收 GO，envelope 已落盘），Phase C 已完成（N29 重新验收 MIN_INNER_LOOP_GO，envelope 已落盘），Phase D 进行中（D1-D3 完成，D4/D5 未完成），Phase E 未开始**
+> 状态：**实施中；Phase A 已完成，Phase B 已完成（N28 重新验收 GO，envelope 已落盘），Phase C 已完成（N29 重新验收 MIN_INNER_LOOP_GO，envelope 已落盘），Phase D 已完成（D1-D5 全部落地，待全量测试确认），Phase E 未开始**
 > 范围：modularity/reuse 计划遗留的后续清理 + N28 Role/Memory/Worker 复验修复 + N29 最小可信知识摄入内环复验修复
 > 依据：
 > - `docs/pth/modularity-reuse-implementation-plan.md`
@@ -24,7 +24,7 @@
 | Phase A | 低风险遗留清理（ptl / web / 重复脚本 / adapter 例外） | 已完成 |
 | Phase B | N28 复验修复（P0/P1 + 重新验收） | 已完成 |
 | Phase C | N29 复验修复（P0/P1 + 重新验收） | 已完成（21befb4 GO） |
-| Phase D | 工程纪律与结构收口（import-cycle / barrel / 大文件 / kernel 子包） | 进行中（D1-D3 完成，D4/D5 未完成） |
+| Phase D | 工程纪律与结构收口（import-cycle / barrel / 大文件 / kernel 子包） | 已完成（待全量测试确认） |
 | Phase E | 全量验收、文档、发布 | 未开始 |
 
 依赖关系：
@@ -345,12 +345,19 @@ Phase E（全量门禁 + 发布）
 
 ### D4. 大文件拆分
 
+> ✅ 已完成（2026-08-23）：
+> - `discipline-catalog-data.ts` 拆为 A-F / G-M / N-Z 三个数据分片 + barrel（生成器同步支持多文件输出与 `--check`）。
+> - `knowledge-intake-pg.ts` 拆出 `knowledge-intake/support.ts`（类型/错误/迁移矩阵/SQL 帮助函数）。
+> - `batch-process.ts` 拆出 `batch-process-types.ts` 与 `batch-process-helpers.ts`。
+> - `memory-store-pg.ts` 拆出 `memory-store-support.ts`。
+> 所有拆分保持对外 API 不变，相关聚焦测试通过；`npm run lint` 全绿。
+
 | 文件 | 当前 LOC | 建议方向 |
 |---|---:|---|
-| `src/pth/catalog/data/discipline-catalog-data.ts` | 2964 | 按学科/门类拆数据模块，保留 barrel |
-| `src/pth/kernel/storage/knowledge-intake-pg.ts` | 1495 | N29 修复后按 repository 聚合拆小文件 |
-| `src/pth/bootstrap/batch-process.ts` | 1254 | 按 worker 装配 / 服务编排 / 路由拆 |
-| `packages/pth-memory/src/memory-store-pg.ts` | 1055 | 按 store 职责拆 repository/query/promotion |
+| `src/pth/catalog/data/discipline-catalog-data.ts` | 20（barrel） | 按学科/门类拆数据模块，保留 barrel（分片 A-F/G-M/N-Z） |
+| `packages/pth-kernel-storage/src/knowledge-intake-pg.ts` | 1027 | N29 修复后按 repository 聚合拆小文件（support 已拆出） |
+| `src/pth/bootstrap/batch-process.ts` | 1170 | 按 worker 装配 / 服务编排 / 路由拆（types/helpers 已拆出） |
+| `packages/pth-memory/src/memory-store-pg.ts` | 836 | 按 store 职责拆 repository/query/promotion（support 已拆出） |
 
 1. 每个拆分保持对外 API 不变，先补/移测试。
 2. 拆分后文件 ≤ 600 LOC 作为目标，但不强制；以可读性和测试覆盖为准。

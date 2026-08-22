@@ -5,8 +5,14 @@
  */
 export * from "./interpreter/index.js";
 export * from "./extensions/index.js";
+export { memoryExtension } from "./extensions/memory.js";
+export { contextExtension } from "./extensions/context.js";
+export { modelExtension, modelState, type ModelState } from "./extensions/model.js";
+export { perfExtension } from "./extensions/perf.js";
+export { obsExtension } from "./extensions/obs.js";
+export { manageExtension } from "./extensions/manage.js";
+export * from "./extensions/ext-manifest.js";
 export * from "./extensions/perf-params.js";
-export * from "./extensions/model.js";
 export {
   ExtRegistry,
   buildStdExtChannels,

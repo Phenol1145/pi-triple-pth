@@ -112,7 +112,7 @@ export const API_INVESTIGATION_SKILL = `# API 调查技能（执行核预定义�
 1. 对象构成：Object.keys(obj) —— 列方法/属性（如 fs 有哪些方法）
 2. 签名：fn.toString() —— 看函数源码（参数名/实现——推断签名）
 3. 形状：typeof x · JSON.stringify(x) —— 检查返回值结构
-4. 实现源码：fs.readSource("src/pth/kernel/interpreter/capability.ts") —— 看能力如何注入/定义
+4. 实现源码：fs.readSource("packages/pth-kernel-interpreter/src/interpreter/capability.ts") —— 看能力如何注入/定义
 5. 试错：最小调用 + try-catch —— 从错误信息推断正确参数（错误信息是免费的调试器）
 6. 文档：能力索引（capability-index）/ 扩展 doc / 自修改指南（memory）
 
@@ -248,11 +248,12 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
 /** 目录职责映射（静态——新目录需补充——保持与 repo 同步） */
 export const PROJECT_DIR_DUTY: Record<string, string> = {
   "src/pth/gateway": "HTTP 网关——任务/kernel/jobs 路由（REST API）",
-  "src/pth/kernel/execution": "执行层——agent-loop（LLM 循环）/task-loop/batch/角色路由/收敛/PerfAutopilot",
-  "src/pth/kernel/interpreter": "解释器——ts 核（PTC vm）/llm-fn/toolstore/exec-channel",
-  "src/pth/kernel/extensions": "扩展能力——context/fs/obs/llm/perf——注入 ts 程序全局能力",
-  "src/pth/kernel/storage": "持久化基座单包（2026-08-14 A2）——PG 数据世界（任务/转录/审计）+ session/ 会话平面（Redis）",
-  "src/pth/kernel": "内核根——assembly/prompt-docs（Prompt 框架）/self-modify",
+  "packages/pth-kernel-execution/src/execution": "执行层——agent-loop（LLM 循环）/task-loop/batch/角色路由/收敛/PerfAutopilot",
+  "packages/pth-kernel-interpreter/src/interpreter": "解释器——ts 核（PTC vm）/llm-fn/toolstore/exec-channel",
+  "packages/pth-kernel-interpreter/src/extensions": "扩展能力——context/fs/obs/llm/perf——注入 ts 程序全局能力",
+  "packages/pth-kernel-storage/src": "持久化基座单包（2026-08-14 A2）——PG 数据世界（任务/转录/审计）+ session/ 会话平面（Redis）",
+  "packages/pth-kernel-execution/src": "内核执行子包——execution/logger/prompt-docs/exec-channel",
+  "src/pth/kernel": "内核根——assembly（组合根）/index 兼容门面",
   "src/pth/observability": "可观测——kernel-metrics（prom）/resource-provider",
   "packages/pth-memory": "记忆域包（2026-08-15 拆分）——memory 存储/用途层策略/空间可见性/索引/治理执行/skill 格式/只读 SQL",
   "packages/pth-sandbox": "沙箱域包（2026-08-15 拆分）——内核契约/持久内核运行时/编译核/gdb/沙箱客户端与宿主",
@@ -266,19 +267,19 @@ export const PROJECT_DIR_DUTY: Record<string, string> = {
 
 /** 关键文件职责（worker 常读——一次知道在哪读什么） */
 export const PROJECT_FILE_DUTY: Record<string, string> = {
-  "src/pth/kernel/execution/agent-loop.ts": "LLM agent 主循环（工具调用/收敛/世界观——worker 核心行为）",
-  "src/pth/kernel/execution/agent-tools.ts": "agent 工具表（ts/python_execute/bash_execute/done）",
+  "packages/pth-kernel-execution/src/execution/agent-loop.ts": "LLM agent 主循环（工具调用/收敛/世界观——worker 核心行为）",
+  "packages/pth-kernel-execution/src/execution/agent-tools.ts": "agent 工具表（ts/python_execute/bash_execute/done）",
   "src/pth/bootstrap/task-loop.ts": "任务执行循环（NL 检测→agent/转译→轨迹收集）",
   "src/pth/bootstrap/batch-process.ts": "batch worker 进程（角色簇/内核/任务工作区注入）",
-  "src/pth/kernel/execution/role-router.ts": "角色路由（任务→角色）",
-  "src/pth/kernel/interpreter/ts-interpreter.ts": "ts 核（PTC vm——currentCwd 定位任务工作区）",
-  "src/pth/kernel/interpreter/capability.ts": "能力构建（fs/memory/llm 注入）——fs.task 工作区",
-  "src/pth/kernel/interpreter/llm-fn.ts": "LLM 函数（OpenAI 直连——tool_calls/reasoning_content）",
+  "packages/pth-kernel-execution/src/execution/role-router.ts": "角色路由（任务→角色）",
+  "packages/pth-kernel-interpreter/src/interpreter/ts-interpreter.ts": "ts 核（PTC vm——currentCwd 定位任务工作区）",
+  "packages/pth-kernel-interpreter/src/interpreter/capability.ts": "能力构建（fs/memory/llm 注入）——fs.task 工作区",
+  "packages/pth-kernel-interpreter/src/interpreter/llm-fn.ts": "LLM 函数（OpenAI 直连——tool_calls/reasoning_content）",
   "packages/pth-sandbox/src/sandbox-kernel.ts": "沙箱 kernel 客户端（HTTP acquire/execute）",
-  "src/pth/kernel/extensions/context.ts": "context 扩展（工作台 KV——跨步骤状态）",
-  "src/pth/kernel/prompt-docs.ts": "Prompt 框架（角色文档/能力索引/世界观/全貌注入 memory）",
+  "packages/pth-kernel-interpreter/src/extensions/context.ts": "context 扩展（工作台 KV——跨步骤状态）",
+  "packages/pth-kernel-execution/src/prompt-docs.ts": "Prompt 框架（角色文档/能力索引/世界观/全貌注入 memory）",
   "packages/pth-memory/src/memory-store-pg.ts": "memory 存储（PG——query/write/静态文档保护）",
-  "src/pth/kernel/storage/task-store-pg.ts": "任务存储（PG——提交/claim/产物）",
+  "packages/pth-kernel-storage/src/task-store-pg.ts": "任务存储（PG——提交/claim/产物）",
   "src/pth/gateway/server.ts": "HTTP 服务入口（路由挂载）",
   "src/pth/gateway/routes-kernel.ts": "kernel 路由（tasks/jobs/transcript）",
   "packages/pth-sandbox/src/kernel-host.ts": "沙箱宿主服务（kernel 池 acquire/execute/reset）",
