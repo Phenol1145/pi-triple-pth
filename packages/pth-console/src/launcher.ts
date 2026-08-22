@@ -276,8 +276,21 @@ export function createPthLauncher(options: PthLauncherOptions) {
     if (!TENANT_RE.test(tenant)) {
       throw new PthLauncherError("TENANT_INVALID", "--tenant must match [A-Za-z0-9][A-Za-z0-9_-]{0,63}");
     }
-    const payload = JSON.stringify({ tenantId: tenant, role: "platform-admin" });
-    const script = `redis-cli -a "$REDIS_PASSWORD" -x SET auth:token:${token}`;
+    // P6-10（token 轮换卫生）：operator token 带 source 标记；种新 token 时回收同租户的
+    // 旧标记 token，避免多次 `pth up` 在 Redis 里累积多把仍有效的 platform-admin 凭据。
+    // 回收失败不阻断种入（SET 成功即视为种入成功）。
+    const payload = JSON.stringify({ tenantId: tenant, role: "platform-admin", source: "pth-operator" });
+    const script = [
+      `redis-cli -a "$REDIS_PASSWORD" -x SET auth:token:${token} || exit 1`,
+      `for key in $(redis-cli -a "$REDIS_PASSWORD" --scan --pattern 'auth:token:*' 2>/dev/null); do`,
+      `  case "$key" in auth:token:${token}) continue ;; esac`,
+      `  value=$(redis-cli -a "$REDIS_PASSWORD" GET "$key" 2>/dev/null) || continue`,
+      `  case "$value" in *'"source":"pth-operator"'*) ;; *) continue ;; esac`,
+      `  case "$value" in *'"tenantId":"${tenant}"'*) ;; *) continue ;; esac`,
+      `  redis-cli -a "$REDIS_PASSWORD" DEL "$key" >/dev/null 2>&1 || true`,
+      `done`,
+      `exit 0`,
+    ].join("\n");
     const result = await compose(["exec", "-T", "redis", "sh", "-c", script], { input: payload });
     if (result.code !== 0) {
       throw new PthLauncherError("TOKEN_SEED_FAILED", "failed to write operator token to redis", (result.stderr || result.stdout).slice(-2000));

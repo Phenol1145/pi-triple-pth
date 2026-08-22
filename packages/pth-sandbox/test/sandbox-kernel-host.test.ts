@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { KernelPool, createSandboxGrantIssuer, createSandboxGrantVerifier } from "@away_from/pth-sandbox";
+import { KernelPool, createSandboxGrantIssuer, createSandboxGrantVerifier, sandboxGrantToHeader } from "@away_from/pth-sandbox";
 import { buildKernelHostApp } from "@away_from/pth-sandbox";
 import type { FastifyInstance } from "fastify";
 import type { SandboxLease } from "@away_from/pth-sandbox";
@@ -23,6 +23,10 @@ function makeGrant() {
     language: "python",
     capabilities: ["memory.read"],
   });
+}
+
+function makeGrantHeader() {
+  return sandboxGrantToHeader(makeGrant());
 }
 
 function auth(secret = SECRET) {
@@ -169,12 +173,15 @@ describe("KernelPool（sandbox 侧共享池，lease 协议）", () => {
   });
 });
 
-describe("kernel host 协议（buildKernelHostApp，lease）", () => {
+describe("kernel host 路由面（P4 清理批后：租约路由已删除）", () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
     process.env.SANDBOX_SHARED_SECRET = SECRET;
-    app = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
+    app = buildKernelHostApp({
+      grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }),
+      registerSessions: true,
+    });
     await app.ready();
   });
 
@@ -183,91 +190,23 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
     delete process.env.SANDBOX_SHARED_SECRET;
   });
 
-  it("认证：无 grant/篡改签名拒绝，合法 grant 通过（共享密钥不再参与 acquire）", async () => {
-    const noGrant = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python" } });
-    expect(noGrant.statusCode).toBe(401);
-    const tampered = { ...makeGrant(), capabilities: ["memory.write"] };
-    const badSig = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: tampered } });
-    expect(badSig.statusCode).toBe(401);
-    expect(badSig.json().error).toContain("signature");
-    const ok = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() } });
-    expect(ok.statusCode).toBe(200);
+  it("旧 /kernel/acquire|execute|reset|snapshot|release|cancel 一律 404（唯一入口 /sessions）", async () => {
+    for (const p of ["acquire", "execute", "reset", "snapshot", "release", "cancel"]) {
+      const r = await app.inject({ method: "POST", url: `/kernel/${p}`, payload: {}, headers: auth() });
+      expect(r.statusCode).toBe(404);
+    }
   });
 
-
-  it("grant 动态绑定：execute 任务不匹配拒绝（403）", async () => {
-    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
-    const { lease } = acq.json() as { lease: SandboxLease };
-    const bad = await app.inject({
-      method: "POST", url: "/kernel/execute",
-      payload: { lease, code: "1+1", taskId: "other-task", tenantId: "tenant-a" }, headers: auth(),
-    });
-    expect(bad.statusCode).toBe(403);
-    expect(bad.json().error).toContain("task binding mismatch");
-    const ok = await app.inject({
-      method: "POST", url: "/kernel/execute",
-      payload: { lease, code: "_result = 6 * 7", taskId: "task-host", tenantId: "tenant-a" }, headers: auth(),
-    });
-    expect(ok.statusCode).toBe(200);
-    expect(ok.json().value).toBe(42);
-  });
-
-  it("acquire/execute/reset/release 全链路（python，lease）", async () => {
-    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
-    expect(acq.statusCode).toBe(200);
-    const { lease } = acq.json() as { lease: SandboxLease };
-    expect(lease.id).toBeTruthy();
-
-    const ex = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "total = 5050\n_result = total" }, headers: auth() });
-    expect(ex.statusCode).toBe(200);
-    expect(ex.json().ok).toBe(true);
-    expect(ex.json().value).toBe(5050);
-
-    // kernelId 已退役
-    const legacy = await app.inject({ method: "POST", url: "/kernel/execute", payload: { kernelId: "py-1", code: "1" }, headers: auth() });
-    expect(legacy.statusCode).toBe(400);
-    expect(legacy.json().error).toContain("kernelId retired");
-
-    // 敏感约束：execute 带 env 字段 → 400
-    const envReq = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "1", env: { API_KEY: "x" } }, headers: auth() });
-    expect(envReq.statusCode).toBe(400);
-
-    const reset = await app.inject({ method: "POST", url: "/kernel/reset", payload: { lease }, headers: auth() });
-    expect(reset.statusCode).toBe(200);
-    const rel = await app.inject({ method: "POST", url: "/kernel/release", payload: { lease }, headers: auth() });
-    expect(rel.statusCode).toBe(200);
-    // release 后旧 lease 执行被拒
-    const after = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "1" }, headers: auth() });
-    expect(after.statusCode).toBe(400);
-    expect(after.json().error).toContain("stale lease");
-  });
-
-  it("snapshot 端点返回三字段结构", async () => {
-    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
-    const { lease } = acq.json() as { lease: SandboxLease };
-    await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "marker = 1" }, headers: auth() });
-    const snap = await app.inject({ method: "POST", url: "/kernel/snapshot", payload: { lease }, headers: auth() });
-    expect(snap.statusCode).toBe(200);
-    const body = snap.json();
-    expect(body).toHaveProperty("variables");
-    expect(body).toHaveProperty("functions");
-    expect(body).toHaveProperty("oversized");
-    await app.inject({ method: "POST", url: "/kernel/release", payload: { lease }, headers: auth() });
-  });
-
-  it("status 端点报告池状态（不含 kernel ID）", async () => {
+  it("保留面：/kernel/status（池状态，不含 kernel ID）+ /kernel/memory-bridge + /kernel/compiled", async () => {
     const st = await app.inject({ method: "GET", url: "/kernel/status", headers: auth() });
     expect(st.statusCode).toBe(200);
     const body = st.json() as { pools: Array<Record<string, unknown>>; degraded: boolean; reasons: string[] };
-    const pools = body.pools;
-    expect(pools).toBeInstanceOf(Array);
-    // S1-5：健康时 degraded=false + reasons=[]
+    expect(body.pools).toBeInstanceOf(Array);
     expect(body.degraded).toBe(false);
     expect(body.reasons).toEqual([]);
-    for (const p of pools) {
+    for (const p of body.pools) {
       expect(p).not.toHaveProperty("kernelIds");
       expect(p).not.toHaveProperty("ids");
-      // S1-1：池容量/回收/TTL 观测进 /kernel/status
       expect(p.metrics).toMatchObject({
         acquireSuccess: expect.any(Number),
         acquireQueueRejected: expect.any(Number),
@@ -277,50 +216,77 @@ describe("kernel host 协议（buildKernelHostApp，lease）", () => {
         releaseIdempotent: expect.any(Number),
       });
     }
+    // memory-bridge 与 compiled 路由仍注册（缺上游/参数时按各自语义报错，而非 404）
+    const bridge = await app.inject({ method: "POST", url: "/kernel/memory-bridge", payload: {}, headers: auth() });
+    expect(bridge.statusCode).toBe(400);
+    const compiled = await app.inject({ method: "POST", url: "/kernel/compiled", payload: {}, headers: auth() });
+    expect(compiled.statusCode).toBe(400);
   });
 
-  it("S1-4：kernelHostHandle.dispose 释放全部池条目（幂等，后续 acquire 用新条目）", async () => {
-    const local = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
+  it("/sessions 全链路替代旧租约协议（create 盖章 → execute → release）", async () => {
+    const grantHeader = {
+      "x-sandbox-kernel-lang": "python",
+      "x-sandbox-grant": makeGrantHeader(),
+    };
+    const create = await app.inject({ method: "POST", url: "/sessions", payload: {}, headers: { ...auth(), ...grantHeader } });
+    expect(create.statusCode).toBe(200);
+    const sessionId = (create.json() as { sessionId?: string }).sessionId;
+    expect(sessionId).toBeTruthy();
+
+    const ex = await app.inject({
+      method: "POST", url: `/sessions/${sessionId}/execute`,
+      payload: { cmd: "print('sessions-ok')" }, headers: auth(),
+    });
+    expect(ex.statusCode).toBe(200);
+    expect(ex.json().stdout).toContain("sessions-ok");
+
+    const rel = await app.inject({ method: "POST", url: `/sessions/${sessionId}/release`, payload: {}, headers: auth() });
+    expect(rel.statusCode).toBe(200);
+  });
+
+  it("S1-4：kernelHostHandle.dispose 释放全部池条目（幂等）", async () => {
+    const local = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }), registerSessions: true });
     await local.ready();
     const handle = (local as unknown as { kernelHostHandle: { dispose(): Promise<void>; status(): { pools: Array<{ size: number }>; debugSessions: number } } }).kernelHostHandle;
-    const acq = await local.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
-    expect(acq.statusCode).toBe(200);
-    const { lease } = acq.json() as { lease: SandboxLease };
+    const create = await local.inject({
+      method: "POST", url: "/sessions", payload: {},
+      headers: { ...auth(), "x-sandbox-kernel-lang": "python", "x-sandbox-grant": makeGrantHeader() },
+    });
+    expect(create.statusCode).toBe(200);
     expect(handle.status().pools.some((p) => p.size > 0)).toBe(true);
     await handle.dispose();
     await handle.dispose();   // 幂等
     expect(handle.status().pools.every((p) => p.size === 0)).toBe(true);
-    const stale = await local.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "1 + 1" }, headers: auth() });
-    expect(stale.statusCode).toBe(400);
     await local.close();
-  });
-
-  it("非法 lang → 400", async () => {
-    const r = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "ruby", grant: makeGrant() }, headers: auth() });
-    expect(r.statusCode).toBe(400);
   });
 });
 
 describe("sandbox main 组合形态（exec + kernel 同端口共存）", () => {
-  it("同一 app 挂 /exec 与 /kernel/* 路由", async () => {
+  it("同一 app 挂 /exec 与 /sessions//kernel/* 保留路由", async () => {
     process.env.SANDBOX_SHARED_SECRET = SECRET;
     const { buildExecApp } = await import("@away_from/pth-sandbox");
     const { registerKernelHost } = await import("@away_from/pth-sandbox");
     const wsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sandbox-combo-"));
     const app = buildExecApp({ workspacesRoot: wsRoot });
-    registerKernelHost(app, { grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }) });
+    registerKernelHost(app, { grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }), registerSessions: true });
     await app.ready();
 
     const exec = await app.inject({ method: "POST", url: "/exec", payload: { cmd: "echo combo-ok" }, headers: auth() });
     expect(exec.statusCode).toBe(200);
     expect(exec.json().stdout).toContain("combo-ok");
 
-    const acq = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
-    expect(acq.statusCode).toBe(200);
-    const { lease } = acq.json() as { lease: SandboxLease };
-    const ex = await app.inject({ method: "POST", url: "/kernel/execute", payload: { lease, code: "combo = 'kernel-ok'\n_result = combo" }, headers: auth() });
+    const create = await app.inject({
+      method: "POST", url: "/sessions", payload: {},
+      headers: { ...auth(), "x-sandbox-kernel-lang": "python", "x-sandbox-grant": makeGrantHeader() },
+    });
+    expect(create.statusCode).toBe(200);
+    const sessionId = (create.json() as { sessionId?: string }).sessionId;
+    const ex = await app.inject({
+      method: "POST", url: `/sessions/${sessionId}/execute`,
+      payload: { cmd: "print('kernel-ok')" }, headers: auth(),
+    });
     expect(ex.statusCode).toBe(200);
-    expect(ex.json().value).toBe("kernel-ok");
+    expect(ex.json().stdout).toContain("kernel-ok");
     await app.close();
     delete process.env.SANDBOX_SHARED_SECRET;
   });
@@ -397,38 +363,6 @@ describe("sandbox 侧 degraded 观测（S1-5）", () => {
     } finally {
       await app.close();
       delete process.env.SANDBOX_SHARED_SECRET;
-    }
-  });
-
-  it("池满 acquire 拒绝 → pool-exhausted reason，成功后再清除", async () => {
-    const prev = process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS;
-    process.env.SANDBOX_SHARED_SECRET = SECRET;
-    process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS = "100";
-    const app = buildKernelHostApp({
-      poolSize: 1,
-      getSecret: () => SECRET,
-      getBridgeToken: () => undefined,
-      grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }),
-    });
-    await app.ready();
-    const handle = (app as unknown as { kernelHostHandle: Handle }).kernelHostHandle;
-    try {
-      const first = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
-      expect(first.statusCode).toBe(200);
-      const second = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
-      expect(second.statusCode).toBe(503);
-      expect(handle.status().health.reasons).toContain("pool-exhausted-python");
-
-      const { lease } = first.json() as { lease: SandboxLease };
-      await app.inject({ method: "POST", url: "/kernel/release", payload: { lease }, headers: auth() });
-      const third = await app.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() }, headers: auth() });
-      expect(third.statusCode).toBe(200);
-      expect(handle.status().health.degraded).toBe(false);
-    } finally {
-      await app.close();
-      delete process.env.SANDBOX_SHARED_SECRET;
-      if (prev === undefined) delete process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS;
-      else process.env.PTH_KERNEL_ACQUIRE_TIMEOUT_MS = prev;
     }
   });
 

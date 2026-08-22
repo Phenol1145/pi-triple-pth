@@ -113,7 +113,12 @@ describe("pth up", () => {
     const seed = calls.find((call) => call.args.slice(5).join(" ").startsWith("exec -T redis sh -c"));
     expect(seed).toBeTruthy();
     expect(seed!.args.at(-1)).toContain(`auth:token:${"a".repeat(64)}`);
-    expect(seed!.opts?.input).toBe('{"tenantId":"ops","role":"platform-admin"}');
+    expect(seed!.opts?.input).toBe('{"tenantId":"ops","role":"platform-admin","source":"pth-operator"}');
+    // P6-10：种入脚本自带旧 token 回收（跳过新 key；按 source+tenant 双匹配）
+    expect(seed!.args.at(-1)).toContain("--scan --pattern 'auth:token:*'");
+    expect(seed!.args.at(-1)).toContain(`auth:token:${"a".repeat(64)}) continue`);
+    expect(seed!.args.at(-1)).toContain('"source":"pth-operator"');
+    expect(seed!.args.at(-1)).toContain('"tenantId":"ops"');
     expect(fetch.calls).toContain("http://127.0.0.1:3000/health");
     expect(fetch.calls).toContain("http://127.0.0.1:3000/api/v1/self/version");
   });

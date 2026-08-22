@@ -315,6 +315,10 @@ async function toolsPull(manifest: ToolManifestFile): Promise<void> {
 
 async function toolsRelease(manifest: ToolManifestFile, args: string[]): Promise<void> {
   const { flags } = flagsMap(args);
+  if (flags.has("--help") || flags.has("-h")) {
+    console.log("用法: pth tools release [--dry-run]   # GHCR 多架构 push + digest 钉版（需 docker login ghcr.io）");
+    return;
+  }
   const dryRun = flags.has("--dry-run");
   let next = manifest;
   for (const domain of Object.keys(manifest.domains) as ToolContainerDomain[]) {
@@ -324,7 +328,8 @@ async function toolsRelease(manifest: ToolManifestFile, args: string[]): Promise
       console.log(`${domain}: buildx --push ${tag}（dry-run）→ 之后 inspect digest 钉版`);
       continue;
     }
-    const push = await realDockerRun(["buildx", "build", "--platform", "linux/amd64,linux/arm64", "-t", tag, "--push", TOOLS_DIR]);
+    // GHCR release：与 compose 本地构建同源（Dockerfile.tool + TOOL_DOMAIN build-arg）
+    const push = await realDockerRun(["buildx", "build", "--platform", "linux/amd64,linux/arm64", "-f", join(TOOLS_DIR, "Dockerfile.tool"), "--build-arg", `TOOL_DOMAIN=${domain}`, "-t", tag, "--push", TOOLS_DIR]);
     if (push.code !== 0) {
       console.error(push.stderr || push.stdout || `release ${domain} push failed`);
       process.exit(1);

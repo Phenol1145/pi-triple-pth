@@ -66,15 +66,24 @@ function composeTry(args: string[]): string | null {
 }
 
 /** 在 sandbox 容器内用 loopback + 共享密钥调 HTTP 端点；返回 { status, body }。 */
-function sandboxHttp(method: "GET" | "POST", urlPath: string, payload?: unknown): { status: number; body: string } {
+function sandboxHttp(method: "GET" | "POST", urlPath: string, payload?: unknown, extraHeaders?: Record<string, string>): { status: number; body: string } {
+  const headers = ["-H", `"Authorization: Bearer ${MATRIX_SECRET}"`, ...(extraHeaders ? Object.entries(extraHeaders).flatMap(([k, v]) => ["-H", `"${k}: ${v}"`]) : [])].join(" ");
   const curl = payload === undefined
-    ? `curl -s -w '\\n%{http_code}' -X ${method} -H "Authorization: Bearer ${MATRIX_SECRET}" http://localhost:8080${urlPath}`
-    : `curl -s -w '\\n%{http_code}' -X ${method} -H "Authorization: Bearer ${MATRIX_SECRET}" -H 'content-type: application/json' --data '${JSON.stringify(payload).replace(/'/g, `'\\''`)}' http://localhost:8080${urlPath}`;
+    ? `curl -s -w '\\n%{http_code}' -X ${method} ${headers} http://localhost:8080${urlPath}`
+    : `curl -s -w '\\n%{http_code}' -X ${method} ${headers} -H 'content-type: application/json' --data '${JSON.stringify(payload).replace(/'/g, `'\\''`)}' http://localhost:8080${urlPath}`;
   const out = compose(["exec", "-T", "sandbox", "sh", "-c", curl]).trimEnd();
   const cut = out.lastIndexOf("\n");
   const body = cut >= 0 ? out.slice(0, cut) : "";
   const status = Number(out.slice(cut + 1).trim() || 0);
   return { status, body };
+}
+
+/** P4：x-sandbox-grant 私有头 = base64url(JSON grant) */
+function grantHeader(grant: unknown): Record<string, string> {
+  return {
+    "x-sandbox-kernel-lang": "python",
+    "x-sandbox-grant": Buffer.from(JSON.stringify(grant), "utf8").toString("base64url"),
+  };
 }
 
 describe.skipIf(!RUN)("sandbox hostile integration matrix（S2-3 定稿）", () => {
@@ -121,14 +130,15 @@ describe.skipIf(!RUN)("sandbox hostile integration matrix（S2-3 定稿）", () 
     expect(res.body).not.toContain("DATABASE_URL");
   });
 
-  it("矩阵 4a：可预测 kernelId 协议已退役（必须 lease）", () => {
-    const res = sandboxHttp("POST", "/kernel/execute", { kernelId: "py-1", code: "1 + 1" });
-    expect(res.status).toBe(400);
-    expect(res.body).toContain("kernelId retired");
+  it("矩阵 4a：旧 /kernel/* 租约路由已删除（404），唯一入口 /sessions", () => {
+    const legacyExecute = sandboxHttp("POST", "/kernel/execute", { kernelId: "py-1", code: "1 + 1" });
+    expect(legacyExecute.status).toBe(404);
+    const legacyAcquire = sandboxHttp("POST", "/kernel/acquire", { lang: "python" });
+    expect(legacyAcquire.status).toBe(404);
   });
 
-  it("矩阵 4b：malformed/错密钥/过期 grant 全部拒绝", () => {
-    const malformed = sandboxHttp("POST", "/kernel/acquire", { lang: "python", grant: { grantId: "x" } });
+  it("矩阵 4b：/sessions 创建——malformed/错密钥/过期 grant 全部拒绝", () => {
+    const malformed = sandboxHttp("POST", "/sessions", {}, grantHeader({ grantId: "x" }));
     expect(malformed.status).toBe(401);
     expect(malformed.body).toContain("grant");
 
@@ -140,7 +150,7 @@ describe.skipIf(!RUN)("sandbox hostile integration matrix（S2-3 定稿）", () 
       capabilities: ["memory.read"],
       ttlMs: 60_000,
     });
-    const wrong = sandboxHttp("POST", "/kernel/acquire", { lang: "python", grant: wrongKey });
+    const wrong = sandboxHttp("POST", "/sessions", {}, grantHeader(wrongKey));
     expect(wrong.status).toBe(401);
     expect(wrong.body).toContain("signature invalid");
 
@@ -156,27 +166,27 @@ describe.skipIf(!RUN)("sandbox hostile integration matrix（S2-3 定稿）", () 
       capabilities: ["memory.read"],
       ttlMs: 1_000,
     });
-    const expiredRes = sandboxHttp("POST", "/kernel/acquire", { lang: "python", grant: expired });
+    const expiredRes = sandboxHttp("POST", "/sessions", {}, grantHeader(expired));
     expect(expiredRes.status).toBe(401);
     expect(expiredRes.body).toContain("expired");
   });
 
-  it("矩阵 4d：合法签名 grant → 不可预测 UUID lease；release 后 stale lease 被拒", () => {
-    const a = sandboxHttp("POST", "/kernel/acquire", { lang: "python", grant: makeGrant() });
-    const b = sandboxHttp("POST", "/kernel/acquire", { lang: "python", grant: makeGrant() });
+  it("矩阵 4d：合法签名 grant → 不可预测 UUID 会话；release 后 execute 被拒（SESSION_EXPIRED）", () => {
+    const a = sandboxHttp("POST", "/sessions", {}, grantHeader(makeGrant()));
+    const b = sandboxHttp("POST", "/sessions", {}, grantHeader(makeGrant()));
     expect(a.status).toBe(200);
     expect(b.status).toBe(200);
-    const leaseA = JSON.parse(a.body).lease as { id: string; generation: number };
-    const leaseB = JSON.parse(b.body).lease as { id: string; generation: number };
-    expect(leaseA.id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(leaseB.id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(leaseA.id).not.toBe(leaseB.id);
+    const sessionA = JSON.parse(a.body) as { sessionId: string };
+    const sessionB = JSON.parse(b.body) as { sessionId: string };
+    expect(sessionA.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(sessionB.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(sessionA.sessionId).not.toBe(sessionB.sessionId);
 
-    const rel = sandboxHttp("POST", "/kernel/release", { lease: leaseA });
+    const rel = sandboxHttp("POST", `/sessions/${sessionA.sessionId}/release`, {});
     expect(rel.status).toBe(200);
-    const stale = sandboxHttp("POST", "/kernel/execute", { lease: leaseA, code: "1 + 1" });
+    const stale = sandboxHttp("POST", `/sessions/${sessionA.sessionId}/execute`, { cmd: "1 + 1" });
     expect(stale.status).toBe(400);
-    expect(stale.body).toContain("stale lease");
+    expect(stale.body).toContain("SESSION_EXPIRED");
   });
 
   it("矩阵 4c：记忆桥 token 缺失 → fail-closed 503（body 自报 space 无效）", () => {

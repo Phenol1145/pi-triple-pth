@@ -4,13 +4,14 @@
  * 职责：托管 PyKernel/BashKernel 共享池，通过 HTTP 协议向 PTH 侧提供持久 REPL。
  *
  * 接口：
- *   POST /kernel/acquire  { lang: "python"|"bash" } → { kernelId }
- *   POST /kernel/execute  { kernelId, code, timeoutMs? } → InterpreterResult
- *   POST /kernel/reset    { kernelId } → { ok: true }（ns 清命名空间）
- *   POST /kernel/snapshot { kernelId } → InterpreterSnapshot（refine 价值抽取）
- *   POST /kernel/release  { kernelId } → { ok: true }
- *   GET  /kernel/status             → { pools: [{ lang, inFlight, idle, size, capacity }] }
- *   GET  /health                    → { status: "ok" }（无认证——内网可达，compose healthcheck）
+ *   execution/v1.1 persistent /sessions（kernel-session-host——kernel 执行唯一入口）
+ *   POST /kernel/memory-bridge → 记忆桥转发（workload loopback 免密 / PTH 共享密钥）
+ *   POST /kernel/compiled      → C 编译-运行管道
+ *   GET  /kernel/status        → { pools, compiled, debug, degraded, reasons }
+ *   GET  /health               → { status: "ok" }（无认证——内网可达，compose healthcheck）
+ *
+ * 历史：旧 /kernel/acquire|execute|reset|snapshot|release|cancel 私有租约路由
+ *   已于 2026-08-22 清理批删除——调用方一律走 /sessions（grant 盖章语义不变）。
  *
  * 安全边界（敏感信息 SPEC §4.5）：
  *   - 共享密钥认证（SANDBOX_SHARED_SECRET，与 exec API 同源）——fail-closed
@@ -21,7 +22,6 @@
 import Fastify from "fastify";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { KernelPool, type KernelLang } from "./kernel-pool.js";
-import type { SandboxLease } from "./kernel-lease.js";
 import type { SandboxGrantVerifier } from "./authorization/grant-verifier.js";
 import { CCompiledKernel } from "./compiled-kernel.js";
 import { CDebugSession } from "./gdb-mi.js";
@@ -46,7 +46,7 @@ export interface KernelHostOptions {
   getSecret?: () => string | undefined;
   /** PTH 记忆桥 Bearer token 获取器（默认读 env PTH_MEMORY_BRIDGE_TOKEN——controller-only，测试可注入） */
   getBridgeToken?: () => string | undefined;
-  /** P2-2：/kernel/acquire 的执行 grant 校验器（缺省未装配 → acquire 503 fail-closed） */
+  /** P2-2/P4：/sessions 会话创建的执行 grant 校验器（缺省未装配 → fail-closed） */
   grantVerifier?: SandboxGrantVerifier;
   /** P4：在同一对语言池上注册 execution/v1.1 persistent /sessions（缺省关闭） */
   registerSessions?: boolean;
@@ -63,8 +63,6 @@ export interface KernelHostHandle {
   };
 }
 
-const VALID_LANGS: KernelLang[] = ["python", "bash"];
-
 /** 插件式注册：把 kernel 宿主路由挂到已有 Fastify app（sandbox main 与 exec API 同端口） */
 export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions = {}): KernelHostHandle {
   const getSecret = opts.getSecret ?? (() => process.env.SANDBOX_SHARED_SECRET);
@@ -80,12 +78,8 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     python: new KernelPool({ lang: "python", max: poolSize, acquireTimeoutMs, entryTtlMsMs: entryTtlMs, onStderr: opts.onStderr }),
     bash: new KernelPool({ lang: "bash", max: poolSize, acquireTimeoutMs, entryTtlMsMs: entryTtlMs, onStderr: opts.onStderr }),
   };
-  /** leaseId → pool 索引（P0-4：外部只持有 lease，不再暴露/接受 kernelId） */
-  const leasePools = new Map<string, KernelPool>();
-  /** leaseId → 任务绑定（sandbox grant 动态绑定——acquire 时盖章，execute 按任务校验） */
-  const leaseBindings = new Map<string, { taskId: string; tenantId: string }>();
 
-  // P4：persistent /sessions 与 /kernel/* 共享同一对语言池（不复制容量）。
+  // P4：persistent /sessions 是 kernel 执行的唯一 HTTP 入口（旧 /kernel/* 租约路由已删除）。
   const sessionHost: KernelSessionHostHandle | undefined = opts.registerSessions
     ? registerKernelSessionHost(app, { pools, getSecret, grantVerifier: opts.grantVerifier })
     : undefined;
@@ -96,20 +90,6 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       app.log.warn({ event: "sandbox_health_state_changed", degraded: status.degraded, reasons: status.reasons }, "sandbox health state changed");
     },
   });
-
-  function parseLease(body: unknown): SandboxLease | null {
-    if (!body || typeof body !== "object") return null;
-    const lease = (body as { lease?: unknown }).lease;
-    if (!lease || typeof lease !== "object") return null;
-    const { id, generation } = lease as { id?: unknown; generation?: unknown };
-    if (typeof id !== "string" || id.length === 0) return null;
-    if (typeof generation !== "number" || !Number.isInteger(generation) || generation <= 0) return null;
-    return { id, generation, expiresAt: "" };
-  }
-
-  function poolForLease(leaseId: string): KernelPool | undefined {
-    return leasePools.get(leaseId);
-  }
 
   type AuthResult = "ok" | "unauthorized" | "misconfigured";
   function checkAuth(req: FastifyRequest): AuthResult {
@@ -148,82 +128,9 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
     });
   }
 
-  // ⚠️ P4 DEPRECATED（2026-08-22）：engine 已迁移 /sessions（kernel-session-host）；
-  // 以下 /kernel lease 路由仅保留向后兼容，新代码禁止使用，清理批删除。
-  app.post("/kernel/acquire", async (req, reply) => {
-    // P2-2：acquire 只接受签名 grant——SANDBOX_SHARED_SECRET 不再是 kernel 执行认证。
-    if (!opts.grantVerifier) {
-      reply.code(503).send({ error: "server misconfigured: execution grant verifier not configured" });
-      return;
-    }
-    const body = (req.body ?? {}) as { lang?: string; grant?: unknown };
-    if (!body.lang || !VALID_LANGS.includes(body.lang as KernelLang)) {
-      reply.code(400).send({ error: `invalid lang: ${body.lang ?? "(missing)"}` });
-      return;
-    }
-    const verified = opts.grantVerifier.verify(body.grant);
-    if (!verified.ok) {
-      reply.code(401).send({ error: verified.error });
-      return;
-    }
-    try {
-      const lease = await pools[body.lang as KernelLang].acquire();
-      health.set(`pool-exhausted-${body.lang}`, false);
-      leasePools.set(lease.id, pools[body.lang as KernelLang]);
-      leaseBindings.set(lease.id, {
-        taskId: verified.grant.lease.taskId,
-        tenantId: verified.grant.scope.tenantId,
-      });
-      return { lease };
-    } catch (err) {
-      if (err instanceof Error && err.message.includes("pool exhausted")) {
-        health.set(`pool-exhausted-${body.lang}`, true);
-      }
-      reply.code(503).send({ error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
-  app.post("/kernel/execute", async (req, reply) => {
-    const body = (req.body ?? {}) as { kernelId?: string; lease?: { id: string; generation: number }; code?: string; timeoutMs?: number; env?: unknown; exec?: "single" | "program" | "auto"; space?: string; taskId?: string; tenantId?: string };
-    const lease = parseLease(body);
-    if (!lease || typeof body.code !== "string") {
-      reply.code(400).send({ error: body.kernelId ? "kernelId retired: lease required" : "lease and code required" });
-      return;
-    }
-    const pool = poolForLease(lease.id);
-    if (!pool) {
-      reply.code(400).send({ error: "stale lease: unknown lease id" });
-      return;
-    }
-    if (body.env !== undefined) {
-      // 敏感信息约束：execute 拒绝 env 注入（sandbox 零业务密钥）
-      reply.code(400).send({ error: "env injection rejected" });
-      return;
-    }
-    if (body.space !== undefined && !/^[a-z0-9-]{1,32}$/.test(body.space)) {
-      // 空间盖章合法性（2026-08-12 批 3）：只允许空间 id 形状——防注入
-      reply.code(400).send({ error: `invalid space: ${body.space}` });
-      return;
-    }
-    // sandbox grant 动态绑定：租约只可用于 acquire 时盖章的任务；新客户端必传 taskId/tenantId
-    const binding = leaseBindings.get(lease.id);
-    if (binding) {
-      if (body.taskId !== undefined && body.taskId !== binding.taskId) {
-        reply.code(403).send({ error: `lease task binding mismatch (expected ${binding.taskId})` });
-        return;
-      }
-      if (body.tenantId !== undefined && body.tenantId !== binding.tenantId) {
-        reply.code(403).send({ error: `lease tenant binding mismatch (expected ${binding.tenantId})` });
-        return;
-      }
-    }
-    try {
-      const result = await pool.execute(lease, body.code, { ...(body.timeoutMs ? { timeoutMs: body.timeoutMs } : {}), ...(body.exec ? { exec: body.exec } : {}), ...(body.space ? { space: body.space } : {}) });
-      return result;
-    } catch (err) {
-      reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
-    }
-  });
+  // ⚠️ P4 清理批（2026-08-22）：旧 /kernel/acquire|execute|reset|snapshot|release|cancel
+  // 私有租约路由已删除——kernel 执行唯一入口是 execution/v1.1 persistent /sessions
+  // （kernel-session-host，同语言池、同 grant 盖章语义）。
 
   // ── ASP-5 记忆桥（2026-08-11）：sandbox 内 python 空间访问记忆——转发 PTH 桥端点
   //  （sandbox 无 PG 凭据/无出网——经 internal 网络回 PTH：pi-platform:3000）
@@ -281,69 +188,6 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       reply.code(res.status).type("application/json").send(text || "{}");
     } catch (err) {
       reply.code(502).send({ error: `memory bridge upstream failed: ${err instanceof Error ? err.message : String(err)}` });
-    }
-  });
-
-  app.post("/kernel/reset", async (req, reply) => {
-    const lease = parseLease(req.body);
-    const pool = lease ? poolForLease(lease.id) : undefined;
-    if (!lease || !pool) {
-      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
-      return;
-    }
-    try {
-      await pool.reset(lease);
-      return { ok: true };
-    } catch (err) {
-      reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
-  app.post("/kernel/snapshot", async (req, reply) => {
-    const lease = parseLease(req.body);
-    const pool = lease ? poolForLease(lease.id) : undefined;
-    if (!lease || !pool) {
-      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
-      return;
-    }
-    try {
-      return await pool.snapshot(lease);
-    } catch (err) {
-      reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
-  // P2-3：cancel → ack → release 闭环。ack = kernel abort 已落地且条目已 disposed；
-  // cancel 后 release 必被拒（条目不存在/非 active）——绝不乐观回 idle。
-  app.post("/kernel/cancel", async (req, reply) => {
-    const lease = parseLease(req.body);
-    const pool = lease ? poolForLease(lease.id) : undefined;
-    if (!lease || !pool) {
-      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
-      return;
-    }
-    try {
-      await pool.cancel(lease);
-      leaseBindings.delete(lease.id);
-      return { ok: true, state: "disposed" };
-    } catch (err) {
-      reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
-  app.post("/kernel/release", async (req, reply) => {
-    const lease = parseLease(req.body);
-    const pool = lease ? poolForLease(lease.id) : undefined;
-    if (!lease || !pool) {
-      reply.code(400).send({ error: lease ? "stale lease: unknown lease id" : "lease required" });
-      return;
-    }
-    try {
-      pool.release(lease);
-      leaseBindings.delete(lease.id);
-      return { ok: true };
-    } catch (err) {
-      reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -447,8 +291,6 @@ export function registerKernelHost(app: FastifyInstance, opts: KernelHostOptions
       await sessionHost?.manager.close();
       await Promise.all([pools.python.dispose(), pools.bash.dispose()]);
       await debug.dispose();
-      leasePools.clear();
-      leaseBindings.clear();
     },
     status() {
       return {

@@ -317,7 +317,9 @@ export async function orchestrateStatusAll(args: string[], deps: OrchestratorDep
   log("── engine 专业 runtime 注册态 ──");
   const logs = await runner("docker", [...coreComposeArgs(repoRoot, envFile), "logs", "--tail", "500", "pi-platform"], { env });
   const logText = `${logs.stdout}\n${logs.stderr}`;
-  const marker = /professional runtimes registered[^"\n]*/i.exec(logText);
+  // 取最后一条注册日志：engine 重启会追加新行，首条可能是旧的注册快照
+  const matches = [...logText.matchAll(/professional runtimes registered[^"\n]*/gi)];
+  const marker = matches.length > 0 ? matches[matches.length - 1] : undefined;
   log(marker ? `  ${marker[0].trim()}` : "  未观察到注册日志（engine 未启动或日志被轮转；docker compose logs pi-platform 查看）");
 
   const token = env.PTH_TOKEN;

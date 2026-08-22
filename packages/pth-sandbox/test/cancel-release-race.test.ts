@@ -38,32 +38,9 @@ describe("P2-3：cancel → ack → release 竞态闭环", () => {
     await pool.dispose();
   });
 
-  it("HTTP：/kernel/cancel ack 后 release 被拒，池条目已移除", async () => {
-    const app = Fastify();
-    const host = buildKernelHostApp({ grantVerifier: createSandboxGrantVerifier({ secret: GRANT_SECRET }), getSecret: () => "test-secret" });
-    await host.ready();
-    try {
-      const acq = await host.inject({ method: "POST", url: "/kernel/acquire", payload: { lang: "python", grant: makeGrant() } });
-      expect(acq.statusCode).toBe(200);
-      const lease = (acq.json() as { lease: SandboxLease }).lease;
-
-      const cancel = await host.inject({ method: "POST", url: "/kernel/cancel", payload: { lease } });
-      expect(cancel.statusCode).toBe(200);
-      expect(cancel.json()).toMatchObject({ ok: true, state: "disposed" });
-
-      const release = await host.inject({ method: "POST", url: "/kernel/release", payload: { lease } });
-      expect(release.statusCode).toBe(400);
-
-      const status = await host.inject({
-        method: "GET",
-        url: "/kernel/status",
-        headers: { authorization: "Bearer test-secret" },
-      });
-      expect(status.statusCode).toBe(200);
-    } finally {
-      await host.close();
-    }
-  });
+  // P4 清理批（2026-08-22）：旧 "HTTP：/kernel/cancel ack 后 release 被拒" 用例随
+  // /kernel/* 租约路由删除——等价语义由 kernel-session-host.test.ts 的
+  // "release 幂等…/SESSION_EXPIRED" 与下方 client abort 用例覆盖。
 
   it("client：abort 后本地 session 作废且不 release，下次 execute 重新创建会话", async () => {
     let createCalls = 0;

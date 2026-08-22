@@ -276,13 +276,16 @@ describe("SandboxKernel 自愈（2026-08-12 复测发现）", () => {
     });
     const calls: string[] = [];
     const origFetch = globalThis.fetch;
+    // P4 清理批（2026-08-22）：mock 对齐 execution/v1.1 /sessions 协议（旧 /kernel/* 租约路由已删除）
     globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {
       const u = String(url);
-      calls.push(u.split("/").pop() ?? "");
-      const body = JSON.parse(init?.body ?? "{}") as Record<string, unknown>;
-      if (u.endsWith("/kernel/acquire")) return new Response(JSON.stringify({ lease: { id: `4f5e3f44-ec85-4e83-9c99-2d17d343d0e${calls.length}`, generation: 1, expiresAt: "2099-01-01T00:00:00.000Z" } }), { status: 200 });
-      if (u.endsWith("/kernel/execute")) return new Response(JSON.stringify({ ok: true, value: 1, stdout: "1", durationMs: 1, language: "python" }), { status: 200 });
-      if (u.endsWith("/kernel/release")) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      void (init?.body ?? "{}");
+      if (u.endsWith("/sessions") && !u.includes("/sessions/")) {
+        calls.push("create");
+        return new Response(JSON.stringify({ sessionId: `4f5e3f44-ec85-4e83-9c99-2d17d343d0e${calls.length}` }), { status: 200 });
+      }
+      if (u.includes("/execute")) return new Response(JSON.stringify({ ok: true, value: 1, stdout: "1", durationMs: 1, language: "python" }), { status: 200 });
+      if (u.includes("/release")) return new Response(JSON.stringify({ ok: true }), { status: 200 });
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }) as typeof fetch;
     try {
@@ -290,9 +293,9 @@ describe("SandboxKernel 自愈（2026-08-12 复测发现）", () => {
       const r1 = await k.execute("1+1");
       expect(r1.ok).toBe(true);
       k.dispose();   // 模拟 dispose 事件（shutdown 竞态）
-      const r2 = await k.execute("1+1");   // 自愈：不抛 disposed——重新 acquire
+      const r2 = await k.execute("1+1");   // 自愈：不抛 disposed——重新创建会话
       expect(r2.ok).toBe(true);
-      expect(calls.filter((c) => c === "acquire").length).toBe(2);   // 第二次重新 acquire
+      expect(calls.filter((c) => c === "create").length).toBe(2);   // 第二次重新创建会话
     } finally {
       globalThis.fetch = origFetch;
     }
