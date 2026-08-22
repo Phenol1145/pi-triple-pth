@@ -5,8 +5,11 @@
  * 用法（pth <cmd> ...）：
  *   pth init [--force]                          # 初始化 deploy/.env.pth.secrets
  *   pth up [--rebuild] [--no-seed-token]        # compose 拉起 PTH 全栈并验证
+ *   pth up --profile core|tools|lean4|u8|jupyter|full [--with a,b] [--without a,b]  # P6 统一编排
  *   pth down [--volumes]                        # 停止 PTH 栈
  *   pth status [--port <n>]                     # 栈健康（带 taskId 仍查任务）
+ *   pth status --all                             # 栈 + tools + services + runtime 聚合
+ *   pth doctor [--profile X] [--json]            # 宿主机前置体检（P6-1）
  *   pth logs [service] [--tail n] [--follow]    # 查看容器日志
  *   pth submit <任务描述> [--role <角色>] [--tags a,b] [--title <标题>] [--file <路径>]
  *   pth submit --template <模板id> [--param key=value]... [--tags a,b]
@@ -284,6 +287,12 @@ async function main(): Promise<void> {
   switch (cmd) {
     case "submit": return submit();
     case "handoff": return handoff();
+    case "doctor": {
+      const { runDoctor } = await import("./runtime/runtime-doctor.js");
+      const report = await runDoctor(rest, { repoRoot: REPO_ROOT });
+      if (!report.ok) process.exitCode = 1;
+      return;
+    }
     case "status": {
       // 无位置 taskId → 栈状态；有 taskId → 任务状态（保持旧行为）
       if (hasPositional(rest, ["--env-file", "--port"])) return status();
@@ -394,7 +403,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log(`用法: pth <init|up|down|status|logs|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|config|web|tools|services|local-exec> ...\n  生命周期: pth init / up / status / logs / down\n  工具容器: pth tools list|up|down|status|logs|run|verify|debug|build|pull · pth services status|logs\n  本地执行器: pth local-exec [--port p]（profile=host · execution/v1.1）\n  任务派发: pth submit "任务描述" --role developer --tags implement\n            pth submit --template recon-doc --param url=https://x --param entryId=y\n            pth wait <taskId>\n  程序面:   pth program submit <dir> | run <name> | list\n  回退请求: pth request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: pth observe <sessions|session|trace|events>\n            pth debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            pth job submit|status|fetch · kernel tasks|batch|templates|status\n  其他:     pth roles · config · web [--port <n>]`);
+      console.log(`用法: pth <init|up|down|status|logs|doctor|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|config|web|tools|services|local-exec> ...\n  生命周期: pth init / doctor / up / status / logs / down\n  P6 编排: pth doctor [--profile X] [--json]\n            pth up --profile core|tools|lean4|u8|jupyter|full [--with a,b] [--without a,b]\n            pth status --all\n  工具容器: pth tools list|up|down|status|logs|run|verify|debug|build|pull · pth services status|logs\n  本地执行器: pth local-exec [--port p]（profile=host · execution/v1.1）\n  任务派发: pth submit "任务描述" --role developer --tags implement\n            pth submit --template recon-doc --param url=https://x --param entryId=y\n            pth wait <taskId>\n  程序面:   pth program submit <dir> | run <name> | list\n  回退请求: pth request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: pth observe <sessions|session|trace|events>\n            pth debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            pth job submit|status|fetch · kernel tasks|batch|templates|status\n  其他:     pth roles · config · web [--port <n>]`);
   }
 }
 

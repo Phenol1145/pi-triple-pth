@@ -1,0 +1,297 @@
+/**
+ * runtime/runtime-doctor.ts —— P6-1 `pth doctor` 宿主机前置体检。
+ *
+ * 三态：pass（通过）/ warn（警告，不阻断）/ fail（阻断，给出修复命令）。
+ * 所有外部命令经可注入 runner（默认 spawn），单测可完全离线。
+ */
+import { spawn } from "node:child_process";
+import { access, readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { constants } from "node:fs";
+import { createServer } from "node:net";
+
+export type DoctorStatus = "pass" | "warn" | "fail";
+
+export interface DoctorItem {
+  check: string;
+  status: DoctorStatus;
+  message: string;
+  fix?: string;
+}
+
+export interface DoctorReport {
+  ok: boolean;
+  profile: string;
+  items: DoctorItem[];
+}
+
+export interface DoctorRunResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+export type DoctorRunner = (
+  cmd: string,
+  argv: string[],
+  opts?: { readonly input?: string },
+) => Promise<DoctorRunResult>;
+
+export interface DoctorOptions {
+  repoRoot?: string;
+  env?: NodeJS.ProcessEnv;
+  runner?: DoctorRunner;
+  fetchLike?: typeof fetch;
+}
+
+const CORE_SECRET_KEYS = [
+  "SANDBOX_SHARED_SECRET",
+  "PTH_EXECUTION_GRANT_SECRET",
+  "PTH_MEMORY_BRIDGE_TOKEN",
+  "POSTGRES_PASSWORD",
+  "REDIS_PASSWORD",
+] as const;
+
+const OPTIONAL_SECRET_KEYS = ["LOCAL_EXEC_SHARED_SECRET", "JUPYTER_SERVICE_TOKEN"] as const;
+
+export const DOCTOR_PROFILES = ["core", "tools", "lean4", "u8", "jupyter", "full"] as const;
+export type DoctorProfile = (typeof DOCTOR_PROFILES)[number];
+
+function defaultRunner(): DoctorRunner {
+  return (cmd, argv, opts) =>
+    new Promise<DoctorRunResult>((resolvePromise) => {
+      const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      child.stdout?.setEncoding("utf8");
+      child.stderr?.setEncoding("utf8");
+      child.stdout?.on("data", (chunk: string) => { stdout += chunk; });
+      child.stderr?.on("data", (chunk: string) => { stderr += chunk; });
+      child.on("error", (e) => resolvePromise({ code: -1, stdout, stderr: String(e.message ?? e) }));
+      child.on("close", (code) => resolvePromise({ code: code ?? -1, stdout, stderr }));
+      if (opts?.input !== undefined) child.stdin?.end(opts.input);
+      else child.stdin?.end();
+    });
+}
+
+function argValue(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+}
+
+export function parseDoctorArgs(args: string[]): { profile: DoctorProfile; json: boolean } {
+  const profileRaw = argValue(args, "--profile") ?? "core";
+  if (!DOCTOR_PROFILES.includes(profileRaw as DoctorProfile)) {
+    throw new Error(`unknown profile: ${profileRaw}（可选 ${DOCTOR_PROFILES.join("|")}）`);
+  }
+  return { profile: profileRaw as DoctorProfile, json: args.includes("--json") };
+}
+
+function wants(profile: DoctorProfile, kind: "tools" | "lean4" | "u8" | "jupyter"): boolean {
+  return profile === kind || profile === "full";
+}
+
+export function parseSecretsEnvFile(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const withoutExport = line.startsWith("export ") ? line.slice(7).trim() : line;
+    const eq = withoutExport.indexOf("=");
+    if (eq <= 0) continue;
+    const key = withoutExport.slice(0, eq).trim();
+    const value = withoutExport.slice(eq + 1).trim();
+    if (key) out[key] = value;
+  }
+  return out;
+}
+
+async function portFree(port: number): Promise<boolean> {
+  return new Promise((resolvePromise) => {
+    const server = createServer();
+    server.once("error", () => resolvePromise(false));
+    server.once("listening", () => server.close(() => resolvePromise(true)));
+    server.listen(port, "127.0.0.1");
+  });
+}
+
+async function isExecutable(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function runDoctor(args: string[], options: DoctorOptions = {}): Promise<DoctorReport> {
+  const { profile, json } = parseDoctorArgs(args);
+  const repoRoot = resolve(options.repoRoot ?? process.cwd());
+  const env = options.env ?? process.env;
+  const runner = options.runner ?? defaultRunner();
+  const items: DoctorItem[] = [];
+
+  const add = (check: string, status: DoctorStatus, message: string, fix?: string) => {
+    items.push(fix === undefined ? { check, status, message } : { check, status, message, fix });
+  };
+
+  // 1) docker / compose
+  const docker = await runner("docker", ["version"]);
+  if (docker.code !== 0) {
+    add("docker", "fail", "docker 不可用", "安装/启动 Docker 后再试");
+  } else {
+    add("docker", "pass", "docker 可用");
+  }
+  const compose = await runner("docker", ["compose", "version"]);
+  if (compose.code !== 0) {
+    add("docker-compose", "fail", "docker compose 插件不可用", "安装 Docker Compose v2");
+  } else {
+    add("docker-compose", "pass", "docker compose 可用");
+  }
+
+  // 2) secrets
+  const secretsPath = join(repoRoot, "deploy", ".env.pth.secrets");
+  const secrets: Record<string, string> = {};
+  try {
+    Object.assign(secrets, parseSecretsEnvFile(await readFile(secretsPath, "utf8")));
+  } catch {
+    add("secrets", "fail", `secrets 文件缺失: ${secretsPath}`, "pth init（或 cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets 后替换全部示例值）");
+  }
+  if (Object.keys(secrets).length > 0 || !items.some((i) => i.check === "secrets")) {
+    const missing = CORE_SECRET_KEYS.filter((k) => !secrets[k]?.trim());
+    if (missing.length > 0) {
+      add("secrets", "fail", `核心密钥缺失: ${missing.join(", ")}`, `编辑 ${secretsPath} 补全后重试（或 pth init --force 重建模板）`);
+    } else {
+      const absentOptional = OPTIONAL_SECRET_KEYS.filter((k) => !secrets[k]?.trim());
+      if (absentOptional.length > 0) {
+        add("secrets", "warn", `可选后端密钥缺失: ${absentOptional.join(", ")}（不影响 core 栈启动）`, `编辑 ${secretsPath} 补全（起对应后端前必须 export）`);
+      } else {
+        add("secrets", "pass", "secrets 核心键完整");
+      }
+    }
+  }
+
+  // 3) PTH_WORKSPACES_HOST
+  const workspacesHost = env.PTH_WORKSPACES_HOST;
+  if (!workspacesHost) {
+    add("workspaces", "fail", "PTH_WORKSPACES_HOST 未设置（compose :? 必填）", "export PTH_WORKSPACES_HOST=/abs/path/to/workspaces");
+  } else {
+    try {
+      await access(workspacesHost, constants.W_OK);
+      add("workspaces", "pass", `workspaces 可写: ${workspacesHost}`);
+    } catch {
+      add("workspaces", "fail", `workspaces 不可写: ${workspacesHost}`, "mkdir -p <路径> 并确认宿主目录属主（容器 node uid=1000）");
+    }
+  }
+
+  // 4) 端口
+  const ports: Array<[string, number]> = [["port-3000", 3000]];
+  if (wants(profile, "jupyter")) ports.push(["port-8888", 8888]);
+  for (const [check, port] of ports) {
+    if (await portFree(port)) add(check, "pass", `端口 ${port} 空闲`);
+    else add(check, "warn", `端口 ${port} 被占用`, `lsof -i :${port} 查看占用进程`);
+  }
+
+  // 5) 镜像
+  const images: Array<[string, string, string]> = [["image-engine", "pi-triple-pth:latest", "docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml build"]];
+  if (wants(profile, "jupyter")) images.push(["image-jupyter", "pi-triple-jupyter:dev", "docker compose -p pi-triple-jupyter -f deploy/services/jupyter/docker-compose.yaml build"]);
+  for (const [check, image, fix] of images) {
+    const inspected = await runner("docker", ["image", "inspect", image]);
+    if (inspected.code !== 0) add(check, "warn", `镜像缺失: ${image}`, fix);
+    else add(check, "pass", `镜像存在: ${image}`);
+  }
+
+  // 6) lean4
+  if (wants(profile, "lean4")) {
+    const lean = await runner("lean", ["--version"]);
+    if (lean.code !== 0) {
+      add("lean4-toolchain", "warn", "lean 不在 PATH（lean4 profile 需要 elan）", "安装 elan 并 export PATH=\"$HOME/.elan/bin:$PATH\"");
+    } else {
+      add("lean4-toolchain", "pass", (lean.stdout.trim() || "lean available").split("\n")[0] ?? "lean available");
+    }
+  }
+
+  // 7) u8
+  if (wants(profile, "u8")) {
+    const u8Candidates = [
+      join(repoRoot, "deploy", "local-exec", "u8", "u8"),
+      join(repoRoot, "deploy", "local-exec", "u8", "U8final_C", "u8"),
+    ];
+    let built = false;
+    for (const candidate of u8Candidates) {
+      if (await isExecutable(candidate)) {
+        built = true;
+        add("u8-toolchain", "pass", `u8 已构建: ${candidate}`);
+        break;
+      }
+    }
+    if (!built) add("u8-toolchain", "warn", "u8 二进制未构建", `bash ${join("deploy", "local-exec", "u8", "build-u8.sh")}`);
+  }
+
+  // 8) tools manifest
+  if (wants(profile, "tools")) {
+    const manifestPath = join(repoRoot, "deploy", "tool-containers", "tool-manifest.json");
+    try {
+      const parsed = JSON.parse(await readFile(manifestPath, "utf8")) as { domains?: unknown };
+      if (parsed && typeof parsed === "object" && "domains" in parsed) add("tools-manifest", "pass", "tool-manifest.json 可解析");
+      else add("tools-manifest", "fail", "tool-manifest.json 缺 domains", "核对 deploy/tool-containers/tool-manifest.json");
+    } catch {
+      add("tools-manifest", "fail", `tool-manifest.json 不可解析: ${manifestPath}`, "核对 deploy/tool-containers/tool-manifest.json");
+    }
+  }
+
+  // 9) 数据层可达性（仅观察态；未启动不阻断）
+  const envFile = join(repoRoot, "deploy", ".env.pth.secrets");
+  const composeFile = join(repoRoot, "deploy", "docker-compose.yaml");
+  const ps = await runner("docker", ["compose", "--env-file", envFile, "-f", composeFile, "ps", "--format", "json"]);
+  const running = new Set<string>();
+  for (const line of ps.stdout.split("\n").map((s) => s.trim()).filter(Boolean)) {
+    try {
+      const entry = JSON.parse(line) as { Service?: string; Name?: string; State?: string };
+      const name = entry.Service ?? entry.Name ?? "";
+      if (name && (entry.State === "running" || entry.State === "Up")) running.add(name);
+    } catch {
+      // 忽略无法解析的行
+    }
+  }
+  if (running.size === 0) {
+    add("data-layer", "warn", "数据层未运行（doctor 只体检；拉起由 pth up 编排）", "pth up --profile core");
+  } else {
+    const probes: Array<[string, string[]]> = [];
+    if (running.has("postgres")) probes.push(["postgres", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "postgres", "pg_isready", "-U", "pth", "-d", "pth"]]);
+    if (running.has("redis")) probes.push(["redis", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "redis", "sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]]);
+    if (running.has("sandbox")) probes.push(["sandbox", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "sandbox", "sh", "-c", "curl -sf http://localhost:8080/health"]]);
+    if (probes.length === 0) {
+      add("data-layer", "warn", "数据层无 postgres/redis/sandbox 运行项", "pth up --profile core");
+    } else {
+      let allOk = true;
+      for (const [name, argv] of probes) {
+        const result = await runner("docker", argv);
+        if (result.code === 0) add(`data-${name}`, "pass", `${name} 探活通过`);
+        else {
+          allOk = false;
+          add(`data-${name}`, "warn", `${name} 探活失败`, "docker compose logs <service> 排查");
+        }
+      }
+      if (allOk) add("data-layer", "pass", "已运行的数据层服务探活通过");
+    }
+  }
+
+  const ok = items.every((i) => i.status !== "fail");
+  const report: DoctorReport = { ok, profile, items };
+
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    for (const item of items) {
+      const mark = item.status === "pass" ? "✅" : item.status === "warn" ? "⚠️ " : "❌";
+      console.log(`${mark} ${item.check.padEnd(18)} ${item.message}`);
+      if (item.fix) console.log(`   ↳ ${item.fix}`);
+    }
+    console.log("");
+    console.log(ok
+      ? `doctor ok（profile=${profile}${items.some((i) => i.status === "warn") ? "；有警告，按需修复" : ""}）`
+      : `doctor 有阻断项（profile=${profile}）——修复上述 ❌ 后重试`);
+  }
+  return report;
+}
