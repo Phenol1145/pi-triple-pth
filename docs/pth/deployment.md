@@ -23,6 +23,10 @@ docker-compose.yaml
 
 两个网络：`default`（平台内部）+ `sandbox-internal`（internal:true——sandbox 唯一出口是 pi-platform）。
 
+> ExecutionTarget Matrix：`deploy/executor-matrix.json` 声明标准 target（sandbox / engine-ts）；
+> local-lean / local-u8 / tool-* / jupyter 由 `PTH_EXEC_BACKENDS` + service/tool registry 动态派生，
+> notebook cell 经 `NotebookTargetRouter` 按 `%%<lang> [target]` 选择执行组件（未声明默认 sandbox）。
+
 ## 2. 安装步骤
 
 ### 2.1 前置
@@ -399,3 +403,11 @@ ptl stack exec <svc> -- <cmd>  # 容器内执行
 - 安全边界（sandbox 零敏感）：`docs/pth/kernel.md`（sandbox 域）· `docs/pth/sandbox-security-operations.md`
 - 安全运维（密钥轮换 / session-drain / 回滚）：`docs/pth/sandbox-security-operations.md`
 - 环境检查：`scripts/check-sandbox-env.sh`
+
+## 2026-08 落地摘要（TCE / 任务生命周期）
+
+- `PTH_ASP_MODE` 默认 `off`（平铺为主验证路径）。
+- 新增配置：`PTH_TASK_PAUSE_TIMEOUT_MS`、`PTH_TASK_PAUSE_SWEEP_MS`、`PTH_AGENT_CONTEXT_WINDOW`。
+- tool-manifest 19 工具已策展 `argsSchema`/`argvTemplate`。
+
+详细设计：[task-lifecycle-and-context-design](task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](llm-tool-notebook-unified-execution-backend-plan.md)

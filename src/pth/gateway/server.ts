@@ -22,6 +22,7 @@ import { registerIntakeRoutes } from "./routes-intake.js";
 import type { IntakeManualControlService } from "../execution/index.js";
 import { registerLineageRoutes } from "./routes-lineage.js";
 import { registerTriggerRoutes } from "./routes-trigger.js";
+import { registerHumanInteractionRoutes } from "./routes-human-interaction.js";
 import { registerJobRoutes } from "./routes-jobs.js";
 import type { FallbackRequestStore } from "../fallback/index.js";
 import type { SandboxHealthMonitor } from "../impls/kernels/index.js";
@@ -91,6 +92,7 @@ export async function createServer(deps: {
     registerKernelRoutes(app, facade, deps.autopilot, deps.knowledgeBroker);
     registerLineageRoutes(app, facade);
     registerTriggerRoutes(app, facade);
+    registerHumanInteractionRoutes(app, facade);
     registerJobRoutes(app, facade);
     registerRuntimeObservationRoutes(app, facade);
     registerSystemInspectionRoutes(app, systemInspection);
@@ -98,6 +100,7 @@ export async function createServer(deps: {
     registerKernelRoutes(app, null, deps.autopilot, deps.knowledgeBroker);
     registerLineageRoutes(app, null);
     registerTriggerRoutes(app, null);
+    registerHumanInteractionRoutes(app, null);
     registerRuntimeObservationRoutes(app, null);
     registerSystemInspectionRoutes(app, null);
   }

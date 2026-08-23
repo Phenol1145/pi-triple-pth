@@ -37,6 +37,7 @@ export const AGENT_TOOL_IDS = [
   "write.save",
   "write.section",
   "done",
+  "pause",
 ] as const;
 
 /**

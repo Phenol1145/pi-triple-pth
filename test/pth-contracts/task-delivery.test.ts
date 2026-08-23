@@ -13,16 +13,21 @@ import {
 } from "@away_from/pth-contracts";
 
 describe("contracts/tasking W8 P0：TaskDelivery 契约", () => {
-  it("buildEntryDelivery：入口任务 path=[role]，lineageId=自身 id，不设 parent", () => {
+  it("buildEntryDelivery：入口任务 path=[role]，lineageId=自身 id，不设 parent；goal 可选盖章", () => {
     expect(buildEntryDelivery("task-1", "developer")).toEqual({
       path: ["developer"],
       lineageId: "task-1",
+    });
+    expect(buildEntryDelivery("task-1", "developer", "根目标")).toEqual({
+      path: ["developer"],
+      lineageId: "task-1",
+      goal: "根目标",
     });
     expect(buildEntryDelivery("", "developer")).toBeNull();
     expect(buildEntryDelivery("task-1", "")).toBeNull();
   });
 
-  it("attachEntryDelivery：payload.delivery 单键包裹，既有 payload 字段保留、伪造 delivery 被覆盖", () => {
+  it("attachEntryDelivery：payload.delivery 单键包裹，既有 payload 字段保留、伪造 delivery 被覆盖；goal 可盖章", () => {
     const stamped = attachEntryDelivery(
       { flow: { stages: [] }, delivery: { path: ["forged"], lineageId: "forged" } },
       "task-2",
@@ -31,6 +36,9 @@ describe("contracts/tasking W8 P0：TaskDelivery 契约", () => {
     expect(stamped).toEqual({
       flow: { stages: [] },
       delivery: { path: ["coder"], lineageId: "task-2" },
+    });
+    expect(attachEntryDelivery({}, "task-2", "coder", "根目标")).toEqual({
+      delivery: { path: ["coder"], lineageId: "task-2", goal: "根目标" },
     });
     // 非对象 payload 归一化为对象
     expect(attachEntryDelivery(42, "task-3", "coder")).toEqual({
@@ -45,9 +53,11 @@ describe("contracts/tasking W8 P0：TaskDelivery 契约", () => {
       lineageId: "root-1",
       replyTo: "parent",
       artifactRef: { kind: "file", id: "archive://task-p-1/out.ts" },
+      goal: "根目标",
     };
     expect(isTaskDeliveryStructurallyValid(full)).toBe(true);
     expect(isTaskDeliveryStructurallyValid({ path: ["origin"], lineageId: "self" })).toBe(true);
+    expect(isTaskDeliveryStructurallyValid({ path: ["origin"], lineageId: "self", goal: "根目标" })).toBe(true);
 
     expect(isTaskDeliveryStructurallyValid(null)).toBe(false);
     expect(isTaskDeliveryStructurallyValid({ lineageId: "x" })).toBe(false); // 缺 path
@@ -55,6 +65,8 @@ describe("contracts/tasking W8 P0：TaskDelivery 契约", () => {
     expect(isTaskDeliveryStructurallyValid({ path: ["x"], lineageId: "" })).toBe(false);
     expect(isTaskDeliveryStructurallyValid({ path: ["x"], lineageId: "x", replyTo: "nowhere" })).toBe(false);
     expect(isTaskDeliveryStructurallyValid({ path: ["x"], lineageId: "x", artifactRef: { kind: "cache", id: "x" } })).toBe(false);
+    expect(isTaskDeliveryStructurallyValid({ path: ["x"], lineageId: "x", goal: "" })).toBe(false);
+    expect(isTaskDeliveryStructurallyValid({ path: ["x"], lineageId: "x", goal: 42 })).toBe(false);
     expect(isTaskDeliveryStructurallyValid({
       path: ["x"], lineageId: "x", parent: { taskId: "p", roleId: "dev", typePath: [] },
     })).toBe(false);

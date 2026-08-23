@@ -190,6 +190,30 @@ export function detectHotspots(scs: WorkerScorecard[]): HotspotHit[] {
     });
   }
 
+  // 9. spec-ambiguous（生命周期 P1）：pause 率高 → 规约模糊 → 模板/ goal 补全。
+  const pauseCount = scs.reduce((a, s) => a + (s.pauseCount ?? 0), 0);
+  if (pauseCount >= 2) {
+    hits.push({
+      pattern: "spec-ambiguous",
+      path: "rule",
+      target: "capability-index",
+      section: "## 任务规约",
+      metric: { pauseCount, tasks: scs.length },
+    });
+  }
+
+  // 10. compression-heavy（生命周期 P3）：循环内压缩频繁 → 上下文/任务设计问题。
+  const compressionCount = scs.reduce((a, s) => a + (s.compressionCount ?? 0), 0);
+  if (compressionCount >= 3) {
+    hits.push({
+      pattern: "compression-heavy",
+      path: "rule",
+      target: "capability-index",
+      section: "## 上下文策略",
+      metric: { compressionCount, tasks: scs.length },
+    });
+  }
+
   return hits;
 }
 
@@ -204,6 +228,8 @@ const PATTERN_DESC: Record<string, string> = {
   "plan-deep": "计划过深（时间复用率低）——planner 产出的计划串行链过长，无依赖子任务未并行化——时间复用率 = 1-关键路径/总任务数",
   "cache-waste": "数据缓存读入未用——cache.load 读入大量数据但未 get 取用（读入成本已付、信息未消费——0.11 数据流效率）",
   "guard-kill-spike": "护栏误杀尖峰——窗口内软/硬终止集中在某护栏，阈值偏紧导致误杀；建议放宽该软处置护栏阈值（hard 契约护栏不自动放宽）",
+  "spec-ambiguous": "pause 频繁——任务规约/目标歧义导致 worker 反复向发布者提问：模板或 goal 需要补全/收窄",
+  "compression-heavy": "循环内压缩频繁——单 run 上下文反复溢出：任务过长或上下文策略需调整（分段/拆任务）",
 };
 
 export function renderSuggestion(hit: HotspotHit, windowSize: number): string {
@@ -223,6 +249,8 @@ export function renderSuggestion(hit: HotspotHit, windowSize: number): string {
     : hit.pattern === "fragmented-read" ? "读类操作一次拉全（dev_read 全量/query 带聚合）并本地缓存复用；避免同源数据反复小读"
     : hit.pattern === "nav-heavy" ? "导航先规划：asp.index 一次看全空间树 → 单次 asp_cd 直达；避免往返（cd A→B→A）"
     : hit.pattern === "plan-deep" ? "计划扁平化：dependsOn 只标真实数据依赖——无依赖子任务不串排（同层并行——时间复用）；先画依赖 DAG 再排顺序"
+    : hit.pattern === "spec-ambiguous" ? "规约补全：在 task_templates.goal / 模板 text 中补全歧义点（目标/边界/验收标准）；或按 pause 问题沉淀到模板"
+    : hit.pattern === "compression-heavy" ? "上下文策略：任务过长考虑拆分子任务；或增大 PTH_AGENT_CONTEXT_WINDOW / 优化工具面减少噪声"
     : "任务拆分为更窄子任务（参考 refiner differentiation 提案），由更专门的角色承接";
   return `【优化建议 · ${hit.pattern}】（窗口 ${windowSize} 任务 · ${desc}）
 证据: ${metric}

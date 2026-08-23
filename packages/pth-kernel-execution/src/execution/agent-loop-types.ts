@@ -8,6 +8,10 @@ import type { AgentToolResult } from "./agent-tools.js";
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
+  /** 生命周期 P0：根目标（入口盖章/逐字传播；system prompt 注入【根目标】段——模态无关） */
+  goal?: string;
+  /** 生命周期 P1：发布者澄清（pauseAnswer 内容；重跑时 system prompt 注入【发布者澄清】段） */
+  publisherClarification?: string;
   /** 任务工作区（fs.task 落盘——ts 工具 cwd） */
   taskWorkspace?: string;
   /** 产物单元存储（生产核 dev.save/dev.list——batch-process 透传） */
@@ -45,6 +49,16 @@ export interface AgentLoopOptions {
     runChild?: import("@away_from/pth-kernel-interpreter").ToolRegRunChild;
     caller?: import("@away_from/pth-contracts").TaskDispatchContext;
   };
+  /** TCE P3：Command 层注入（语言工具先过 CommandGateway 授权；缺省 = legacy 直执行） */
+  commandGateway?: import("./execution-command.js").CommandGateway;
+  /** TCE P3：Command 安全上下文（任务身份盖章） */
+  commandContext?: import("./execution-command.js").CommandSecurityContext;
+  /** TCE P5：Tool 层生成器产物（per-tool 工具面；合并进当前空间工具面） */
+  extraTools?: ReadonlyArray<{
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
+  }>;
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
@@ -52,11 +66,23 @@ export type AgentTraceEvent =
   | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string; usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number } }
   | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
   | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string }
-  | { type: "guard"; step: number; guard: "repeat-action" | "empty-done" | "empty-reply" | "unknown-tool" | "negative-loop"; kind: "hit" | "guide" | "soft" | "hard"; count: number; limit: number }
+  | { type: "guard"; step: number; guard: "repeat-action" | "empty-done" | "empty-reply" | "unknown-tool" | "negative-loop" | "route-drift"; kind: "hit" | "guide" | "soft" | "hard"; count: number; limit: number }
   | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string }
+  | { type: "compression"; inputChars: number; outputChars: number }
   | { type: "cognitive-working-set"; phase: "start" | "finish"; taskId: string; directorySnapshotId: string; workerId: string; toolNames: string[]; memoryEntryIds: string[]; skillIndexIds: string[]; activeSkillIds: string[]; usage: { memoryEntries: number; memoryChars: number; skillIndexEntries: number; activeSkills: number; skillChars: number; tools: number }; omitted: Record<string, number>; retrievalTraceIds: string[] };
 
 export type AgentTaskResult =
-  | { ok: true; value: unknown; summary?: string; steps: number; warning?: string; compression?: import("./context-compaction.js").CompactionResult | null }
+  | {
+      ok: true;
+      value: unknown;
+      summary?: string;
+      steps: number;
+      warning?: string;
+      compression?: import("./context-compaction.js").CompactionResult | null;
+      /** pause 循环控制信号：agent 向发布者提问，任务进入 paused 状态等待回答。 */
+      pause?: { question: string; context?: Record<string, unknown> };
+      /** TCE P3：人类批准挂起信号（CommandGateway await-approval） */
+      humanApproval?: { requestId: string };
+    }
   | { ok: false; error: string; steps: number; compression?: import("./context-compaction.js").CompactionResult | null };
 

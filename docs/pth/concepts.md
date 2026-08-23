@@ -380,6 +380,8 @@ completion 模式 API 调用结构：system prompt / tool definitions / 消息�
 
 **好处**：前端抽象稳定（worker 不感知后端拓扑——加核/换后端无感）· 后端池化（资源效率）· 隔离是安全边界。
 
+**ExecutionTarget Matrix（2026-08-22）**：notebook cell 不再写死单一后端，而是经标准化 `ExecutionTargetDefinition`（`packages/pth-contracts/src/execution-target.ts`）描述 sandbox / engine-ts / local / tool / jupyter，由 `NotebookTargetRouter` 按 `%%<lang> [target]` 路由；未声明默认 sandbox。
+
 #### 0.11.5 实现映射
 
 | 理论元素 | 落点 |
@@ -1262,3 +1264,12 @@ v0.9（动作面/权限/任务池纯化）
 
 **二期（2026-08-18 已随 N14 P1/P3 + N15 A4 落——与 JIT 咬合）**：护栏命中率/误杀率进 scorecard（`obs.guards`——sensor:rule 数据源）→ optimizer 把护栏本身当优化对象（`guard-kill-spike` 热点 → `guard-config` 建议 → `/optimizer/apply` 审批热调 `PTH_GUARD_*` → 复测窗口 → 劣化 deopt 回滚；软处置/负结果族白名单，hard 契约护栏只人工调；controller:rule + skill:opt-rule 承接人工调节面）；治理族豁免裁决已关（2026-08-15 D2：阈值放宽替代豁免）。
 
+
+## 2026-08 落地摘要（TCE / 任务生命周期）
+
+- 任务生命周期：`TaskDelivery.goal`（根目标逐字传播）、`paused` 状态（worker 向发布者提问）、`tasks.answer` / HTTP answer。
+- TCE 三层：Tool → Command → Execute；`CommandGateway` 三态决策，`EXEC_TOOL_CAP` / capability-policy 统一门控。
+- Tool 层：manifest `argsSchema`/`argvTemplate` 策展 19 工具；`tool-layer-generator` 生成工具面。
+- 上下文：循环内压缩（`CONTINUATION_TEMPLATE`）与 scorecard 新增 pause/compression 信号。
+
+详细设计：[task-lifecycle-and-context-design](task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](llm-tool-notebook-unified-execution-backend-plan.md)

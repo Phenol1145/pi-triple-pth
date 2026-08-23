@@ -35,6 +35,7 @@ import { tagRegistry } from "./tag-registry.js";
 import { resolveTemplateTask } from "@away_from/pth-kernel-interpreter";
 import type { TaskStore } from "@away_from/pth-kernel-storage";
 import { DEFAULT_TENANT_ID, type PgMemoryStore } from "@away_from/pth-memory";
+import { validateFlow, type FlowSpec } from "./resolver-core.js";
 
 export interface TriggerAction {
   /** 原生动作类型（registerAction 注册键） */
@@ -66,6 +67,8 @@ export interface TriggerDef {
     role?: string;
     tags?: string[];
     retask?: boolean;
+    /** 完整 FlowSpec（TaskFlow ↔ Trigger 接合——TaskResolver 直接执行该 flow） */
+    flow?: FlowSpec;
   };
   /** 原生 action（调用注册 handler）——与 task 至少其一 */
   action?: TriggerAction;
@@ -155,6 +158,8 @@ export class TriggerEngine {
         const hasTemplateTask = typeof def.task?.template === "string" && def.task.template.trim() !== "";
         const hasRetask = def.task?.retask === true;
         if (!hasAction && !hasInlineTask && !hasTemplateTask && !hasRetask) continue;
+        // TaskFlow ↔ Trigger：携带完整 FlowSpec 时注册期即校验（非法 flow 不装载）。
+        if (def.task?.flow !== undefined && !validateFlow(def.task.flow).ok) continue;
         // 事件/定时至少其一（backlog 差距 12——schedule 定时源）
         if (!def.event && !def.schedule?.everySec) continue;
         const prev = this.triggers.find((t) => t.id === e.id);
@@ -340,6 +345,7 @@ export class TriggerEngine {
     let text: string;
     let tags: string[];
     let role: string | undefined;
+    let goal: string | undefined;
     let workMode: import("@away_from/pth-contracts").WorkMode | undefined;
     let payload: Record<string, unknown> = {};
 
@@ -363,6 +369,7 @@ export class TriggerEngine {
       text = r.text;
       tags = r.tags;
       role = r.role;
+      goal = r.goal;
       workMode = r.workMode;
       payload = r.payload;
     } else {
@@ -373,6 +380,10 @@ export class TriggerEngine {
       role = taskDef.role;
     }
 
+    // TaskFlow ↔ Trigger：完整 FlowSpec 优先；无 flow 时保留既有单 stage role 兼容。
+    const flowPayload = taskDef.flow
+      ? { flow: taskDef.flow }
+      : (role ? { flow: { stages: [{ task: { role } }] } } : {});
     const task = await this.deps.tasks.publish({
       title,
       text,
@@ -381,9 +392,11 @@ export class TriggerEngine {
       // 注册期已校验；publish 校验失败（如角色后续被移除）会进 catch 记日志，不炸引擎
       tags,
       ...(workMode ? { workMode } : {}),
+      ...(goal ? { goal } : {}),
       payload: {
-        ...(role ? { flow: { stages: [{ task: { role } }] } } : {}),
+        ...flowPayload,
         ...payload,
+        ...(taskDef.flow ? { flow: taskDef.flow } : {}),
         triggeredBy: { triggerId: t.id, fromTask: source?.taskId ?? null, depth: depth + 1, source: source?.kind ?? "schedule" },
       },
     });

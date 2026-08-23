@@ -26,6 +26,7 @@ import {
   type RuntimeTimelinePage,
   type RuntimeTimelineQuery,
 } from "../observation/runtime-observation-facade.js";
+import { PgHumanInteractionRepository, PgHumanInteractionService } from "../../interaction/index.js";
 
 export type PthGatewayFacadeInput = KernelRuntime;
 
@@ -51,9 +52,20 @@ export interface PthGatewayFacade {
   bridgeGet(id: string, tenantId: string): Promise<MemoryEntry | null>;
   execKernel(input: { code: string; mode: "stateless" | "repl"; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>>;
   /** P5b：jupyter 北向 notebook cell 执行（sessionId 持久；python/bash/ts） */
-  execNotebook(input: { language: "python" | "bash" | "ts"; code: string; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>>;
+  execNotebook(input: { language: "python" | "bash" | "ts"; code: string; sessionId?: string; timeoutMs?: number; target?: string | null }): Promise<Record<string, unknown>>;
   /** P5d：notebook session cancel（abort + dispose；不可恢复） */
   cancelNotebook(sessionId: string): Promise<boolean>;
+  /** N25：通用人工审核 HTTP API */
+  createHumanRequest(input: {
+    tenantId: string; taskId: string; kind: string; title: string; body: string;
+    assignedTo?: string[]; policySelector?: string; createdBy: string; expiresAt?: string; idempotencyKey?: string;
+  }): Promise<Record<string, unknown>>;
+  listHumanRequests(input: { tenantId: string; status?: string; limit?: number }): Promise<Record<string, unknown>>;
+  getHumanRequest(id: string, tenantId: string): Promise<Record<string, unknown> | null>;
+  respondHumanRequest(input: {
+    requestId: string; decision: "approved" | "rejected"; reason?: string; principalId: string; idempotencyKey?: string;
+  }, tenantId: string): Promise<Record<string, unknown>>;
+  cancelHumanRequest(id: string, tenantId: string, principalId: string): Promise<Record<string, unknown> | null>;
   listTranscripts(taskId: string): Promise<Array<Record<string, unknown>>>;
   publishTask(input: PublishInput, scope?: TenantScope): Promise<Task>;
   listTasks(limit: number, scope?: TenantScope): Promise<Array<Record<string, unknown>>>;
@@ -66,6 +78,8 @@ export interface PthGatewayFacade {
   ): Promise<RuntimeTimelinePage>;
   /** W8 P2：取消任务（recursive=true 沿 delivery.parent 链传播到全部未终态子任务） */
   cancelTask(id: string, opts: { recursive?: boolean }, scope?: TenantScope): Promise<TaskCancelResult>;
+  /** 生命周期 P1：人工回答 paused 任务（发布者是人类；回答后任务回 pending 重跑）。 */
+  answerTask(id: string, answer: string, scope?: TenantScope): Promise<{ ok: true }>;
   taskCounts(): Promise<TaskCounts>;
   /** N33 Task 5：优化建议列表可按 tenant 收窄（有 scope 时只列该 tenant 的可见建议）。 */
   optimizerSuggestions(scope?: TenantScope): Promise<unknown[]>;
@@ -105,6 +119,7 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   #control: TaskControlService;
   #verificationRepo: KnowledgeVerificationRepo;
   #observation: RuntimeObservationFacade;
+  #humanInteraction: PgHumanInteractionService;
 
   constructor(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo) {
     this.#kernel = kernel;
@@ -115,6 +130,9 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     });
     this.#verificationRepo = verificationRepo ?? createPgKnowledgeVerificationRepo(kernel.pool);
     this.#observation = new RuntimeObservationFacade(kernel.pool);
+    this.#humanInteraction = new PgHumanInteractionService(
+      new PgHumanInteractionRepository(kernel.pool),
+    );
   }
 
   bridgeQuery(sql: string, tenantId: string, space: string): Promise<Array<Record<string, unknown> | null>> {
@@ -141,13 +159,43 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     return result as unknown as Record<string, unknown>;
   }
 
-  async execNotebook(input: { language: "python" | "bash" | "ts"; code: string; sessionId?: string; timeoutMs?: number }): Promise<Record<string, unknown>> {
+  async execNotebook(input: { language: "python" | "bash" | "ts"; code: string; sessionId?: string; timeoutMs?: number; target?: string | null }): Promise<Record<string, unknown>> {
     const result = await this.#kernel.execChannel.executeNotebookCell(input);
     return result as unknown as Record<string, unknown>;
   }
 
   async cancelNotebook(sessionId: string): Promise<boolean> {
     return this.#kernel.execChannel.cancelNotebook(sessionId);
+  }
+
+  async createHumanRequest(input: {
+    tenantId: string; taskId: string; kind: string; title: string; body: string;
+    assignedTo?: string[]; policySelector?: string; createdBy: string; expiresAt?: string; idempotencyKey?: string;
+  }): Promise<Record<string, unknown>> {
+    const req = await this.#humanInteraction.createRequest(input);
+    return req as unknown as Record<string, unknown>;
+  }
+
+  async listHumanRequests(input: { tenantId: string; status?: string; limit?: number }): Promise<Record<string, unknown>> {
+    const list = await this.#humanInteraction.listRequests(input);
+    return { requests: list } as unknown as Record<string, unknown>;
+  }
+
+  async getHumanRequest(id: string, tenantId: string): Promise<Record<string, unknown> | null> {
+    const req = await this.#humanInteraction.getRequest(id, tenantId);
+    return req ? (req as unknown as Record<string, unknown>) : null;
+  }
+
+  async respondHumanRequest(input: {
+    requestId: string; decision: "approved" | "rejected"; reason?: string; principalId: string; idempotencyKey?: string;
+  }, tenantId: string): Promise<Record<string, unknown>> {
+    const result = await this.#humanInteraction.respond({ ...input, decision: input.decision }, tenantId);
+    return result as unknown as Record<string, unknown>;
+  }
+
+  async cancelHumanRequest(id: string, tenantId: string, principalId: string): Promise<Record<string, unknown> | null> {
+    const req = await this.#humanInteraction.cancelRequest(id, tenantId, principalId);
+    return req ? (req as unknown as Record<string, unknown>) : null;
   }
 
   async listTranscripts(taskId: string): Promise<Array<Record<string, unknown>>> {
@@ -185,6 +233,11 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   cancelTask(id: string, opts: { recursive?: boolean }, scope?: TenantScope): Promise<TaskCancelResult> {
     const effectiveScope = scope ?? { tenantId: "default", principalId: "ptl", roles: ["ptl"], traceId: `cancel:${id}` };
     return this.#control.cancel(id, effectiveScope, opts);
+  }
+
+  answerTask(id: string, answer: string, scope?: TenantScope): Promise<{ ok: true }> {
+    const effectiveScope = scope ?? { tenantId: "default", principalId: "ptl", roles: ["ptl"], traceId: `answer:${id}` };
+    return this.#control.answerHuman(id, answer, effectiveScope);
   }
 
   async taskCounts(): Promise<TaskCounts> {

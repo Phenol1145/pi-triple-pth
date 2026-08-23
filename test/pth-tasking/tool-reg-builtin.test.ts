@@ -15,13 +15,13 @@ import { ASP_ONLY_TOOLS } from "@away_from/pth-kernel-execution";
 import { parseToolRegContent, type ToolRegSpec } from "@away_from/pth-memory";
 
 describe("N14 P0：存量登记器（Q4 一次性全登记）", () => {
-  it("33 条 builtin 条目 ≡ PTC_TOOL_DEFS 键集（顺序确定性）", () => {
+  it("34 条 builtin 条目 ≡ PTC_TOOL_DEFS 键集（顺序确定性）", () => {
     const { specs } = buildBuiltinToolRegEntries();
     expect(specs.map((s) => s.name)).toEqual(PTC_TOOL_DEFS.map((d) => d.name));
-    expect(specs).toHaveLength(33);   // 2026-08-14 N8：asp.create/destroy 退役（35→33）——新增硬编码工具须同步本条
+    expect(specs).toHaveLength(34);   // 2026-08-14 N8：asp.create/destroy 退役（35→33）；生命周期 P1：pause 加入（33→34）
   });
 
-  it("执行器引用约定：27 键直引 AGENT_TOOLS（含 done 兜底）/ ASP-only 6 件 asp-inline", () => {
+  it("执行器引用约定：28 键直引 AGENT_TOOLS（含 done/pause 兜底）/ ASP-only 6 件 asp-inline", () => {
     const { specs } = buildBuiltinToolRegEntries();
     const byName = new Map(specs.map((s) => [s.name, s]));
     for (const key of Object.keys(AGENT_TOOLS)) {
@@ -29,7 +29,7 @@ describe("N14 P0：存量登记器（Q4 一次性全登记）", () => {
       expect(s, `AGENT_TOOLS 键 ${key} 应有条目`).toBeDefined();
       expect(s!.executor).toEqual({ type: "builtin", ref: key });
     }
-    expect(Object.keys(AGENT_TOOLS)).toHaveLength(27);   // 26 点形执行器 + done 兜底
+    expect(Object.keys(AGENT_TOOLS)).toHaveLength(28);   // 26 点形执行器 + done/pause 兜底
     for (const name of ["asp.cd", "asp.index", "memory.index", "cache.load", "cache.index", "cache.cancel"]) {
       expect(byName.get(name)?.executor).toEqual({ type: "builtin", ref: `asp-inline:${name}` });
       expect(ASP_ONLY_TOOLS.has(name)).toBe(true);

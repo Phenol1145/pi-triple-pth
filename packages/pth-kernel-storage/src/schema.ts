@@ -334,8 +334,11 @@ CREATE TABLE IF NOT EXISTS task_templates (
   execution_protocol JSONB DEFAULT '{}',
   input_schema JSONB DEFAULT '{}',
   acceptance_criteria JSONB DEFAULT '[]',
+  goal TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+-- 生命周期 P0：模板默认根目标（可选；发布时显式 goal > 模板 goal）。
+ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS goal TEXT;
 
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
@@ -348,7 +351,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   payload JSONB DEFAULT '{}',
   tags TEXT[] DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending','claimed','submitted','completed','rejected','escalated')),
+    CHECK (status IN ('pending','claimed','submitted','completed','rejected','escalated','waiting-human','paused')),
   claimed_by TEXT,
   claims_count INTEGER DEFAULT 0,
   rejects JSONB DEFAULT '[]',
@@ -402,6 +405,53 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_tenant_idempotency
   ON tasks(tenant_id, idempotency_key)
   WHERE idempotency_key IS NOT NULL;
+
+-- Workflow / Trigger / Human Review（docs/pth/workflow-trigger-human-review-correction-plan.md）：
+-- 任务可进入 waiting-human 状态等待人工响应。
+-- 生命周期 P0（docs/pth/task-lifecycle-and-context-design.md §3）：任务可进入 paused 状态等待发布者澄清。
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
+  CHECK (status IN ('pending','claimed','submitted','completed','rejected','escalated','waiting-human','paused'));
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS paused_expires_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_tasks_paused
+  ON tasks(tenant_id, status, paused_expires_at) WHERE status='paused';
+
+-- 通用人工请求（HumanRequest 持久化；response JSONB 保存盖章后的 HumanResponse）。
+CREATE TABLE IF NOT EXISTS human_requests (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  assigned_to TEXT[] NOT NULL DEFAULT '{}',
+  policy_selector TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','responded','cancelled','expired')),
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ,
+  response JSONB,
+  idempotency_key TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_human_requests_task ON human_requests(tenant_id, task_id, status);
+CREATE INDEX IF NOT EXISTS idx_human_requests_status ON human_requests(tenant_id, status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_human_requests_tenant_idempotency
+  ON human_requests(tenant_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
+-- 任务等待人工 gate（TaskWaitGate；一个任务同一时刻最多一个 waiting gate）。
+CREATE TABLE IF NOT EXISTS task_wait_gates (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+  request_id TEXT NOT NULL REFERENCES human_requests(id),
+  status TEXT NOT NULL DEFAULT 'waiting'
+    CHECK (status IN ('waiting','resolved')),
+  decision TEXT CHECK (decision IN ('approved','rejected')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_task_wait_gates_request ON task_wait_gates(request_id);
 
 ${MEMORY_SCHEMA_SQL}
 

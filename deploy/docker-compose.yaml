@@ -81,7 +81,7 @@ services:
       - PTH_AGENT_TIMEOUT_MS=${PTH_AGENT_TIMEOUT_MS:-10800000}
       # agent 启动模式（Prompt 框架化）：eager=注入全文 / lazy=指针按需读取 / auto=按模型
       - PTH_AGENT_MODE=${PTH_AGENT_MODE:-lazy}
-      - PTH_ASP_MODE=${PTH_ASP_MODE:-on}   # 动作空间协议（全件落地——默认开启；off 回退旧空间无关行为）
+      - PTH_ASP_MODE=${PTH_ASP_MODE:-off}   # 动作空间协议（双轨并行：平铺为主验证路径——默认关闭；on 对照 ASP 轨）
     # F/WP3 Task 13：sandbox 失效降级阈值（连续 N 次转发失败置 degraded；默认 3，可 env 覆盖）
       - SANDBOX_DEGRADED_THRESHOLD=${SANDBOX_DEGRADED_THRESHOLD:-3}
     # 路径约定统一（F/WP3 Task 12）：pth 侧 WorkspaceManager basePath = <DATA_DIR>/workspaces

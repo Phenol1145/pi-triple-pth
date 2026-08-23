@@ -11,8 +11,8 @@ import { SandboxExecClient, SandboxHealthMonitor, createSandboxBashDefinition } 
 import { createSandboxDebugGatewayFactory } from "./gateway/routes-debug.js";
 import { SessionPool } from "./core/session-pool.js";
 import { AgentEngine } from "./core/agent-engine.js";
-import { WorkflowOrchestrator } from "./workflow/orchestrator.js";
-import { createIntentWorker } from "./workflow/bullmq-worker.js";
+import { WorkflowOrchestrator } from "./prototypes/workflow/orchestrator.js";
+import { createIntentWorker } from "./prototypes/workflow/bullmq-worker.js";
 import { HotReloader, ResourceOverlay } from "./self-modify/hot-reloader.js";
 import { FallbackRequestStore } from "./fallback/requests.js";
 import { createServer } from "./gateway/server.js";
@@ -235,6 +235,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
         basePath: path.join(dataDir, "workspaces"),
         artifactPath: path.join(dataDir, "artifacts"),
         toolstorePath: path.join(dataDir, "toolstore"),
+        executionBackends: host!.backends,
         // 性能计量（SPEC L1）：batch IPC metric → kernelMetrics
         onMetric: (m) => {
           const t = m as Record<string, unknown>;

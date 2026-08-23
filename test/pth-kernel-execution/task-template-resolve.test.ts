@@ -10,6 +10,14 @@ describe("resolveTemplateTask（任务模板统一收口 A+：发布/trigger/per
     expect(r.tags).toEqual(["recon"]);
     expect(r.text).toContain('"https://example.com/doc"');
     expect(r.payload).toMatchObject({ template: "recon-doc", params: { url: "https://example.com/doc" } });
+    expect(r.goal).toBe("忠实转写指定 URL 文档为结构化记忆条目：不偏离原文、不补充源外信息、不臆造内容。");
+  });
+
+  it("生命周期 P0：显式 goal 覆盖模板 goal；空白显式 goal 回退模板 goal", () => {
+    const r1 = resolveTemplateTask({ template: "recon-doc", params: { url: "u" }, goal: "本次只转写前两章" });
+    expect(r1.ok && r1.goal).toBe("本次只转写前两章");
+    const r2 = resolveTemplateTask({ template: "recon-doc", params: { url: "u" }, goal: "   " });
+    expect(r2.ok && r2.goal).toBe("忠实转写指定 URL 文档为结构化记忆条目：不偏离原文、不补充源外信息、不臆造内容。");
   });
 
   it("事件变量注入：params 值经 {{key}} 替换后渲染", () => {

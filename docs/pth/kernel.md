@@ -264,6 +264,14 @@ POST /api/v1/kernel/exec  { code, mode?, sessionId?, timeoutMs? }
   mode=repl：sessionId 持久 context（跨调用状态保留——idle 30min 回收）
 ```
 
+**notebook cell 执行（P5b + ExecutionTarget Matrix）**：
+```
+POST /api/v1/kernel/notebook/execute  { language, code, sessionId?, timeoutMs?, target? }
+```
+- `target` 由 pi-kernel cell magic 解析：`%%python sandbox` / `%%bash local-lean` / `%%ts`。
+- 未声明 target 时按语言默认路由：python/bash → `sandbox`，ts → `engine-ts`。
+- 路由由 `NotebookTargetRouter`（`packages/pth-kernel-execution/src/execution/notebook-target-router.ts`）经 `ExecutionTargetRegistry` 解析；`local/tool/jupyter` 等一次性 command target 需显式选择且要求批准。
+
 **标签注册通道**（tag-registry——预留 complexity/priority 维度）：角色注册自动挂载其固定 tags；`registerTag({name, kind, role?})` 显式扩展。
 
 ### 权限系统 v2（2026-08-10——9.3 第一轮）
@@ -286,3 +294,11 @@ POST /api/v1/kernel/exec  { code, mode?, sessionId?, timeoutMs? }
 - 系统组件（autopilot/console/lineage）主进程直调 store/config——不经能力注入，不受影响
 
 **角色声明**：缺省全量废止——developer 已补齐显式声明（core+data 全量，无 admin）。
+
+## 2026-08 落地摘要（TCE / 任务生命周期）
+
+- `KernelExecChannel` 支持 `commandGateway` 注入；notebook cell 先过 Command 层。
+- `TaskControlService` 增加 pause/answer/sweep；dispatcher `onSuspension` 接 publisher-question 与 human。
+- worker 侧 CommandGateway 装配（含 tool translator），agent-loop 语言工具与 tool-reg 执行缝先过授权。
+
+详细设计：[task-lifecycle-and-context-design](task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](llm-tool-notebook-unified-execution-backend-plan.md)

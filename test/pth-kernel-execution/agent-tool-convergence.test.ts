@@ -46,6 +46,7 @@ describe("工具面收敛终态", () => {
       // 生产核·文档（2026-08-12 批 2 write 空间——编写类任务）
       "write.create", "write.edit", "write.read", "write.list", "write.save", "write.section",
       "done",
+      "pause",
     ]);
     expect(AGENT_TOOLS_DESCRIPTION).toContain("ts");
     expect(AGENT_TOOLS_DESCRIPTION).not.toContain("- llm.complete"); // 动作工具面无 llm.complete（能力函数仍在 ts 程序内）

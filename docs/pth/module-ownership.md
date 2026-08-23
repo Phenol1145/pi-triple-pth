@@ -40,6 +40,12 @@
 - 产品边界检查器仍把 `packages/pth-console/src/bridge/**`、`operator-console/**` 标记为 `transitional` 观察清单，迁移收尾后可移除。
 - 过渡区数量、文件清单在 `check-product-boundaries.ts` 输出中显示，便于迁移进度追踪。
 
+## 3.5 AgentEngine 独立化标记
+
+- `src/pth/core/agent-engine.ts` 与 `src/pth/prototypes/workflow/**` 为**独立模块**，后期单独维护。
+- active workflow / human-review 路径**禁止新增对 AgentEngine 的 import**；本次新增的 Trigger 增强、TaskFlow↔Trigger 接合、Human Interaction 均不依赖 AgentEngine。
+- `src/pth/prototypes/workflow/**` 保持冻结原型，不进入 active 路径；待 AgentEngine 独立化后清理或改造。
+
 ## 4. 变更纪律
 
 - 新增 PTL-only 或 PTH core 模块时，必须在 `check-product-boundaries.ts` 的归属集合中登记；

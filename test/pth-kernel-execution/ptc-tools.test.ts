@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { PTC_TOOL_DEFS, buildToolSchemas, renderToolDescription } from "@away_from/pth-kernel-interpreter";
 import { toolSchemaFor, toolsToSchema } from "@away_from/pth-kernel-execution";
 
-/** 旧手写顺序（prompt 文本顺序——golden 钉死；2026-08-14 N8：asp.create/destroy 退役——35→33） */
+/** 旧手写顺序（prompt 文本顺序——golden 钉死；2026-08-14 N8：asp.create/destroy 退役——35→33；生命周期 P1：pause 加入——33→34） */
 const GOLDEN_NAMES = [
-  "python.run", "python.eval", "bash.run", "bash.eval", "ts.run", "ts.eval", "done",
+  "python.run", "python.eval", "bash.run", "bash.eval", "ts.run", "ts.eval", "done", "pause",
   "dev.write", "dev.edit", "dev.build", "dev.run", "dev.save", "dev.list",
   "debug.attach", "debug.breakpoint", "debug.continue", "debug.step", "debug.snapshot",
   "debug.evaluate", "debug.detach", "debug.sessions",
@@ -24,7 +24,7 @@ const GOLDEN_DESCRIPTIONS: Record<string, string> = {
 };
 
 describe("工具契约注册表（A1 Phase 3 条目 10——ptc/tools 生成器）", () => {
-  it("35 条工具定义——顺序与旧手写一致", () => {
+  it("36 条工具定义——顺序与旧手写一致", () => {
     expect(PTC_TOOL_DEFS.map((d) => d.name)).toEqual(GOLDEN_NAMES);
   });
 
@@ -38,7 +38,7 @@ describe("工具契约注册表（A1 Phase 3 条目 10——ptc/tools 生成器�
     }
   });
 
-  it("buildToolSchemas 派生——35 键 + description 与旧手写逐字节一致", () => {
+  it("buildToolSchemas 派生——36 键 + description 与旧手写逐字节一致", () => {
     const schemas = buildToolSchemas();
     expect(Object.keys(schemas)).toEqual(GOLDEN_NAMES);
     for (const [name, desc] of Object.entries(GOLDEN_DESCRIPTIONS)) {
@@ -50,7 +50,7 @@ describe("工具契约注册表（A1 Phase 3 条目 10——ptc/tools 生成器�
     expect(toolSchemaFor("python.run")?.description).toBe(GOLDEN_DESCRIPTIONS["python.run"]);
     expect(toolSchemaFor("asp_cd")?.name).toBe("asp_cd");   // 下划线形归一
     const tools = toolsToSchema();
-    expect(tools).toHaveLength(33);   // 2026-08-14 N8：asp.create/destroy 退役（35→33）
+    expect(tools).toHaveLength(34);   // 2026-08-14 N8：asp.create/destroy 退役（35→33）；生命周期 P1：pause 加入（33→34）
     expect(tools.some((t) => t.name === "cache_load")).toBe(true);
     expect(tools.some((t) => t.name === "ts_run")).toBe(true);
     expect(tools.some((t) => t.name === "asp_create")).toBe(false);   // 已移出 worker 工具面
@@ -62,7 +62,7 @@ describe("工具契约注册表（A1 Phase 3 条目 10——ptc/tools 生成器�
   it("非 ASP 模式工具面：剔除 ASP-only（schema 与 AGENT_TOOLS 执行面同源——2026-08-15 审计 MEDIUM）", () => {
     const tools = toolsToSchema(undefined, { asp: false });
     const names = tools.map((t) => t.name);
-    expect(tools).toHaveLength(27);   // 33 - asp.cd/asp.index/memory.index/cache.load/cache.index/cache.cancel
+    expect(tools).toHaveLength(28);   // 34 - asp.cd/asp.index/memory.index/cache.load/cache.index/cache.cancel
     for (const absent of ["asp_cd", "asp_index", "memory_index", "cache_load", "cache_index", "cache_cancel"]) {
       expect(names).not.toContain(absent);
     }
@@ -71,7 +71,7 @@ describe("工具契约注册表（A1 Phase 3 条目 10——ptc/tools 生成器�
     expect(names).toContain("done");
     expect(names).toContain("dev_write");
     // 缺省/ASP 模式仍为全量（向后兼容）
-    expect(toolsToSchema()).toHaveLength(33);
-    expect(toolsToSchema(undefined, { asp: true })).toHaveLength(33);
+    expect(toolsToSchema()).toHaveLength(34);
+    expect(toolsToSchema(undefined, { asp: true })).toHaveLength(34);
   });
 });

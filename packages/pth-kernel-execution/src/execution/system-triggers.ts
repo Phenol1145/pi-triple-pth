@@ -19,6 +19,7 @@ export const SYSTEM_ACTION = {
   optimizerDeoptSweep: "optimizer.deopt-sweep",
   batchScale: "batch.scale",
   penetrationDiscovery: "penetration.discovery",
+  pauseSweep: "pause.sweep",
 } as const;
 
 export interface SystemTriggerDeps {
@@ -43,6 +44,10 @@ export interface SystemTriggerDeps {
   scaler?: { enabled: boolean; intervalMs: number; evaluate: () => Promise<unknown> };
   /** 穿透稳定边自动发现巡检（B1） */
   penetrationDiscovery?: { enabled: boolean; intervalMs: number; discover: () => Promise<unknown> };
+  /** 生命周期 P1：pause 超时/预算巡检（escalate 超时或超限 paused 任务） */
+  pauseSweep?: () => Promise<number>;
+  /** pause 巡检周期（ms；缺省 60s） */
+  pauseSweepMs?: number;
   /** 日志（claim-reaper 等） */
   log?: (msg: string) => void;
 }
@@ -123,6 +128,20 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
     action: { type: SYSTEM_ACTION.claimReap },
     enabled: true,
   });
+
+  // 生命周期 P1：pause 超时/预算巡检（超时或超限 paused → escalated）。
+  if (deps.pauseSweep) {
+    engine.registerAction(SYSTEM_ACTION.pauseSweep, async () => {
+      const n = await deps.pauseSweep!();
+      if (n && n > 0) log(`[pause-sweep] escalated ${n} paused task(s)`);
+    });
+    engine.addSystemTrigger({
+      name: "pause-sweep",
+      schedule: { everySec: (deps.pauseSweepMs ?? 60_000) / 1000 },
+      action: { type: SYSTEM_ACTION.pauseSweep },
+      enabled: true,
+    });
+  }
 
   // batch watchdog：崩溃记录 / 心跳陈旧挂死 kill+重启。
   engine.registerAction(SYSTEM_ACTION.watchdogProbe, async () => {

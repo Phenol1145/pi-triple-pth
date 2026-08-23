@@ -55,12 +55,12 @@ const PTH_MODULES = [
   "kernel",
   "observability",
   "programs",
+  "prototypes",
   "runner",
   "self-modify",
   "services",
   "tasking",
   "tools",
-  "workflow",
 ] as const;
 const CROSS_MODULES = PTH_MODULES;
 const CONTRACTS_FORBIDDEN = new Set(["fastify", "pg", "ioredis", "redis", "@away_from/pth-sandbox"]);

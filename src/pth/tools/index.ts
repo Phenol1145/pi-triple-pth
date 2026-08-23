@@ -4,3 +4,6 @@ export * from "./platform.js";
 export * from "./registry.js";
 export * from "./tool-compose.js";
 export * from "./tool-registry.js";
+export * from "./tool-manifest.js";
+export * from "./tool-layer-generator.js";
+export * from "./tool-translator.js";

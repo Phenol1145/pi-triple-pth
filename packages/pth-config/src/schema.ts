@@ -77,6 +77,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_AGENT_MODE", "string", "auto", "agent", "both", "Prompt 框架模式：eager/lazy/auto（auto=角色类缺省：规划系 eager，其余 lazy；off 关闭）"),
   d("PTH_AGENT_MODEL", "string", "deepseek-v4-flash", "model", "batch", "agent 默认模型", { runtime: true }),
   d("PTH_AGENT_MAX_STEPS", "number", 10, "agent", "batch", "agent 循环步骤上限（代码默认 10；compose 300）", { runtime: true }),
+  d("PTH_AGENT_CONTEXT_WINDOW", "number", 128_000, "agent", "batch", "agent 上下文窗口（token 估计——循环内压缩触发阈值）", { runtime: true }),
   d("PTH_AGENT_TIMEOUT_MS", "number", 120_000, "agent", "batch", "agent 任务级超时（代码默认 120s；compose 3h）", { runtime: true }),
   d("PTH_AGENT_LLM_TIMEOUT_MS", "number", 30_000, "agent", "batch", "单次 LLM 调用超时", { runtime: true }),
 
@@ -121,6 +122,8 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_WATCHDOG_INTERVAL_MS", "number", 30_000, "control-loop", "main", "batch-watchdog trigger 周期"),
   d("PTH_RESOLVER_INTERVAL_MS", "number", 2_000, "control-loop", "main", "flow-resolver 基础周期"),
   d("PTH_MEMORY_SWEEP_SECONDS", "number", 24 * 60 * 60, "control-loop", "main", "记忆巡检 trigger 周期（0=禁用）"),
+  d("PTH_TASK_PAUSE_TIMEOUT_MS", "number", 24 * 60 * 60 * 1000, "control-loop", "both", "pause 超时（缺省 24h——超时 escalated）", { runtime: true }),
+  d("PTH_TASK_PAUSE_SWEEP_MS", "number", 60_000, "control-loop", "main", "pause 巡检周期（超时/预算）", { runtime: true }),
 
   // ── kernel / 执行 ────────────────────────────────────────────────
   d("PTH_KERNEL_LAZY_SPAWN", "string", "1", "kernel", "batch", "懒 spawn（0=构造即起）", { runtime: true }),
@@ -207,7 +210,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_LEAN4_TEMPLATE_DIR", "string", "/home/node/lean-template", "path", "batch", "v1.3 P3：已构建 Mathlib 模板工程目录"),
 
   // ── 模式 / 开关 / 观测 ───────────────────────────────────────────
-  d("PTH_ASP_MODE", "string", "on", "mode", "batch", "动作空间协议（on/off）"),
+  d("PTH_ASP_MODE", "string", "off", "mode", "batch", "动作空间协议（双轨并行：平铺为主验证路径——默认关闭；on 对照 ASP 轨）"),
   d("PTH_REFINE", "string", "auto", "mode", "batch", "任务完成后 refine（off 关闭）"),
   d("PTH_SKILL_WRITE_POLICY", "string", "manual", "mode", "batch", "skill 写策略：manual / staged"),
   d("PTH_TOOL_WRITE_POLICY", "string", "manual", "mode", "batch", "tool-reg 注册写策略（N14）：manual / staged（W5 同款）"),

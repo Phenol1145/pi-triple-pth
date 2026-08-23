@@ -21,6 +21,9 @@ import {
   type TaskDelegateResult,
   type TaskDelivery,
   type TaskDispatchContext,
+  type TaskLease,
+  type TaskSuspension,
+  type TaskWorkItem,
   type TenantScope,
   type WorkMode,
 } from "@away_from/pth-contracts";
@@ -30,6 +33,7 @@ import { allowedDelegationTargets } from "./delegation-policy.js";
 import { tagRegistry } from "@away_from/pth-kernel-execution";
 import { resolveTemplateTask } from "@away_from/pth-kernel-interpreter";
 import { PtcContractError } from "@away_from/pth-kernel-interpreter";
+import { pthConfig } from "@away_from/pth-config";
 
 export interface TaskControlServiceDeps {
   store: Pick<TaskStore, "publish">;
@@ -187,6 +191,7 @@ export class TaskControlService {
     let finalTitle = title;
     let finalText = text;
     let templatePayload: Record<string, unknown> = {};
+    let templateGoal: string | undefined;
     let finalTags = tags;
     if (typeof input.template === "string" && input.template.trim() !== "") {
       const r = resolveTemplateTask({
@@ -201,6 +206,7 @@ export class TaskControlService {
       finalTitle = r.title;
       finalText = r.text;
       templatePayload = r.payload;
+      templateGoal = r.goal;
       finalTags = r.tags;
     }
 
@@ -216,6 +222,13 @@ export class TaskControlService {
       path: [...callerDelivery.path, to],
       lineageId: callerDelivery.lineageId,
       replyTo: "parent",
+      // 生命周期 P0：goal 逐字传播（不可转述——抗衰减是目的本身）；
+      // 父任务已有 goal 时优先逐字继承；否则模板默认 goal 作为子任务根目标。
+      ...(callerDelivery.goal !== undefined
+        ? { goal: callerDelivery.goal }
+        : templateGoal
+          ? { goal: templateGoal }
+          : {}),
     };
     const payload = {
       ...templatePayload,
@@ -241,6 +254,161 @@ export class TaskControlService {
       delegateTarget: to,
     });
     return { taskId: task.id, roleId: to, path: delivery.path };
+  }
+
+  /**
+   * 生命周期 P1：pause 持久化——claimed → paused，释放 lease，写问题箱。
+   * 幂等由 lease CAS 保证；返回是否真正落库（0 = 认领已被回收/跨租户/过期）。
+   */
+  async pause(input: {
+    lease: TaskLease;
+    work: TaskWorkItem;
+    suspension: Extract<TaskSuspension, { kind: "publisher-question" }>;
+  }): Promise<boolean> {
+    const { lease, work, suspension } = input;
+    const timeoutMs = pthConfig().num("PTH_TASK_PAUSE_TIMEOUT_MS");
+    const pauseQuestion = {
+      question: suspension.question,
+      ...(suspension.context ? { context: suspension.context } : {}),
+      askedAt: new Date().toISOString(),
+      askedBy: work.assignedRole,
+    };
+    const res = await this.deps.pool.query(
+      `UPDATE tasks SET
+         status = 'paused',
+         paused_at = now(),
+         paused_expires_at = now() + ($6::bigint || ' milliseconds')::interval,
+         claimed_by = NULL,
+         claimed_at = NULL,
+         lease_id = NULL,
+         lease_expires_at = NULL,
+         payload = jsonb_set(
+           jsonb_set(
+             jsonb_set(COALESCE(payload, '{}'::jsonb), '{pauseQuestion}', $4::jsonb, true),
+             '{pauseAnswer}', 'null'::jsonb, true
+           ),
+           '{pauseCount}', to_jsonb(COALESCE((payload->>'pauseCount')::int, 0) + 1), true
+         ),
+         updated_at = now()
+       WHERE id = $1 AND lease_id = $2 AND lease_generation = $3
+         AND status = 'claimed' AND tenant_id = $5
+         AND lease_expires_at IS NOT NULL AND lease_expires_at > now()
+       RETURNING id`,
+      [lease.taskId, lease.leaseId, lease.generation, JSON.stringify(pauseQuestion), lease.scope.tenantId, timeoutMs],
+    );
+    return (res.rowCount ?? 0) === 1;
+  }
+
+  /** 生命周期 P1：pause 超时/预算护栏——超时或 pauseCount≥3 的 paused 任务升级 escalated。 */
+  async sweepExpiredPaused(): Promise<number> {
+    const res = await this.deps.pool.query(
+      `UPDATE tasks SET
+         status = 'escalated',
+         escalated_at = now(),
+         updated_at = now()
+       WHERE status = 'paused'
+         AND (
+           (paused_expires_at IS NOT NULL AND paused_expires_at < now())
+           OR COALESCE((payload->>'pauseCount')::int, 0) >= 3
+         )`,
+    );
+    return res.rowCount ?? 0;
+  }
+
+  /**
+   * 生命周期 P1：tasks.answer——父 agent 回答自己直接子任务的 paused 问题。
+   * 服务端校验直接父子关系；回答后子任务 paused → pending（重跑 + 澄清注入）。
+   */
+  async answer(
+    input: { taskId: string; answer: string },
+    caller: TaskDispatchContext,
+    scope: TenantScope,
+  ): Promise<{ ok: true }> {
+    const taskId = typeof input.taskId === "string" ? input.taskId.trim() : "";
+    const answer = typeof input.answer === "string" ? input.answer.trim() : "";
+    if (!taskId || !answer) {
+      throw new PtcContractError("tasks.answer", "taskId/answer 必填（answer 非空）");
+    }
+    const res = await this.deps.pool.query(
+      `SELECT id, tenant_id, status, payload FROM tasks WHERE id = $1 AND tenant_id = $2`,
+      [taskId, scope.tenantId],
+    );
+    const row = res.rows[0] as
+      | { id: string; tenant_id: string; status: string; payload: Record<string, unknown> | null }
+      | undefined;
+    if (!row) {
+      throw new PtcContractError("tasks.answer", `任务 ${taskId} 不存在或不属于当前租户`);
+    }
+    const payload = row.payload ?? {};
+    const delivery = payload["delivery"] as TaskDelivery | undefined;
+    if (delivery?.parent?.taskId !== caller.taskId) {
+      throw new PtcContractError(
+        "tasks.answer",
+        `任务 ${taskId} 不是当前任务的直接子任务（parent=${delivery?.parent?.taskId ?? "未盖章"}，当前=${caller.taskId}）`,
+      );
+    }
+    if (row.status !== "paused") {
+      throw new PtcContractError("tasks.answer", `任务 ${taskId} 当前状态 ${row.status}，仅 paused 可回答`);
+    }
+    const pauseAnswer = {
+      answer,
+      answeredBy: scope.principalId,
+      answeredAt: new Date().toISOString(),
+    };
+    const upd = await this.deps.pool.query(
+      `UPDATE tasks SET
+         status = 'pending',
+         paused_expires_at = NULL,
+         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{pauseAnswer}', $4::jsonb, true),
+         updated_at = now()
+       WHERE id = $1 AND tenant_id = $2 AND status = 'paused'`,
+      [taskId, scope.tenantId, JSON.stringify(pauseAnswer)],
+    );
+    if ((upd.rowCount ?? 0) !== 1) {
+      throw new PtcContractError("tasks.answer", `任务 ${taskId} 回答失败（并发状态变化？）`);
+    }
+    return { ok: true };
+  }
+
+  /**
+   * 生命周期 P1：HTTP 人工回答——发布者是人类（入口任务）时回答任意 paused 任务。
+   * 不要求调用者是父任务；仅校验租户与 paused 状态。
+   */
+  async answerHuman(taskIdInput: string, answerInput: string, scope: TenantScope): Promise<{ ok: true }> {
+    const taskId = typeof taskIdInput === "string" ? taskIdInput.trim() : "";
+    const answer = typeof answerInput === "string" ? answerInput.trim() : "";
+    if (!taskId || !answer) {
+      throw new PtcContractError("tasks.answer", "taskId/answer 必填（answer 非空）");
+    }
+    const res = await this.deps.pool.query(
+      `SELECT id, tenant_id, status FROM tasks WHERE id = $1 AND tenant_id = $2`,
+      [taskId, scope.tenantId],
+    );
+    const row = res.rows[0] as { id: string; tenant_id: string; status: string } | undefined;
+    if (!row) {
+      throw new PtcContractError("tasks.answer", `任务 ${taskId} 不存在或不属于当前租户`);
+    }
+    if (row.status !== "paused") {
+      throw new PtcContractError("tasks.answer", `任务 ${taskId} 当前状态 ${row.status}，仅 paused 可回答`);
+    }
+    const pauseAnswer = {
+      answer,
+      answeredBy: scope.principalId,
+      answeredAt: new Date().toISOString(),
+    };
+    const upd = await this.deps.pool.query(
+      `UPDATE tasks SET
+         status = 'pending',
+         paused_expires_at = NULL,
+         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{pauseAnswer}', $4::jsonb, true),
+         updated_at = now()
+       WHERE id = $1 AND tenant_id = $2 AND status = 'paused'`,
+      [taskId, scope.tenantId, JSON.stringify(pauseAnswer)],
+    );
+    if ((upd.rowCount ?? 0) !== 1) {
+      throw new PtcContractError("tasks.answer", `任务 ${taskId} 回答失败（并发状态变化？）`);
+    }
+    return { ok: true };
   }
 
   /**

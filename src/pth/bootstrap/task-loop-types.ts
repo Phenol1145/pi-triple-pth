@@ -32,6 +32,16 @@ export interface TaskLoopDeps {
   agentCaps?: Record<string, unknown>;
   /** P1-6：注入即启用 tasking dispatcher 路径（claim→run→commit）；缺省走 legacy 兼容路径 */
   repository?: TaskRepository;
+  /** 生命周期 P1：TaskSuspension 处理钩子（dispatcher 装配点注入；缺省仅跳过） */
+  onSuspension?: (input: {
+    lease: import("@away_from/pth-contracts").TaskLease;
+    work: import("@away_from/pth-contracts").TaskWorkItem;
+    suspension: import("@away_from/pth-contracts").TaskSuspension;
+  }) => void | Promise<void>;
+  /** TCE P3：Command 层注入（语言工具先过 CommandGateway 授权）。 */
+  commandGateway?: import("@away_from/pth-kernel-execution").CommandGateway;
+  /** TCE P5：Tool 层生成器产物（per-tool 工具面）。 */
+  extraTools?: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }>;
   /** P1-6：归档钩子注入（BatchTaskLoop 组合用；缺省用 protected archive 默认实现） */
   archiveFn?: (task: Task, ws: { dir: string; tenant: string }, result: unknown) => Promise<void>;
   /** N14 P2：tool-reg 注册表读取口（任务开始冻结快照——T3 防线）；缺省 = 注册面关闭 */

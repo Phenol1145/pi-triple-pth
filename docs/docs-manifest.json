@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-22T14:49:16.151Z",
+  "generatedAt": "2026-08-23T23:30:56.880Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -34,6 +34,12 @@
     },
     {
       "path": "docs/adr/0002-tool-containers-execution-v11.md",
+      "category": "decisions",
+      "product": "shared",
+      "status": "active"
+    },
+    {
+      "path": "docs/adr/0003-pth-kernel-subpackage-split.md",
       "category": "decisions",
       "product": "shared",
       "status": "active"
@@ -129,6 +135,12 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/execution-target-matrix-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/extensions-dev.md",
       "category": "guides",
       "product": "pth",
@@ -157,6 +169,18 @@
       "category": "guides",
       "product": "pth",
       "status": "active"
+    },
+    {
+      "path": "docs/pth/llm-tool-notebook-unified-execution-backend-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/modularity-and-feasibility-followup-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
     },
     {
       "path": "docs/pth/modularity-reuse-audit.md",
@@ -549,6 +573,12 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/pth-cli-command-registry-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/pth-console-openapi.json",
       "category": "artifacts",
       "product": "pth",
@@ -583,6 +613,12 @@
       "category": "reports",
       "product": "pth",
       "status": "historical"
+    },
+    {
+      "path": "docs/pth/task-lifecycle-and-context-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
     },
     {
       "path": "docs/pth/tension-decisions.json",
@@ -646,6 +682,12 @@
     },
     {
       "path": "docs/pth/w8-task-dispatch-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/workflow-trigger-human-review-correction-plan.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"

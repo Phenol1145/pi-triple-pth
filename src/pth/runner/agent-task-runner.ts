@@ -12,7 +12,7 @@
  *  - 取消信号：进入前 aborted 直接 cancelled；运行中 aborted 触发 kernel.abort()。
  */
 
-import type { TaskLease, TaskOutcome, TaskRunner, TaskWorkItem } from "@away_from/pth-contracts";
+import type { TaskLease, TaskOutcome, TaskRunner, TaskSuspension, TaskWorkItem } from "@away_from/pth-contracts";
 import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { LlmFn } from "@away_from/pth-kernel-interpreter";
@@ -74,6 +74,10 @@ export interface AgentTaskRunnerDeps {
   professionalGrantService?: ExecutionGrantService;
   /** Task 4：professional grant TTL（缺省 120s）。 */
   professionalGrantTtlMs?: number;
+  /** TCE P3：Command 层注入（语言工具先过 CommandGateway 授权；缺省 = legacy 直执行）。 */
+  commandGateway?: import("@away_from/pth-kernel-execution").CommandGateway;
+  /** TCE P5：Tool 层生成器产物（per-tool 工具面）。 */
+  extraTools?: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }>;
 }
 
 function leaseRef(lease: TaskLease): TaskOutcome["lease"] {
@@ -83,7 +87,7 @@ function leaseRef(lease: TaskLease): TaskOutcome["lease"] {
 export class AgentTaskRunner implements TaskRunner {
   constructor(private deps: AgentTaskRunnerDeps) {}
 
-  async run(input: { lease: TaskLease; work: TaskWorkItem; signal?: AbortSignal }): Promise<TaskOutcome> {
+  async run(input: { lease: TaskLease; work: TaskWorkItem; signal?: AbortSignal }): Promise<TaskOutcome | TaskSuspension> {
     const { lease, work, signal } = input;
     const config = { ...defaultRunnerConfig(), ...this.deps.config };
     const traceId = work.scope.traceId;
@@ -104,6 +108,7 @@ export class AgentTaskRunner implements TaskRunner {
     signal?.addEventListener("abort", onAbort, { once: true });
     try {
       const outcome = await this.executeInner(lease, work, config, traceId, () => aborted);
+      if (!("status" in outcome)) return outcome;
       if (aborted && outcome.status !== "cancelled") {
         return { lease: leaseRef(lease), status: "cancelled", retryable: true, error: { code: "cancelled", message: "cancelled during execution" }, artifacts: [], traceId };
       }
@@ -119,7 +124,7 @@ export class AgentTaskRunner implements TaskRunner {
     config: RunnerConfig,
     traceId: string,
     aborted: () => boolean,
-  ): Promise<TaskOutcome> {
+  ): Promise<TaskOutcome | TaskSuspension> {
     const { kernel, role, llm, caps } = this.deps;
     const ref = leaseRef(lease);
 
@@ -263,6 +268,19 @@ export class AgentTaskRunner implements TaskRunner {
         };
       }
 
+      // 生命周期 P0/P1：根目标与发布者澄清从 payload 盖章读取
+      const workPayload = (work.payload ?? {}) as {
+        delivery?: { goal?: unknown };
+        pauseAnswer?: { answer?: unknown; answeredBy?: unknown; answeredAt?: unknown };
+      };
+      const goal = typeof workPayload.delivery?.goal === "string" && workPayload.delivery.goal.trim() !== ""
+        ? workPayload.delivery.goal
+        : undefined;
+      const pauseAnswer = workPayload.pauseAnswer;
+      const publisherClarification = pauseAnswer && typeof pauseAnswer.answer === "string" && pauseAnswer.answer.trim() !== ""
+        ? `（${typeof pauseAnswer.answeredBy === "string" && pauseAnswer.answeredBy !== "" ? pauseAnswer.answeredBy : "发布者"}）: ${pauseAnswer.answer.trim()}`
+        : undefined;
+
       let taskText = work.text;
       if (knowledgeContext) {
         const header = `\n\n【Knowledge Context（catalog ${knowledgeContext.catalogVersion}）】\n`;
@@ -357,6 +375,8 @@ export class AgentTaskRunner implements TaskRunner {
         kernel,
         caps: taskCaps,
         task: { title: work.title, text: taskText },
+        ...(goal ? { goal } : {}),
+        ...(publisherClarification ? { publisherClarification } : {}),
         taskWorkspace: this.deps.workspace.dir,
         toolstore: (kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
         role,
@@ -369,6 +389,18 @@ export class AgentTaskRunner implements TaskRunner {
         toolRegExec: this.deps.toolRegRunChild
           ? { runChild: this.deps.toolRegRunChild, caller: { taskId: lease.taskId, roleId: role.id, tenantId: work.scope.tenantId, delivery: null } }
           : undefined,
+        ...(this.deps.commandGateway
+          ? {
+              commandGateway: this.deps.commandGateway,
+              commandContext: {
+                principalId: this.deps.replica ? `worker:${this.deps.replica.workerId}` : `worker:${role.id}`,
+                tenantId: work.scope.tenantId,
+                roleId: role.id,
+                taskId: lease.taskId,
+              },
+            }
+          : {}),
+        ...(this.deps.extraTools ? { extraTools: this.deps.extraTools } : {}),
         onStep: this.deps.onStep,
         logger: this.deps.logger,
         onTrace: (e) => {
@@ -402,6 +434,16 @@ export class AgentTaskRunner implements TaskRunner {
       }
       if (!r.ok) {
         return { lease: ref, status: "rejected", retryable: false, error: { code: "agent-failed", message: r.error }, artifacts: [], traceId };
+      }
+      if (r.pause) {
+        return {
+          kind: "publisher-question",
+          question: r.pause.question,
+          ...(r.pause.context ? { context: r.pause.context } : {}),
+        };
+      }
+      if (r.humanApproval) {
+        return { kind: "human", requestId: r.humanApproval.requestId };
       }
       if (r.value === undefined || r.value === null) {
         if (r.warning) {

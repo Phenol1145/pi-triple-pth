@@ -1,4 +1,4 @@
-import type { WorkflowIntent } from "../workflow/types.js";
+import type { WorkflowIntent } from "./types.js";
 import { Worker, type Job } from "bullmq";
 
 export function createIntentWorker(redisUrl: string, onIntent: (intent: WorkflowIntent) => Promise<void>) {

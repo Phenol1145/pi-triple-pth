@@ -743,7 +743,7 @@ SSE 每个事件包含 `id`、`event`、`data`、timestamp、session/turn/reques
 
 | 遗留能力 | 处置 |
 |---|---|
-| `src/pth/workflow` | 冻结为未接线原型；不在其 Redis state 上增量构建新协议 |
+| `src/pth/prototypes/workflow` | 冻结为未接线原型；不在其 Redis state 上增量构建新协议 |
 | `fallback_requests` | 保留“缺失构件工单”专用语义；补 tenant 安全可另排，不升级成通用问答 |
 | program upload → fallback close | 保持兼容行为；不得用于 approval/resume |
 | AgentEngine sessions | 保留 LLM/agent 对话执行用途；可由 interaction consultation 引用，状态不合并 |

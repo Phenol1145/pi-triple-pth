@@ -10,11 +10,14 @@
 
 import {
   isTaskLeaseStructurallyValid,
+  isTaskSuspensionStructurallyValid,
   type TaskCommitOptions,
   type TaskLease,
   type TaskOutcome,
   type TaskRepository,
   type TaskRunner,
+  type TaskSuspension,
+  type TaskWorkItem,
   type TenantScope,
 } from "@away_from/pth-contracts";
 import type { TaskOutcomeCommitter, TaskOutcomeSideEffect } from "./task-outcome-committer.js";
@@ -39,6 +42,8 @@ export interface TaskDispatcherDeps {
   /** observer 事件的附加上下文（task/workspace/trace 等——runner 不感知，调用方装配） */
   context?: Record<string, unknown>;
   logger?: (msg: string) => void;
+  /** TaskSuspension 处理钩子（装配层注入；缺省仅跳过，不 commit） */
+  onSuspension?: (input: { lease: TaskLease; work: TaskWorkItem; suspension: TaskSuspension }) => void | Promise<void>;
 }
 
 export interface DispatchResult {
@@ -76,11 +81,11 @@ export class TaskDispatcher {
         continue;
       }
 
-      let outcome: TaskOutcome;
+      let runResult: TaskOutcome | TaskSuspension;
       try {
-        outcome = await this.deps.runner.run({ lease, work });
+        runResult = await this.deps.runner.run({ lease, work });
       } catch (e) {
-        outcome = {
+        runResult = {
           lease: { taskId: lease.taskId, leaseId: lease.leaseId, generation: lease.generation },
           status: "rejected",
           retryable: false,
@@ -89,6 +94,14 @@ export class TaskDispatcher {
           traceId: work.scope.traceId,
         };
       }
+
+      // TaskSuspension：不 commit、不触发 observer；由装配层 onSuspension 决定持久化/释放。
+      if (isTaskSuspensionStructurallyValid(runResult)) {
+        result.skipped++;
+        await this.deps.onSuspension?.({ lease, work, suspension: runResult });
+        continue;
+      }
+      const outcome = runResult;
 
       result.ran++;
       const event: TaskOutcomeObserverEvent = {

@@ -7,6 +7,7 @@ import { buildDoc } from "@away_from/pth-kernel-interpreter";
 import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
 import { buildToolSchemas } from "@away_from/pth-kernel-interpreter";
 import { pthConfig } from "@away_from/pth-config";
+import type { CommandGateway, CommandSecurityContext } from "./execution-command.js";
 
 export interface AgentToolResult {
   ok: boolean;
@@ -19,6 +20,8 @@ export interface AgentToolResult {
   truncated?: boolean;
   /** 输出模式标记（quiet 时轨迹记 [quiet]——agent-loop 用） */
   quiet?: boolean;
+  /** TCE P3：await-approval 的 human request id（code=HUMAN_APPROVAL_PENDING 时携带） */
+  requestId?: string;
 }
 
 export interface AgentToolCtx {
@@ -36,6 +39,10 @@ export interface AgentToolCtx {
   /** 任务级能力装配（Phase 3 条目 12——cache 收敛）：runPtcProgram 统一注入 vm
    *  （task-loop → agent-loop → 本 ctx 透传；与越界预检同一机制） */
   ptcCaps?: Record<string, unknown>;
+  /** TCE P3：Command 层注入（语言工具先过 CommandGateway 授权；缺省 = legacy 直执行） */
+  commandGateway?: CommandGateway;
+  /** TCE P3：Command 安全上下文（agent-loop 从任务身份盖章） */
+  commandContext?: CommandSecurityContext;
 }
 
 export type AgentTool = (ctx: AgentToolCtx, args: Record<string, unknown>) => Promise<AgentToolResult>;
@@ -108,6 +115,28 @@ function applyOutputMode(r: AgentToolResult, mode: unknown): AgentToolResult {
   return r; // 未知模式按 default
 }
 
+/**
+ * TCE P3：语言工具先过 CommandGateway 授权（若注入）。
+ * 返回 ok:true 放行；deny/await-approval 直接转 AgentToolResult 错误（await 用 code 透传）。
+ */
+async function authorizeViaCommandGateway(
+  ctx: AgentToolCtx,
+  tool: string,
+  args: Record<string, unknown>,
+): Promise<{ ok: true } | { ok: false; error: string; code?: string; requestId?: string }> {
+  if (!ctx.commandGateway || !ctx.commandContext) return { ok: true };
+  const decision = await ctx.commandGateway.decide({
+    surface: "agent-tool",
+    toolCall: { tool, args },
+    ctx: ctx.commandContext,
+  });
+  if (decision.kind === "deny") return { ok: false, error: decision.reason };
+  if (decision.kind === "await-approval") {
+    return { ok: false, error: "HUMAN_APPROVAL_PENDING", code: "HUMAN_APPROVAL_PENDING", requestId: decision.requestId };
+  }
+  return { ok: true };
+}
+
 // ─── 生产核（dev 空间）辅助（2026-08-11 探索核/生产核分立）───
 
 /** 产物路径校验（任务工作区白名单）：相对路径、拒绝绝对/穿越——与 fs.task 同规则 */
@@ -157,21 +186,30 @@ async function debugCall(ctx: AgentToolCtx, op: string, body: Record<string, unk
 
 /** 工具表（元工具——id → 执行器） */
 export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
-  "python.run": async ({ kernel, space }, args) => {
+  "python.run": async (ctx, args) => {
+    const auth = await authorizeViaCommandGateway(ctx, "python.run", args);
+    if (!auth.ok) return { ok: false, error: auth.error, code: auth.code };
+    const { kernel, space } = ctx;
     const r = await kernel.python.execute(str(args, "code"), { exec: "program", ...(space ? { space } : {}) });
     if (!r.ok) return { ok: false, error: r.error?.message ?? "python execute failed" };
     const value = JSON.stringify(r.value ?? null);
     return applyOutputMode({ ok: true, value: r.value, stdout: truncate(value, 2000).text }, args["mode"]);
   },
 
-  "python.eval": async ({ kernel, space }, args) => {
+  "python.eval": async (ctx, args) => {
+    const auth = await authorizeViaCommandGateway(ctx, "python.eval", args);
+    if (!auth.ok) return { ok: false, error: auth.error, code: auth.code };
+    const { kernel, space } = ctx;
     const r = await kernel.python.execute(str(args, "code"), { exec: "single", ...(space ? { space } : {}) });
     if (!r.ok) return { ok: false, error: r.error?.message ?? "python eval failed" };
     const value = JSON.stringify(r.value ?? null);
     return applyOutputMode({ ok: true, value: r.value, stdout: truncate(value, 2000).text }, args["mode"]);
   },
 
-  "bash.run": async ({ kernel, space }, args) => {
+  "bash.run": async (ctx, args) => {
+    const auth = await authorizeViaCommandGateway(ctx, "bash.run", args);
+    if (!auth.ok) return { ok: false, error: auth.error, code: auth.code };
+    const { kernel, space } = ctx;
     const r = await kernel.bash.execute(str(args, "command"), ...(space ? [{ space }] : []));
     const out = truncate(r.stdout ?? "", 4000);
     // 2026-08-15 筛查 HIGH-1：失败时把 stderr/error 写回 AgentToolResult——
@@ -183,7 +221,10 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     );
   },
 
-  "bash.eval": async ({ kernel, space }, args) => {
+  "bash.eval": async (ctx, args) => {
+    const auth = await authorizeViaCommandGateway(ctx, "bash.eval", args);
+    if (!auth.ok) return { ok: false, error: auth.error, code: auth.code };
+    const { kernel, space } = ctx;
     const r = await kernel.bash.execute(str(args, "command"), ...(space ? [{ space }] : []));
     const out = truncate(r.stdout ?? "", 4000);
     const failDetail = r.ok ? undefined : r.error?.message ?? (r.stderr?.trim() ? r.stderr : "bash eval failed");
@@ -195,7 +236,10 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
 
   // 元命令拆分（2026-08-11 用户裁决）：ts.run = 程序执行（块包装——声明/多语句/控制流）；
   // ts.eval = 单表达式求值（return 包装——completion value 必回）。显式声明取代启发式猜测。
-  "ts.run": async ({ kernel, taskWorkspace, ptcCaps }, args) => {
+  "ts.run": async (ctx, args) => {
+    const auth = await authorizeViaCommandGateway(ctx, "ts.run", args);
+    if (!auth.ok) return { ok: false, error: auth.error, code: auth.code };
+    const { kernel, taskWorkspace, ptcCaps } = ctx;
     // PTC 统一执行缝（2026-08-14 A1 Phase 2——组装逻辑收敛进 ptc/runner；
     // Phase 3——caps 装配 + 越界预检进 runner）
     const { raw, assembled } = await runPtcProgram({ code: str(args, "code"), cwd: taskWorkspace ?? "/tmp", exec: "program", ts: kernel.ts, caps: ptcCaps });
@@ -206,7 +250,10 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     );
   },
 
-  "ts.eval": async ({ kernel, taskWorkspace, ptcCaps }, args) => {
+  "ts.eval": async (ctx, args) => {
+    const auth = await authorizeViaCommandGateway(ctx, "ts.eval", args);
+    if (!auth.ok) return { ok: false, error: auth.error, code: auth.code };
+    const { kernel, taskWorkspace, ptcCaps } = ctx;
     const { raw, assembled } = await runPtcProgram({ code: str(args, "code"), cwd: taskWorkspace ?? "/tmp", exec: "single", ts: kernel.ts, caps: ptcCaps });
     if (!raw.ok) return { ok: false, error: raw.error?.message ?? "ts eval failed", code: raw.error?.code };
     return applyOutputMode(
@@ -455,6 +502,8 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
 
   // done 由 agent-loop 拦截（不执行）
   done: async () => ({ ok: true, value: null, stdout: "done" }),
+  // pause 由 agent-loop 拦截（不执行；返回 TaskSuspension 信号）
+  pause: async () => ({ ok: true, value: null, stdout: "pause" }),
 };
 
 /**

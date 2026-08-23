@@ -130,7 +130,7 @@ describe("kernel persistent /sessions（P4）", () => {
     expect(reset.json()).toEqual({ ok: true });
 
     const after = await app.inject({ method: "POST", url: `/sessions/${sessionId}/execute`, headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json" }, payload: { cmd: "print(carry)" } });
-    expect(after.json()).toMatchObject({ exitCode: 1 });
+    expect(after.json()).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("NameError") });
   });
 
   it("release 幂等并归还池条目；released 后 execute → SESSION_EXPIRED", async () => {

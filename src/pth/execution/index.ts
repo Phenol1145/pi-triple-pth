@@ -2,6 +2,13 @@
  * execution/index.ts — 执行域公共 API（模块化 v2 P2-1）。
  */
 export * from "./execution-service.js";
+export * from "./execution-target-registry.js";
+export * from "./unified-execution-dispatcher.js";
+export * from "./command-gateway.js";
+export * from "./human-approval-gateway.js";
+export * from "./capability-policy.js";
+export * from "./internal-executor-registry.js";
+export * from "./internal-executor-adapters.js";
 export * from "./backend-registry.js";
 export * from "./local-exec-server.js";
 export * from "./backends/local-spawn-backend.js";

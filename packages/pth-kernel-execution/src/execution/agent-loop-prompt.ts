@@ -6,13 +6,12 @@ import { AGENT_CAPABILITY_DOC, toolsDescription, toolsForExecTool, toolSchemaFor
 import { spaceRegistry } from "@away_from/pth-kernel-interpreter";
 import { pthConfig } from "@away_from/pth-config";
 
-/** 执行面角色授权（2026-08-12 审计 HIGH-2 修复）：语言/生产工具需对应 capability——
- *  capabilities 声明了但未含所需 → 拒绝（未声明 = 全量兼容；ts 族为基础执行面不校验） */
-export const EXEC_TOOL_CAP: Record<string, string[]> = {
-  python: ["python"], bash: ["bash"],
-  dev: ["c", "dev", "python", "bash"],   // dev.run/list 只读——验收角色（python/bash）可用
-  write: ["fs", "write"],
-};
+// EXEC_TOOL_CAP 单一事实源已抽到 exec-tool-cap.ts（Command 层共用纯函数）。
+export {
+  EXEC_TOOL_CAP,
+  execToolCapFor,
+  hasExecToolCapability,
+} from "./exec-tool-cap.js";
 
 /** 直觉别名（2026-08-13：模型对工具名的自然猜测——write_doc 幻视失败根因）——
  * 2026-08-15 审计 LOW：别名归一提前到门控/护栏之前（asp 空间门控、execTool 授权
@@ -70,6 +69,8 @@ export function taskToolUnion(actionTools: string[] | undefined, opts: { asp: bo
   }
   const done = toolSchemaFor("done");
   if (done) byName.set("done", done);
+  const pause = toolSchemaFor("pause");
+  if (pause) byName.set("pause", pause);
   return [...byName.values()];
 }
 

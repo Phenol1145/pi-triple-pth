@@ -3,9 +3,10 @@ import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
 import { BatchManager, toKernelActivityEvent, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles, checkTaskRouting, routeTaskRole, parseWorkerRoleRecovery, parseSpaceRecovery, ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES, PROFESSIONAL_ROLES, TaskResolver, evaluateAndScale, loadScalerConfig, registerSystemTriggers, createKernelLogger } from "@away_from/pth-kernel-execution";
 import { getEventBus } from "@away_from/pth-kernel-interpreter";
-import { createPenetrationDiscoveryService } from "../tasking/index.js";
+import { createPenetrationDiscoveryService, TaskControlService, PgTaskQueries } from "../tasking/index.js";
 import { pthConfig } from "@away_from/pth-config";
 import type pg from "pg";
+import type { ExecutionBackendRegistry } from "../execution/index.js";
 
 export interface KernelRuntimeOptions {
   /** obs 观测请求解析器（batch obs-req → 主进程 metrics/batches 数据） */
@@ -21,6 +22,10 @@ export interface KernelRuntimeOptions {
   resolverIntervalMs?: number; // TaskResolver 解析轮询周期（默认 2s）
   /** 性能计量（SPEC L1）：batch kernel/llm 事件回调（main.ts 接 kernelMetrics） */
   onMetric?: (m: Record<string, unknown>) => void;
+  /** ExecutionTarget Matrix 装配输入：已有 backend registry（main 从 buildPthHost 传入） */
+  executionBackends?: ExecutionBackendRegistry;
+  /** 缺省按 PTH_CONFIG_STRICT=1 / NODE_ENV=production 决定；测试可覆盖 */
+  strictTargetRegistry?: boolean;
 }
 
 export interface KernelWatchdogEvent {
@@ -177,6 +182,8 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     buildDisciplineResolver(),
     { requireTenant: true },
   );
+  // 生命周期 P1：pause 巡检等任务控制操作（主进程侧；worker 侧另建同构实例）
+  const taskControl = new TaskControlService({ store: dataWorld.tasks, pool, queries: new PgTaskQueries(pool) });
   const assemblyLogger = createKernelLogger();
   const { ActivityHub } = await import("@away_from/pth-kernel-execution");
   const activityHub = new ActivityHub();
@@ -250,7 +257,54 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const resolver = new TaskResolver({ taskStore: dataWorld.tasks, pool });
   // kernel 直连通道（任务池纯化 D2）：调试/运维代码执行——不占任务池
   const { KernelExecChannel } = await import("@away_from/pth-kernel-execution");
-  const execChannel = new KernelExecChannel({ dataWorld });
+  // ExecutionTarget Matrix：装配 backend registry 时注入 Router + command target 执行适配。
+  let targetRegistry: import("@away_from/pth-contracts").ExecutionTargetRegistry | undefined;
+  let commandGateway: import("@away_from/pth-kernel-execution").CommandGateway | undefined;
+  let targetBackendExecutor: ((
+    target: import("@away_from/pth-contracts").ExecutionTargetDefinition,
+    req: { language: "python" | "bash" | "ts"; code: string; timeoutMs?: number },
+  ) => Promise<import("@away_from/pth-kernel-interpreter").InterpreterResult>) | undefined;
+  if (opts.executionBackends) {
+    const { buildExecutionTargetRegistry } = await import("../execution/index.js");
+    const strict = opts.strictTargetRegistry ?? (pthConfig().str("PTH_CONFIG_STRICT") === "1" || process.env.NODE_ENV === "production");
+    const built = buildExecutionTargetRegistry({ backendRegistry: opts.executionBackends, strict });
+    for (const warning of built.warnings) assemblyLogger?.warn?.(`[exec-target] ${warning}`);
+    targetRegistry = built.registry;
+    const { CommandGatewayImpl } = await import("../execution/index.js");
+    commandGateway = new CommandGatewayImpl({
+      targetRegistry: built.registry,
+      roleCapabilities: (roleId) => allKnownRoles().find((r) => r.id === roleId)?.capabilities,
+    });
+    targetBackendExecutor = async (target, req) => {
+      if (target.binding.type !== "execution-backend") {
+        throw new Error(`exec-target: ${target.id} 不是 command target`);
+      }
+      // 生命周期/TCE P3：tool-container 只收 external argv——language 代码直拼 bash -lc 是绕过白名单缺口。
+      if (target.profile === "dev-container") {
+        throw new Error(`exec-target: ${target.id} 是 tool-container——不接受 language 代码，请使用 external 命令（argv 白名单）`);
+      }
+      const backend = opts.executionBackends!.get(target.binding.backendId);
+      if (!backend) throw new Error(`exec-target: backend ${target.binding.backendId} 未注册`);
+      const argv = req.language === "python" ? ["python3", "-c", req.code] : ["bash", "-lc", req.code];
+      const result = await backend.execute({
+        cmd: argv,
+        timeoutMs: req.timeoutMs ?? 600_000,
+        maxStdoutBytes: 4 * 1024 * 1024,
+        maxStderrBytes: 4 * 1024 * 1024,
+        profile: target.profile === "engine" ? undefined : target.profile,
+      });
+      return {
+        ok: result.exitCode === 0 && !result.timedOut,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        durationMs: 0,
+        error: result.exitCode !== 0
+          ? { message: result.stderr || `exit code ${result.exitCode ?? "unknown"}` }
+          : undefined,
+      };
+    };
+  }
+  const execChannel = new KernelExecChannel({ dataWorld, targetRegistry, targetBackendExecutor, commandGateway });
 
   // 兼容性扩展装载（2026-08-09）：toolstore/extensions 扫描 → 角色注册到谱系——
   // 主进程路由（publish 时 routeTaskRole）与 fork 内认领共用 allWorkerRoles。扩展角色
@@ -429,6 +483,9 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     recoverStaleClaims: (timeoutMs) => dataWorld.tasks.recoverStaleClaims(timeoutMs),
     claimTimeoutMs,
     claimReapMs,
+    // 生命周期 P1：pause 超时/预算巡检
+    pauseSweep: () => taskControl.sweepExpiredPaused(),
+    pauseSweepMs: pthConfig().num("PTH_TASK_PAUSE_SWEEP_MS"),
     watchdogProbe: () => watchdog.probe(),
     watchdogIntervalMs: opts.watchdogIntervalMs ?? 30_000,
     resolverResolve: () => resolver.resolveLoop(),

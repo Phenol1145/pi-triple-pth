@@ -54,7 +54,7 @@ export class TaskLoop {
       setTaskDispatchContext?: (ctx: TaskDispatchContext | null) => void;
     };
     const payload = task.payload as
-      | { delivery?: TaskDispatchContext["delivery"]; dispatchWait?: TaskDispatchContext["dispatchWait"]; childResult?: TaskDispatchContext["childResult"] }
+      | { delivery?: TaskDispatchContext["delivery"]; dispatchWait?: TaskDispatchContext["dispatchWait"]; childResult?: TaskDispatchContext["childResult"]; childQuestion?: TaskDispatchContext["childQuestion"] }
       | undefined;
     // F3：domains/domainBinding 复用 task-work-item-reader（与 claim/query 同一解析口径），
     // 不再从 payload 手工解析。
@@ -70,6 +70,7 @@ export class TaskLoop {
       ...(domainBinding ? { domainBinding } : {}),
       dispatchWait: payload?.dispatchWait,
       childResult: payload?.childResult,
+      childQuestion: payload?.childQuestion,
     });
   }
 
@@ -158,6 +159,8 @@ export class TaskLoop {
         professionalArtifacts: this.deps.professionalArtifacts,
         professionalGrantService: this.deps.professionalGrantService,
         professionalGrantTtlMs: this.deps.professionalGrantTtlMs,
+        commandGateway: this.deps.commandGateway,
+        extraTools: this.deps.extraTools,
         onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {
@@ -243,6 +246,7 @@ export class TaskLoop {
         runner,
         observers,
         onObserverFailure: recordObserverFailure,
+        onSuspension: this.deps.onSuspension,
         // R4/P0-4：refine 的持久化 enqueue 作为 side-effect 随 commit 同事务提交。
         buildSideEffects: this.deps.refiner && sideEffectOutbox
           ? (evt) => buildRefineSideEffects({ kernel: this.deps.kernel, roleId: role.id }, evt)

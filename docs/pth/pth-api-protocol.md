@@ -59,6 +59,29 @@ PTH 内部错误统一为：
 ### Optimizer
 - `POST /api/v1/kernel/optimizer/apply`：应用建议；tenant 由认证派生。
 
+### Trigger 管理（增强）
+- `POST /api/v1/kernel/triggers` body 支持：
+  - `schedule: { everySec }`（定时源；与 `event` 至少其一）
+  - `action: { type, params }`（原生 action；与 `task` 至少其一）
+  - `task.template + task.params`（模板任务）
+  - `task.retask: true`（重发布原任务）
+  - `task.flow: FlowSpec`（完整 FlowSpec，由 TaskResolver 执行）
+- 注册期校验：`task`/`action` 至少其一；`event`/`schedule` 至少其一；flow 经 `validateFlow`；任务路由经 `checkTaskRouting`。
+
+### Human Review（N25）
+- `POST /api/v1/human-requests`：创建人工请求，任务进入 `waiting-human`。
+  - body：`{taskId, kind, title, body, assignedTo?, policySelector?, expiresAt?, idempotencyKey?}`
+  - `tenantId`/`principalId`/`createdBy` 由服务端 auth 盖章，body 不得自报。
+- `GET /api/v1/human-requests`：列表（`?status=&limit=`，tenant 域内）。
+- `GET /api/v1/human-requests/:id`：详情。
+- `POST /api/v1/human-requests/:id/responses`：`{decision: "approved"|"rejected", reason?, idempotencyKey?}`；CAS + 幂等。
+- `POST /api/v1/human-requests/:id/cancel`：取消请求并把任务回 `pending`。
+
+### Notebook execute（ExecutionTarget）
+- `POST /api/v1/kernel/notebook/execute` body 新增 `target?: string | null`。
+- `target` 来自 pi-kernel cell magic（`%%python sandbox` / `%%bash local-lean` / `%%ts`）；缺省按语言默认 ExecutionTarget（python/bash→sandbox，ts→engine-ts）。
+- 响应新增 `target?: string`（实际命中的 ExecutionTarget id，观测用）。
+
 ## 6. SSE
 
 - `GET /api/v1/observe/runtime/events`：`text/event-stream`；事件为 JSON 信封 `{seq,type,data,terminal?,timestamp}`。
@@ -74,3 +97,10 @@ PTH 内部错误统一为：
 
 - `test/pth-contracts/console-api-contract.test.ts` 校验 Console OpenAPI ↔ 实现。
 - PTH OpenAPI 子集在 `docs/pth/pth-console-openapi.json`；新增 Console 消费的 PTH 路由必须同时更新该文件与测试。
+
+## 2026-08 新增路由
+
+- `POST /api/v1/kernel/tasks/:id/answer`：人工回答 paused 任务。
+- `GET /api/v1/kernel/tasks?status=paused`：待回答问题箱。
+- `POST /api/v1/human-requests` 及响应/取消：通用人工审核（详见 [workflow-trigger-human-review-correction-plan](workflow-trigger-human-review-correction-plan.md)）。
+- `POST /api/v1/kernel/notebook/execute`：ExecutionTarget 路由（详见 [execution-target-matrix-plan](execution-target-matrix-plan.md)）。

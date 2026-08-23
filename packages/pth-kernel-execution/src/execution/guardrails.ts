@@ -84,6 +84,7 @@ export const GUARD_DEFS: Record<string, ConsecutiveGuardDef> = {
   "empty-done": { id: "empty-done", limitKey: "PTH_GUARD_EMPTY_DONE_LIMIT", limitDefault: 3, mode: "hard" },
   "empty-reply": { id: "empty-reply", limitKey: "PTH_GUARD_EMPTY_REPLY_LIMIT", limitDefault: 3, mode: "hard" },
   "unknown-tool": { id: "unknown-tool", limitKey: "PTH_GUARD_UNKNOWN_TOOL_LIMIT", limitDefault: 3, mode: "hard" },
+  "route-drift": { id: "route-drift", limitKey: "PTH_GUARD_ROUTE_DRIFT_LIMIT", limitDefault: 3, guideAt: 1, mode: "soft" },
 };
 
 /**

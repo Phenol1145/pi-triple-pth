@@ -23,7 +23,9 @@ import { loadKernelConfig } from "@away_from/pth-kernel-interpreter";
 import { createLlmFn, type LlmFn } from "@away_from/pth-kernel-interpreter";
 import { createToolstore, type Toolstore } from "@away_from/pth-kernel-interpreter";
 import type { DataWorldAccess } from "@away_from/pth-kernel-storage";
+import type { ExecutionTargetDefinition, ExecutionTargetRegistry, NotebookLanguage } from "@away_from/pth-contracts";
 import { pthConfig } from "@away_from/pth-config";
+import type { CommandGateway, CommandSecurityContext } from "./execution/execution-command.js";
 
 export interface ExecRequest {
   code: string;
@@ -48,6 +50,8 @@ export interface NotebookCellRequest {
   /** 缺省新建 session 并返回；携带则续用该 session 的 kernel 状态 */
   sessionId?: string;
   timeoutMs?: number;
+  /** ExecutionTarget id（cell magic 声明）；缺省按语言默认路由 */
+  target?: string | null;
 }
 
 export interface NotebookCellResult {
@@ -58,6 +62,8 @@ export interface NotebookCellResult {
   error?: string;
   durationMs: number;
   sessionId: string;
+  /** 实际命中的 ExecutionTarget id（观测用） */
+  target?: string;
 }
 
 type ExecKernel = { ts: Interpreter; abort(): Promise<void> };
@@ -75,6 +81,12 @@ export interface ExecChannelDeps {
   sessionTtlMs?: number;
   /** 回收扫描周期（默认 60s——测试可缩短） */
   sweepMs?: number;
+  /** ExecutionTarget 注册表（装配层注入；缺省=legacy 写死路由） */
+  targetRegistry?: ExecutionTargetRegistry;
+  /** 一次性 execution-backend 执行适配（local/tool/jupyter；缺省=未接线，显式 command target 会拒绝） */
+  targetBackendExecutor?: (target: ExecutionTargetDefinition, req: { language: NotebookLanguage; code: string; timeoutMs?: number }) => Promise<InterpreterResult>;
+  /** TCE P3：Command 层注入（缺省保留 legacy 路径；注入后 notebook cell 先过 CommandGateway） */
+  commandGateway?: CommandGateway;
 }
 
 export class KernelExecChannel {
@@ -171,14 +183,73 @@ export class KernelExecChannel {
     if (typeof req.code !== "string" || req.code.length === 0) {
       throw new Error("exec-channel: notebook code required");
     }
-    const sid = req.sessionId || randomUUID();
+
+    // TCE P3：注入 CommandGateway 时，notebook cell 先过 Command 层（目标解析/权限/自批准）。
+    let effectiveReq = req;
+    if (this.deps.commandGateway) {
+      const ctx: CommandSecurityContext = { principalId: "engine:notebook-exec-channel", tenantId: "system", roleId: "developer" };
+      const decision = await this.deps.commandGateway.decide({
+        surface: "notebook",
+        cell: { language: req.language, code: req.code, target: req.target ?? null, sessionId: req.sessionId, timeoutMs: req.timeoutMs },
+        ctx,
+      });
+      if (decision.kind === "deny") throw new Error(decision.reason);
+      if (decision.kind === "await-approval") throw new Error("exec-channel: notebook 不应 await-approval（人类自批准）");
+      const command = decision.command;
+      if (command.kind === "language" && command.target) {
+        effectiveReq = { ...req, target: command.target };
+      }
+    }
+
+    // ExecutionTarget 路由（装配层注入后启用；未注入=legacy 写死路径）。
+    let targetId: string | undefined;
+    if (this.deps.targetRegistry) {
+      const { resolveNotebookTarget } = await import("./execution/notebook-target-router.js");
+      const { target } = resolveNotebookTarget(this.deps.targetRegistry, effectiveReq.language, effectiveReq.target ?? null);
+      targetId = target.id;
+
+      // Phase 2 结构断言（defense-in-depth）：tool-container 只收 external argv，不接受 language 代码。
+      if (target.profile === "dev-container") {
+        throw new Error(`exec-channel: ExecutionTarget ${target.id} 是 tool-container——不接受 language 代码，请使用 external 命令（argv 白名单）`);
+      }
+
+      // 一次性 command target（local/tool/jupyter）：经 targetBackendExecutor 执行。
+      if (target.binding.type === "execution-backend") {
+        if (!this.deps.targetBackendExecutor) {
+          throw new Error(`exec-channel: ExecutionTarget ${target.id} 需要 targetBackendExecutor（装配层未注入）`);
+        }
+        const r = await this.deps.targetBackendExecutor(target, {
+          language: effectiveReq.language,
+          code: effectiveReq.code,
+          timeoutMs: effectiveReq.timeoutMs,
+        });
+        return {
+          ok: r.ok,
+          ...(r.value !== undefined ? { value: r.value } : {}),
+          ...(r.stdout !== undefined ? { stdout: r.stdout } : {}),
+          ...(r.stderr !== undefined ? { stderr: r.stderr } : {}),
+          ...(r.error !== undefined ? { error: r.error.message } : {}),
+          durationMs: r.durationMs,
+          sessionId: effectiveReq.sessionId ?? "",
+          target: target.id,
+        };
+      }
+
+      // 目前仅支持 sandbox persistent session；其他 execution-session target 明确拒绝。
+      if (target.binding.type === "execution-session" && target.binding.backendId !== "sandbox") {
+        throw new Error(`exec-channel: execution-session target ${target.id} 尚未支持（当前仅 sandbox）`);
+      }
+      // engine-internal 与 sandbox 都继续走 KernelManager（ts 在 engine 内，python/bash 走 sandbox-kernel）。
+    }
+
+    const sid = effectiveReq.sessionId || randomUUID();
     let session = this.notebookSessions.get(sid);
     if (!session) {
       session = { manager: this.createManager(), lastUsed: Date.now() };
       this.notebookSessions.set(sid, session);
     }
     session.lastUsed = Date.now();
-    const r = await session.manager.execute(req.language, req.code, { timeoutMs: req.timeoutMs });
+    const r = await session.manager.execute(effectiveReq.language, effectiveReq.code, { timeoutMs: effectiveReq.timeoutMs });
     return {
       ok: r.ok,
       ...(r.value !== undefined ? { value: r.value } : {}),
@@ -187,6 +258,7 @@ export class KernelExecChannel {
       ...(r.error !== undefined ? { error: r.error.message } : {}),
       durationMs: r.durationMs,
       sessionId: sid,
+      ...(targetId ? { target: targetId } : {}),
     };
   }
 

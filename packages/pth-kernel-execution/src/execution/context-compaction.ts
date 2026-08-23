@@ -88,6 +88,21 @@ export const COT_TEMPLATE: CompactionTemplate = {
 （哪些步骤是多余的/可省的——诚实的自我审计）`,
 };
 
+/** 续跑模板（任务中压缩——保留目标/事实/状态/待办/下一步） */
+export const CONTINUATION_TEMPLATE: CompactionTemplate = {
+  id: "continuation",
+  structure: `## 目标
+（北极星目标——原样保留，不转述）
+## 已确认事实
+（已经确认的结论/数据/产物——后续不再重复验证）
+## 当前状态
+（进度：已完成 / 进行中 / 卡在哪）
+## 未完成事项
+（剩余步骤 / 待办）
+## 下一步
+（紧接的下一步动作）`,
+};
+
 export interface CompactionResult {
   text: string;
   usage?: { inputTokens?: number; outputTokens?: number };

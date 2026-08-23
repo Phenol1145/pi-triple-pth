@@ -67,6 +67,7 @@ function createTaskFs(resolve: (rel: string) => string): Record<string, unknown>
 export interface TaskDispatchPort {
   delegate(input: TaskDelegateInput, caller: TaskDispatchContext, scope: TenantScope): Promise<TaskDelegateResult>;
   awaitTask(input: TaskAwaitInput, caller: TaskDispatchContext, scope: TenantScope): Promise<TaskAwaitResult>;
+  answer(input: { taskId: string; answer: string }, caller: TaskDispatchContext, scope: TenantScope): Promise<{ ok: true }>;
 }
 
 /**
@@ -337,13 +338,26 @@ export function buildCapabilities(deps: {
               };
               return deps.taskControl!.awaitTask(input, ctx, scope);
             }),
+            answer: wrapValidated("tasks.answer", async (input: { taskId: string; answer: string }) => {
+              const ctx = deps.taskContext?.current;
+              if (!ctx || !ctx.taskId || !ctx.roleId) {
+                throw new PtcContractError("tasks.answer", "任务上下文未就绪——tasks.answer 仅可在任务程序内调用");
+              }
+              const scope: TenantScope = {
+                tenantId: ctx.tenantId,
+                principalId: ctx.worker ? `worker:${ctx.worker.workerId}` : `worker:${ctx.roleId}`,
+                roles: [ctx.roleId],
+                traceId: `task:${ctx.taskId}`,
+              };
+              return deps.taskControl!.answer(input, ctx, scope);
+            }),
             /** W8 P2：挂起重跑续接原语——读取本任务已回流的 childResult/等待登记（task-loop 盖章） */
             resume: wrapValidated("tasks.resume", async () => {
               const ctx = deps.taskContext?.current;
               if (!ctx || !ctx.taskId) {
                 throw new PtcContractError("tasks.resume", "任务上下文未就绪——tasks.resume 仅可在任务程序内调用");
               }
-              return { waiting: ctx.dispatchWait ?? {}, results: ctx.childResult ?? {} };
+              return { waiting: ctx.dispatchWait ?? {}, results: ctx.childResult ?? {}, questions: ctx.childQuestion ?? {} };
             }),
             // 0.16.3 穿透原语：仅装配了 penetration 端口时注入（嵌套子 kernel 无此端口——深度限 1）
             ...(deps.penetration

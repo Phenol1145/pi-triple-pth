@@ -141,6 +141,7 @@ export const perfExtension: TsReplExtension = {
               createdBy: `perf-strategy:${s.id}`,
               tags: r.tags,
               workMode: r.workMode,
+              ...(r.goal ? { goal: r.goal } : {}),
               payload: {
                 ...(r.role ? { flow: { stages: [{ task: { role: r.role } }] } } : {}),
                 ...r.payload,

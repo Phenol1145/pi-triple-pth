@@ -1,8 +1,12 @@
+/**
+ * 冻结原型（2026-08-22）：依赖 AgentEngine，不进入 active 路径；
+ * 待 AgentEngine 独立化后清理或改造。active workflow/human-review 禁止新增依赖。
+ */
 import type { Redis } from "ioredis";
-import type { AgentEngine } from "../core/index.js";
+import type { AgentEngine } from "../../core/index.js";
 import type { SessionStore } from "@away_from/pth-kernel-storage";
 import type { Logger } from "@away_from/infra";
-import type { Metrics } from "../observability/index.js";
+import type { Metrics } from "../../observability/index.js";
 import type { WorkflowDefinition, WorkflowState, WorkflowStep } from "./types.js";
 
 export class WorkflowOrchestrator {

@@ -80,6 +80,8 @@ export interface PublishInput {
   workMode?: WorkMode;
   /** N33 复验收 P0-4：tenant-scoped 原生发布幂等键；重复发布返回首次接受的行。 */
   idempotencyKey?: string;
+  /** 生命周期 P0：入口任务根目标（可选；显式参数 > 模板默认——服务端盖进 delivery.goal）。 */
+  goal?: string;
 }
 
 export interface TaskStore {
@@ -151,7 +153,7 @@ export class PgTaskStore implements TaskStore {
     // W8 P0 入口盖章（用户裁决 Q2：仅外部入口）——无路由策略注入（测试/直连装配）时无法
     // 确定 assignedRole，不盖章降级（不阻断兼容性；生产 gateway 恒注入 routing）。
     const basePayload = input.deliveryMode === "entry" && assignedRole
-      ? attachEntryDelivery(input.payload, id, assignedRole)
+      ? attachEntryDelivery(input.payload, id, assignedRole, input.goal)
       : input.payload ?? {};
     // K2 Phase 2：非 delegate 通道由 disciplineResolver 解析并机读盖章 domains/domainBinding；
     // delegate 通道不重跑 resolver——子任务继承父 payload 的 domains/domainBinding（父 capability 传入）。

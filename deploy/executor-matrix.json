@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "sandbox",
+      "kind": "kernel-pool",
+      "profile": "sandbox-untrusted",
+      "languages": ["python", "bash"],
+      "modes": { "sync": true, "stream": false, "interactive": false, "persistent": true },
+      "session": { "type": "persistent-repl", "scope": "notebook", "ttlMs": 1800000 },
+      "capabilities": { "richMedia": true, "streaming": false, "cancel": true, "pathMapping": false },
+      "routing": { "defaultFor": ["python", "bash"], "userSelectable": false, "requiresApproval": false },
+      "binding": { "type": "execution-session", "backendId": "sandbox" }
+    },
+    {
+      "id": "engine-ts",
+      "kind": "engine-internal",
+      "profile": "engine",
+      "languages": ["ts"],
+      "modes": { "sync": true, "stream": false, "interactive": false, "persistent": false },
+      "session": { "type": "one-shot" },
+      "capabilities": { "richMedia": false, "streaming": false, "cancel": true, "pathMapping": false },
+      "routing": { "defaultFor": ["ts"], "userSelectable": false, "requiresApproval": false },
+      "binding": { "type": "engine-internal", "interpreter": "ts" }
+    }
+  ]
+}

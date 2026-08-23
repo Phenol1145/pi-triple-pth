@@ -69,7 +69,7 @@
         "PTH_AGENT_LLM_TIMEOUT_MS": "${PTH_AGENT_LLM_TIMEOUT_MS:-90000}",
         "PTH_AGENT_TIMEOUT_MS": "${PTH_AGENT_TIMEOUT_MS:-10800000}",
         "PTH_AGENT_MODE": "${PTH_AGENT_MODE:-lazy}",
-        "PTH_ASP_MODE": "${PTH_ASP_MODE:-on}",
+        "PTH_ASP_MODE": "${PTH_ASP_MODE:-off}",
         "SANDBOX_DEGRADED_THRESHOLD": "${SANDBOX_DEGRADED_THRESHOLD:-3}"
       },
       "volumes": [

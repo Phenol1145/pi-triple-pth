@@ -22,7 +22,7 @@ export interface TaskDispatchNotifierDeps {
   logger?: (msg: string) => void;
 }
 
-const TERMINAL_EVENT_KINDS = new Set(["task.submit", "task.reject", "task.done", "task.failed"]);
+const HANDLED_EVENT_KINDS = new Set(["task.submit", "task.reject", "task.done", "task.failed", "task.pause"]);
 const NON_TERMINAL_STATUSES = "status NOT IN ('completed','rejected')";
 
 function summarize(result: unknown): string | undefined {
@@ -42,7 +42,7 @@ export class TaskDispatchNotifier {
   start(): void {
     if (this.unsubscribe) return;
     this.unsubscribe = this.deps.activityHub.subscribe((e) => {
-      if (!TERMINAL_EVENT_KINDS.has(e.kind ?? "") || typeof e.taskId !== "string" || e.taskId === "") return;
+      if (!HANDLED_EVENT_KINDS.has(e.kind ?? "") || typeof e.taskId !== "string" || e.taskId === "") return;
       void this.handle(e.taskId).catch((err: Error) => {
         this.deps.logger?.(`[task-dispatch-notifier] 回流失败 task=${e.taskId}: ${err.message}`);
       });
@@ -66,7 +66,7 @@ export class TaskDispatchNotifier {
     const child = childRes.rows[0] as
       | { id: string; tenant_id: string; status: string; payload: Record<string, unknown> | null }
       | undefined;
-    if (!child || (child.status !== "completed" && child.status !== "rejected")) return false;
+    if (!child || !["completed", "rejected", "paused"].includes(child.status)) return false;
 
     const childPayload = child.payload ?? {};
     const delivery = childPayload["delivery"] as TaskDelivery | undefined;
@@ -79,6 +79,35 @@ export class TaskDispatchNotifier {
     );
     const parent = parentRes.rows[0] as { id: string; tenant_id: string; status: string } | undefined;
     if (!parent || parent.status === "completed" || parent.status === "rejected") return false;
+
+    // paused：对称通道写 childQuestion（父重跑后 tasks.resume/answer 读取）
+    if (child.status === "paused") {
+      const q = (childPayload["pauseQuestion"] ?? {}) as {
+        question?: unknown; context?: unknown; askedAt?: unknown; askedBy?: unknown;
+      };
+      if (typeof q.question !== "string" || q.question.trim() === "") return false;
+      const entry = {
+        question: q.question,
+        ...(q.context !== undefined && typeof q.context === "object" && q.context !== null ? { context: q.context as Record<string, unknown> } : {}),
+        askedAt: typeof q.askedAt === "string" ? q.askedAt : new Date().toISOString(),
+        askedBy: typeof q.askedBy === "string" ? q.askedBy : "",
+      };
+      const updated = await this.deps.pool.query(
+        `UPDATE tasks SET
+           payload = (jsonb_set(
+             jsonb_set(COALESCE(payload, '{}'::jsonb), '{childQuestion}', COALESCE(payload->'childQuestion', '{}'::jsonb), true),
+             ARRAY['childQuestion',$3]::text[], $4::jsonb, true))
+             #- ARRAY['dispatchWait',$3]::text[],
+           updated_at = now()
+         WHERE id = $1 AND tenant_id = $2 AND ${NON_TERMINAL_STATUSES}`,
+        [parentTaskId, child.tenant_id, childTaskId, JSON.stringify(entry)],
+      );
+      const did = (updated.rowCount ?? 0) > 0;
+      if (did) {
+        this.deps.logger?.(`[task-dispatch-notifier] child=${childTaskId} → parent=${parentTaskId}（paused 问题回流）`);
+      }
+      return did;
+    }
 
     const result = childPayload["result"] ?? null;
     const artifactRef = delivery?.artifactRef ?? null;

@@ -38,6 +38,10 @@ export interface WorkerScorecard {
   };
   /** 完成状态与警告（maxSteps/重复终止等） */
   finish?: { ok: boolean; warning?: string };
+  /** 生命周期 P1：pause 工具调用次数（spec-ambiguous 信号） */
+  pauseCount?: number;
+  /** 生命周期 P3：循环内压缩次数（compression-heavy 信号） */
+  compressionCount?: number;
 }
 
 /**
@@ -78,6 +82,8 @@ export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {
     gatedActions: 0,
     aspNav: { cds: 0, indexes: 0 },
     guards: { hits: {}, guide: {}, soft: {}, hard: {} },
+    pauseCount: 0,
+    compressionCount: 0,
   };
   for (const e of events) {
     if (e.type === "llm-call") {
@@ -91,6 +97,9 @@ export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {
       sc.toolFreq[e.tool] = (sc.toolFreq[e.tool] ?? 0) + 1;
       if (e.tool === "asp_cd") sc.aspNav.cds++;
       if (e.tool === "asp_index" || e.tool === "memory_index") sc.aspNav.indexes++;
+      if (e.tool === "pause") sc.pauseCount = (sc.pauseCount ?? 0) + 1;
+    } else if (e.type === "compression") {
+      sc.compressionCount = (sc.compressionCount ?? 0) + 1;
     } else if (e.type === "tool-result") {
       if (!e.ok) {
         sc.failedActions++;

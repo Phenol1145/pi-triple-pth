@@ -120,6 +120,47 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // PTH_PG_POOL_MAX 可覆盖（batch 数多时 PG 连接总量 = pool_max × batches 需核算）
   const pool = await createPgPool({ connectionString: deps.databaseUrl, max: pthConfig().num("PTH_PG_POOL_MAX") });
   await applySchema(pool);
+  // TCE P5：先加载 tool manifest（per-tool schema/argvTemplate；缺失放行空）
+  let manifestTools: import("../tools/index.js").ToolDefinition[] = [];
+  const toolDomain = new Map<string, string>();
+  let extraTools: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }> | undefined;
+  try {
+    const { validateToolManifest, buildToolLayerFromManifest } = await import("../tools/index.js");
+    const manifestPath = resolvePath(pthConfig().str("PTH_TOOL_TOOLS_DIR") || "deploy/tool-containers", "tool-manifest.json");
+    const raw = JSON.parse(await readFile(manifestPath, "utf8"));
+    const manifest = validateToolManifest(raw);
+    manifestTools = Object.values(manifest.domains).flatMap((d) => d.tools);
+    for (const [domain, d] of Object.entries(manifest.domains)) {
+      for (const t of d.tools) toolDomain.set(t.name, domain);
+    }
+    extraTools = buildToolLayerFromManifest(manifest);
+  } catch { /* manifest 未就绪/不可解析——工具面保持既有静态面 */ }
+
+  // TCE P3/P5：worker 侧 CommandGateway（语言工具授权 + per-tool 翻译；失败降级 legacy 直执行）
+  let commandGateway: import("@away_from/pth-kernel-execution").CommandGateway | undefined;
+  try {
+    const { buildExecutionTargetRegistry, CommandGatewayImpl, createHumanApprovalGateway } = await import("../execution/index.js");
+    const { createToolTranslator } = await import("../tools/index.js");
+    const built = buildExecutionTargetRegistry({ backendRegistry: host.backends, strict: isStrictExecutionEnv() });
+    const { PgHumanInteractionService, PgHumanInteractionRepository } = await import("../interaction/index.js");
+    const humanService = new PgHumanInteractionService(new PgHumanInteractionRepository(pool));
+    commandGateway = new CommandGatewayImpl({
+      targetRegistry: built.registry,
+      roleCapabilities: (roleId) => knownRoleById(roleId)?.capabilities,
+      humanApprovalGateway: createHumanApprovalGateway(humanService),
+      toolTranslator: createToolTranslator({
+        tools: manifestTools,
+        resolveTarget: (toolName) => {
+          const domain = toolDomain.get(toolName);
+          if (!domain) return undefined;
+          const backendId = `tools-${domain}`;
+          return host.backends.get(backendId) !== undefined ? backendId : undefined;
+        },
+      }),
+    });
+  } catch (e) {
+    batchLogger.warn(`[command-gateway] 装配失败（放行 legacy）: ${(e as Error).message}`);
+  }
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化）
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——batch 子进程与 assembly 同源。
   // K3：catalog 快照与 K2 resolver 同源（同一 builder 产物），供 KnowledgeContextProvider ancestors 展开。
@@ -950,6 +991,40 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const loop = new BatchTaskLoop({
       kernel, role: effectiveRole, taskStore: dataWorld.tasks, workspaceMgr, refiner, optimizer, logger: batchLogger,
       repository: taskRepository,
+      // 生命周期 P1：publisher-question 落 paused 状态（human suspension 留待 W3 接线）
+      onSuspension: async ({ lease, work, suspension }) => {
+        if (suspension.kind === "human") {
+          // TCE P3：等待人工批准——释放 lease，任务进入 waiting-human（human_requests 已由 CommandGateway 创建）。
+          await pool.query(
+            `UPDATE tasks SET
+               status = 'waiting-human',
+               claimed_by = NULL,
+               claimed_at = NULL,
+               lease_id = NULL,
+               lease_expires_at = NULL,
+               updated_at = now()
+             WHERE id = $1 AND lease_id = $2 AND lease_generation = $3 AND status = 'claimed'`,
+            [lease.taskId, lease.leaseId, lease.generation],
+          );
+          return;
+        }
+        if (suspension.kind !== "publisher-question") return;
+        const ok = await taskControl.pause({ lease, work, suspension });
+        if (!ok) {
+          batchLogger.warn(`[taskloop] pause 落库失败（认领已被回收/跨租户？task=${lease.taskId}）`);
+          return;
+        }
+        try {
+          process.send?.({ kind: "activity", activity: {
+            kind: "task.pause", taskId: lease.taskId, role: effectiveRole.id,
+            detail: suspension.question.slice(0, 100), batchPid: process.pid, at: Date.now(),
+          } });
+        } catch { /* IPC 不可用 */ }
+      },
+      // TCE P3：语言工具先过 CommandGateway 授权
+      commandGateway,
+      // TCE P5：per-tool 工具面（manifest 策展）
+      extraTools,
       // N28 T2/T6：feasibility 依赖透传（off 全部 undefined）。
       replica,
       memoryDirectory: deps.memoryDirectory,

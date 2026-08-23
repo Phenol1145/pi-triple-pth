@@ -123,9 +123,12 @@ class KernelPoolSessionBackend implements ExecutionSessionBackend {
       const truncated = result.truncated && (result.truncated.field === "stdout" || result.truncated.field === "stderr")
         ? result.truncated as ExecutionResult["truncated"]
         : undefined;
+      // 透传 Python/Bash kernel 的结构化错误到 stderr：wire 只有 stderr 字段，
+      // 否则 NameError 等会被映射成空 stderr + exit 1（Jupyter 看到 sandbox kernel exit 1）。
+      const stderr = result.stderr || (result.ok ? "" : (result.error?.message ?? ""));
       return {
         stdout: result.stdout ?? "",
-        stderr: result.stderr ?? "",
+        stderr,
         exitCode: result.ok ? 0 : 1,
         timedOut: false,
         ...(result.value !== undefined ? { value: result.value } : {}),

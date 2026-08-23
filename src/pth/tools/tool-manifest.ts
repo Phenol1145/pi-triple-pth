@@ -25,6 +25,10 @@ export interface ToolDefinition {
   hostOnly: boolean;
   /** 该工具支持的模式（按域能力约束） */
   modes: ToolMode[];
+  /** TCE P5：per-tool 参数 JSON Schema（严格 per-tool schema——禁止通用 argv 透传）。 */
+  argsSchema?: Record<string, unknown>;
+  /** TCE P5：argv 模板（{{param}} 槽位；槽位必须 ⊆ argsSchema.properties）。 */
+  argvTemplate?: string[];
 }
 
 export interface DomainToolManifest {
@@ -66,7 +70,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function validateTool(raw: unknown, domain: ToolContainerDomain, seen: Set<string>): ToolDefinition {
   if (!isRecord(raw)) fail(`${domain} tool must be an object`);
   for (const key of Object.keys(raw)) {
-    if (!["name", "argv", "description", "engineVisible", "hostOnly", "modes"].includes(key)) {
+    if (!["name", "argv", "description", "engineVisible", "hostOnly", "modes", "argsSchema", "argvTemplate"].includes(key)) {
       fail(`${domain} tool ${String(raw.name)}: unknown field ${key}`);
     }
   }
@@ -94,6 +98,37 @@ function validateTool(raw: unknown, domain: ToolContainerDomain, seen: Set<strin
   }
   const modes = [...new Set(raw.modes as ToolMode[])];
 
+  // TCE P5：per-tool schema / argvTemplate 校验（fail-closed）
+  let argsSchema: Record<string, unknown> | undefined;
+  if (raw.argsSchema !== undefined) {
+    if (!isRecord(raw.argsSchema) || raw.argsSchema.type !== "object" || !isRecord(raw.argsSchema.properties)) {
+      fail(`${domain} tool ${raw.name}: argsSchema must be {type:"object", properties:{...}}`);
+    }
+    argsSchema = raw.argsSchema as Record<string, unknown>;
+  }
+  let argvTemplate: string[] | undefined;
+  if (raw.argvTemplate !== undefined) {
+    if (!Array.isArray(raw.argvTemplate) || raw.argvTemplate.length === 0 || raw.argvTemplate.some((a) => typeof a !== "string" || a.length === 0)) {
+      fail(`${domain} tool ${raw.name}: argvTemplate must be a non-empty array of strings`);
+    }
+    if (!argsSchema) {
+      fail(`${domain} tool ${raw.name}: argvTemplate requires argsSchema`);
+    }
+    const props = (argsSchema.properties ?? {}) as Record<string, unknown>;
+    for (const part of raw.argvTemplate as string[]) {
+      for (const m of part.matchAll(/\{\{([^}]+)\}\}/g)) {
+        if (!(m[1]! in props)) {
+          fail(`${domain} tool ${raw.name}: argvTemplate slot {{${m[1]}}} not in argsSchema.properties`);
+        }
+      }
+    }
+    argvTemplate = [...(raw.argvTemplate as string[])];
+  }
+
+  if (raw.hostOnly === true && raw.engineVisible === true) {
+    fail(`${domain} tool ${raw.name}: hostOnly tool must be engineVisible=false（不进入工具面）`);
+  }
+
   if (domain === "secrets") {
     if (raw.engineVisible !== false || raw.hostOnly !== true) {
       fail(`secrets tool ${raw.name} must be engineVisible=false hostOnly=true`);
@@ -108,6 +143,8 @@ function validateTool(raw: unknown, domain: ToolContainerDomain, seen: Set<strin
     name: raw.name,
     ...(argv ? { argv } : {}),
     ...(typeof raw.description === "string" ? { description: raw.description } : {}),
+    ...(argsSchema ? { argsSchema } : {}),
+    ...(argvTemplate ? { argvTemplate } : {}),
     engineVisible: raw.engineVisible as boolean,
     hostOnly: raw.hostOnly as boolean,
     modes,

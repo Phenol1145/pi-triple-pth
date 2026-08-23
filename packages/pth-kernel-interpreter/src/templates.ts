@@ -33,6 +33,8 @@ export interface TaskTemplate {
   renderKind?: "ts-code" | "natural-language";
   /** M0：code-owned Work Mode（缺省 run；系统/优化模板可显式 optimize/intake）。 */
   workMode?: WorkMode;
+  /** 生命周期 P0：模板默认根目标（可选；发布时显式 goal > 模板 goal——逐字传播防长任务漂移）。 */
+  goal?: string;
 }
 
 // ── 任务模板统一收口（A+，2026-08-16）────────────────────────────
@@ -49,12 +51,14 @@ export interface TemplateTaskSpec {
   tags?: string[];
   /** 显式 flow 角色（优先级高于 tags） */
   role?: string;
+  /** 生命周期 P0：显式根目标覆盖（优先级高于模板 goal；不传则回退模板 goal） */
+  goal?: string;
   /** 额外 payload（合并进 {template, params} 之后） */
   payload?: Record<string, unknown>;
 }
 
 export type TemplateTaskResolution =
-  | { ok: true; title: string; text: string; tags: string[]; role?: string; workMode: WorkMode; payload: Record<string, unknown> }
+  | { ok: true; title: string; text: string; tags: string[]; role?: string; goal?: string; workMode: WorkMode; payload: Record<string, unknown> }
   | { ok: false; code: "unknown-template" | "missing-params"; error: string; missing?: string[] };
 
 /** 事件变量注入：字符串 `{{key}}` 递归替换（缺失 → 空字符串——与 trigger 旧语义一致） */
@@ -95,12 +99,15 @@ export function resolveTemplateTask(
   const role = typeof spec.role === "string" && spec.role.trim() !== "" ? spec.role.trim() : undefined;
   const defaultTitle = typeof tpl.title === "function" ? tpl.title(params) : (tpl.title ?? `[${tpl.id}] ${tpl.name}`);
   const title = spec.title !== undefined ? String(interpolateEventVars(spec.title, vars)) : defaultTitle;
+  const explicitGoal = typeof spec.goal === "string" && spec.goal.trim() !== "" ? spec.goal.trim() : undefined;
+  const goal = explicitGoal ?? tpl.goal;
   return {
     ok: true,
     title,
     text,
     tags,
     ...(role ? { role } : {}),
+    ...(goal && goal.trim() !== "" ? { goal: goal.trim() } : {}),
     workMode: tpl.workMode ?? "run",
     payload: { template: tpl.id, params, ...(spec.payload ?? {}) },
   };
@@ -290,6 +297,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
     id: "recon-doc",
     name: "信息搜集（文档转写）",
     roleTag: "recon",
+    goal: "忠实转写指定 URL 文档为结构化记忆条目：不偏离原文、不补充源外信息、不臆造内容。",
     description: "从网络获取文档 → LLM 转写 → 记忆存储。可选 section 定位章节。",
     params: [
       { key: "url", required: true, description: "文档 URL（http/https）" },
@@ -304,6 +312,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
     id: "memory-maintain",
     name: "记忆维护（整理沉淀）",
     roleTag: "memory",
+    goal: "按检索锚点整理沉淀记忆：去重、提炼、保持事实一致，不引入未经验证的新断言。",
     description: "检索记忆区 → LLM 去重/提炼 → 写回新记忆。",
     params: [
       { key: "anchors", required: true, description: "检索锚点（决定检索哪些记忆）" },
@@ -316,6 +325,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
     id: "dev-task",
     name: "开发任务（代码执行）",
     roleTag: "code",
+    goal: "按任务描述完成可验证的开发产物，以实际执行结果为准，不臆造输出。",
     description: "任务描述 → python 解释器执行（完整能力）→ 产物沉淀记忆。",
     params: [
       { key: "description", required: true, description: "开发任务描述（python 可执行）" },
@@ -328,6 +338,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
     id: "dev-task-ts",
     name: "开发任务（TS 多语言）",
     roleTag: "code",
+    goal: "按任务描述完成可验证的 TS 开发产物，以实际执行结果为准，不臆造输出。",
     description: "TS 任务代码（可调 python/bash/fs/state 能力）→ 执行 → 结果沉淀记忆。",
     params: [
       { key: "description", required: true, description: "TS 任务代码（顶层 return 结果）" },
@@ -343,6 +354,7 @@ export const TASK_TEMPLATES: TaskTemplate[] = [
     roleTag: "memory",
     hidden: true,
     workMode: "optimize",
+    goal: "扫描并提案归档过期/低命中/重复记忆条目，不直接执行归档，等待监督批准。",
     description: "系统内部：扫描过期 draft/低命中/重复条目 → 归档候选提案（监督批准后执行）。",
     params: [],
     title: "记忆维护巡检（归档候选提案）",

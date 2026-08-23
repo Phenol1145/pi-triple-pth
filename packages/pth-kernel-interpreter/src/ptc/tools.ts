@@ -1,7 +1,7 @@
 /**
  * ptc/tools.ts —— 工具契约注册表（2026-08-14 A1 Phase 3 条目 10——TOOL_SCHEMAS 生成器）。
  *
- * 35 个动作工具 schema 的单一真相源：工具面 = 能力契约的 tool_call 投影——
+ * 36 个动作工具 schema 的单一真相源：工具面 = 能力契约的 tool_call 投影——
  * 三要素（anchor/whenToUse/effect——T8）与 PTC_CAPABILITIES 同构（ptc/contract.ts）。
  * agent-tools 的 TOOL_SCHEMAS 由 buildToolSchemas() 派生——改这里即改工具面
  * （LLM tool_calls 声明与 toolsDescription 文本同步自动更新）。
@@ -29,7 +29,7 @@ export function renderToolDescription(d: PtcToolDef): string {
   return "【场景锚点：" + d.anchor + "】何时用：" + d.whenToUse + "。效果：" + d.effect + "。";
 }
 
-/** 工具契约注册表（35 条——动作工具面单一真相源；顺序即 prompt 文本顺序） */
+/** 工具契约注册表（36 条——动作工具面单一真相源；顺序即 prompt 文本顺序） */
 export const PTC_TOOL_DEFS: PtcToolDef[] = [  { name: "python.run", anchor: "python 程序——python 生态/数据计算的多语句执行", whenToUse: "需要 python 库、多语句/循环、_result 值回传；ts 能做的用 ts（ts 程序内可 await python 能力）", effect: "多语句执行，_result 值回传", properties: {"code":{"type":"string","description":"python 程序（多语句；_result = 值 作为结果）"},"mode":{"type":"string","enum":["default","value-only","errors-only","quiet"]}}, required: ["code"] },
   { name: "python.eval", anchor: "python 单表达式——一行计算/查询", whenToUse: "单表达式求值；多语句用 python.run", effect: "表达式值即结果", properties: {"code":{"type":"string","description":"python 表达式（值即结果）"},"mode":{"type":"string","enum":["default","value-only","errors-only","quiet"]}}, required: ["code"] },
   { name: "bash.run", anchor: "bash 命令序列——环境操作/文件检查/管道", whenToUse: "多命令串联的环境操作与探测；产物写入不走 bash（走 dev.write/write.create）", effect: "stdout 即结果（截断 4000 字符）", properties: {"command":{"type":"string","description":"shell 命令（可多命令串联）"},"mode":{"type":"string","enum":["default","value-only","errors-only","quiet"]}}, required: ["command"] },
@@ -37,6 +37,7 @@ export const PTC_TOOL_DEFS: PtcToolDef[] = [  { name: "python.run", anchor: "pyt
   { name: "ts.run", anchor: "ts 程序（程序模式——优先）——一个程序组合多能力", whenToUse: "多步操作/变量/循环/组合能力函数（memory/llm/web/fs/python/bash）——优先写一个程序而非分步发多个动作；大内容一次取回后在程序内本地处理（切片/过滤/聚合），不重复分片读取", effect: "return 值回填 + stdout 可见", properties: {"code":{"type":"string","description":"ts 程序（顶层 await 可用；声明/多语句/控制流；return 对象作为结果）"},"mode":{"type":"string","enum":["default","value-only","errors-only","quiet"]}}, required: ["code"] },
   { name: "ts.eval", anchor: "ts 单表达式——一行查询/计算", whenToUse: "无变量无循环的单表达式（await memory.query 计数等）；多步骤用 ts.run", effect: "表达式值即结果", properties: {"code":{"type":"string","description":"ts 单表达式（顶层 await 可用；表达式的值即结果）"},"mode":{"type":"string","enum":["default","value-only","errors-only","quiet"]}}, required: ["code"] },
   { name: "done", anchor: "任务完成——提交最终产出", whenToUse: "有实际产物（实现/文件/计算结果）或明确无法完成（说明原因）时", effect: "任务结案；result 为空会被拒绝并回填引导（ASP：仅元空间可用）", properties: {"result":{"description":"最终产出对象（任意 JSON）——必填；须为实际产物（实现代码/写入的文件/计算结果），不能为空对象/空数组/空字符串"},"summary":{"type":"string","description":"完成说明"}}, required: ["result"] },
+  { name: "pause", anchor: "向发布者提问——任务暂停等待澄清", whenToUse: "规约/目标歧义、缺少关键信息、继续执行可能跑偏时", effect: "任务进入 paused 状态，问题写入待回答问题箱；发布者回答后任务重跑并注入澄清", properties: {"question":{"type":"string","description":"向发布者提出的问题（必填，非空）"},"context":{"type":"object","description":"可选上下文快照（帮助发布者定位）"}}, required: ["question"] },
   { name: "dev.write", anchor: "写代码——实现第一步", whenToUse: "把完整实现一次写完（自动建目录），不要写几行跑一次的小步迭代", effect: "源码落任务工作区，可 build/run 验证", properties: {"path":{"type":"string","description":"工作区相对路径（如 main.c）"},"code":{"type":"string","description":"完整源码"},"mode":{"type":"string"}}, required: ["path","code"] },
   { name: "dev.edit", anchor: "改代码——编译/运行报错后精修", whenToUse: "唯一匹配替换（oldText 不匹配/多处匹配报错）；整段替换优先于零敲碎打", effect: "文件中该段被替换", properties: {"path":{"type":"string"},"oldText":{"type":"string"},"newText":{"type":"string"},"mode":{"type":"string"}}, required: ["path","oldText","newText"] },
   { name: "dev.build", anchor: "编译验证——写完代码检查语法", whenToUse: "只查语法不运行；直接要结果用 dev.run", effect: "编译产物（错误回填）", properties: {"path":{"type":"string"},"cc":{"type":"string"},"mode":{"type":"string"}}, required: ["path"] },

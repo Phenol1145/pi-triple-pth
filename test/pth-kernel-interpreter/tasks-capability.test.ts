@@ -89,6 +89,7 @@ describe("W8 P1：tasks.delegate/await 能力注入", () => {
     expect(await tasks.resume()).toEqual({
       waiting: { "child-9": { at: "2026-08-17T00:00:00.000Z" } },
       results: { "child-8": { status: "completed", result: { value: 7 }, artifactRef: null } },
+      questions: {},
     });
   });
 

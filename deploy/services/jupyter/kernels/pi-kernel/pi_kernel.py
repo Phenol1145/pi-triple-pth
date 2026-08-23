@@ -41,12 +41,53 @@ class PiKernel(Kernel):
         if not self.engine_token:
             self.log.warning("JUPYTER_ENGINE_TOKEN not set — engine calls will 401")
 
+    def _parse_cell_magic(self, code):
+        """解析首行 cell magic：%%<lang> [target]。
+
+        支持：
+          %%python            -> language=python, target=default
+          %%python sandbox    -> language=python, target=sandbox
+          %%bash local-lean   -> language=bash, target=local-lean
+          %%ts                -> language=ts, target=default
+        未写 magic -> 返回 (self.engine_lang, None, code)。
+        """
+        first_line = code.split("\n", 1)[0].strip()
+        if not first_line.startswith("%%"):
+            return self.engine_lang, None, code
+        rest = first_line[2:].strip()
+        if not rest:
+            raise ValueError("cell magic 必须声明语言：%%python / %%bash / %%ts")
+        parts = rest.split()
+        lang = parts[0]
+        if lang not in ("python", "bash", "ts"):
+            raise ValueError(f"不支持的 cell magic 语言: {lang}（支持 python/bash/ts）")
+        target = parts[1] if len(parts) > 1 else None
+        if len(parts) > 2:
+            raise ValueError(f"cell magic 目标格式错误：%%{lang} [target]")
+        # 去掉 magic 首行；保留后续代码（无后续代码时为空串）。
+        remainder = code.split("\n", 1)[1] if "\n" in code else ""
+        return lang, target, remainder
+
     def do_execute(self, code, silent, store_history=True, user_expressions=None, allow_stdin=False):
+        try:
+            language, target, cell_code = self._parse_cell_magic(code)
+        except ValueError as exc:
+            if not silent:
+                self.send_response(self.iopub_socket, "stream", {"name": "stderr", "text": f"{exc}\n"})
+            return {
+                "status": "error",
+                "execution_count": self.execution_count,
+                "ename": "BadMagicError",
+                "evalue": str(exc),
+                "traceback": [str(exc)],
+            }
         payload = {
-            "language": self.engine_lang,
-            "code": code,
+            "language": language,
+            "code": cell_code,
             "timeoutMs": 600_000,
         }
+        if target:
+            payload["target"] = target
         if self.session_id:
             payload["sessionId"] = self.session_id
         request = urllib.request.Request(
@@ -132,6 +173,22 @@ class PiKernel(Kernel):
             "payload": [],
             "user_expressions": {},
         }
+
+
+    def do_shutdown(self, restart):
+        """kernel 关闭时主动释放 engine 侧 notebook session（修 P5d 泄漏）。"""
+        if self.session_id:
+            try:
+                cancel = urllib.request.Request(
+                    f"{self.engine_api}/api/v1/kernel/notebook/cancel",
+                    data=json.dumps({"sessionId": self.session_id}).encode("utf-8"),
+                    headers={"content-type": "application/json", "authorization": f"Bearer {self.engine_token}"},
+                    method="POST",
+                )
+                urllib.request.urlopen(cancel, timeout=10).read()
+            except Exception:  # noqa: BLE001
+                self.log.warning("engine session cancel on shutdown failed")
+        return super().do_shutdown(restart)
 
 
 if __name__ == "__main__":

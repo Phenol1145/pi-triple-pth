@@ -138,7 +138,8 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     }
     const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
     const timeoutMs = typeof body.timeoutMs === "number" && body.timeoutMs > 0 ? Math.min(body.timeoutMs, 600_000) : undefined;
-    const result = await facade.execNotebook({ language, code, sessionId, timeoutMs }) as { ok: boolean };
+    const target = typeof body.target === "string" && body.target.trim() !== "" ? body.target.trim() : null;
+    const result = await facade.execNotebook({ language, code, sessionId, timeoutMs, target }) as { ok: boolean };
     return reply.status(result.ok ? 200 : 422).send(result);
   });
 
@@ -190,6 +191,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
         template: body.template,
         params: (body.params ?? {}) as Record<string, unknown>,
         tags: Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === "string") : undefined,
+        ...(typeof body.goal === "string" && body.goal.trim() !== "" ? { goal: body.goal.trim() } : {}),
       });
       if (!r.ok) {
         if (r.code === "unknown-template") return reply.status(404).send({ error: r.error });
@@ -204,6 +206,7 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
         tenantId,
         domains,
         ...(idempotencyKey ? { idempotencyKey } : {}),
+        ...(r.goal ? { goal: r.goal } : {}),
       }, scope);
       return reply.status(201).send(task);
     }
@@ -223,7 +226,11 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     // payload 透传（任务链 flow 声明等路由信息——发布时 payload 即任务自带路由）
     // body.flow 顶层并入 payload（API 友好——flow 放顶层也能路由——routeTaskRole flowRole 读 payload.flow）
     const payload = { ...((body.payload ?? {}) as Record<string, unknown>), ...(body.flow ? { flow: body.flow } : {}) };
-    const task = await facade.publishTask({ title, text, createdBy, tags, payload, tenantId, domains, ...(idempotencyKey ? { idempotencyKey } : {}) }, scope);
+    const task = await facade.publishTask({
+      title, text, createdBy, tags, payload, tenantId, domains,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+      ...(typeof body.goal === "string" && body.goal.trim() !== "" ? { goal: body.goal.trim() } : {}),
+    }, scope);
     return reply.status(201).send(task);
   });
 
@@ -244,11 +251,14 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     const limit = typeof q.limit === "string" ? Math.min(Math.max(parseInt(q.limit, 10) || 50, 1), 200) : 50;
     // 列表返回全部状态（pending/claimed/completed/rejected...），按创建时间倒序——
     // candidates() 只返回 pending 队列（批处理认领语义），不适合观测列表（试运行发现）。
+    // 生命周期 P1：?status=paused 即待回答问题箱（发布者按状态过滤）。
+    const status = typeof q.status === "string" && q.status.trim() !== "" ? q.status.trim() : undefined;
     const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
     const scope: TenantScope | undefined = auth?.tenantId
       ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
       : undefined;
-    return facade.listTasks(limit, scope);
+    const rows = await facade.listTasks(limit, scope);
+    return status ? rows.filter((r: Record<string, unknown>) => r.status === status) : rows;
   });
 
   app.get("/api/v1/kernel/tasks/:id", async (req, reply) => {
@@ -274,6 +284,25 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
       : undefined;
     try {
       return await facade.cancelTask(id, { recursive: body.recursive === true }, scope);
+    } catch (e) {
+      const msg = (e as Error).message;
+      return reply.code(msg.includes("不存在") ? 404 : 400).send({ error: msg });
+    }
+  });
+
+  // 生命周期 P1：人工回答 paused 任务（发布者是人类——入口任务问题箱）
+  app.post("/api/v1/kernel/tasks/:id/answer", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { answer?: unknown };
+    const answer = typeof body.answer === "string" ? body.answer.trim() : "";
+    if (!answer) return reply.status(400).send({ error: "answer required" });
+    const auth = (req as unknown as { auth?: { tenantId?: string; role?: string; principalId?: string } }).auth;
+    const scope: TenantScope | undefined = auth?.tenantId
+      ? { tenantId: auth.tenantId, principalId: auth.principalId ?? `tenant:${auth.tenantId}:${auth.role ?? "tenant-agent"}`, roles: [auth.role ?? "tenant-agent"], traceId: "" }
+      : undefined;
+    try {
+      return await facade.answerTask(id, answer, scope);
     } catch (e) {
       const msg = (e as Error).message;
       return reply.code(msg.includes("不存在") ? 404 : 400).send({ error: msg });

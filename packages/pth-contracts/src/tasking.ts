@@ -20,6 +20,7 @@ import {
   type DomainId,
 } from "./domains.js";
 import { isWorkMode, type WorkMode } from "./work-mode.js";
+import type { TaskSuspension } from "./human-interaction.js";
 
 export interface TaskLeaseReference {
   readonly taskId: string;
@@ -93,6 +94,11 @@ export interface TaskDelivery {
   readonly replyTo?: DeliveryReplyTo;
   /** 最终产物引用（done 声明产物时由服务端回写） */
   readonly artifactRef?: DeliveryArtifactRef;
+  /**
+   * 根目标（入口盖章，delegate 时服务端原样传播——不可转述、不可改写）。
+   * 可选；legacy 任务无 goal 时 prompt 段省略，不 break。
+   */
+  readonly goal?: string;
 }
 
 // ─── W8 P1：tasks.delegate / tasks.await 工具契约（服务端只认本形状） ───────
@@ -138,6 +144,8 @@ export interface TaskDispatchContext {
   dispatchWait?: Readonly<Record<string, { at: string }>>;
   /** 子任务终态回流结果（notifier 写入；task-loop 盖章进上下文——tasks.resume 读） */
   childResult?: Readonly<Record<string, TaskAwaitResult>>;
+  /** 子任务 paused 问题（notifier 写入；task-loop 盖章进上下文——tasks.resume/answer 读） */
+  childQuestion?: Readonly<Record<string, TaskChildQuestion>>;
 }
 
 /** tasks.await 挂起信号错误码（interpreter error.code 透传；runner 据此落 retryable requeue） */
@@ -163,6 +171,14 @@ export interface TaskAwaitResult {
   artifactRef?: DeliveryArtifactRef | null;
   summary?: string;
   error?: { code: string; message: string };
+}
+
+/** 子任务 paused 时上行的发布者问题（notifier 写入父任务 payload.childQuestion）。 */
+export interface TaskChildQuestion {
+  readonly question: string;
+  readonly context?: Record<string, unknown>;
+  readonly askedAt: string;
+  readonly askedBy: string;
 }
 
 /** 0.16.3 穿透调用输入（显式原语 tasks.penetrate——已注册穿透边才可用） */
@@ -305,9 +321,12 @@ export interface TaskReadModel {
   get(taskId: string, scope: TenantScope): Promise<TaskWorkItem | null>;
 }
 
+/** 执行结果：终态 TaskOutcome 或等待人工 TaskSuspension。 */
+export type TaskRunResult = TaskOutcome | TaskSuspension;
+
 /** 纯执行端口：只收 lease + work，产出 outcome，不调用 repository/audit/transcript/notify。 */
 export interface TaskRunner {
-  run(input: { lease: TaskLease; work: TaskWorkItem; signal?: AbortSignal }): Promise<TaskOutcome>;
+  run(input: { lease: TaskLease; work: TaskWorkItem; signal?: AbortSignal }): Promise<TaskRunResult>;
 }
 
 /** 单任务最大认领次数（坏任务兜底——tasking 与 storage 共用同一策略常量） */
@@ -412,6 +431,7 @@ export function isTaskDeliveryStructurallyValid(v: unknown): v is TaskDelivery {
   }
   if (d.replyTo !== undefined && d.replyTo !== "parent" && d.replyTo !== "caller") return false;
   if (d.artifactRef !== undefined && !isDeliveryArtifactRefStructurallyValid(d.artifactRef)) return false;
+  if (d.goal !== undefined && !NON_EMPTY_STRING(d.goal)) return false;
   return true;
 }
 
@@ -428,17 +448,20 @@ function isPlainRecord(v: unknown): v is Record<string, unknown> {
 
 /**
  * 服务器端入口盖章：path=[assignedRole]、lineageId=自身 taskId、不设 parent。
+ * goal 可选：入口发布者显式提供时盖章；未提供则省略。
  * 仅当 taskId 与 assignedRole 均有效时返回；否则返回 null（调用方决定拒绝或降级）。
  */
-export function buildEntryDelivery(taskId: string, roleId: string): TaskDelivery | null {
+export function buildEntryDelivery(taskId: string, roleId: string, goal?: string): TaskDelivery | null {
   if (!NON_EMPTY_STRING(taskId) || !NON_EMPTY_STRING(roleId)) return null;
-  return { path: [roleId], lineageId: taskId };
+  return NON_EMPTY_STRING(goal)
+    ? { path: [roleId], lineageId: taskId, goal }
+    : { path: [roleId], lineageId: taskId };
 }
 
 /** 把入口 delivery 合入 payload 的 `delivery` 键；payload 非普通对象时先归一化为对象。 */
-export function attachEntryDelivery(payload: unknown, taskId: string, roleId: string): Record<string, unknown> {
+export function attachEntryDelivery(payload: unknown, taskId: string, roleId: string, goal?: string): Record<string, unknown> {
   const base = isPlainRecord(payload) ? { ...payload } : {};
-  const delivery = buildEntryDelivery(taskId, roleId);
+  const delivery = buildEntryDelivery(taskId, roleId, goal);
   if (delivery) base[TASK_DELIVERY_PAYLOAD_KEY] = delivery;
   return base;
 }

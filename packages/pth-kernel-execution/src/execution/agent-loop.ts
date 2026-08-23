@@ -11,7 +11,7 @@ import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { WorkerRole } from "./worker-cluster.js";
 import { AGENT_TOOLS, toolsToSchema, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
-import { EXEC_TOOL_CAP, normalizeToolName, toolsForSpace, ASP_BLOCK, buildAgentSystemPrompt } from "./agent-loop-prompt.js";
+import { normalizeToolName, toolsForSpace, ASP_BLOCK, buildAgentSystemPrompt, hasExecToolCapability, execToolCapFor } from "./agent-loop-prompt.js";
 import type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
 export type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
 import { isTsFamily, truncate, actionFingerprint, type RecentAction, toolFamily, normalizePathPattern, actionTarget, isNegativeResult, negativeLoopCheck, buildEnvironmentPrelude, RECENT_RESULTS_WINDOW } from "./agent-loop-guards.js";
@@ -26,6 +26,7 @@ import { spaceRegistry, isRoleBoundToSpace } from "@away_from/pth-kernel-interpr
 import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import { checkToolFaceBudget, registryToolToSchema, visibleRegistryTools } from "@away_from/pth-kernel-interpreter";
 import type { ToolRegSpec } from "@away_from/pth-memory";
+import { shouldCompressInLoop, compressContext, CONTINUATION_TEMPLATE } from "./context-compaction.js";
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -61,6 +62,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     ...(allowlist ? { allowlist: [...allowlist] } : {}),
     memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
   });
+  // 生命周期 P0：根目标段（system prompt 恒定——不进消息数组，压缩压不掉）
+  if (input.goal && input.goal.trim() !== "") {
+    system = `${system}\n\n【根目标】${input.goal.trim()}`;
+  }
+  // 生命周期 P1：发布者澄清（pause 恢复重跑时注入——答案作为新事实）
+  if (input.publisherClarification && input.publisherClarification.trim() !== "") {
+    system = `${system}\n\n【发布者澄清】${input.publisherClarification.trim()}`;
+  }
   if (aspMode) system = `${system}\n\n${ASP_BLOCK}`;
   // 静态环境注入（②）：任务开始时拉环境预置（toolstore 文件 + 记忆概览）——LLM 一上来就知道可用资产
   const prelude = await buildEnvironmentPrelude(caps);
@@ -114,10 +123,21 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       : [...staticTools];
     // 同名工具去重（OpenAI 对重复工具名 400）；N14 P2：注册表可见集并入（空间无关）
     const all = [...new Map([...base, ...registrySchemas].map((t) => [t.name, t])).values()];
+    // TCE P5：Tool 层生成器产物（per-tool 工具面——manifest 策展）
+    for (const extra of input.extraTools ?? []) {
+      if (!all.some((t) => t.name === extra.name)) {
+        all.push({ name: extra.name, description: extra.description, parameters: extra.parameters });
+      }
+    }
     // N28 T6：非 ASP 面不含 done（仅 ASP meta 面有）——冻结 union 恒含 pinned done，schema 需同步暴露。
     if (allowlist?.has("done") && !all.some((t) => normalizeToolName(t.name) === "done")) {
       const done = toolSchemaFor("done");
       if (done) all.push(done);
+    }
+    // 生命周期 P1：pause 同 done 一样是固定循环控制工具——冻结 union 恒含，schema 需同步暴露。
+    if (allowlist?.has("pause") && !all.some((t) => normalizeToolName(t.name) === "pause")) {
+      const pause = toolSchemaFor("pause");
+      if (pause) all.push(pause);
     }
     // N28 T6：schema 暴露与执行授权同源——冻结 union ∩ 当前 space face。
     return allowlist ? all.filter((t) => allowlist.has(normalizeToolName(t.name))) : all;
@@ -133,6 +153,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   const emptyDoneGuard = guardReg.guard("empty-done");
   const emptyReplyGuard = guardReg.guard("empty-reply");
   const unknownToolGuard = guardReg.guard("unknown-tool");
+  const routeDriftGuard = guardReg.guard("route-drift");
 
   const complete = async (tools: import("@earendil-works/pi-ai").Tool[]): Promise<import("@away_from/pth-kernel-interpreter").LlmResult | string> => {
     try {
@@ -160,6 +181,20 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   for (; steps < maxSteps; steps++) {
     if (Date.now() - start > timeoutMs) {
       return { ok: false, error: `agent-timeout: 超过 ${timeoutMs}ms`, steps };
+    }
+
+    // 生命周期 P3：循环内压缩（任务中续跑——CONTINUATION_TEMPLATE；失败容忍不阻断）
+    if (steps > 2 && shouldCompressInLoop(messages, configNumber("PTH_AGENT_CONTEXT_WINDOW", 128_000))) {
+      const compressed = await compressContext({ llm }, { messages, template: CONTINUATION_TEMPLATE, taskTitle: input.task.title });
+      if (compressed) {
+        const recent = messages.slice(-4);
+        messages.length = 0;
+        messages.push({ role: "system", content: system });
+        messages.push({ role: "user", content: `【压缩续跑】\n${compressed.text}\n\n（以下为最近几步原始消息）` });
+        messages.push(...recent);
+        input.logger?.(`[agent] step=${steps + 1} 循环内压缩触发（${compressed.inputChars} chars → ${compressed.text.length} chars）`);
+        input.onTrace?.({ type: "compression", inputChars: compressed.inputChars, outputChars: compressed.text.length });
+      }
     }
 
     // ASP：工具面随当前空间动态计算（语言工具仅本空间可调用）
@@ -413,8 +448,50 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       return { ok: true, value: result, summary, steps: steps + 1 };
     }
 
+    if (tool === "pause") {
+      const question = typeof args["question"] === "string" ? (args["question"] as string).trim() : "";
+      if (!question) {
+        messages.push({
+          role: "tool",
+          toolCallId: toolCallId ?? `tc-${steps + 1}`,
+          toolName: tool,
+          content: `step ${steps + 1} [pause]: pause 缺少 question（必填）——已拒绝：请用一句话说明你卡住的规约/目标歧义或缺失信息。可附带 context 对象帮助发布者定位。`,
+        });
+        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: "pause 缺 question" });
+        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: false, args: JSON.stringify(args).slice(0, 300) });
+        return undefined;
+      }
+      const context = args["context"] !== undefined && typeof args["context"] === "object" && args["context"] !== null
+        ? (args["context"] as Record<string, unknown>)
+        : undefined;
+      input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: true, args: JSON.stringify(args).slice(0, 300) });
+      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: `pause: ${question.slice(0, 200)}` });
+      return { ok: true, value: null, steps: steps + 1, pause: { question, ...(context ? { context } : {}) } };
+    }
+
     // tool_calls 名已在 executeStep 入口归一（下划线→点 + 直觉别名）——直接查执行器表
     const executorKey = tool;
+    // L0 路由纠偏护栏（TCE P5）：单表达式误用 ts.run → guide 改用 ts.eval（三段式复用）
+    if (tool === "ts.run") {
+      const code = typeof args["code"] === "string" ? args["code"] : "";
+      const isSingleExpr = code.trim().length > 0 && !/[;{}]/.test(code) && !/\b(const|let|var|function|if|for|while|return)\b/.test(code);
+      if (isSingleExpr) {
+        const rv = routeDriftGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, true);
+        if (rv.kind === "guide" || rv.kind === "soft") {
+          messages.push({
+            role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `step ${steps + 1} [ts.run]: 检测到单表达式——建议改用 ts.eval（第 ${rv.count}/${rv.limit} 次）`,
+          });
+          input.onTrace?.({ type: "guard", step: steps + 1, guard: "route-drift", kind: rv.kind, count: rv.count, limit: rv.limit });
+          if (rv.kind === "soft") {
+            return { ok: true, value: null, steps: steps + 1, warning: "route-drift: 连续单表达式误用 ts.run" };
+          }
+          return undefined;
+        }
+      } else {
+        routeDriftGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, false);
+      }
+    }
     let executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
     // N14 P2：注册表分发（静态表未命中时）——builtin 态回指 AGENT_TOOLS 执行器（归并标准路径）；
     // program/agent 态走注册执行缝（下方独立分发）
@@ -431,6 +508,24 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       }
     }
     if (!executor && regSpec) {
+      // TCE P3：tool-reg program/agent 执行缝先过 Command 层门控（收编 governance hole）。
+      if (input.commandGateway && input.commandContext) {
+        const decision = await input.commandGateway.decide({
+          surface: "agent-tool",
+          toolCall: { tool, args: args ?? {} },
+          ctx: input.commandContext,
+        });
+        if (decision.kind === "deny") {
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `[授权] ${tool} 拒绝：${decision.reason}` });
+          input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: "CommandGateway 拒绝" });
+          return undefined;
+        }
+        if (decision.kind === "await-approval") {
+          input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
+          return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: decision.requestId } };
+        }
+      }
       const regExec = regSpec.executor;
       if (regExec.type === "program") {
         // program 态：固化 ts 程序（无 LLM）——args 注入为 const 绑定，源程序 return 值即结果
@@ -538,11 +633,11 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     }
     // 2026-08-15 审计 MEDIUM-2：工具已知且到达执行面——unknown-tool 护栏重置（非连续才不累积）
     unknownToolGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, false);
-    // 执行面角色授权（模块级 EXEC_TOOL_CAP——见顶部定义）
+    // 执行面角色授权（EXEC_TOOL_CAP 共用纯函数——Command 层单一事实源）
     const execFam = executorKey.split(".")[0];
-    const needCaps = EXEC_TOOL_CAP[execFam];
     const roleCaps = input.role?.capabilities;
-    if (needCaps && roleCaps && !needCaps.some((c) => (roleCaps as string[]).includes(c))) {
+    if (!hasExecToolCapability(execFam, roleCaps)) {
+      const needCaps = execToolCapFor(execFam) ?? [];
       messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
         content: `[授权] ${tool} 拒绝：本角色 capabilities 未含 ${needCaps.join("/")}（能力面声明了白名单——执行面按白名单门控）。` });
       input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "capabilities 授权拒绝" });
@@ -550,13 +645,18 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     }
     try {
       const result = await executor(
-        { kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore, space: aspMode ? aspSession.currentSpace : undefined, ptcCaps: input.capabilityInject },
+        { kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore, space: aspMode ? aspSession.currentSpace : undefined, ptcCaps: input.capabilityInject, commandGateway: input.commandGateway, commandContext: input.commandContext },
         args,
       );
       // W8 P2：ts.run/eval 内 tasks.await 挂起 → 软终止释放认领（retryable requeue）
       if (!result.ok && result.code === TASK_AWAIT_SUSPENDED_CODE) {
         input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: result.error });
         return { ok: true, value: null, steps: steps + 1, warning: result.error ?? TASK_AWAIT_SUSPENDED_CODE };
+      }
+      // TCE P3：CommandGateway await-approval → 人类批准挂起信号
+      if (!result.ok && result.code === "HUMAN_APPROVAL_PENDING" && result.requestId) {
+        input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
+        return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: result.requestId } };
       }
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
       // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用

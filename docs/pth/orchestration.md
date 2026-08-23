@@ -56,7 +56,9 @@ POST /api/v1/kernel/tasks
 
 **能力**（简单直接）：
 - 事件：`task.claim` / `task.done` / `task.failed` / `agent.step` / `agent.tool`
+- 定时：`schedule: { everySec }`
 - 匹配：`match.role` / `match.detailContains`
+- 动作：原生 `action`、模板 `task.template`、内联 `task.title/text`、`task.retask`、完整 `task.flow`
 - 模板变量：`{{taskId}}` `{{role}}` `{{detail}}`
 - 安全：链深 >5 断 / 自触发阻断 / `once` / `maxFires`
 
@@ -74,6 +76,14 @@ POST /api/v1/kernel/triggers
 ```
 
 **适用**：全局自动化规则（自动验收/自动沉淀/失败告警任务）——**写一次持续生效**。
+
+## Human Review（人工审核）
+
+- 通用人工请求经 `/api/v1/human-requests` 创建，任务进入 `waiting-human`。
+- 响应后按 `approved` → `pending`（重新进入任务池）或 `rejected`（终态）恢复。
+- 不依赖 AgentEngine；基于 TaskStore / PG 事务 / CAS 实现。
+
+详细设计：[workflow-trigger-human-review-correction-plan](workflow-trigger-human-review-correction-plan.md)
 
 ## 明确不要混用
 

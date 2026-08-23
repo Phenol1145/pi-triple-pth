@@ -62,8 +62,8 @@ export function builtinExecutorRef(toolName: string): string {
 /** visibility 推导：各角色 actionTools 声明（族展开后）含该工具的并集——排序保证确定性 */
 export function deriveVisibilityRoles(toolName: string): string[] {
   const declared = ALL_BUILTIN_ROLES.filter((r) => r.actionTools && r.actionTools.length > 0);
-  // done 属固定协议段（toolsDescription 固定输出一行，不走工具族声明）——全声明角色可见
-  if (toolName === "done") return declared.map((r) => r.id).sort();
+  // done/pause 属固定协议段（toolsDescription 固定输出，不走工具族声明）——全声明角色可见
+  if (toolName === "done" || toolName === "pause") return declared.map((r) => r.id).sort();
   return declared
     .filter((r) => expandToolGroups(r.actionTools as string[]).includes(toolName))
     .map((r) => r.id)

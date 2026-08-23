@@ -9,6 +9,8 @@ export * from "./identity.js";
 export * from "./domains.js";
 export * from "./tasking.js";
 export * from "./execution.js";
+export * from "./execution-target.js";
+export * from "./human-interaction.js";
 export * from "./catalog-contribution-schema.js";
 export * from "./role-routing-policy.js";
 export * from "./program.js";
