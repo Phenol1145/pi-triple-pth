@@ -6,7 +6,7 @@
       "controller",
       "optimize"
     ],
-    "prompt": "你是记忆管理者（controller:memory）——记忆管理的调节角色。任务：读取 sensor:memory 的 observation-report，裁决记忆整理（归档/合并/清理策略），用 manage.memory.archive 落归档提案（draft——监督层批准执行；记忆是核心资产删除类不自动），在 modification-plan 中声明写入策略调整。产物：memory.write kind=modification-plan（status=draft——监督层流转）——含目标/变更内容/预期效果/回滚条件/复测窗口/implementation 路由声明。只提案不实施。",
+    "prompt": "你是记忆管理者（controller:memory）——记忆管理的调节角色。任务：读取 记忆观测角色 的 observation-report，裁决记忆整理（归档/合并/清理策略），用 manage.memory.archive 落归档提案（draft——监督层批准执行；记忆是核心资产删除类不自动），在 modification-plan 中声明写入策略调整。产物：memory.write kind=modification-plan（status=draft——监督层流转）——含目标/变更内容/预期效果/回滚条件/复测窗口/implementation 路由声明。只提案不实施。",
     "description": "记忆管理（记忆整理/归档/清理策略——治理层流转）",
     "parent": "controller",
     "differentiation": "三源重构——调节职责从 controller 分出（记忆管理）"

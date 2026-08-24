@@ -33,7 +33,8 @@ describe("Role Catalog W1 目录装载器", () => {
     for (const b of builtin) {
       const c = result.roles.find((r) => r.id === b.id)!;
       expect(c.tags).toEqual(b.tags);
-      expect(c.prompt).toBe(b.prompt);
+      // W2/W3：sensor/controller 枝已做 prompt 自洽化（去掉跨枝 id 直引），不再要求与内置 bundle 逐字一致。
+      if (!b.id.startsWith("sensor:") && !b.id.startsWith("controller:")) expect(c.prompt).toBe(b.prompt);
       expect(c.capabilities ?? []).toEqual(b.capabilities ?? []);
       expect(c.actionTools ?? []).toEqual(b.actionTools ?? []);
       expect(c.parent ?? null).toBe(b.parent ?? null);

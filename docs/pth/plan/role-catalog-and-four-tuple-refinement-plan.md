@@ -2,6 +2,7 @@
 
 > 2026-08-24 立项。目标：把角色从代码 bundle 切分为可装配的 catalog 单元（CONTEXT.md role-definition/v1 目标态），
 > 同时把角色定义归位到四元组（身份/能力/资源/模块）。本文档是实施纲领——逐 wave 推进、逐 wave 全量验证。
+> 状态：已完成（W0–W5，2026-08-24）。42 张角色卡已生成并接入装配/批处理/CLI/host；sensor/controller prompt 已自洽；守恒校验数据源已切换 catalog。
 
 ## 0. 裁决基线（2026-08-24 用户裁决）
 

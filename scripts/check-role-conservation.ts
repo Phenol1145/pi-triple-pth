@@ -11,15 +11,11 @@
  * 用法：npm run check:role-conservation [--strict]
  */
 
-import {
-  DEFAULT_ROLES,
-  MID_ROLES,
-  GOVERNANCE_ROLES,
-  PROFESSIONAL_ROLES,
-  type WorkerRole,
-} from "@away_from/pth-kernel-execution";
+import type { WorkerRole } from "@away_from/pth-kernel-execution";
+import { loadDefaultRoleSets } from "../src/pth/catalog/index.js";
 
-const ALL_ROLES: WorkerRole[] = [...DEFAULT_ROLES, ...MID_ROLES, ...GOVERNANCE_ROLES, ...PROFESSIONAL_ROLES];
+const { defaultRoles, midRoles, governanceRoles, professionalRoles } = loadDefaultRoleSets();
+const ALL_ROLES: WorkerRole[] = [...defaultRoles, ...midRoles, ...governanceRoles, ...professionalRoles];
 
 const ROOTS = new Set(["actuator", "sensor", "controller"]);
 
