@@ -98,14 +98,15 @@
 - **影响面**：`src/cli/runtime/runtime-orchestrator.ts`（orchestrateStatusAll）。
 - **验收**：`pth status --all` jupyter 行与 `docker compose -p pi-triple-jupyter ps` 一致。
 
-## B9. adversarial 审核链派发断裂（2026-08-24 理论推导实证）
+## B9. adversarial 审核链派发断裂（2026-08-24 理论推导实证）✅
 
+- **状态**：✅ 已修复（2026-08-24，commit 见 B9 后）
 - **问题**：`system-triggers.ts` 的 skill/tool 提案审核 trigger 只带 `tags:["adversarial"]`
   无 role 字段；`adversarial` 注册为 governance 类标签（不参与 routeRole），
   `checkTaskRouting` 实测返回「缺少角色标签」拒绝发布，trigger-engine 捕获后记日志跳过——
   **审核任务永远发布不出去**，对抗性审核链静默空转。
-- **方案**（草案）：两个 trigger 定义补 `role: "controller:adversarial"`（flow 显式派发，
-  与 governance 标签语义一致——memory-sweep-trigger 同款）。
+- **方案**（已实施）：两个 trigger 定义补 `role: "controller:adversarial"`（flow 显式派发，
+  与 governance 标签语义一致——memory-sweep-trigger 同款）；回归测试断言同步更新。
 - **影响面**：`packages/pth-kernel-execution/src/execution/system-triggers.ts`（一行级 ×2）。
 - **验收**：提案事件触发后审核任务真实落池且路由到 controller:adversarial；回归测试覆盖。
 - **出处**：`docs/pth/report/role-lineage-runtime-derivation.md` 回路 C1。

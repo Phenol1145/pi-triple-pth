@@ -107,6 +107,7 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     registerSystemTriggers(engine as never, baseDeps());
     const t = system.find((x) => x.name === "skill-proposal-review")!;
     expect(t.event).toBe("skill.proposal.created");
+    expect(t.task?.role).toBe("controller:adversarial");
     expect(t.task?.tags).toEqual(["adversarial"]);
     // {{detail}} 事件变量（提案 id）注入任务文本——审核角色据此 query + review
     expect(t.task?.text).toContain("{{detail}}");
@@ -119,6 +120,7 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     registerSystemTriggers(engine as never, baseDeps());
     const t = system.find((x) => x.name === "tool-proposal-review")!;
     expect(t.event).toBe("tool.proposal.created");
+    expect(t.task?.role).toBe("controller:adversarial");
     expect(t.task?.tags).toEqual(["adversarial"]);
     expect(t.task?.text).toContain("{{detail}}");
     expect(t.task?.text).toContain("tools.review");
