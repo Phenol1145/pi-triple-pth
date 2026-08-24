@@ -2,7 +2,7 @@
 
 > 日期：2026-08-18
 >
-> 状态：**设计已确认，尚未实施**
+> 状态：**部分实施**——最小内环已由 N29 落地并验收（MIN_INNER_LOOP_GO，见 n29-minimal-intake-report.md）；本文的完整设计（外环 / 广度摄入）未实施
 >
 > 上位设计：[N16 角色/领域组合设计](./n16-v1.2-role-domain-composition-design.md)
 >

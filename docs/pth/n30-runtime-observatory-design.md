@@ -2,7 +2,7 @@
 
 > 日期：2026-08-19
 >
-> 状态：**用户已确认；纳入 v1.3.0，等待按实施计划执行**
+> 状态：**已实施，验收 GO**（见 n30-runtime-observatory-report.md；权威 envelope：n30-runtime-observatory-envelope.json）
 >
 > 已确认视觉方案：C——统一时间轴、执行甘特图与资源折线联动
 >

@@ -1,6 +1,6 @@
 # PTH 执行模式与 Tool-Reg v2 设计：TCE、CommandFeedback 与规范化优化循环
 
-> 状态：草案修订版（已经过 sub-agent 对抗性审核；仍有待评审决策点）
+> 状态：实施中——Wave 0–5 已落地（实施状态以 execution-modes-and-tool-reg-v2-implementation-plan.md 为准）。注意：工具面权限模型此后由 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 修订——TCE 的 C 是 Code 而非 Command 对象，CommandGateway 按计划退役；本文「Command」相关段落以 ADR-0004 为准
 > 范围：PTH 执行模式统一（tool-call / asp / ptc / pulse）、工具注册表（tool-reg）Command 层 TS 连接器化、统一结果/错误反馈契约，以及规范化优化循环（代码/角色 sensor + 活动因子 + 分频调度）
 > 关联代码：
 > - `packages/pth-config/src/schema.ts`（PTH_AGENT_MODE / PTH_ASP_MODE）

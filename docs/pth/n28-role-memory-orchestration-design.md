@@ -2,7 +2,7 @@
 
 > 日期：2026-08-18
 >
-> 状态：**设计已确认；先执行可行性验证，尚未进入生产化**
+> 状态：**可行性验证 GO**（n28-feasibility-report.md，envelope 已落盘）；生产化（持久化 lease / Region / outbox / 权重标定 / 重建）未开始
 >
 > 上位设计：[N16 角色/领域组合设计](./n16-v1.2-role-domain-composition-design.md)
 >

@@ -35,12 +35,12 @@
 | tool-call | 已实现 | `packages/pth-kernel-execution/src/execution/agent-loop.ts` |
 | ASP | 已实现，是 tool-call 的 `asp=true` 变体 | `agent-loop.ts`、`agent-loop-prompt.ts`、`agent-tools.ts` |
 | pulse（当前叫降级路径） | 已实现，但不是一等模式 | `src/pth/runner/agent-task-runner.ts`、`src/pth/bootstrap/task-loop.ts`、`packages/pth-kernel-execution/src/execution/nl-translator.ts`、`packages/pth-kernel-interpreter/src/ptc/runner.ts` |
-| ptc 迭代模式 | 未实现 | 计划新增 `packages/pth-kernel-execution/src/execution/ptc-agent-loop.ts` |
+| ptc 迭代模式 | 已实现（Wave 5） | `packages/pth-kernel-execution/src/execution/ptc-agent-loop.ts` |
 | Tool-Reg v1 | 已实现 `program/builtin/agent` 三态 | `packages/pth-memory/src/tool-reg.ts`、`src/pth/tasking/tool-reg-builtin.ts` |
 | TCE CommandGateway | 已部分接入 | `packages/pth-kernel-execution/src/execution/execution-command.ts`、`agent-loop.ts` |
 | scorecard / optimizer | 已实现，但不是 TCE-aware | `worker-scorecard.ts`、`optimizer-hotspots.ts`、`optimizer-loop.ts`、`optimizer-apply.ts` |
 | Knowledge Intake | 独立内环，默认 `off` | `src/pth/execution/knowledge-intake/*`、`src/pth/runner/intake-processors.ts`、`src/pth/bootstrap/batch-process.ts` |
-| 观察策略 / 活动因子 | 未实现 | 计划新增 observation strategy 模块 |
+| 观察策略 / 活动因子 | 已实现（Wave 5） | `observation-strategy.ts`、`observation-strategy-registry.ts` |
 
 > 当前结构有一个必须处理的债务：`AgentTaskRunner` 与 `TaskLoop.execute()` 里存在两套 agent/pulse 分支。实施时必须把执行模式分支收敛到一个入口，避免继续双写。
 

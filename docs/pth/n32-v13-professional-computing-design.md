@@ -2,7 +2,7 @@
 
 > 日期：2026-08-19
 >
-> 状态：**用户已确认；等待按实施计划执行**
+> 状态：**已实施，验收 GO**（见 v13-professional-computing-report.md；权威 envelope：v13-professional-computing-envelope.json）
 >
 > 目标版本：**v1.3.0**
 >

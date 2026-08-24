@@ -2,7 +2,7 @@
 
 > 日期：2026-08-19
 >
-> 状态：**用户已确认页面与边界；等待按实施计划执行**
+> 状态：**已实施，验收 GO**（见 n33-operator-console-report.md；权威 envelope：n33-operator-console-envelope.json）
 >
 > 版本目标：v1.3.0
 >
