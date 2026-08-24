@@ -10,24 +10,25 @@
 import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, toolsToSchema, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
-import { normalizeToolName, toolsForSpace, ASP_BLOCK, buildAgentSystemPrompt, hasExecToolCapability, execToolCapFor } from "./agent-loop-prompt.js";
+import { AGENT_TOOLS, toolsToSchema, type AgentToolResult } from "./agent-tools.js";
+import { normalizeToolName, hasExecToolCapability, execToolCapFor } from "./agent-loop-prompt.js";
 import type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
 export type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
-import { isTsFamily, truncate, actionFingerprint, type RecentAction, toolFamily, normalizePathPattern, actionTarget, isNegativeResult, negativeLoopCheck, buildEnvironmentPrelude, RECENT_RESULTS_WINDOW } from "./agent-loop-guards.js";
+import { isTsFamily, truncate, actionFingerprint, type RecentAction, toolFamily, normalizePathPattern, actionTarget, isNegativeResult, negativeLoopCheck, RECENT_RESULTS_WINDOW } from "./agent-loop-guards.js";
 export { PTH_WORKER_SYSTEM, buildAgentSystemPrompt, filterCapabilityDoc } from "./agent-loop-prompt.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "@away_from/pth-kernel-interpreter";
-import { pthConfig } from "@away_from/pth-config";
 import { createGuardRegistry } from "./guardrails.js";
 import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
 import { modelState } from "@away_from/pth-kernel-interpreter";
 import { spaceRegistry, isRoleBoundToSpace } from "@away_from/pth-kernel-interpreter";
 import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import { normalizeExecutionRequestToCommand } from "./execution-command.js";
-import { checkToolFaceBudget, registryToolToSchema, visibleRegistryTools } from "@away_from/pth-kernel-interpreter";
 import type { ToolRegSpec } from "@away_from/pth-memory";
 import { shouldCompressInLoop, compressContext, CONTINUATION_TEMPLATE } from "./context-compaction.js";
+import { buildAgentLoopSystem } from "./agent-loop-system.js";
+import { buildRegistryToolFace } from "./agent-loop-tool-face.js";
+import { executeRegisteredTool } from "./agent-loop-registry-execution.js";
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -52,28 +53,15 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   const allowlist = input.toolAllowlist && input.toolAllowlist.length > 0
     ? new Set(input.toolAllowlist.map((name) => normalizeToolName(name)))
     : undefined;
-  let system = await buildAgentSystemPrompt(input.role, input.task.title, {
-    // 2026-08-14 T2：仅显式 env 覆盖才传入——缺省交由角色类策略（规划系 eager/其余 lazy）
-    mode: (() => {
-      const m = pthConfig().str("PTH_AGENT_MODE");
-      return (m === "lazy" || m === "eager" ? m : undefined) as "eager" | "lazy" | undefined;
-    })(),
-    // 2026-08-15 审计 MEDIUM：非 ASP 模式 prompt 工具面与 schema 同源（剔除 ASP-only）
+  const { system, prelude } = await buildAgentLoopSystem({
+    role: input.role,
+    task: input.task,
+    goal: input.goal,
+    publisherClarification: input.publisherClarification,
     asp: aspMode,
-    ...(allowlist ? { allowlist: [...allowlist] } : {}),
-    memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
+    allowlist,
+    caps,
   });
-  // 生命周期 P0：根目标段（system prompt 恒定——不进消息数组，压缩压不掉）
-  if (input.goal && input.goal.trim() !== "") {
-    system = `${system}\n\n【根目标】${input.goal.trim()}`;
-  }
-  // 生命周期 P1：发布者澄清（pause 恢复重跑时注入——答案作为新事实）
-  if (input.publisherClarification && input.publisherClarification.trim() !== "") {
-    system = `${system}\n\n【发布者澄清】${input.publisherClarification.trim()}`;
-  }
-  if (aspMode) system = `${system}\n\n${ASP_BLOCK}`;
-  // 静态环境注入（②）：任务开始时拉环境预置（toolstore 文件 + 记忆概览）——LLM 一上来就知道可用资产
-  const prelude = await buildEnvironmentPrelude(caps);
 
   // 消息策略（2026-08-09 架构修正——用户裁决：OpenAI 格式 API 用原生 tool_calls，
   // 不是文本 JSON 动作解析）：
@@ -88,61 +76,19 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   const staticTools = toolsToSchema(input.role?.actionTools, { asp: aspMode });
 
   // ── N14 P2：注册表可见集并入工具面（§3.5 执行缝 = 静态 TOOL_SCHEMAS ∪ 注册表可见集）──
-  // 快照冻结（T3 防线——任务开始装载，任务中途注册不生效）+ 预算守卫（§3.3——注册面超限裁减，静态面不动）
-  // + 名冲突静态面优先（builtin 条目只承担治理面，执行仍走 AGENT_TOOLS 静态表——Q4 裁决执行不动）。
-  // P2 自决：注册工具面 ASP 空间无关（全空间可见）——空间级投放留待后续细化。
-  const registryByName = new Map<string, ToolRegSpec>();
-  const registrySchemas: Array<{ name: string; description: string; parameters: { type: "object"; properties: Record<string, unknown>; required: string[] } }> = [];
-  if (input.toolRegistry && input.role?.id) {
-    const visible = visibleRegistryTools(input.toolRegistry, input.role.id);
-    const budget = configNumber("PTH_TOOL_FACE_BUDGET", 24);
-    const { allowed, dropped } = checkToolFaceBudget(staticTools.length, visible, budget);
-    if (dropped.length > 0) {
-      input.logger?.(`[tool-reg] 工具面预算守卫（≤${budget}）：注册工具裁减 ${dropped.join("/")}——走合并/退役提案（N14 §3.3）`);
-    }
-    const staticNames = new Set(staticTools.map((t) => t.name));
-    for (const spec of allowed) {
-      const schema = registryToolToSchema(spec);
-      if (staticNames.has(schema.name)) continue;
-      registryByName.set(spec.name, spec);   // 键 = 点形真相源名（executeStep 归一 下划线→点 后查表）
-      // 下划线命名可达性别名（调用面名归一后下划线名否则不可达；名称序先到先得不覆盖——确定性）
-      const dotAlias = spec.name.replace(/_/g, ".");
-      if (dotAlias !== spec.name && !registryByName.has(dotAlias)) registryByName.set(dotAlias, spec);
-      registrySchemas.push(schema);
-    }
-    if (registrySchemas.length > 0) {
-      input.logger?.(`[tool-reg] 快照 ${input.toolRegistry.version}：注册工具面 +${registrySchemas.length}（${registrySchemas.map((s) => s.name).join("/")}）`);
-    }
-  }
-
-  // ── 工具面（2026-08-14 T3 裁决：废弃 pick_tools 动态注入——结构化动作空间+记忆空间
-  //    已减少同时暴露的工具数；工具面 = 空间面 ∩ 角色白名单，不再动态收窄）──
-  /** 当前轮 LLM 调用实际工具面 */
-  function currentTools(aspCurrent: string): import("@earendil-works/pi-ai").Tool[] {
-    const base = aspMode
-      ? toolsForSpace(aspCurrent, input.role?.actionTools)
-      : [...staticTools];
-    // 同名工具去重（OpenAI 对重复工具名 400）；N14 P2：注册表可见集并入（空间无关）
-    const all = [...new Map([...base, ...registrySchemas].map((t) => [t.name, t])).values()];
-    // TCE P5：Tool 层生成器产物（per-tool 工具面——manifest 策展）
-    for (const extra of input.extraTools ?? []) {
-      if (!all.some((t) => t.name === extra.name)) {
-        all.push({ name: extra.name, description: extra.description, parameters: extra.parameters });
-      }
-    }
-    // N28 T6：非 ASP 面不含 done（仅 ASP meta 面有）——冻结 union 恒含 pinned done，schema 需同步暴露。
-    if (allowlist?.has("done") && !all.some((t) => normalizeToolName(t.name) === "done")) {
-      const done = toolSchemaFor("done");
-      if (done) all.push(done);
-    }
-    // 生命周期 P1：pause 同 done 一样是固定循环控制工具——冻结 union 恒含，schema 需同步暴露。
-    if (allowlist?.has("pause") && !all.some((t) => normalizeToolName(t.name) === "pause")) {
-      const pause = toolSchemaFor("pause");
-      if (pause) all.push(pause);
-    }
-    // N28 T6：schema 暴露与执行授权同源——冻结 union ∩ 当前 space face。
-    return allowlist ? all.filter((t) => allowlist.has(normalizeToolName(t.name))) : all;
-  }
+  // 快照冻结/预算守卫/下划线别名/currentTools 已抽到 agent-loop-tool-face.ts。
+  const { registryByName, currentTools } = buildRegistryToolFace(
+    {
+      role: input.role,
+      toolRegistry: input.toolRegistry,
+      toolAllowlist: input.toolAllowlist,
+      extraTools: input.extraTools,
+      logger: input.logger,
+      asp: aspMode,
+    },
+    staticTools,
+    allowlist,
+  );
 
   const start = Date.now();
   let steps = 0;
@@ -509,169 +455,18 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       }
     }
     if (!executor && regSpec) {
-      // Wave 2：Tool-Reg v2 command adapter 优先。
-      // adapter 只返回 ExecutionRequest/deny；授权继续走 CommandGateway（decideRequest）。
-      let adapterAuthorized = false;
-      if (regSpec.command && input.adapterRegistry) {
-        const adapterResult = input.adapterRegistry.call(regSpec.command, args ?? {});
-        if (adapterResult.kind === "deny") {
-          const feedback = adapterResult.feedback;
-          const preview = feedback ? `${feedback.class}:${feedback.code}` : "adapter denied";
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `[adapter] ${tool} 拒绝：${adapterResult.reason}` });
-          input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: preview, ...(feedback ? { feedback, errorClass: feedback.class, errorCode: feedback.code, retryable: feedback.retryable } : {}) });
-          return undefined;
-        }
-        if (input.commandGateway?.decideRequest && input.commandContext) {
-          const decision = await input.commandGateway.decideRequest(adapterResult.request, input.commandContext);
-          if (decision.kind === "deny") {
-            messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-              content: `[授权] ${tool} 拒绝：${decision.reason}` });
-            input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: "CommandGateway 拒绝", ...(decision.feedback ? { feedback: decision.feedback, errorClass: decision.feedback.class, errorCode: decision.feedback.code, retryable: decision.feedback.retryable } : {}) });
-            return undefined;
-          }
-          if (decision.kind === "await-approval") {
-            input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
-            return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: decision.requestId } };
-          }
-          if (decision.kind === "execute") {
-            adapterAuthorized = true;
-            if (input.executionDispatcher) {
-              const execResult = await input.executionDispatcher.execute(decision.command);
-              const feedback = execResult.ok
-                ? undefined
-                : {
-                    layer: "execute" as const,
-                    class: "execution" as const,
-                    code: execResult.error?.code ?? "EXECUTION_FAILED",
-                    message: execResult.error?.message ?? "execution failed",
-                    retryable: false,
-                    adapterId: regSpec.command,
-                    execKind: adapterResult.request.kind,
-                    target: decision.command.target ?? undefined,
-                    errorClass: execResult.error?.code,
-                    errorCode: execResult.error?.code,
-                    durationMs: execResult.durationMs,
-                  };
-              const result: AgentToolResult = {
-                ok: execResult.ok,
-                ...(execResult.value !== undefined ? { value: execResult.value } : {}),
-                ...(execResult.stdout !== undefined ? { stdout: execResult.stdout } : {}),
-                ...(execResult.stderr !== undefined ? { stderr: execResult.stderr } : {}),
-                ...(execResult.error ? { error: execResult.error.message, code: execResult.error.code } : {}),
-                ...(execResult.truncated ? { truncated: true } : {}),
-                ...(feedback ? { feedback } : {}),
-                durationMs: execResult.durationMs,
-              };
-              // W8 P2：tasks.await 挂起信号 → 软终止释放认领（retryable requeue）
-              if (!result.ok && result.code === TASK_AWAIT_SUSPENDED_CODE) {
-                input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: result.error });
-                return { ok: true, value: null, steps: steps + 1, warning: result.error ?? TASK_AWAIT_SUSPENDED_CODE };
-              }
-              input.onStep?.({ n: steps + 1, tool, durationMs: execResult.durationMs, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-              const summary = result.ok
-                ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-                : `error: ${result.error ?? "unknown"}`;
-              messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
-              input.onTrace?.({
-                type: "tool-result",
-                step: steps + 1,
-                tool,
-                ok: result.ok,
-                durationMs: execResult.durationMs,
-                resultPreview: summary.slice(0, 500),
-                ...(regSpec.command ? { adapterId: regSpec.command } : {}),
-                execKind: adapterResult.request.kind,
-                ...(decision.command.target ? { target: decision.command.target } : {}),
-                ...(feedback ? { feedback, errorClass: feedback.class, errorCode: feedback.code, retryable: feedback.retryable } : {}),
-              });
-              return undefined;
-            }
-          }
-        }
-      }
-      // TCE P3：tool-reg program/agent 执行缝先过 Command 层门控（收编 governance hole）。
-      if (input.commandGateway && input.commandContext && !adapterAuthorized) {
-        const decision = await input.commandGateway.decide({
-          surface: "agent-tool",
-          toolCall: { tool, args: args ?? {} },
-          ctx: input.commandContext,
-        });
-        if (decision.kind === "deny") {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `[授权] ${tool} 拒绝：${decision.reason}` });
-          input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: "CommandGateway 拒绝" });
-          return undefined;
-        }
-        if (decision.kind === "await-approval") {
-          input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
-          return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: decision.requestId } };
-        }
-      }
-      const regExec = regSpec.executor;
-      if (regExec.type === "program") {
-        // program 态：固化 ts 程序（无 LLM）——args 注入为 const 绑定，源程序 return 值即结果
-        const code = `const args = ${JSON.stringify(args ?? {})};\n${regExec.source}`;
-        input.logger?.(`[agent] step=${steps + 1} tool-reg program ${regSpec.name}（tool:${regSpec.name}@v${regSpec.version}）`);
-        const { raw } = await runPtcProgram({
-          code, cwd: input.taskWorkspace ?? "/tmp", ts: kernel.ts, caps: input.capabilityInject,
-          registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
-        });
-        // W8 P2 同款：tasks.await 挂起信号 → 软终止（value=null + warning）
-        if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
-          input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
-          return { ok: true, value: null, steps: steps + 1, warning: raw.error.message };
-        }
-        const result: AgentToolResult = raw.ok
-          ? { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text }
-          : { ok: false, error: raw.error?.message ?? "tool-reg program 执行失败" };
-        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-        const summary = result.ok
-          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-          : `error: ${result.error ?? "unknown"}`;
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
-        return undefined;
-      }
-      // agent 态：穿透 runChild 同款缝（深度限 1——子 kernel 不注入穿透/投递端口）
-      if (regExec.type !== "agent") {
-        // builtin 态 ref 未解析（asp-inline:* 等）——执行面不走注册通道（防御：正常路径已在上方归并）
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `tool-reg builtin ${regSpec.name} 的执行器引用 ${regExec.ref} 不在 AGENT_TOOLS 表（ASP 内联工具请切到对应空间后直接调用）` });
-        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "builtin ref 未解析" });
-        return undefined;
-      }
-      const exec = input.toolRegExec;
-      if (!exec?.runChild || !exec.caller) {
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `tool-reg agent 态执行缝未装配（toolRegExec.runChild/caller 缺失）——${regSpec.name} 暂不可调用` });
-        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "agent 态执行缝未装配" });
-        return undefined;
-      }
-      const text = [
-        `【注册工具调用】tool:${regSpec.name}（agent 态——子 agent ${regExec.role}）`,
-        "",
-        "【调用参数】",
-        JSON.stringify(args ?? {}, null, 2),
-      ].join("\n");
-      input.logger?.(`[agent] step=${steps + 1} tool-reg agent ${regSpec.name} → ${regExec.role}`);
-      const r = await exec.runChild({
-        childRoleId: regExec.role,
-        title: `tool:${regSpec.name}`,
-        text,
-        inputContract: regExec.input ?? "（未声明——调用参数 JSON 自描述）",
-        outputContract: regExec.output ?? "（未声明——done.result 即产物）",
-        skillId: `tool:${regSpec.name}`,
-        caller: exec.caller,
+      // Tool-Reg v2 command adapter / CommandGateway / program / agent 执行缝已抽到
+      // agent-loop-registry-execution.ts（保持主循环薄分发）。
+      return executeRegisteredTool({
+        input,
+        tool,
+        args,
+        regSpec,
+        messages,
+        steps,
+        toolCallId,
+        stepStart,
       });
-      const result: AgentToolResult = r.ok
-        ? { ok: true, value: r.value, stdout: truncate(JSON.stringify(r.value ?? null), 2000).text }
-        : { ok: false, error: r.error ?? "tool-reg agent 执行失败" };
-      input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-      const summary = result.ok
-        ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-        : `error: ${result.error ?? "unknown"}`;
-      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
-      return undefined;
     }
     if (!executor) {
       // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行。
