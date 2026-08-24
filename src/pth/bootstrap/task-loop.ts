@@ -161,6 +161,8 @@ export class TaskLoop {
         professionalGrantTtlMs: this.deps.professionalGrantTtlMs,
         commandGateway: this.deps.commandGateway,
         extraTools: this.deps.extraTools,
+        adapterRegistry: this.deps.adapterRegistry,
+        executionDispatcher: this.deps.executionDispatcher,
         onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {

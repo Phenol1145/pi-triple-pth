@@ -534,7 +534,60 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
             input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
             return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: decision.requestId } };
           }
-          adapterAuthorized = true;
+          if (decision.kind === "execute") {
+            adapterAuthorized = true;
+            if (input.executionDispatcher) {
+              const execResult = await input.executionDispatcher.execute(decision.command);
+              const feedback = execResult.ok
+                ? undefined
+                : {
+                    layer: "execute" as const,
+                    class: "execution" as const,
+                    code: execResult.error?.code ?? "EXECUTION_FAILED",
+                    message: execResult.error?.message ?? "execution failed",
+                    retryable: false,
+                    adapterId: regSpec.command,
+                    execKind: adapterResult.request.kind,
+                    target: decision.command.target ?? undefined,
+                    errorClass: execResult.error?.code,
+                    errorCode: execResult.error?.code,
+                    durationMs: execResult.durationMs,
+                  };
+              const result: AgentToolResult = {
+                ok: execResult.ok,
+                ...(execResult.value !== undefined ? { value: execResult.value } : {}),
+                ...(execResult.stdout !== undefined ? { stdout: execResult.stdout } : {}),
+                ...(execResult.stderr !== undefined ? { stderr: execResult.stderr } : {}),
+                ...(execResult.error ? { error: execResult.error.message, code: execResult.error.code } : {}),
+                ...(execResult.truncated ? { truncated: true } : {}),
+                ...(feedback ? { feedback } : {}),
+                durationMs: execResult.durationMs,
+              };
+              // W8 P2：tasks.await 挂起信号 → 软终止释放认领（retryable requeue）
+              if (!result.ok && result.code === TASK_AWAIT_SUSPENDED_CODE) {
+                input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: result.error });
+                return { ok: true, value: null, steps: steps + 1, warning: result.error ?? TASK_AWAIT_SUSPENDED_CODE };
+              }
+              input.onStep?.({ n: steps + 1, tool, durationMs: execResult.durationMs, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
+              const summary = result.ok
+                ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
+                : `error: ${result.error ?? "unknown"}`;
+              messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
+              input.onTrace?.({
+                type: "tool-result",
+                step: steps + 1,
+                tool,
+                ok: result.ok,
+                durationMs: execResult.durationMs,
+                resultPreview: summary.slice(0, 500),
+                ...(regSpec.command ? { adapterId: regSpec.command } : {}),
+                execKind: adapterResult.request.kind,
+                ...(decision.command.target ? { target: decision.command.target } : {}),
+                ...(feedback ? { feedback, errorClass: feedback.class, errorCode: feedback.code, retryable: feedback.retryable } : {}),
+              });
+              return undefined;
+            }
+          }
         }
       }
       // TCE P3：tool-reg program/agent 执行缝先过 Command 层门控（收编 governance hole）。

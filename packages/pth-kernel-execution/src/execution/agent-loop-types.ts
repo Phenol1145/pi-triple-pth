@@ -7,6 +7,7 @@ import type { WorkerRole } from "./worker-cluster.js";
 import type { AgentToolResult } from "./agent-tools.js";
 import type { CommandFeedback } from "./command-feedback.js";
 import type { CommandAdapterRegistry } from "./tool-command-adapters.js";
+import type { UnifiedExecutionDispatcher } from "./execution-command.js";
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
@@ -63,6 +64,8 @@ export interface AgentLoopOptions {
   }>;
   /** Wave 2：Tool-Reg v2 command adapter registry（缺省 = 回退旧 executor 路径） */
   adapterRegistry?: CommandAdapterRegistry;
+  /** Wave 2：Execute 层统一分发器（adapter 授权后执行；缺省 = 回退旧 executor 路径） */
+  executionDispatcher?: UnifiedExecutionDispatcher;
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */

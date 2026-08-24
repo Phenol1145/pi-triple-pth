@@ -42,6 +42,10 @@ export interface TaskLoopDeps {
   commandGateway?: import("@away_from/pth-kernel-execution").CommandGateway;
   /** TCE P5：Tool 层生成器产物（per-tool 工具面）。 */
   extraTools?: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }>;
+  /** Wave 2：Tool-Reg v2 command adapter registry（缺省 = 回退旧 executor 路径）。 */
+  adapterRegistry?: import("@away_from/pth-kernel-execution").CommandAdapterRegistry;
+  /** Wave 2：Execute 层统一分发器（adapter 授权后执行；缺省 = 回退旧 executor 路径）。 */
+  executionDispatcher?: import("@away_from/pth-kernel-execution").UnifiedExecutionDispatcher;
   /** P1-6：归档钩子注入（BatchTaskLoop 组合用；缺省用 protected archive 默认实现） */
   archiveFn?: (task: Task, ws: { dir: string; tenant: string }, result: unknown) => Promise<void>;
   /** N14 P2：tool-reg 注册表读取口（任务开始冻结快照——T3 防线）；缺省 = 注册面关闭 */
