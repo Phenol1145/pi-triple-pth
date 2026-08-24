@@ -19,6 +19,7 @@
 | ADR-0002：tool containers 与 execution/v1.1 | [adr/0002](adr/0002-tool-containers-execution-v11.md)（三仓同源） |
 | ADR-0003：pth-kernel 子包拆分 | [adr/0003](adr/0003-pth-kernel-subpackage-split.md) |
 | ADR-0004：TCE 的 C 是 Code · PTC 能力接口第一性 | [adr/0004](adr/0004-tce-code-layer-ptc-capability-first.md) |
+| ADR-0005：Role 四元组（身份/能力/资源/模块） | [adr/0005](adr/0005-role-four-tuple.md)（编号独立于旧仓归档） |
 
 ## 当前主线（2026-08-24 起）：系统构造模型化
 

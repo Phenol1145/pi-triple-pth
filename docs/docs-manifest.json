@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-24T12:53:11.640413Z",
+  "generatedAt": "2026-08-24T13:44:45.436Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -46,6 +46,12 @@
     },
     {
       "path": "docs/adr/0004-tce-code-layer-ptc-capability-first.md",
+      "category": "decisions",
+      "product": "shared",
+      "status": "active"
+    },
+    {
+      "path": "docs/adr/0005-role-four-tuple.md",
       "category": "decisions",
       "product": "shared",
       "status": "active"
@@ -156,17 +162,11 @@
       "path": "docs/pth/execution-modes-and-tool-reg-v2-design.md",
       "category": "designs",
       "product": "pth",
-      "status": "reference"
+      "status": "active"
     },
     {
       "path": "docs/pth/execution-modes-and-tool-reg-v2-implementation-plan.md",
       "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/release-notes-v1.8.0.md",
-      "category": "releases/draft",
       "product": "pth",
       "status": "active"
     },
@@ -426,7 +426,7 @@
       "path": "docs/pth/n28-feasibility-report.md",
       "category": "reports",
       "product": "pth",
-      "status": "historical"
+      "status": "reference"
     },
     {
       "path": "docs/pth/n28-lane-contract-rulings.md",
@@ -522,7 +522,7 @@
       "path": "docs/pth/n29-minimal-intake-report.md",
       "category": "reports",
       "product": "pth",
-      "status": "historical"
+      "status": "reference"
     },
     {
       "path": "docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md",
@@ -546,7 +546,7 @@
       "path": "docs/pth/n30-runtime-observatory-report.md",
       "category": "reports",
       "product": "pth",
-      "status": "historical"
+      "status": "reference"
     },
     {
       "path": "docs/pth/n31-unified-workflow-dag-design.md",
@@ -576,7 +576,7 @@
       "path": "docs/pth/n33-operator-console-report.md",
       "category": "reports",
       "product": "pth",
-      "status": "historical"
+      "status": "reference"
     },
     {
       "path": "docs/pth/n33-v13-ptl-operator-console-design.md",
@@ -609,6 +609,12 @@
       "status": "historical"
     },
     {
+      "path": "docs/pth/plan-implementation-status-inventory.md",
+      "category": "operations",
+      "product": "pth",
+      "status": "active"
+    },
+    {
       "path": "docs/pth/pth-api-protocol.md",
       "category": "guides",
       "product": "pth",
@@ -633,10 +639,28 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/release-notes-v1.8.0.md",
+      "category": "releases",
+      "product": "pth",
+      "status": "active"
+    },
+    {
       "path": "docs/pth/repo-split-v15-design.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
+    },
+    {
+      "path": "docs/pth/role-catalog-and-four-tuple-refinement-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/role-lineage-runtime-derivation.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
     },
     {
       "path": "docs/pth/role-worker-protocol-v1.md",
@@ -663,10 +687,22 @@
       "status": "historical"
     },
     {
+      "path": "docs/pth/system-construction-modeling-audit.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "active"
+    },
+    {
       "path": "docs/pth/task-lifecycle-and-context-design.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
+    },
+    {
+      "path": "docs/pth/tce-code-model-remediation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
     },
     {
       "path": "docs/pth/tension-decisions.json",
@@ -685,36 +721,6 @@
       "category": "designs",
       "product": "pth",
       "status": "reference"
-    },
-    {
-      "path": "docs/pth/system-construction-modeling-audit.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "active"
-    },
-    {
-      "path": "docs/pth/role-catalog-and-four-tuple-refinement-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "active"
-    },
-    {
-      "path": "docs/pth/role-lineage-runtime-derivation.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "active"
-    },
-    {
-      "path": "docs/pth/tce-code-model-remediation-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "active"
-    },
-    {
-      "path": "docs/pth/plan-implementation-status-inventory.md",
-      "category": "operations",
-      "product": "pth",
-      "status": "active"
     },
     {
       "path": "docs/pth/trigger-runtime.md",
@@ -756,7 +762,7 @@
       "path": "docs/pth/v13-professional-computing-report.md",
       "category": "reports",
       "product": "pth",
-      "status": "historical"
+      "status": "reference"
     },
     {
       "path": "docs/pth/v14-operator-console-ux-envelope.json",
@@ -768,7 +774,7 @@
       "path": "docs/pth/v14-operator-console-ux-report.md",
       "category": "reports",
       "product": "pth",
-      "status": "historical"
+      "status": "reference"
     },
     {
       "path": "docs/pth/w8-task-dispatch-design.md",

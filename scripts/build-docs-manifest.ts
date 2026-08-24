@@ -5,6 +5,11 @@
  * 运行：npm run docs:manifest
  * 产物：docs/docs-manifest.json（每份文档的 category/product/status + 代码运行时规划）。
  * 分类只做标注，不移动任何文件；物理搬迁必须在链接校验通过后另行执行。
+ *
+ * 状态口径：active = 当前主线/在制（随工作更新）；reference = 已定稿/已验收，长期作为依据引用；
+ * historical = 历史车道档案（n14–n24 等），仅考古价值。
+ * 文件名模式判不准的文档用 DOC_OVERRIDES 显式覆盖——禁止手改 docs-manifest.json，
+ * 手插在下次生成时会丢失。
  */
 
 import { readdirSync, statSync, writeFileSync } from "node:fs";
@@ -59,6 +64,28 @@ const PTH_OPERATIONS = new Set([
   "backlog-priority.md", "parallel-lanes.md", "design-tensions-adjudication.md",
 ]);
 
+/** 显式覆盖：模式分类判不准的新文档/在制文档，以本表为准（按 basename 匹配）。 */
+const DOC_OVERRIDES = new Map<string, { category: DocCategory; status: DocStatus }>([
+  // 2026-08-24 系统构造模型化主线（当前首要工作面）
+  ["tce-code-model-remediation-plan.md", { category: "designs", status: "active" }],
+  ["role-catalog-and-four-tuple-refinement-plan.md", { category: "designs", status: "active" }],
+  ["role-lineage-runtime-derivation.md", { category: "designs", status: "active" }],
+  ["system-construction-modeling-audit.md", { category: "reports", status: "active" }],
+  ["plan-implementation-status-inventory.md", { category: "operations", status: "active" }],
+  // 执行模式 v2：Wave 0–5 已落地、Wave 6 收尾中
+  ["execution-modes-and-tool-reg-v2-design.md", { category: "designs", status: "active" }],
+  ["execution-modes-and-tool-reg-v2-implementation-plan.md", { category: "designs", status: "active" }],
+  // GO 里程碑验收报告：当前验收证据，长期引用，不是考古档案
+  ["n28-feasibility-report.md", { category: "reports", status: "reference" }],
+  ["n29-minimal-intake-report.md", { category: "reports", status: "reference" }],
+  ["n30-runtime-observatory-report.md", { category: "reports", status: "reference" }],
+  ["v13-professional-computing-report.md", { category: "reports", status: "reference" }],
+  ["n33-operator-console-report.md", { category: "reports", status: "reference" }],
+  ["v14-operator-console-ux-report.md", { category: "reports", status: "reference" }],
+  // 发布笔记草稿（原手插类别 "releases/draft" 不在 taxonomy 内，归一为 releases）
+  ["release-notes-v1.8.0.md", { category: "releases", status: "active" }],
+]);
+
 const HISTORICAL_DESIGNS = /^n(1[4-9]|2[0-4])-/;
 const CONTRACT_RE = /^(n24-f[1-5]|n27-r[1-6]|n28-task[1-7]|n28-lane-contract-rulings)-/;
 
@@ -101,6 +128,8 @@ export function classifyDocsFile(file: string): DocEntry {
     return { path: `docs/${rel}`, category: "artifacts", product: "pth", status: "historical" };
   }
 
+  const override = DOC_OVERRIDES.get(base);
+  if (override) return { path: `docs/${rel}`, category: override.category, product: "pth", status: override.status };
   if (PTH_GUIDES.has(base)) return { path: `docs/${rel}`, category: "guides", product: "pth", status: "active" };
   if (PTH_OPERATIONS.has(base)) return { path: `docs/${rel}`, category: "operations", product: "pth", status: "reference" };
   if (CONTRACT_RE.test(base)) return { path: `docs/${rel}`, category: "contracts", product: "pth", status: "reference" };
