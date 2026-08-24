@@ -535,7 +535,7 @@ export async function collect(repoRoot: string, output?: string): Promise<N29Acc
   const envelope: N29AcceptanceEnvelope = {
     schema: N29_ENVELOPE_SCHEMA,
     generatedAt: new Date().toISOString(),
-    plan: "docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md",
+    plan: "docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md",
     evaluatedCommit: currentHead,
     implementationTreeClean: cleanBefore && treeClean(repoRoot),
     trustPolicy: {

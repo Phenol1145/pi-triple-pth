@@ -5,7 +5,7 @@
  * 用途：
  *   - 默认（无参数）：把当前快照 JSON 打到 stdout（确定性排序，无时间戳/随机量/commit SHA）。
  *   - --update：写入基线 `docs/pth/n28-structure-baseline.json` 与结构报告
- *     `docs/pth/n28-structure-baseline.md`。
+ *     `docs/pth/report/n28-structure-baseline.md`。
  *   - --check：与已提交基线逐文件/逐边比对；任何漂移（新增/删除/哈希/行数/根布局/导入边变化）
  *     打印差异并 exit 1，供合并者对照 lane 契约 §3 文件域逐条复核。确认预期后由合并者
  *     `--update` 在 merge 后的单独 docs commit 里刷新基线（审计链：基线更新与实现 merge 分离）。

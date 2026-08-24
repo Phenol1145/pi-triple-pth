@@ -1,7 +1,7 @@
 /**
  * kernel/execution/tool-registry.ts —— N14 P2：tool-reg 注册表运行时读取面。
  *
- * 依据 docs/pth/n14-sensor-controller-four-dims.md §3.3/§3.5：
+ * 依据 docs/pth/design/n14-sensor-controller-four-dims.md §3.3/§3.5：
  *   执行缝 = 静态 TOOL_SCHEMAS ∪ 注册表可见集（按 role 过滤 visibility、按快照版本冻结）；
  *   快照版本化（T3 教训防线）——任务开始时冻结快照，工具面按版本边界变化，不逐任务变；
  *   预算守卫——每角色工具面 ≤ PTH_TOOL_FACE_BUDGET（缺省 24），注册面超限裁减（静态面不动）。

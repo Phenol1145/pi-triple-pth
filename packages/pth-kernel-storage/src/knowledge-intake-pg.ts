@@ -19,7 +19,7 @@
  *  - subscription / run / dependency 是可变聚合：迁移必须携带 expected `rowVersion`（CAS）。
  *  - run 迁移必须同时满足：`tenant + id + stage(= fromStage) + lease_token + lease_generation + rowVersion`
  *    且 lease 未过期，并命中冻结迁移矩阵 `RUN_STAGE_TRANSITIONS`；任一不符 → 零行、零 side effect
- *    （N29 再验收 P0-2：docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-2）。
+ *    （N29 再验收 P0-2：docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §3 P0-2）。
  *  - side effect 的 outbox tenant 由聚合上下文盖章（CAS RETURNING 的 run.tenant_id），
  *    调用方自报不同 tenant → 写前 fail closed 抛错并整体回滚（N29 再验收 P0-1）。
  *  - 状态迁移与下一阶段 outbox 必须同一事务：`enqueueSideEffectInTx()`（L1，identity=(tenant_id,key)）

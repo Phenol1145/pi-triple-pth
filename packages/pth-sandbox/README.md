@@ -1,6 +1,6 @@
 # @away_from/pth-sandbox
 
-PTH 的**沙箱域 + 内核契约/运行时** workspace 包（单仓拆分决策见 `docs/pth/split-design.md`）。
+PTH 的**沙箱域 + 内核契约/运行时** workspace 包（单仓拆分决策见 `docs/pth/design/split-design.md`）。
 
 - 生产形态：独立 sandbox 容器（`Dockerfile.sandbox`），只挂 `sandbox-internal` 网络、无宿主机端口映射；控制器 root 仅用于 setuid，工作负载以 UID/GID 2001 运行。
 - PTH 侧通过 `http://sandbox:8080` 调用：无状态执行走 `/exec`（`sandbox-bash.ts` 客户端），持久 REPL 池走 `/kernel/*`（`SandboxKernel` 客户端）。

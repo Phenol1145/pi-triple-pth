@@ -1,5 +1,5 @@
 /**
- * tasking/penetration-budget.ts —— N15 B2 穿透执行预算（docs/pth/n15-lane-b1-b2-a4-design.md §1.3）。
+ * tasking/penetration-budget.ts —— N15 B2 穿透执行预算（docs/pth/design/n15-lane-b1-b2-a4-design.md §1.3）。
  *
  * 纯函数模块：把「父任务内同步子 agent 调用」的累计步数收进两条预算线——
  *   1. 单次穿透调用步数上限（PTH_PENETRATION_MAX_STEPS）；

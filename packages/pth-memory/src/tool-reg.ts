@@ -1,7 +1,7 @@
 /**
  * tool-reg.ts —— 工具注册条目（tool-reg）格式与校验（2026-08-18 N14 P0）。
  *
- * 依据：docs/pth/n14-sensor-controller-four-dims.md §3（一等工具注册通道——契约先行，
+ * 依据：docs/pth/design/n14-sensor-controller-four-dims.md §3（一等工具注册通道——契约先行，
  * W8 P3 穿透同款模式）。设计裁决：A2 开通道 / Q2 执行体三态（program+builtin+agent）/
  * Q3 skill 同构治理 / Q4 存量一次性全登记。
  *

@@ -1,7 +1,7 @@
 /**
  * scripts/build-discipline-catalog.ts — K0 Discipline Catalog 数据生成器。
  *
- * 事实源：docs/pth/n16-v1.2-role-expansion.md §2.1–§2.5（§2.6 非 researcher 不导入）。
+ * 事实源：docs/pth/design/n16-v1.2-role-expansion.md §2.1–§2.5（§2.6 非 researcher 不导入）。
  * 解析规则：只取形如 `| id | 3/4/5 | parent | 职责 |` 的行；
  *   gen 映射 3→category、4→discipline、5→sub-discipline。
  *
@@ -28,7 +28,7 @@ import {
 } from "../src/pth/catalog/data/discipline-alias-overrides.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SOURCE_DOC = resolve(ROOT, "docs/pth/n16-v1.2-role-expansion.md");
+const SOURCE_DOC = resolve(ROOT, "docs/pth/design/n16-v1.2-role-expansion.md");
 const OUT_FILE = resolve(ROOT, "src/pth/catalog/data/discipline-catalog-data.ts");
 
 const EXPECTED_COUNTS = { category: 5, discipline: 32, subDiscipline: 147, total: 184 };
@@ -163,7 +163,7 @@ function renderPart(defs: DomainDefinition[], exportName: string, counts: Return
   return `/**
  * GENERATED FILE — 请勿手改。
  *
- * 生成源：docs/pth/n16-v1.2-role-expansion.md §2.1–§2.5
+ * 生成源：docs/pth/design/n16-v1.2-role-expansion.md §2.1–§2.5
  * （只取 | id | 3/4/5 | parent | 职责 | 行；§2.6 非 researcher 不导入）
  * + src/pth/catalog/data/discipline-alias-overrides.ts（生产别名覆盖，F4 AB-06）。
  * 生成命令：npx tsx scripts/build-discipline-catalog.ts
@@ -180,7 +180,7 @@ function renderMain(counts: ReturnType<typeof levelCounts>): string {
   return `/**
  * GENERATED FILE — 请勿手改。
  *
- * 生成源：docs/pth/n16-v1.2-role-expansion.md §2.1–§2.5
+ * 生成源：docs/pth/design/n16-v1.2-role-expansion.md §2.1–§2.5
  * （只取 | id | 3/4/5 | parent | 职责 | 行；§2.6 非 researcher 不导入）
  * + src/pth/catalog/data/discipline-alias-overrides.ts（生产别名覆盖，F4 AB-06）。
  * 生成命令：npx tsx scripts/build-discipline-catalog.ts

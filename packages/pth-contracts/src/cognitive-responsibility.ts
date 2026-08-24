@@ -1,7 +1,7 @@
 /**
  * contracts/cognitive-responsibility.ts —— N28 认知责任契约（可行性阶段统一接口事实源）。
  *
- * 对应设计 `docs/pth/n28-role-memory-orchestration-design.md`：
+ * 对应设计 `docs/pth/design/n28-role-memory-orchestration-design.md`：
  *  - §2.2 核心契约（Role/Worker/MemoryRegion/Responsibility/预算类型）
  *  - §5.3 Retrieval Trace
  *  - §6.2 Task Working Set

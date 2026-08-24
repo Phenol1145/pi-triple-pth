@@ -940,7 +940,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
   });
 
   // ── N29 再验收 P0-2：Run CAS 必须比较 fromStage 与真实 stage，并只允许冻结矩阵内的边 ──
-  // 反例来源：docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-2 / §8 条件 2。
+  // 反例来源：docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §3 P0-2 / §8 条件 2。
 
   it("N29 refix P0-2：真实 stage=fetch 时伪报 fromStage=promote→complete 零行零 outbox；随后 fetch→admit 成功", async () => {
     const tenantId = nextTenant("refix-fromstage");
@@ -1451,7 +1451,7 @@ describe("knowledge intake PG 真相源（N29 Task 3）", () => {
   });
 
   // ------------------------------ P0-4：SourceRevision / Artifact 不变量必须在写口守住
-  // 反例来源：docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-4 / §8 条件 4。
+  // 反例来源：docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §3 P0-4 / §8 条件 4。
   // 这些用例**直接调用**仓库公共写口（模拟"被错误内部调用者直接调用"），不经 service happy path。
 
   /** 每个 P0-4 负测的公共前置：真实 policy + subscription + run + 一条合法 raw-quarantine 父行。 */

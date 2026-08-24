@@ -74,7 +74,7 @@ describe("memory-policy write 规则", () => {
 
 /**
  * N29 L1（§1.6 P0-4）：worker/service/模板都不能取得 knowledge official 写权限。
- * 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
+ * 反例来源：docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
  */
 describe("N29 P0-4：worker knowledge write 强制 draft", () => {
   it("knowledge 层任意 kind/status 一律强制 draft（不再 direct official）", () => {

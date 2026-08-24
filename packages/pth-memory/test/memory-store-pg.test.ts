@@ -466,7 +466,7 @@ suite("memory store pg", () => {
   });
 
   // ── N29 L1（§1.6 P0-4）：official 知识只能由 Promotion Service 晋升 ────────────
-  // 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
+  // 反例来源：docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
 
   it("N29 P0-4：official domain 知识直写被拒（普通 store write / service 均无 authority）", async () => {
     const provenance = buildKnowledgeProvenance({
@@ -538,7 +538,7 @@ suite("memory store pg", () => {
   });
 
   // ── N29 再验收 P0-5（feedback §3 P0-5 / §8 条件 6）：official 知识的剩余旁路 ──────────
-  // 反例来源：docs/pth/n29-minimal-intake-reacceptance-feedback.md §2.3 探针
+  // 反例来源：docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §2.3 探针
   // `rawStoreOfficial = { status: "official", kind: "task-insight" }` 与 §3 P0-5 的
   // "promoteOfficial() evaluator 可省略" / "capability facade 仍公开晋升原语"。
 

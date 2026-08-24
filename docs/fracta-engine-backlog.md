@@ -108,7 +108,7 @@
   与 governance 标签语义一致——memory-sweep-trigger 同款）。
 - **影响面**：`packages/pth-kernel-execution/src/execution/system-triggers.ts`（一行级 ×2）。
 - **验收**：提案事件触发后审核任务真实落池且路由到 controller:adversarial；回归测试覆盖。
-- **出处**：`docs/pth/role-lineage-runtime-derivation.md` 回路 C1。
+- **出处**：`docs/pth/report/role-lineage-runtime-derivation.md` 回路 C1。
 
 ## B10. 观测-调节调度源缺失（2026-08-24 理论推导实证）
 
@@ -122,7 +122,7 @@
   与 controller:router 实装、A/B 优化周期落地同属治理回路自闭环工作流。
 - **验收**：sensor 七点位/controller 九点位按周期自动收到观测/调节任务并产出
   observation-report / modification-plan。
-- **出处**：`docs/pth/role-lineage-runtime-derivation.md` 回路 B1/D2。
+- **出处**：`docs/pth/report/role-lineage-runtime-derivation.md` 回路 B1/D2。
 
 ## C9. P5 体验收尾（三小项）✅
 

@@ -1,7 +1,7 @@
 /**
  * tasking/tool-reg-builtin.ts —— N14 P0 存量登记器（2026-08-18，Q4 裁决：一次性全登记）。
  *
- * 依据 docs/pth/n14-sensor-controller-four-dims.md §3.6：
+ * 依据 docs/pth/design/n14-sensor-controller-four-dims.md §3.6：
  *   存量硬编码工具全部登记为 builtin 条目（executor.ref = 执行器键）——
  *   **执行完全不动**（仍走硬编码函数表——零行为变化），条目承担治理面
  *   （description 三要素统一 / 可见性声明 / 包归属 / 版本起点 v1）；

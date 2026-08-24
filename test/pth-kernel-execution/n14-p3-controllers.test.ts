@@ -3,7 +3,7 @@ import { installDefaultRoles } from "../helpers";
 
 /**
  * N14 P3：controller 三新点位（tool-face / tool-single / rule——0.17.4 四层次调节缺口）。
- * 设计：docs/pth/n14-sensor-controller-four-dims.md §2.2/§2.3——
+ * 设计：docs/pth/design/n14-sensor-controller-four-dims.md §2.2/§2.3——
  * 治理族叶子（parent=controller，gen=1——2026-08-24 三源重构顺移 -1），组织权排除自动继承（controller: 前缀），
  * 谱系可见、默认不进 batch、PTH_WORKER_ROLES 显式启用。
  */

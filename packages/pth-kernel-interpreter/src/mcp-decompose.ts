@@ -2,7 +2,7 @@
  * tasking/mcp-decompose.ts —— N17 D1：MCP 工具包（已拆解重实现源码 + JSON schema）
  * → 校验/生成 ToolRegSpec → tool-proposal draft 批量落库。
  *
- * 依据：docs/pth/n17-lane-a5-d1-design.md §2（D1 MCP 拆解入 tool-reg）。
+ * 依据：docs/pth/design/n17-lane-a5-d1-design.md §2（D1 MCP 拆解入 tool-reg）。
  * 原则（§2.1）：不做运行时 MCP 转接器；输入 = mcp-tool-bundle-v1 JSON bundle；
  * 输出 = 逐工具 tool-proposal draft（复用 N14 治理流——不直写 official）。
  *

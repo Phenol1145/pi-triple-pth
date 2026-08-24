@@ -8,7 +8,7 @@ import {
 } from "../../src/pth/tasking/penetration-budget.js";
 
 /**
- * N15 B2 穿透执行预算（docs/pth/n15-lane-b1-b2-a4-design.md §1.3）纯函数测试。
+ * N15 B2 穿透执行预算（docs/pth/design/n15-lane-b1-b2-a4-design.md §1.3）纯函数测试。
  *
  * 规则钉死：
  *  - used = ledger.steps；remaining = taskBudgetSteps - used；

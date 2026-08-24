@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-24T13:44:45.436Z",
+  "generatedAt": "2026-08-24T13:52:18.426Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -129,14 +129,116 @@
       "status": "active"
     },
     {
-      "path": "docs/pth/deploy-targets-and-config-simplification-design.md",
-      "category": "designs",
+      "path": "docs/pth/contract/n24-f1-contract.md",
+      "category": "contracts",
       "product": "pth",
       "status": "reference"
     },
     {
-      "path": "docs/pth/deploy-targets-implementation-plan.md",
-      "category": "designs",
+      "path": "docs/pth/contract/n24-f2-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n24-f3-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n24-f4-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n24-f5-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n27-r1-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n27-r2-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n27-r3-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n27-r4-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n27-r5-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n27-r6-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n28-lane-contract-rulings.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n28-task1-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n28-task2-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n28-task3-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n28-task4-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n28-task5-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n28-task6-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/contract/n28-task7-contract.md",
+      "category": "contracts",
       "product": "pth",
       "status": "reference"
     },
@@ -153,28 +255,178 @@
       "status": "reference"
     },
     {
+      "path": "docs/pth/design/deploy-targets-and-config-simplification-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/execution-modes-and-tool-reg-v2-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/design/n14-sensor-controller-four-dims.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n15-lane-b1-b2-a4-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n16-v1.2-role-domain-composition-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n16-v1.2-role-expansion.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n17-lane-a5-d1-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n18-v12-phase0-1a-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n19-v12-phase1b-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n20-v12-phase2-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n21-v12-phase3-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n22-v12-phase4-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n23-k5-eval-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/design/n25-human-interaction-protocol-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/n26-autonomous-knowledge-intake-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/n28-role-memory-orchestration-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/n30-runtime-observatory-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/n31-unified-workflow-dag-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/n32-v13-professional-computing-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/n33-v13-ptl-operator-console-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/p6-pth-cli-runtime-profiles-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/pth-bench-unified-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/pth-cli-command-registry-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/repo-split-v15-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/split-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/task-lifecycle-and-context-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/three-source-lineage-and-capacity-conservation-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/w8-task-dispatch-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/development.md",
       "category": "guides",
       "product": "pth",
       "status": "active"
-    },
-    {
-      "path": "docs/pth/execution-modes-and-tool-reg-v2-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "active"
-    },
-    {
-      "path": "docs/pth/execution-modes-and-tool-reg-v2-implementation-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "active"
-    },
-    {
-      "path": "docs/pth/execution-target-matrix-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
     },
     {
       "path": "docs/pth/extensions-dev.md",
@@ -189,52 +441,10 @@
       "status": "active"
     },
     {
-      "path": "docs/pth/k5-eval-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/k5-pilot-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
       "path": "docs/pth/kernel.md",
       "category": "guides",
       "product": "pth",
       "status": "active"
-    },
-    {
-      "path": "docs/pth/large-file-decomposition-and-reuse-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/llm-tool-notebook-unified-execution-backend-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/modularity-and-feasibility-followup-implementation-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/modularity-reuse-audit.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/modularity-reuse-implementation-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
     },
     {
       "path": "docs/pth/module-ownership.md",
@@ -243,262 +453,16 @@
       "status": "active"
     },
     {
-      "path": "docs/pth/n14-sensor-controller-four-dims.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n15-lane-b1-b2-a4-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n16-v1.2-role-domain-composition-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n16-v1.2-role-expansion-review.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n16-v1.2-role-expansion.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n17-lane-a5-d1-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n18-v12-phase0-1a-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n19-v12-phase1b-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n20-v12-phase2-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n21-v12-phase3-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n22-v12-phase4-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n23-k5-eval-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n24-f1-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n24-f2-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n24-f3-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n24-f4-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n24-f5-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n24-v12-acceptance-fix-plan.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n25-human-interaction-protocol-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n26-autonomous-knowledge-intake-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n27-r1-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n27-r1-r6-fix-plan.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n27-r2-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n27-r3-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n27-r4-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n27-r5-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n27-r6-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-feasibility-acceptance-review.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
       "path": "docs/pth/n28-feasibility-envelope.json",
       "category": "envelopes",
       "product": "pth",
       "status": "active"
     },
     {
-      "path": "docs/pth/n28-feasibility-reacceptance-feedback.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n28-feasibility-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-lane-contract-rulings.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-role-memory-orchestration-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-role-memory-orchestration-implementation-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
       "path": "docs/pth/n28-structure-baseline.json",
       "category": "artifacts",
       "product": "pth",
       "status": "historical"
-    },
-    {
-      "path": "docs/pth/n28-structure-baseline.md",
-      "category": "artifacts",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n28-task1-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-task2-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-task3-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-task4-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-task5-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-task6-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n28-task7-contract.md",
-      "category": "contracts",
-      "product": "pth",
-      "status": "reference"
     },
     {
       "path": "docs/pth/n29-canary-evidence.json",
@@ -513,52 +477,10 @@
       "status": "active"
     },
     {
-      "path": "docs/pth/n29-minimal-intake-reacceptance-feedback.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n29-minimal-intake-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n30-runtime-observatory-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
       "path": "docs/pth/n30-runtime-observatory-envelope.json",
       "category": "envelopes",
       "product": "pth",
       "status": "active"
-    },
-    {
-      "path": "docs/pth/n30-runtime-observatory-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n31-unified-workflow-dag-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n32-v13-professional-computing-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
     },
     {
       "path": "docs/pth/n33-operator-console-envelope.json",
@@ -567,34 +489,10 @@
       "status": "active"
     },
     {
-      "path": "docs/pth/n33-operator-console-reacceptance-feedback.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/n33-operator-console-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/n33-v13-ptl-operator-console-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
       "path": "docs/pth/orchestration.md",
       "category": "guides",
       "product": "pth",
       "status": "active"
-    },
-    {
-      "path": "docs/pth/p6-pth-cli-runtime-profiles-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
     },
     {
       "path": "docs/pth/parallel-lanes.md",
@@ -603,34 +501,106 @@
       "status": "reference"
     },
     {
-      "path": "docs/pth/phase1-deps-split-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
       "path": "docs/pth/plan-implementation-status-inventory.md",
       "category": "operations",
       "product": "pth",
       "status": "active"
     },
     {
-      "path": "docs/pth/pth-api-protocol.md",
-      "category": "guides",
+      "path": "docs/pth/plan/deploy-targets-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/execution-modes-and-tool-reg-v2-implementation-plan.md",
+      "category": "designs",
       "product": "pth",
       "status": "active"
     },
     {
-      "path": "docs/pth/pth-bench-unified-design.md",
+      "path": "docs/pth/plan/execution-target-matrix-plan.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
     },
     {
-      "path": "docs/pth/pth-cli-command-registry-design.md",
+      "path": "docs/pth/plan/large-file-decomposition-and-reuse-plan.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/llm-tool-notebook-unified-execution-backend-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/modularity-and-feasibility-followup-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/modularity-reuse-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/n24-v12-acceptance-fix-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/plan/n27-r1-r6-fix-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/n28-role-memory-orchestration-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/role-catalog-and-four-tuple-refinement-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/plan/tce-code-model-remediation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/plan/three-source-lineage-refactoring-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/workflow-trigger-human-review-correction-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/pth-api-protocol.md",
+      "category": "guides",
+      "product": "pth",
+      "status": "active"
     },
     {
       "path": "docs/pth/pth-console-openapi.json",
@@ -645,22 +615,142 @@
       "status": "active"
     },
     {
-      "path": "docs/pth/repo-split-v15-design.md",
-      "category": "designs",
+      "path": "docs/pth/report/k5-eval-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/k5-pilot-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/modularity-reuse-audit.md",
+      "category": "reports",
       "product": "pth",
       "status": "reference"
     },
     {
-      "path": "docs/pth/role-catalog-and-four-tuple-refinement-plan.md",
-      "category": "designs",
+      "path": "docs/pth/report/n16-v1.2-role-expansion-review.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/n28-feasibility-acceptance-review.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/n28-feasibility-reacceptance-feedback.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/n28-feasibility-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/report/n28-structure-baseline.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/n29-minimal-intake-reacceptance-feedback.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/n29-minimal-intake-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/report/n30-runtime-observatory-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/report/n33-operator-console-reacceptance-feedback.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/n33-operator-console-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/report/phase1-deps-split-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/role-lineage-runtime-derivation.md",
+      "category": "reports",
       "product": "pth",
       "status": "active"
     },
     {
-      "path": "docs/pth/role-lineage-runtime-derivation.md",
-      "category": "designs",
+      "path": "docs/pth/report/storage-backend-analysis.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/system-construction-modeling-audit.md",
+      "category": "reports",
       "product": "pth",
       "status": "active"
+    },
+    {
+      "path": "docs/pth/report/v1.2-acceptance-evaluation-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/v1.2-acceptance-fix-completion.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/v1.2-acceptance-fix-revalidation-final.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/v1.2-acceptance-fix-revalidation.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/v13-professional-computing-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/report/v14-operator-console-ux-report.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "reference"
     },
     {
       "path": "docs/pth/role-worker-protocol-v1.md",
@@ -675,50 +765,8 @@
       "status": "active"
     },
     {
-      "path": "docs/pth/split-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/storage-backend-analysis.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/system-construction-modeling-audit.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "active"
-    },
-    {
-      "path": "docs/pth/task-lifecycle-and-context-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/tce-code-model-remediation-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "active"
-    },
-    {
       "path": "docs/pth/tension-decisions.json",
       "category": "decisions",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/three-source-lineage-and-capacity-conservation-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/three-source-lineage-refactoring-plan.md",
-      "category": "designs",
       "product": "pth",
       "status": "reference"
     },
@@ -729,64 +777,16 @@
       "status": "active"
     },
     {
-      "path": "docs/pth/v1.2-acceptance-evaluation-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/v1.2-acceptance-fix-completion.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/v1.2-acceptance-fix-revalidation-final.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
-      "path": "docs/pth/v1.2-acceptance-fix-revalidation.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "historical"
-    },
-    {
       "path": "docs/pth/v13-professional-computing-envelope.json",
       "category": "envelopes",
       "product": "pth",
       "status": "active"
     },
     {
-      "path": "docs/pth/v13-professional-computing-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
       "path": "docs/pth/v14-operator-console-ux-envelope.json",
       "category": "envelopes",
       "product": "pth",
       "status": "active"
-    },
-    {
-      "path": "docs/pth/v14-operator-console-ux-report.md",
-      "category": "reports",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/w8-task-dispatch-design.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
-    },
-    {
-      "path": "docs/pth/workflow-trigger-human-review-correction-plan.md",
-      "category": "designs",
-      "product": "pth",
-      "status": "reference"
     },
     {
       "path": "docs/README.md",

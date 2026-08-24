@@ -6,7 +6,7 @@ import type { ToolRegSpec } from "@away_from/pth-memory";
 
 /**
  * N14 P3：manage.tool.* 调节面（manage 扩展的 tool 注册通道）。
- * 设计：docs/pth/n14-sensor-controller-four-dims.md §3.3/§3.4/§6 P3——
+ * 设计：docs/pth/design/n14-sensor-controller-four-dims.md §3.3/§3.4/§6 P3——
  * 预算守卫调用即校验；PTH_TOOL_WRITE_POLICY=manual 直写 official / staged 落 draft 提案。
  */
 

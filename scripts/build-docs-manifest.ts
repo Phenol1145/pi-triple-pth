@@ -69,8 +69,9 @@ const DOC_OVERRIDES = new Map<string, { category: DocCategory; status: DocStatus
   // 2026-08-24 系统构造模型化主线（当前首要工作面）
   ["tce-code-model-remediation-plan.md", { category: "designs", status: "active" }],
   ["role-catalog-and-four-tuple-refinement-plan.md", { category: "designs", status: "active" }],
-  ["role-lineage-runtime-derivation.md", { category: "designs", status: "active" }],
+  ["role-lineage-runtime-derivation.md", { category: "reports", status: "active" }],
   ["system-construction-modeling-audit.md", { category: "reports", status: "active" }],
+  ["modularity-reuse-audit.md", { category: "reports", status: "reference" }],
   ["plan-implementation-status-inventory.md", { category: "operations", status: "active" }],
   // 执行模式 v2：Wave 0–5 已落地、Wave 6 收尾中
   ["execution-modes-and-tool-reg-v2-design.md", { category: "designs", status: "active" }],
@@ -87,7 +88,7 @@ const DOC_OVERRIDES = new Map<string, { category: DocCategory; status: DocStatus
 ]);
 
 const HISTORICAL_DESIGNS = /^n(1[4-9]|2[0-4])-/;
-const CONTRACT_RE = /^(n24-f[1-5]|n27-r[1-6]|n28-task[1-7]|n28-lane-contract-rulings)-/;
+const CONTRACT_RE = /^(n24-f[1-5]|n27-r[1-6]|n28-task[1-7])-contract\.md$|^n28-lane-contract-rulings\.md$/;
 
 export function classifyDocsFile(file: string): DocEntry {
   const rel = relative(docsRoot, file).split("\\").join("/");
@@ -130,12 +131,18 @@ export function classifyDocsFile(file: string): DocEntry {
 
   const override = DOC_OVERRIDES.get(base);
   if (override) return { path: `docs/${rel}`, category: override.category, product: "pth", status: override.status };
+  // 物理子目录归类（2026-08-24 搬迁：contract/ design/ plan/ report/；JSON 证据物留在顶层）
+  if (parts.length === 3) {
+    const sub = parts[1];
+    if (sub === "contract") return { path: `docs/${rel}`, category: "contracts", product: "pth", status: "reference" };
+    if (sub === "design" || sub === "plan") {
+      return { path: `docs/${rel}`, category: "designs", product: "pth", status: HISTORICAL_DESIGNS.test(base) ? "historical" : "reference" };
+    }
+    if (sub === "report") return { path: `docs/${rel}`, category: "reports", product: "pth", status: "historical" };
+  }
   if (PTH_GUIDES.has(base)) return { path: `docs/${rel}`, category: "guides", product: "pth", status: "active" };
   if (PTH_OPERATIONS.has(base)) return { path: `docs/${rel}`, category: "operations", product: "pth", status: "reference" };
   if (CONTRACT_RE.test(base)) return { path: `docs/${rel}`, category: "contracts", product: "pth", status: "reference" };
-  if (base === "modularity-reuse-audit.md") {
-    return { path: `docs/${rel}`, category: "reports", product: "pth", status: "reference" };
-  }
   if (base.includes("report") || base.includes("feedback") || base.includes("audit")
     || base.includes("analysis") || base.includes("acceptance") || base.includes("evaluation")) {
     return { path: `docs/${rel}`, category: "reports", product: "pth", status: "historical" };

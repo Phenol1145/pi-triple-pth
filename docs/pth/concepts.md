@@ -631,7 +631,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   由 **PTL 任务派发逻辑**决定；
 - **设计已完成（2026-08-17 W8）**：入口**强制显式路由**（无缺省入口）；父→子投递用
   `tasks.delegate/await`；回流为**事件驱动 requeue**（子终态 → 父任务 requeue + `payload.childResult`）；
-  组织权违规调用即拒绝；完整契约与分阶段见 [w8-task-dispatch-design.md](./w8-task-dispatch-design.md)。
+  组织权违规调用即拒绝；完整契约与分阶段见 [w8-task-dispatch-design.md](./design/w8-task-dispatch-design.md)。
   **P0 契约已实施**：`payload.delivery` 单键存 TaskDelivery；外部入口盖
   `{path:[assignedRole], lineageId:taskId}` 章；终态写 `payload.result`（64KiB 截断/失败摘要）。
   **P1 delegate/await 已实施**：组织权矩阵（直接子类型 + planner/governor 执行族补充权 +
@@ -739,7 +739,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 #### 0.17.6 N14 设计落地（2026-08-18——四维细分 + 工具注册通道）
 
-> 完整设计：[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)。
+> 完整设计：[n14-sensor-controller-four-dims.md](./design/n14-sensor-controller-four-dims.md)。
 > 用户裁决：**Q1 增补式**（环向点位保留，四维缺口新增）/ **Q2 执行体三态**
 > （program ts 固化 + builtin 代码内置 + agent LLM 子 agent）/ **Q3 skill 同构治理**
 > （staged 流复用：提案 → 对抗性审核 → 批准 → 注册生效）。
@@ -767,9 +767,9 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 ### 0.18 学科域组合（2026-08-18——v1.2 改进稿）
 
 > 原「每个学科静态物化为 `WorkerRole`」方案经审稿否决（证据见
-> [N16 问题反馈](./n16-v1.2-role-expansion-review.md)）；学科目录内容保留，
+> [N16 问题反馈](./report/n16-v1.2-role-expansion-review.md)）；学科目录内容保留，
 > 实施方式改为**角色 × 学科域组合**。完整设计：
-> [角色 × 学科域组合与 PTH Knowledge](./n16-v1.2-role-domain-composition-design.md)。
+> [角色 × 学科域组合与 PTH Knowledge](./design/n16-v1.2-role-domain-composition-design.md)。
 
 - **四维任务级组合**：Worker Assignment = Operational Role（怎么工作）+
   Discipline Scope[]（懂什么）+ Knowledge Context（本任务获准读取的版本化证据包）+
@@ -1231,9 +1231,9 @@ v0.9（动作面/权限/任务池纯化）
 | N11 | 可预测性地图（predictability map） | 0.14 · 全域 | 无对应机制——伪世界模型猜想的落地接口：分尺度可预测性注册 + 相变预警 | 外部数据源接入（sensor 外环） · JIT 环（错误预测→修规则） | 💭 猜想·未启动 |
 | N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | ✅ 已实装（2026-08-14——guardrails.ts 注册表：ConsecutiveGuard 三段式 + 豁免矩阵 + `PTH_GUARD_*` 阈值配置化；agent-loop 五计数器收敛，行为逐字保留；9 新测试） | agent-loop 五计数器 → guardrails.ts 注册表 | ✅ 已实装（二期已随 N14 落：P1 scorecard 观测 + obs.guards；P3 controller:rule 调节面——`manage.params.set` 热调 + SOP） |
 | N13 | 思考路径图重建器（trace reconstruction） | 0.15 · 域 D | ✅ 已落（2026-08-15——`thinking-path.ts`：发现链/决策链/意图链 + 重复探测/盲试 + 记忆/工具缺口） | transcript 轨迹 · CoT 压缩产物 · refiner | ✅ 已落 |
-| N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计 + 实施全部完成（2026-08-18——[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP（manage.tool.* + 治理流 + 真实 tool-function 晋升首跑） | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ P0–P3 已落（GOVERNANCE_ROLES 13→16；首跑 `fn-wx7wk7`/`fn-v2u2if` 晋升验证） |
-| N15 | **穿透预算/发现/护栏 JIT**（B1/B2/A4——2026-08-18） | 0.16.3 · 0.7 | ✅ **已落（2026-08-18——[n15-lane-b1-b2-a4-design.md](./n15-lane-b1-b2-a4-design.md)）**：B2 穿透执行预算经济化（单次/累计步数预算 + `penetration-edge` 边级计量面）/ B1 穿透稳定边自动发现（proposal→监督批准→skill:penetrate 注册）/ A4 护栏 JIT（guard-kill-spike 热点→`guard-config` 审批热调→复测/deopt 回滚） | 穿透执行面 · optimizer-hotspots · guardrails | ✅ 三车道已落（合并顺序 B2→B1→A4） |
-| N16 | **v1.2 学科域组合**（0.18 角色×学科域 + Knowledge 加固） | 0.18 · 域 C/域 B | 🆕 审稿裁决完成（2026-08-18）：原「静态物化 188 角色」冻结（[review](./n16-v1.2-role-expansion-review.md) 实证 P0×5 + P1×5 + P2×3）；采纳 [组合设计](./n16-v1.2-role-domain-composition-design.md)——184 researcher 节点转 Discipline Catalog，4 非 researcher 独立评审；实施序 Phase 0 → 1a → 1b → 2 → 3 → 4 → 5（双域试点） | researcher 谱系 · 0.16.1 类型树 · 0.9/0.10 知识治理 · W4 SOP | 🆕 设计裁决完成（K0–K5 车道见 parallel-lanes） |
+| N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计 + 实施全部完成（2026-08-18——[n14-sensor-controller-four-dims.md](./design/n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP（manage.tool.* + 治理流 + 真实 tool-function 晋升首跑） | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ P0–P3 已落（GOVERNANCE_ROLES 13→16；首跑 `fn-wx7wk7`/`fn-v2u2if` 晋升验证） |
+| N15 | **穿透预算/发现/护栏 JIT**（B1/B2/A4——2026-08-18） | 0.16.3 · 0.7 | ✅ **已落（2026-08-18——[n15-lane-b1-b2-a4-design.md](./design/n15-lane-b1-b2-a4-design.md)）**：B2 穿透执行预算经济化（单次/累计步数预算 + `penetration-edge` 边级计量面）/ B1 穿透稳定边自动发现（proposal→监督批准→skill:penetrate 注册）/ A4 护栏 JIT（guard-kill-spike 热点→`guard-config` 审批热调→复测/deopt 回滚） | 穿透执行面 · optimizer-hotspots · guardrails | ✅ 三车道已落（合并顺序 B2→B1→A4） |
+| N16 | **v1.2 学科域组合**（0.18 角色×学科域 + Knowledge 加固） | 0.18 · 域 C/域 B | 🆕 审稿裁决完成（2026-08-18）：原「静态物化 188 角色」冻结（[review](./report/n16-v1.2-role-expansion-review.md) 实证 P0×5 + P1×5 + P2×3）；采纳 [组合设计](./design/n16-v1.2-role-domain-composition-design.md)——184 researcher 节点转 Discipline Catalog，4 非 researcher 独立评审；实施序 Phase 0 → 1a → 1b → 2 → 3 → 4 → 5（双域试点） | researcher 谱系 · 0.16.1 类型树 · 0.9/0.10 知识治理 · W4 SOP | 🆕 设计裁决完成（K0–K5 车道见 parallel-lanes） |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
@@ -1272,4 +1272,4 @@ v0.9（动作面/权限/任务池纯化）
 - Tool 层：manifest `argsSchema`/`argvTemplate` 策展 19 工具；`tool-layer-generator` 生成工具面。
 - 上下文：循环内压缩（`CONTINUATION_TEMPLATE`）与 scorecard 新增 pause/compression 信号。
 
-详细设计：[task-lifecycle-and-context-design](task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](llm-tool-notebook-unified-execution-backend-plan.md)
+详细设计：[task-lifecycle-and-context-design](design/task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](plan/llm-tool-notebook-unified-execution-backend-plan.md)

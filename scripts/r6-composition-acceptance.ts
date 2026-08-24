@@ -10,7 +10,7 @@
  *      组合验收不接受宿主无 DB 的 skip 作为证据）；
  *   2. 打印证据表摘要（套件路径 + 通过用例数）。
  *
- * 注：脚本不替代最终复验报告；报告见 docs/pth/v1.2-acceptance-fix-revalidation-final.md。
+ * 注：脚本不替代最终复验报告；报告见 docs/pth/report/v1.2-acceptance-fix-revalidation-final.md。
  */
 
 import { spawnSync } from "node:child_process";

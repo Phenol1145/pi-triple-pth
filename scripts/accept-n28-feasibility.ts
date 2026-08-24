@@ -29,7 +29,7 @@ export interface N28ContractDisposition {
   version: "v1.2";
   approved: true;
   approvalSource: "user-selected-option-in-reacceptance-session";
-  amendmentDoc: "docs/pth/n28-task7-contract.md";
+  amendmentDoc: "docs/pth/contract/n28-task7-contract.md";
   amendmentClause: "## 12. 人工批准修订 v1.2（恢复 35 文件 typecheck）";
   typecheckScope: "tsconfig.n28.json (4 scripts + 31 focused tests)";
 }
@@ -143,7 +143,7 @@ export function decideN28Acceptance(envelope: N28AcceptanceEnvelope, opts: { cur
     version: "v1.2",
     approved: true,
     approvalSource: "user-selected-option-in-reacceptance-session",
-    amendmentDoc: "docs/pth/n28-task7-contract.md",
+    amendmentDoc: "docs/pth/contract/n28-task7-contract.md",
     amendmentClause: "## 12. 人工批准修订 v1.2（恢复 35 文件 typecheck）",
     typecheckScope: "tsconfig.n28.json (4 scripts + 31 focused tests)",
   };
@@ -162,13 +162,13 @@ export function decideN28Acceptance(envelope: N28AcceptanceEnvelope, opts: { cur
 }
 
 async function collect(repoRoot: string, currentHead: string, output?: string): Promise<N28AcceptanceEnvelope> {
-  const contractDoc = await readFile(path.join(repoRoot, "docs/pth/n28-task7-contract.md"), "utf8");
+  const contractDoc = await readFile(path.join(repoRoot, "docs/pth/contract/n28-task7-contract.md"), "utf8");
   const contractDisposition: N28ContractDisposition = contractDoc.includes("## 12. 人工批准修订 v1.2（恢复 35 文件 typecheck）")
     ? {
         version: "v1.2",
         approved: true,
         approvalSource: "user-selected-option-in-reacceptance-session",
-        amendmentDoc: "docs/pth/n28-task7-contract.md",
+        amendmentDoc: "docs/pth/contract/n28-task7-contract.md",
         amendmentClause: "## 12. 人工批准修订 v1.2（恢复 35 文件 typecheck）",
         typecheckScope: "tsconfig.n28.json (4 scripts + 31 focused tests)",
       }
@@ -176,7 +176,7 @@ async function collect(repoRoot: string, currentHead: string, output?: string): 
         version: "v1.2",
         approved: false,
         approvalSource: "missing-amendment",
-        amendmentDoc: "docs/pth/n28-task7-contract.md",
+        amendmentDoc: "docs/pth/contract/n28-task7-contract.md",
         amendmentClause: "",
         typecheckScope: "",
       } as unknown as N28ContractDisposition;

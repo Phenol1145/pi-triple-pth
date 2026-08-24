@@ -95,7 +95,7 @@ function envelope(overrides: Partial<N29AcceptanceEnvelope> = {}): N29Acceptance
   return {
     schema: N29_ENVELOPE_SCHEMA,
     generatedAt: new Date().toISOString(),
-    plan: "docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md",
+    plan: "docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md",
     evaluatedCommit: HEAD,
     implementationTreeClean: true,
     trustPolicy: { policyId: "p", version: "1", digest: DIGEST, keyId: "k", humanPrincipalId: "human-alice", issuer: "ptl-human-interface" },

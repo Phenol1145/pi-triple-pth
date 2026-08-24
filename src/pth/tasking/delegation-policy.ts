@@ -1,5 +1,5 @@
 /**
- * tasking/delegation-policy.ts —— W8 P1 组织权矩阵（docs/pth/w8-task-dispatch-design.md §5）。
+ * tasking/delegation-policy.ts —— W8 P1 组织权矩阵（docs/pth/design/w8-task-dispatch-design.md §5）。
  *
  * 授权矩阵由角色定义（WorkerRole.parent 谱系）派生，服务器端强制：
  *  - 内部类型（有子类型）：仅其直接子类型；

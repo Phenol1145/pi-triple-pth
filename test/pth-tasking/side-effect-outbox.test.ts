@@ -240,7 +240,7 @@ suite("PgSideEffectOutbox（真实 PG）", () => {
   });
 
   // ── N29 L1（§1.5 P0-3）：outbox 身份必须是 (tenant_id, key) + exact payload ──────
-  // 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 1。
+  // 反例来源：docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 1。
 
   async function countByTenantKey(tenantId: string, key: string): Promise<number> {
     const r = await pool.query(

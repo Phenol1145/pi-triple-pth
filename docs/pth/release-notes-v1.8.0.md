@@ -2,7 +2,7 @@
 
 > 状态：草稿
 > 分支：`feat/pth-exec-unified`
-> 上游设计：[execution-modes-and-tool-reg-v2-design](./execution-modes-and-tool-reg-v2-design.md)
+> 上游设计：[execution-modes-and-tool-reg-v2-design](./design/execution-modes-and-tool-reg-v2-design.md)
 
 ## 亮点
 

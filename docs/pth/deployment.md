@@ -460,4 +460,4 @@ ptl stack exec <svc> -- <cmd>  # 容器内执行
 - 新增配置：`PTH_TASK_PAUSE_TIMEOUT_MS`、`PTH_TASK_PAUSE_SWEEP_MS`、`PTH_AGENT_CONTEXT_WINDOW`。
 - tool-manifest 19 工具已策展 `argsSchema`/`argvTemplate`。
 
-详细设计：[task-lifecycle-and-context-design](task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](llm-tool-notebook-unified-execution-backend-plan.md)
+详细设计：[task-lifecycle-and-context-design](design/task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](plan/llm-tool-notebook-unified-execution-backend-plan.md)

@@ -62,7 +62,7 @@ export interface ArtifactRef {
   readonly mediaType?: string;
 }
 
-// ─── W8 P0：任务投递契约（docs/pth/w8-task-dispatch-design.md §3） ───────────
+// ─── W8 P0：任务投递契约（docs/pth/design/w8-task-dispatch-design.md §3） ───────────
 // TaskDelivery 存在任务 payload 的 `delivery` 单键下（用户裁决 Q1）；
 // parent/path/lineageId 只能由服务器端盖章，worker/外部 body 不可自报。
 
@@ -229,7 +229,7 @@ export interface TaskRepository {
   /**
    * CAS 提交：重复/过期/跨租户 outcome 一律 committed=false。
    *
-   * N29 P0-1/P0-2 冻结语义（docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §1.3/§1.4）：
+   * N29 P0-1/P0-2 冻结语义（docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md §1.3/§1.4）：
    *  - CAS 谓词必须同时包含 id + lease_id + lease_generation + status='claimed' +
    *    tenant_id + `lease_expires_at IS NOT NULL AND lease_expires_at > now()`；
    *  - tenant 必须来自服务端盖章（claim 时签发的 lease / opts.scope），不接受 worker body 自报；
@@ -256,7 +256,7 @@ export interface TaskCommitScope {
 /**
  * 与 task CAS 同事务写入的 side effect（下一阶段 outbox 行；identity = (tenantId, key)）。
  *
- * N29 再验收 P0-1（docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
+ * N29 再验收 P0-1（docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
  * **outbox 行的 tenant 由仓库从聚合上下文盖章**——即通过 Task CAS 的那一行 `tasks.tenant_id`。
  * 调用方不再是 tenant 的事实源：
  *  - 缺省（推荐）：仓库盖章为聚合 tenant；

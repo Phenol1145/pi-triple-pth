@@ -301,4 +301,4 @@ POST /api/v1/kernel/notebook/execute  { language, code, sessionId?, timeoutMs?, 
 - `TaskControlService` 增加 pause/answer/sweep；dispatcher `onSuspension` 接 publisher-question 与 human。
 - worker 侧 CommandGateway 装配（含 tool translator），agent-loop 语言工具与 tool-reg 执行缝先过授权。
 
-详细设计：[task-lifecycle-and-context-design](task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](llm-tool-notebook-unified-execution-backend-plan.md)
+详细设计：[task-lifecycle-and-context-design](design/task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](plan/llm-tool-notebook-unified-execution-backend-plan.md)

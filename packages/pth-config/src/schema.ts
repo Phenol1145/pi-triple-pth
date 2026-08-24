@@ -219,7 +219,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_SKILL_WRITE_POLICY", "string", "manual", "mode", "batch", "skill 写策略：manual / staged"),
   d("PTH_TOOL_WRITE_POLICY", "string", "manual", "mode", "batch", "tool-reg 注册写策略（N14）：manual / staged（W5 同款）"),
   d("PTH_TOOL_FACE_BUDGET", "number", 24, "mode", "batch", "每角色工具面预算（N14 §3.3 预算守卫——注册工具面超限裁减）", { runtime: true }),
-  // ── N15：穿透执行预算 + 自动发现（docs/pth/n15-lane-b1-b2-a4-design.md）──
+  // ── N15：穿透执行预算 + 自动发现（docs/pth/design/n15-lane-b1-b2-a4-design.md）──
   d("PTH_PENETRATION_MAX_STEPS", "number", 40, "mode", "batch", "单次穿透调用子 agent 步数上限", { runtime: true }),
   d("PTH_PENETRATION_TASK_BUDGET_STEPS", "number", 80, "mode", "batch", "同一父任务全部穿透调用累计步数上限", { runtime: true }),
   d("PTH_PENETRATION_TIMEOUT_MS", "number", 300_000, "mode", "batch", "单次穿透子 agent 超时", { runtime: true }),

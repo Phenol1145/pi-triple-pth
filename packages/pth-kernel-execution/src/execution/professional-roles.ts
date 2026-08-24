@@ -1,7 +1,7 @@
 /**
  * kernel/execution/professional-roles.ts —— v1.3 Task 3 五个显式专业角色。
  *
- * 谱系冻结自 docs/pth/n32-v13-professional-computing-design.md §4「Role 谱系」：
+ * 谱系冻结自 docs/pth/design/n32-v13-professional-computing-design.md §4「Role 谱系」：
  *   - assembly-engineer     parent=developer gen=4 → assembly
  *   - computational-chemist parent=solver    gen=5 → psi4 + quantum-espresso
  *   - lean4-prover          parent=solver    gen=5 → lean4

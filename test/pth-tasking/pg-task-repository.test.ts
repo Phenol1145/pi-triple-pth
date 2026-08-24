@@ -218,7 +218,7 @@ suite("pg task repository（P1-2）", () => {
   });
 
   // ── N29 L1（§1.3 P0-1 / §1.4 P0-2）：CAS 失败零 side effect + 未过期 lease + tenant scope ──
-  // 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 1。
+  // 反例来源：docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 1。
 
   it("N29 P0-1：wrong generation does not enqueue side effects", async () => {
     await insertTask(pool, "task-n29-wrong-gen");
@@ -358,7 +358,7 @@ suite("pg task repository（P1-2）", () => {
   });
 
   // ── N29 再验收 P0-1：side effect 的 tenant 只能由聚合上下文（通过 CAS 的 task 行）盖章 ──
-  // 反例来源：docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1。
+  // 反例来源：docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1。
 
   it("N29 refix P0-1：tenant-a 的 task 声明 tenantId=tenant-b 的 side effect → fail closed，两个 tenant 都零 outbox", async () => {
     await insertTask(pool, "task-refix-cross-tenant-se");

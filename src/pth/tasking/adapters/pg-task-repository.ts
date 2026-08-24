@@ -15,7 +15,7 @@
  *  - side effect 只在 `upd.rowCount === 1` 时于同一事务内 enqueue，CAS 未命中直接返回 upd；
  *  - 无法确定服务端 tenant scope 时 fail closed（committed:false，零 side effect）。
  *
- * N29 再验收 P0-1（docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
+ * N29 再验收 P0-1（docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
  *  - side effect 的 outbox tenant **只由聚合上下文盖章**——三条 CAS 都 `RETURNING tenant_id`，
  *    用刚通过 CAS 的 `tasks.tenant_id` 落 outbox；调用方自报值不再是事实源；
  *  - 自报 tenant ≠ 聚合 tenant：开事务前 fail closed（committed:false，任一 tenant 零 outbox），

@@ -83,7 +83,7 @@ POST /api/v1/kernel/triggers
 - 响应后按 `approved` → `pending`（重新进入任务池）或 `rejected`（终态）恢复。
 - 不依赖 AgentEngine；基于 TaskStore / PG 事务 / CAS 实现。
 
-详细设计：[workflow-trigger-human-review-correction-plan](workflow-trigger-human-review-correction-plan.md)
+详细设计：[workflow-trigger-human-review-correction-plan](plan/workflow-trigger-human-review-correction-plan.md)
 
 ## 明确不要混用
 
