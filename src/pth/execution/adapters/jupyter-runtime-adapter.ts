@@ -20,7 +20,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { ExecutionBackend } from "@away_from/shared/execution";
 import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
@@ -35,7 +34,7 @@ import {
 } from "@away_from/pth-contracts";
 import { pthConfig } from "@away_from/pth-config";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import { createJobRunContext } from "./job-runner.js";
+import { cancelJob, createJobRunContext, sha256hex } from "./job-runner.js";
 import { scanNotebook, type NotebookCell, type NotebookDocument, type NotebookOutput } from "../notebook-guide.js";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
@@ -128,7 +127,6 @@ export function createJupyterRuntimeAdapter(
   const cellTimeoutS = Math.min(Math.max(deps.cellTimeoutS ?? DEFAULT_CELL_TIMEOUT_S, 1), 3_600);
   const running = new Map<string, { cancelled: boolean }>();
 
-  const sha256hex = (s: Uint8Array | string) => createHash("sha256").update(s).digest("hex");
 
   const execPrefix: readonly string[] | undefined = deps.execPrefix;
 
@@ -362,10 +360,7 @@ export function createJupyterRuntimeAdapter(
   }
 
   async function cancel(jobId: string): Promise<boolean> {
-    const state = running.get(jobId);
-    if (!state) return false;
-    state.cancelled = true;
-    return true;
+    return cancelJob(running, jobId);
   }
 
   return { id: "jupyter", probe, execute, cancel };

@@ -20,7 +20,6 @@ import { pthConfig } from "@away_from/pth-config";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createHash } from "node:crypto";
 import type { ExecutionBackend } from "@away_from/shared/execution";
 import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
 import {
@@ -36,7 +35,7 @@ import {
   type U8RegKey,
 } from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import { createJobRunContext } from "./job-runner.js";
+import { cancelJob, createJobRunContext, sha256hex } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
@@ -70,7 +69,6 @@ const RUN_ERROR_MARKER_RE =
 
 const REG_ARG_ORDER: readonly U8RegKey[] = U8_REG_KEYS;
 
-const sha256hex = (bytes: Uint8Array | string): string => createHash("sha256").update(bytes).digest("hex");
 const safeComponent = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 128) || "_";
 
 function ioPortToDecimal(key: string): number {
@@ -361,10 +359,7 @@ export function createU8RuntimeAdapter(
     probe,
     execute,
     async cancel(jobId: string): Promise<boolean> {
-      const state = running.get(jobId);
-      if (!state) return false;
-      state.cancelled = true;
-      return true;
+      return cancelJob(running, jobId);
     },
   };
 }

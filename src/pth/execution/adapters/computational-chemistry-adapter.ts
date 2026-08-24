@@ -14,7 +14,6 @@ import { pthConfig } from "@away_from/pth-config";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createHash } from "node:crypto";
 import type { ExecutionBackend } from "@away_from/shared/execution";
 import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
 import {
@@ -30,7 +29,7 @@ import {
   type Cp2kJobSpec,
 } from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import { createJobRunContext } from "./job-runner.js";
+import { cancelJob, createJobRunContext, sha256hex } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 export interface ChemExecResult {
@@ -115,7 +114,6 @@ function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJo
   const workDir = resolve(deps.workDir ?? pthConfig().str("PTH_WORKSPACES_PATH") ?? join(tmpdir(), `pth-${id}-jobs`));
   const runner = makeChemRunner(deps);
   const running = new Map<string, { cancelled: boolean }>();
-  const sha256hex = (s: Uint8Array | string) => createHash("sha256").update(s).digest("hex");
 
   async function probe() {
     const run = await runner(deps.probeCommand ?? deps.engineCommand, [...deps.versionArgs], { timeoutMs: 60_000 });
@@ -206,10 +204,7 @@ function makeChemAdapter<S extends Psi4JobSpec | QuantumEspressoJobSpec | Cp2kJo
   }
 
   async function cancel(jobId: string): Promise<boolean> {
-    const state = running.get(jobId);
-    if (!state) return false;
-    state.cancelled = true;
-    return true;
+    return cancelJob(running, jobId);
   }
 
   return { id, probe, execute, cancel };

@@ -35,7 +35,7 @@ import {
   type ProfessionalJobResult,
 } from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import { createJobRunContext } from "./job-runner.js";
+import { cancelJob, createJobRunContext, sha256hex } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 // ─── 执行通道与结果类型 ────────────────────────────────────────────────────
@@ -254,8 +254,6 @@ async function toolchainVersions(exec: AsmExecFn, t: TargetTools): Promise<Assem
 
 // ─── Adapter ───────────────────────────────────────────────────────────────
 
-const sha256hex = (bytes: Uint8Array | string): string => createHash("sha256").update(bytes).digest("hex");
-
 export function createAssemblyRuntimeAdapter(
   deps: CreateAssemblyRuntimeAdapterDeps,
 ): ProfessionalRuntimeAdapter<AssemblyJobSpec, AssemblyJobValue> {
@@ -464,10 +462,7 @@ export function createAssemblyRuntimeAdapter(
     probe,
     execute,
     async cancel(jobId: string): Promise<boolean> {
-      const state = running.get(jobId);
-      if (!state) return false;
-      state.cancelled = true;
-      return true;
+      return cancelJob(running, jobId);
     },
   };
 }

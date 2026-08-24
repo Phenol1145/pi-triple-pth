@@ -21,7 +21,6 @@ import { pthConfig } from "@away_from/pth-config";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, normalize, resolve } from "node:path";
-import { createHash } from "node:crypto";
 import type { ExecutionBackend } from "@away_from/shared/execution";
 import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
 import {
@@ -33,7 +32,7 @@ import {
   type ProfessionalJobResult,
 } from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import { createJobRunContext } from "./job-runner.js";
+import { cancelJob, createJobRunContext, sha256hex } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
@@ -111,7 +110,6 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
   const maxOutputBytes = deps.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const running = new Map<string, { cancelled: boolean }>();
 
-  const sha256hex = (s: Uint8Array | string) => createHash("sha256").update(s).digest("hex");
 
   const execPrefix: readonly string[] | undefined = deps.execPrefix ?? (() => {
     const env = pthConfig().str("PTH_LEAN4_TOOLCHAIN_EXEC");
@@ -387,10 +385,7 @@ export function createLean4RuntimeAdapter(deps: CreateLean4RuntimeAdapterDeps): 
   }
 
   async function cancel(_jobId: string): Promise<boolean> {
-    const state = running.get(_jobId);
-    if (!state) return false;
-    state.cancelled = true;
-    return true;
+    return cancelJob(running, _jobId);
   }
 
   return { id: "lean4", probe, execute, cancel };

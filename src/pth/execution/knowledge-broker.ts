@@ -11,7 +11,7 @@
 import type { ExecutionGrant, WorkerReplicaRef, PendingRetrievalTrace, RetrievalWaveTrace } from "@away_from/pth-contracts";
 import type { ExecutionGrantService } from "./authorization/execution-grant-service.js";
 import { assertVerifiedTaskReadScope, type VerifiedTaskReadScope, type VerifiedTaskReadScopeFactory } from "./authorization/verified-task-read-scope.js";
-import { ancestorChain } from "@away_from/pth-memory";
+import { ancestorChain, maskSqlNoise } from "@away_from/pth-memory";
 import { filterKnowledgeEntriesByQueryText, rankKnowledgeEntries } from "./knowledge-ranking.js";
 import { computeKnowledgeQueryFingerprint } from "@away_from/pth-contracts";
 import { computeRetrievalQueryFingerprint, type LayeredKnowledgeRetriever, type LayeredSearchWaveInput, type LayeredSearchWaveResult } from "./layered-knowledge-retriever.js";
@@ -93,70 +93,6 @@ export function normalizeKnowledgeSearchLimit(limit: number | undefined): number
 
 function sqlLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
-}
-
-/** 与 pth-memory maskSqlNoise 同构的长度保持噪声掩码：字符串/标识符/注释/dollar-quote → 空格。 */
-function maskSqlNoise(sql: string): string {
-  const out = sql.split("");
-  const fill = (from: number, to: number) => {
-    for (let k = from; k < to; k++) out[k] = " ";
-  };
-  let i = 0;
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    if (ch === "'") {
-      const start = i++;
-      while (i < sql.length) {
-        if (sql[i] === "'") {
-          if (sql[i + 1] === "'") { i += 2; continue; }
-          i++;
-          break;
-        }
-        i++;
-      }
-      fill(start, i);
-      continue;
-    }
-    if (ch === '"') {
-      const start = i++;
-      while (i < sql.length) {
-        if (sql[i] === '"') {
-          if (sql[i + 1] === '"') { i += 2; continue; }
-          i++;
-          break;
-        }
-        i++;
-      }
-      fill(start, i);
-      continue;
-    }
-    if (ch === "-" && sql[i + 1] === "-") {
-      const start = i;
-      while (i < sql.length && sql[i] !== "\n") i++;
-      fill(start, i);
-      continue;
-    }
-    if (ch === "/" && sql[i + 1] === "*") {
-      const start = i;
-      i += 2;
-      while (i < sql.length - 1 && !(sql[i] === "*" && sql[i + 1] === "/")) i++;
-      i = Math.min(sql.length, i + 2);
-      fill(start, i);
-      continue;
-    }
-    if (ch === "$") {
-      const tag = sql.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_$]*\$|\$)/)?.[0];
-      if (tag) {
-        const start = i;
-        const end = sql.indexOf(tag, i + tag.length);
-        i = end >= 0 ? end + tag.length : sql.length;
-        fill(start, i);
-        continue;
-      }
-    }
-    i++;
-  }
-  return out.join("");
 }
 
 const RESTRICTED_QUERY_FORBIDDEN_RE =
