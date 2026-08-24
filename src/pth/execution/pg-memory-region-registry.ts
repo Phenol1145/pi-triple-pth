@@ -5,7 +5,7 @@
  */
 
 import type { MemoryRegion } from "./memory-region-registry.js";
-import type { PgQueryable } from "./pg-repository-types.js";
+import { parseJsonField, type PgQueryable } from "./pg-repository-types.js";
 
 export interface AsyncRegionRepository {
   save(region: MemoryRegion): Promise<void>;
@@ -18,17 +18,6 @@ export interface AsyncRegionMemberRepository {
   add(regionId: string, entryId: string): Promise<boolean>;
   list(regionId: string): Promise<string[]>;
   remove(regionId: string, entryId: string): Promise<boolean>;
-}
-
-function parseSelector(value: unknown): Record<string, unknown> {
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value) as Record<string, unknown>;
-    } catch {
-      return { raw: value };
-    }
-  }
-  return (value ?? {}) as Record<string, unknown>;
 }
 
 export class PgRegionRepository implements AsyncRegionRepository {
@@ -68,7 +57,7 @@ export class PgRegionRepository implements AsyncRegionRepository {
     return {
       id: String(row.id),
       tenantId: String(row.tenantId),
-      selector: parseSelector(row.selector),
+      selector: parseJsonField(row.selector),
       ownerRoleId: String(row.ownerRoleId),
       weight: Number(row.weight),
     };
@@ -88,7 +77,7 @@ export class PgRegionRepository implements AsyncRegionRepository {
     return r.rows.map((row) => ({
       id: String(row.id),
       tenantId: String(row.tenantId),
-      selector: parseSelector(row.selector),
+      selector: parseJsonField(row.selector),
       ownerRoleId: String(row.ownerRoleId),
       weight: Number(row.weight),
     }));

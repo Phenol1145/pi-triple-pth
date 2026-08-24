@@ -85,3 +85,17 @@
 7. **N31 2.0**：保持「1.x 验证中」，不进入近期实施。
 
 非施工项：三源设计 §12 由维护者补写——若其描写「当前构造」，应在 TCE 动工前完成，动工后描写的即是旧世界；W8 是裁决项而非施工项，需单独安排裁决槽。
+
+## 7. 当前延后事项（2026-08-24 记录）
+
+以下事项在本轮施工中已具备骨架/适配器，但尚未完成生产接入或真实调度；后续按用户裁决决定优先级。
+
+| 编号 | 延后事项 | 当前状态 | 下一步 |
+|---|---|---|---|
+| D1 | N25 PG TaskDraft 持久化尚未接入 TaskDraftService | `PgTaskDraftRepository` 已落地并通过 fake-pool 单测；`TaskDraftService` 仍为同步 Repository 缝 | 将服务层改为异步或新增异步 TaskDraftService 门面，并接入 PG 仓库 |
+| D2 | N28 PG 适配器尚未替换注册表内存实现 | `PgLeaseRepository` / `PgRegionRepository` / `PgRegionMemberRepository` / `PgCognitiveLedgerOutbox` 已落地并通过 fake-pool 单测；注册表仍走内存 | 将 `WorkerReplicaLeaseRegistry` / `MemoryRegionRegistry` / `CognitiveLedgerOutbox` 的依赖注入切到 PG 适配器，补真实 PG 集成测试 |
+| D3 | N26 真实爬取调度与告警未实施 | 来源发现/自动扩源/域分类/生产阈值/ops 骨架已落地 | 接入 TriggerEngine/调度循环，补充来源告警与失败重试 |
+| D4 | N28 权重标定与重平衡仍为纯函数/规划器 | `calibrateWeight` / `planRebalance` 已落地；未接调度与持久化状态 | 在 PG lease/region 接入后，将重平衡纳入治理回路 |
+| D5 | N31 2.0 统一 Workflow DAG 薄腰 | 明确不排期 | 保持 1.x 验证中，不进入近期实施 |
+
+> 代码审计与结构优化记录：`docs/pth/report/code-audit-2026-08-24.md`

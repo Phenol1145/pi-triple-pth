@@ -21,7 +21,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn, type AdapterExecResult } from "../exec-via-backend.js";
 import {
   isU8JobSpecStructurallyValid,
   U8_OPERATIONS,
@@ -40,20 +40,9 @@ import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
 
-export interface U8ExecResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  timedOut: boolean;
-  error?: string;
-}
 
-export type U8ExecFn = (
-  cmd: string,
-  args: readonly string[],
-  opts: { cwd?: string; timeoutMs?: number; maxOutputBytes?: number },
-) => Promise<U8ExecResult>;
+export type U8ExecResult = AdapterExecResult;
+export type U8ExecFn = AdapterExecFn;
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_OUTPUT_BYTES = 256 * 1024;

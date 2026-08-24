@@ -22,7 +22,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, normalize, resolve } from "node:path";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn, type AdapterExecResult } from "../exec-via-backend.js";
 import {
   isLean4JobSpecStructurallyValid,
   type ArtifactRef,
@@ -37,20 +37,9 @@ import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
 
-export interface Lean4ExecResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  timedOut: boolean;
-  error?: string;
-}
 
-export type Lean4ExecFn = (
-  cmd: string,
-  args: readonly string[],
-  opts: { cwd?: string; timeoutMs?: number; maxOutputBytes?: number },
-) => Promise<Lean4ExecResult>;
+export type Lean4ExecResult = AdapterExecResult;
+export type Lean4ExecFn = AdapterExecFn;
 
 const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 const DEFAULT_BUILD_TIMEOUT_MS = 1_800_000;

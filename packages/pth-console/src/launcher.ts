@@ -18,6 +18,7 @@ import { chmod, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
+import { parseEnvFile } from "@away_from/pth-config";
 
 export interface ComposeRunResult {
   readonly code: number;
@@ -100,20 +101,7 @@ export interface ComposeServiceState {
   readonly status?: string;
 }
 
-export function parseEnvFile(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const withoutExport = line.startsWith("export ") ? line.slice(7).trim() : line;
-    const eq = withoutExport.indexOf("=");
-    if (eq <= 0) continue;
-    const key = withoutExport.slice(0, eq).trim();
-    const value = withoutExport.slice(eq + 1).trim();
-    if (key) out[key] = value;
-  }
-  return out;
-}
+export { parseEnvFile };
 
 export function parseComposePs(stdout: string): ComposeServiceState[] {
   const out: ComposeServiceState[] = [];

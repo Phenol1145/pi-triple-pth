@@ -5,23 +5,12 @@
  */
 
 import type { CognitiveLedgerEvent } from "./task-cognitive-ledger-outbox.js";
-import type { PgQueryable } from "./pg-repository-types.js";
+import { parseJsonField, type PgQueryable } from "./pg-repository-types.js";
 
 export interface AsyncCognitiveLedgerOutboxRepository {
   append(event: CognitiveLedgerEvent): Promise<void>;
   drain(): Promise<CognitiveLedgerEvent[]>;
   pending(): Promise<CognitiveLedgerEvent[]>;
-}
-
-function parsePayload(value: unknown): Record<string, unknown> {
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value) as Record<string, unknown>;
-    } catch {
-      return { raw: value };
-    }
-  }
-  return (value ?? {}) as Record<string, unknown>;
 }
 
 function mapEvent(row: Record<string, unknown>): CognitiveLedgerEvent {
@@ -30,7 +19,7 @@ function mapEvent(row: Record<string, unknown>): CognitiveLedgerEvent {
     type: row.type as CognitiveLedgerEvent["type"],
     taskId: String(row.taskId),
     workerId: String(row.workerId),
-    payload: parsePayload(row.payload),
+    payload: parseJsonField(row.payload),
     at: Number(row.at),
   };
 }

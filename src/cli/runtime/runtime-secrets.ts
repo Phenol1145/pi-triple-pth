@@ -5,21 +5,9 @@
  */
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { parseEnvFile } from "@away_from/pth-config";
 
-export function parseSecretsEnvFile(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const withoutExport = line.startsWith("export ") ? line.slice(7).trim() : line;
-    const eq = withoutExport.indexOf("=");
-    if (eq <= 0) continue;
-    const key = withoutExport.slice(0, eq).trim();
-    const value = withoutExport.slice(eq + 1).trim();
-    if (key) out[key] = value;
-  }
-  return out;
-}
+export const parseSecretsEnvFile = parseEnvFile;
 
 export async function loadSecretsFile(repoRoot: string, envFile?: string): Promise<Record<string, string>> {
   const path = resolve(envFile ?? resolve(repoRoot, "deploy", ".env.pth.secrets"));

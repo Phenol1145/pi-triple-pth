@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn, type AdapterExecResult } from "../exec-via-backend.js";
 import {
   isJupyterJobSpecStructurallyValid,
   type ArtifactRef,
@@ -39,20 +39,9 @@ import { scanNotebook, type NotebookCell, type NotebookDocument, type NotebookOu
 
 // ─── 执行通道 ──────────────────────────────────────────────────────────────
 
-export interface JupyterExecResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  timedOut: boolean;
-  error?: string;
-}
 
-export type JupyterExecFn = (
-  cmd: string,
-  args: readonly string[],
-  opts: { cwd?: string; timeoutMs?: number },
-) => Promise<JupyterExecResult>;
+export type JupyterExecResult = AdapterExecResult;
+export type JupyterExecFn = AdapterExecFn;
 
 const DEFAULT_DRIVER_PATH = fileURLToPath(
   new URL("../../../../toolstore/extensions/jupyter-guide/execute.py", import.meta.url),

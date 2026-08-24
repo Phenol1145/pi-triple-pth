@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { PgTaskDraftRepository, type Queryable } from "../../src/pth/interaction/pg-task-draft-repository.js";
+import { PgTaskDraftRepository } from "../../src/pth/interaction/pg-task-draft-repository.js";
+import type { PgQueryable } from "../../src/pth/shared/pg-queryable.js";
 import type { TaskDraft } from "@away_from/pth-contracts";
 
-function fakePool(): Queryable & { rows: Array<Record<string, unknown>> } {
+function fakePool(): PgQueryable & { rows: Array<Record<string, unknown>> } {
   const rows: Array<Record<string, unknown>> = [];
   return {
     rows,

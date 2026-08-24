@@ -17,7 +17,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn, type AdapterExecResult } from "../exec-via-backend.js";
 import {
   isWolframJobSpecStructurallyValid,
   type ArtifactRef,
@@ -30,20 +30,9 @@ import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
 import { cancelJob, createJobRunContext, sha256hex } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
-export interface WolframExecResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  timedOut: boolean;
-  error?: string;
-}
 
-export type WolframExecFn = (
-  cmd: string,
-  args: readonly string[],
-  opts: { cwd?: string; timeoutMs?: number; maxOutputBytes?: number },
-) => Promise<WolframExecResult>;
+export type WolframExecResult = AdapterExecResult;
+export type WolframExecFn = AdapterExecFn;
 
 export interface WolframJobValue {
   readonly operation: WolframJobSpec["operation"];

@@ -5,18 +5,15 @@
  */
 
 import type { TaskDraft } from "@away_from/pth-contracts";
+import type { PgQueryable } from "../shared/pg-queryable.js";
 
 export interface AsyncTaskDraftRepository {
   save(draft: TaskDraft): Promise<void>;
   get(id: string): Promise<TaskDraft | undefined>;
 }
 
-export interface Queryable {
-  query(text: string, params?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }>;
-}
-
 export class PgTaskDraftRepository implements AsyncTaskDraftRepository {
-  constructor(private readonly pool: Queryable) {}
+  constructor(private readonly pool: PgQueryable) {}
 
   async ensureTable(): Promise<void> {
     await this.pool.query(`

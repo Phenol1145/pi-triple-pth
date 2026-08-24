@@ -15,7 +15,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn, type AdapterExecResult } from "../exec-via-backend.js";
 import {
   isPsi4JobSpecStructurallyValid,
   isQuantumEspressoJobSpecStructurallyValid,
@@ -32,20 +32,9 @@ import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
 import { cancelJob, createJobRunContext, sha256hex } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
-export interface ChemExecResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  timedOut: boolean;
-  error?: string;
-}
 
-export type ChemExecFn = (
-  cmd: string,
-  args: readonly string[],
-  opts: { cwd?: string; timeoutMs?: number; maxOutputBytes?: number },
-) => Promise<ChemExecResult>;
+export type ChemExecResult = AdapterExecResult;
+export type ChemExecFn = AdapterExecFn;
 
 interface ChemAdapterDeps {
   readonly artifactPort: ProfessionalArtifactPort;
