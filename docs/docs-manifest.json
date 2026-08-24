@@ -693,6 +693,12 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/role-lineage-runtime-derivation.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
+    },
+    {
       "path": "docs/pth/trigger-runtime.md",
       "category": "guides",
       "product": "pth",
