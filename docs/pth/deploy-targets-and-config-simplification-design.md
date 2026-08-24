@@ -188,11 +188,12 @@ pth down / status 同上（target 感知）
 - 无 `--target` 的一切既有命令行为逐字节保留（含 npm 包用户的 `pth init && pth up` 流程）；
 - `pth config` 输出增加 target preset 来源标注（`source` 增 `preset` 一档，ConfigCenter.explain 兼容扩展）。
 
-## 9. `pth.deployment.json` 处置（决策点）
+## 9. `pth.deployment.json` 处置（已拍板）
 
-建议：**删除文件**，`check-pth-config.ts` 覆盖率对照只留 `docker-compose.yaml`，`deployment.md §6` 历史注记同步更新为"已移除"。
-理由：它已无任何运行时消费者，保留即双源维护成本；v2.0 若重启声明式渲染（k8s/remote），届时以编译 engine 的新部署面重新设计，不继承此文件。
-备选：保留作覆盖率对照（现状）。→ 实施前需用户拍板。
+**裁决（用户 2026-08-27）：直接删除**，不保留、不迁移。`check-pth-config.ts` 覆盖率对照只留
+`docker-compose.yaml`，`deployment.md §6` 历史注记同步更新为"已移除"。
+理由：它已无任何运行时消费者，保留即双源维护成本；v2.0 若重启声明式渲染（k8s/remote），
+届时以编译 engine 的新部署面重新设计，不继承此文件。删除在 W4 执行（见实施计划）。
 
 ## 10. 测试策略
 
@@ -203,13 +204,16 @@ pth down / status 同上（target 感知）
 - 组件兼容矩阵：非法组合报错文案快照；
 - 集成冒烟（手工/可选）：OrbStack 与 Colima 各跑一次 `pth doctor`；local-process 起 core + 提交 hello 任务。
 
-## 11. 实施 Wave 划分（规划，不在本期执行）
+## 11. 实施 Wave 划分（概要）
 
-- **W0 配置简化**：init --generate + workspaces 收口 + env 文件注释更新（无 target 概念也能独立落地）；
+详实实施计划（文件级任务/测试用例/验收命令/提交划分/风险表）见
+`docs/pth/deploy-targets-implementation-plan.md`。Wave 骨架：
+
+- **W0 配置简化**：init --generate + workspaces 收口 + env 文件注释更新；
 - **W1 target 抽象**：targets/types + local-container 搬入（行为零变化为验收线）+ doctor container-runtime 检测；
 - **W2 运行时适配**：Colima host-gateway 检查项、--runtime 覆盖、apple-container 显式报错；
 - **W3 local-process**：supervisor + sandbox process/none + 外部数据层探活 + preset 表 + 兼容矩阵；
-- **W4 收尾**：`pth.deployment.json` 处置（待拍板）、deployment.md 重写、docs manifest 更新、全量串行测试。
+- **W4 收尾**：删除 `pth.deployment.json`（已拍板）、deployment.md 重写、docs manifest 更新、全量串行测试。
 
 ## 12. 冻结项 / 既有裁决不变
 
