@@ -6,3 +6,4 @@ export * from "./human-interaction-service.js";
 export * from "./intent-resolver.js";
 export * from "./task-draft-service.js";
 export * from "./presentation.js";
+export * from "./pg-task-draft-repository.js";
