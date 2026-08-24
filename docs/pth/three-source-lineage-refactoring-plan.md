@@ -1,6 +1,6 @@
 # 三源谱系重构实施方案
 
-> 状态：**实施中（W0–W3 已完成，W4 进行中）**
+> 状态：**已完成（W0–W4 全部落地）**
 > 设计文档：`docs/pth/three-source-lineage-and-capacity-conservation-design.md`（概念模型/9 条裁决以此为准）
 > 分支：`feat/pth-exec-unified`（继续沿用，不另开分支）
 > 规模预估：5 waves（W0–W4），每 wave 独立提交、全量串行测试保持绿
@@ -13,7 +13,7 @@
 | W1 三源谱系重构（Origin 退役） | ✅ 完成 | `942ad8b` |
 | W2 controller 工具面清算 + plan grant | ✅ 完成 | `502f81c` |
 | W3 terminal reject 终态化 + events 外推 | ✅ 完成 | `97e61fa` |
-| W4 守恒校验器 + 注册闸 + 迁移 + 文档 | 🔄 进行中 | — |
+| W4 守恒校验器 + 注册闸 + 迁移 + 文档 | ✅ 完成 | `58dc9a3` + `0abb1c3` |
 
 **实施总约束（每 wave 必须满足）**：
 1. `npm run lint` 全绿 + 全量串行 `npm test -- --maxWorkers=1` 全绿（基线：319 文件 / 2772 通过 / 58 跳过）；
