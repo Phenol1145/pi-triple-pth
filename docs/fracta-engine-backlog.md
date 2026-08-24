@@ -98,6 +98,32 @@
 - **影响面**：`src/cli/runtime/runtime-orchestrator.ts`（orchestrateStatusAll）。
 - **验收**：`pth status --all` jupyter 行与 `docker compose -p pi-triple-jupyter ps` 一致。
 
+## B9. adversarial 审核链派发断裂（2026-08-24 理论推导实证）
+
+- **问题**：`system-triggers.ts` 的 skill/tool 提案审核 trigger 只带 `tags:["adversarial"]`
+  无 role 字段；`adversarial` 注册为 governance 类标签（不参与 routeRole），
+  `checkTaskRouting` 实测返回「缺少角色标签」拒绝发布，trigger-engine 捕获后记日志跳过——
+  **审核任务永远发布不出去**，对抗性审核链静默空转。
+- **方案**（草案）：两个 trigger 定义补 `role: "controller:adversarial"`（flow 显式派发，
+  与 governance 标签语义一致——memory-sweep-trigger 同款）。
+- **影响面**：`packages/pth-kernel-execution/src/execution/system-triggers.ts`（一行级 ×2）。
+- **验收**：提案事件触发后审核任务真实落池且路由到 controller:adversarial；回归测试覆盖。
+- **出处**：`docs/pth/role-lineage-runtime-derivation.md` 回路 C1。
+
+## B10. 观测-调节调度源缺失（2026-08-24 理论推导实证）
+
+- **问题**：全仓没有任何 trigger/调度器向 sensor:*（七观测点）/controller:*（九调节点）
+  派单；治理角色不走 delegate、派发需 flow 显式 role——sensor/controller 只能等操作者
+  手工 API 派单，**观测回路不是自闭环**，D2 分化裁决（controller:worker-opt）随之空转。
+- **方案**（草案）：观测巡检调度机制（memory-sweep-trigger 同构——定期/按 A/B 周期
+  n 轮边界向观测点与调节点派单）；调度周期与点位覆盖策略待定（全点位逐一派单 vs
+  根角色派单后族内下分——后者依赖 A5 delegate 软约束，倾向前者）。
+- **影响面**：`system-triggers.ts`（新增 schedule trigger 族）或新 trigger 模块；
+  与 controller:router 实装、A/B 优化周期落地同属治理回路自闭环工作流。
+- **验收**：sensor 七点位/controller 九点位按周期自动收到观测/调节任务并产出
+  observation-report / modification-plan。
+- **出处**：`docs/pth/role-lineage-runtime-derivation.md` 回路 B1/D2。
+
 ## C9. P5 体验收尾（三小项）✅
 
 - **状态**：✅ 已完成（2026-08-22；裸表达式 value 捕获 + interrupt 文案 + execute_result 渲染）
