@@ -13,31 +13,49 @@ export interface WorkerReplicaLease {
   expiresAt: number;
 }
 
-export class WorkerReplicaLeaseRegistry {
+export interface LeaseRepository {
+  save(lease: WorkerReplicaLease): void;
+  get(workerId: string): WorkerReplicaLease | undefined;
+  delete(workerId: string): boolean;
+}
+
+export class InMemoryLeaseRepository implements LeaseRepository {
   private readonly leases = new Map<string, WorkerReplicaLease>();
+  save(lease: WorkerReplicaLease): void { this.leases.set(lease.workerId, lease); }
+  get(workerId: string): WorkerReplicaLease | undefined { return this.leases.get(workerId); }
+  delete(workerId: string): boolean { return this.leases.delete(workerId); }
+}
+
+export class WorkerReplicaLeaseRegistry {
+  private readonly memory = new InMemoryLeaseRepository();
+  private readonly repo: LeaseRepository;
+
+  constructor(repo?: LeaseRepository) {
+    this.repo = repo ?? this.memory;
+  }
 
   acquire(lease: WorkerReplicaLease): { ok: true } | { ok: false; reason: string } {
-    const existing = this.leases.get(lease.workerId);
+    const existing = this.repo.get(lease.workerId);
     if (existing && existing.expiresAt > Date.now()) {
       return { ok: false, reason: `worker ${lease.workerId} lease 仍有效` };
     }
-    this.leases.set(lease.workerId, lease);
+    this.repo.save(lease);
     return { ok: true };
   }
 
   renew(workerId: string, expiresAt: number): boolean {
-    const lease = this.leases.get(workerId);
+    const lease = this.repo.get(workerId);
     if (!lease || lease.expiresAt <= Date.now()) return false;
-    this.leases.set(workerId, { ...lease, expiresAt });
+    this.repo.save({ ...lease, expiresAt });
     return true;
   }
 
   release(workerId: string): boolean {
-    return this.leases.delete(workerId);
+    return this.repo.delete(workerId);
   }
 
   get(workerId: string): WorkerReplicaLease | undefined {
-    const lease = this.leases.get(workerId);
+    const lease = this.repo.get(workerId);
     return lease && lease.expiresAt > Date.now() ? lease : undefined;
   }
 }
