@@ -30,6 +30,7 @@
     "check:tce-coverage": "tsx scripts/check-tce-coverage.ts",
     "docs:manifest": "tsx scripts/build-docs-manifest.ts",
     "check:docs-links": "tsx scripts/check-doc-links.ts",
+    "bench:run": "tsx scripts/pth-bench-run.ts",
     "pth": "node dist/cli/pth-cli.js",
     "test:e2e": "npm run test:e2e -w @away_from/pth-console",
     "build:pth-cli": "npm run build && bash scripts/build-pth-cli-package.sh"
