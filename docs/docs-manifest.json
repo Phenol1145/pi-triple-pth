@@ -681,6 +681,12 @@
       "status": "reference"
     },
     {
+      "path": "docs/pth/system-construction-modeling-audit.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "active"
+    },
+    {
       "path": "docs/pth/trigger-runtime.md",
       "category": "guides",
       "product": "pth",
