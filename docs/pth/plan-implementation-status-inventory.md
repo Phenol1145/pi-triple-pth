@@ -52,7 +52,7 @@
 | 5 | **PTH Bench 统一抽象** | `docs/pth/design/pth-bench-unified-design.md` | W0–W2 完成（2026-08-24）；W3–W4 进行中 | agentic benchmark 与运行效率测试统一流水线（Scenario/Driver/ExecPolicy/Grader/Baseline Gate） | 核心/runner/gate 已落地；HttpBenchTarget/CLI/L0 待续 |
 | 6 | **N25 完整 Human Interaction 协议** | `docs/pth/design/n25-human-interaction-protocol-design.md` | 部分实施（契约层已补 Intent/TaskDraft/QualityGate） | HumanRequest HTTP/持久化/任务 wait gate 已实现；意图解析、TaskDraft、Quality Gate、Presentation 等完整协议未实施 | 契约先行已落地，后续实现 intent resolver / TaskDraft service |
 | 7 | **N26 完整自主知识摄入** | `docs/pth/design/n26-autonomous-knowledge-intake-design.md` | 部分实施 | N29 最小可信摄入内环已 GO；来源发现外环、自动扩源、多域广度、生产默认阈值与持续运营未实施 | 独立产品线；生产化另立项 |
-| 8 | **N28 生产化** | `docs/pth/design/n28-role-memory-orchestration-design.md`、`docs/pth/plan/n28-role-memory-orchestration-implementation-plan.md` | 可行性 GO，生产化未开始 | persistent lease/Region 表/outbox 投影/权重校准/重平衡等生产化修缮 | GO 仅授权编写生产化实施计划；需先立新计划 |
+| 8 | **N28 生产化** | `docs/pth/design/n28-role-memory-orchestration-design.md`、`docs/pth/plan/n28-role-memory-orchestration-implementation-plan.md`、`docs/pth/plan/n28-productionization-plan.md` | 可行性 GO；生产化计划草案已立（2026-08-24） | persistent lease/Region 表/outbox 投影/权重校准/重平衡等生产化修缮 | 计划已立，实施待批准 |
 | 9 | **N31 2.0 统一 Workflow DAG 薄腰** | `docs/pth/design/n31-unified-workflow-dag-design.md` | 明确不实施 2.0 | WorkflowRunGraph / Compiler / 统一查询 API / 通用控制面 | 当前阶段为 1.x 真实场景验证；非近期待办 |
 | 10 | **W8 PTL 任务派发与交互逻辑** | `docs/pth/design/w8-task-dispatch-design.md` | 设计提案（待裁决） | 入口显式派发、父→子投递、回流协议、组织权机器校验 | 部分语义已被 task-lifecycle 实现取代；需裁决后再定剩余范围 |
 | 11 | **pth-cli 新命令注册渠道** | `docs/pth/design/pth-cli-command-registry-design.md` | 设计定稿待评审 | Symlink Command Registry（外部可执行模型） | 独立 CLI 增强 |
