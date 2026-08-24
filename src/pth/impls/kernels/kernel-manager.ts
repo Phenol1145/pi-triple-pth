@@ -257,6 +257,8 @@ export function createWorkerKernelWithManager(deps: {
   sessionRef?: { current: { currentSpace: string } | null };
   /** 角色 ID（B4 Phase 3：skills.maintain 仅注入 memory-keeper） */
   roleId?: string;
+  /** W0：承诺产物 kind 白名单（三源重构 Q6/K(r)——透传 buildCapabilities 的 memory 写边界） */
+  produces?: readonly string[];
   /** W8 P1：任务投递端口（仅组织权持有角色传入；缺省不注入 tasks 键） */
   taskControl?: TaskDispatchPort;
   /** 0.16.3：穿透执行端口（与 taskControl 同批装配；嵌套子 kernel 不传——深度限 1） */
@@ -310,6 +312,7 @@ export function createWorkerKernelWithManager(deps: {
     toolstore: deps.toolstore,
     sessionRef,
     roleId: deps.roleId,
+    produces: deps.produces,
     taskControl: deps.taskControl,
     penetration: deps.penetration,
     onActivity: deps.onActivity,

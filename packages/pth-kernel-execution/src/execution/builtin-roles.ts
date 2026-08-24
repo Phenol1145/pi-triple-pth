@@ -13,6 +13,14 @@
 
 import type { WorkerRole } from "./worker-cluster.js";
 
+/** 三源产物 kind（Q1/W0——2026-08-24 三源重构）：
+ *  - `observation-report`：sensor 系唯一承诺产物——观测事实 + 严重度评估 + 证据链，不含方案；
+ *  - `modification-plan`：controller 系唯一承诺产物——draft 方案，含目标/变更/回滚/复测/implementation 路由；
+ *  - `optimizer-suggestion`：旧 kind，已废止——仅供存量迁移标注（W4 迁移后移除）。 */
+export const OBSERVATION_REPORT_KIND = "observation-report" as const;
+export const MODIFICATION_PLAN_KIND = "modification-plan" as const;
+export const LEGACY_OPTIMIZER_SUGGESTION_KIND = "optimizer-suggestion" as const;
+
 export const ORIGIN_ROLE: WorkerRole = {
   id: "origin",
   tags: ["origin"],   // 升级链终点标签（trigger 转写——任务池纯化设计 D3）

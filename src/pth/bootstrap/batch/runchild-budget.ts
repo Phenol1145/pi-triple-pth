@@ -123,6 +123,7 @@ export function createPenetrationRunChild(
               roleFilter: childRole.capabilities,
               memoryScope: childRole.memoryScope ? { role: childRole.id, scope: childRole.memoryScope } : undefined,
               roleId: childRole.id,
+              produces: childRole.produces,
               // 深度限 1：不传 taskControl/penetration——嵌套子 agent 纯执行，不再派发/穿透
               registerKernel: (language, interpreter) => childManager.registerKernel(language, interpreter as never),
               readSource: pthConfig().str("PTH_SOURCE_ROOT")

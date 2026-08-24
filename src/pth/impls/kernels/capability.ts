@@ -17,7 +17,7 @@ import type {
   TaskPenetrateResult,
   TenantScope,
 } from "@away_from/pth-contracts";
-import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, reviewToolProposal } from "@away_from/pth-memory";
+import { filterVisibleEntries, listSkills, getSkill, maintainSkillWrite, maintainSkillArchive, proposeSkillMaintenance, reviewSkillProposal, reviewToolProposal, normalizeWriteArgs } from "@away_from/pth-memory";
 import { validatePenetrationSkillRegistration, PENETRATION_SKILL_NAME_PREFIX } from "../../tasking/index.js";
 import {
   createPgKnowledgeVerificationRepo,
@@ -103,6 +103,9 @@ export function buildCapabilities(deps: {
   sessionRef?: { current: { currentSpace: string } | null };
   /** 角色 ID（B4 Phase 3：skills.maintain 仅注入 memory-keeper） */
   roleId?: string;
+  /** W0：承诺产物 kind 白名单（三源重构 Q6/K(r)——`memory.write` 边界 fail-fast；
+   *  `undefined` = 不限；空数组 = 禁止任何 memory 写入） */
+  produces?: readonly string[];
   /** W8 P1：任务投递端口（仅组织权持有角色传入；缺省不注入 tasks 键） */
   taskControl?: TaskDispatchPort;
   /** 0.16.3：穿透执行端口（与 taskControl 同批装配；缺省不注入 tasks.penetrate） */
@@ -138,7 +141,39 @@ export function buildCapabilities(deps: {
   const memRaw = extCaps["memory"] as Record<string, (...a: unknown[]) => unknown> | undefined;
   if (memRaw) {
     if (memRaw["query"]) memRaw["query"] = wrapValidated("memory.query", memRaw["query"]);
-    if (memRaw["write"]) memRaw["write"] = wrapValidated("memory.write", memRaw["write"]);
+    if (memRaw["write"]) {
+      const writeImpl = memRaw["write"];
+      const produces = deps.produces;
+      memRaw["write"] = wrapValidated("memory.write", async (a?: unknown, b?: unknown, c?: unknown) => {
+        if (produces) {
+          const entry = normalizeWriteArgs(a, b, c);
+          if (produces.length === 0) {
+            throw new PtcContractError("memory.write", `角色 ${deps.roleId ?? "unknown"} 禁止任何 memory 写入（produces=[]）`);
+          }
+          if (typeof entry.kind !== "string" || !produces.includes(entry.kind)) {
+            throw new PtcContractError("memory.write", `角色 ${deps.roleId ?? "unknown"} 不允许写入 memory kind=${String(entry.kind ?? "<缺失>")}；允许: ${produces.join(", ")}`);
+          }
+        }
+        return (writeImpl as (...args: unknown[]) => unknown)(a, b, c);
+      });
+    }
+    // W0 评审补强：memory.update 同样受 produces 边界约束（更新已存在条目也属于“写入”该 kind）
+    if (memRaw["update"]) {
+      const updateImpl = memRaw["update"];
+      const produces = deps.produces;
+      memRaw["update"] = async (id: unknown, patch?: unknown) => {
+        if (produces) {
+          if (produces.length === 0) {
+            throw new PtcContractError("memory.update", `角色 ${deps.roleId ?? "unknown"} 禁止任何 memory 写入（produces=[]）`);
+          }
+          const existing = await withMemoryTenant(deps.dataWorld.memory, deps.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID).get(id as string);
+          if (existing?.kind !== undefined && !produces.includes(existing.kind)) {
+            throw new PtcContractError("memory.update", `角色 ${deps.roleId ?? "unknown"} 不允许更新 memory kind=${existing.kind}；允许: ${produces.join(", ")}`);
+          }
+        }
+        return (updateImpl as (...args: unknown[]) => unknown)(id, patch);
+      };
+    }
   }
   const perfFull = extCaps["perf"] as Record<string, unknown> | undefined;
   if (perfFull) extCaps["perf"] = { params: perfFull["params"], status: perfFull["status"], analyze: perfFull["analyze"], list: perfFull["list"] };

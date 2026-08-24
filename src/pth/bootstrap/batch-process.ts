@@ -294,6 +294,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       roleFilter: effectiveRole.capabilities,
       memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
       roleId: role.id,
+      produces: role.produces,
       taskControl: canDelegate ? taskControl : undefined,
       penetration,
       // L2：能力面活动事件上报（skill.proposal.created——与 loop 同一 IPC 转发通道）

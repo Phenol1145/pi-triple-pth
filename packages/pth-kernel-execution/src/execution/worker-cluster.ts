@@ -48,6 +48,11 @@ export interface RoleDefinition {
   loadPolicyRef?: string;
   /** 任务标题/文本标签模式（N28 PTC 集成测试与 prompt 注入共用；未声明时不参与标签匹配）。 */
   labelPatterns?: string[];
+  /** 承诺产物 kind 白名单（Q6/K(r)——三源重构 W0 新增）：
+   *  - `memory.write` 边界服务端强制：`entry.kind ∉ produces` → fail-fast；
+   *  - `undefined` = 不限（生产工种/兼容期角色）；
+   *  - 空数组 `[]` = 禁止任何 memory 写入。 */
+  produces?: readonly string[];
 }
 
 /** @deprecated Use RoleDefinition. Kept while runtime call sites migrate by layer. */
