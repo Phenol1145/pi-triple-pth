@@ -33,6 +33,10 @@ export interface AgentEngineSystemHost {
   systemExtensionFactories: SystemExtensionFactory[];
   toolPlatform: ToolPlatform;
   buildCustomTools(tenantId: string): any[];
+  buildSessionBaseOpts(
+    tenantId: string,
+    opts: { cwd: string; model: ReturnType<ModelRouter["resolve"]>; thinkingLevel: string; sessionManager: SessionManager },
+  ): Record<string, unknown>;
   logger: Logger;
   pool: SessionPool;
   agentSessions: Map<string, PlatformAgentSession>;
@@ -89,14 +93,13 @@ export async function buildSystemSessionFor(engine: AgentEngineSystemHost, opts?
       await resourceLoader.reload();
 
       const { session } = await sdkCreateSession({
-        cwd,
-        model,
-        thinkingLevel: "medium",
-        modelRuntime: engine.modelRouter.getRuntime(),
-        sessionManager,
+        ...engine.buildSessionBaseOpts("system", {
+          cwd,
+          model,
+          thinkingLevel: "medium",
+          sessionManager,
+        }),
         resourceLoader,
-        tools: engine.toolPlatform.getAllowedTools("system"),
-        customTools: engine.buildCustomTools("system"),
       });
 
       // S3 缺口 2：bindExtensions 绑定扩展运行时 + emit session_start（agent-lab 的 pi.on(session_start) 依赖）。

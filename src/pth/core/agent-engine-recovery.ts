@@ -31,6 +31,10 @@ export interface AgentEngineRecoveryHost {
   getOverlayPaths(): { skills: string[]; prompts: string[] };
   getAgentDir(): string;
   buildCustomTools(tenantId: string): any[];
+  buildSessionBaseOpts(
+    tenantId: string,
+    opts: { cwd: string; model: ReturnType<ModelRouter["resolve"]>; thinkingLevel: string; sessionManager: SessionManager },
+  ): Record<string, unknown>;
   reviveSessionManager(meta: PoolSession): SessionManager;
 }
 
@@ -96,14 +100,13 @@ export interface AgentEngineRecoveryHost {
             recoveryOptions.resourceLoader = resourceLoader;
           }
           const { session } = await sdkCreateSession({
-            cwd: meta.cwd,
-            sessionManager,
-            model: engine.modelRouter.resolve(undefined, meta.model),
-            modelRuntime: engine.modelRouter.getRuntime(),
-            // thinkingLevel 不入池元（非安全关键——推理深度非治理面）；恢复用默认 medium
-            thinkingLevel: "medium",
-            tools: engine.toolPlatform.getAllowedTools(meta.tenantId),
-            customTools: engine.buildCustomTools(meta.tenantId),
+            ...engine.buildSessionBaseOpts(meta.tenantId, {
+              cwd: meta.cwd,
+              model: engine.modelRouter.resolve(undefined, meta.model),
+              // thinkingLevel 不入池元（非安全关键——推理深度非治理面）；恢复用默认 medium
+              thinkingLevel: "medium",
+              sessionManager,
+            }),
             ...recoveryOptions,
           });
           engine.agentSessions.set(meta.sessionId, session);

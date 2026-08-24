@@ -34,6 +34,10 @@ export interface AgentEngineSessionHost {
   getOverlayPaths(): { skills: string[]; prompts: string[] };
   getAgentDir(): string;
   buildCustomTools(tenantId: string): any[];
+  buildSessionBaseOpts(
+    tenantId: string,
+    opts: { cwd: string; model: ReturnType<ModelRouter["resolve"]>; thinkingLevel: string; sessionManager: SessionManager },
+  ): Record<string, unknown>;
   computeVersionSnapshot(): VersionSnapshot;
 }
 
@@ -170,13 +174,12 @@ export async function destroyEngineSession(engine: AgentEngineSessionHost, sessi
     // 传 { id: sessionId }：让 JSONL 文件名与 header.id 携带 PTH sessionId，恢复时可按 id 精确校验。
     const sessionManager = SessionManager.create(cwd, sessionDir, { id: sessionId });
     const { session } = await sdkCreateSession({
-      cwd,
-      model,
-      thinkingLevel: (opts.thinkingLevel as any) ?? "medium",
-      modelRuntime: engine.modelRouter.getRuntime(),
-      sessionManager,
-      tools: engine.toolPlatform.getAllowedTools(opts.tenantId),
-      customTools: engine.buildCustomTools(opts.tenantId),
+      ...engine.buildSessionBaseOpts(opts.tenantId, {
+        cwd,
+        model,
+        thinkingLevel: (opts.thinkingLevel as any) ?? "medium",
+        sessionManager,
+      }),
       ...sdkOptions,
     });
 
