@@ -15,6 +15,7 @@ import {
   type WorkerRole, type RoleLineageNode,
 } from "../kernel/index.js";
 import { buildRoleDoc } from "../kernel/index.js";
+import { validateRoleRegistration } from "../execution/index.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 
@@ -117,6 +118,12 @@ export function registerLineageRoutes(app: FastifyInstance, facade: PthGatewayFa
       generation,
       differentiation: suggested?.rationale ?? content.rationale ?? `任务 ${content.taskId ?? "?"} 分化诱导`,
     };
+
+    // 2b. 守恒注册闸（W4）：L2 + produces 硬校验
+    const gateError = validateRoleRegistration(newRole, allLineageRoles());
+    if (gateError) {
+      return reply.status(400).send({ error: gateError, proposalId });
+    }
 
     // 3. 主进程注册（路由面——routeTaskRole 即刻可路由）
     try {
