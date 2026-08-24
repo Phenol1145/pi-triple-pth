@@ -4,6 +4,9 @@
  * 职责：translate（tool call / notebook cell → ExecutionCommand）→ resolveTarget →
  * authorize（EXEC_TOOL_CAP + 批准按行为者）。输出三态 CommandDecision。
  * 不 import backend/kernel 实现；target 解析为具体 id 后交给 Execute 层。
+ *
+ * W4（ADR-0004）：命令对象形态退役中。worker agent 主路已不再注入本网关；
+ * 本实现保留为 notebook/兼容路径的纯归一化翻译器/兼容 shim，不再作为权限唯一入口。
  */
 import { createHash, randomUUID } from "node:crypto";
 import type {

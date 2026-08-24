@@ -276,17 +276,8 @@ export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome
     toolRegExec: deps.toolRegRunChild
       ? { runChild: deps.toolRegRunChild, caller: { taskId: lease.taskId, roleId: role.id, tenantId: work.scope.tenantId, delivery: null } }
       : undefined,
-    ...(deps.commandGateway
-      ? {
-          commandGateway: deps.commandGateway,
-          commandContext: {
-            principalId: deps.replica ? `worker:${deps.replica.workerId}` : `worker:${role.id}`,
-            tenantId: work.scope.tenantId,
-            roleId: role.id,
-            taskId: lease.taskId,
-          },
-        }
-      : {}),
+    // W4：CommandGateway 从 worker agent 主路退役——tool-call 已投影为代码并由
+    // 方法级静态审核门控；语言工具仍由 agent-loop 的 EXEC_TOOL_CAP 内联门控兜底。
     ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
     ...(deps.adapterRegistry ? { adapterRegistry: deps.adapterRegistry } : {}),
     ...(deps.executionDispatcher ? { executionDispatcher: deps.executionDispatcher } : {}),

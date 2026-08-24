@@ -11,6 +11,9 @@
  *  - `dev-container`（tool-container）只接受 `kind: "external"`，拒绝 `language` 代码，
  *    防止 `bash -lc` 绕过 manifest argv 白名单。
  *  - 未注入 targetRegistry 时退化为显式 target 直连（测试/legacy 兼容）。
+ *
+ * W4（ADR-0004）：Execute 层重新定位为「能力实现的路由表」；本分发器仍是
+ * 兼容 shim（未在生产装配），实际 worker 主路已由 runPtcProgram + 能力对象接管。
  */
 
 import type {
