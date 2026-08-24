@@ -16,3 +16,4 @@ export * from "./knowledge-ingestor.js";
 export * from "./service.js";
 export * from "./manual-control.js";
 export * from "./due-scanner.js";
+export * from "./source-discovery.js";
