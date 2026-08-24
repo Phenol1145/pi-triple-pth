@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-24T09:20:03.489Z",
+  "generatedAt": "2026-08-24T12:53:11.640413Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -707,6 +707,12 @@
     {
       "path": "docs/pth/tce-code-model-remediation-plan.md",
       "category": "designs",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/plan-implementation-status-inventory.md",
+      "category": "operations",
       "product": "pth",
       "status": "active"
     },
