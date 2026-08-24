@@ -14,12 +14,36 @@ export interface CreateTaskDraftInput {
   text: string;
 }
 
+export interface TaskDraftRepository {
+  save(draft: TaskDraft): void;
+  get(id: string): TaskDraft | undefined;
+}
+
+export class InMemoryTaskDraftRepository implements TaskDraftRepository {
+  private readonly drafts = new Map<string, TaskDraft>();
+  save(draft: TaskDraft): void { this.drafts.set(draft.id, draft); }
+  get(id: string): TaskDraft | undefined { return this.drafts.get(id); }
+}
+
 function contentHash(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
 export class TaskDraftService {
-  private readonly drafts = new Map<string, TaskDraft>();
+  private readonly memory = new InMemoryTaskDraftRepository();
+  private readonly repo: TaskDraftRepository;
+
+  constructor(repo?: TaskDraftRepository) {
+    this.repo = repo ?? this.memory;
+  }
+
+  private read(id: string): TaskDraft | undefined {
+    return this.repo.get(id);
+  }
+
+  private write(draft: TaskDraft): void {
+    this.repo.save(draft);
+  }
 
   create(input: CreateTaskDraftInput): TaskDraft {
     const now = new Date().toISOString();
@@ -35,16 +59,16 @@ export class TaskDraftService {
       updatedAt: now,
       contentHash: contentHash(input.text),
     };
-    this.drafts.set(draft.id, draft);
+    this.write(draft);
     return draft;
   }
 
   get(id: string): TaskDraft | undefined {
-    return this.drafts.get(id);
+    return this.read(id);
   }
 
   update(id: string, patch: { title?: string; text?: string }): TaskDraft | undefined {
-    const current = this.drafts.get(id);
+    const current = this.read(id);
     if (!current) return undefined;
     const updated: TaskDraft = {
       ...current,
@@ -53,12 +77,12 @@ export class TaskDraftService {
       revision: current.revision + 1,
       updatedAt: new Date().toISOString(),
     };
-    this.drafts.set(id, updated);
+    this.write(updated);
     return updated;
   }
 
   runQualityGate(id: string): QualityGateResult | undefined {
-    const draft = this.drafts.get(id);
+    const draft = this.read(id);
     if (!draft) return undefined;
     const checks: string[] = [];
     const failures: string[] = [];
@@ -74,11 +98,11 @@ export class TaskDraftService {
   }
 
   submit(id: string): TaskDraftSubmission | undefined {
-    const draft = this.drafts.get(id);
+    const draft = this.read(id);
     if (!draft) return undefined;
     const gate = this.runQualityGate(id);
     if (!gate?.pass) return undefined;
-    this.drafts.set(id, { ...draft, status: "submitted", updatedAt: new Date().toISOString() });
+    this.write({ ...draft, status: "submitted", updatedAt: new Date().toISOString() });
     return { draftId: id, revision: draft.revision, submittedAt: new Date().toISOString() };
   }
 }
