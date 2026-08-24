@@ -189,6 +189,12 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/large-file-decomposition-and-reuse-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/llm-tool-notebook-unified-execution-backend-plan.md",
       "category": "designs",
       "product": "pth",
