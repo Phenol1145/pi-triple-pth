@@ -228,6 +228,62 @@ describe("runDoctor", () => {
     await expect(runDoctor(["--runtime", "bogus"], { repoRoot, env, runner: upRunner() })).rejects.toThrow(/unknown runtime/);
   });
 
+  it("colima + lean4：host 寻址开启 → pass", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--runtime", "colima", "--profile", "lean4"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "colima", argv: ["status"], run: () => ({ code: 0, stdout: "colima is running\nnetworkAddress: 192.168.5.2\n", stderr: "" }) },
+      ], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    const item = report.items.find((i) => i.check === "colima-host-addressing");
+    expect(item?.status).toBe("pass");
+  });
+
+  it("colima + u8：host 寻址显式未开启 → fail + 修复命令", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--runtime", "colima", "--profile", "u8"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "colima", argv: ["status"], run: () => ({ code: 0, stdout: "colima is running\nnetworkAddress:\n", stderr: "" }) },
+      ], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    const item = report.items.find((i) => i.check === "colima-host-addressing");
+    expect(item?.status).toBe("fail");
+    expect(item?.fix).toContain("colima start --network-address");
+  });
+
+  it("colima + lean4：status 不可判定 → warn（不误伤）", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--runtime", "colima", "--profile", "lean4"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "colima", argv: ["status"], run: () => ({ code: 1, stdout: "", stderr: "not running" }) },
+      ], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    const item = report.items.find((i) => i.check === "colima-host-addressing");
+    expect(item?.status).toBe("warn");
+  });
+
+  it("非 colima 或 profile 不含 lean/u8 不触发 colima-host-addressing", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const nonColima = await runDoctor(["--runtime", "orbstack", "--profile", "lean4"], { repoRoot, env, runner: upRunner() });
+    expect(nonColima.items.some((i) => i.check === "colima-host-addressing")).toBe(false);
+    const core = await runDoctor(["--runtime", "colima", "--profile", "core"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    expect(core.items.some((i) => i.check === "colima-host-addressing")).toBe(false);
+  });
+
   it("--json 输出报告结构", async () => {
     const { repoRoot } = await makeRepo();
     const env = { PTH_WORKSPACES_HOST: repoRoot };

@@ -109,6 +109,36 @@ async function portProbe(port: number): Promise<{ occupied: boolean; owner?: str
   return { occupied: true, ...(owner ? { owner } : {}) };
 }
 
+async function colimaHostAddressingStatus(runner: DoctorRunner): Promise<{ status: DoctorStatus; message: string; fix?: string }> {
+  const result = await runner("colima", ["status"]);
+  if (result.code !== 0) {
+    return {
+      status: "warn",
+      message: "colima status 不可用/不可判定",
+      fix: "colima status 手动确认 host 寻址；或 colima stop && colima start --network-address",
+    };
+  }
+  const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  const hasAddress = /networkaddress|network-address|network address|host\.docker\.internal/.test(text);
+  const explicitOff = /networkaddress\s*:\s*(?:none|off|false)?\s*$/mi.test(text)
+    || /network:\s*(?:none|off|false)/.test(text);
+  if (explicitOff) {
+    return {
+      status: "fail",
+      message: "colima host 寻址未开启",
+      fix: "colima stop && colima start --network-address",
+    };
+  }
+  if (hasAddress) {
+    return { status: "pass", message: "colima host 寻址已开启" };
+  }
+  return {
+    status: "warn",
+    message: "colima host 寻址状态不可判定",
+    fix: "colima status 手动确认；或 colima stop && colima start --network-address",
+  };
+}
+
 async function isExecutable(path: string): Promise<boolean> {
   try {
     await access(path, constants.X_OK);
@@ -159,10 +189,13 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
   }
 
   // 1.5) container runtime（W1；--runtime 覆盖检测结果）
+  let containerRuntime: ContainerRuntime | undefined;
   if (runtimeOverride !== undefined) {
-    add("container-runtime", "pass", `容器运行时覆盖: ${runtimeOverride}`);
+    containerRuntime = runtimeOverride as ContainerRuntime;
+    add("container-runtime", "pass", `容器运行时覆盖: ${containerRuntime}`);
   } else {
     const detected = await detectContainerRuntime(runner);
+    containerRuntime = detected.runtime;
     if (detected.runtime === "apple-container") {
       add(
         "container-runtime",
@@ -181,6 +214,12 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
       );
     }
     // detected.runtime === "none"：不新增项，沿用上方 docker fail（避免重复）
+  }
+
+  // 1.6) colima host 寻址（仅 colima + lean4/u8 profile 触发；不可判定一律 warn）
+  if (containerRuntime === "colima" && (wants(profile, "lean4") || wants(profile, "u8"))) {
+    const colima = await colimaHostAddressingStatus(runner);
+    add("colima-host-addressing", colima.status, colima.message, colima.fix);
   }
 
   // 2) secrets
