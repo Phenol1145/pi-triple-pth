@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-23T23:30:56.880Z",
+  "generatedAt": "2026-08-24T05:34:46.654Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -115,6 +115,12 @@
       "category": "guides",
       "product": "pth",
       "status": "active"
+    },
+    {
+      "path": "docs/pth/deploy-targets-and-config-simplification-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
     },
     {
       "path": "docs/pth/deployment.md",
