@@ -1,6 +1,6 @@
 # PTH 部署 target 与配置简化实施计划
 
-> 状态：**待实施**（设计已审订，本文档为唯一实施依据）
+> 状态：**已实施（W0–W4）**（设计已审订，本文档为唯一实施依据）
 > 设计文档：`docs/pth/deploy-targets-and-config-simplification-design.md`（概念模型/矩阵/裁决以此为准）
 > 分支：`feat/pth-exec-unified`（继续沿用，不另开分支）
 > 已拍板决策（用户 2026-08-27）：

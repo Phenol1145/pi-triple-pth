@@ -17,8 +17,15 @@ git clone https://github.com/Phenol1145/pi-triple-pth.git
 cd pi-triple-pth
 npm install
 npm run build      # pth-memory → pth-sandbox → pth-console → web → 根 tsc
-export PTH_WORKSPACES_HOST=/abs/path/to/workspaces   # compose :? 必填（engine/sandbox/宿主执行器共享）
-npm run pth -- init && npm run pth -- up   # redis/postgres/pi-platform/sandbox 全栈
+npm run pth -- init --workspaces /abs/path/to/workspaces   # 自动生成强随机密钥 + 写入 PTH_WORKSPACES_HOST
+npm run pth -- up   # redis/postgres/pi-platform/sandbox 全栈（默认 local-container）
+```
+
+无 Docker 的裸机/CI 可改用 local-process（需外部 Redis/Postgres 与 `npm run build`）：
+
+```bash
+npm run pth -- doctor --target local-process --profile core
+npm run pth -- up --target local-process --profile core --sandbox process --yes-i-know
 ```
 
 `pth` 可执行入口：根编译产物 `dist/cli/pth-cli.js`（源码 `src/cli/pth-cli.ts`）。
