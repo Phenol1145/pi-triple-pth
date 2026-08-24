@@ -147,6 +147,12 @@
       "status": "reference"
     },
     {
+      "path": "docs/pth/release-notes-v1.8.0.md",
+      "category": "releases",
+      "product": "pth",
+      "status": "draft"
+    },
+    {
       "path": "docs/pth/execution-target-matrix-plan.md",
       "category": "designs",
       "product": "pth",
