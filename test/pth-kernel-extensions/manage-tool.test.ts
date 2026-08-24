@@ -27,8 +27,8 @@ type Row = { id: string; kind: string; status: string; content: string; anchors?
 interface ManageTool {
   tool: {
     list: () => Promise<{ version: string; budget: number; policy: string; tools: Array<{ name: string; version: number }> }>;
-    register: (o: { spec?: unknown; rationale?: string }) => Promise<{ ok: boolean; id?: string; status?: string; error?: string }>;
-    revise: (o: { spec?: unknown; rationale?: string }) => Promise<{ ok: boolean; id?: string; version?: number; status?: string; error?: string }>;
+    register: (o: { spec?: unknown; rationale?: string; planHash?: string; planGrant?: unknown }) => Promise<{ ok: boolean; id?: string; status?: string; error?: string }>;
+    revise: (o: { spec?: unknown; rationale?: string; planHash?: string; planGrant?: unknown }) => Promise<{ ok: boolean; id?: string; version?: number; status?: string; error?: string }>;
     importMcp: (o: { bundle?: unknown }) => Promise<{ ok: boolean; errors?: string[]; imported?: Array<{ name: string; proposalId: string }>; failed?: Array<{ name: string; error: string }> }>;
   };
 }
@@ -57,6 +57,7 @@ function makeCtx() {
     sessionRef: { current: null },
     onActivity: (e: { kind: string; detail?: string }) => activities.push(e),
     toolFaceBudgetCheck,
+    planGrantVerify: () => ({ ok: true } as const),
   } as never;
   return {
     rows,
@@ -72,7 +73,7 @@ describe("N14 P3：manage.tool.*（manual 策略——直写 official + 预算�
     resetConfig({ PTH_TOOL_FACE_BUDGET: "100" });
     const { rows, tool } = makeCtx();
     const s = spec("util_upper");
-    const r = await tool.register({ spec: s, rationale: "tool-function 晋升" });
+    const r = await tool.register({ spec: s, rationale: "tool-function 晋升", planHash: "test-plan", planGrant: {} });
     expect(r.ok).toBe(true);
     expect(r.status).toBe("official");
     expect(rows.get("tool:util_upper")?.kind).toBe("tool-reg");
@@ -82,11 +83,11 @@ describe("N14 P3：manage.tool.*（manual 策略——直写 official + 预算�
     expect(list.budget).toBe(100);
     expect(list.policy).toBe("manual");
     // 重复注册（不可变）
-    const dup = await tool.register({ spec: s });
+    const dup = await tool.register({ spec: s, planHash: "test-plan", planGrant: {} });
     expect(dup.ok).toBe(false);
     expect(dup.error).toContain("已存在");
     // register 新条目版本必须为 1
-    const v2 = await tool.register({ spec: { ...s, name: "util_upper2", version: 2 } });
+    const v2 = await tool.register({ spec: { ...s, name: "util_upper2", version: 2 }, planHash: "test-plan", planGrant: {} });
     expect(v2.ok).toBe(false);
     expect(v2.error).toContain("版本必须为 1");
   });
@@ -94,19 +95,19 @@ describe("N14 P3：manage.tool.*（manual 策略——直写 official + 预算�
   it("revise：版本必须递增 + promotedFrom 自动承继（修订=新版本链）", async () => {
     resetConfig({ PTH_TOOL_FACE_BUDGET: "100" });
     const { rows, tool } = makeCtx();
-    await tool.register({ spec: spec("util_upper") });
+    await tool.register({ spec: spec("util_upper"), planHash: "test-plan", planGrant: {} });
     // 版本不递增 → 拒
-    const bad = await tool.revise({ spec: spec("util_upper") });
+    const bad = await tool.revise({ spec: spec("util_upper"), planHash: "test-plan", planGrant: {} });
     expect(bad.ok).toBe(false);
     expect(bad.error).toContain("递增");
     // v2 修订（不显式带 promotedFrom——从现条目承继）
     const v2 = spec("util_upper", { version: 2, description: { anchor: "大写转换", whenToUse: "转大写时", effect: "大写结果" } });
-    const r = await tool.revise({ spec: v2, rationale: "描述修订" });
+    const r = await tool.revise({ spec: v2, rationale: "描述修订", planHash: "test-plan", planGrant: {} });
     expect(r.ok).toBe(true);
     expect(r.version).toBe(2);
     expect(rows.get("tool:util_upper")?.meta).toMatchObject({ version: 2, promotedFrom: "tool-function:fn-1", registeredBy: "manage.tool.revise" });
     // 不存在 → 拒
-    const missing = await tool.revise({ spec: spec("util_missing", { version: 2 }) });
+    const missing = await tool.revise({ spec: spec("util_missing", { version: 2 }), planHash: "test-plan", planGrant: {} });
     expect(missing.ok).toBe(false);
     expect(missing.error).toContain("不存在");
   });
@@ -114,7 +115,7 @@ describe("N14 P3：manage.tool.*（manual 策略——直写 official + 预算�
   it("预算守卫：候选角色投影面超 PTH_TOOL_FACE_BUDGET → 注册拒绝（命题 3 防线）", async () => {
     resetConfig({ PTH_TOOL_FACE_BUDGET: "1" });
     const { tool } = makeCtx();
-    const r = await tool.register({ spec: spec("util_upper") });
+    const r = await tool.register({ spec: spec("util_upper"), planHash: "test-plan", planGrant: {} });
     expect(r.ok).toBe(false);
     expect(r.error).toContain("预算守卫");
     expect(r.error).toContain("developer");

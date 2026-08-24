@@ -259,6 +259,8 @@ export function createWorkerKernelWithManager(deps: {
   roleId?: string;
   /** W0：承诺产物 kind 白名单（三源重构 Q6/K(r)——透传 buildCapabilities 的 memory 写边界） */
   produces?: readonly string[];
+  /** W2：plan grant 校验（透传 buildCapabilities——即时生效类 manage 工具） */
+  planGrantVerify?: (input: { grant: unknown; planHash: string }) => { ok: true } | { ok: false; error: string };
   /** W8 P1：任务投递端口（仅组织权持有角色传入；缺省不注入 tasks 键） */
   taskControl?: TaskDispatchPort;
   /** 0.16.3：穿透执行端口（与 taskControl 同批装配；嵌套子 kernel 不传——深度限 1） */
@@ -313,6 +315,7 @@ export function createWorkerKernelWithManager(deps: {
     sessionRef,
     roleId: deps.roleId,
     produces: deps.produces,
+    planGrantVerify: deps.planGrantVerify,
     taskControl: deps.taskControl,
     penetration: deps.penetration,
     onActivity: deps.onActivity,

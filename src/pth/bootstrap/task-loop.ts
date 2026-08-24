@@ -397,6 +397,23 @@ export class TaskLoop {
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: "soft-terminated" });
   }
 
+  /** W2：实施任务 done 契约——payload.implementationPlanHash 存在时，done.result.planHash 必须一致。 */
+  private implementationPlanHashOf(task: Task): string | null {
+    const payload = (task.payload ?? {}) as { implementationPlanHash?: unknown };
+    return typeof payload.implementationPlanHash === "string" ? payload.implementationPlanHash : null;
+  }
+
+  private validateImplementationDone(task: Task, result: { value?: unknown }): string | null {
+    const expected = this.implementationPlanHashOf(task);
+    if (!expected) return null;
+    const value = result.value;
+    const planHash = (value as { planHash?: unknown } | null | undefined)?.planHash;
+    if (typeof planHash !== "string" || planHash !== expected) {
+      return `实施任务 done.result.planHash 缺失或不匹配（期望 ${expected}）`;
+    }
+    return null;
+  }
+
   /** P3.6（2026-08-15）：developer 修复任务完成后自动派发 debug-case-writer——
    *  自修正闭环验证环节（最小复现 + 回归测试 + 边界用例）。payload.debugCases="off" 可关。 */
   private async maybeDispatchDebugCaseWriter(task: Task, result: { value?: unknown; stdout?: string }): Promise<void> {
@@ -542,6 +559,15 @@ export class TaskLoop {
         return;
       }
       this.bus.emit("task.execute.end", { taskId: task.id, role: role.id, ok: true, durationMs: Date.now() - execStart });
+      const implError = this.validateImplementationDone(task, result);
+      if (implError) {
+        await this.rejectTerminal(task, implError, chain);
+        await this.invokeArchive(task, ws, result);
+        taskLogger?.error(implError, { durationMs: Date.now() - execStart });
+        notifyTaskDone({ taskId: task.id, role: role.id, status: "rejected", error: implError });
+        this.bus.emit("task.reject", { taskId: task.id, role: role.id, reason: implError, durationMs: Date.now() - execStart });
+        return;
+      }
       const affected = await taskStore.submit(role.id, task.id, { ref: result });
       if (affected === 0) {
         // 审计 H5：认领已不属于本 worker（任务被回收重领）——结果静默丢失，告警审计

@@ -9,6 +9,9 @@ import type { DataWorldAccess } from "@away_from/pth-kernel-storage";
 import type { Toolstore } from "../interpreter/toolstore.js";
 import type { ToolFaceBudgetCheck } from "../execution/tool-registry.js";
 
+/** W2：plan grant 校验闭包（由 impls 装配层注入——interpreter 不反向依赖 execution）。 */
+export type PlanGrantVerify = (input: { grant: unknown; planHash: string }) => { ok: true } | { ok: false; error: string };
+
 export interface ExtContext {
   dataWorld: DataWorldAccess;
   toolstore?: Toolstore;
@@ -22,6 +25,8 @@ export interface ExtContext {
   taskContext?: { current: { tenantId?: string } | null };
   /** N14 P3：工具面预算守卫（由 kernel-execution 装配注入，避免 interpreter 反向依赖 execution）。 */
   toolFaceBudgetCheck?: ToolFaceBudgetCheck;
+  /** W2：plan grant 校验（即时生效类工具必须携带已批准 modification-plan 的 grant）。 */
+  planGrantVerify?: PlanGrantVerify;
 }
 
 export interface TsReplExtension {

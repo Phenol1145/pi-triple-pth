@@ -67,6 +67,15 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     expect(system.some((t) => t.name === "batch-scaler")).toBe(false);
   });
 
+  it("条件注册：planImplementation 提供 → modification-plan-implementation 事件 action 注册（W2）", () => {
+    const { system, actions, engine } = captureEngine();
+    registerSystemTriggers(engine as never, baseDeps({ planImplementation: async () => ({ published: 0 }) }));
+    const t = system.find((x) => x.name === "modification-plan-implementation")!;
+    expect(t.event).toBe("modification-plan.approved");
+    expect(t.action?.type).toBe(SYSTEM_ACTION.planImplementation);
+    expect(actions.has(SYSTEM_ACTION.planImplementation)).toBe(true);
+  });
+
   it("条件注册：scaler enabled → batch-scaler schedule + batch.scale action", () => {
     const { system, actions, engine } = captureEngine();
     registerSystemTriggers(engine as never, baseDeps({ scaler: { enabled: true, intervalMs: 30_000, evaluate: async () => ({ action: "keep" }) } }));

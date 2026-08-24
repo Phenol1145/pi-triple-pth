@@ -7,6 +7,7 @@ import { createPenetrationDiscoveryService, TaskControlService, PgTaskQueries } 
 import { pthConfig } from "@away_from/pth-config";
 import type pg from "pg";
 import type { ExecutionBackendRegistry } from "../execution/index.js";
+import { createPlanImplementationDeriver } from "../execution/index.js";
 
 export interface KernelRuntimeOptions {
   /** obs 观测请求解析器（batch obs-req → 主进程 metrics/batches 数据） */
@@ -478,6 +479,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     memory: dataWorld.memory,
     log: (m) => assemblyLogger.info(m),
   });
+  // W2：modification-plan 实施任务派生（official 事件 → 按 implementation.kind 发布 actuator/developer 任务）
+  const planImplementation = createPlanImplementationDeriver({
+    memory: dataWorld.memory as never,
+    publish: (input) => dataWorld.tasks.publish(input as never),
+    log: (m) => assemblyLogger.info(m),
+  });
   registerSystemTriggers(triggerEngine, {
     env: opts.env ?? process.env,
     recoverStaleClaims: (timeoutMs) => dataWorld.tasks.recoverStaleClaims(timeoutMs),
@@ -527,6 +534,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
       intervalMs: pthConfig().num("PTH_PENETRATION_DISCOVERY_INTERVAL_MS"),
       discover: () => penetrationDiscovery.discover(),
     },
+    planImplementation,
     log: (m) => assemblyLogger.info(m),
   });
 

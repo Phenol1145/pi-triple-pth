@@ -21,8 +21,8 @@ describe("N14 P3：controller 三新点位注册（builtin-roles）", () => {
       expect(r, `${id} 应在 GOVERNANCE_ROLES`).toBeDefined();
       expect(r!.parent).toBe("controller");
       expect(r!.generation).toBe(1);
-      // 调节面：obs（读观测）+ manage（写控制）——与既有 controller 同构
-      expect(r!.capabilities).toContain("obs");
+      // 调节面：manage（写控制）+ 读 observation-report 走 memory；W2 剔除 obs.*（sensor 独有观测面）
+      expect(r!.capabilities).not.toContain("obs");
       expect(r!.capabilities).toContain("manage");
       expect(r!.actionTools).toEqual(["execTs", "execPy", "execBash", "nav", "cache"]);
       expect(r!.acceptanceRole).toBe("read-only");

@@ -37,7 +37,7 @@ import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
 import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
 import type { ProfessionalRuntimeLock } from "@away_from/pth-contracts";
 import { assembleProfessionalRuntimeRegistry, createProfessionalArtifactPort } from "./professional-runtime-adapters.js";
-import { buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider } from "../execution/index.js";
+import { buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createPlanGrantVerify } from "../execution/index.js";
 import { bootstrapBatchHost } from "./batch/host-bootstrap.js";
 import { assembleToolFace } from "./batch/tool-face.js";
 import { assembleCognitiveResponsibility, buildAssemblyWorkerSpecs, makeWorkerSlot } from "./batch/feasibility-runtime.js";
@@ -116,6 +116,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     // 无有效 grant 签名密钥时 professional.execute 不注入（LLM 面关闭），不阻塞普通任务。
     professionalGrantService = undefined;
   }
+  // W2：plan grant 校验闭包（与 professional grant 同密钥——manage 即时生效工具用）
+  const planGrantVerify = createPlanGrantVerify(professionalGrantService);
 
   // modelRouter：SDK ModelRuntime（自动加载 pi auth.json/models-store——deepseek 已配置）。
   // 真实 LLM 能力（转写/记忆任务依赖）；失败时不阻塞——v1 机械认领仍可用。
@@ -232,6 +234,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     dataWorld,
     toolstore,
     batchLogger,
+    planGrantVerify,
   };
 
   /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
@@ -295,6 +298,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
       roleId: role.id,
       produces: role.produces,
+      planGrantVerify,
       taskControl: canDelegate ? taskControl : undefined,
       penetration,
       // L2：能力面活动事件上报（skill.proposal.created——与 loop 同一 IPC 转发通道）

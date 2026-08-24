@@ -56,6 +56,8 @@ export interface PenetrationRunChildSharedDeps {
   dataWorld: BatchDataWorld;
   toolstore: Toolstore;
   batchLogger: BatchLogger;
+  /** W2：plan grant 校验（透传子 kernel——即时生效类 manage 工具） */
+  planGrantVerify?: (input: { grant: unknown; planHash: string }) => { ok: true } | { ok: false; error: string };
 }
 
 /** runChild 的 per-worker 依赖（createWorker 每次调用注入）。 */
@@ -70,7 +72,7 @@ export function createPenetrationRunChild(
   shared: PenetrationRunChildSharedDeps,
   worker: PenetrationRunChildWorkerDeps,
 ): PenetrationRunChild {
-  const { budget, sandboxKernelUrl, sandboxKernelSecret, modelRouter, dataWorld, toolstore, batchLogger } = shared;
+  const { budget, sandboxKernelUrl, sandboxKernelSecret, modelRouter, dataWorld, toolstore, batchLogger, planGrantVerify } = shared;
   const { replica, parentKernelRef } = worker;
   const penetrationLedgers = budget.ledgers;
   const penetrationBudgetCfg = budget.cfg;
@@ -124,6 +126,7 @@ export function createPenetrationRunChild(
               memoryScope: childRole.memoryScope ? { role: childRole.id, scope: childRole.memoryScope } : undefined,
               roleId: childRole.id,
               produces: childRole.produces,
+              planGrantVerify,
               // 深度限 1：不传 taskControl/penetration——嵌套子 agent 纯执行，不再派发/穿透
               registerKernel: (language, interpreter) => childManager.registerKernel(language, interpreter as never),
               readSource: pthConfig().str("PTH_SOURCE_ROOT")

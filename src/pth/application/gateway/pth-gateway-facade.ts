@@ -17,6 +17,8 @@ import {
   type KnowledgeServiceAuth,
   type KnowledgeVerificationRepo,
 } from "../../execution/index.js";
+import { validateModificationPlanContent, issuePlanGrant, type ExecutionGrantService } from "../../execution/index.js";
+import { MODIFICATION_PLAN_KIND } from "@away_from/pth-kernel-execution";
 import { buildRestrictedKnowledgeQuery } from "../../execution/index.js";
 import type { KnowledgeVerdict } from "../../execution/index.js";
 import {
@@ -120,8 +122,9 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   #verificationRepo: KnowledgeVerificationRepo;
   #observation: RuntimeObservationFacade;
   #humanInteraction: PgHumanInteractionService;
+  #planGrantService?: ExecutionGrantService;
 
-  constructor(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo) {
+  constructor(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo, planGrantService?: ExecutionGrantService) {
     this.#kernel = kernel;
     this.#control = new TaskControlService({
       store: kernel.dataWorld.tasks,
@@ -133,6 +136,7 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     this.#humanInteraction = new PgHumanInteractionService(
       new PgHumanInteractionRepository(kernel.pool),
     );
+    this.#planGrantService = planGrantService;
   }
 
   bridgeQuery(sql: string, tenantId: string, space: string): Promise<Array<Record<string, unknown> | null>> {
@@ -318,6 +322,30 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
       if (!executed.ok) return executed;
       return executed;
     }
+    // W2：modification-plan 审批（controller 提案 → 监督批准 → 签发 plan grant → 事件驱动实施派生）
+    if (proposal?.kind === MODIFICATION_PLAN_KIND) {
+      let content: unknown = {};
+      try { content = JSON.parse(String(proposal.content ?? "{}")); } catch { return { ok: false, error: "modification-plan content 非法 JSON" }; }
+      const parsed = validateModificationPlanContent(content);
+      if (!parsed.ok) return parsed;
+      if (!this.#planGrantService) {
+        return { ok: false, error: "plan grant service unavailable（PTH_EXECUTION_GRANT_SECRET 未配置）" };
+      }
+      const planHash = parsed.plan.planHash;
+      const grant = issuePlanGrant(this.#planGrantService, planHash, DEFAULT_TENANT_ID);
+      await memory.update(id, {
+        status: "official",
+        meta: { ...(proposal.meta ?? {}), approved: true, approvedAt: Date.now(), planHash, planGrant: grant },
+      });
+      this.#kernel.activityHub.publish({
+        kind: "modification-plan.approved",
+        taskId: "",
+        role: "platform-admin",
+        detail: id,
+        at: Date.now(),
+      });
+      return { ok: true, id, status: "official", planHash, note: "modification-plan 已批准并签发 plan grant（实施任务经事件派生）" };
+    }
     const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
     return applyMemoryAdminProposal(memory, id);
   }
@@ -473,6 +501,6 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   }
 }
 
-export function createPthGatewayFacade(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo): PthGatewayFacade {
-  return new PthGatewayFacadeImpl(kernel, verificationRepo);
+export function createPthGatewayFacade(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo, planGrantService?: ExecutionGrantService): PthGatewayFacade {
+  return new PthGatewayFacadeImpl(kernel, verificationRepo, planGrantService);
 }

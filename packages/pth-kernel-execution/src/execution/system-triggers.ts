@@ -20,6 +20,7 @@ export const SYSTEM_ACTION = {
   batchScale: "batch.scale",
   penetrationDiscovery: "penetration.discovery",
   pauseSweep: "pause.sweep",
+  planImplementation: "plan.implementation",
 } as const;
 
 export interface SystemTriggerDeps {
@@ -44,6 +45,8 @@ export interface SystemTriggerDeps {
   scaler?: { enabled: boolean; intervalMs: number; evaluate: () => Promise<unknown> };
   /** 穿透稳定边自动发现巡检（B1） */
   penetrationDiscovery?: { enabled: boolean; intervalMs: number; discover: () => Promise<unknown> };
+  /** W2：modification-plan 实施任务派生（modification-plan.approved 事件 → 按 implementation.kind 发布任务） */
+  planImplementation?: (planId: string) => Promise<{ published: number }>;
   /** 生命周期 P1：pause 超时/预算巡检（escalate 超时或超限 paused 任务） */
   pauseSweep?: () => Promise<number>;
   /** pause 巡检周期（ms；缺省 60s） */
@@ -201,6 +204,20 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
       name: "penetration-discovery",
       schedule: { everySec: deps.penetrationDiscovery.intervalMs / 1000 },
       action: { type: SYSTEM_ACTION.penetrationDiscovery },
+      enabled: true,
+    });
+  }
+
+  // W2：modification-plan 实施派生（事件驱动——approval 落 official 后按 implementation.kind 发布实施任务）。
+  if (deps.planImplementation) {
+    engine.registerAction(SYSTEM_ACTION.planImplementation, async (ctx) => {
+      const planId = ctx.vars.detail ?? "";
+      if (planId) await deps.planImplementation!(planId);
+    });
+    engine.addSystemTrigger({
+      name: "modification-plan-implementation",
+      event: "modification-plan.approved",
+      action: { type: SYSTEM_ACTION.planImplementation },
       enabled: true,
     });
   }

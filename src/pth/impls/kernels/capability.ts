@@ -106,6 +106,8 @@ export function buildCapabilities(deps: {
   /** W0：承诺产物 kind 白名单（三源重构 Q6/K(r)——`memory.write` 边界 fail-fast；
    *  `undefined` = 不限；空数组 = 禁止任何 memory 写入） */
   produces?: readonly string[];
+  /** W2：plan grant 校验（即时生效类 manage 工具——由装配层注入） */
+  planGrantVerify?: (input: { grant: unknown; planHash: string }) => { ok: true } | { ok: false; error: string };
   /** W8 P1：任务投递端口（仅组织权持有角色传入；缺省不注入 tasks 键） */
   taskControl?: TaskDispatchPort;
   /** 0.16.3：穿透执行端口（与 taskControl 同批装配；缺省不注入 tasks.penetrate） */
@@ -131,6 +133,7 @@ export function buildCapabilities(deps: {
     sessionRef: deps.sessionRef,
     onActivity: deps.onActivity,
     taskContext: deps.taskContext,
+    planGrantVerify: deps.planGrantVerify,
   });
   // 管理面裁剪（权限 v2 R3——2026-08-10）：worker 执行面只给只读子集——
   //   perf.set/publish/apply（运行时调参/策略）与 model.set（切模型）是管理面写操作，不进注入面；

@@ -368,9 +368,12 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   // P2-5：grant-bound 知识 broker（PTH_EXECUTION_GRANT_SECRET 与 sandbox 共用同一签名密钥；
   // 未配置 → /kernel/knowledge 503 fail-closed，token 化 memory-bridge 兼容通道不受影响）
   const executionGrantSecret = pthConfig().str("PTH_EXECUTION_GRANT_SECRET");
-  const knowledgeBroker = kernelRuntime && executionGrantSecret
+  const executionGrantService = executionGrantSecret
+    ? createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: executionGrantSecret }) })
+    : null;
+  const knowledgeBroker = kernelRuntime && executionGrantService
     ? createPthKnowledgeBroker({
-        grantService: createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: executionGrantSecret }) }),
+        grantService: executionGrantService,
         dataWorld: kernelRuntime.dataWorld,
       })
     : null;
@@ -409,7 +412,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
 
   // N33 Task 3：/api/v1/observe/{workers,memory/*,config,roles} 由 server.ts 内
   // registerSystemInspectionRoutes 注册（facade 从 kernelRuntime.pool/batchManager 装配）。
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime, knowledgeBroker, intakeManualControl });
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime, knowledgeBroker, intakeManualControl, executionGrantService });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 

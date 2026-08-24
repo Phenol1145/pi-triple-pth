@@ -72,6 +72,32 @@ describe("task loop（任务池纯化——agent 循环唯一主路径）", () =
     expect(kernel.reset).toHaveBeenCalled();
   });
 
+  it("W2：实施任务 done.result.planHash 匹配 → submit 通过", async () => {
+    const task = { id: "t-impl-ok", title: "实施", text: "x", tags: ["code"], payload: { implementationPlanHash: "abc" } };
+    mockedRunAgent.mockResolvedValue({ ok: true, value: { planHash: "abc" }, summary: "s", steps: 1 } as never);
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const loop = new TaskLoop(agentDeps(mockKernel(), role, store));
+    await loop.runOnce();
+    expect(store.submit).toHaveBeenCalled();
+    expect(store.reject).not.toHaveBeenCalled();
+  });
+
+  it("W2：实施任务 done.result.planHash 缺失/不匹配 → reject，不 submit", async () => {
+    const task = { id: "t-impl-bad", title: "实施", text: "x", tags: ["code"], payload: { implementationPlanHash: "abc" } };
+    mockedRunAgent.mockResolvedValue({ ok: true, value: { foo: 1 }, summary: "s", steps: 1 } as never);
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    const loop = new TaskLoop(agentDeps(mockKernel(), role, store));
+    await loop.runOnce();
+    expect(store.reject).toHaveBeenCalled();
+    expect(store.submit).not.toHaveBeenCalled();
+  });
+
   it("P3.6：developer fix 任务完成 → 自动派发 debug-case-writer（自修正闭环）", async () => {
     const task = { id: "t1", text: "bug: 计数偶发错误", title: "fix counter", tags: ["fix"], payload: {} };
     const publish = vi.fn(async () => ({ id: "dc1", title: "【debug-case】", text: "x", tags: ["debug-case"], payload: {} }));
