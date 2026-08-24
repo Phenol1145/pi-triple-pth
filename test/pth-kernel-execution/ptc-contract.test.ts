@@ -32,7 +32,7 @@ describe("PTC 契约注册表（A1 Phase 1）", () => {
 
   it("AGENT_CAPABILITY_AS_ACTION 即派生映射（单一真相源）", () => {
     expect(AGENT_CAPABILITY_AS_ACTION["memory.query"]!({ sql: "SELECT 1" })).toBe('return await memory.query("SELECT 1");');
-    expect(Object.keys(AGENT_CAPABILITY_AS_ACTION).length).toBe(15);   // +skills.maintain.write/archive；W8 P1/P2：+tasks.delegate/await/resume；0.16.3：+tasks.penetrate
+    expect(Object.keys(AGENT_CAPABILITY_AS_ACTION).length).toBe(35);   // 原 15 + W0 dev/write/debug 20 项 tool-call 投影能力
   });
 
   it("参数校验：非法调用抛 PtcContractError（结构化——capability 可读）", () => {

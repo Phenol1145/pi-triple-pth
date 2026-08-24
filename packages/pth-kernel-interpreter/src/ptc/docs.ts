@@ -20,6 +20,10 @@ const FAMILY_SECTIONS: Array<{ families: PtcFamily[]; title: string }> = [
   { families: ["kernel"], title: "执行核" },
   { families: ["llm", "web", "env", "state", "cache", "ts-local"], title: "web/llm/state/ext/env" },
   { families: ["tasks"], title: "tasks" },
+  { families: ["dev"], title: "dev（生产核·代码）" },
+  { families: ["write"], title: "write（生产核·文档）" },
+  { families: ["debug"], title: "debug（调试会话）" },
+  { families: ["loop"], title: "loop（宿主能力）" },
 ];
 
 /** 单条目三要素行（签名 → 返回 + 何时用 + 效果——T8 锚点格式） */
