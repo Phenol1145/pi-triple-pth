@@ -3,6 +3,8 @@
 > 2026-08-24 立项。依据 ADR-0004（TCE = Tool→Code→Execute，PTC 能力接口第一性）。
 > 目标：把一切入口归一化为代码，权限收敛为「注入 + 静态审核」单机制，tool-call 面成为能力契约的投影。
 > 现状审计：`docs/pth/report/system-construction-modeling-audit.md` §2。
+> 状态：已完成（W0–W5，2026-08-24）。能力契约统一 / 能力对象注入 / tool-call 投影 / 方法级静态审核 /
+> CommandGateway 退役过渡 / notebook 直连 Code 层 / TCE coverage 校验均已落地；CommandGateway 与 Execute 分发器保留为兼容 shim。
 
 ## 0. 现状修正（对审计 §2.2 的 errata）
 

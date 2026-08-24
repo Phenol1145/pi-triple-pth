@@ -45,7 +45,7 @@
 
 | # | 计划 | 文件 | 状态 | 范围 | 依赖 / 建议 |
 |---|---|---|---|---|---|
-| 1 | **工具面 TCE 结构化 W0–W5** | `docs/pth/plan/tce-code-model-remediation-plan.md`、`docs/adr/0004-tce-code-layer-ptc-capability-first.md` | 未实施（计划已定稿，实施待批准） | 能力契约统一 → 能力实现搬迁 → tool-call 投影化 → 静态审核升级 → 网关退役/Execute 重构 → 观测收尾 | **当前首要**；role catalog W0 词汇表与它共用 |
+| 1 | **工具面 TCE 结构化 W0–W5** | `docs/pth/plan/tce-code-model-remediation-plan.md`、`docs/adr/0004-tce-code-layer-ptc-capability-first.md` | ✅ 已完成（2026-08-24） | 能力契约统一 → 能力实现搬迁 → tool-call 投影化 → 静态审核升级 → 网关退役/Execute 重构 → 观测收尾 | 已全部落地；CommandGateway/Execute 分发器保留为兼容 shim；role catalog 可启动 |
 | 2 | **Role Catalog 化与四元组细化 W0–W5** | `docs/pth/plan/role-catalog-and-four-tuple-refinement-plan.md` | 未实施（已立项，次优先级） | 词汇表收敛 + v1 schema + catalog 装载 + sensor/controller/actuator/professional 枝切分 | 依赖 TCE W0 能力词汇表；建议 TCE 后启动 |
 | 3 | **B9 adversarial 审核链断裂修复** | `docs/fracta-engine-backlog.md`、`docs/pth/report/role-lineage-runtime-derivation.md` | ✅ 已修复（2026-08-24） | `system-triggers.ts` 两个 trigger 补 `role:"controller:adversarial"` + 两处测试断言 | 已并入施工顺序第 1 步完成 |
 | 4 | **B10 观测-调节调度源缺失** | `docs/fracta-engine-backlog.md`、`docs/pth/report/role-lineage-runtime-derivation.md` | 未实施（小机制） | 新增向 sensor 七点位 / controller 九点位定期或按 A/B 周期派单的调度器 | 治理回路自闭环前置；建议与 B9 同批 |
@@ -77,7 +77,7 @@
 
 0. **执行模式 Wave 6 收尾**（或显式冻结）：按 ADR-0004 口径回填设计/计划文档并完成全量验证。
 1. **B9**（分钟级）：修复 adversarial 审核链断裂——`system-triggers.ts` 两处 trigger 补 `role:"controller:adversarial"`，并同步 `system-triggers.test.ts` 两处钉住断裂形态的断言（L110/L122）。✅ 已完成（2026-08-24）。
-2. **TCE W0–W5**（当前首要）：能力契约统一为单一真相源，后续工具面/角色面改造全部消费它。
+2. **TCE W0–W5**（当前首要）：能力契约统一为单一真相源，后续工具面/角色面改造全部消费它。✅ 已完成（2026-08-24）。
 3. **B10**（小机制）：补齐 sensor/controller 调度源；派单契约设计时即纳入 A/B 优化周期的 n 轮基线窗边界，避免 catalog 阶段返工。
 4. **Role Catalog W0–W5**：与 TCE 共用词汇表，待 TCE 契约稳定后启动；计划中显式包含「静态审核输入扩展」（能力 ∪ 已挂接模块的能力）。
 5. **PTH Bench**：依赖 TCE/观察策略，作为 A/B 周期的受控测量装置。
