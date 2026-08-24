@@ -1,7 +1,8 @@
 /**
  * intake-extract-stage.ts —— knowledge-intake stage 2：extract（生产 processor + strict ingestor）。
  */
-import { IntakeStageRetryableError, IntakeStageResult } from "./intake-shared.js";
+import { IntakeStageRetryableError } from "./intake-shared.js";
+import type { IntakeStageResult } from "./intake-shared.js";
 import type { IntakeStageContext } from "./stage-context.js";
 
 export async function runExtractStage(ctx: IntakeStageContext, payload: unknown): Promise<IntakeStageResult> {

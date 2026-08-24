@@ -1,12 +1,8 @@
 /**
  * intake-fetch-stage.ts —— knowledge-intake stage 1：fetch + admission + unchanged/changed 分流。
  */
-import {
-  IntakeStageRetryableError,
-  IntakeStageResult,
-  resolvePolicy,
-  type PolicyBoundSourceAcquisitionEnvelope,
-} from "./intake-shared.js";
+import { IntakeStageRetryableError, resolvePolicy } from "./intake-shared.js";
+import type { IntakeStageResult, PolicyBoundSourceAcquisitionEnvelope } from "./intake-shared.js";
 import { decideSourceAdmission, type SourceAdmissionVerdict } from "./admission.js";
 import type { IntakeStageContext } from "./stage-context.js";
 

@@ -2,7 +2,8 @@
  * intake-promote-stage.ts —— knowledge-intake stage 5：promote（exact hash 原子晋升 + supersedes 关系）。
  */
 import type { MemoryEntry } from "@away_from/pth-memory";
-import { IntakeStageRetryableError, IntakeStageResult } from "./intake-shared.js";
+import { IntakeStageRetryableError } from "./intake-shared.js";
+import type { IntakeStageResult } from "./intake-shared.js";
 import { promoteKnowledgeEntry } from "../knowledge-promotion.js";
 import type { IntakeStageContext } from "./stage-context.js";
 

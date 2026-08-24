@@ -1,7 +1,8 @@
 /**
  * intake-review-stage.ts —— knowledge-intake stage 3/4：domain + adversarial review。
  */
-import { IntakeStageRetryableError, IntakeStageResult } from "./intake-shared.js";
+import { IntakeStageRetryableError } from "./intake-shared.js";
+import type { IntakeStageResult } from "./intake-shared.js";
 import type { KnowledgeVerdictKind } from "../knowledge-verdicts.js";
 import { evaluatePlanVerdicts } from "../knowledge-verdicts.js";
 import { recordKnowledgeVerdict } from "../knowledge-promotion.js";
