@@ -11,6 +11,12 @@ import { createConnection } from "node:net";
 import { parseSecretsEnvFile } from "./runtime-secrets.js";
 import { createSpawnRunner } from "./spawn-runner.js";
 import { validatePthConfig } from "@away_from/pth-config";
+import {
+  CONTAINER_RUNTIMES,
+  detectContainerRuntime,
+  runtimeCapabilities,
+  type ContainerRuntime,
+} from "./targets/detect.js";
 
 export type DoctorStatus = "pass" | "warn" | "fail";
 
@@ -115,8 +121,9 @@ async function isExecutable(path: string): Promise<boolean> {
 export async function runDoctor(args: string[], options: DoctorOptions = {}): Promise<DoctorReport> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log([
-      "用法: pth doctor [--profile core|tools|lean4|u8|jupyter|full] [--json]",
+      "用法: pth doctor [--profile core|tools|lean4|u8|jupyter|full] [--runtime <id>] [--json]",
       "  --profile X   体检剖面（默认 core）",
+      "  --runtime <id> 覆盖容器运行时检测（desktop|orbstack|colima|rancher-desktop|docker-generic|apple-container|none）",
       "  --json        输出 JSON 报告",
       "退出码：0=通过/仅警告，1=有阻断项",
     ].join("\n"));
@@ -127,6 +134,11 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
   const env = options.env ?? process.env;
   const runner = options.runner ?? defaultRunner();
   const items: DoctorItem[] = [];
+
+  const runtimeOverride = argValue(args, "--runtime");
+  if (runtimeOverride !== undefined && !CONTAINER_RUNTIMES.includes(runtimeOverride as ContainerRuntime)) {
+    throw new Error(`unknown runtime: ${runtimeOverride}（可选 ${CONTAINER_RUNTIMES.join("|")}）`);
+  }
 
   const add = (check: string, status: DoctorStatus, message: string, fix?: string) => {
     items.push(fix === undefined ? { check, status, message } : { check, status, message, fix });
@@ -144,6 +156,31 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
     add("docker-compose", "fail", "docker compose 插件不可用", "安装 Docker Compose v2");
   } else {
     add("docker-compose", "pass", "docker compose 可用");
+  }
+
+  // 1.5) container runtime（W1；--runtime 覆盖检测结果）
+  if (runtimeOverride !== undefined) {
+    add("container-runtime", "pass", `容器运行时覆盖: ${runtimeOverride}`);
+  } else {
+    const detected = await detectContainerRuntime(runner);
+    if (detected.runtime === "apple-container") {
+      add(
+        "container-runtime",
+        "fail",
+        "apple-container 无 compose/internal 网络原语，本期不支持",
+        "请安装 Docker Desktop / OrbStack / Colima 任一",
+      );
+    } else if (detected.runtime !== "none") {
+      const caps = runtimeCapabilities(detected.runtime);
+      const gateway = caps.hostGateway === "yes" ? "✔" : caps.hostGateway === "colima-caveat" ? "⚠" : "✘";
+      add(
+        "container-runtime",
+        "pass",
+        `容器运行时: ${detected.runtime}（compose ${caps.compose ? "✔" : "✘"} · host-gateway ${gateway}）`,
+        detected.evidence.join("；"),
+      );
+    }
+    // detected.runtime === "none"：不新增项，沿用上方 docker fail（避免重复）
   }
 
   // 2) secrets

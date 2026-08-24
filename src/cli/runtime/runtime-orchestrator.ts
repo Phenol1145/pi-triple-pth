@@ -25,18 +25,17 @@ import {
   loadSecretsFile,
   missingSecretKeys,
 } from "./runtime-secrets.js";
+import {
+  DEPLOY_TARGET_IDS,
+  coreComposeArgs,
+  jupyterComposeArgs,
+  resolveTarget,
+  waitHealthy,
+  type CommandRunner,
+  type TargetContext,
+} from "./targets/index.js";
 
-export interface CommandRunResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-export type CommandRunner = (
-  cmd: string,
-  argv: string[],
-  opts?: { readonly env?: NodeJS.ProcessEnv; readonly input?: string },
-) => Promise<CommandRunResult>;
+export type { CommandRunner, CommandRunResult } from "./targets/index.js";
 
 export interface OrchestratorDeps {
   repoRoot: string;
@@ -58,12 +57,19 @@ export interface OrchestratedArgs {
   withIds: string[];
   withoutIds: string[];
   forward: string[];
+  target: string;
+  runtimeOverride?: string;
+  sandbox: "process" | "none";
 }
 
-const VALUE_FLAGS = new Set(["--profile", "--with", "--without", "--env-file", "--timeout", "--port", "--tenant", "--token"]);
+const VALUE_FLAGS = new Set([
+  "--profile", "--with", "--without", "--env-file", "--timeout", "--port", "--tenant", "--token",
+  "--target", "--runtime", "--sandbox",
+]);
 
 export function hasOrchestrationFlags(args: string[]): boolean {
-  return args.includes("--all") || args.includes("--profile") || args.includes("--with") || args.includes("--without");
+  return args.includes("--all") || args.includes("--profile") || args.includes("--with") || args.includes("--without")
+    || args.includes("--target") || args.includes("--runtime") || args.includes("--sandbox");
 }
 
 function flagValue(args: string[], name: string): string | undefined {
@@ -75,20 +81,39 @@ export function parseOrchestratedArgs(args: string[], cmd: "up" | "down" | "stat
   if (args.includes("--profile") && flagValue(args, "--profile") === undefined) {
     throw new Error("--profile 需要取值: core|tools|lean4|u8|jupyter|full");
   }
+  if (args.includes("--target") && flagValue(args, "--target") === undefined) {
+    throw new Error("--target 需要取值");
+  }
+  if (args.includes("--runtime") && flagValue(args, "--runtime") === undefined) {
+    throw new Error("--runtime 需要取值");
+  }
+  if (args.includes("--sandbox") && flagValue(args, "--sandbox") === undefined) {
+    throw new Error("--sandbox 需要取值 process|none");
+  }
   const profile = args.includes("--all") ? "full" : (flagValue(args, "--profile") ?? "core");
   const withIds = (flagValue(args, "--with") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const withoutIds = (flagValue(args, "--without") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const target = flagValue(args, "--target") ?? "local-container";
+  if (!DEPLOY_TARGET_IDS.includes(target as (typeof DEPLOY_TARGET_IDS)[number])) {
+    throw new Error(`unknown target: ${target}（可选 ${DEPLOY_TARGET_IDS.join("|")}）`);
+  }
+  const runtimeOverride = flagValue(args, "--runtime");
+  const sandboxRaw = flagValue(args, "--sandbox") ?? "process";
+  if (sandboxRaw !== "process" && sandboxRaw !== "none") {
+    throw new Error("--sandbox 需要取值 process|none");
+  }
   const forward: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
-    if (a === "--all" || a === "--profile" || a === "--with" || a === "--without") {
+    if (a === "--all" || a === "--profile" || a === "--with" || a === "--without"
+      || a === "--target" || a === "--runtime" || a === "--sandbox") {
       if (VALUE_FLAGS.has(a)) i += 1; // 跳过值（--all 无值，多跳无害：下一轮 i++ 覆盖）
       continue;
     }
     forward.push(a);
   }
   void cmd;
-  return { profile, withIds, withoutIds, forward };
+  return { profile, withIds, withoutIds, forward, target, ...(runtimeOverride ? { runtimeOverride } : {}), sandbox: sandboxRaw as "process" | "none" };
 }
 
 function defaultRunner(): CommandRunner {
@@ -117,53 +142,8 @@ async function loadProfilesFile(repoRoot: string): Promise<RuntimeProfilesFile> 
   return validateRuntimeProfiles(JSON.parse(text) as unknown);
 }
 
-function coreComposeArgs(repoRoot: string, envFile: string): string[] {
-  return ["compose", "--env-file", envFile, "-f", join(repoRoot, "deploy", "docker-compose.yaml")];
-}
-
-function jupyterComposeArgs(repoRoot: string): string[] {
-  return ["compose", "-p", "pi-triple-jupyter", "-f", join(repoRoot, "deploy", "services", "jupyter", "docker-compose.yaml")];
-}
-
-export interface ComposeServiceState {
-  service: string;
-  state: string;
-  health?: string;
-}
-
-export function parseComposePsJson(stdout: string): ComposeServiceState[] {
-  const out: ComposeServiceState[] = [];
-  for (const line of stdout.split("\n").map((s) => s.trim()).filter(Boolean)) {
-    try {
-      const entry = JSON.parse(line) as { Service?: string; Name?: string; State?: string; Health?: string };
-      const service = entry.Service ?? entry.Name ?? "";
-      if (!service) continue;
-      out.push({ service, state: entry.State ?? "unknown", ...(entry.Health ? { health: entry.Health } : {}) });
-    } catch {
-      // 忽略非 JSON 行
-    }
-  }
-  return out;
-}
-
-async function waitHealthy(
-  runner: CommandRunner,
-  composeArgs: string[],
-  serviceIds: string[],
-  timeoutMs: number,
-  env: NodeJS.ProcessEnv,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const result = await runner("docker", [...composeArgs, "ps", "--format", "json"], { env });
-    const states = parseComposePsJson(result.stdout);
-    const healthy = new Set(states.filter((s) => s.state === "running" && s.health === "healthy").map((s) => s.service));
-    const missing = serviceIds.filter((id) => !healthy.has(id));
-    if (missing.length === 0) return;
-    if (Date.now() > deadline) throw new Error(`等待 healthy 超时: ${missing.join(", ")}`);
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-}
+export type { ComposeServiceState } from "./targets/local-container.js";
+export { coreComposeArgs, jupyterComposeArgs, parseComposePsJson, waitHealthy } from "./targets/local-container.js";
 
 function generatedToken(): string {
   return randomBytes(32).toString("hex");
@@ -191,7 +171,9 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
     const { runDoctor } = await import("./runtime-doctor.js");
     return runDoctor(doctorArgs, { repoRoot: opts.repoRoot, env: opts.env });
   });
-  const doctorReport = await doctorFn(["--profile", resolvedProfile.name], { repoRoot, env: baseEnv });
+  const doctorArgs = ["--profile", resolvedProfile.name];
+  if (parsed.runtimeOverride) doctorArgs.push("--runtime", parsed.runtimeOverride);
+  const doctorReport = await doctorFn(doctorArgs, { repoRoot, env: baseEnv });
   if (!doctorReport.ok) {
     throw new Error("doctor 有阻断项：修复后重试（pth doctor --profile " + resolvedProfile.name + "）");
   }
@@ -207,15 +189,25 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
   const env = { ...baseEnv };
   if (token) env.JUPYTER_ENGINE_TOKEN = token;
 
+  const target = resolveTarget(parsed.target);
+  const ctx: TargetContext = {
+    repoRoot,
+    env,
+    envFile,
+    runner,
+    timeoutMs,
+    log,
+    pthUp: deps.pthUp ?? await defaultPthLauncher("up"),
+    pthDown: deps.pthDown ?? await defaultPthLauncher("down"),
+    pthStatus: deps.pthStatus ?? await defaultPthLauncher("status"),
+  };
+
   // 2) 数据层（分服务 up + health wait；不先起 engine）
   let step = 1;
   const totalSteps = dataComponents.length + optionalComponents.length + 1;
-  const coreArgs = coreComposeArgs(repoRoot, envFile);
   for (const component of dataComponents) {
     log(`▶ ${step++}/${totalSteps} 数据层 ${component.id}（${component.services?.join(",") ?? ""}）…`);
-    const result = await runner("docker", [...coreArgs, "up", "-d", ...(component.services ?? [])], { env });
-    if (result.code !== 0) throw new Error(`数据层 ${component.id} 启动失败: ${result.stderr || result.stdout}`);
-    await waitHealthy(runner, coreArgs, component.services ?? [], timeoutMs, env);
+    await target.upData(ctx, component.services ?? []);
     log(`✔ ${component.id} healthy`);
   }
 
@@ -242,8 +234,7 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
   log(`▶ ${step}/${totalSteps} engine 最后启动（probe 全部 backend）…`);
   const upArgs = [...parsed.forward];
   if (seed && explicitToken === undefined) upArgs.push("--token", token!);
-  const pthUp = deps.pthUp ?? await defaultPthLauncher("up");
-  await pthUp(upArgs, { repoRoot });
+  await target.engineUp(ctx, upArgs);
   log("✔ engine 已启动并验证");
   if (token) log(`operator token（同源 JUPYTER_ENGINE_TOKEN）：${seed && explicitToken === undefined ? "已生成并种入 Redis" : "使用 --token 指定值"}`);
 }
@@ -252,6 +243,7 @@ export async function orchestrateDown(args: string[], deps: OrchestratorDeps): P
   const parsed = parseOrchestratedArgs(args, "down");
   const log = deps.log ?? ((line: string) => console.log(line));
   const repoRoot = resolve(deps.repoRoot);
+  const runner = deps.runner ?? defaultRunner();
   const profiles = deps.profiles ?? await loadProfilesFile(repoRoot);
   const resolvedProfile = resolveProfile(profiles, parsed.profile, {
     withIds: parsed.withIds,
@@ -273,18 +265,31 @@ export async function orchestrateDown(args: string[], deps: OrchestratorDeps): P
     else if (component.kind === "service") await services(["down", component.serviceId ?? component.id]);
   }
   log("▼ 停止 core 栈（engine + sandbox + postgres + redis 原子组）…");
-  const pthDown = deps.pthDown ?? await defaultPthLauncher("down");
-  await pthDown(parsed.forward, { repoRoot });
+  const target = resolveTarget(parsed.target);
+  const ctx: TargetContext = {
+    repoRoot,
+    env: deps.env ?? process.env,
+    envFile: flagValue(args, "--env-file") ?? join(repoRoot, "deploy", ".env.pth.secrets"),
+    runner,
+    timeoutMs: 300_000,
+    log,
+    pthUp: deps.pthUp ?? await defaultPthLauncher("up"),
+    pthDown: deps.pthDown ?? await defaultPthLauncher("down"),
+    pthStatus: deps.pthStatus ?? await defaultPthLauncher("status"),
+  };
+  await target.down(ctx, parsed.forward);
   log("✔ pth down 完成");
 }
 
 export async function orchestrateStatusAll(args: string[], deps: OrchestratorDeps): Promise<void> {
+  const parsed = parseOrchestratedArgs(args, "status");
   const log = deps.log ?? ((line: string) => console.log(line));
   const repoRoot = resolve(deps.repoRoot);
   const runner = deps.runner ?? defaultRunner();
   const envFile = flagValue(args, "--env-file") ?? join(repoRoot, "deploy", ".env.pth.secrets");
   const env = deps.env ?? process.env;
-  const forward = args.filter((a) => a !== "--all");
+  const forward = parsed.forward;
+  const target = resolveTarget(parsed.target);
 
   log("── core 栈 ──");
   const pthStatus = deps.pthStatus ?? await defaultPthLauncher("status");
@@ -299,6 +304,26 @@ export async function orchestrateStatusAll(args: string[], deps: OrchestratorDep
   log("── 工具容器（pth tools）──");
   const tools = deps.toolsCommand ?? await defaultToolsCommand();
   await tools(["status"]);
+
+  if (target.statusData) {
+    const extra = await target.statusData({
+      repoRoot,
+      env,
+      envFile,
+      runner,
+      timeoutMs: 300_000,
+      log,
+      pthUp: deps.pthUp ?? await defaultPthLauncher("up"),
+      pthDown: deps.pthDown ?? await defaultPthLauncher("down"),
+      pthStatus,
+    });
+    if (extra.length > 0) {
+      log("");
+      log("── engine 专业 runtime 注册态 ──");
+      for (const line of extra) log(line);
+    }
+    return;
+  }
 
   log("");
   log("── engine 专业 runtime 注册态 ──");

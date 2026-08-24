@@ -193,6 +193,41 @@ describe("runDoctor", () => {
     expect(running.items.find((i) => i.check === "data-layer")?.status).toBe("pass");
   });
 
+  it("container-runtime：docker 可用（generic）→ pass", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor([], { repoRoot, env, runner: upRunner() });
+    const item = report.items.find((i) => i.check === "container-runtime");
+    expect(item?.status).toBe("pass");
+    expect(item?.message).toContain("docker-generic");
+  });
+
+  it("container-runtime：仅 apple container → fail 且修复提示", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor([], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "docker", argv: ["version"], run: () => ({ code: 1, stdout: "", stderr: "no docker" }) },
+        { cmd: "container", argv: ["--version"], run: () => ({ code: 0, stdout: "container 1.0", stderr: "" }) },
+      ]),
+    });
+    const item = report.items.find((i) => i.check === "container-runtime");
+    expect(item?.status).toBe("fail");
+    expect(item?.fix).toContain("Docker Desktop / OrbStack / Colima");
+  });
+
+  it("--runtime 覆盖检测结果；非法值 fail-fast", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--runtime", "colima"], { repoRoot, env, runner: upRunner() });
+    const item = report.items.find((i) => i.check === "container-runtime");
+    expect(item?.status).toBe("pass");
+    expect(item?.message).toContain("colima");
+    await expect(runDoctor(["--runtime", "bogus"], { repoRoot, env, runner: upRunner() })).rejects.toThrow(/unknown runtime/);
+  });
+
   it("--json 输出报告结构", async () => {
     const { repoRoot } = await makeRepo();
     const env = { PTH_WORKSPACES_HOST: repoRoot };
