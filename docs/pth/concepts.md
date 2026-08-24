@@ -116,9 +116,9 @@
 
 | 控制论角色 | 职责 | PTH 落点 |
 |---|---|---|
-| **传感器（sensor）** | 测量系统状态 | sensor 族（worker-opt / system-opt / memory / resource）——obs.callpoint 上报 + scorecard 聚合快照 |
-| **控制器（controller）** | 比较设定值与实测——计算控制量 | controller 族×5——裁决 official / reject / merge |
-| **执行器（actuator）** | 控制量作用于系统 | actuator——把 official 提案落为实际修改（代码/参数/角色注册） |
+| **传感器（sensor）** | 只观测与评估系统运行情况，产出 `observation-report`（事实+严重度+证据链），不开处方 | sensor 族（worker-opt / system-opt / memory / resource / tool-face / tool-single / rule）——obs.* 上报 + scorecard 聚合快照 |
+| **控制器（controller）** | 读取 sensor 的 observation-report，提出可审核的 `modification-plan`（draft），不直接实施、不自行批准 | controller 族（router / worker-opt / pth-opt / resource / memory / tool-face / tool-single / rule / adversarial） |
+| **执行器（actuator）** | 承接实际工作负载；实施 official 方案（按 implementation 路由派生的实施任务，结果落 implementation-report） | actuator 四族根（executor / explorer / governor / researcher） |
 | **设定值（setpoint）** | 期望状态 | 优化目标：步数↓ 失败率↓ 成本↓ 时间复用率↑ |
 | **人在回路（supervisor）** | 防控制器失控 | 审批面 A/B/C——控制量不自动生效 |
 
@@ -581,7 +581,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 #### 0.16.1 谱系是类型树，不是实例树
 
-- worker 谱系（Origin → actuator → executor → developer → coder）描述**类型**——每个节点是 worker 类型（角色定义）；
+- worker 谱系（三源森林：actuator → executor → developer → coder；sensor → sensor:*；controller → controller:*）描述**类型**——每个节点是 worker 类型（角色定义）；
 - 实例 = batch 副本（类型 × 副本数，PTH_WORKER_ROLES 配比）——进程生命周期独立（fork/回收/扩缩容）；
 - **子 worker 类型 = rlm() 持久化 agent 的等效物**：类型持久存在（可寻址、可续派、可恢复），
   **按需添加**（分化提案 → 裁决 → 注册——即 rlm 的 spawn 语义落在类型层，不在会话层）；
@@ -592,7 +592,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   actuator 组织四族、executor 组织 developer/writer、developer 组织 coder/tester、tester 组织 debug-case-writer、explorer 组织 scout/spider、researcher 组织 analyst/memory-keeper、analyst 组织 prospector/solver、prospector 组织 predictor——递归向下；
 - **规划/设计类补充**：planner（组织知识专有——plan/design）与 governor（oversight）获得**跨子树组织补充权**
   （可组织非自己子树的执行类型——如 planner 组织 developer 做方案落地）；
-- origin 保持全树组织权（根）；
+- 三源根（actuator / sensor / controller）各自组织自己的子树；sensor / controller 治理面不走 delegate（manage/trigger API）；
 - 组织权 = 任务投递权的来源（0.16.2）——谁能向哪个类型投递任务，由组织权判定。
 
 #### 0.16.4 分拆 worker 的工具面收口（2026-08-17 用户概念补充）
@@ -881,11 +881,11 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | **worker**〔旧〕 | 角色实例（进程循环：peek → claim → run）——无状态上下文（任务结束清零——0.10.4） | worker-cluster |
 | **worker 生命周期**〔旧〕 | fork 子进程 / 热上线广播 / 重启恢复（role-register 幂等） | worker-cluster · assembly |
 | **batch**〔旧〕 | worker 拓扑：角色×副本数（7×1 默认 / PTH_WORKER_ROLES 配比）——同角色单副本=串行 | batch-process |
-| **谱系（lineage）**〔旧〕 | 角色父子分化树（origin → actuator/controller/sensor 三支 → n 级——2026-08-14 类型树修理：executor/explorer/governor/researcher 收敛为 actuator 子类型）——权威源=official proposal | routes-lineage |
+| **谱系（lineage）**〔旧〕 | 三源森林角色父子分化树（actuator / sensor / controller 三根 → 各子树 n 级——2026-08-24 三源重构：Origin 退役）——权威源=official proposal | routes-lineage |
 | **分化（differentiation）**〔旧〕 | 新角色从父角色派生——提案 → 裁决 → 注册 | worker-cluster |
 | **worker-index**〔旧〕 | 可用角色清单（注入规划系 + 记忆条目——路由/协作依据——0.9 锚点实例） | worker-cluster |
 | **类型树（type tree）**〔新〕 | worker 谱系的语义澄清（2026-08-14 0.16.1）——谱系描述**类型**（节点=角色定义），实例=batch 副本；类型持久、按需分化添加 = rlm() 持久化 agent 的等效物 | worker-cluster |
-| **任务投递（rlm 等效）**〔新〕 | 高级 worker 以**任务投递**方式实现对子 worker 类型的调用（rlm() 等效——子类型 = 持久化 agent，父 = 投递方；2026-08-14 0.16.2）；入口类型由 PTL 派发逻辑决定（未设计——Origin 仅为示例） | PTL 派发逻辑（待设计） |
+| **任务投递（rlm 等效）**〔新〕 | 高级 worker 以**任务投递**方式实现对子 worker 类型的调用（rlm() 等效——子类型 = 持久化 agent，父 = 投递方；2026-08-14 0.16.2）；入口类型由 PTL 派发逻辑决定（三源森林中 actuator 为默认执行入口示例） | PTL 派发逻辑（待设计） |
 | **穿透（penetration）**〔新〕 | 优化循环发现稳定高效派发路径 → 注册成特殊 skill → 父**直接调用子 agent**（跳过逐级派发/任务池往返，减少传播损耗——2026-08-14 0.16.3）；穿透 = 类型树上的固化捷径边 = 编译后的 rlm 调用点 | 待建 |
 | **Operational Role（操作角色）**〔新·v1.2〕 | 对任务类型、产物与协作权作出稳定承诺的角色（analyst/solver/reviewer 等）；工作方式维度——与学科域组合使用，不复制学科分类 | n16-v1.2-role-domain-composition-design.md |
 | **Discipline Catalog（学科目录）**〔新·v1.2〕 | 不可变、确定排序、允许多父的学科 DAG 快照（level=category/discipline/sub-discipline）；目录规模与常驻 worker 规模分离 | n16-v1.2-role-domain-composition-design.md |
@@ -966,9 +966,9 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | **scorecard**〔旧〕 | 每任务计分卡（步数/tokens/失败率/cacheRead/timeReuse）——外环数据根基 | worker-scorecard |
 | **scorecard 聚合快照**〔旧〕 | 审批面 B——原子 upsert 聚合视图 | memory-store-pg |
 | **观测（obs）**〔旧〕 | sensor 上报通道（obs.callpoint / aggregate 优先） | obs.ts |
-| **传感器（sensor）**〔旧〕 | 观测者（2026-08-14 升格真实类型——gen=1 挂 Origin，sensor:worker-opt/system-opt/resource/memory 四观测点收敛其下） | default-roles |
-| **控制器（controller）**〔旧〕 | 裁决者（2026-08-14 升格真实类型——gen=1 挂 Origin，controller:router/worker-opt/pth-opt/resource/memory 五调节点收敛其下）——official/reject/merge | default-roles |
-| **执行器（actuator）** | 把 official 提案落为实际修改（2026-08-14 类型树修理：actuator 类型实装——executor/explorer/governor/researcher 四族收敛其下，控制论三元组 sensor/controller/actuator 齐） | default-roles |
+| **传感器（sensor）**〔旧〕 | 观测者（2026-08-24 三源重构：三源 gen0 根之一——只观测评估，产物 `observation-report`，不开处方；sensor:worker-opt/system-opt/resource/memory/tool-face/tool-single/rule 收敛其下） | default-roles |
+| **控制器（controller）**〔旧〕 | 调节者（2026-08-24 三源重构：三源 gen0 根之一——读取 observation-report，产物 `modification-plan` draft，只提案不实施；controller:router/worker-opt/pth-opt/resource/memory/tool-face/tool-single/rule/adversarial 收敛其下） | default-roles |
+| **执行器（actuator）** | 执行者（2026-08-24 三源重构：三源 gen0 根之一——承接实际工作负载并实施 official 方案；executor/explorer/governor/researcher 四族收敛其下） | default-roles |
 | **提案（proposal）**〔旧〕 | 调节建议——draft → 裁决 → official；类型学：differentiation（角色）/ optimizer-suggestion（JIT）/ 资源方案 | optimizer-loop |
 | **审批面（A/B/C）**〔旧〕 | 人工闸门：A 代码层 / B scorecard 快照 / C 角色注册 | gateway · 监督层 |
 | **控制论外环**〔旧〕 | 慢环——sensor 聚合 → controller 裁决 → 审批面 → actuator 应用（批次/小时级） | optimizer-loop |

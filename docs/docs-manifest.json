@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-24T07:39:10.621Z",
+  "generatedAt": "2026-08-24T09:20:03.489Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -160,9 +160,9 @@
     },
     {
       "path": "docs/pth/release-notes-v1.8.0.md",
-      "category": "releases",
+      "category": "releases/draft",
       "product": "pth",
-      "status": "draft"
+      "status": "active"
     },
     {
       "path": "docs/pth/execution-target-matrix-plan.md",

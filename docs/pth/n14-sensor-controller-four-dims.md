@@ -1,5 +1,7 @@
 # N14：sensor/controller 四维细分 + 一等工具注册通道设计
 
+> 2026-08-24 三源重构：optimizer-suggestion 语义废止、sensor/controller/actuator 升 gen 0——详见 `three-source-lineage-and-capacity-conservation-design.md`。
+
 > 2026-08-18 · L1 设计批（fork-session 协议 · `lane/l1-n14-design`）
 > 概念前提：`concepts.md §0.17`（工具/工具包/可见性三定义 + worker 优化四层次）。
 > 本文是 N14 账本的落地设计：**纯设计批——不改执行代码**；实施分期见 §6。
