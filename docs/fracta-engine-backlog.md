@@ -111,14 +111,15 @@
 - **验收**：提案事件触发后审核任务真实落池且路由到 controller:adversarial；回归测试覆盖。
 - **出处**：`docs/pth/report/role-lineage-runtime-derivation.md` 回路 C1。
 
-## B10. 观测-调节调度源缺失（2026-08-24 理论推导实证）
+## B10. 观测-调节调度源缺失（2026-08-24 理论推导实证）✅
 
+- **状态**：✅ 已实施（2026-08-24）
 - **问题**：全仓没有任何 trigger/调度器向 sensor:*（七观测点）/controller:*（九调节点）
   派单；治理角色不走 delegate、派发需 flow 显式 role——sensor/controller 只能等操作者
   手工 API 派单，**观测回路不是自闭环**，D2 分化裁决（controller:worker-opt）随之空转。
-- **方案**（草案）：观测巡检调度机制（memory-sweep-trigger 同构——定期/按 A/B 周期
-  n 轮边界向观测点与调节点派单）；调度周期与点位覆盖策略待定（全点位逐一派单 vs
-  根角色派单后族内下分——后者依赖 A5 delegate 软约束，倾向前者）。
+- **方案**（已实施）：观测巡检调度机制（memory-sweep-trigger 同构——`PTH_GOVERNANCE_LOOP=on`
+  时注册 16 个 schedule trigger，分别向 sensor 七点 / controller 九点派单；任务文本内嵌
+  A/B 优化周期边界：n 轮基线窗 / n+1~2n 轮实验窗）。
 - **影响面**：`system-triggers.ts`（新增 schedule trigger 族）或新 trigger 模块；
   与 controller:router 实装、A/B 优化周期落地同属治理回路自闭环工作流。
 - **验收**：sensor 七点位/controller 九点位按周期自动收到观测/调节任务并产出

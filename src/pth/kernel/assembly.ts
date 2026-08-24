@@ -534,6 +534,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
       intervalMs: pthConfig().num("PTH_PENETRATION_DISCOVERY_INTERVAL_MS"),
       discover: () => penetrationDiscovery.discover(),
     },
+    // B10：观测-调节调度源（sensor 七点/controller 九点周期派单，契约含 A/B 基线窗边界）
+    governanceLoop: {
+      enabled: pthConfig().str("PTH_GOVERNANCE_LOOP") === "on",
+      intervalSec: pthConfig().num("PTH_GOVERNANCE_LOOP_INTERVAL_SECONDS"),
+      baselineWindow: pthConfig().num("PTH_GOVERNANCE_BASELINE_WINDOW"),
+    },
     planImplementation,
     log: (m) => assemblyLogger.info(m),
   });

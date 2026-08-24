@@ -23,8 +23,26 @@ export const SYSTEM_ACTION = {
   planImplementation: "plan.implementation",
 } as const;
 
+/** B10：sensor 七观测点 / controller 九调节点 */
+const SENSOR_ROLE_IDS = [
+  "sensor:worker-opt", "sensor:system-opt", "sensor:resource", "sensor:memory",
+  "sensor:tool-face", "sensor:tool-single", "sensor:rule",
+] as const;
+
+const CONTROLLER_ROLE_IDS = [
+  "controller:router", "controller:worker-opt", "controller:pth-opt", "controller:resource",
+  "controller:memory", "controller:adversarial", "controller:tool-face", "controller:tool-single", "controller:rule",
+] as const;
+
 export interface SystemTriggerDeps {
   env?: NodeJS.ProcessEnv;
+  /** B10：sensor/controller 治理回路调度源（enabled 时注册周期派单 trigger） */
+  governanceLoop?: {
+    enabled: boolean;
+    intervalSec: number;
+    /** A/B 优化周期基线窗轮数 n；任务文本中作为边界契约传给 sensor/controller */
+    baselineWindow?: number;
+  };
   /** claim 回收（tasks.recoverStaleClaims） */
   recoverStaleClaims?: (timeoutMs: number) => Promise<number>;
   /** claim 超时阈值（ms） */
@@ -69,6 +87,40 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
   // 记忆维护巡检（B1/N7）：schedule trigger → memory-keeper 巡检任务（提案经监督批准）。
   const memorySweep = buildMemorySweepTrigger(env);
   if (memorySweep) engine.addSystemTrigger(memorySweep);
+
+  // B10：观测-调节调度源（2026-08-24 backlog B10）——周期向 sensor 七点位 / controller 九点位派单。
+  // 派单契约内嵌 A/B 优化周期边界：n 轮基线窗 / n+1~2n 轮实验窗（baselineWindow）。
+  if (deps.governanceLoop?.enabled) {
+    const intervalSec = deps.governanceLoop.intervalSec > 0 ? deps.governanceLoop.intervalSec : 24 * 60 * 60;
+    const n = deps.governanceLoop.baselineWindow ?? 10;
+    const boundary = `A/B 优化周期边界：前 ${n} 轮为基线窗；变更生效后第 ${n + 1}~${2 * n} 轮为实验窗；两窗对比后裁决 keep/rollback。`;
+    for (const role of SENSOR_ROLE_IDS) {
+      engine.addSystemTrigger({
+        name: `governance-loop-${role.replace(/:/g, "-")}`,
+        schedule: { everySec: intervalSec },
+        task: {
+          title: `${role} 周期性观测任务`,
+          text: `按治理回路周期执行 ${role} 职责（见角色文档）。${boundary}只产出 observation-report（draft——监督层流转），不开处方。`,
+          role,
+          tags: ["governance", "observe"],
+        },
+        enabled: true,
+      });
+    }
+    for (const role of CONTROLLER_ROLE_IDS) {
+      engine.addSystemTrigger({
+        name: `governance-loop-${role.replace(/:/g, "-")}`,
+        schedule: { everySec: intervalSec },
+        task: {
+          title: `${role} 周期性调节任务`,
+          text: `按治理回路周期执行 ${role} 职责（见角色文档）。${boundary}读取对应 sensor 的 observation-report，只产出 modification-plan（draft——监督层流转），不直接实施。`,
+          role,
+          tags: ["governance", "regulate"],
+        },
+        enabled: true,
+      });
+    }
+  }
 
   // skill 维护提案对抗性审核派发（L2——2026-08-18 用户裁决 Q2 事件驱动编排）：
   // memory-keeper skills.maintain.propose 落库即发 skill.proposal.created 事件（detail=提案 id）

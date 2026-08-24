@@ -122,6 +122,9 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_WATCHDOG_INTERVAL_MS", "number", 30_000, "control-loop", "main", "batch-watchdog trigger 周期"),
   d("PTH_RESOLVER_INTERVAL_MS", "number", 2_000, "control-loop", "main", "flow-resolver 基础周期"),
   d("PTH_MEMORY_SWEEP_SECONDS", "number", 24 * 60 * 60, "control-loop", "main", "记忆巡检 trigger 周期（0=禁用）"),
+  d("PTH_GOVERNANCE_LOOP", "string", "off", "control-loop", "main", "sensor/controller 治理回路调度源开关（on 启用）", { runtime: true }),
+  d("PTH_GOVERNANCE_LOOP_INTERVAL_SECONDS", "number", 24 * 60 * 60, "control-loop", "main", "sensor/controller 周期派单间隔秒"),
+  d("PTH_GOVERNANCE_BASELINE_WINDOW", "number", 10, "control-loop", "main", "A/B 优化周期基线窗轮数 n"),
   d("PTH_TASK_PAUSE_TIMEOUT_MS", "number", 24 * 60 * 60 * 1000, "control-loop", "both", "pause 超时（缺省 24h——超时 escalated）", { runtime: true }),
   d("PTH_TASK_PAUSE_SWEEP_MS", "number", 60_000, "control-loop", "main", "pause 巡检周期（超时/预算）", { runtime: true }),
 

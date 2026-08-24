@@ -59,6 +59,22 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     expect(system.find((t) => t.name === "optimizer-deopt-sweep")?.schedule?.everySec).toBe(30);
   });
 
+  it("B10：governanceLoop enabled → sensor 7 + controller 9 周期派单 trigger 全部注册且内嵌 A/B 边界", () => {
+    const { system, engine } = captureEngine();
+    registerSystemTriggers(engine as never, baseDeps({
+      governanceLoop: { enabled: true, intervalSec: 3600, baselineWindow: 10 },
+    }));
+    const governance = system.filter((t) => t.name.startsWith("governance-loop-"));
+    expect(governance).toHaveLength(16);
+    expect(governance.every((t) => t.schedule?.everySec === 3600)).toBe(true);
+    const sensor = governance.find((t) => t.name === "governance-loop-sensor-worker-opt")!;
+    expect(sensor.task?.role).toBe("sensor:worker-opt");
+    expect(sensor.task?.text).toContain("前 10 轮为基线窗");
+    const controller = governance.find((t) => t.name === "governance-loop-controller-router")!;
+    expect(controller.task?.role).toBe("controller:router");
+    expect(controller.task?.text).toContain("modification-plan");
+  });
+
   it("条件注册：PTH_MEMORY_SWEEP_SECONDS=0 → 无 memory trigger；optimizer off → 无 deopt trigger；scaler 默认关 → 无 batch-scaler", () => {
     const { system, engine } = captureEngine();
     registerSystemTriggers(engine as never, baseDeps({ env: { PTH_MEMORY_SWEEP_SECONDS: "0" }, optimizerSweep: { enabled: false, intervalMs: 30_000, broadcast: () => 0 } }));
