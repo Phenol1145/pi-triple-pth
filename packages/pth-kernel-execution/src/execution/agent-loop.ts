@@ -29,6 +29,7 @@ import { shouldCompressInLoop, compressContext, CONTINUATION_TEMPLATE } from "./
 import { buildAgentLoopSystem } from "./agent-loop-system.js";
 import { buildRegistryToolFace } from "./agent-loop-tool-face.js";
 import { executeRegisteredTool } from "./agent-loop-registry-execution.js";
+import { emitToolStep, toolStepSummary, type AgentLoopMessage } from "./agent-loop-step.js";
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -43,7 +44,7 @@ async function executeProjectedTool(args: {
   input: AgentTaskInput & AgentLoopOptions;
   tool: string;
   toolArgs: Record<string, unknown>;
-  messages: Array<{ role: string; content: string; toolCallId?: string; toolName?: string }>;
+  messages: AgentLoopMessage[];
   steps: number;
   toolCallId?: string;
   stepStart: number;
@@ -77,7 +78,6 @@ async function executeProjectedTool(args: {
     input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
     return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: result.requestId } };
   }
-  input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(toolArgs).slice(0, 300) });
   try {
     input.kernel.ts.registerResult?.(`result_${steps + 1}`, {
       tool,
@@ -87,11 +87,19 @@ async function executeProjectedTool(args: {
       error: result.ok ? undefined : result.error,
     });
   } catch { /* mock 容忍 */ }
-  const summary = result.ok
-    ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-    : `error: ${result.error ?? (result.stderr?.trim() ? result.stderr : "unknown")}`;
-  messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}` });
-  input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500), capabilityId: tool });
+  emitToolStep({
+    input,
+    messages,
+    tool,
+    args: toolArgs,
+    result,
+    steps,
+    toolCallId,
+    durationMs: Date.now() - stepStart,
+    includeStderr: true,
+    suffix: result.truncated ? " (truncated)" : "",
+  });
+  input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: toolStepSummary(result, true).slice(0, 500), capabilityId: tool });
   return undefined;
 }
 
@@ -566,11 +574,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         const result: AgentToolResult = raw.ok
           ? { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text }
           : { ok: false, error: raw.error?.message ?? "ts execute failed" };
-        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-        const summary = result.ok
-          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-          : `error: ${result.error ?? "unknown"}`;
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
+        emitToolStep({ input, messages, tool, args, result, steps, toolCallId, durationMs: Date.now() - stepStart });
         return undefined;
       }
       // 未知工具回填引导（2026-08-13：不再直接失败——给模型纠错机会——
@@ -612,7 +616,6 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
         return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: result.requestId } };
       }
-      input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
       // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用
       const resultKey = `result_${steps + 1}`;
       try {
@@ -627,11 +630,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         /* 注册失败不阻断（mock kernel 无 registerResult） */
       }
       // 轨迹摘要（截断防膨胀）
-      const summary = result.quiet
-        ? "[quiet] 静默执行（无输出）"
-        : result.ok
-          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-          : `error: ${result.error ?? (result.stderr?.trim() ? result.stderr : "unknown")}`;
+      const summary = toolStepSummary(result, true);
       // 负结果收敛窗口（S6 死循环机制——2026-08-13）：同工具族+同目标连续负结果
       // N=3 回填引导（该路径已确认不可用→换策略）、N=15 强制终止（2026-08-15 D2：5→15）
       const neg = isNegativeResult(result);
@@ -653,7 +652,19 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       const guideSuffix = loopCheck.action === "guide"
         ? `\n[收敛] 检测到连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——该路径已确认不可用——不要继续探测/重试同一目标——换策略（优先查 capability-index/ext-registry 权威列表，替代盲探测）。`
         : "";
-      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}${guideSuffix}` });
+      emitToolStep({
+        input,
+        messages,
+        tool,
+        args,
+        result,
+        steps,
+        toolCallId,
+        durationMs: Date.now() - stepStart,
+        includeStderr: true,
+        quietSummary: summary,
+        suffix: `${result.truncated ? " (truncated)" : ""}${guideSuffix}`,
+      });
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
       input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500) });
       if (loopCheck.action === "terminate") {

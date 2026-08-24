@@ -7,7 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { CognitiveBudget, PendingRetrievalTrace, RetrievalTrace } from "@away_from/pth-contracts";
+import type { CognitiveBudget, CognitiveUsage, PendingRetrievalTrace, RetrievalTrace } from "@away_from/pth-contracts";
 
 export class CognitiveBudgetExceededError extends Error {
   constructor(axis: string, limit: number, current: number) {
@@ -209,14 +209,7 @@ export class CognitiveBudgetLedger {
   }
 
   snapshot(): {
-    usage: {
-      memoryEntries: number;
-      memoryChars: number;
-      skillIndexEntries: number;
-      activeSkills: number;
-      skillChars: number;
-      tools: number;
-    };
+    usage: CognitiveUsage;
     memoryEntryIds: string[];
     skillIndexIds: string[];
     activeSkillIds: string[];

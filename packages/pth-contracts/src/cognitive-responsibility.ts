@@ -113,6 +113,15 @@ export interface TaskWorkingSetPolicy {
   toolNames: readonly string[];
 }
 
+export interface CognitiveUsage {
+  memoryEntries: number;
+  memoryChars: number;
+  skillIndexEntries: number;
+  activeSkills: number;
+  skillChars: number;
+  tools: number;
+}
+
 export interface TaskWorkingSet {
   taskId: string;
   worker: WorkerReplicaRef;
@@ -121,14 +130,7 @@ export interface TaskWorkingSet {
   skillIndexIds: readonly string[];
   activeSkillIds: readonly string[];
   toolNames: readonly string[];
-  usage: {
-    memoryEntries: number;
-    memoryChars: number;
-    skillIndexEntries: number;
-    activeSkills: number;
-    skillChars: number;
-    tools: number;
-  };
+  usage: CognitiveUsage;
   omitted: Readonly<Record<string, number>>;
   retrievalTraces: readonly RetrievalTrace[];
 }

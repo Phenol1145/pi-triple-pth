@@ -10,22 +10,14 @@ import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import { truncate } from "./agent-loop-guards.js";
 import type { AgentTaskResult, AgentTaskInput, AgentLoopOptions } from "./agent-loop-types.js";
 import type { AgentToolResult } from "./agent-tools.js";
-
-type LoopMessage = {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  toolCallId?: string;
-  toolName?: string;
-  thinking?: string;
-  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
-};
+import { emitToolStep, toolStepSummary, type AgentLoopMessage } from "./agent-loop-step.js";
 
 export interface RegistryExecutionContext {
   input: AgentTaskInput & AgentLoopOptions;
   tool: string;
   args: Record<string, unknown>;
   regSpec: ToolRegSpec;
-  messages: LoopMessage[];
+  messages: AgentLoopMessage[];
   steps: number;
   toolCallId?: string;
   stepStart: number;
@@ -94,18 +86,14 @@ export async function executeRegisteredTool(ctx: RegistryExecutionContext): Prom
             input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: result.error });
             return { ok: true, value: null, steps: steps + 1, warning: result.error ?? TASK_AWAIT_SUSPENDED_CODE };
           }
-          input.onStep?.({ n: steps + 1, tool, durationMs: execResult.durationMs, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-          const summary = result.ok
-            ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-            : `error: ${result.error ?? "unknown"}`;
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
+          emitToolStep({ input, messages, tool, args: args ?? {}, result, steps, toolCallId, durationMs: execResult.durationMs });
           input.onTrace?.({
             type: "tool-result",
             step: steps + 1,
             tool,
             ok: result.ok,
             durationMs: execResult.durationMs,
-            resultPreview: summary.slice(0, 500),
+            resultPreview: toolStepSummary(result).slice(0, 500),
             ...(regSpec.command ? { adapterId: regSpec.command } : {}),
             execKind: adapterResult.request.kind,
             ...(decision.command.target ? { target: decision.command.target } : {}),
@@ -151,11 +139,7 @@ export async function executeRegisteredTool(ctx: RegistryExecutionContext): Prom
     const result: AgentToolResult = raw.ok
       ? { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text }
       : { ok: false, error: raw.error?.message ?? "tool-reg program 执行失败" };
-    input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-    const summary = result.ok
-      ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-      : `error: ${result.error ?? "unknown"}`;
-    messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
+    emitToolStep({ input, messages, tool, args: args ?? {}, result, steps, toolCallId, durationMs: Date.now() - stepStart });
     return undefined;
   }
   // agent 态：穿透 runChild 同款缝（深度限 1——子 kernel 不注入穿透/投递端口）
@@ -192,10 +176,6 @@ export async function executeRegisteredTool(ctx: RegistryExecutionContext): Prom
   const result: AgentToolResult = r.ok
     ? { ok: true, value: r.value, stdout: truncate(JSON.stringify(r.value ?? null), 2000).text }
     : { ok: false, error: r.error ?? "tool-reg agent 执行失败" };
-  input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-  const summary = result.ok
-    ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-    : `error: ${result.error ?? "unknown"}`;
-  messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
+  emitToolStep({ input, messages, tool, args: args ?? {}, result, steps, toolCallId, durationMs: Date.now() - stepStart });
   return undefined;
 }

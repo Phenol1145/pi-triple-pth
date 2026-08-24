@@ -38,6 +38,17 @@
   - `runtime-observation-utils.ts`：谓词、稳定 ID、Freshness 计算、WorkMode 过滤；
   - `runtime-observation-validators.ts`：全部 `validate*` 结构校验；
   - 原文件保留为 barrel 再导出，外部导入路径不变。
+- `packages/pth-contracts/src/tasking.ts`（653 行）拆分为：
+  - `tasking-types.ts`：类型与常量；
+  - `tasking-validation.ts`：结构校验；
+  - `tasking-utils.ts`：commit tenant 解析、delivery 盖章、result 编码；
+  - 原文件保留为 barrel 再导出，外部导入路径不变。
+- `packages/pth-kernel-storage/src/knowledge-intake-pg.ts`（1027 行）拆分为：
+  - `knowledge-intake-pg-repository.ts`：`PgKnowledgeIntakeRepository` 类、事务面与工厂；
+  - 原文件保留为 barrel，继续再导出 support 与 repository 实现。
+- `packages/pth-memory/src/memory-store-pg.ts` 瘦身：
+  - 行映射 `mapRevision` / `mapEntry` 移至 `memory-store-row-mappers.ts`；
+  - 原文件保留公共 API。
 
 ### 3.2 代码复用率提升
 
@@ -47,6 +58,10 @@
 - **Adapter 执行结果类型收敛**：`ChemExecResult` / `JupyterExecResult` / `Lean4ExecResult` / `U8ExecResult` / `WolframExecResult` 及其 Fn 类型改为 `AdapterExecResult` / `AdapterExecFn` 的别名，删除 5 份重复定义。
 - **Env 文件解析收敛**：新增 `packages/pth-config/src/env-file.ts` 的 `parseEnvFile`；
   - `src/cli/runtime/runtime-secrets.ts` 的 `parseSecretsEnvFile` 与 `packages/pth-console/src/launcher.ts` 的 `parseEnvFile` 统一复用同一实现，并保留原导出名。
+- **Memory usage 类型收敛**：新增 `CognitiveUsage` 契约类型，`TaskWorkingSet.usage`、`WorkerWorkingSetInspection.usage`、`CognitiveBudgetLedger.snapshot().usage` 统一复用。
+- **Agent-loop step 输出收敛**：新增 `agent-loop-step.ts` 的 `emitToolStep` / `toolStepSummary`，替换 `agent-loop.ts` 与 `agent-loop-registry-execution.ts` 中重复的 onStep + summary + tool-message 三段式。
+- **isPlainRecord 收敛**：`tasking-utils.ts` 导出 `isPlainRecord`，`task-work-item-reader.ts` 改为复用，删除本地副本。
+- **重复扫描纳入 CI**：新增 `scripts/check-duplication.ts` 与 `npm run check:duplication`，已接入 `lint` 链（当前非阻断，报告 252 个跨文件重复块）。
 
 ### 3.3 延后事项记录
 
@@ -59,16 +74,17 @@
 
 ## 4. 后续建议（未在本轮实施）
 
-- 继续拆分高行数契约文件：`packages/pth-contracts/src/tasking.ts` 可按「类型 / 校验 / 工具函数」三明治拆分（`runtime-observation.ts` 已按此模式完成）。
-- 继续拆分 PG 仓储实现：`knowledge-intake-pg.ts`、`memory-store-pg.ts` 可按表/领域切片拆分，但需配合真实 PG 集成测试。
-- 收敛更多重复定义：
+- 进一步拆分 PG 仓储实现：
+  - `knowledge-intake-pg-repository.ts`（约 988 行）可按 policy / subscription / run / acquisition / dependency 分片；
+  - `memory-store-pg.ts` 仍含写/读/维护方法，可按 write / read / maintenance 分片；均需配合真实 PG 集成测试。
+- 收敛剩余重复定义：
   - `runtime-execution-result` 形状仍散落在 `exec-via-backend.ts` 与 `assembly-runtime-adapter.ts`（形状不同，需先统一语义）；
-  - `cognitive-budget.ts` / `cognitive-responsibility.ts` / `system-inspection.ts` 的内存用量字段重复；
-  - `agent-loop.ts` 与 `agent-loop-registry-execution.ts` 的 step 汇总片段重复。
-- 为重复块扫描建立可复用的 `scripts/check-duplication.ts`，纳入 CI（本轮仅做一次性扫描）。
+  - operator-console 的 `intake/run/optimize-actions.ts` 存在重复的导入与 preview/submit 骨架；
+  - adapter 中 `createJobRunContext` / `cancelJob` 的样板仍跨 5 个 professional adapter 重复。
+- 为 `check-duplication.ts` 增加阈值门禁与增量基线，使其从「报告」升级为「CI 阻断」。
 
 ## 5. 验证
 
-- `npm run lint` 全绿。
-- 定向测试通过：`knowledge-verdicts`、`pg-n28-repositories`、`pg-task-draft-repository`、`runtime-secrets`、`launcher`、professional routing 等。
+- `npm run lint` 全绿（含 `check:duplication`）。
+- 定向测试通过：`knowledge-verdicts`、`runtime-observation`、`task-delivery`、`contracts`、`task-control-service`、`pg-n28-repositories`、`pg-task-draft-repository`、`runtime-secrets`、`launcher`、`memory-store-pg`、`knowledge-intake-pg`、`agent-loop*`、professional routing 等。
 - 全量 `PTH_ASP_MODE=off npx vitest run` 于提交前再次执行。
