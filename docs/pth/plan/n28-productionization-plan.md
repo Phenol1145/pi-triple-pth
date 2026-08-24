@@ -3,7 +3,7 @@
 > 日期：2026-08-24
 > 前置：N28 可行性验证 GO（`n28-feasibility-report.md` / `n28-feasibility-envelope.json`）。
 > 上游设计：`docs/pth/design/n28-role-memory-orchestration-design.md`
-> 状态：**计划草案 + M1 lease 内存骨架已落地（2026-08-24）**——GO 仅授权编写本计划与 lease 骨架，PG 持久化尚未实施。
+> 状态：**计划草案 + M1 lease / M2 Region 内存骨架已落地（2026-08-24）**——GO 仅授权编写本计划与骨架，PG 持久化尚未实施。
 
 ## 1. 目标
 

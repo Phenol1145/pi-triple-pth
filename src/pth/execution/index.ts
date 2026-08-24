@@ -29,6 +29,7 @@ export * from "./memory-directory.js";
 export * from "./index-memory.js";
 export * from "./professional-runtime.js";
 export * from "./worker-replica-lease.js";
+export * from "./memory-region-registry.js";
 export * from "./authorization/verified-task-read-scope.js";
 export * from "./layered-knowledge-retriever.js";
 export * from "./knowledge-intake/index.js";
