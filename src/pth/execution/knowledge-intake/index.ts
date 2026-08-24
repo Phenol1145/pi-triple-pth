@@ -20,3 +20,4 @@ export * from "./source-discovery.js";
 export * from "./auto-expansion.js";
 export * from "./domain-classifier.js";
 export * from "./production-defaults.js";
+export * from "./intake-ops.js";
