@@ -4,3 +4,4 @@
 export * from "./core.js";
 export * from "./runner.js";
 export * from "./gate.js";
+export * from "./scripted-llm.js";
