@@ -297,8 +297,8 @@ POST /api/v1/kernel/notebook/execute  { language, code, sessionId?, timeoutMs?, 
 
 ## 2026-08 落地摘要（TCE / 任务生命周期）
 
-- `KernelExecChannel` 支持 `commandGateway` 注入；notebook cell 先过 Command 层。
+- `KernelExecChannel` 支持 `commandGateway` 注入（过渡形态）；notebook cell 先过归一化/授权缝。按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md)，TCE 的 C 是 Code，`CommandGateway` 命令对象形态按计划退役。
 - `TaskControlService` 增加 pause/answer/sweep；dispatcher `onSuspension` 接 publisher-question 与 human。
-- worker 侧 CommandGateway 装配（含 tool translator），agent-loop 语言工具与 tool-reg 执行缝先过授权。
+- worker 侧 CommandGateway 装配（含 tool translator）为过渡期实现；agent-loop 语言工具与 tool-reg 执行缝当前先过授权，后续收敛为「能力注入 + 静态审核」。
 
 详细设计：[task-lifecycle-and-context-design](design/task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](plan/llm-tool-notebook-unified-execution-backend-plan.md)

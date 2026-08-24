@@ -58,6 +58,8 @@ npm run check:pth-config -- --report  # schema 统计 + compose 覆盖度报告
 
 `runtime=true` 的键可经 `perf.set({key,value})` 运行时调整（重启失效；ALTER SYSTEM 持久化留 v2）。
 
+执行模式统一入口为 `PTH_EXEC_MODE`（`tool-call`/`asp`/`ptc`/`pulse`），旧 `PTH_AGENT_MODE`/`PTH_ASP_MODE` 仅作兼容别名；详细语义见 [execution-modes-and-tool-reg-v2-design](./design/execution-modes-and-tool-reg-v2-design.md) 与 [部署文档](./deployment.md)。TCE 权限口径以 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 为准。
+
 N28 T2 新增两键（默认关闭/空，legacy 行为不变）：`PTH_COGNITIVE_RESPONSIBILITY_MODE=off`
 （可选 `feasibility` 确定性切片）与 `PTH_BATCH_ID=""`（BatchManager 注入的 batch 实例 ID）。
 

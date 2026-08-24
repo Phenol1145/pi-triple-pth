@@ -30,12 +30,12 @@
 | 模块化与可行性跟进 Phase A–E | ✅ 完成（`modularity-and-feasibility-followup-implementation-plan.md`） |
 | parallel-lanes 历史 lane | ✅ 全部 done |
 | packages/pth-memory、pth-sandbox TODO | ✅ 全部勾平 |
+| 执行模式与 Tool-Reg v2（Wave 0–6） | ✅ 已收口（2026-08-24；Command 相关以 ADR-0004 为准，TCE W0–W5 将退役网关） |
 
 ## 3. 实施中 / 待收尾
 
 | 文档 | 状态 | 剩余内容 |
 |---|---|---|
-| `docs/pth/plan/execution-modes-and-tool-reg-v2-implementation-plan.md` | 实施中 | Wave 0–5 已落地；Wave 6（文档、全量验证、发布准备）进行中。注意文档第 1 节实现地图仍写“ptc 迭代/观察策略未实现”，但代码已存在 `ptc-agent-loop.ts` / `observation-strategy.ts`，需回填。 |
 | `docs/pth/container-runtime-adapter-protocol.md` | 实施中 | R1–R3 已覆盖；R4 Docker/OrbStack 数据适配器、R5 Podman 适配器、R6 `/health` 暴露、R8 权威验收待完成。 |
 | `docs/fracta-engine-execution-topology.md` | 部分待收尾 | U8-2（有状态 u8 接线）待接线；P5 Jupyter 体验收尾/legacy 清理待办需与 backlog 已办项复核。 |
 

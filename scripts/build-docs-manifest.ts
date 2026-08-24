@@ -73,9 +73,9 @@ const DOC_OVERRIDES = new Map<string, { category: DocCategory; status: DocStatus
   ["system-construction-modeling-audit.md", { category: "reports", status: "active" }],
   ["modularity-reuse-audit.md", { category: "reports", status: "reference" }],
   ["plan-implementation-status-inventory.md", { category: "operations", status: "active" }],
-  // 执行模式 v2：Wave 0–5 已落地、Wave 6 收尾中
+  // 执行模式 v2：实施计划 Wave 0–6 已收口（reference）；设计稿仍随 ADR-0004/TCE 对齐中（active）
   ["execution-modes-and-tool-reg-v2-design.md", { category: "designs", status: "active" }],
-  ["execution-modes-and-tool-reg-v2-implementation-plan.md", { category: "designs", status: "active" }],
+  ["execution-modes-and-tool-reg-v2-implementation-plan.md", { category: "designs", status: "reference" }],
   // GO 里程碑验收报告：当前验收证据，长期引用，不是考古档案
   ["n28-feasibility-report.md", { category: "reports", status: "reference" }],
   ["n29-minimal-intake-report.md", { category: "reports", status: "reference" }],

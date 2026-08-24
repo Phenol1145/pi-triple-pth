@@ -451,7 +451,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | ✅ 源码拆解重实现 | 拿到生态工具源码→分析其实现→用 PTH 交互核语言重写——变成 PTH 原生能力函数——彻底无外部依赖 |
 
 **源码拆解的收益**：
-- 工具进入 PTH 原生治理（capabilities 白名单 / 状态隔离 / EXEC_TOOL_CAP）
+- 工具进入 PTH 原生治理（capabilities 白名单 / 状态隔离 / 静态审核；`EXEC_TOOL_CAP` 按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 退役中）
 - 可审查可修改（安全边界——审计可覆盖）
 - 与描述三要素/缓存/scorecard 全链路兼容
 - 无协议开销、无外部进程依赖
@@ -464,7 +464,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 1. **分类**——知识型（skill：指令/流程知识）vs 工具型（plugin/extension/MCP：可调用能力）
 2. **转化**——知识型：SKILL.md → memory 条目（锚点+原文——role-doc 式）；工具型：**拆解源码→用交互核语言重实现**（工具 + **场景化描述三要素**——0.9.2 锚点标准——否则工具不可用）
-3. **门控**——capabilities 白名单 + EXEC_TOOL_CAP（安全边界）
+3. **门控**——capabilities 白名单 + 静态审核（安全边界；`EXEC_TOOL_CAP` 按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 退役中）
 
 #### 0.13.3 现状映射
 
@@ -1009,7 +1009,7 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | **产物交付（artifacts）**〔旧〕 | 产物归档到卷 → 宿主机提取（docker cp）——协作交付物 | task-loop archive |
 | **hook（pth-notify）**〔旧〕 | PTH 完成/失败 → POST → PTL 扩展 → 通知+会话消息注入（subagent 式唤醒） | task-loop · 扩展 |
 | **扩展（ext）**〔旧〕 | toolstore 插件——capability 注入（经 caps 白名单门控） | ext-registry |
-| **扩展安全边界**〔旧〕 | EXEC_TOOL_CAP 门控——ext 能力与执行核映射校验 | capability |
+| **扩展安全边界**〔旧〕 | EXEC_TOOL_CAP 门控——ext 能力与执行核映射校验（按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 收敛为注入 + 静态审核） | capability |
 | **监督层（人）**〔旧〕 | 审批面裁决者——协作主体（不在自动化环内——0.7.1 人在回路） | 审批面 A/B/C |
 | **异步模式**〔旧〕 | 派发不阻塞主会话——推送唤醒 | pth-cli · hook |
 | **渐进降输入**〔废止〕 | ~~任务文本只写核心意图~~（2026-08-14 T9 裁决：协作模型重写——见下条） | — |
@@ -1268,7 +1268,7 @@ v0.9（动作面/权限/任务池纯化）
 ## 2026-08 落地摘要（TCE / 任务生命周期）
 
 - 任务生命周期：`TaskDelivery.goal`（根目标逐字传播）、`paused` 状态（worker 向发布者提问）、`tasks.answer` / HTTP answer。
-- TCE 三层：Tool → Command → Execute；`CommandGateway` 三态决策，`EXEC_TOOL_CAP` / capability-policy 统一门控。
+- TCE 三层：Tool → Code → Execute（[ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md)）；一切入口归一化为代码，Code 层做能力调用集静态审核 ⊆ 角色能力集；`CommandGateway` 命令对象形态按计划退役，`EXEC_TOOL_CAP` / capability-policy 表驱动授权收敛为「注入 + 静态审核」。
 - Tool 层：manifest `argsSchema`/`argvTemplate` 策展 19 工具；`tool-layer-generator` 生成工具面。
 - 上下文：循环内压缩（`CONTINUATION_TEMPLATE`）与 scorecard 新增 pause/compression 信号。
 

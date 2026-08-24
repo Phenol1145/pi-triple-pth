@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-24T13:52:18.426Z",
+  "generatedAt": "2026-08-24T14:13:42.916Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -516,7 +516,7 @@
       "path": "docs/pth/plan/execution-modes-and-tool-reg-v2-implementation-plan.md",
       "category": "designs",
       "product": "pth",
-      "status": "active"
+      "status": "reference"
     },
     {
       "path": "docs/pth/plan/execution-target-matrix-plan.md",

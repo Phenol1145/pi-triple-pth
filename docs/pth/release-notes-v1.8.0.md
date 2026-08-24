@@ -7,7 +7,7 @@
 ## 亮点
 
 - 统一执行模式入口 `PTH_EXEC_MODE`：`tool-call` / `asp` / `ptc` / `pulse`。
-- Tool-Reg v2：Tool 层无类型化，Command adapter 只产出 `ExecutionRequest`/`deny`，授权统一走 CommandGateway。
+- Tool-Reg v2：Tool 层无类型化，Command adapter 只产出 `ExecutionRequest`/`deny`；授权当前经 CommandGateway 过渡，按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 收敛为「能力注入 + 静态审核」。
 - 规范化优化循环骨架：`OptimizationLoopSpec` + `ActivityFactor` + Worker Registry。
 - Pulse 正式化：`pulse-translate` / `pulse-result` trace 事件，legacy 挂起语义收敛。
 - PTC 迭代模式：JSON 协议、独立协议失败预算、最大轮数软终止。

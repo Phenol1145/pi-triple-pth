@@ -1,6 +1,7 @@
 # PTH 执行模式、Tool-Reg v2 与规范化优化循环实施计划
 
-> 状态：实施中（Wave 0–5 已落地，Wave 6 文档/全量验证进行中）
+> 状态：已收口（Wave 0–5 已落地，Wave 6 文档/全量验证完成；Command 相关以 ADR-0004 为准）
+> 口径：工具面权限模型以 [ADR-0004](../../adr/0004-tce-code-layer-ptc-capability-first.md) 为准；本文 Wave 0–5 是过渡期实现记录。
 > 上游设计：[execution-modes-and-tool-reg-v2-design.md](../design/execution-modes-and-tool-reg-v2-design.md)
 > 实施原则：默认行为不变；`tool-call` 仍是主验证路径；旧配置先兼容，后收敛；所有工具/adapter 变更必须可观测、可回滚、可审计。
 
@@ -531,6 +532,14 @@ PTH_EXEC_MODE=asp npx vitest run <focused asp tests>
 - 文档链接绿；
 - 默认配置行为不变；
 - 发布说明草稿完成。
+
+### 结果（2026-08-24 收口）
+
+- `npm run build` ✅
+- `npm run lint`（含 docs-links）✅
+- `PTH_ASP_MODE=off npx vitest run` ✅（exit 0）
+- 文档已按 ADR-0004 口径回填：concepts / configuration / deployment / kernel / release-notes。
+- `docs/docs-manifest.json` 已重新生成。
 
 ---
 
