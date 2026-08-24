@@ -17,3 +17,4 @@ export * from "./service.js";
 export * from "./manual-control.js";
 export * from "./due-scanner.js";
 export * from "./source-discovery.js";
+export * from "./auto-expansion.js";
