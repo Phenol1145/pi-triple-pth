@@ -3,7 +3,7 @@
 > 日期：2026-08-24
 > 前置：N28 可行性验证 GO（`n28-feasibility-report.md` / `n28-feasibility-envelope.json`）。
 > 上游设计：`docs/pth/design/n28-role-memory-orchestration-design.md`
-> 状态：**计划草案 + M1–M5 内存骨架 + Repository 缝已落地（2026-08-24）**——lease / Region / outbox / weight calibration / rebalance planner 已具纯函数与注册表；PG 持久化实现尚未实施。
+> 状态：**计划草案 + M1–M5 内存骨架 + Repository 缝 + PG 适配器已落地（2026-08-24）**——lease / Region / outbox / weight calibration / rebalance planner 已具纯函数与注册表；`PgLeaseRepository` / `PgRegionRepository` / `PgRegionMemberRepository` / `PgCognitiveLedgerOutbox` 异步持久化面已落地（fake-pool 单测绿），注册表接入待续。
 
 ## 1. 目标
 
