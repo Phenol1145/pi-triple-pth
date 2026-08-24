@@ -1,7 +1,7 @@
 # N25：PTH Human Interaction 协议设计
 
 > 日期：2026-08-18  
-> 状态：**部分实施**——HumanRequest HTTP 路由 / PG 持久化 / waiting-human 暂停语义已落地（`src/pth/gateway/routes-human-interaction.ts`、`src/pth/interaction/human-interaction-{service,repository}.ts`、`packages/pth-contracts/src/human-interaction.ts`）；完整协议（intent resolver / TaskDraft / Quality Gate / Presentation）未实施  
+> 状态：**部分实施**——HumanRequest HTTP 路由 / PG 持久化 / waiting-human 暂停语义已落地（`src/pth/gateway/routes-human-interaction.ts`、`src/pth/interaction/human-interaction-{service,repository}.ts`、`packages/pth-contracts/src/human-interaction.ts`）；完整协议（intent resolver / TaskDraft / Quality Gate / Presentation）未实施。2026-08-24 已补 IntentProposal / TaskDraft / TaskDraftSubmission / QualityGateResult 契约类型与结构校验。  
 > 边界裁决：[ADR-0005（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/adr/0005-pth-human-interaction-boundary.md)；角色所有权修订：[ADR-0006（旧仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/adr/0006-ptl-human-interface-role-boundary.md)
 > 术语事实源：[CONTEXT.md](../../../CONTEXT.md)  
 > 契约复验输入：[v1.2 F1–F5 复验报告](../report/v1.2-acceptance-fix-revalidation.md)

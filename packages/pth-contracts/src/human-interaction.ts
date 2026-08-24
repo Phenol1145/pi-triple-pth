@@ -70,6 +70,43 @@ export interface HumanResponseResult {
   readonly committed: boolean;
 }
 
+// ── N25 完整协议：Intent / TaskDraft / Quality Gate（契约层先行） ──────
+
+export type IntentMode = "chitchat" | "discussion" | "request";
+
+export interface IntentProposal {
+  readonly mode: IntentMode;
+  readonly title?: string;
+  readonly text?: string;
+  readonly confidence: number;
+  readonly reason?: string;
+}
+
+export interface TaskDraft {
+  readonly id: string;
+  readonly revision: number;
+  readonly tenantId: string;
+  readonly principalId: string;
+  readonly title: string;
+  readonly text: string;
+  readonly status: "draft" | "quality-gate" | "submitted";
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly contentHash: string;
+}
+
+export interface TaskDraftSubmission {
+  readonly draftId: string;
+  readonly revision: number;
+  readonly submittedAt: string;
+}
+
+export interface QualityGateResult {
+  readonly pass: boolean;
+  readonly checks: readonly string[];
+  readonly failures: readonly string[];
+}
+
 // ── 结构校验（fail-closed；布尔风格） ───────────────────────────────
 
 const HUMAN_REQUEST_STATUSES: readonly string[] = ["pending", "responded", "cancelled", "expired"];
@@ -136,4 +173,41 @@ export function isTaskSuspensionStructurallyValid(v: unknown): v is TaskSuspensi
     return true;
   }
   return false;
+}
+
+const INTENT_MODES: readonly string[] = ["chitchat", "discussion", "request"];
+
+export function isIntentProposalStructurallyValid(v: unknown): v is IntentProposal {
+  if (!isRecord(v)) return false;
+  if (typeof v.mode !== "string" || !INTENT_MODES.includes(v.mode)) return false;
+  if (typeof v.confidence !== "number" || v.confidence < 0 || v.confidence > 1) return false;
+  if (v.title !== undefined && !isNonEmptyString(v.title)) return false;
+  if (v.text !== undefined && !isNonEmptyString(v.text)) return false;
+  if (v.reason !== undefined && typeof v.reason !== "string") return false;
+  return true;
+}
+
+export function isTaskDraftStructurallyValid(v: unknown): v is TaskDraft {
+  if (!isRecord(v)) return false;
+  if (!isNonEmptyString(v.id) || !isNonEmptyString(v.tenantId) || !isNonEmptyString(v.principalId)) return false;
+  if (!isNonEmptyString(v.title) || !isNonEmptyString(v.text)) return false;
+  if (typeof v.revision !== "number" || !Number.isInteger(v.revision) || v.revision < 1) return false;
+  if (v.status !== "draft" && v.status !== "quality-gate" && v.status !== "submitted") return false;
+  if (!isIsoDateString(v.createdAt) || !isIsoDateString(v.updatedAt)) return false;
+  if (!isNonEmptyString(v.contentHash)) return false;
+  return true;
+}
+
+export function isTaskDraftSubmissionStructurallyValid(v: unknown): v is TaskDraftSubmission {
+  if (!isRecord(v)) return false;
+  if (!isNonEmptyString(v.draftId) || typeof v.revision !== "number" || !Number.isInteger(v.revision) || v.revision < 1) return false;
+  if (!isIsoDateString(v.submittedAt)) return false;
+  return true;
+}
+
+export function isQualityGateResultStructurallyValid(v: unknown): v is QualityGateResult {
+  if (!isRecord(v)) return false;
+  if (typeof v.pass !== "boolean" || !Array.isArray(v.checks) || !Array.isArray(v.failures)) return false;
+  if (!v.checks.every((x) => typeof x === "string") || !v.failures.every((x) => typeof x === "string")) return false;
+  return true;
 }
