@@ -3,6 +3,7 @@
 > 定位：模型化当前系统构造的阶段性结论记录——role 框架定义裁决、TCE 结构化审计、角色谱系可插拔性审计。
 > 本文档只记录结论与证据，不含实施计划；§12 概要设计（three-source-lineage-and-capacity-conservation-design.md）由维护者撰写时可引用本文。
 > 勘误：本文 TCE 审计有两条已确认错判（worker 侧 gateway 实际已接线等），勘误表见 [tce-code-model-remediation-plan.md](../plan/tce-code-model-remediation-plan.md) §0「现状修正」。
+> Superseded（2026-08-24 TCE W0–W5）：本文 §2 的「Command 对象网关」审计口径已被 [ADR-0004](../../adr/0004-tce-code-layer-ptc-capability-first.md) 与 tce-code-model-remediation-plan 完成态取代——工具面已统一为能力契约 + 方法级静态审核，CommandGateway 退化为兼容 shim。
 
 ## 1. Role 框架定义裁决（2026-08-24 用户裁决）
 

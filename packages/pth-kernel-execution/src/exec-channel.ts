@@ -25,7 +25,7 @@ import { createToolstore, type Toolstore } from "@away_from/pth-kernel-interpret
 import type { DataWorldAccess } from "@away_from/pth-kernel-storage";
 import type { ExecutionTargetDefinition, ExecutionTargetRegistry, NotebookLanguage } from "@away_from/pth-contracts";
 import { pthConfig } from "@away_from/pth-config";
-import type { CommandGateway, CommandSecurityContext } from "./execution/execution-command.js";
+import type { CommandGateway } from "./execution/execution-command.js";
 
 export interface ExecRequest {
   code: string;
@@ -184,22 +184,9 @@ export class KernelExecChannel {
       throw new Error("exec-channel: notebook code required");
     }
 
-    // TCE P3：注入 CommandGateway 时，notebook cell 先过 Command 层（目标解析/权限/自批准）。
-    let effectiveReq = req;
-    if (this.deps.commandGateway) {
-      const ctx: CommandSecurityContext = { principalId: "engine:notebook-exec-channel", tenantId: "system", roleId: "developer" };
-      const decision = await this.deps.commandGateway.decide({
-        surface: "notebook",
-        cell: { language: req.language, code: req.code, target: req.target ?? null, sessionId: req.sessionId, timeoutMs: req.timeoutMs },
-        ctx,
-      });
-      if (decision.kind === "deny") throw new Error(decision.reason);
-      if (decision.kind === "await-approval") throw new Error("exec-channel: notebook 不应 await-approval（人类自批准）");
-      const command = decision.command;
-      if (command.kind === "language" && command.target) {
-        effectiveReq = { ...req, target: command.target };
-      }
-    }
+    // W4（ADR-0004）：notebook cell 直连 Code/Execute 层——cell 本来就是代码，
+    // 跳过 CommandGateway 命令对象化。人类 principal 自批准语义由上层调用方保证。
+    const effectiveReq = req;
 
     // ExecutionTarget 路由（装配层注入后启用；未注入=legacy 写死路径）。
     let targetId: string | undefined;
