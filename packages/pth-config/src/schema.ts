@@ -210,6 +210,10 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_LEAN4_TEMPLATE_DIR", "string", "/home/node/lean-template", "path", "batch", "v1.3 P3：已构建 Mathlib 模板工程目录"),
 
   // ── 模式 / 开关 / 观测 ───────────────────────────────────────────
+  d("PTH_EXEC_MODE", "string", "tool-call", "mode", "both", "执行模式统一入口：tool-call / asp / ptc / pulse（显式优先；非法值 fail-fast）"),
+  d("PTH_PTC_MAX_ITERATIONS", "number", 5, "mode", "batch", "PTC 迭代模式最大轮数", { runtime: true }),
+  d("PTH_PTC_MODEL", "string", "", "mode", "batch", "PTC 迭代模式使用的模型（空 = 沿用 agent 默认模型）", { runtime: true }),
+  d("PTH_PTC_TIMEOUT_MS", "number", 120_000, "mode", "batch", "PTC 迭代模式任务级超时", { runtime: true }),
   d("PTH_ASP_MODE", "string", "off", "mode", "batch", "动作空间协议（双轨并行：平铺为主验证路径——默认关闭；on 对照 ASP 轨）"),
   d("PTH_REFINE", "string", "auto", "mode", "batch", "任务完成后 refine（off 关闭）"),
   d("PTH_SKILL_WRITE_POLICY", "string", "manual", "mode", "batch", "skill 写策略：manual / staged"),

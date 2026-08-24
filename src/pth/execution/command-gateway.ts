@@ -12,10 +12,11 @@ import type {
   CommandInput,
   CommandSecurityContext,
   ExecutionCommand,
+  ExecutionRequest,
   HumanApprovalGateway,
   ToolCall,
 } from "@away_from/pth-kernel-execution";
-import { execToolCapFor, hasExecToolCapability } from "@away_from/pth-kernel-execution";
+import { execToolCapFor, hasExecToolCapability, normalizeExecutionRequestToCommand } from "@away_from/pth-kernel-execution";
 import type { ExecutionTargetRegistry, NotebookLanguage } from "@away_from/pth-contracts";
 import { hasInternalCapability, internalCapabilityPolicy } from "./capability-policy.js";
 
@@ -77,6 +78,11 @@ export class CommandGatewayImpl implements CommandGateway {
   async decide(input: CommandInput): Promise<CommandDecision> {
     if (input.surface === "notebook") return this.decideNotebook(input);
     return this.decideAgentTool(input);
+  }
+
+  async decideRequest(request: ExecutionRequest, ctx: CommandSecurityContext): Promise<CommandDecision> {
+    const command = normalizeExecutionRequestToCommand(request, ctx, this.createId());
+    return this.authorize(command, ctx, "agent-tool");
   }
 
   private async decideAgentTool(input: Extract<CommandInput, { surface: "agent-tool" }>): Promise<CommandDecision> {

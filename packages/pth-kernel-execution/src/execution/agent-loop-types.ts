@@ -5,6 +5,8 @@ import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { WorkerRole } from "./worker-cluster.js";
 import type { AgentToolResult } from "./agent-tools.js";
+import type { CommandFeedback } from "./command-feedback.js";
+import type { CommandAdapterRegistry } from "./tool-command-adapters.js";
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
@@ -59,17 +61,23 @@ export interface AgentLoopOptions {
     readonly description: string;
     readonly parameters: Record<string, unknown>;
   }>;
+  /** Wave 2：Tool-Reg v2 command adapter registry（缺省 = 回退旧 executor 路径） */
+  adapterRegistry?: CommandAdapterRegistry;
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
 export type AgentTraceEvent =
   | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string; usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number } }
   | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
-  | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string }
+  | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string; adapterId?: string; execKind?: "language" | "external" | "internal" | "agent"; target?: string; errorClass?: string; errorCode?: string; retryable?: boolean; feedback?: CommandFeedback }
   | { type: "guard"; step: number; guard: "repeat-action" | "empty-done" | "empty-reply" | "unknown-tool" | "negative-loop" | "route-drift"; kind: "hit" | "guide" | "soft" | "hard"; count: number; limit: number }
   | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string }
   | { type: "compression"; inputChars: number; outputChars: number }
-  | { type: "cognitive-working-set"; phase: "start" | "finish"; taskId: string; directorySnapshotId: string; workerId: string; toolNames: string[]; memoryEntryIds: string[]; skillIndexIds: string[]; activeSkillIds: string[]; usage: { memoryEntries: number; memoryChars: number; skillIndexEntries: number; activeSkills: number; skillChars: number; tools: number }; omitted: Record<string, number>; retrievalTraceIds: string[] };
+  | { type: "cognitive-working-set"; phase: "start" | "finish"; taskId: string; directorySnapshotId: string; workerId: string; toolNames: string[]; memoryEntryIds: string[]; skillIndexIds: string[]; activeSkillIds: string[]; usage: { memoryEntries: number; memoryChars: number; skillIndexEntries: number; activeSkills: number; skillChars: number; tools: number }; omitted: Record<string, number>; retrievalTraceIds: string[] }
+  | { type: "pulse-translate"; step: number; ok: boolean; error?: string; codeLength?: number }
+  | { type: "pulse-result"; step: number; ok: boolean; error?: string; code?: string; durationMs: number; valuePreview?: string }
+  | { type: "ptc-program"; step: number; iteration: number; program: string; reason?: string }
+  | { type: "ptc-result"; step: number; iteration: number; ok: boolean; error?: string; errorClass?: string; errorCode?: string; retryable?: boolean; valuePreview?: string; stdoutPreview?: string; durationMs: number };
 
 export type AgentTaskResult =
   | {

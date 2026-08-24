@@ -135,6 +135,18 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/execution-modes-and-tool-reg-v2-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/execution-modes-and-tool-reg-v2-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/execution-target-matrix-plan.md",
       "category": "designs",
       "product": "pth",

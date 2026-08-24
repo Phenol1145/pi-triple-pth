@@ -242,7 +242,7 @@ origin
 
 ### 任务池纯化（2026-08-10——标签制 + Origin 升级链 + kernel 直连）
 
-**任务池只面向自然语言**（混合池是调试期临时形态，已废止）：所有任务走 agent 循环（LLM 理解+多步工具调用）。降级链：`PTH_AGENT_MODE=off`/无 caps → 一次性转译；无 llm → terminal reject。
+**任务池只面向自然语言**（混合池是调试期临时形态，已废止）：所有任务走 agent 循环（LLM 理解+多步工具调用）。执行模式统一由 `PTH_EXEC_MODE` 决定：`tool-call`/`asp` 走 agent 循环；`pulse` 走一次性转译 + PTC；`ptc` 走迭代式 PTC。降级链：`PTH_AGENT_MODE=off`/无 caps（legacy 默认）→ pulse；显式模式缺必需能力 → fail-closed；无 llm → terminal reject。
 
 **标签严格校验**（publish 唯一入口）：
 - 未知标签 → 400（报错含已注册标签表）

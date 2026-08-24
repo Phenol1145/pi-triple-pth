@@ -80,6 +80,7 @@ export function buildBuiltinToolRegSpec(name: string): ToolRegSpec {
     description: { anchor: def.anchor, whenToUse: def.whenToUse, effect: def.effect },
     parameters: { type: "object", properties: def.properties, required: def.required },
     executor: { type: "builtin", ref: builtinExecutorRef(def.name) },
+    command: `builtin:${builtinExecutorRef(def.name)}`,
     visibility: { roles: deriveVisibilityRoles(def.name), pack: toolPackOf(def.name) },
   };
 }
@@ -126,6 +127,7 @@ export function reconcileBuiltinToolRegs(specs: ToolRegSpec[]): ToolRegReconcile
     if (!def) continue;   // 多条目已在上面记录
     if (s.executor.type !== "builtin") { issues.push(`${s.name}：executor 应为 builtin（存量登记）`); continue; }
     const ref = s.executor.ref;
+    if (s.command !== `builtin:${ref}`) issues.push(`${s.name}：command 应为 builtin:${ref}（Tool-Reg v2）`);
     if (ASP_ONLY_TOOLS.has(s.name)) {
       if (ref !== `asp-inline:${s.name}`) issues.push(`${s.name}：ASP-only 条目 ref 应为 asp-inline:${s.name}（实 ${ref}）`);
     } else if (!(ref in AGENT_TOOLS)) {

@@ -24,6 +24,7 @@ import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
 import { modelState } from "@away_from/pth-kernel-interpreter";
 import { spaceRegistry, isRoleBoundToSpace } from "@away_from/pth-kernel-interpreter";
 import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
+import { normalizeExecutionRequestToCommand } from "./execution-command.js";
 import { checkToolFaceBudget, registryToolToSchema, visibleRegistryTools } from "@away_from/pth-kernel-interpreter";
 import type { ToolRegSpec } from "@away_from/pth-memory";
 import { shouldCompressInLoop, compressContext, CONTINUATION_TEMPLATE } from "./context-compaction.js";
@@ -508,8 +509,36 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       }
     }
     if (!executor && regSpec) {
+      // Wave 2：Tool-Reg v2 command adapter 优先。
+      // adapter 只返回 ExecutionRequest/deny；授权继续走 CommandGateway（decideRequest）。
+      let adapterAuthorized = false;
+      if (regSpec.command && input.adapterRegistry) {
+        const adapterResult = input.adapterRegistry.call(regSpec.command, args ?? {});
+        if (adapterResult.kind === "deny") {
+          const feedback = adapterResult.feedback;
+          const preview = feedback ? `${feedback.class}:${feedback.code}` : "adapter denied";
+          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+            content: `[adapter] ${tool} 拒绝：${adapterResult.reason}` });
+          input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: preview, ...(feedback ? { feedback, errorClass: feedback.class, errorCode: feedback.code, retryable: feedback.retryable } : {}) });
+          return undefined;
+        }
+        if (input.commandGateway?.decideRequest && input.commandContext) {
+          const decision = await input.commandGateway.decideRequest(adapterResult.request, input.commandContext);
+          if (decision.kind === "deny") {
+            messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
+              content: `[授权] ${tool} 拒绝：${decision.reason}` });
+            input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: "CommandGateway 拒绝", ...(decision.feedback ? { feedback: decision.feedback, errorClass: decision.feedback.class, errorCode: decision.feedback.code, retryable: decision.feedback.retryable } : {}) });
+            return undefined;
+          }
+          if (decision.kind === "await-approval") {
+            input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
+            return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: decision.requestId } };
+          }
+          adapterAuthorized = true;
+        }
+      }
       // TCE P3：tool-reg program/agent 执行缝先过 Command 层门控（收编 governance hole）。
-      if (input.commandGateway && input.commandContext) {
+      if (input.commandGateway && input.commandContext && !adapterAuthorized) {
         const decision = await input.commandGateway.decide({
           surface: "agent-tool",
           toolCall: { tool, args: args ?? {} },

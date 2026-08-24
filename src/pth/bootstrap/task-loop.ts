@@ -3,10 +3,11 @@ import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
 import type { WorkerRole } from "@away_from/pth-kernel-execution";
 import type { TaskWorkspaceManager } from "@away_from/pth-kernel-execution";
 import type { TaskOutcome, TaskRepository, TenantScope, TaskDispatchContext } from "@away_from/pth-contracts";
+import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import { TaskDispatcher } from "../tasking/index.js";
 import { TaskOutcomeCommitter } from "../tasking/index.js";
 import { BoundedBackgroundQueue } from "../tasking/index.js";
-import { AgentTaskRunner } from "../runner/index.js";
+import { AgentTaskRunner, defaultRunnerConfig } from "../runner/index.js";
 import { createAuditObserver } from "../runner/index.js";
 import { createTranscriptObserver } from "../runner/index.js";
 import { createActivityObserver } from "../runner/index.js";
@@ -24,7 +25,6 @@ import { notifyTaskDone, classifyReason } from "./task-loop-helpers.js";
 import { readWorkItemDomainBinding, readWorkItemDomains, type ObserverFailureRecord } from "../tasking/index.js";
 import type { TaskLoopDeps } from "./task-loop-types.js";
 export type { TaskLoopDeps } from "./task-loop-types.js";
-import { pthConfig } from "@away_from/pth-config";
 
 export class TaskLoop {
   constructor(private deps: TaskLoopDeps) {}
@@ -394,12 +394,16 @@ export class TaskLoop {
     try {
       // 任务池纯化（2026-08-10 D1）：任务池只面向自然语言——agent 循环为唯一执行路径。
       // （混合池是调试期临时形态；直连 kernel 的 TS 操作走 /kernel/exec 通道，不占任务池）
-      // 降级链：PTH_AGENT_MODE=off 或无 agentCaps → 一次性转译（translateTask）；无 llm → terminal reject。
-      const agentMode = pthConfig().str("PTH_AGENT_MODE") !== "off";
+      // 降级链：PTH_EXEC_MODE=pulse 或 legacy missing-agent-caps → 一次性转译（translateTask）；无 llm → terminal reject。
+      const runnerConfig = defaultRunnerConfig();
+      if (runnerConfig.execMode === "ptc") {
+        await this.rejectTerminal(task, "unsupported-exec-mode: PTH_EXEC_MODE=ptc 尚未接入（Wave 5）", chain, "unsupported-exec-mode");
+        return;
+      }
       let code: string | null = null;
       let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
       let cacheStore: import("@away_from/pth-kernel-execution").CacheStore | undefined;   // 任务完成点取利用率（N3）
-      if (agentMode && this.deps.llm && this.deps.agentCaps) {
+      if ((runnerConfig.execMode === "tool-call" || runnerConfig.execMode === "asp") && this.deps.llm && this.deps.agentCaps) {
           // 任务工作区 = 正式工作区（workspaceMgr.allocate 的 ws.dir——archive 归档同一目录——
           // fs.task 白名单含 /tasks/ ✓——agent 产物随归档持久化——不丢）
           const taskWorkspace: string | undefined = ws?.dir;
@@ -441,7 +445,7 @@ export class TaskLoop {
             taskWorkspace,
             toolstore: (kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
             role,
-            asp: pthConfig().str("PTH_ASP_MODE") === "on",   // ASP 状态机（compose 默认 on——全件落地）
+            asp: runnerConfig.aspMode,   // 执行模式统一入口（兼容 PTH_ASP_MODE=on）
             sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
             cache: cs,
             capabilityInject,
@@ -517,6 +521,14 @@ export class TaskLoop {
       // 性能计量（SPEC L1）：TS 主执行计入 kernel exec（python/bash 由 metered 包装计）
       this.deps.onTaskMetric?.({ type: "exec", language: "ts", durationMs: execMs, ok: result.ok });
       if (!result.ok) {
+        // W8 P2 收敛（Wave 4）：legacy TaskLoop 对 task-await-suspended 也按 retryable requeue，
+        // 不再作为终态 execution-failed。
+        if (result.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+          const reason = `task-await-suspended: ${result.error.message}`;
+          await this.requeue(task, reason, chain);
+          taskLogger?.warn(reason);
+          return;
+        }
         // 执行失败（语法/运行时错误——interpreter 返回 ok:false 不抛）：按 reject 处理，
         // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。
         await this.rejectTerminal(task, `execution-failed: ${result.error?.message ?? "unknown"}`, chain);

@@ -38,7 +38,12 @@ export interface ToolRegSpec {
   version: number;
   description: { anchor: string; whenToUse: string; effect: string };
   parameters: { type: "object"; properties: Record<string, unknown>; required: string[] };
+  /** 旧执行体三态（保留读取能力；v2 优先走 command adapter） */
   executor: ToolRegExecutor;
+  /** Tool-Reg v2：command adapter id（如 builtin:<ref> / program:<name> / agent:<role>） */
+  command?: string;
+  /** Tool-Reg v2：成功返回契约（可选；只描述成功 value，不描述执行信封） */
+  returns?: { schema?: unknown; description?: string };
   /** 可见性投放（0.17.3 命题 3 防线——默认窄投放，不全局广播） */
   visibility: { roles: string[]; pack: string };
   /** 晋升链留痕（如 tool-function:<name> / skill:penetrate:<child>） */
@@ -96,6 +101,15 @@ export function validateToolRegSpec(spec: unknown): { ok: true; spec: ToolRegSpe
   } else {
     return { ok: false, error: `tool-reg: executor.type 非法 "${e.type}"（三态：program/builtin/agent）` };
   }
+  if (spec.command !== undefined && !nonEmpty(spec.command)) {
+    return { ok: false, error: "tool-reg: command 须为非空字符串（Tool-Reg v2 adapter id）" };
+  }
+  if (spec.returns !== undefined) {
+    const r = spec.returns;
+    if (!isRecord(r)) return { ok: false, error: "tool-reg: returns 须为对象" };
+    if (r.schema !== undefined && !isRecord(r.schema)) return { ok: false, error: "tool-reg: returns.schema 须为对象" };
+    if (r.description !== undefined && !nonEmpty(r.description)) return { ok: false, error: "tool-reg: returns.description 须为非空字符串" };
+  }
   const v = spec.visibility;
   if (!isRecord(v)) return { ok: false, error: "tool-reg: visibility 缺失" };
   if (!Array.isArray(v.roles) || v.roles.length === 0 || !v.roles.every((r) => nonEmpty(r))) {
@@ -114,6 +128,24 @@ function executorText(e: ToolRegExecutor): string {
   return `- 类型：agent（LLM 子 agent）\n- 角色：${e.role}${e.input ? `\n- 输入契约：${e.input}` : ""}${e.output ? `\n- 产物契约：${e.output}` : ""}`;
 }
 
+/**
+ * 旧执行体三态 → 默认 command adapter id（Tool-Reg v2 迁移）。
+ *  - builtin → builtin:<ref>
+ *  - program → program:<name>
+ *  - agent   → agent:<role>
+ */
+export function toolRegDefaultCommand(spec: Pick<ToolRegSpec, "executor" | "name">): string {
+  const e = spec.executor;
+  if (e.type === "builtin") return `builtin:${e.ref}`;
+  if (e.type === "program") return `program:${spec.name}`;
+  return `agent:${e.role}`;
+}
+
+/** 返回带 command 的 v2 spec（旧 spec 自动迁移；已带 command 则原样）。 */
+export function toToolRegV2Spec(spec: ToolRegSpec): ToolRegSpec {
+  return spec.command ? spec : { ...spec, command: toolRegDefaultCommand(spec) };
+}
+
 /** spec → tool-reg 条目 content（幂等：同一输入产出同一文本——机读行为单一真相源） */
 export function buildToolRegContent(spec: ToolRegSpec): string {
   const specLine = `- ${TOOL_SPEC_MARKER} ${JSON.stringify(spec)}`;
@@ -127,7 +159,11 @@ export function buildToolRegContent(spec: ToolRegSpec): string {
 - required：${spec.parameters.required.join("/") || "（无）"}
 - properties：${JSON.stringify(spec.parameters.properties)}
 
-## 执行体（三态之一——program/builtin/agent）
+## Command Adapter（Tool-Reg v2）
+- command：${spec.command ?? toolRegDefaultCommand(spec)}
+${spec.returns ? `- returns：${JSON.stringify(spec.returns)}` : ""}
+
+## 执行体（兼容——program/builtin/agent）
 ${executorText(spec.executor)}
 
 ## 可见性（0.17.3 命题 3 防线——默认窄投放，不全局广播）

@@ -407,6 +407,7 @@ ptl stack exec <svc> -- <cmd>  # 容器内执行
 ## 2026-08 落地摘要（TCE / 任务生命周期）
 
 - `PTH_ASP_MODE` 默认 `off`（平铺为主验证路径）。
+- 新增执行模式统一入口：`PTH_EXEC_MODE`（`tool-call`/`asp`/`ptc`/`pulse`）；`PTH_PTC_MAX_ITERATIONS`、`PTH_PTC_MODEL`、`PTH_PTC_TIMEOUT_MS`。
 - 新增配置：`PTH_TASK_PAUSE_TIMEOUT_MS`、`PTH_TASK_PAUSE_SWEEP_MS`、`PTH_AGENT_CONTEXT_WINDOW`。
 - tool-manifest 19 工具已策展 `argsSchema`/`argvTemplate`。
 

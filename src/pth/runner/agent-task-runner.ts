@@ -17,7 +17,7 @@ import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import type { WorkerRole } from "@away_from/pth-kernel-execution";
-import { runAgentTask, type AgentTraceEvent } from "@away_from/pth-kernel-execution";
+import { runAgentTask, runPtcAgentTask, type AgentTraceEvent } from "@away_from/pth-kernel-execution";
 import { translateTask } from "@away_from/pth-kernel-execution";
 import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
 import { defaultRunnerConfig, type RunnerConfig } from "./runner-config.js";
@@ -128,7 +128,91 @@ export class AgentTaskRunner implements TaskRunner {
     const { kernel, role, llm, caps } = this.deps;
     const ref = leaseRef(lease);
 
-    if (config.agentMode && llm && caps) {
+    // Wave 5：ptc 迭代模式。
+    if (config.execMode === "ptc") {
+      if (!llm) {
+        return {
+          lease: ref,
+          status: "rejected",
+          retryable: false,
+          error: { code: "no-llm", message: "PTH_EXEC_MODE=ptc 需要 llm" },
+          artifacts: [],
+          traceId,
+        };
+      }
+      const traceEvents: AgentTraceEvent[] = [];
+      const workPayload = (work.payload ?? {}) as {
+        delivery?: { goal?: unknown };
+        pauseAnswer?: { answer?: unknown; answeredBy?: unknown; answeredAt?: unknown };
+      };
+      const goal = typeof workPayload.delivery?.goal === "string" && workPayload.delivery.goal.trim() !== ""
+        ? workPayload.delivery.goal
+        : undefined;
+      const pauseAnswer = workPayload.pauseAnswer;
+      const publisherClarification = pauseAnswer && typeof pauseAnswer.answer === "string" && pauseAnswer.answer.trim() !== ""
+        ? `（${typeof pauseAnswer.answeredBy === "string" && pauseAnswer.answeredBy !== "" ? pauseAnswer.answeredBy : "发布者"}）: ${pauseAnswer.answer.trim()}`
+        : undefined;
+      const r = await runPtcAgentTask({
+        llm,
+        kernel,
+        task: { title: work.title, text: work.text },
+        ...(goal ? { goal } : {}),
+        ...(publisherClarification ? { publisherClarification } : {}),
+        taskWorkspace: this.deps.workspace.dir,
+        capabilityInject: this.deps.caps,
+        logger: this.deps.logger,
+        onTrace: (e) => {
+          traceEvents.push(e);
+          this.deps.onTrace?.(e);
+        },
+      });
+      if (aborted()) {
+        return { lease: ref, status: "cancelled", retryable: true, error: { code: "cancelled", message: "cancelled during ptc execution" }, artifacts: [], traceId };
+      }
+      if (r.ok && r.code === TASK_AWAIT_SUSPENDED_CODE) {
+        return {
+          lease: ref,
+          status: "rejected",
+          retryable: true,
+          error: { code: TASK_AWAIT_SUSPENDED_CODE, message: r.warning ?? "task-await-suspended" },
+          artifacts: [],
+          traceId,
+        };
+      }
+      if (!r.ok) {
+        return { lease: ref, status: "rejected", retryable: false, error: { code: "ptc-failed", message: r.error }, artifacts: [], traceId };
+      }
+      if (r.value === undefined || r.value === null) {
+        if (r.warning) {
+          return { lease: ref, status: "rejected", retryable: true, error: { code: "soft-terminated", message: r.warning }, artifacts: [], traceId };
+        }
+        return { lease: ref, status: "rejected", retryable: false, error: { code: "ptc-no-output", message: "PTC 完成但未产出结果" }, artifacts: [], traceId };
+      }
+      return {
+        lease: ref,
+        status: "completed",
+        result: { value: r.value, summary: r.summary ?? "", steps: r.steps },
+        artifacts: [],
+        traceId,
+      };
+    }
+
+    // 显式 tool-call/asp 缺少必需能力 → fail-closed；legacy/default 走既有降级/无 llm 路径。
+    if ((config.execMode === "tool-call" || config.execMode === "asp") && (!llm || !caps) && config.execModeExplicit) {
+      return {
+        lease: ref,
+        status: "rejected",
+        retryable: false,
+        error: {
+          code: "exec-mode-capability-missing",
+          message: `PTH_EXEC_MODE=${config.execMode} 需要 llm+agentCaps（llm=${Boolean(llm)} caps=${Boolean(caps)}）——显式模式 fail-closed`,
+        },
+        artifacts: [],
+        traceId,
+      };
+    }
+
+    if ((config.execMode === "tool-call" || config.execMode === "asp") && llm && caps) {
       const traceEvents: AgentTraceEvent[] = [];
       const { CacheStore } = await import("@away_from/pth-kernel-execution");
       const cacheStore = new CacheStore();
@@ -473,7 +557,15 @@ export class AgentTaskRunner implements TaskRunner {
     }
 
     if (llm) {
+      // Wave 4：pulse 是一等模式——translate/result 事件写入 trace/transcript。
+      const traceEvents: AgentTraceEvent[] = [];
+      const tStart = Date.now();
       const t = await translateTask({ llm }, { title: work.title, text: work.text });
+      const translateEvent: AgentTraceEvent = t.ok
+        ? { type: "pulse-translate", step: 0, ok: true, codeLength: t.code.length }
+        : { type: "pulse-translate", step: 0, ok: false, error: t.error };
+      traceEvents.push(translateEvent);
+      this.deps.onTrace?.(translateEvent);
       if (aborted()) {
         return { lease: ref, status: "cancelled", retryable: true, error: { code: "cancelled", message: "cancelled during translation" }, artifacts: [], traceId };
       }
@@ -481,6 +573,16 @@ export class AgentTaskRunner implements TaskRunner {
         return { lease: ref, status: "rejected", retryable: false, error: { code: "nl-translate-failed", message: t.error }, artifacts: [], traceId };
       }
       const raw = (await runPtcProgram({ code: t.code, cwd: this.deps.workspace.dir, ts: kernel.ts })).raw;
+      const resultEvent: AgentTraceEvent = {
+        type: "pulse-result",
+        step: 0,
+        ok: raw.ok,
+        ...(raw.ok ? { valuePreview: JSON.stringify(raw.value ?? null).slice(0, 200) } : { error: raw.error?.message ?? "unknown" }),
+        code: t.code,
+        durationMs: Date.now() - tStart,
+      };
+      traceEvents.push(resultEvent);
+      this.deps.onTrace?.(resultEvent);
       if (aborted()) {
         return { lease: ref, status: "cancelled", retryable: true, error: { code: "cancelled", message: "cancelled during ptc execution" }, artifacts: [], traceId };
       }

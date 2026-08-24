@@ -13,7 +13,7 @@
  *   - 任务代码只使用 vm 白名单能力（llm/memory/web/tasks/bash/python）
  */
 
-import type { WorkMode } from "@away_from/pth-contracts";
+import type { TaskTemplateHandoff, WorkMode } from "@away_from/pth-contracts";
 
 export interface TaskTemplate {
   id: string;
@@ -35,6 +35,12 @@ export interface TaskTemplate {
   workMode?: WorkMode;
   /** 生命周期 P0：模板默认根目标（可选；发布时显式 goal > 模板 goal——逐字传播防长任务漂移）。 */
   goal?: string;
+  /**
+   * Wave 1 统一 worker 契约：可选的下游建议。
+   * 真实接手身份由路由与 Worker Registry 决定；本字段只作建议/审计，
+   * 且 `requiresApproval` 只能收紧、不能放松。
+   */
+  handoff?: TaskTemplateHandoff;
 }
 
 // ── 任务模板统一收口（A+，2026-08-16）────────────────────────────

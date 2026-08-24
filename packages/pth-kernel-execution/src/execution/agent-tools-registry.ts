@@ -8,6 +8,7 @@ import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
 import { buildToolSchemas } from "@away_from/pth-kernel-interpreter";
 import { pthConfig } from "@away_from/pth-config";
 import type { CommandGateway, CommandSecurityContext } from "./execution-command.js";
+import type { CommandFeedback } from "./command-feedback.js";
 
 export interface AgentToolResult {
   ok: boolean;
@@ -22,6 +23,10 @@ export interface AgentToolResult {
   quiet?: boolean;
   /** TCE P3：await-approval 的 human request id（code=HUMAN_APPROVAL_PENDING 时携带） */
   requestId?: string;
+  /** TCE Wave 2：结构化 Command/Execute 错误反馈（可选——旧消费方不读也能继续工作） */
+  feedback?: CommandFeedback;
+  /** TCE Wave 2：工具执行耗时（ms） */
+  durationMs?: number;
 }
 
 export interface AgentToolCtx {
