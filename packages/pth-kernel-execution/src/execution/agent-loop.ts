@@ -58,6 +58,7 @@ async function executeProjectedTool(args: {
     cwd: input.taskWorkspace ?? "/tmp",
     ts: input.kernel.ts,
     caps: input.capabilityInject,
+    allowedCapabilities: input.role?.capabilities ? new Set(input.role.capabilities) : undefined,
     registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
   });
   if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
@@ -553,7 +554,8 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         // PTC 统一执行缝（2026-08-14 A1 Phase 2——执行+注册收敛进 ptc/runner；
         // Phase 3 条目 12——任务级 caps 装配随缝注入）
         const { raw } = await runPtcProgram({
-          code, cwd: "/tmp", ts: kernel.ts, caps: input.capabilityInject,
+          code, cwd: input.taskWorkspace ?? "/tmp", ts: kernel.ts, caps: input.capabilityInject,
+          allowedCapabilities: input.role?.capabilities ? new Set(input.role.capabilities) : undefined,
           registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
         });
         // W8 P2：tasks.await 挂起信号 → 软终止（value=null + warning）→ runner 落 retryable requeue

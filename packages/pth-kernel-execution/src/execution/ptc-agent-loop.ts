@@ -31,6 +31,8 @@ export interface PtcAgentLoopOptions {
   publisherClarification?: string;
   taskWorkspace?: string;
   capabilityInject?: Record<string, unknown>;
+  /** W3：方法级能力授权集（role.capabilities 的方法级条目；缺省 = 根级检查） */
+  allowedCapabilities?: ReadonlySet<string>;
   logger?: (msg: string) => void;
   onTrace?: (event: AgentTraceEvent) => void;
   maxIterations?: number;
@@ -198,6 +200,7 @@ export async function runPtcAgentTask(input: PtcAgentLoopOptions): Promise<PtcAg
       cwd: input.taskWorkspace ?? "/tmp",
       ts: input.kernel.ts,
       caps: input.capabilityInject,
+      allowedCapabilities: input.allowedCapabilities,
     });
     const durationMs = raw.durationMs ?? 0;
     input.onTrace?.({

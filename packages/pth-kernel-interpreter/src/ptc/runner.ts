@@ -18,7 +18,7 @@
  */
 
 import type { Interpreter, InterpreterResult } from "../interpreter/index.js";
-import { findOutOfBoundsRoots, buildSurfaceGuidance } from "./surface.js";
+import { findOutOfBoundsRoots, findOutOfBoundsCalls, buildSurfaceGuidance, buildCapabilityGuidance } from "./surface.js";
 
 export interface PtcRunOptions {
   code: string;
@@ -38,6 +38,8 @@ export interface PtcRunOptions {
   caps?: Record<string, unknown>;
   /** 关闭能力面越界预检（缺省 false——检查开启；测试/调试用） */
   skipSurfaceCheck?: boolean;
+  /** W3：方法级能力授权集（如 role.capabilities 的方法级条目；缺省 = 根级检查兼容旧路径） */
+  allowedCapabilities?: ReadonlySet<string>;
 }
 
 export interface PtcRunOutput {
@@ -64,14 +66,26 @@ export async function runPtcProgram(o: PtcRunOptions): Promise<PtcRunOutput> {
   let raw: InterpreterResult;
   if (!o.skipSurfaceCheck) {
     const known = new Set(Object.keys(o.ts.state ?? {}));
-    const roots = findOutOfBoundsRoots(o.code, known);
-    if (roots.length > 0) {
-      raw = {
-        ok: false, durationMs: 0, language: "ts",
-        error: { message: buildSurfaceGuidance(roots), code: "capability-out-of-bounds" },
-      };
+    if (o.allowedCapabilities) {
+      const missing = findOutOfBoundsCalls(o.code, known, o.allowedCapabilities);
+      if (missing.length > 0) {
+        raw = {
+          ok: false, durationMs: 0, language: "ts",
+          error: { message: buildCapabilityGuidance(missing), code: "capability-out-of-bounds" },
+        };
+      } else {
+        raw = await o.ts.execute(o.code, { cwd: o.cwd ?? "/tmp", ...(o.exec ? { exec: o.exec } : {}) });
+      }
     } else {
-      raw = await o.ts.execute(o.code, { cwd: o.cwd ?? "/tmp", ...(o.exec ? { exec: o.exec } : {}) });
+      const roots = findOutOfBoundsRoots(o.code, known);
+      if (roots.length > 0) {
+        raw = {
+          ok: false, durationMs: 0, language: "ts",
+          error: { message: buildSurfaceGuidance(roots), code: "capability-out-of-bounds" },
+        };
+      } else {
+        raw = await o.ts.execute(o.code, { cwd: o.cwd ?? "/tmp", ...(o.exec ? { exec: o.exec } : {}) });
+      }
     }
   } else {
     raw = await o.ts.execute(o.code, { cwd: o.cwd ?? "/tmp", ...(o.exec ? { exec: o.exec } : {}) });

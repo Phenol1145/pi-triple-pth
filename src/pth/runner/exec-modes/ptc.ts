@@ -45,6 +45,7 @@ export async function runPtcMode(ctx: ExecModeContext): Promise<TaskOutcome | Ta
       roleCapabilities: deps.role.capabilities,
       base: deps.caps,
     }),
+    allowedCapabilities: deps.role.capabilities ? new Set(deps.role.capabilities) : undefined,
     logger: deps.logger,
     onTrace: (e) => {
       traceEvents.push(e);
