@@ -45,6 +45,12 @@
       "status": "active"
     },
     {
+      "path": "docs/adr/0004-tce-code-layer-ptc-capability-first.md",
+      "category": "decisions",
+      "product": "shared",
+      "status": "active"
+    },
+    {
       "path": "docs/execution-surface-v1-design.md",
       "category": "archive",
       "product": "shared",
@@ -694,6 +700,12 @@
     },
     {
       "path": "docs/pth/role-lineage-runtime-derivation.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/tce-code-model-remediation-plan.md",
       "category": "designs",
       "product": "pth",
       "status": "active"

@@ -89,3 +89,11 @@ _Avoid_: 角色自主即时创建类型、LLM 逐任务自由分类
 **baseline window（基线窗）**:
 A/B 优化周期的对照基准：n 轮行为数据为基线，变更生效后以 n+1~2n 轮为实验窗，比较两窗裁决 keep/rollback。
 _Avoid_: 无基线的即时调参、凭单点观测裁决
+
+**TCE**:
+Tool → Code → Execute 三层（ADR-0004）：一切入口归一化为一段代码；Code 层 = 归一化 + 静态审核（能力调用集 ⊆ role 能力集）；Execute 层 = 代码到执行面的路由。PTC 能力接口第一性，tool-call 是适配投影。
+_Avoid_: Command 对象（命令对象形态已退役）、Tool→Command→Execute（旧释义）
+
+**PTC 宿主语言**:
+可承载 PTC 程序模式的语言，门槛 = 交互性三条件：持久会话 / 可注入（授权即注入）/ 可静态审核。ts、python、bash 是宿主语言；非交互执行面（C/asm 编译、文档生产）包装为能力被宿主语言调用。
+_Avoid_: 把 dev/write 当独立语言空间（它们是能力，不是宿主）
