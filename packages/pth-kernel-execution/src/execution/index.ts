@@ -40,6 +40,7 @@ export * from "./parse-agent-action.js";
 export * from "./perf-autopilot.js";
 export * from "./professional-roles.js";
 export * from "./ptc-agent-loop.js";
+export * from "./ptc/capabilities/index.js";
 export * from "./recovery-validation.js";
 export * from "./refiner.js";
 export * from "./resolver-core.js";

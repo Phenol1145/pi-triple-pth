@@ -9,6 +9,7 @@ export const EXEC_TOOL_CAP: Readonly<Record<string, readonly string[]>> = {
   bash: ["bash"],
   dev: ["c", "dev", "python", "bash"],   // dev.run/list 只读——验收角色（python/bash）可用
   write: ["fs", "write"],
+  debug: ["debug"],
 };
 
 /** 取执行族所需 capabilities（未登记 = undefined = 不校验）。 */
@@ -27,5 +28,7 @@ export function hasExecToolCapability(
   const need = EXEC_TOOL_CAP[execFam];
   if (!need) return true;
   if (!capabilities) return true;
-  return need.some((c) => capabilities.includes(c));
+  return need.some((c) =>
+    capabilities.includes(c) || capabilities.some((cap) => cap.startsWith(`${c}.`)),
+  );
 }

@@ -4,6 +4,7 @@
 import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import { runPtcAgentTask, type AgentTraceEvent } from "@away_from/pth-kernel-execution";
 import type { TaskOutcome, TaskSuspension } from "@away_from/pth-contracts";
+import { buildTaskCapabilityInject } from "./task-capability-inject.js";
 import type { ExecModeContext } from "./types.js";
 
 export async function runPtcMode(ctx: ExecModeContext): Promise<TaskOutcome | TaskSuspension> {
@@ -37,7 +38,13 @@ export async function runPtcMode(ctx: ExecModeContext): Promise<TaskOutcome | Ta
     ...(goal ? { goal } : {}),
     ...(publisherClarification ? { publisherClarification } : {}),
     taskWorkspace: deps.workspace.dir,
-    capabilityInject: deps.caps,
+    capabilityInject: buildTaskCapabilityInject({
+      kernel: deps.kernel,
+      taskWorkspace: deps.workspace.dir,
+      toolstore: (deps.kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
+      roleCapabilities: deps.role.capabilities,
+      base: deps.caps,
+    }),
     logger: deps.logger,
     onTrace: (e) => {
       traceEvents.push(e);

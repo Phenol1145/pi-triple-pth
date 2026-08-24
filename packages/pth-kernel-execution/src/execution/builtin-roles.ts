@@ -64,7 +64,9 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     parent: "executor", generation: 2, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
   { id: "coder", tags: ["coding", "write-code", "snippet"], prompt: "你是代码编写者——负责编写代码实现、片段、脚本。只写代码——不调试、不测试、不写文档（调试交给 debug 工具、测试交给 tester、文档交给 writer）。",
     description: "纯代码编写（developer 子类型——只写代码不调试不测试）", thinking: "high",
-    capabilities: ["python", "bash", "c", "fs", "memory", "readSource", "readText"],
+    capabilities: ["python", "bash", "c", "fs", "memory", "readSource", "readText",
+      "dev.write", "dev.edit", "dev.build", "dev.run", "dev.save", "dev.list",
+      "write.create", "write.edit", "write.read", "write.list", "write.save", "write.section"],
     actionTools: ["execTs", "execPy", "execBash", "dev", "write", "nav", "cache"],   // 无 debug（coder 不调试——调试归 debug 族/tester 验证）
     output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer",
     parent: "developer", generation: 3, differentiation: "纯代码编写任务诱导——写代码不调试不测试——从 developer 收窄出代码编写专精" },
@@ -87,7 +89,8 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     parent: "researcher", generation: 2, differentiation: "记忆维护类任务诱导——知识沉淀/索引维护围绕 memory 能力收窄——记忆属于知识一类，归研究族专项维护（2026-08-14 用户裁决）" },
   { id: "acceptor", tags: ["accept", "verify"], prompt: "你是验收者——负责结果验证、质量检查、交付验收。",
     description: "结果验证与交付验收（reviewer 对应——只读审查）", thinking: "high",
-    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"], defaultReads: ["plan", "progress"], acceptanceRole: "read-only",
+    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash",
+      "dev.run", "dev.list", "write.read", "write.list"], defaultReads: ["plan", "progress"], acceptanceRole: "read-only",
     // 2026-08-12 裁剪：只读验收面——执行核 python/bash + dev.run/list（验证不写）+ write.read/list（审查不写）+ 导航/缓存
     actionTools: ["execTs", "execPy", "execBash", "dev.run", "dev.list", "write.read", "write.list", "nav", "cache"],
     parent: "governor", generation: 2, differentiation: "验收类任务诱导——质量检查需要执行验证但不应修改产物——只读审查特化" },
@@ -101,7 +104,10 @@ export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "debug-case-writer", tags: ["debug-case", "regression-case", "boundary-case"],
     prompt: "你是调试用例编写者——tester 族内的验证专精。给定 bug 报告/复现步骤/修复 diff，产出三类用例并实际验证：① 最小复现用例（触发 bug 的条件序列——修复前 FAIL）② 回归测试（vitest——防复发——修复后 PASS）③ 边界用例（相关边界探索：空值/极值/类型边界/并发/组合输入）。工作流：读 bug 报告与修复摘要 → 写测试文件到任务工作区 → 用 bash/测试命令实际跑通（修复前用例证明失败路径存在、修复后用例 PASS）→ done 提交 {repro, regression, boundary, verification}——verification 必须带真实运行输出，不基于假设报成功。",
     description: "调试用例生成（tester 子类型——bug 报告/复现/fix diff → 最小复现+回归+边界用例）", thinking: "high",
-    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], output: "test-cases",
+    capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c",
+      "dev.write", "dev.edit", "dev.build", "dev.run", "dev.save", "dev.list",
+      "debug.attach", "debug.breakpoint", "debug.continue", "debug.step", "debug.snapshot",
+      "debug.evaluate", "debug.detach", "debug.sessions"], output: "test-cases",
     defaultReads: ["bug-report", "fix-diff"], acceptanceRole: "writer",
     actionTools: ["execTs", "execPy", "execBash", "dev", "debug", "nav", "cache"],
     parent: "tester", generation: 4,
@@ -111,7 +117,8 @@ export const DEFAULT_ROLES: WorkerRole[] = [
   // 工具面由 prompt 引导 asp.cd("write")（write.* 族）；capabilities 裁剪能力文档到读写包。
   { id: "writer", tags: ["write", "doc", "story", "tutorial", "article"], prompt: "你是写作者——负责文档编写、小说创作、教程撰写、内容生产。工作流：大纲→草稿→修订→定稿——文档写任务工作区（asp.cd(\"write\") → write.create/edit/read/list/save + write.section 章节组织）。不写代码不调试——文档不编译。",
     description: "文档/内容创作（write 空间生产核·文档——无执行核窄能力面）", thinking: "medium",
-    capabilities: ["fs", "memory", "readSource", "readText"], output: "documentation",
+    capabilities: ["fs", "memory", "readSource", "readText",
+      "write.create", "write.edit", "write.read", "write.list", "write.save", "write.section"], output: "documentation",
     // 2026-08-12 裁剪：文档族 + 导航 + 随身缓存（参考素材携带——无执行核/生产核代码）
     actionTools: ["write", "nav", "cache"],
     parent: "executor", generation: 2, differentiation: "编写类任务诱导——文档创作不需要执行核——能力收窄至读写+记忆，工具面引导 write 空间" },

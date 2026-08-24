@@ -7,6 +7,7 @@ import type { TaskOutcome, TaskSuspension } from "@away_from/pth-contracts";
 import type { KnowledgeContext } from "../knowledge-context.js";
 import { contextPromptProjection, formatKnowledgeContextPromptRows } from "../knowledge-context.js";
 import { createProfessionalTaskCapability } from "../professional-task-capability.js";
+import { buildTaskCapabilityInject } from "./task-capability-inject.js";
 import type { ExecModeContext } from "./types.js";
 
 export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome | TaskSuspension> {
@@ -170,16 +171,22 @@ export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome
     taskText = `${work.text}${header}${body}`;
   }
 
-  const capabilityInject: Record<string, unknown> = {
-    cache: {
-      get: (k: string) => cs.get(k),
-      keys: () => cs.keys(),
-      load: (k: string, c: string) => cs.load(k, String(c), "ts-program"),
-      cancel: (k: string) => cs.cancel(k),
-      index: () => cs.index(),
-      utilization: () => cs.utilization(),
+  const capabilityInject: Record<string, unknown> = buildTaskCapabilityInject({
+    kernel,
+    taskWorkspace: deps.workspace.dir,
+    toolstore: (kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
+    roleCapabilities: role.capabilities,
+    base: {
+      cache: {
+        get: (k: string) => cs.get(k),
+        keys: () => cs.keys(),
+        load: (k: string, c: string) => cs.load(k, String(c), "ts-program"),
+        cancel: (k: string) => cs.cancel(k),
+        index: () => cs.index(),
+        utilization: () => cs.utilization(),
+      },
     },
-  };
+  });
   if (knowledgeContext) {
     // AB-03：与角色既有 capability（如 adversarial 的 knowledge.review / memory-keeper 的
     // knowledge.promote）合并，只注入/刷新 context，不覆盖同键能力。
