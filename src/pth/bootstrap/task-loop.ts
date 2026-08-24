@@ -374,6 +374,8 @@ export class TaskLoop {
       try { await audit.write({ eventType: "task_rejected", actor: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id, taskId: task.id, ...this.workerStamp(), payload: { reason: reason.slice(0, 300), ...(this.deps.replica ? { roleId: role.id } : {}) } }); } catch { /* 审计容错 */ }
     }
     this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...this.workerStamp(), ...chain });
+    // W3：终态 reject 外推（主进程订阅 activityHub → engine.emitExternalEvent → SSE）
+    this.deps.onActivity?.({ kind: "task.terminal-reject", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 300), ...this.workerStamp(), ...chain });
     this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: metricReason ?? classifyReason(reason) });
   }

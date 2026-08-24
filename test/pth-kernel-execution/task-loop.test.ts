@@ -85,17 +85,21 @@ describe("task loop（任务池纯化——agent 循环唯一主路径）", () =
     expect(store.reject).not.toHaveBeenCalled();
   });
 
-  it("W2：实施任务 done.result.planHash 缺失/不匹配 → reject，不 submit", async () => {
+  it("W2/W3：实施任务 done.result.planHash 缺失/不匹配 → reject + task.terminal-reject 活动事件，不 submit", async () => {
     const task = { id: "t-impl-bad", title: "实施", text: "x", tags: ["code"], payload: { implementationPlanHash: "abc" } };
     mockedRunAgent.mockResolvedValue({ ok: true, value: { foo: 1 }, summary: "s", steps: 1 } as never);
+    const activities: Array<{ kind: string }> = [];
     const store = mockTaskStore({
       candidates: vi.fn(async () => [task]),
       claimTopN: vi.fn(async () => [task]),
     });
-    const loop = new TaskLoop(agentDeps(mockKernel(), role, store));
+    const deps = agentDeps(mockKernel(), role, store);
+    deps.onActivity = (e) => activities.push(e);
+    const loop = new TaskLoop(deps);
     await loop.runOnce();
     expect(store.reject).toHaveBeenCalled();
     expect(store.submit).not.toHaveBeenCalled();
+    expect(activities.some((e) => e.kind === "task.terminal-reject")).toBe(true);
   });
 
   it("P3.6：developer fix 任务完成 → 自动派发 debug-case-writer（自修正闭环）", async () => {

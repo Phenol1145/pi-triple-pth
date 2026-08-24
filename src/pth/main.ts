@@ -1,4 +1,5 @@
 import { Redis } from "ioredis";
+import { randomUUID } from "node:crypto";
 import { detectPlatform, createLogger } from "@away_from/infra";
 import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { createKernelMetrics } from "./observability/kernel-metrics.js";
@@ -377,6 +378,25 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
         dataWorld: kernelRuntime.dataWorld,
       })
     : null;
+
+  // W3：terminal reject 终态外推（activityHub → engine.emitExternalEvent → EventBus → SSE）
+  if (kernelRuntime && engine) {
+    kernelRuntime.activityHub.subscribe((e) => {
+      if (e.kind !== "task.terminal-reject") return;
+      engine.emitExternalEvent({
+        eventId: randomUUID(),
+        eventType: "task.terminal-reject",
+        payload: {
+          taskId: e.taskId ?? "",
+          role: e.role ?? "",
+          reason: e.detail ?? "",
+          traceId: e.taskId ? `task:${e.taskId}` : "",
+        },
+        source: "pth-kernel",
+        tenantId: "default",
+      });
+    });
+  }
 
   // N33 Task 5：intake 手动控制面（operator console 的订阅创建/run 触发窄端点）。
   // 需要 kernel（pg pool）+ 已验签 TrustPolicy（PTH_TRUST_POLICY_MANIFEST/KEYRING）；
