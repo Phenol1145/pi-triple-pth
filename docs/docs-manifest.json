@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-24T06:08:34.963Z",
+  "generatedAt": "2026-08-24T07:27:33.430Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -609,6 +609,12 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/pth-bench-unified-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/pth-cli-command-registry-design.md",
       "category": "designs",
       "product": "pth",
@@ -659,6 +665,12 @@
     {
       "path": "docs/pth/tension-decisions.json",
       "category": "decisions",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/three-source-lineage-and-capacity-conservation-design.md",
+      "category": "designs",
       "product": "pth",
       "status": "reference"
     },
