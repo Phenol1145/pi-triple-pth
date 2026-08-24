@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-24T07:27:33.430Z",
+  "generatedAt": "2026-08-24T07:39:10.621Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -670,6 +670,12 @@
     },
     {
       "path": "docs/pth/three-source-lineage-and-capacity-conservation-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/three-source-lineage-refactoring-plan.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
