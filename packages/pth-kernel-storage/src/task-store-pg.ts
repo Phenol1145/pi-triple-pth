@@ -92,7 +92,7 @@ export interface TaskStore {
   /** 返回受影响行数（0 = 认领已不属于该 agent——审计 H5：任务可能已被回收重领） */
   submit(agentId: string, taskId: string, outputRef: unknown): Promise<number>;
   publish(input: PublishInput): Promise<Task>;
-  /** 按 id 取任务（Origin 升级链 retask——重发布需原任务正文） */
+  /** 按 id 取任务（retask 重发布——重发布需原任务正文） */
   getById(id: string): Promise<Task | null>;
   // 跨 spec 扩展（plan Task 5 标注）：负载统计 collectStats 依赖 pending 队列长度。
   countPending(): Promise<number>;

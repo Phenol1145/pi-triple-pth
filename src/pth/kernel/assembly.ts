@@ -1,7 +1,7 @@
 import { createPgPool, applySchema, createDataWorld } from "@away_from/pth-kernel-storage";
 import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
-import { BatchManager, toKernelActivityEvent, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles, checkTaskRouting, routeTaskRole, parseWorkerRoleRecovery, parseSpaceRecovery, ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES, PROFESSIONAL_ROLES, TaskResolver, evaluateAndScale, loadScalerConfig, registerSystemTriggers, createKernelLogger } from "@away_from/pth-kernel-execution";
+import { BatchManager, toKernelActivityEvent, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles, checkTaskRouting, routeTaskRole, parseWorkerRoleRecovery, parseSpaceRecovery, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES, PROFESSIONAL_ROLES, TaskResolver, evaluateAndScale, loadScalerConfig, registerSystemTriggers, createKernelLogger } from "@away_from/pth-kernel-execution";
 import { getEventBus } from "@away_from/pth-kernel-interpreter";
 import { createPenetrationDiscoveryService, TaskControlService, PgTaskQueries } from "../tasking/index.js";
 import { pthConfig } from "@away_from/pth-config";
@@ -163,7 +163,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   await applySchema(pool);
 
   // 2026-08-13 审计 P2：内置角色在装配层注入（核心 worker-cluster 不再 import 实现层）
-  setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  setDefaultRoles(DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
   // Task 3：五个专业角色进入 known lineage/显式权重解析（不进缺省单副本循环）
   setProfessionalRoles(PROFESSIONAL_ROLES);
   // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入；
@@ -464,7 +464,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   // trigger 统一化（2026-08-16）：全部系统控制环收编为 trigger 调度指令（原生 action）。
   // claim-reaper / batch-watchdog / flow-resolver / optimizer-deopt-sweep / batch-scaler /
-  // origin-escalation / memory-sweep 在此集中注册；PerfAutopilot 在 main.ts 注册（依赖 metrics registry）。
+  // memory-sweep 在此集中注册；PerfAutopilot 在 main.ts 注册（依赖 metrics registry）。
   // 周期 env 语义与旧硬定时器一致：PTH_CLAIM_REAP_MS / PTH_WATCHDOG_INTERVAL_MS /
   // PTH_RESOLVER_INTERVAL_MS / PTH_VERIFY_SWEEP_MS / PTH_BATCH_SCALE_INTERVAL_MS。
   const claimTimeoutMs = resolveClaimTimeoutMs();

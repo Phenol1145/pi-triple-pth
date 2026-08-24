@@ -4,7 +4,7 @@ import { installDefaultRoles } from "../helpers";
 /**
  * N14 P3：controller 三新点位（tool-face / tool-single / rule——0.17.4 四层次调节缺口）。
  * 设计：docs/pth/n14-sensor-controller-four-dims.md §2.2/§2.3——
- * 治理族叶子（parent=controller，gen=2），组织权排除自动继承（controller: 前缀），
+ * 治理族叶子（parent=controller，gen=1——2026-08-24 三源重构顺移 -1），组织权排除自动继承（controller: 前缀），
  * 谱系可见、默认不进 batch、PTH_WORKER_ROLES 显式启用。
  */
 beforeAll(() => {
@@ -20,7 +20,7 @@ describe("N14 P3：controller 三新点位注册（builtin-roles）", () => {
       const r = GOVERNANCE_ROLES.find((g) => g.id === id);
       expect(r, `${id} 应在 GOVERNANCE_ROLES`).toBeDefined();
       expect(r!.parent).toBe("controller");
-      expect(r!.generation).toBe(2);
+      expect(r!.generation).toBe(1);
       // 调节面：obs（读观测）+ manage（写控制）——与既有 controller 同构
       expect(r!.capabilities).toContain("obs");
       expect(r!.capabilities).toContain("manage");
@@ -29,7 +29,7 @@ describe("N14 P3：controller 三新点位注册（builtin-roles）", () => {
     }
   });
 
-  it("调节手段与设计 §2.2 一致（manage.tool.* / manage.params.set）", async () => {
+  it("调节手段与设计 §2.2 一致（manage.tool.* / modification-plan）", async () => {
     const { GOVERNANCE_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
     const face = GOVERNANCE_ROLES.find((g) => g.id === "controller:tool-face")!;
     expect(face.prompt).toContain("manage.tool.register");
@@ -38,9 +38,9 @@ describe("N14 P3：controller 三新点位注册（builtin-roles）", () => {
     expect(single.prompt).toContain("manage.tool.revise");
     expect(single.prompt).toContain("T8 三要素");
     const rule = GOVERNANCE_ROLES.find((g) => g.id === "controller:rule")!;
-    expect(rule.prompt).toContain("manage.params.set");
     expect(rule.prompt).toContain("PTH_GUARD_*");
     expect(rule.prompt).toContain("治理族不豁免");
+    expect(rule.prompt).toContain("modification-plan");
     // controller:adversarial 职责扩展：skill + tool 双提案审核（N14 §3.4）
     const adversarial = GOVERNANCE_ROLES.find((g) => g.id === "controller:adversarial")!;
     expect(adversarial.prompt).toContain("工具注册提案");

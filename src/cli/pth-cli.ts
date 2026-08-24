@@ -166,8 +166,8 @@ async function wait(): Promise<void> {
 
 async function roles(): Promise<void> {
   const { allKnownRoles, setDefaultRoles } = await import("@away_from/pth-kernel-execution");
-  const { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } = await import("../pth/impls/roles/default-roles.js");
-  setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);   // 2026-08-13 审计 P2：CLI 本地角色面同样走注入
+  const { DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } = await import("../pth/impls/roles/default-roles.js");
+  setDefaultRoles(DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);   // 2026-08-13 审计 P2：CLI 本地角色面同样走注入
   console.log("可派发角色（--role 指定；governance 需 PTH_WORKER_ROLES 显式启用进 batch）:");
   for (const r of allKnownRoles()) {
     console.log(`  ${r.id.padEnd(22)} tags=[${r.tags.join(",")}]  ${r.description ?? ""}`);

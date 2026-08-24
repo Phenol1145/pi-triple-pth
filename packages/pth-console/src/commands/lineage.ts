@@ -1,7 +1,7 @@
 /**
  * pth lineage —— 角色谱系监督层（树状分化——有监督自动化）
  *
- *   pth lineage tree                  谱系树（Origin → 中间层 → 叶子——文本渲染）
+ *   pth lineage tree                  谱系森林（三源根 → 中间层 → 叶子——文本渲染）
  *   pth lineage proposals [--all]     分化建议列表（默认 draft 待审——refine 任务 3 产出）
  *   pth lineage show <id>             建议详情（子任务/建议角色/理由/置信度）
  *   pth lineage approve <id> [--json overrides]   批准 → 注册新角色（树生长——batch 热上线）
@@ -114,7 +114,7 @@ export async function cmdHubLineage(passthrough: string[], flags: Record<string,
 
     default:
       console.log([
-        "  pth lineage tree                          谱系树（Origin → 中间层 → 叶子）",
+        "  pth lineage tree                          谱系森林（三源根 → 中间层 → 叶子）",
         "  pth lineage proposals [--all]             分化建议列表（默认待审 draft）",
         "  pth lineage show <id>                     建议详情",
         "  pth lineage approve <id> [--json ovr]     批准分化——新角色上线",

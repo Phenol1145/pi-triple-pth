@@ -42,7 +42,7 @@ function buildFakePth(calls: { mutations: number }) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify([
         {
-          roleId: "lean4-prover", revision: "rev-7", parent: "solver", generation: 5,
+          roleId: "lean4-prover", revision: "rev-7", parent: "solver", generation: 4,
           tags: ["formal"], capabilities: ["memory", "skills"], thinking: "medium", acceptanceRole: "read-only",
         },
       ]));

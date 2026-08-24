@@ -54,7 +54,7 @@ export async function cmdKernelTasksAdd(passthrough: string[], flags: Record<str
   const desc = passthrough.join(" ");
   if (!desc) {
     console.log("  用法: pth kernel tasks add \"<任务描述>\" --tags <角色标签>");
-    console.log("        角色标签（必填其一）：code/test/analysis/research/plan/design/recon/memory/accept/origin…");
+    console.log("        角色标签（必填其一）：code/test/analysis/research/plan/design/recon/memory/accept…");
     console.log("        （任务池纯化：只面向自然语言——严格标签校验；调试代码执行走 kernel exec 通道）");
     console.log("        pth kernel tasks add --template <id> --url <x> [--anchors a,b] [--section S]");
     process.exit(1);

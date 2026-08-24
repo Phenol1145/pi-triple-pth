@@ -1,4 +1,4 @@
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../packages/pth-kernel-execution/src/execution/builtin-roles.js";
+import { DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../packages/pth-kernel-execution/src/execution/builtin-roles.js";
 import { setDefaultRoles, setProfessionalRoles } from "../packages/pth-kernel-execution/src/execution/worker-cluster.js";
 import { PROFESSIONAL_ROLES } from "../packages/pth-kernel-execution/src/execution/professional-roles.js";
 import { registerBuiltinSpaces } from "../packages/pth-kernel-execution/src/execution/builtin-spaces.js";
@@ -15,7 +15,7 @@ import {
 /** 测试装配：注入内置角色数据 + 标签注册（生产走 assembly——2026-08-13 审计 P2 核心/实现解耦）。
  *  2026-08-15 拆分：pth-memory 不 import core——测试同时注入内置空间查询。 */
 export function installDefaultRoles(): void {
-  setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  setDefaultRoles(DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
   setProfessionalRoles(PROFESSIONAL_ROLES);
   registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });

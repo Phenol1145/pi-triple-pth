@@ -125,7 +125,7 @@ describe("TriggerEngine（事件触发任务——trigger 组件落地）", () =
   });
 });
 
-describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
+describe("retask 模式（通用 trigger 能力——任务池纯化 D3；Origin 语义已退役）", () => {
   // 内置角色标签注册走装配注入（2026-08-13 审计 P2）
   beforeEach(async () => {
     const { installDefaultRoles } = await import("../helpers");
@@ -143,14 +143,14 @@ describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
     };
   }
 
-  it("task.rejected → retask 重发布原任务（正文继承 + origin 标签 + 升级元数据）", async () => {
+  it("task.rejected → retask 重发布原任务（正文继承 + 目标标签 + 升级元数据）", async () => {
     const hub = new ActivityHub();
     const orig = { id: "orig-1", title: "实现功能X", text: "请实现功能X并验证", assigned_role: "developer" };
     const tasks = mockTasksWith(orig);
     const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
     engine.addSystemTrigger({
-      name: "origin-escalation", event: "task.rejected",
-      task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true,
+      name: "generic-escalation", event: "task.rejected",
+      task: { title: "", text: "", retask: true, tags: ["analysis"] }, enabled: true,
     });
     await engine.start();
     hub.publish({ kind: "task.rejected", taskId: "orig-1", role: "developer", ok: false, detail: "execution-failed", at: Date.now() });
@@ -159,8 +159,8 @@ describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
     const p = tasks.published[0]!;
     expect(p.title).toBe("实现功能X");           // 正文继承
     expect(p.text).toBe("请实现功能X并验证");
-    expect(p.tags).toEqual(["origin"]);          // 转写 origin 标签
-    expect(p.createdBy).toBe("trigger:origin-escalation");
+    expect(p.tags).toEqual(["analysis"]);            // 转写目标标签
+    expect(p.createdBy).toBe("trigger:generic-escalation");
     const payload = p.payload as { escalatedFrom?: string; originalRole?: string; triggeredBy?: { depth?: number } };
     expect(payload.escalatedFrom).toBe("orig-1");
     expect(payload.originalRole).toBe("developer");
@@ -168,19 +168,19 @@ describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
     engine.stop();
   });
 
-  it("终态闸：Origin 任务失败不再升级（防死循环）", async () => {
+  it("终态闸：原任务已属目标角色不再升级（防死循环）", async () => {
     const hub = new ActivityHub();
-    const orig = { id: "orig-2", title: "t", text: "x", assigned_role: "origin" };
+    const orig = { id: "orig-2", title: "t", text: "x", assigned_role: "analyst" };
     const tasks = mockTasksWith(orig);
     const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
     engine.addSystemTrigger({
-      name: "origin-escalation", event: "task.rejected",
-      task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true,
+      name: "generic-escalation", event: "task.rejected",
+      task: { title: "", text: "", retask: true, tags: ["analysis"] }, enabled: true,
     });
     await engine.start();
-    hub.publish({ kind: "task.rejected", taskId: "orig-2", role: "origin", ok: false, at: Date.now() });
+    hub.publish({ kind: "task.rejected", taskId: "orig-2", role: "analyst", ok: false, at: Date.now() });
     await TICK();
-    expect(tasks.published).toHaveLength(0);     // Origin 失败即终态
+    expect(tasks.published).toHaveLength(0);     // 已属目标角色即终态
     engine.stop();
   });
 
@@ -189,8 +189,8 @@ describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
     const tasks = mockTasksWith(null);
     const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
     engine.addSystemTrigger({
-      name: "origin-escalation", event: "task.rejected",
-      task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true,
+      name: "generic-escalation", event: "task.rejected",
+      task: { title: "", text: "", retask: true, tags: ["analysis"] }, enabled: true,
     });
     await engine.start();
     hub.publish({ kind: "task.rejected", taskId: "ghost", role: "developer", ok: false, at: Date.now() });
@@ -209,8 +209,8 @@ describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
     tasks.getById = async (id: string) => (store.get(id) ?? null) as never;
     const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
     engine.addSystemTrigger({
-      name: "origin-escalation", event: "task.rejected",
-      task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true,
+      name: "generic-escalation", event: "task.rejected",
+      task: { title: "", text: "", retask: true, tags: ["analysis"] }, enabled: true,
     });
     await engine.start();
     hub.publish({ kind: "task.rejected", taskId: "a-1", role: "developer", ok: false, at: Date.now() });
@@ -224,7 +224,7 @@ describe("Origin 升级链（retask 模式——任务池纯化 D3）", () => {
     const hub = new ActivityHub();
     const tasks = mockTasksWith(null);
     const engine = new TriggerEngine({ activityHub: hub, tasks: tasks as never, memory: mockMemory([]) as never });
-    const def = { name: "origin-escalation", event: "task.rejected", task: { title: "", text: "", retask: true, tags: ["origin"] }, enabled: true };
+    const def = { name: "generic-escalation", event: "task.rejected", task: { title: "", text: "", retask: true, tags: ["analysis"] }, enabled: true };
     engine.addSystemTrigger(def);
     engine.addSystemTrigger(def);
     await engine.start();

@@ -34,7 +34,7 @@ ${meta.map((m) => `- ${m}`).join("\n")}
 
 ` : "";
   const lineageSection = role.differentiation
-    ? `## 分化路径（树状谱系——Origin 根 → 任务分化诱导）\n- 分化诱导：${role.differentiation}\n\n`
+    ? `## 分化路径（谱系森林——三源根 → 任务分化诱导）\n- 分化诱导：${role.differentiation}\n\n`
     : "";
   const capSection = role.capabilities && role.capabilities.length > 0
     ? `## 访问权限（PTC 能力白名单——你可调用的函数）\n${role.capabilities.map((c) => `- ${c}`).join("\n")}\n\n`
@@ -125,7 +125,7 @@ export const API_INVESTIGATION_SKILL = `# API 调查技能（执行核预定义�
 
 /** Prompt 文档注入 memory（幂等——启动时调用；固定 id 覆盖） */
 export async function injectPromptDocs(memory: PgMemoryStore): Promise<void> {
-  // 角色文档（谱系全量——含 Origin 根 + 内置 + 扩展角色——allLineageRoles）
+  // 角色文档（谱系全量——含三源根 + 内置 + 扩展角色——allLineageRoles）
   for (const role of allLineageRoles()) {
     try {
       await memory.write({

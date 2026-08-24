@@ -28,8 +28,8 @@ describe("worker cluster", () => {
       taskStore: {} as any,
       workspaceMgr: {} as any,
     });
-    expect(cluster.size).toBe(15);   // origin + 14 默认角色（2026-08-14 +coder/+spider/+prospector/+solver/+predictor；2026-08-15 +debug-case-writer）
-    expect(calls).toBe(15);
+    expect(cluster.size).toBe(14);   // 14 默认角色（2026-08-24 三源重构：Origin 退役，不再常驻）
+    expect(calls).toBe(14);
     expect(cluster.has("developer")).toBe(true);
   });
 
@@ -40,7 +40,7 @@ describe("worker cluster", () => {
       taskStore: {} as any,
       workspaceMgr: {} as any,
     });
-    expect(seen.sort()).toEqual(["acceptor", "analyst", "coder", "debug-case-writer", "developer", "memory-keeper", "origin", "planner", "predictor", "prospector", "scout", "solver", "spider", "tester", "writer"]);
+    expect(seen.sort()).toEqual(["acceptor", "analyst", "coder", "debug-case-writer", "developer", "memory-keeper", "planner", "predictor", "prospector", "scout", "solver", "spider", "tester", "writer"]);
   });
 });
 
@@ -75,7 +75,7 @@ describe("worker-index 渲染（2026-08-13——planner 的 worker 类型获取�
   it("渲染含全部可派发角色（内置+扩展——id/标签/代数/职责一行）", async () => {
     const { renderWorkerIndex, registerWorkerRole, resetExtraRoles, allWorkerRoles } = await import("@away_from/pth-kernel-execution");
     registerWorkerRole({
-      id: "wi-probe", tags: ["probe-tag"], prompt: "p", description: "探针角色", parent: "origin", generation: 1, differentiation: "测试",
+      id: "wi-probe", tags: ["probe-tag"], prompt: "p", description: "探针角色", parent: "actuator", generation: 1, differentiation: "测试",
     } as never);
     const text = renderWorkerIndex();
     expect(text).toContain("可用 worker 角色清单");

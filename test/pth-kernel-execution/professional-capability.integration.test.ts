@@ -154,7 +154,7 @@ const professionalRole: RoleDefinition = {
   output: "binary-artifact",
   defaultReads: ["context"],
   parent: "developer",
-  generation: 4,
+  generation: 3,
 };
 const worker: WorkerReplicaRef = {
   workerId: "10000000-0000-4000-8000-000000000001",

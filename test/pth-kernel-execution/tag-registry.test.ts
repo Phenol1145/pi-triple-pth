@@ -78,12 +78,12 @@ describe("tag-registry（标签总表——注册通道）", () => {
 });
 
 describe("tag-registry × worker-cluster（内置角色自动挂载）", () => {
-  it("origin + DEFAULT_ROLES 标签随 setDefaultRoles 注入注册（2026-08-13 审计 P2——装配期）", async () => {
+  it("DEFAULT_ROLES 标签随 setDefaultRoles 注入注册（2026-08-13 审计 P2——装配期）", async () => {
     const { tagRegistry: global } = await import("@away_from/pth-kernel-execution");
     const { installDefaultRoles } = await import("../helpers");
     installDefaultRoles();
-    // origin 升级链标签
-    expect(global.get("origin")).toMatchObject({ kind: "role", role: "origin" });
+    // 2026-08-24 三源重构：origin 标签已退役——不再注册
+    expect(global.get("origin")).toBeUndefined();
     // 7 默认角色代表抽查
     expect(global.get("code")?.role).toBe("developer");
     expect(global.get("test")?.role).toBe("tester");

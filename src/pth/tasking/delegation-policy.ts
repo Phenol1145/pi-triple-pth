@@ -4,7 +4,6 @@
  * 授权矩阵由角色定义（WorkerRole.parent 谱系）派生，服务器端强制：
  *  - 内部类型（有子类型）：仅其直接子类型；
  *  - planner / governor：直接子类型 + 跨子树补充权（执行族 = executor 及其全部后代）；
- *  - origin：全树任意类型（自身除外——防自投递闭环）；
  *  - 叶子类型：无投递权（返回空）；
  *  - sensor / controller 系：治理面维持现状（manage 与 trigger API），不走 delegate。
  *
@@ -57,10 +56,6 @@ export function allowedDelegationTargets(
 ): string[] {
   const caller = roles.find((r) => r.id === callerRoleId);
   if (!caller || isGovernanceFaceRole(callerRoleId)) return [];
-
-  if (callerRoleId === "origin") {
-    return roles.map((r) => r.id).filter((id) => id !== "origin").sort();
-  }
 
   const direct = directChildrenOf(roles, callerRoleId);
   const supplement = callerRoleId === "planner" || callerRoleId === "governor"

@@ -357,7 +357,7 @@ export class TaskLoop {
     await this.archive(task, ws, result);
   }
 
-  /** terminal reject 统一出口（Origin 升级链事件源——task.rejected 活动事件供 trigger 消费） */
+  /** terminal reject 统一出口（task.rejected 活动事件供 trigger/事件面消费——2026-08-24 三源重构后不再有 Origin 兜底） */
   private async rejectTerminal(task: Task, reason: string, chain: { chainDepth: number; triggerId?: string }, metricReason?: string): Promise<void> {
     const { role, taskStore } = this.deps;
     const affected = await taskStore.reject(role.id, task.id, reason, { terminal: true });

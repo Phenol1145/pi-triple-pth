@@ -43,12 +43,8 @@ describe("W8 P1 delegation-policy：组织权矩阵（谱系派生）", () => {
     ].sort());
   });
 
-  it("origin：全树任意类型（自身除外）", () => {
-    const all = allKnownRoles().map((r) => r.id);
-    const targets = allowedDelegationTargets("origin");
-    expect(targets).toHaveLength(all.length - 1);
-    expect(targets).not.toContain("origin");
-    expect(targets).toEqual(all.filter((id) => id !== "origin").sort());
+  it("origin 已退役：未知角色 → 无投递权（2026-08-24 三源重构）", () => {
+    expect(allowedDelegationTargets("origin")).toEqual([]);
   });
 
   it("叶子类型无投递权；治理面不走 delegate；未知角色空", () => {
@@ -70,7 +66,7 @@ describe("W8 P1 delegation-policy：组织权矩阵（谱系派生）", () => {
 
   it("hasDelegationAuthority 与目标集一致；governance 面判定", () => {
     expect(hasDelegationAuthority("developer")).toBe(true);
-    expect(hasDelegationAuthority("origin")).toBe(true);
+    expect(hasDelegationAuthority("origin")).toBe(false);
     expect(hasDelegationAuthority("coder")).toBe(false);
     expect(isGovernanceFaceRole("sensor")).toBe(true);
     expect(isGovernanceFaceRole("controller:adversarial")).toBe(true);

@@ -371,6 +371,26 @@ describe("0.16.4 分拆 worker 工具面收口（2026-08-18——内部类型 = 
     expect(ctrl.actionTools).toContain("execPy");
   });
 
+  it("三源重构：sensor 系 produces/prompt 只观测，controller 系 produces/prompt 只提案（W1）", async () => {
+    const { MID_ROLES, GOVERNANCE_ROLES } = await import("../../src/pth/impls/roles/default-roles.js");
+    const sensorRoot = MID_ROLES.find((r) => r.id === "sensor")!;
+    const controllerRoot = MID_ROLES.find((r) => r.id === "controller")!;
+    expect(sensorRoot.produces).toEqual(["observation-report"]);
+    expect(controllerRoot.produces).toEqual(["modification-plan"]);
+    for (const r of GOVERNANCE_ROLES.filter((x) => x.id.startsWith("sensor:"))) {
+      expect(r.produces, `${r.id} produces`).toEqual(["observation-report"]);
+      expect(r.prompt, `${r.id} prompt`).toContain("observation-report");
+      expect(r.prompt, `${r.id} 去建议化`).not.toContain("optimizer-suggestion");
+      expect(r.prompt, `${r.id} 只观测`).not.toContain("建议动作空间/记忆空间优化方向");
+    }
+    for (const r of GOVERNANCE_ROLES.filter((x) => x.id.startsWith("controller:"))) {
+      expect(r.produces, `${r.id} produces`).toEqual(["modification-plan"]);
+      expect(r.prompt, `${r.id} prompt`).toContain("modification-plan");
+      expect(r.prompt, `${r.id} 去实施化`).not.toContain("manage.params.set");
+      expect(r.prompt, `${r.id} 只提案`).toContain("只提案不实施");
+    }
+  });
+
   it("九内部类型均有直接子类型（tasks 投递白名单非空——收口后投递面可用）", async () => {
     const { allowedDelegationTargets } = await import("../../src/pth/tasking/index.js");
     for (const id of INTERNAL_TYPES) {

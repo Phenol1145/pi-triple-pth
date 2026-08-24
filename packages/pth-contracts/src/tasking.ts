@@ -86,7 +86,7 @@ export interface TaskDeliveryParent {
 export interface TaskDelivery {
   /** 外部入口任务不设置；worker delegate 时由服务端按调用者身份盖章 */
   readonly parent?: TaskDeliveryParent;
-  /** 类型树派发路径（含自身类型），如 ["origin","developer","coder"] */
+  /** 类型树派发路径（含自身类型），如 ["actuator","developer","coder"] */
   readonly path: readonly string[];
   /** 同一入口任务派生树的根 id（入口任务 = 自身 taskId） */
   readonly lineageId: string;

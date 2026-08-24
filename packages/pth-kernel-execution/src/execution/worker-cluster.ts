@@ -28,9 +28,9 @@ export interface RoleDefinition {
   /** 验收角色（pi-subagent 启发——read-only=只读审查（不能提交产物）/writer=可写交付）
    *  v1 仅声明（谱系元数据——后续 done 限制） */
   acceptanceRole?: "read-only" | "writer";
-  /** 父角色（树状谱系——分化来源；Origin 的 parent 不存在=根） */
+  /** 父角色（谱系森林——分化来源；三源根无 parent） */
   parent?: string;
-  /** 代数（Origin=0——初代分化=1——逐代递增） */
+  /** 代数（三源根=0——初代分化=1——逐代递增） */
   generation?: number;
   /** 分化诱导（什么任务类型/为什么从父角色分化——分化理由——refine 任务 3 的 rationale 落此） */
   differentiation?: string;
@@ -59,14 +59,15 @@ export interface RoleDefinition {
 export type WorkerRole = RoleDefinition;
 
 /**
- * Origin —— 角色谱系的根（全能角色——用户设计：最开始只有 Origin，任务分化诱导逐渐形成更多角色）。
+ * 三源森林 —— 角色谱系的根（2026-08-24 三源重构：Origin 退役）。
  *
  * 定位：
- *  - 谱系树的根（parent 不存在 / generation=0）——所有角色的分化起点
- *  - 常驻 worker（2026-08-10 任务池纯化 D7）：默认 batch 构成含 Origin ×1——升级链终点
- *    （terminal reject → trigger 转写 origin 标签 → Origin 全能力兜底完成；PTH_WORKER_ROLES
- *    可 origin:0 禁用）
- *  - 分化演练起点：全新任务领域可先让 Origin 承接 → refine 任务 3 观察分化建议 → 监督批准 → 新角色
+ *  - actuator / sensor / controller 三个 gen0 根（parent 不存在 / generation=0）——
+ *    谱系森林的起点；职责严格分工：actuator=执行/实施，sensor=观测/评估，controller=提案/调节
+ *  - 常驻 worker 语义取消：三源是谱系结构层（MID_ROLES），默认不进 batch——
+ *    叶子角色直接接任务；PTH_WORKER_ROLES 可显式启用
+ *  - 分化演练起点：新任务领域可先由对应源根承接 → refine 任务 3 观察分化建议 →
+ *    监督批准 → 新角色（批准时必须显式声明 parent）
  */
 // ── batch 构成参数化（2026-08-09：取消固定 7 角色限制）────────────────
 // PTH_WORKER_ROLES="developer:3,analyst:2,planner:0" —— 角色:副本数，逗号分隔
@@ -231,20 +232,20 @@ function registerRoleTags(role: WorkerRole): void {
 
 // ── 内置角色装配状态（2026-08-13 审计 P2：核心不再 import 实现层——
 //    assembly 层从 impls/roles/default-roles 取数据经 setDefaultRoles 注入）──
-let originRole: WorkerRole | undefined;
 let defaultRoles: WorkerRole[] = [];
 let midRoles: WorkerRole[] = [];
 let governanceRoles: WorkerRole[] = [];
 let professionalRoles: WorkerRole[] = [];
 
-/** 装配期注入：内置角色数据 + 标签注册（原模块顶层副作用随注入解除 TDZ 约束） */
-export function setDefaultRoles(origin: WorkerRole, defaults: WorkerRole[], mid: WorkerRole[], governance: WorkerRole[]): void {
-  originRole = origin;
+/** 装配期注入：内置角色数据 + 标签注册（原模块顶层副作用随注入解除 TDZ 约束）。
+ *  2026-08-24 三源重构：Origin 退役——三源（actuator/sensor/controller）作为 gen0 根
+ *  位于 midRoles 中，不再单独传入 origin 参数。 */
+export function setDefaultRoles(defaults: WorkerRole[], mid: WorkerRole[], governance: WorkerRole[]): void {
   defaultRoles = defaults;
   midRoles = mid;
   governanceRoles = governance;
-  // 内置角色标签注册（origin + DEFAULT_ROLES；MID_ROLES 是谱系结构层非派发目标——不注册）
-  registerRoleTags(origin);
+  // 内置角色标签注册（DEFAULT_ROLES；MID_ROLES 是谱系结构层非派发目标——不注册；
+  // 其共享标签由 governance 子角色注册）
   for (const r of defaults) registerRoleTags(r);
   // governance 标签注册（sensor/controller 系显式启用后可派发——kind=governance）
   for (const r of governance) {
@@ -266,10 +267,10 @@ export function allProfessionalRoles(): WorkerRole[] {
   return [...professionalRoles];
 }
 
-/** 全部角色（Origin 根 + 内置 + 扩展——routeTaskRole/worker 构成统一谱系）
- *  注意：专业角色 explicit-only，不在此列（缺省 PTH_WORKER_ROLES 零副本）。 */
+/** 全部角色（内置 + 扩展——routeTaskRole/worker 构成统一谱系；三源根为谱系结构层，
+ *  不进默认 batch——由 MID_ROLES 承载。专业角色 explicit-only，不在此列。） */
 export function allWorkerRoles(): WorkerRole[] {
-  return [...(originRole ? [originRole] : []), ...defaultRoles, ...extraRoles];
+  return [...defaultRoles, ...extraRoles];
 }
 
 /** 规划系角色判定（2026-08-14 T1/T2 裁决：注入策略按角色类分化——
@@ -308,47 +309,44 @@ export function knownRoleById(id: string): WorkerRole | undefined {
 }
 
 /**
- * 中间层角色（谱系树结构层——generation=1——Origin 的初代分化）：
+ * 中间层角色（谱系森林结构层——2026-08-24 三源重构后 actuator/sensor/controller 为 gen0 根，
+ *  executor/explorer/governor/researcher 等为 gen1 分化）：
  * 三族按任务性质划分——执行族（做实事）/信息族（取信息）/治理族（质量与秩序）。
  * 默认不进 batch（池容量安全——叶子角色直接接任务）；PTH_WORKER_ROLES 显式启用时
- * 接族内泛化任务（未明确特化方向的族级任务）；也是未来三代分化的挂载点。
+ * 接族内泛化任务（未明确特化方向的族级任务）；也是未来分化注册的挂载点。
  */
 
 export function getExtraRoles(): WorkerRole[] { return [...extraRoles]; }
 
-/** 谱系全量角色（含 Origin 根——lineage 查询/文档注入用；batch 构成仍由 allWorkerRoles/PTH_WORKER_ROLES 决定） */
+/** 谱系全量角色（含三源根与治理骨架——lineage 查询/文档注入用；batch 构成仍由 allWorkerRoles/PTH_WORKER_ROLES 决定） */
 export function allLineageRoles(): WorkerRole[] {
-  const roles = allWorkerRoles();
-  const origin = originRole;
-  const base = origin && !roles.some((r) => r.id === origin.id) ? [origin, ...roles] : roles;
-  const withMid = [...base];
+  const withMid = [...allWorkerRoles()];
   for (const mid of midRoles) if (!withMid.some((r) => r.id === mid.id)) withMid.push(mid);
   for (const g of governanceRoles) if (!withMid.some((r) => r.id === g.id)) withMid.push(g);
   for (const p of professionalRoles) if (!withMid.some((r) => r.id === p.id)) withMid.push(p);
   return withMid;
 }
 
-/** 谱系树节点（树状结构——分化路径可视化） */
+/** 谱系树节点（树状结构——分化路径可视化；多根森林用 RoleLineageNode[] 表达） */
 export interface RoleLineageNode {
   role: WorkerRole;
   children: RoleLineageNode[];
 }
 
 /**
- * 构建角色谱系树（树状分化结构——用户设计：Origin 根 → 任务分化诱导逐代生长）。
- * parent 缺失/未知 → 挂 Origin 下（兼容：扩展角色未填 parent 视为初代分化）。
+ * 构建角色谱系森林（2026-08-24 三源重构：Origin 退役——三源为 gen0 根）。
+ * 返回所有 parent 缺失的根节点；parent 未知的角色兼容挂到第一个根下。
  */
-export function buildRoleLineage(roles: WorkerRole[] = allLineageRoles()): RoleLineageNode {
+export function buildRoleLineage(roles: WorkerRole[] = allLineageRoles()): RoleLineageNode[] {
+  if (roles.length === 0) throw new Error("buildRoleLineage: 角色集为空（未注入内置角色——先 setDefaultRoles）");
   const byId = new Map(roles.map((r) => [r.id, r] as const));
-  const rootRole = originRole ? (byId.get(originRole.id) ?? originRole) : roles[0];
-  if (!rootRole) throw new Error("buildRoleLineage: 角色集为空（未注入内置角色——先 setDefaultRoles）");
   const nodes = new Map<string, RoleLineageNode>(roles.map((r) => [r.id, { role: r, children: [] }]));
-  const root = nodes.get(rootRole.id) ?? { role: rootRole, children: [] };
-  nodes.set(root.role.id, root);
+  const roots = roles.filter((r) => !r.parent && !extraRoles.some((e) => e.id === r.id));
+  if (roots.length === 0) roots.push(roles[0]!);
   for (const role of roles) {
-    if (role.id === root.role.id) continue;
+    if (roots.some((r) => r.id === role.id)) continue;
     const node = nodes.get(role.id)!;
-    const parentId = role.parent && byId.has(role.parent) ? role.parent : root.role.id;
+    const parentId = role.parent && byId.has(role.parent) ? role.parent : roots[0]!.id;
     nodes.get(parentId)!.children.push(node);
   }
   // 稳定排序：generation 升序 → id 字典序（树展示确定性）
@@ -356,12 +354,13 @@ export function buildRoleLineage(roles: WorkerRole[] = allLineageRoles()): RoleL
     n.children.sort((a, b) => (a.role.generation ?? 1) - (b.role.generation ?? 1) || a.role.id.localeCompare(b.role.id));
     n.children.forEach(sortRec);
   };
-  sortRec(root);
-  return root;
+  const rootNodes = roots.map((r) => nodes.get(r.id)!);
+  rootNodes.forEach(sortRec);
+  return rootNodes;
 }
 
-/** 谱系树文本渲染（ptl hub lineage tree / role-doc 谱系段落共用） */
-export function renderRoleLineage(root: RoleLineageNode = buildRoleLineage()): string {
+/** 谱系森林文本渲染（ptl hub lineage tree / role-doc 谱系段落共用） */
+export function renderRoleLineage(roots: RoleLineageNode[] = buildRoleLineage()): string {
   const lines: string[] = [];
   const walk = (n: RoleLineageNode, prefix: string, isLast: boolean, isRoot: boolean) => {
     const r = n.role;
@@ -371,7 +370,10 @@ export function renderRoleLineage(root: RoleLineageNode = buildRoleLineage()): s
     const childPrefix = isRoot ? "" : prefix + (isLast ? "   " : "│  ");
     n.children.forEach((c, i) => walk(c, childPrefix, i === n.children.length - 1, false));
   };
-  walk(root, "", true, true);
+  roots.forEach((root, i) => {
+    if (i > 0) lines.push("");
+    walk(root, "", true, true);
+  });
   return lines.join("\n");
 }
 

@@ -33,7 +33,7 @@ function baseDeps(over: Record<string, unknown> = {}) {
 }
 
 describe("system-triggers（trigger 统一化：系统级调度指令注册中心）", () => {
-  it("恒注册：origin-escalation + memory-sweep + claim/watchdog/resolver/optimizer + skill/tool-proposal-review 八个 trigger", () => {
+  it("恒注册：memory-sweep + claim/watchdog/resolver/optimizer + skill/tool-proposal-review 七个 trigger（origin-escalation 已随三源重构移除）", () => {
     const { system, engine } = captureEngine();
     registerSystemTriggers(engine as never, baseDeps());
     const names = system.map((t) => t.name).sort();
@@ -43,13 +43,10 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
       "flow-resolver",
       "memory-maintenance-sweep",
       "optimizer-deopt-sweep",
-      "origin-escalation",
       "skill-proposal-review",
       "tool-proposal-review",
     ].sort());
-    // workflow 链：origin 事件触发；memory 巡检 schedule
-    expect(system.find((t) => t.name === "origin-escalation")?.event).toBe("task.rejected");
-    expect(system.find((t) => t.name === "origin-escalation")?.task?.retask).toBe(true);
+    // memory 巡检 schedule
     expect(system.find((t) => t.name === "memory-maintenance-sweep")?.schedule?.everySec).toBe(24 * 60 * 60);
     // 控制环：schedule + 原生 action（resolver 2s；其余 30s）
     for (const name of ["claim-reaper", "batch-watchdog", "flow-resolver", "optimizer-deopt-sweep"]) {

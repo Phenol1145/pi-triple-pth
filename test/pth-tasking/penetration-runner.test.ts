@@ -112,19 +112,19 @@ describe("0.16.3 穿透执行面：PenetrationRunner（用户裁决——显式�
     await expect(runner.penetrate(INPUT, CALLER, SCOPE)).rejects.toThrow("draft");
   });
 
-  it("边归属不符：skill 注册边 parent=analyst，调用方 developer → 拒绝（冒用防护）", async () => {
+  it("边归属不符：skill 注册边 parent=developer，调用方 planner → 拒绝（冒用防护）", async () => {
     const otherEdge = buildPenetrationSkillContent({
-      parent: "analyst", child: "solver",
+      parent: "developer", child: "coder",
       inputContract: "in", outputContract: "out",
       anchor: "a", whenToUse: "w", effect: "e",
     });
     const runner = createPenetrationRunner({
-      memory: fakeMemory({ "skill:penetrate:solver": { kind: "skill", status: "official", content: otherEdge } }),
+      memory: fakeMemory({ "skill:penetrate:coder": { kind: "skill", status: "official", content: otherEdge } }),
       runChild: okRunChild(),
     });
-    // analyst→solver 合法边，但调用方 origin（全树投递权——组织权放行）→ 边归属拒绝
-    const originCaller: TaskDispatchContext = { taskId: "t-o", roleId: "origin", tenantId: "default", delivery: null };
-    await expect(runner.penetrate({ ...INPUT, to: "solver" }, originCaller, SCOPE))
+    // developer→coder 合法边，但调用方 planner（执行族补充权——组织权放行）→ 边归属拒绝
+    const plannerCaller: TaskDispatchContext = { taskId: "t-planner", roleId: "planner", tenantId: "default", delivery: null };
+    await expect(runner.penetrate({ ...INPUT, to: "coder" }, plannerCaller, SCOPE))
       .rejects.toThrow("穿透边归属不符");
   });
 

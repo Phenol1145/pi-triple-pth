@@ -61,13 +61,8 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
   const log = deps.log ?? ((m: string) => console.log(m));
 
   // ── 任务链（workflow 形态：事件 trigger → 任务发布）────────────────
-  // Origin 升级链（2026-08-10 任务池纯化 D3）：terminal reject → retask 转写 origin 标签。
-  engine.addSystemTrigger({
-    name: "origin-escalation",
-    event: "task.rejected",
-    task: { title: "", text: "", retask: true, tags: ["origin"] },
-    enabled: true,
-  });
+  // 2026-08-24 三源重构：Origin 升级链已移除（W1）——terminal reject 不再自动重发布，
+  // 终态外推由 W3 的 events 通道承接。
   // 记忆维护巡检（B1/N7）：schedule trigger → memory-keeper 巡检任务（提案经监督批准）。
   const memorySweep = buildMemorySweepTrigger(env);
   if (memorySweep) engine.addSystemTrigger(memorySweep);

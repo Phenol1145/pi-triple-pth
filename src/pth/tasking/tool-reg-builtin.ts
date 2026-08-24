@@ -24,14 +24,14 @@
 import { PTC_TOOL_DEFS } from "@away_from/pth-kernel-interpreter";
 import { ASP_ONLY_TOOLS, TOOL_GROUPS, expandToolGroups } from "@away_from/pth-kernel-execution";
 import { AGENT_TOOLS } from "@away_from/pth-kernel-execution";
-import { DEFAULT_ROLES, GOVERNANCE_ROLES, MID_ROLES, ORIGIN_ROLE } from "@away_from/pth-kernel-execution";
+import { DEFAULT_ROLES, GOVERNANCE_ROLES, MID_ROLES } from "@away_from/pth-kernel-execution";
 import { buildToolRegContent, type ToolRegSpec } from "@away_from/pth-memory";
 
 /** done 的工具包归属（固定协议——不在任何工具族内） */
 export const TOOL_REG_CORE_PACK = "core";
 
-/** 全部内置角色（登记推导面——ORIGIN + MID + DEFAULT + GOVERNANCE） */
-const ALL_BUILTIN_ROLES = [ORIGIN_ROLE, ...MID_ROLES, ...DEFAULT_ROLES, ...GOVERNANCE_ROLES];
+/** 全部内置角色（登记推导面——MID + DEFAULT + GOVERNANCE） */
+const ALL_BUILTIN_ROLES = [...MID_ROLES, ...DEFAULT_ROLES, ...GOVERNANCE_ROLES];
 
 /**
  * 隐式全面角色（未声明 actionTools——filterToolSchemas 缺省全量，向后兼容规则）。

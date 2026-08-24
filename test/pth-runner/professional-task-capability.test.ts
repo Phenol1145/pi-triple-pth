@@ -79,7 +79,7 @@ function makeRole(roleId: string): RoleDefinition {
     output: "artifact",
     defaultReads: ["context"],
     parent: "developer",
-    generation: 4,
+    generation: 3,
   };
 }
 

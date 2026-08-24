@@ -38,11 +38,11 @@ describe("v1.3 Task 3：五个显式专业角色（explicit-only）", () => {
 
   it("parent/generation 按设计 §4 冻结", () => {
     const byId = new Map(PROFESSIONAL_ROLES.map((r) => [r.id, r]));
-    expect(byId.get("assembly-engineer")).toMatchObject({ parent: "developer", generation: 4 });
-    expect(byId.get("computational-chemist")).toMatchObject({ parent: "solver", generation: 5 });
-    expect(byId.get("lean4-prover")).toMatchObject({ parent: "solver", generation: 5 });
-    expect(byId.get("symbolic-mathematician")).toMatchObject({ parent: "solver", generation: 5 });
-    expect(byId.get("technical-educator")).toMatchObject({ parent: "writer", generation: 4 });
+    expect(byId.get("assembly-engineer")).toMatchObject({ parent: "developer", generation: 3 });
+    expect(byId.get("computational-chemist")).toMatchObject({ parent: "solver", generation: 4 });
+    expect(byId.get("lean4-prover")).toMatchObject({ parent: "solver", generation: 4 });
+    expect(byId.get("symbolic-mathematician")).toMatchObject({ parent: "solver", generation: 4 });
+    expect(byId.get("technical-educator")).toMatchObject({ parent: "writer", generation: 3 });
   });
 
   it("每个角色声明 loadPolicyRef 且预算 fixture 覆盖全部 ref", () => {
