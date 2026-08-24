@@ -96,11 +96,20 @@ describe("runDoctor", () => {
     expect(secrets?.fix).toContain("pth init");
   });
 
-  it("PTH_WORKSPACES_HOST 缺失 → 阻断并提示 export", async () => {
+  it("PTH_WORKSPACES_HOST 缺失 → 阻断并提示 pth init --workspaces", async () => {
     const { repoRoot } = await makeRepo();
     const report = await runDoctor([], { repoRoot, env: {}, runner: upRunner() });
     expect(report.ok).toBe(false);
-    expect(report.items.find((i) => i.check === "workspaces")?.fix).toContain("export PTH_WORKSPACES_HOST");
+    expect(report.items.find((i) => i.check === "workspaces")?.fix).toContain("pth init --workspaces");
+  });
+
+  it("env 缺失但 secrets 文件含 PTH_WORKSPACES_HOST → pass", async () => {
+    const { repoRoot } = await makeRepo();
+    await writeFile(join(repoRoot, "deploy", ".env.pth.secrets"), `${SECRETS}\nPTH_WORKSPACES_HOST=${repoRoot}\n`);
+    const report = await runDoctor([], { repoRoot, env: {}, runner: upRunner() });
+    const workspaces = report.items.find((i) => i.check === "workspaces");
+    expect(workspaces?.status).toBe("pass");
+    expect(workspaces?.message).toContain(repoRoot);
   });
 
   it("lean4 profile 触发 lean 检查（缺失=警告不阻断）", async () => {

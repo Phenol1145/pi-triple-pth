@@ -14,8 +14,10 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, copyFile, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { chmod, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 
 export interface ComposeRunResult {
   readonly code: number;
@@ -76,6 +78,16 @@ export const REQUIRED_SECRET_KEYS = [
   "PTH_MEMORY_BRIDGE_TOKEN",
   "POSTGRES_PASSWORD",
   "REDIS_PASSWORD",
+] as const;
+
+export const GENERATED_SECRET_KEYS = [
+  "SANDBOX_SHARED_SECRET",
+  "PTH_EXECUTION_GRANT_SECRET",
+  "PTH_MEMORY_BRIDGE_TOKEN",
+  "POSTGRES_PASSWORD",
+  "REDIS_PASSWORD",
+  "LOCAL_EXEC_SHARED_SECRET",
+  "JUPYTER_SERVICE_TOKEN",
 ] as const;
 
 const TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._~-]{15,127}$/;
@@ -167,6 +179,82 @@ async function defaultFetch(url: string, init?: { headers?: Record<string, strin
 
 function defaultRandomToken(): string {
   return randomBytes(32).toString("hex");
+}
+
+function defaultRandomHex(bytes: number): string {
+  return randomBytes(bytes).toString("hex");
+}
+
+/** 展开 `~`/`~/...` 并校验绝对路径（posix `/` 或 Windows 盘符）。 */
+export function normalizeWorkspacesPath(raw: string): string {
+  const expanded = raw === "~" || raw.startsWith("~/")
+    ? join(homedir(), raw.slice(raw === "~" ? 1 : 2))
+    : raw;
+  if (!isAbsolute(expanded) && !/^[A-Za-z]:[\\/]/.test(expanded)) {
+    throw new PthLauncherError(
+      "ARG_INVALID",
+      `--workspaces 必须是绝对路径（收到: ${raw}）`,
+    );
+  }
+  return expanded;
+}
+
+/**
+ * 渲染 secrets 文件文本。
+ *
+ * `generate=true` 时把 7 个示例密钥替换为 64-hex 强随机值；`generate=false`
+ * 保留原文（--no-generate 旧行为）。`workspacesHost` 提供时写入/追加
+ * `PTH_WORKSPACES_HOST` 段（非密钥宿主路径）。
+ */
+export function renderSecretsFile(
+  exampleText: string,
+  opts: {
+    generate: boolean;
+    workspacesHost?: string;
+    randomHex?: (bytes: number) => string;
+  },
+): string {
+  const randomHex = opts.randomHex ?? defaultRandomHex;
+  const lines = exampleText.split("\n");
+  let hasWorkspacesLine = false;
+  const rendered = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return line;
+    const withoutExport = trimmed.startsWith("export ") ? trimmed.slice(7).trim() : trimmed;
+    const eq = withoutExport.indexOf("=");
+    if (eq <= 0) return line;
+    const key = withoutExport.slice(0, eq).trim();
+    const value = withoutExport.slice(eq + 1).trim();
+    if (opts.generate && (GENERATED_SECRET_KEYS as readonly string[]).includes(key)) {
+      const prefix = line.trimStart().startsWith("export ") ? "export " : "";
+      return `${prefix}${key}=${randomHex(32)}`;
+    }
+    if (key === "PTH_WORKSPACES_HOST") {
+      hasWorkspacesLine = true;
+      if (opts.workspacesHost !== undefined) {
+        const prefix = line.trimStart().startsWith("export ") ? "export " : "";
+        return `${prefix}${key}=${opts.workspacesHost}`;
+      }
+    }
+    return line;
+  });
+  let text = rendered.join("\n");
+  if (opts.workspacesHost !== undefined && !hasWorkspacesLine) {
+    text += `\n# ── 宿主路径（非密钥）──\nPTH_WORKSPACES_HOST=${opts.workspacesHost}\n`;
+  }
+  return text;
+}
+
+async function promptWorkspacesHost(): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(
+      "PTH_WORKSPACES_HOST（宿主 workspaces 绝对路径，例如 ~/pth-workspaces）: ",
+    )).trim();
+    return answer || join(homedir(), "pth-workspaces");
+  } finally {
+    rl.close();
+  }
 }
 
 function flagInt(args: string[], name: string, fallback: number, min: number, max: number): number {
@@ -461,8 +549,11 @@ export function createPthLauncher(options: PthLauncherOptions) {
   }
 
   function helpInit(): void {
-    console.log("用法: pth init [--force]");
-    console.log(`  复制 ${SECRETS_EXAMPLE} → ${SECRETS_FILE} 并 chmod 600（已存在时需 --force）。`);
+    console.log("用法: pth init [--generate|--no-generate] [--workspaces <abs-path>] [--force]");
+    console.log(`  生成 ${SECRETS_FILE}（默认自动替换 7 个示例密钥为 64-hex 强随机值）并 chmod 600。`);
+    console.log("  --no-generate      保留示例密钥文本（旧行为，仅复制）");
+    console.log("  --workspaces <path> 写入 PTH_WORKSPACES_HOST（非 TTY 下必填）");
+    console.log("  --force            已存在时覆盖");
   }
 
   async function init(args: string[]): Promise<void> {
@@ -470,8 +561,27 @@ export function createPthLauncher(options: PthLauncherOptions) {
       helpInit();
       return;
     }
+    const generate = !hasFlag(args, "--no-generate");
+    const rawWorkspaces = flag(args, "--workspaces") ?? process.env.PTH_WORKSPACES_HOST;
+    let workspacesHost: string | undefined;
+    if (rawWorkspaces !== undefined) {
+      workspacesHost = normalizeWorkspacesPath(rawWorkspaces);
+    } else if (process.stdin.isTTY) {
+      workspacesHost = normalizeWorkspacesPath(await promptWorkspacesHost());
+    }
+    if (workspacesHost === undefined) {
+      throw new PthLauncherError(
+        "INIT_FAILED",
+        "PTH_WORKSPACES_HOST 未提供。非交互环境请传 --workspaces <abs-path>（或 export PTH_WORKSPACES_HOST）",
+      );
+    }
     try {
-      await copyFile(exampleSecrets, defaultSecrets, hasFlag(args, "--force") ? undefined : 1);
+      const exampleText = await readFile(exampleSecrets, "utf8");
+      const rendered = renderSecretsFile(exampleText, {
+        generate,
+        workspacesHost,
+      });
+      await writeFile(defaultSecrets, rendered, { flag: hasFlag(args, "--force") ? "w" : "wx", mode: 0o600 });
       await chmod(defaultSecrets, 0o600);
     } catch (cause) {
       throw new PthLauncherError(
@@ -481,7 +591,10 @@ export function createPthLauncher(options: PthLauncherOptions) {
       );
     }
     console.log(`✔ 已写入 ${SECRETS_FILE}（chmod 600）`);
-    console.log("  编辑该文件替换全部示例密钥，然后: pth up");
+    console.log("  已自动生成 7 个强随机密钥（--no-generate 可保留模板值）。");
+    console.log(`  PTH_WORKSPACES_HOST=${workspacesHost}`);
+    console.log("  提示：local-process 需另填 DATABASE_URL / REDIS_URL（deploy/.env.pth.secrets 尾部）。");
+    console.log("  然后: pth up（local-container 默认）");
   }
 
   return { up, down, status, logs, init };

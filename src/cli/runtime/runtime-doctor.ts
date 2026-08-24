@@ -168,10 +168,10 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
     }
   }
 
-  // 3) PTH_WORKSPACES_HOST
-  const workspacesHost = env.PTH_WORKSPACES_HOST;
+  // 3) PTH_WORKSPACES_HOST（env 优先，secrets 文件回退——W0 收口）
+  const workspacesHost = env.PTH_WORKSPACES_HOST || secrets.PTH_WORKSPACES_HOST;
   if (!workspacesHost) {
-    add("workspaces", "fail", "PTH_WORKSPACES_HOST 未设置（compose :? 必填）", "export PTH_WORKSPACES_HOST=/abs/path/to/workspaces");
+    add("workspaces", "fail", "PTH_WORKSPACES_HOST 未设置（compose :? 必填）", "pth init --workspaces /abs/path/to/workspaces");
   } else {
     try {
       await access(workspacesHost, constants.W_OK);

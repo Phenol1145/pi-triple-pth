@@ -37,6 +37,9 @@ export {
   cmdKernelStatus,
 } from "./commands/kernel.js";
 export {
+  GENERATED_SECRET_KEYS,
+  normalizeWorkspacesPath,
+  renderSecretsFile,
   runPthUp,
   runPthDown,
   runPthStatus,
