@@ -1,0 +1,34 @@
+{
+  "id": "scout",
+  "version": 1,
+  "identity": {
+    "tags": [
+      "recon",
+      "investigate"
+    ],
+    "prompt": "你是侦查者——负责信息收集、代码侦察、环境探查。",
+    "description": "快速侦察——压缩上下文交接下游（thinking low——快）",
+    "parent": "explorer",
+    "differentiation": "侦察类任务诱导——快速信息收集不需要深推理——thinking low 特化换速度"
+  },
+  "capabilities": {
+    "functions": [
+      "fs",
+      "memory",
+      "readSource",
+      "readText",
+      "bash"
+    ],
+    "actionTools": [
+      "execTs",
+      "execBash",
+      "nav",
+      "cache"
+    ]
+  },
+  "resources": {
+    "thinking": "low",
+    "model": "deepseek-v4-flash"
+  },
+  "modules": {}
+}

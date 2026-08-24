@@ -17,7 +17,7 @@ describe("Role Catalog W0 role-definition/v1", () => {
       expect(r.role.id).toBe("sensor:worker-opt");
       expect(r.role.parent).toBe("sensor");
       expect(r.role.produces).toEqual(["observation-report"]);
-      expect(r.role.memoryScope).toBe("own");
+      expect(r.role.memoryScope ?? null).toBe(null);
       expect(r.role.capabilities).toContain("obs");
       expect(r.role.actionTools).toContain("execTs");
     }

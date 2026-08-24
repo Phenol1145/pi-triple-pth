@@ -1,0 +1,37 @@
+{
+  "id": "predictor",
+  "version": 1,
+  "identity": {
+    "tags": [
+      "predict",
+      "forecast",
+      "extrapolate"
+    ],
+    "prompt": "你是预测者——负责预测类任务：在开放探索基础上对趋势、未来状态、结果分布做外推与预测。基于历史/证据外推未来，产出概率化预测与不确定性说明。",
+    "description": "预测外推（prospector 子类型——趋势/未来状态/结果分布预测）",
+    "parent": "prospector",
+    "differentiation": "预测类任务诱导——开放探索中的趋势外推/未来预测是高频子模式——从 prospector 分出预测专精"
+  },
+  "capabilities": {
+    "functions": [
+      "fs",
+      "memory",
+      "readSource",
+      "readText",
+      "web",
+      "python",
+      "bash"
+    ],
+    "actionTools": [
+      "execTs",
+      "execPy",
+      "execBash",
+      "nav",
+      "cache"
+    ]
+  },
+  "resources": {
+    "thinking": "medium"
+  },
+  "modules": {}
+}

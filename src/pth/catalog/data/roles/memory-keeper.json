@@ -1,0 +1,29 @@
+{
+  "id": "memory-keeper",
+  "version": 1,
+  "identity": {
+    "tags": [
+      "memory",
+      "organize"
+    ],
+    "prompt": "你是记忆维护者——负责记忆整理、知识沉淀、索引维护。",
+    "description": "记忆整理与知识沉淀（researcher 族——知识维护）",
+    "parent": "researcher",
+    "differentiation": "记忆维护类任务诱导——知识沉淀/索引维护围绕 memory 能力收窄——记忆属于知识一类，归研究族专项维护（2026-08-14 用户裁决）"
+  },
+  "capabilities": {
+    "functions": [
+      "memory",
+      "fs",
+      "readSource"
+    ],
+    "actionTools": [
+      "execTs",
+      "nav"
+    ]
+  },
+  "resources": {
+    "thinking": "medium"
+  },
+  "modules": {}
+}

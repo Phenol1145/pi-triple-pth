@@ -1,7 +1,8 @@
 import { createPgPool, applySchema, createDataWorld } from "@away_from/pth-kernel-storage";
 import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
-import { BatchManager, toKernelActivityEvent, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles, checkTaskRouting, routeTaskRole, parseWorkerRoleRecovery, parseSpaceRecovery, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES, PROFESSIONAL_ROLES, TaskResolver, evaluateAndScale, loadScalerConfig, registerSystemTriggers, createKernelLogger } from "@away_from/pth-kernel-execution";
+import { BatchManager, toKernelActivityEvent, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles, checkTaskRouting, routeTaskRole, parseWorkerRoleRecovery, parseSpaceRecovery, TaskResolver, evaluateAndScale, loadScalerConfig, registerSystemTriggers, createKernelLogger } from "@away_from/pth-kernel-execution";
+import { loadDefaultRoleSets } from "../catalog/index.js";
 import { getEventBus } from "@away_from/pth-kernel-interpreter";
 import { createPenetrationDiscoveryService, TaskControlService, PgTaskQueries } from "../tasking/index.js";
 import { pthConfig } from "@away_from/pth-config";
@@ -164,9 +165,11 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   await applySchema(pool);
 
   // 2026-08-13 审计 P2：内置角色在装配层注入（核心 worker-cluster 不再 import 实现层）
-  setDefaultRoles(DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  // Role Catalog W1：角色内容来自 catalog/data/roles 卡片，分类沿用内置四类 id 集合。
+  const catalogRoles = loadDefaultRoleSets();
+  setDefaultRoles(catalogRoles.defaultRoles, catalogRoles.midRoles, catalogRoles.governanceRoles);
   // Task 3：五个专业角色进入 known lineage/显式权重解析（不进缺省单副本循环）
-  setProfessionalRoles(PROFESSIONAL_ROLES);
+  setProfessionalRoles(catalogRoles.professionalRoles);
   // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入；
   // 内置空间注册移出 space-registry 模块（断 core 实现层环）
   const { setSpaceLookup } = await import("@away_from/pth-memory");

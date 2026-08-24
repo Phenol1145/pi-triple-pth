@@ -18,3 +18,4 @@ export * from "./role-routing-policy.js";
 export * from "./space-lookup.js";
 export * from "./role-vocabulary.js";
 export * from "./role-definition-v1.js";
+export * from "./role-catalog-loader.js";

@@ -16,7 +16,7 @@ import { setSpaceLookup } from "@away_from/pth-memory";
 import { spaceRegistry } from "@away_from/pth-kernel-interpreter";
 import { registerBuiltinSpaces } from "@away_from/pth-kernel-execution";
 import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
-import { DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES, PROFESSIONAL_ROLES } from "@away_from/pth-kernel-execution";
+import { loadDefaultRoleSets } from "../catalog/index.js";
 import { createKernelModelRouter } from "@away_from/pth-kernel-execution";
 import { createLlmFn } from "@away_from/pth-kernel-interpreter";
 import { Refiner, Optimizer } from "@away_from/pth-kernel-execution";
@@ -498,9 +498,11 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
 // argv 兜底兼容直接 node 运行。
 if (pthConfig().str("PTH_BATCH_PROCESS") === "1" || process.argv[1]?.endsWith("batch-process.ts")) {
   // 2026-08-13 审计 P2：fork 子进程独立入口——自注入内置角色（父进程注入不跨进程）
-  setDefaultRoles(DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  // Role Catalog W1：角色内容来自 catalog/data/roles 卡片。
+  const catalogRoles = loadDefaultRoleSets();
+  setDefaultRoles(catalogRoles.defaultRoles, catalogRoles.midRoles, catalogRoles.governanceRoles);
   // Task 3：专业角色进入 known lineage/显式权重解析（不进缺省单副本循环）
-  setProfessionalRoles(PROFESSIONAL_ROLES);
+  setProfessionalRoles(catalogRoles.professionalRoles);
   // 2026-08-15 拆分：fork 子进程同样注册内置空间 + 注入空间查询（记忆包不 import core）
   registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
