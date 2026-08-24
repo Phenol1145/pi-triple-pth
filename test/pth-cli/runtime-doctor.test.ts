@@ -284,6 +284,57 @@ describe("runDoctor", () => {
     expect(core.items.some((i) => i.check === "colima-host-addressing")).toBe(false);
   });
 
+  it("local-process：docker 缺失不阻断，但 dist/URL 缺失会阻断", async () => {
+    const { repoRoot } = await makeRepo();
+    await mkdir(join(repoRoot, "dist", "pth"), { recursive: true });
+    await mkdir(join(repoRoot, "packages", "pth-sandbox", "dist"), { recursive: true });
+    await writeFile(join(repoRoot, "dist", "pth", "main.js"), "// engine");
+    await writeFile(join(repoRoot, "packages", "pth-sandbox", "dist", "main.js"), "// sandbox");
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--target", "local-process", "--profile", "core", "--sandbox", "none"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "docker", argv: ["version"], run: () => ({ code: 1, stdout: "", stderr: "no docker" }) },
+      ]),
+    });
+    expect(report.items.find((i) => i.check === "docker")?.status).toBe("warn");
+    expect(report.items.some((i) => i.check === "image-engine")).toBe(false);
+    expect(report.items.find((i) => i.check === "engine-dist")?.status).toBe("pass");
+    expect(report.items.find((i) => i.check === "data-redis")?.status).toBe("fail");
+    expect(report.items.find((i) => i.check === "data-postgres")?.status).toBe("fail");
+  });
+
+  it("local-process + tools profile → target-compat fail", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--target", "local-process", "--profile", "tools"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    const item = report.items.find((i) => i.check === "target-compat");
+    expect(item?.status).toBe("fail");
+    expect(item?.fix).toContain("--without tools");
+  });
+
+  it("local-process sandbox=process 检查 port-8080；sandbox=none 不检查", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const withSandbox = await runDoctor(["--target", "local-process", "--profile", "core", "--sandbox", "process"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    expect(withSandbox.items.some((i) => i.check === "port-8080")).toBe(true);
+    const withoutSandbox = await runDoctor(["--target", "local-process", "--profile", "core", "--sandbox", "none"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    expect(withoutSandbox.items.some((i) => i.check === "port-8080")).toBe(false);
+  });
+
   it("--json 输出报告结构", async () => {
     const { repoRoot } = await makeRepo();
     const env = { PTH_WORKSPACES_HOST: repoRoot };

@@ -67,7 +67,7 @@ async function defaultPthDown(): Promise<(args: string[], opts: { repoRoot: stri
 
 export const localContainerTarget: DeployTarget = {
   id: "local-container",
-  envPresets() {
+  envPresets(_opts: { sandbox: "process" | "none"; workspacesHost?: string; compiledCacheDir?: string }) {
     // W1 不接线 preset 注入；静态值仅供 status/config 展示（container compose 已硬编码同值）。
     return {
       PTH_PYTHON_MODE: "sandbox-kernel",

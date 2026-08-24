@@ -27,6 +27,7 @@ import {
 } from "./runtime-secrets.js";
 import {
   DEPLOY_TARGET_IDS,
+  confirmLocalProcessTrust,
   coreComposeArgs,
   jupyterComposeArgs,
   resolveTarget,
@@ -50,6 +51,7 @@ export interface OrchestratorDeps {
   doctor?: (args: string[], opts: { repoRoot: string; env?: NodeJS.ProcessEnv }) => Promise<DoctorReport>;
   fetchLike?: typeof fetch;
   log?: (line: string) => void;
+  localProcessAckFile?: string;
 }
 
 export interface OrchestratedArgs {
@@ -106,7 +108,7 @@ export function parseOrchestratedArgs(args: string[], cmd: "up" | "down" | "stat
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a === "--all" || a === "--profile" || a === "--with" || a === "--without"
-      || a === "--target" || a === "--runtime" || a === "--sandbox") {
+      || a === "--target" || a === "--runtime" || a === "--sandbox" || a === "--yes-i-know") {
       if (VALUE_FLAGS.has(a)) i += 1; // 跳过值（--all 无值，多跳无害：下一轮 i++ 覆盖）
       continue;
     }
@@ -166,12 +168,23 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
   const baseEnv = injectSecrets(deps.env ?? process.env, secrets);
   if (deps.env === undefined) applySecretsToProcessEnv(secrets);
 
+  // 0.5) local-process 信任域声明（首次/未带 --yes-i-know）
+  if (parsed.target === "local-process") {
+    await confirmLocalProcessTrust({
+      yes: args.includes("--yes-i-know"),
+      log,
+      ...(deps.localProcessAckFile ? { ackFile: deps.localProcessAckFile } : {}),
+    });
+  }
+
   // 1) doctor（失败即停）
   const doctorFn = deps.doctor ?? (async (doctorArgs, opts) => {
     const { runDoctor } = await import("./runtime-doctor.js");
     return runDoctor(doctorArgs, { repoRoot: opts.repoRoot, env: opts.env });
   });
   const doctorArgs = ["--profile", resolvedProfile.name];
+  if (parsed.target !== "local-container") doctorArgs.push("--target", parsed.target);
+  if (parsed.target === "local-process") doctorArgs.push("--sandbox", parsed.sandbox);
   if (parsed.runtimeOverride) doctorArgs.push("--runtime", parsed.runtimeOverride);
   const doctorReport = await doctorFn(doctorArgs, { repoRoot, env: baseEnv });
   if (!doctorReport.ok) {
@@ -180,6 +193,13 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
 
   const dataComponents = resolvedProfile.components.filter((c) => c.phase === "data" && c.kind === "compose");
   const optionalComponents = resolvedProfile.components.filter((c) => c.phase === "optional");
+  if (parsed.target === "local-process") {
+    const unsupported = optionalComponents.filter((c) => c.id === "tools" || c.id === "jupyter");
+    if (unsupported.length > 0) {
+      const hints = unsupported.map((c) => c.id === "tools" ? "--without tools" : "--without jupyter").join(" / ");
+      throw new Error(`local-process 不支持组件: ${unsupported.map((c) => c.id).join(", ")}（可用 ${hints} 排除）`);
+    }
+  }
   const jupyter = optionalComponents.find((c) => c.id === "jupyter");
   const seed = !parsed.forward.includes("--no-seed-token");
   const explicitToken = flagValue(parsed.forward, "--token");
@@ -197,6 +217,8 @@ export async function orchestrateUp(args: string[], deps: OrchestratorDeps): Pro
     runner,
     timeoutMs,
     log,
+    sandbox: parsed.sandbox,
+    components: resolvedProfile.components,
     pthUp: deps.pthUp ?? await defaultPthLauncher("up"),
     pthDown: deps.pthDown ?? await defaultPthLauncher("down"),
     pthStatus: deps.pthStatus ?? await defaultPthLauncher("status"),
@@ -273,6 +295,8 @@ export async function orchestrateDown(args: string[], deps: OrchestratorDeps): P
     runner,
     timeoutMs: 300_000,
     log,
+    sandbox: parsed.sandbox,
+    components: resolvedProfile.components,
     pthUp: deps.pthUp ?? await defaultPthLauncher("up"),
     pthDown: deps.pthDown ?? await defaultPthLauncher("down"),
     pthStatus: deps.pthStatus ?? await defaultPthLauncher("status"),
@@ -313,6 +337,8 @@ export async function orchestrateStatusAll(args: string[], deps: OrchestratorDep
       runner,
       timeoutMs: 300_000,
       log,
+      sandbox: parsed.sandbox,
+      components: [],
       pthUp: deps.pthUp ?? await defaultPthLauncher("up"),
       pthDown: deps.pthDown ?? await defaultPthLauncher("down"),
       pthStatus,

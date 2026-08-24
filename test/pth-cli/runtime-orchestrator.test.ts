@@ -339,6 +339,26 @@ describe("target 分派", () => {
       }),
     })).rejects.toThrow(/unknown target.*local-container/);
   });
+
+  it("local-process 与 tools/jupyter 组合 fail-fast", async () => {
+    const repoRoot = await makeRepo();
+    await expect(orchestrateUp(["--target", "local-process", "--profile", "full", "--yes-i-know"], {
+      repoRoot,
+      env: { PTH_WORKSPACES_HOST: repoRoot },
+      runner: healthyRunner(repoRoot),
+      profiles: DEFAULT_RUNTIME_PROFILES,
+      doctor: async () => ({ ok: true, profile: "full", items: [] }),
+      localProcessAckFile: join(repoRoot, "ack"),
+      ...makeFakes({
+        order: [],
+        services: async () => {},
+        tools: async () => {},
+        pthUp: async () => {},
+        pthDown: async () => {},
+        pthStatus: async () => {},
+      }),
+    })).rejects.toThrow(/local-process 不支持组件: tools, jupyter/);
+  });
 });
 
 describe("orchestrateStatusAll", () => {
