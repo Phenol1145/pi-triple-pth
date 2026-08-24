@@ -15,7 +15,7 @@ import { PTH_CONFIG_SCHEMA, getConfigDef } from "@away_from/pth-config";
 
 const SRC_ROOT = path.resolve("src/pth");
 const SANDBOX_SRC_ROOT = path.resolve("packages/pth-sandbox/src");
-const COMPOSE_FILES = ["deploy/docker-compose.yaml", "deploy/pth.deployment.json"];
+const COMPOSE_FILES = ["deploy/docker-compose.yaml"];
 
 interface Issue {
   level: "error" | "info";
