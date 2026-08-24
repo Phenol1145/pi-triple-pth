@@ -687,6 +687,12 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/role-catalog-and-four-tuple-refinement-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "active"
+    },
+    {
       "path": "docs/pth/trigger-runtime.md",
       "category": "guides",
       "product": "pth",
