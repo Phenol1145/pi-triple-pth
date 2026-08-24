@@ -32,6 +32,7 @@ export * from "./worker-replica-lease.js";
 export * from "./memory-region-registry.js";
 export * from "./task-cognitive-ledger-outbox.js";
 export * from "./weight-calibration.js";
+export * from "./rebalance-planner.js";
 export * from "./authorization/verified-task-read-scope.js";
 export * from "./layered-knowledge-retriever.js";
 export * from "./knowledge-intake/index.js";
