@@ -9,9 +9,9 @@
  * down 反向：外围（jupyter → u8 → lean → tools）→ core 原子组（pth down）。
  */
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { createSpawnRunner } from "./spawn-runner.js";
 import type { DoctorReport } from "./runtime-doctor.js";
 import {
   resolveProfile,
@@ -92,20 +92,7 @@ export function parseOrchestratedArgs(args: string[], cmd: "up" | "down" | "stat
 }
 
 function defaultRunner(): CommandRunner {
-  return (cmd, argv, opts) =>
-    new Promise<CommandRunResult>((resolvePromise) => {
-      const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], ...(opts?.env ? { env: opts.env } : {}) });
-      let stdout = "";
-      let stderr = "";
-      child.stdout?.setEncoding("utf8");
-      child.stderr?.setEncoding("utf8");
-      child.stdout?.on("data", (chunk: string) => { stdout += chunk; });
-      child.stderr?.on("data", (chunk: string) => { stderr += chunk; });
-      child.on("error", (e) => resolvePromise({ code: -1, stdout, stderr: String(e.message ?? e) }));
-      child.on("close", (code) => resolvePromise({ code: code ?? -1, stdout, stderr }));
-      if (opts?.input !== undefined) child.stdin?.end(opts.input);
-      else child.stdin?.end();
-    });
+  return createSpawnRunner();
 }
 
 async function defaultServicesCommand(): Promise<(args: string[]) => Promise<void>> {

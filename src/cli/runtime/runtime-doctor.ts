@@ -4,12 +4,12 @@
  * 三态：pass（通过）/ warn（警告，不阻断）/ fail（阻断，给出修复命令）。
  * 所有外部命令经可注入 runner（默认 spawn），单测可完全离线。
  */
-import { spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { constants } from "node:fs";
 import { createConnection } from "node:net";
 import { parseSecretsEnvFile } from "./runtime-secrets.js";
+import { createSpawnRunner } from "./spawn-runner.js";
 import { validatePthConfig } from "@away_from/pth-config";
 
 export type DoctorStatus = "pass" | "warn" | "fail";
@@ -60,20 +60,7 @@ export const DOCTOR_PROFILES = ["core", "tools", "lean4", "u8", "jupyter", "full
 export type DoctorProfile = (typeof DOCTOR_PROFILES)[number];
 
 function defaultRunner(): DoctorRunner {
-  return (cmd, argv, opts) =>
-    new Promise<DoctorRunResult>((resolvePromise) => {
-      const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
-      child.stdout?.setEncoding("utf8");
-      child.stderr?.setEncoding("utf8");
-      child.stdout?.on("data", (chunk: string) => { stdout += chunk; });
-      child.stderr?.on("data", (chunk: string) => { stderr += chunk; });
-      child.on("error", (e) => resolvePromise({ code: -1, stdout, stderr: String(e.message ?? e) }));
-      child.on("close", (code) => resolvePromise({ code: code ?? -1, stdout, stderr }));
-      if (opts?.input !== undefined) child.stdin?.end(opts.input);
-      else child.stdin?.end();
-    });
+  return createSpawnRunner();
 }
 
 function argValue(args: string[], name: string): string | undefined {
