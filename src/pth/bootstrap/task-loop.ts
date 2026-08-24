@@ -2,7 +2,7 @@ import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
 import type { WorkerRole } from "@away_from/pth-kernel-execution";
 import type { TaskWorkspaceManager } from "@away_from/pth-kernel-execution";
-import type { TaskOutcome, TaskRepository, TenantScope, TaskDispatchContext } from "@away_from/pth-contracts";
+import type { TaskOutcome, TaskRepository, TenantScope, TaskDispatchContext, TaskLease, TaskWorkItem, TaskSuspension } from "@away_from/pth-contracts";
 import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import { TaskDispatcher } from "../tasking/index.js";
 import { TaskOutcomeCommitter } from "../tasking/index.js";
@@ -16,15 +16,57 @@ import { createNotifierObserver } from "../runner/index.js";
 import { buildRefineSideEffects } from "../runner/index.js";
 import { createOptimizerObserver } from "../runner/index.js";
 import { buildScorecard, computeTimeReuse } from "@away_from/pth-kernel-execution";
-import { translateTask } from "@away_from/pth-kernel-execution";
-import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
-import { runAgentTask } from "@away_from/pth-kernel-execution";
 import { getEventBus } from "@away_from/pth-kernel-interpreter";
 import { publishDebugCaseTask } from "@away_from/pth-kernel-interpreter";
 import { notifyTaskDone, classifyReason } from "./task-loop-helpers.js";
 import { readWorkItemDomainBinding, readWorkItemDomains, type ObserverFailureRecord } from "../tasking/index.js";
 import type { TaskLoopDeps } from "./task-loop-types.js";
 export type { TaskLoopDeps } from "./task-loop-types.js";
+
+/** legacy Task → TaskLease（兼容路径：无 repository 时仍可委托 AgentTaskRunner）。 */
+function legacyTaskLease(task: Task, roleId: string, ws: { tenant: string; dir: string }): TaskLease {
+  const tenantId = task.tenantId ?? "default";
+  const scope: TenantScope = {
+    tenantId,
+    principalId: task.createdBy || `worker:${roleId}`,
+    roles: [roleId],
+    traceId: ((task.payload ?? {}) as { traceId?: string }).traceId ?? `legacy-${task.id}`,
+  };
+  return {
+    taskId: task.id,
+    leaseId: task.leaseId ?? `legacy-${task.id}`,
+    generation: task.leaseGeneration ?? 1,
+    scope,
+    roleId,
+    workspace: { tenantId, workspaceId: `task:${task.id}`, taskId: task.id },
+    deadlineAt: task.leaseExpiresAt?.toISOString() ?? new Date(Date.now() + 60_000).toISOString(),
+  };
+}
+
+/** legacy Task → TaskWorkItem（兼容路径）。 */
+function legacyTaskWorkItem(task: Task, roleId: string, ws: { tenant: string; dir: string }): TaskWorkItem {
+  const tenantId = task.tenantId ?? "default";
+  const scope: TenantScope = {
+    tenantId,
+    principalId: task.createdBy || `worker:${roleId}`,
+    roles: [roleId],
+    traceId: ((task.payload ?? {}) as { traceId?: string }).traceId ?? `legacy-${task.id}`,
+  };
+  const domains = readWorkItemDomains(task.payload);
+  const domainBinding = readWorkItemDomainBinding(task.payload, domains);
+  return {
+    taskId: task.id,
+    scope,
+    title: task.title,
+    text: task.text,
+    tags: task.tags,
+    payload: task.payload ?? {},
+    assignedRole: roleId,
+    domains,
+    ...(domainBinding ? { domainBinding } : {}),
+    workMode: task.workMode ?? "run",
+  };
+}
 
 export class TaskLoop {
   constructor(private deps: TaskLoopDeps) {}
@@ -394,131 +436,88 @@ export class TaskLoop {
     kernel.reset();                          // 任务级状态隔离
     this.stampTaskDispatchContext(task);
     try {
-      // 任务池纯化（2026-08-10 D1）：任务池只面向自然语言——agent 循环为唯一执行路径。
-      // （混合池是调试期临时形态；直连 kernel 的 TS 操作走 /kernel/exec 通道，不占任务池）
-      // 降级链：PTH_EXEC_MODE=pulse 或 legacy missing-agent-caps → 一次性转译（translateTask）；无 llm → terminal reject。
+      // Wave 4 收敛：legacy 路径统一委托 AgentTaskRunner（与 dispatched 路径共享同一执行入口）。
       const runnerConfig = defaultRunnerConfig();
-      if (runnerConfig.execMode === "ptc") {
-        await this.rejectTerminal(task, "unsupported-exec-mode: PTH_EXEC_MODE=ptc 尚未接入（Wave 5）", chain, "unsupported-exec-mode");
-        return;
-      }
-      let code: string | null = null;
+      const lease = legacyTaskLease(task, role.id, ws);
+      const work = legacyTaskWorkItem(task, role.id, ws);
+      const traceEvents: import("@away_from/pth-kernel-execution").AgentTraceEvent[] = [
+        { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },
+      ];
+      (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;
+      // sandbox grant 动态绑定（legacy 兼容路径保留——N28 T2 断言依赖）
+      (kernel as { setExecutionGrantContext?(ctx: { taskId: string; tenantId: string; principalId?: string }): void })
+        .setExecutionGrantContext?.({
+          taskId: task.id,
+          tenantId: task.tenantId ?? "system",
+          principalId: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id,
+        });
       let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
       let cacheStore: import("@away_from/pth-kernel-execution").CacheStore | undefined;   // 任务完成点取利用率（N3）
-      if ((runnerConfig.execMode === "tool-call" || runnerConfig.execMode === "asp") && this.deps.llm && this.deps.agentCaps) {
-          // 任务工作区 = 正式工作区（workspaceMgr.allocate 的 ws.dir——archive 归档同一目录——
-          // fs.task 白名单含 /tasks/ ✓——agent 产物随归档持久化——不丢）
-          const taskWorkspace: string | undefined = ws?.dir;
-          // 运行过程保留（2026-08-09）：轨迹事件收集 → 任务结束写 transcript（结构化审计/复现）
-          const traceEvents: import("@away_from/pth-kernel-execution").AgentTraceEvent[] = [
-            { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
-          ];
-          (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;  // refine 任务 3 输入
-          // 随身缓存（ASP——任务级行李）：元空间级状态——agent-loop 元工具与 ts vm 注入同源
-          const { CacheStore } = await import("@away_from/pth-kernel-execution");
-          cacheStore = new CacheStore();
-          const cs = cacheStore;   // 闭包内非空收窄（TS 控制流不穿透闭包）
-          // 任务级能力装配（2026-08-14 A1 Phase 3 条目 12）：cache 注入收敛进 runner——
-          // 不再直调 injectCapability；agent-loop 透传，每 ts 程序执行前统一装配（与越界预检同一机制）
-          const capabilityInject: Record<string, unknown> = {
-            cache: {
-              get: (k: string) => cs.get(k),
-              keys: () => cs.keys(),
-              load: (k: string, c: string) => cs.load(k, String(c), "ts-program"),
-              cancel: (k: string) => cs.cancel(k),
-              index: () => cs.index(),
-              utilization: () => cs.utilization(),
-            },
-          };
-          // sandbox grant 动态绑定：本任务 taskId/tenantId 下发给 kernel 工厂（worker 级兜底 → 任务级）
-          (kernel as { setExecutionGrantContext?(ctx: { taskId: string; tenantId: string; principalId?: string }): void })
-            .setExecutionGrantContext?.({
-              taskId: task.id,
-              tenantId: task.tenantId ?? "system",
-              principalId: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id,
-            });
-          // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
-          const toolRegistry = this.deps.toolRegStore
-            ? await (await import("@away_from/pth-kernel-interpreter")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: task.tenantId ?? "default" })
-            : undefined;
-          const r = await runAgentTask({
-            llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
-            task: { title: task.title, text: task.text },
-            taskWorkspace,
-            toolstore: (kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
-            role,
-            asp: runnerConfig.aspMode,   // 执行模式统一入口（兼容 PTH_ASP_MODE=on）
-            sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
-            cache: cs,
-            capabilityInject,
-            toolRegistry,
-            toolRegExec: this.deps.toolRegRunChild
-              ? { runChild: this.deps.toolRegRunChild, caller: { taskId: task.id, roleId: role.id, tenantId: task.tenantId ?? "default", delivery: null } }
-              : undefined,
-            onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
-            logger: (m) => taskLogger?.info(m),
-            onTrace: (e) => {
-              traceEvents.push(e);
-              // 活动事件流（实时——console --follow）：llm step（token 用量）/工具调用/完成
-              if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
-              else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
-              else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
-            },
-          });
-          // 完成后持久化轨迹（transcript——task_id 关联）
-          try {
-            await this.deps.transcripts?.create({
-              taskId: task.id,
-              agentId: role.id,
-              body: traceEvents,
-              // 压缩产物优先（CoT 总结——评估读者不碰全量轨迹）；无压缩回退 200c 预览
-              summary: r.compression?.text ?? (r.ok ? (r.value !== undefined && r.value !== null ? JSON.stringify(r.value).slice(0, 200) : (r.summary ?? "")?.slice(0, 200)) : (r.error ?? "").slice(0, 200)),
-            });
-          } catch (e) {
-            taskLogger?.warn?.(`[transcript] agent 轨迹写入失败: ${(e as Error).message}`);
-          }
-          taskLogger?.info("agent task finished", { ok: r.ok, steps: r.steps });
-          if (!r.ok) {
-            await this.rejectTerminal(task, r.error, chain);
-            taskLogger?.error(r.error);
-            return;
-          }
-          // 完成标准强制（done 引导的系统级保障——2026-08-09）：agent 结束但无产物。
-          // D5：软终止/警告闭合（maxSteps/重复/负结果循环）→ 回池重试（claims_count 兜底）；
-          // 无 warning 的空产物仍是终态 reject（agent-no-output）。
-          if (r.value === undefined || r.value === null) {
-            if (r.warning) {
-              const reason = `soft-terminated: ${r.warning}`;
-              await this.requeue(task, reason, chain);
-              taskLogger?.warn(reason, { steps: r.steps });
-              return;
-            }
-            const reason = "agent-no-output: agent 完成但未产出结果（done 未带 result）";
-            await this.rejectTerminal(task, reason, chain);
-            taskLogger?.error(reason, { steps: r.steps });
-            return;
-          }
-          agentResult = { value: r.value, summary: r.summary, steps: r.steps };
-      } else if (this.deps.llm) {
-        // 降级通道（agent-off / 无 caps）：NL→TS 一次性转译后直执行
-        const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
-        if (!t.ok) {
-          await this.rejectTerminal(task, t.error, chain, "nl-translate-failed");
-          taskLogger?.error(t.error);
-          return;
-        }
-        code = t.code;
-        taskLogger?.info("nl task translated", { codeLen: code.length });
-      } else {
-        // 无 llm：纯化后任务池无直执行路径——terminal reject（调试执行走 /kernel/exec）
-        const reason = "no-llm: 任务池为自然语言池（agent/translate 均需 LLM）——直连执行请走 /kernel/exec 通道";
-        await this.rejectTerminal(task, reason, chain, "no-llm");
-        taskLogger?.error(reason);
+      let result: { ok: boolean; value?: unknown; stdout?: string; stderr?: string; durationMs: number; language: string; error?: { message: string; code?: string } } | null = null;
+      const runner = new AgentTaskRunner({
+        kernel,
+        role,
+        workspace: { taskId: task.id, tenant: ws.tenant, dir: ws.dir },
+        llm: this.deps.llm,
+        caps: this.deps.agentCaps,
+        config: runnerConfig,
+        toolRegStore: this.deps.toolRegStore,
+        toolRegRunChild: this.deps.toolRegRunChild,
+        knowledgeContextProvider: this.deps.knowledgeContextProvider,
+        replica: this.deps.replica?.ref,
+        verifiedReadScopeFactory: this.deps.verifiedReadScopeFactory,
+        memoryDirectory: this.deps.memoryDirectory,
+        cognitiveWorkingSetProvider: this.deps.cognitiveWorkingSetProvider,
+        cognitiveResponsibilityMode: this.deps.cognitiveResponsibilityMode,
+        authorizedReads: this.deps.authorizedReads,
+        professionalRegistry: this.deps.professionalRuntimeRegistry,
+        professionalArtifacts: this.deps.professionalArtifacts,
+        professionalGrantService: this.deps.professionalGrantService,
+        professionalGrantTtlMs: this.deps.professionalGrantTtlMs,
+        commandGateway: this.deps.commandGateway,
+        extraTools: this.deps.extraTools,
+        adapterRegistry: this.deps.adapterRegistry,
+        executionDispatcher: this.deps.executionDispatcher,
+        logger: (m) => taskLogger?.info(m),
+        onTrace: (e) => {
+          traceEvents.push(e);
+          if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
+          else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
+          else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
+        },
+      });
+      const outcome = await runner.run({ lease, work });
+      if (!outcome || !("status" in outcome)) {
+        // TaskSuspension：legacy 兼容路径没有独立 suspension 处理器，统一 requeue。
+        const suspension = outcome as TaskSuspension;
+        const reason = suspension?.kind === "publisher-question"
+          ? `publisher-question: ${suspension.question}`
+          : suspension?.kind === "human"
+            ? `human-approval: ${suspension.requestId}`
+            : "task-suspension";
+        await this.requeue(task, reason, chain);
         return;
       }
-      const result = agentResult
-        ? { ok: true, value: agentResult.value, stdout: agentResult.summary ?? "", stderr: "", durationMs: Date.now() - execStart, language: "agent" }
-        : (await runPtcProgram({ code: code!, cwd: ws.dir, ts: kernel.ts })).raw;
+      if (outcome.status === "cancelled") {
+        await this.requeue(task, `cancelled: ${outcome.error?.message ?? "cancelled"}`, chain);
+        return;
+      }
+      if (outcome.status === "rejected") {
+        if (outcome.retryable || outcome.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+          await this.requeue(task, `${outcome.error?.code ?? "rejected"}: ${outcome.error?.message ?? "retryable"}`, chain);
+          return;
+        }
+        const reason = outcome.error?.code === "agent-failed"
+          ? outcome.error?.message ?? "agent failed"
+          : `${outcome.error?.code ?? "rejected"}: ${outcome.error?.message ?? "rejected"}`;
+        await this.rejectTerminal(task, reason, chain, outcome.error?.code);
+        return;
+      }
+      const value = (outcome.result as { value?: unknown } | undefined)?.value;
+      const summary = (outcome.result as { summary?: string } | undefined)?.summary ?? "";
+      const steps = (outcome.result as { steps?: number } | undefined)?.steps ?? 0;
+      agentResult = { value, summary, steps };
+      result = { ok: true, value, stdout: summary, stderr: "", durationMs: Date.now() - execStart, language: "agent" };
       const execMs = Date.now() - execStart;
       // 性能计量（SPEC L1）：TS 主执行计入 kernel exec（python/bash 由 metered 包装计）
       this.deps.onTaskMetric?.({ type: "exec", language: "ts", durationMs: execMs, ok: result.ok });

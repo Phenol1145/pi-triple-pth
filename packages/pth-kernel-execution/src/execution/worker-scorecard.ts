@@ -42,6 +42,10 @@ export interface WorkerScorecard {
   pauseCount?: number;
   /** 生命周期 P3：循环内压缩次数（compression-heavy 信号） */
   compressionCount?: number;
+  /** Wave 1：活动因子（观察策略求值结果，按 strategyId → value） */
+  activityFactors?: Readonly<Record<string, number>>;
+  /** Wave 2：工具执行耗时聚合（tool → 累计 ms） */
+  toolDurationMs?: Record<string, number>;
 }
 
 /**
@@ -51,8 +55,18 @@ export interface WorkerScorecard {
  *   全串行（链式依赖）：关键路径 n → 复用率 0
  * 无依赖标注（缺 dependsOn）视为可并行；单任务/无 subtasks 返回 null（无复用概念）。
  */
-export function computeTimeReuse(subtasks: Array<{ id?: string; dependsOn?: string[] }> | undefined): number | null {
-  if (!Array.isArray(subtasks) || subtasks.length < 2) return null;
+/** 把活动因子附加到 scorecard（Wave 1——scorecard/optimizer/sensor 消费 ActivityFactor）。 */
+export function attachActivityFactors(
+  sc: WorkerScorecard,
+  factors: ReadonlyArray<{ strategyId: string; value: number }>,
+): WorkerScorecard {
+  if (factors.length === 0) return sc;
+  const activityFactors: Record<string, number> = {};
+  for (const f of factors) activityFactors[f.strategyId] = f.value;
+  return { ...sc, activityFactors };
+}
+
+export function computeTimeReuse(subtasks: Array<{ id?: string; dependsOn?: string[] }> | undefined): number | null {  if (!Array.isArray(subtasks) || subtasks.length < 2) return null;
   const n = subtasks.length;
   const idx = new Map<string, number>(subtasks.map((s, i) => [String(s.id ?? `s${i}`), i]));
   const adj: number[][] = subtasks.map(() => []);
@@ -84,6 +98,7 @@ export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {
     guards: { hits: {}, guide: {}, soft: {}, hard: {} },
     pauseCount: 0,
     compressionCount: 0,
+    toolDurationMs: {},
   };
   for (const e of events) {
     if (e.type === "llm-call") {
@@ -105,6 +120,7 @@ export function buildScorecard(events: AgentTraceEvent[]): WorkerScorecard {
         sc.failedActions++;
         if (e.resultPreview.includes("门控")) sc.gatedActions++;
       }
+      sc.toolDurationMs![e.tool] = (sc.toolDurationMs![e.tool] ?? 0) + e.durationMs;
     } else if (e.type === "guard") {
       sc.guards.hits[e.guard] = (sc.guards.hits[e.guard] ?? 0) + 1;
       if (e.kind === "guide") sc.guards.guide[e.guard] = (sc.guards.guide[e.guard] ?? 0) + 1;

@@ -21,8 +21,8 @@
 
 ## 已知债务
 
-- legacy `TaskLoop.execute()` 仍保留兼容分支，生产主路径已走 `AgentTaskRunner`；后续版本建议彻底删除 legacy 分支。
 - 自定义 adapter 的完整 AST 审核通道仍为预留入口，生产接入需走提案审核。
+- legacy `TaskLoop.execute()` 已收敛为委托 `AgentTaskRunner` 执行，后续版本可进一步删除兼容分支。
 
 ## 验证
 
