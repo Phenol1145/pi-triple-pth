@@ -1,6 +1,6 @@
 # PTH Bench 统一抽象设计（agentic benchmark + 运行效率测试）
 
-> 状态：**设计稿（已定方向）；W0–W3 核心/runner/gate/ScriptedLlmFn 已落地（2026-08-24）**
+> 状态：**设计稿（已定方向）；W0–W4 核心/runner/gate/ScriptedLlmFn/matrix 已落地（2026-08-24）**
 > 分支：`feat/pth-exec-unified`
 > 关联设计：`three-source-lineage-and-capacity-conservation-design.md`（三源谱系——本装置是其
 > 受控测量上游）、`execution-modes-and-tool-reg-v2-design.md`（观察策略/活动因子/WorkerKind——
