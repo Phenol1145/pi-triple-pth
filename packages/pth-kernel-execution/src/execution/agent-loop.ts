@@ -33,6 +33,67 @@ import { executeRegisteredTool } from "./agent-loop-registry-execution.js";
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+/** W2：判断 ts 程序返回值是否为 AgentToolResult 形态（能力对象 asAction 直接返回结果） */
+function isAgentToolResultLike(v: unknown): v is AgentToolResult {
+  return !!v && typeof v === "object" && typeof (v as { ok?: unknown }).ok === "boolean";
+}
+
+/** W2：tool-call 投影执行（tool → asAction 代码 → runPtcProgram）。返回 undefined 表示继续循环。 */
+async function executeProjectedTool(args: {
+  input: AgentTaskInput & AgentLoopOptions;
+  tool: string;
+  toolArgs: Record<string, unknown>;
+  messages: Array<{ role: string; content: string; toolCallId?: string; toolName?: string }>;
+  steps: number;
+  toolCallId?: string;
+  stepStart: number;
+}): Promise<AgentTaskResult | undefined> {
+  const { input, tool, toolArgs, messages, steps, toolCallId, stepStart } = args;
+  const wrap = AGENT_CAPABILITY_AS_ACTION[tool] ?? AGENT_CAPABILITY_AS_ACTION[tool.replace(/_/g, ".")];
+  if (!wrap) return undefined;
+  const code = wrap(toolArgs);
+  input.logger?.(`[agent] step=${steps + 1} projected-tool ${tool} → ts 程序`);
+  const { raw } = await runPtcProgram({
+    code,
+    cwd: input.taskWorkspace ?? "/tmp",
+    ts: input.kernel.ts,
+    caps: input.capabilityInject,
+    registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
+  });
+  if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
+    return { ok: true, value: null, steps: steps + 1, warning: raw.error.message };
+  }
+  let result: AgentToolResult;
+  if (!raw.ok) {
+    result = { ok: false, error: raw.error?.message ?? "ts execute failed", code: raw.error?.code };
+  } else if (isAgentToolResultLike(raw.value)) {
+    result = raw.value;
+  } else {
+    result = { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text };
+  }
+  if (!result.ok && result.code === "HUMAN_APPROVAL_PENDING" && result.requestId) {
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
+    return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: result.requestId } };
+  }
+  input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(toolArgs).slice(0, 300) });
+  try {
+    input.kernel.ts.registerResult?.(`result_${steps + 1}`, {
+      tool,
+      ok: result.ok,
+      value: result.ok ? result.value : undefined,
+      stdout: (result.stdout ?? "").slice(0, 2000),
+      error: result.ok ? undefined : result.error,
+    });
+  } catch { /* mock 容忍 */ }
+  const summary = result.ok
+    ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
+    : `error: ${result.error ?? (result.stderr?.trim() ? result.stderr : "unknown")}`;
+  messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}` });
+  input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500), capabilityId: tool });
+  return undefined;
+}
+
 /** 构建 agent system prompt：角色人设 + 工具协议 + 能力文档 + PTC 程序模式引导 + 输出要求 */
 /** PTH Worker 世界观（2026-08-09——参考 pi 系统提示词/AGENTS.md 功能：身份/工作流/框架事实/约束）。
  * 固定注入（所有角色共享——buildAgentSystemPrompt 最前）——worker 知道自己在 PTH 框架。
@@ -439,6 +500,20 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         routeDriftGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, false);
       }
     }
+    // W2：tool-call 投影主路——已注入的能力（dev/write/debug）走 asAction 代码投影。
+    // loop 宿主工具（done/pause/asp/cache/memory.index）与 tool-reg 注册工具保持原执行缝。
+    const projectedKey = AGENT_CAPABILITY_AS_ACTION[executorKey] ? executorKey : executorKey.replace(/_/g, ".");
+    const hasProjection = Object.prototype.hasOwnProperty.call(AGENT_CAPABILITY_AS_ACTION, projectedKey);
+    const isLoopHostTool = executorKey === "done" || executorKey === "pause" || executorKey === "asp.cd" || executorKey === "asp.index" || executorKey === "memory.index" || executorKey.startsWith("cache.");
+    const projectedRoot = executorKey.split(".")[0]!;
+    if (
+      hasProjection && !isLoopHostTool &&
+      input.capabilityInject && typeof input.capabilityInject[projectedRoot] === "object" &&
+      !(registryByName.size > 0 && (registryByName.has(executorKey) || registryByName.has(executorKey.replace(/_/g, "."))))
+    ) {
+      return executeProjectedTool({ input, tool: executorKey, toolArgs: args, messages, steps, toolCallId, stepStart });
+    }
+
     let executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
     // N14 P2：注册表分发（静态表未命中时）——builtin 态回指 AGENT_TOOLS 执行器（归并标准路径）；
     // program/agent 态走注册执行缝（下方独立分发）

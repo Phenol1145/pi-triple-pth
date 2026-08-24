@@ -6,7 +6,7 @@
  */
 
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
-import type { AgentToolResult } from "../../agent-tools-registry.js";
+import type { AgentToolResult } from "../../agent-tool-types.js";
 import {
   applyOutputMode,
   ensureAsmKernel,

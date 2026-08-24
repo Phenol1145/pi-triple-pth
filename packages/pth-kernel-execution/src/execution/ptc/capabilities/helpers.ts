@@ -6,7 +6,7 @@
  */
 
 import { pthConfig } from "@away_from/pth-config";
-import type { AgentToolResult } from "../../agent-tools-registry.js";
+import type { AgentToolResult } from "../../agent-tool-types.js";
 
 export function str(args: Record<string, unknown>, key: string): string {
   const v = args[key];

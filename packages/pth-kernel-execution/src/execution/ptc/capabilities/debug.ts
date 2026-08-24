@@ -4,7 +4,7 @@
  * 从 agent-tools-registry.ts 抽出，行为逐字节保留。
  */
 
-import type { AgentToolResult } from "../../agent-tools-registry.js";
+import type { AgentToolResult } from "../../agent-tool-types.js";
 import { debugCall, readArtifact, truncate } from "./helpers.js";
 
 export interface DebugCapabilityDeps {

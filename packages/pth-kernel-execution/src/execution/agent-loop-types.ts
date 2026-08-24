@@ -72,7 +72,7 @@ export interface AgentLoopOptions {
 export type AgentTraceEvent =
   | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string; usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number } }
   | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
-  | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string; adapterId?: string; execKind?: "language" | "external" | "internal" | "agent"; target?: string; errorClass?: string; errorCode?: string; retryable?: boolean; feedback?: CommandFeedback }
+  | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string; adapterId?: string; execKind?: "language" | "external" | "internal" | "agent"; target?: string; errorClass?: string; errorCode?: string; retryable?: boolean; feedback?: CommandFeedback; capabilityId?: string }
   | { type: "guard"; step: number; guard: "repeat-action" | "empty-done" | "empty-reply" | "unknown-tool" | "negative-loop" | "route-drift"; kind: "hit" | "guide" | "soft" | "hard"; count: number; limit: number }
   | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string }
   | { type: "compression"; inputChars: number; outputChars: number }
