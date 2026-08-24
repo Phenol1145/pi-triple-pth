@@ -6,3 +6,4 @@ export * from "./runner.js";
 export * from "./gate.js";
 export * from "./scripted-llm.js";
 export * from "./matrix.js";
+export * from "./http-driver.js";
