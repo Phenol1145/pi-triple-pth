@@ -1,6 +1,6 @@
 # TCE 网络信息基础设施 V1 实施设计
 
-> 状态：**已对齐 V1 架构报告，待实施**
+> 状态：**Wave 0-4 已实施；Wave 5 验收/文档收尾中**
 > 日期：2026-08-26
 > 上位约束：[ADR-0004：TCE 的 C 是 Code](../../adr/0004-tce-code-layer-ptc-capability-first.md)
 > 权威范围：[PTH 网络信息基础设施 V1 架构报告](../report/network-information-foundation-v1-architecture-report-2026-08-26.md)
