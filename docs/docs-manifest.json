@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-24T14:13:42.916Z",
+  "generatedAt": "2026-08-25T04:46:38.759Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -555,7 +555,19 @@
       "status": "historical"
     },
     {
+      "path": "docs/pth/plan/n26-productionization-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/plan/n27-r1-r6-fix-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/n28-productionization-plan.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
@@ -568,6 +580,12 @@
     },
     {
       "path": "docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/repo-structure-diagnosis-and-reorganization-plan.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
@@ -613,6 +631,12 @@
       "category": "releases",
       "product": "pth",
       "status": "active"
+    },
+    {
+      "path": "docs/pth/report/code-audit-2026-08-24.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
     },
     {
       "path": "docs/pth/report/k5-eval-report.md",

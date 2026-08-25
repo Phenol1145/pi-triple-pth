@@ -58,6 +58,7 @@
 | 11 | **pth-cli 新命令注册渠道** | `docs/pth/design/pth-cli-command-registry-design.md` | 设计定稿待评审 | Symlink Command Registry（外部可执行模型） | 独立 CLI 增强 |
 | 12 | **执行模式与 Tool-Reg v2 设计定稿** | `docs/pth/design/execution-modes-and-tool-reg-v2-design.md` | 草案修订版，仍有待评审决策点 | 执行模式统一、Command adapter、规范化优化循环 | 实现计划已按推荐口径落地；设计稿需与 ADR-0004（C=Code）对齐后定稿 |
 | 13 | **三源设计 §12 当前概要设计** | `docs/pth/design/three-source-lineage-and-capacity-conservation-design.md` | 占位未补充 | §12 由维护者补写当前概要设计 | 文档待办，非代码计划 |
+| 14 | **仓库结构诊断与重组 P0–P4** | `docs/pth/plan/repo-structure-diagnosis-and-reorganization-plan.md` | 诊断+方案已交付（2026-08-25），P0 待启动 | 文档纠偏（architecture/module-ownership/PROJECT_DIR_DUTY）→ 杂散归位 → scripts/test 分区 → src↔packages 收口评审 → 机械化保障 | P0-3/P0-4 最优先：PROJECT_DIR_DUTY 含 4 个不存在目录且注入 worker 提示词；P3 需先出 ADR |
 
 ## 5. 文档状态滞后 / 需回填
 
