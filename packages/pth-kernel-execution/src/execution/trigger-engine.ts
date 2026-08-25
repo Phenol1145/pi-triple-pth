@@ -105,7 +105,7 @@ const MAX_CHAIN_DEPTH = 5;
 
 export class TriggerEngine {
   private triggers: TriggerEntry[] = [];
-  /** 系统级 trigger（代码内置——非 memory 存储——reload 不覆盖；Origin 升级链用） */
+  /** 系统级 trigger（代码内置——非 memory 存储——reload 不覆盖；通用 retask 链用） */
   private systemTriggers: TriggerEntry[] = [];
   private loadedAt = 0;
   private unsubscribe: (() => void) | null = null;
@@ -243,21 +243,21 @@ export class TriggerEngine {
       }
       const vars = { taskId: e.taskId ?? "", role: e.role ?? "", detail: e.detail ?? "" };
       try {
-        // retask 模式（Origin 升级链——2026-08-10 设计 D3）：重发布原任务（正文继承）+ 转写标签
+        // retask 模式（通用 trigger 能力——2026-08-10 设计 D3）：重发布原任务（正文继承）+ 转写标签
         if (t.def.task?.retask) {
           const orig = e.taskId ? await this.deps.tasks.getById(e.taskId) : null;
           if (!orig) {
             this.deps.logger?.(`[trigger] ${t.def.name} 升级跳过：原任务 ${e.taskId ?? "?"} 不存在`);
             continue;
           }
-          // 终态闸：原任务已属升级目标角色（Origin 失败）→ 不再升级——防死循环最终闸
+          // 终态闸：原任务已属升级目标角色 → 不再升级——防死循环最终闸
           let target: string | null = t.def.task.role ?? null;
           if (!target) {
             const r = tagRegistry.routeRole(t.def.task.tags ?? []);
             target = r.ok ? r.role : null;
           }
           if (target && orig.assigned_role === target) {
-            this.deps.logger?.(`[trigger] ${t.def.name} 升级终止：任务 ${orig.id} 已属 ${target}（Origin 失败即终态）`);
+            this.deps.logger?.(`[trigger] ${t.def.name} 升级终止：任务 ${orig.id} 已属 ${target}（终态闸）`);
             continue;
           }
           const task = await this.deps.tasks.publish({

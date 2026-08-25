@@ -11,6 +11,9 @@
  *  - `dev-container`（tool-container）只接受 `kind: "external"`，拒绝 `language` 代码，
  *    防止 `bash -lc` 绕过 manifest argv 白名单。
  *  - 未注入 targetRegistry 时退化为显式 target 直连（测试/legacy 兼容）。
+ *
+ * W4（ADR-0004）：Execute 层重新定位为「能力实现的路由表」；本分发器仍是
+ * 兼容 shim（未在生产装配），实际 worker 主路已由 runPtcProgram + 能力对象接管。
  */
 
 import type {
@@ -63,6 +66,8 @@ export interface UnifiedExecutionDispatcherDeps {
   commandExecutor?: (target: ExecutionTargetDefinition, req: CommandExecutorRequest) => Promise<InterpreterResult>;
   /** internal 能力执行器（缺省 = 不支持）。 */
   internalExecutor?: (capability: string, args: Record<string, unknown>) => Promise<ExecutionResult>;
+  /** agent 子任务执行器（Tool-Reg v2 agent adapter；缺省 = 不支持）。 */
+  agentExecutor?: (command: Extract<ExecutionCommand, { kind: "agent" }>) => Promise<ExecutionResult>;
   /** 生成 command id（缺省随机）。 */
   createId?: () => string;
 }
@@ -88,6 +93,7 @@ export class UnifiedExecutionDispatcherImpl implements UnifiedExecutionDispatche
   private readonly sessionExecutor?: UnifiedExecutionDispatcherDeps["sessionExecutor"];
   private readonly commandExecutor?: UnifiedExecutionDispatcherDeps["commandExecutor"];
   private readonly internalExecutor?: UnifiedExecutionDispatcherDeps["internalExecutor"];
+  private readonly agentExecutor?: UnifiedExecutionDispatcherDeps["agentExecutor"];
   private readonly createId: () => string;
 
   constructor(deps: UnifiedExecutionDispatcherDeps) {
@@ -97,6 +103,7 @@ export class UnifiedExecutionDispatcherImpl implements UnifiedExecutionDispatche
     this.sessionExecutor = deps.sessionExecutor;
     this.commandExecutor = deps.commandExecutor;
     this.internalExecutor = deps.internalExecutor;
+    this.agentExecutor = deps.agentExecutor;
     this.createId = deps.createId ?? (() => `exec-${Math.random().toString(36).slice(2, 10)}`);
   }
 
@@ -106,6 +113,7 @@ export class UnifiedExecutionDispatcherImpl implements UnifiedExecutionDispatche
     try {
       if (command.kind === "language") return await this.executeLanguage(command, id, started);
       if (command.kind === "external") return await this.executeExternal(command, id, started);
+      if (command.kind === "agent") return await this.executeAgent(command, id, started);
       return await this.executeInternal(command, id, started);
     } catch (error) {
       return {
@@ -204,6 +212,14 @@ export class UnifiedExecutionDispatcherImpl implements UnifiedExecutionDispatche
       throw new Error(`internal 命令需要 internalExecutor（未注入）`);
     }
     const r = await this.internalExecutor(command.capability, command.args);
+    return { ...r, durationMs: r.durationMs || (Date.now() - started) };
+  }
+
+  private async executeAgent(command: Extract<ExecutionCommand, { kind: "agent" }>, id: string, started: number): Promise<ExecutionResult> {
+    if (!this.agentExecutor) {
+      throw new Error(`agent 命令需要 agentExecutor（未注入）`);
+    }
+    const r = await this.agentExecutor(command);
     return { ...r, durationMs: r.durationMs || (Date.now() - started) };
   }
 

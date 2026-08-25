@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createN28InMemoryBundle } from "../../scripts/n28-feasibility-harness.js";
-import { N28_WORKERS } from "../../scripts/n28-feasibility-fixture.js";
+import { createN28InMemoryBundle } from "../../scripts/tools/n28-feasibility-harness.js";
+import { N28_WORKERS } from "../../scripts/tools/n28-feasibility-fixture.js";
 
 describe("cognitive-responsibility vertical（生产组合 + 真实 runAgentTask）", () => {
   it("algebra/geometry/global 三任务：prompt 命中对应 token、toolNames≤16、globalFallback、usage 六键、无 trap", async () => {

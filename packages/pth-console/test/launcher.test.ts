@@ -195,15 +195,18 @@ describe("pth down / status / logs", () => {
 });
 
 describe("pth init / 解析函数", () => {
-  it("init 复制 example + chmod 600；已存在需 --force", async () => {
+  it("init 自动生成密钥 + 写入 workspaces + chmod 600；已存在需 --force", async () => {
     const repoRoot = await makeRepo(false);
     const { launcher } = makeLauncher(repoRoot, {});
-    await launcher.init([]);
+    const ws = join(repoRoot, "ws");
+    await launcher.init(["--workspaces", ws]);
     const secrets = join(repoRoot, "deploy", ".env.pth.secrets");
-    expect(await readFile(secrets, "utf8")).toBe(EXAMPLE_TEXT);
+    const text = await readFile(secrets, "utf8");
+    expect(text).not.toContain("dev-only-change-me");
+    expect(text).toContain(`PTH_WORKSPACES_HOST=${ws}`);
     expect((await stat(secrets)).mode & 0o777).toBe(0o600);
-    await expect(launcher.init([])).rejects.toMatchObject({ code: "INIT_FAILED" });
-    await launcher.init(["--force"]);
+    await expect(launcher.init(["--workspaces", ws])).rejects.toMatchObject({ code: "INIT_FAILED" });
+    await launcher.init(["--workspaces", ws, "--force"]);
   });
 
   it("parseEnvFile 处理 export/注释/空行", () => {

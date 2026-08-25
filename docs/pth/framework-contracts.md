@@ -1,7 +1,7 @@
 # PTH 框架契约（Framework Contracts）
 
 > 状态：**活文档**（2026-08-16 建立，依据模块化 v2 完成后代码）。
-> 代码是事实源：类型与校验见 `src/pth/contracts/`，机器强制见 `scripts/check-pth-boundaries.ts`
+> 代码是事实源：类型与校验见 `src/pth/contracts/`，机器强制见 `scripts/check/check-pth-boundaries.ts`
 > （`npm run check:pth-boundaries`，已并入 `npm run lint`）。本文是人读的单一入口；
 > 代码与本文冲突时以代码为准，并应同步修正本文。
 
@@ -122,7 +122,7 @@ gateway ──► application/pth-gateway-facade ──► kernel / tasking（�
 main ──► bootstrap / gateway / kernel / …（进程入口装配）
 ```
 
-规则（机器强制，`scripts/pth-boundaries-core.ts`）：
+规则（机器强制，`scripts/check/pth-boundaries-core.ts`）：
 
 1. `gateway/**` 不 import `KernelRuntime`/`DataWorldAccess`，不访问 `kernel.pool/kernel.dataWorld`。
 2. `tasking/runner/execution/catalog/bootstrap` 之间只走他方 `index.ts` 公共 API；
@@ -130,7 +130,7 @@ main ──► bootstrap / gateway / kernel / …（进程入口装配）
    `kernel/storage/*`——其余 framework 模块仍禁止。
 3. domain 模块不 import `@away_from/pth-sandbox` 运行时；白名单仅 `impls/kernels/**`、`bootstrap/**`、`main.ts`。
 4. `contracts/` 不 import fastify/pg/redis/`@away_from/pth-sandbox`。
-5. 新增违规在 `npm run lint` 失败（基线机制：`scripts/pth-boundaries.baseline.json`）。
+5. 新增违规在 `npm run lint` 失败（基线机制：`scripts/check/pth-boundaries.baseline.json`）。
 
 ## 4. 生命周期不变量
 

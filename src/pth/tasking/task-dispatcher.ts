@@ -82,8 +82,25 @@ export class TaskDispatcher {
       }
 
       let runResult: TaskOutcome | TaskSuspension;
+      // W2：执行期租约心跳续约（CAS——lease_id+generation+status；失败=lease 已被回收→abort runner 防双写）
+      const runAbort = new AbortController();
+      const remainingMs = Math.max(60_000, new Date(lease.deadlineAt).getTime() - Date.now());
+      const heartbeatMs = Math.max(1_000, Math.floor(remainingMs / 3));
+      const heartbeat = setInterval(() => {
+        this.deps.repository.renewLease({ taskId: lease.taskId, leaseId: lease.leaseId, generation: lease.generation })
+          .then(({ renewed }) => {
+            if (!renewed) {
+              this.deps.logger?.(`[lease] renew failed task=${lease.taskId}（lease lost——abort runner）`);
+              runAbort.abort();
+            }
+          })
+          .catch((e) => {
+            this.deps.logger?.(`[lease] renew error task=${lease.taskId}: ${(e as Error).message}`);
+          });
+      }, heartbeatMs);
+      heartbeat.unref?.();
       try {
-        runResult = await this.deps.runner.run({ lease, work });
+        runResult = await this.deps.runner.run({ lease, work, signal: runAbort.signal });
       } catch (e) {
         runResult = {
           lease: { taskId: lease.taskId, leaseId: lease.leaseId, generation: lease.generation },
@@ -93,6 +110,8 @@ export class TaskDispatcher {
           artifacts: [],
           traceId: work.scope.traceId,
         };
+      } finally {
+        clearInterval(heartbeat);
       }
 
       // TaskSuspension：不 commit、不触发 observer；由装配层 onSuspension 决定持久化/释放。

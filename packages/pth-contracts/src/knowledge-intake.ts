@@ -2,7 +2,7 @@
  * contracts/knowledge-intake.ts — N29 最小可信知识摄入 M0 类型与端口（2026-08-19）。
  *
  * 本文件只包含纯类型与结构校验函数；不包含 PG、HTTP 或 LLM 实现类型。
- * 类型形状冻结自 docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §3.2/§3.3。
+ * 类型形状冻结自 docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md §3.2/§3.3。
  *
  * Trust Policy 是来源抓取与使用授权的唯一事实源；LLM、worker 与 service 均只读。
  */
@@ -506,7 +506,7 @@ export interface TransitionSubscriptionInput {
 /**
  * 与 run 状态迁移同事务入队的下一阶段 side effect（identity=(tenantId,key)）。
  *
- * N29 再验收 P0-1（docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
+ * N29 再验收 P0-1（docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
  * **outbox 行的 tenant 由仓库从聚合上下文盖章**——即通过 Run CAS 的那一行
  * `knowledge_intake_runs.tenant_id`。调用方不再是 tenant 的事实源：
  *  - 缺省（推荐）：仓库盖章为 run 自身 tenant；

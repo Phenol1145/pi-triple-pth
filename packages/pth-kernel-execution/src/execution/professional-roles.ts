@@ -1,7 +1,7 @@
 /**
  * kernel/execution/professional-roles.ts —— v1.3 Task 3 五个显式专业角色。
  *
- * 谱系冻结自 docs/pth/n32-v13-professional-computing-design.md §4「Role 谱系」：
+ * 谱系冻结自 docs/pth/design/n32-v13-professional-computing-design.md §4「Role 谱系」：
  *   - assembly-engineer     parent=developer gen=4 → assembly
  *   - computational-chemist parent=solver    gen=5 → psi4 + quantum-espresso
  *   - lean4-prover          parent=solver    gen=5 → lean4
@@ -55,7 +55,7 @@ export const PROFESSIONAL_ROLES: RoleDefinition[] = Object.freeze([
     defaultReads: ["context", "plan"],
     acceptanceRole: "writer",
     parent: "developer",
-    generation: 4,
+    generation: 3,
     differentiation: "专业计算任务诱导——可运行二进制/反汇编/性能证据需要 assembly 运行时与工具链证据，从 developer 分出汇编工程专精",
     loadPolicyRef: "professional:assembly-engineer:v1",
   }),
@@ -72,7 +72,7 @@ export const PROFESSIONAL_ROLES: RoleDefinition[] = Object.freeze([
     defaultReads: ["context", "conclusion"],
     acceptanceRole: "writer",
     parent: "solver",
-    generation: 5,
+    generation: 4,
     differentiation: "专业计算任务诱导——量子化学单点能/优化与周期 SCF 需要 psi4/QE 双运行时，从 solver 分出计算化学专精",
     loadPolicyRef: "professional:computational-chemist:v1",
   }),
@@ -89,7 +89,7 @@ export const PROFESSIONAL_ROLES: RoleDefinition[] = Object.freeze([
     defaultReads: ["context", "conclusion"],
     acceptanceRole: "writer",
     parent: "solver",
-    generation: 5,
+    generation: 4,
     differentiation: "专业计算任务诱导——无 sorry 形式化证明需要固定 Lean 4/Lake/Mathlib 工具链，从 solver 分出形式化证明专精",
     loadPolicyRef: "professional:lean4-prover:v1",
   }),
@@ -106,7 +106,7 @@ export const PROFESSIONAL_ROLES: RoleDefinition[] = Object.freeze([
     defaultReads: ["context", "conclusion"],
     acceptanceRole: "writer",
     parent: "solver",
-    generation: 5,
+    generation: 4,
     differentiation: "专业计算任务诱导——符号代数推导与数值复核需要 Wolfram Engine 许可运行时，从 solver 分出符号数学专精",
     loadPolicyRef: "professional:symbolic-mathematician:v1",
   }),
@@ -123,7 +123,7 @@ export const PROFESSIONAL_ROLES: RoleDefinition[] = Object.freeze([
     defaultReads: ["reviewed-result", "context"],
     acceptanceRole: "writer",
     parent: "writer",
-    generation: 4,
+    generation: 3,
     differentiation: "专业计算教程任务诱导——消费已验证 job artifact 并发布可执行 Notebook，从 writer 分出 Jupyter 教学专精",
     loadPolicyRef: "professional:technical-educator:v1",
   }),

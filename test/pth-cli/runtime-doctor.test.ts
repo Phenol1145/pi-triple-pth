@@ -96,11 +96,20 @@ describe("runDoctor", () => {
     expect(secrets?.fix).toContain("pth init");
   });
 
-  it("PTH_WORKSPACES_HOST 缺失 → 阻断并提示 export", async () => {
+  it("PTH_WORKSPACES_HOST 缺失 → 阻断并提示 pth init --workspaces", async () => {
     const { repoRoot } = await makeRepo();
     const report = await runDoctor([], { repoRoot, env: {}, runner: upRunner() });
     expect(report.ok).toBe(false);
-    expect(report.items.find((i) => i.check === "workspaces")?.fix).toContain("export PTH_WORKSPACES_HOST");
+    expect(report.items.find((i) => i.check === "workspaces")?.fix).toContain("pth init --workspaces");
+  });
+
+  it("env 缺失但 secrets 文件含 PTH_WORKSPACES_HOST → pass", async () => {
+    const { repoRoot } = await makeRepo();
+    await writeFile(join(repoRoot, "deploy", ".env.pth.secrets"), `${SECRETS}\nPTH_WORKSPACES_HOST=${repoRoot}\n`);
+    const report = await runDoctor([], { repoRoot, env: {}, runner: upRunner() });
+    const workspaces = report.items.find((i) => i.check === "workspaces");
+    expect(workspaces?.status).toBe("pass");
+    expect(workspaces?.message).toContain(repoRoot);
   });
 
   it("lean4 profile 触发 lean 检查（缺失=警告不阻断）", async () => {
@@ -182,6 +191,148 @@ describe("runDoctor", () => {
     });
     expect(running.items.find((i) => i.check === "data-redis")?.status).toBe("pass");
     expect(running.items.find((i) => i.check === "data-layer")?.status).toBe("pass");
+  });
+
+  it("container-runtime：docker 可用（generic）→ pass", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor([], { repoRoot, env, runner: upRunner() });
+    const item = report.items.find((i) => i.check === "container-runtime");
+    expect(item?.status).toBe("pass");
+    expect(item?.message).toContain("docker-generic");
+  });
+
+  it("container-runtime：仅 apple container → fail 且修复提示", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor([], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "docker", argv: ["version"], run: () => ({ code: 1, stdout: "", stderr: "no docker" }) },
+        { cmd: "container", argv: ["--version"], run: () => ({ code: 0, stdout: "container 1.0", stderr: "" }) },
+      ]),
+    });
+    const item = report.items.find((i) => i.check === "container-runtime");
+    expect(item?.status).toBe("fail");
+    expect(item?.fix).toContain("Docker Desktop / OrbStack / Colima");
+  });
+
+  it("--runtime 覆盖检测结果；非法值 fail-fast", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--runtime", "colima"], { repoRoot, env, runner: upRunner() });
+    const item = report.items.find((i) => i.check === "container-runtime");
+    expect(item?.status).toBe("pass");
+    expect(item?.message).toContain("colima");
+    await expect(runDoctor(["--runtime", "bogus"], { repoRoot, env, runner: upRunner() })).rejects.toThrow(/unknown runtime/);
+  });
+
+  it("colima + lean4：host 寻址开启 → pass", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--runtime", "colima", "--profile", "lean4"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "colima", argv: ["status"], run: () => ({ code: 0, stdout: "colima is running\nnetworkAddress: 192.168.5.2\n", stderr: "" }) },
+      ], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    const item = report.items.find((i) => i.check === "colima-host-addressing");
+    expect(item?.status).toBe("pass");
+  });
+
+  it("colima + u8：host 寻址显式未开启 → fail + 修复命令", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--runtime", "colima", "--profile", "u8"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "colima", argv: ["status"], run: () => ({ code: 0, stdout: "colima is running\nnetworkAddress:\n", stderr: "" }) },
+      ], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    const item = report.items.find((i) => i.check === "colima-host-addressing");
+    expect(item?.status).toBe("fail");
+    expect(item?.fix).toContain("colima start --network-address");
+  });
+
+  it("colima + lean4：status 不可判定 → warn（不误伤）", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--runtime", "colima", "--profile", "lean4"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "colima", argv: ["status"], run: () => ({ code: 1, stdout: "", stderr: "not running" }) },
+      ], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    const item = report.items.find((i) => i.check === "colima-host-addressing");
+    expect(item?.status).toBe("warn");
+  });
+
+  it("非 colima 或 profile 不含 lean/u8 不触发 colima-host-addressing", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const nonColima = await runDoctor(["--runtime", "orbstack", "--profile", "lean4"], { repoRoot, env, runner: upRunner() });
+    expect(nonColima.items.some((i) => i.check === "colima-host-addressing")).toBe(false);
+    const core = await runDoctor(["--runtime", "colima", "--profile", "core"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    expect(core.items.some((i) => i.check === "colima-host-addressing")).toBe(false);
+  });
+
+  it("local-process：docker 缺失不阻断，但 dist/URL 缺失会阻断", async () => {
+    const { repoRoot } = await makeRepo();
+    await mkdir(join(repoRoot, "dist", "pth"), { recursive: true });
+    await mkdir(join(repoRoot, "packages", "pth-sandbox", "dist"), { recursive: true });
+    await writeFile(join(repoRoot, "dist", "pth", "main.js"), "// engine");
+    await writeFile(join(repoRoot, "packages", "pth-sandbox", "dist", "main.js"), "// sandbox");
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--target", "local-process", "--profile", "core", "--sandbox", "none"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([
+        { cmd: "docker", argv: ["version"], run: () => ({ code: 1, stdout: "", stderr: "no docker" }) },
+      ]),
+    });
+    expect(report.items.find((i) => i.check === "docker")?.status).toBe("warn");
+    expect(report.items.some((i) => i.check === "image-engine")).toBe(false);
+    expect(report.items.find((i) => i.check === "engine-dist")?.status).toBe("pass");
+    expect(report.items.find((i) => i.check === "data-redis")?.status).toBe("fail");
+    expect(report.items.find((i) => i.check === "data-postgres")?.status).toBe("fail");
+  });
+
+  it("local-process + tools profile → target-compat fail", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const report = await runDoctor(["--target", "local-process", "--profile", "tools"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    const item = report.items.find((i) => i.check === "target-compat");
+    expect(item?.status).toBe("fail");
+    expect(item?.fix).toContain("--without tools");
+  });
+
+  it("local-process sandbox=process 检查 port-8080；sandbox=none 不检查", async () => {
+    const { repoRoot } = await makeRepo();
+    const env = { PTH_WORKSPACES_HOST: repoRoot };
+    const withSandbox = await runDoctor(["--target", "local-process", "--profile", "core", "--sandbox", "process"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    expect(withSandbox.items.some((i) => i.check === "port-8080")).toBe(true);
+    const withoutSandbox = await runDoctor(["--target", "local-process", "--profile", "core", "--sandbox", "none"], {
+      repoRoot,
+      env,
+      runner: fakeRunner([], () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+    expect(withoutSandbox.items.some((i) => i.check === "port-8080")).toBe(false);
   });
 
   it("--json 输出报告结构", async () => {

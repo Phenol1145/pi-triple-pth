@@ -397,7 +397,7 @@ notebook 交互（P5）；未来最多加 1–2 个薄插件搬常用页面，�
   `source:"pth-operator"` 标记；种新 token 时按 `source`+`tenantId` 回收旧标记凭据，
   避免多次 `pth up` 在 Redis 累积多把有效 platform-admin 凭据（回收失败不阻断种入）。
 - ✅ npm 发布：`@away_from/pth-cli@1.6.4`（deploy 含 jupyter 与 runtime-profiles.json）。
-- 完整设计：`docs/pth/p6-pth-cli-runtime-profiles-design.md`。
+- 完整设计：`docs/pth/design/p6-pth-cli-runtime-profiles-design.md`。
 
 ## 5. tool containers 与 execution/v1.1 模式框架（ADR-0002 定稿）
 

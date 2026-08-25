@@ -142,7 +142,7 @@ export type PenetrationSkillRegisterResult =
 /**
  * 注册校验（组织权机器校验——不信任 skill 自报）：
  *  - child/parent 必须是已注册角色；
- *  - parent→child 必须命中 allowedDelegationTargets（直接子类型/补充权/Origin 全树）；
+ *  - parent→child 必须命中 allowedDelegationTargets（直接子类型/补充权/三源森林合法投递边）；
  *  - 若 spec.path 提供，末位必须等于 child 且包含 parent。
  */
 export function validatePenetrationSkillRegistration(content: string): PenetrationSkillRegisterResult {

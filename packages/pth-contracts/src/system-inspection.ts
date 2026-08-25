@@ -11,7 +11,7 @@
  *  - source enum 只允许 default/env/runtime/file/unknown，绝不从等值推断。
  */
 
-import { MEMORY_TYPES, type MemoryType } from "./cognitive-responsibility.js";
+import { MEMORY_TYPES, type CognitiveUsage, type MemoryType } from "./cognitive-responsibility.js";
 import { isWorkMode, WORK_MODES, type WorkMode } from "./work-mode.js";
 
 // ─── 分页边界 ──────────────────────────────────────────────────────────────
@@ -118,14 +118,7 @@ export interface WorkerWorkingSetInspection {
     activeSkills: number;
     tools: number;
   };
-  usage: {
-    memoryEntries: number;
-    memoryChars: number;
-    skillIndexEntries: number;
-    activeSkills: number;
-    skillChars: number;
-    tools: number;
-  };
+  usage: CognitiveUsage;
   omitted: Readonly<Record<string, number>>;
 }
 

@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { collectProductBoundaryViolations } from "../../scripts/check-product-boundaries.js";
+import { collectProductBoundaryViolations } from "../../scripts/check/check-product-boundaries.js";
 
 describe("PTL/PTH product boundaries", () => {
   it("PTH core 不 import PTL-only，PTL-only 不 import PTH core", () => {

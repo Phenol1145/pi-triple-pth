@@ -158,7 +158,7 @@ export const SEED_SKILL_SOPS: SkillSopSeed[] = [
 
 /**
  * N14 P3（2026-08-18）：分层 SOP × 4——0.17.4 四层次优化工作流标准
- * （设计 docs/pth/n14-sensor-controller-four-dims.md §4 原文条目化；W4 创建时机=「找到正路」）。
+ * （设计 docs/pth/design/n14-sensor-controller-four-dims.md §4 原文条目化；W4 创建时机=「找到正路」）。
  * SOP 粒度裁决（设计内自决）：每层次一条通用 SOP——点位级差异在 Procedure 内分化。
  */
 export const SEED_OPT_SOPS: SkillSopSeed[] = [

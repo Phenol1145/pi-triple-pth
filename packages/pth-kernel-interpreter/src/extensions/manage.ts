@@ -26,17 +26,29 @@ export const manageExtension: TsReplExtension = {
   provide: (ctx: ExtContext) => {
     // F2（AB-01）：任务路径按 taskContext.tenantId；无任务上下文走系统 default tenant。
     const store = () => withMemoryTenant(ctx.dataWorld.memory, ctx.taskContext?.current?.tenantId ?? DEFAULT_TENANT_ID);
+    /** W2：即时生效类工具必须携带已批准 modification-plan 的 planHash + planGrant。 */
+    const requirePlanGrant = (opts: { planHash?: unknown; planGrant?: unknown }): { ok: true; planHash: string } | { ok: false; error: string } => {
+      if (!ctx.planGrantVerify) return { ok: false, error: "plan grant 校验不可用（装配未注入 planGrantVerify）" };
+      const planHash = typeof opts?.planHash === "string" && opts.planHash.trim() ? opts.planHash.trim() : "";
+      if (!planHash) return { ok: false, error: "即时生效工具必须携带 planHash（已批准 modification-plan 的 sha256）" };
+      if (opts?.planGrant === undefined) return { ok: false, error: "即时生效工具必须携带 planGrant（批准 modification-plan 时签发）" };
+      const v = ctx.planGrantVerify({ grant: opts.planGrant, planHash });
+      if (!v.ok) return { ok: false, error: v.error };
+      return { ok: true, planHash };
+    };
     return {
       manage: {
         // ── 热调参（perf.set 同源——PTH_* 白名单；运行时立即生效）──
         params: {
           get: () => config().snapshot(),
-          set: (opts: { key: string; value: string | number }) => {
+          set: (opts: { key: string; value: string | number; planHash?: string; planGrant?: unknown }) => {
+            const grant = requirePlanGrant(opts ?? {});
+            if (!grant.ok) return grant;
             const key = String(opts?.key ?? "");
             if (!key.startsWith("PTH_")) return { ok: false, error: "manage.params.set 仅允许 PTH_* 参数" };
             const value = String(opts?.value);
             config().set(key, value);
-            return { ok: true, key, value };
+            return { ok: true, key, value, planHash: grant.planHash };
           },
         },
 
@@ -91,7 +103,9 @@ export const manageExtension: TsReplExtension = {
               await fs.writeFile(path.join(dir, `${strategy.id}.json`), JSON.stringify(strategy, null, 2), "utf8");
               return { ok: true, id: strategy.id, name: strategy.name, params: strategy.params, actions: strategy.actions?.length ?? 0 };
             },
-            apply: async (opts: { id: string }) => {
+            apply: async (opts: { id: string; planHash?: string; planGrant?: unknown }) => {
+              const grant = requirePlanGrant(opts ?? {});
+              if (!grant.ok) return grant;
               const list = await readStrategies(ctx);
               const s = list.find((x) => x.id === String(opts?.id ?? ""));
               if (!s) return { ok: false, error: `manage.resource.scheme.apply: 策略 ${String(opts?.id)} 不存在` };
@@ -100,7 +114,7 @@ export const manageExtension: TsReplExtension = {
                 config().set(k, v);
                 applied.push(`${k}=${v}`);
               }
-              return { ok: true, id: s.id, name: s.name, appliedParams: applied, actions: s.actions?.length ?? 0 };
+              return { ok: true, id: s.id, name: s.name, appliedParams: applied, actions: s.actions?.length ?? 0, planHash: grant.planHash };
             },
           },
 
@@ -193,7 +207,7 @@ export const manageExtension: TsReplExtension = {
             };
           },
           /** 工具注册（晋升管线入口——候选 tool-function 包装为 tool-reg spec 后在此裁决） */
-          register: async (opts: { spec?: unknown; rationale?: string }) => {
+          register: async (opts: { spec?: unknown; rationale?: string; planHash?: string; planGrant?: unknown }) => {
             const { validateToolRegSpec, validateToolRegAction, buildToolRegEntry, proposeToolRegistration } = await import("@away_from/pth-memory");
             const checked = validateToolRegSpec(opts?.spec);
             if (!checked.ok) return { ok: false, error: `manage.tool.register: ${checked.error}` };
@@ -213,15 +227,17 @@ export const manageExtension: TsReplExtension = {
               if (r.ok && r.id) ctx.onActivity?.({ kind: "tool.proposal.created", detail: r.id, at: Date.now() });
               return { ...r, status: "draft", note: "staged 策略——提案已落 draft（对抗性审核 → 监督批准 → 注册生效）" };
             }
+            const grant = requirePlanGrant(opts ?? {});
+            if (!grant.ok) return grant;
             const entry = buildToolRegEntry(spec, { status: "official" });
             await store().write({
               ...entry,
-              meta: { ...entry.meta, registeredAt: Date.now(), registeredBy: "manage.tool.register", ...(opts?.rationale ? { rationale: String(opts.rationale) } : {}) },
+              meta: { ...entry.meta, registeredAt: Date.now(), registeredBy: "manage.tool.register", ...(opts?.rationale ? { rationale: String(opts.rationale) } : {}), planHash: grant.planHash },
             } as never, { force: true });
             return { ok: true, id: entry.id, status: "official", note: "manual 策略——已直接注册（审计留痕）" };
           },
           /** 工具修订（不可变语义——version 必须递增；promotedFrom/版本链留痕） */
-          revise: async (opts: { spec?: unknown; rationale?: string }) => {
+          revise: async (opts: { spec?: unknown; rationale?: string; planHash?: string; planGrant?: unknown }) => {
             const { validateToolRegSpec, validateToolRegAction, buildToolRegEntry, proposeToolRegistration } = await import("@away_from/pth-memory");
             const checked = validateToolRegSpec(opts?.spec);
             if (!checked.ok) return { ok: false, error: `manage.tool.revise: ${checked.error}` };
@@ -239,10 +255,12 @@ export const manageExtension: TsReplExtension = {
               if (r.ok && r.id) ctx.onActivity?.({ kind: "tool.proposal.created", detail: r.id, at: Date.now() });
               return { ...r, status: "draft", note: "staged 策略——修订提案已落 draft（对抗性审核 → 监督批准 → 生效）" };
             }
+            const grant = requirePlanGrant(opts ?? {});
+            if (!grant.ok) return grant;
             const entry = buildToolRegEntry(spec, { status: "official" });
             await store().write({
               ...entry,
-              meta: { ...entry.meta, registeredAt: Date.now(), registeredBy: "manage.tool.revise", ...(opts?.rationale ? { rationale: String(opts.rationale) } : {}) },
+              meta: { ...entry.meta, registeredAt: Date.now(), registeredBy: "manage.tool.revise", ...(opts?.rationale ? { rationale: String(opts.rationale) } : {}), planHash: grant.planHash },
             } as never, { force: true });
             return { ok: true, id: entry.id, version: spec.version, status: "official", note: "manual 策略——修订已生效（新版本链留痕）" };
           },

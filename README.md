@@ -3,8 +3,8 @@
 **Pi-Triple PTH —— FRACTA engine（engine）的当前代码名** —— engine 运行时：worker 实现 + 面向 LLM 的 interface；执行经 `execution/v1.1` 交外部执行面（sandbox / tool containers / 本地执行器 / jupyter 双面）。
 
 ![node](https://img.shields.io/badge/node-%3E%3D22-green)
-![tests](https://img.shields.io/badge/tests-2572-brightgreen)
-![version](https://img.shields.io/badge/version-1.6.0-blue)
+![tests](https://img.shields.io/badge/tests-2873-brightgreen)
+![version](https://img.shields.io/badge/version-1.8.0-blue)
 
 - **定位**：engine 派发任务 → batch worker（角色/循环/LLM interface）→ `execution/v1.1` 外部执行面 → 产物沉淀记忆。
 - **导航**：Quick Start · [模块](#模块) · [架构](#architecture) · [开发](#development) · [仓库定位](docs/POSITIONING.md) · [文档](#documentation)
@@ -17,8 +17,15 @@ git clone https://github.com/Phenol1145/pi-triple-pth.git
 cd pi-triple-pth
 npm install
 npm run build      # pth-memory → pth-sandbox → pth-console → web → 根 tsc
-export PTH_WORKSPACES_HOST=/abs/path/to/workspaces   # compose :? 必填（engine/sandbox/宿主执行器共享）
-npm run pth -- init && npm run pth -- up   # redis/postgres/pi-platform/sandbox 全栈
+npm run pth -- init --workspaces /abs/path/to/workspaces   # 自动生成强随机密钥 + 写入 PTH_WORKSPACES_HOST
+npm run pth -- up   # redis/postgres/pi-platform/sandbox 全栈（默认 local-container）
+```
+
+无 Docker 的裸机/CI 可改用 local-process（需外部 Redis/Postgres 与 `npm run build`）：
+
+```bash
+npm run pth -- doctor --target local-process --profile core
+npm run pth -- up --target local-process --profile core --sandbox process --yes-i-know
 ```
 
 `pth` 可执行入口：根编译产物 `dist/cli/pth-cli.js`（源码 `src/cli/pth-cli.ts`）。
@@ -78,4 +85,5 @@ npm run test:e2e   # Playwright operator console
 ## Documentation
 
 - [docs/pth](./docs/pth) · [deployment](./docs/pth/deployment.md) · [configuration](./docs/pth/configuration.md) · [module-ownership](./docs/pth/module-ownership.md)
+- [dsh-pth-interface](https://github.com/Phenol1145/dsh-pth-interface) · [npm](https://www.npmjs.com/package/dsh-pth-interface) —— dsh interface 模式插件（独立项目）：agent 只持 pth_* 工具的 PTH 管理前端
 - [Phase 2 拆仓报告（主仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/pth/phase2-pth-split-report.md)

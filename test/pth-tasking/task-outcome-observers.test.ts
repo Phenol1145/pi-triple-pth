@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { resetPthConfig } from "@away_from/pth-config";
 import {
   BoundedBackgroundQueue,
   notifyObservers,
@@ -85,6 +86,31 @@ describe("task outcome observers（P1-7）", () => {
 
     await observer(event({ result: undefined })); // rejected 时 result undefined
     expect(creates).toHaveLength(2);
+  });
+
+  it("transcript observer：上下文快照随行落盘（W-d）；超界按档截断", async () => {
+    const creates: Array<{ context?: unknown }> = [];
+    const observer = createTranscriptObserver({ create: async (input) => { creates.push(input); } });
+    const snapshot = { system: "sys", snapshots: [{ at: "t", reason: "final", messages: [{ role: "user", content: "x" }] }] };
+    const ev = event();
+    ev.context = { ...ev.context, contextSnapshots: [snapshot] };
+    await observer(ev);
+    expect(creates[0]?.context).toEqual(snapshot);
+
+    // 无快照 → 不带 context 字段（零膨胀）
+    await observer(event());
+    expect(creates[1]?.context).toBeUndefined();
+
+    // 超界：MAX_CHARS 极小 → 截断标记
+    process.env.PTH_TRANSCRIPT_CONTEXT_MAX_CHARS = "50";
+    resetPthConfig();
+    try {
+      await observer(ev);
+      expect(creates[2]?.context).toMatchObject({ truncated: true });
+    } finally {
+      delete process.env.PTH_TRANSCRIPT_CONTEXT_MAX_CHARS;
+      resetPthConfig();
+    }
   });
 
   it("activity/metrics observer：rejected 映射正确", async () => {

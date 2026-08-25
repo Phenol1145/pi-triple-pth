@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   METRIC_KEYS, decideN28Feasibility, evaluateN28Feasibility,
   validateN28FeasibilityMetrics, type N28FeasibilityMetrics,
-} from "../../scripts/eval-n28-feasibility.js";
+} from "../../scripts/eval/eval-n28-feasibility.js";
 
 function passingMetricsFixture(): N28FeasibilityMetrics {
   return {

@@ -10,26 +10,168 @@
 import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { WorkerRole } from "./worker-cluster.js";
-import { AGENT_TOOLS, toolsToSchema, toolSchemaFor, type AgentToolResult } from "./agent-tools.js";
-import { normalizeToolName, toolsForSpace, ASP_BLOCK, buildAgentSystemPrompt, hasExecToolCapability, execToolCapFor } from "./agent-loop-prompt.js";
-import type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
+import { AGENT_TOOLS, toolsToSchema, type AgentToolResult } from "./agent-tools.js";
+import { normalizeToolName, hasExecToolCapability, execToolCapFor } from "./agent-loop-prompt.js";
+import { PTH_DONE_SIGNAL_CODE, type AgentTaskInput, type AgentLoopOptions, type AgentTaskResult, type AgentTraceEvent, type AgentContextCapture } from "./agent-loop-types.js";
+export { PTH_DONE_SIGNAL_CODE } from "./agent-loop-types.js";
 export type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
-import { isTsFamily, truncate, actionFingerprint, type RecentAction, toolFamily, normalizePathPattern, actionTarget, isNegativeResult, negativeLoopCheck, buildEnvironmentPrelude, RECENT_RESULTS_WINDOW } from "./agent-loop-guards.js";
+import { isTsFamily, truncate, actionFingerprint, type RecentAction, toolFamily, normalizePathPattern, actionTarget, isNegativeResult, negativeLoopCheck, RECENT_RESULTS_WINDOW } from "./agent-loop-guards.js";
 export { PTH_WORKER_SYSTEM, buildAgentSystemPrompt, filterCapabilityDoc } from "./agent-loop-prompt.js";
 import { parseAgentAction, AGENT_CAPABILITY_AS_ACTION } from "./parse-agent-action.js";
 import { config, configNumber } from "@away_from/pth-kernel-interpreter";
-import { pthConfig } from "@away_from/pth-config";
 import { createGuardRegistry } from "./guardrails.js";
 import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
 import { modelState } from "@away_from/pth-kernel-interpreter";
 import { spaceRegistry, isRoleBoundToSpace } from "@away_from/pth-kernel-interpreter";
 import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
-import { checkToolFaceBudget, registryToolToSchema, visibleRegistryTools } from "@away_from/pth-kernel-interpreter";
+import { normalizeExecutionRequestToCommand } from "./execution-command.js";
 import type { ToolRegSpec } from "@away_from/pth-memory";
 import { shouldCompressInLoop, compressContext, CONTINUATION_TEMPLATE } from "./context-compaction.js";
+import { buildAgentLoopSystem } from "./agent-loop-system.js";
+import { buildRegistryToolFace } from "./agent-loop-tool-face.js";
+import { executeRegisteredTool } from "./agent-loop-registry-execution.js";
+import { emitToolStep, toolStepSummary, type AgentLoopMessage } from "./agent-loop-step.js";
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_STALL_LOG_MS = 60_000;
+
+/** W0：等待点心跳——promise 挂起超过阈值后打一次 agent-stall warn（不改变时序语义） */
+async function withWaitPoint<T>(opts: {
+  kind: string;
+  step: number;
+  taskId?: string;
+  roleId?: string;
+  logger?: (msg: string) => void;
+  promise: Promise<T>;
+  thresholdMs?: number;
+}): Promise<T> {
+  const thresholdMs = opts.thresholdMs ?? configNumber("PTH_AGENT_STALL_LOG_MS", DEFAULT_STALL_LOG_MS);
+  let logged = false;
+  const timer = setTimeout(() => {
+    if (logged) return;
+    logged = true;
+    opts.logger?.(`[agent-stall] step=${opts.step} waiting=${opts.kind} elapsed=${thresholdMs}ms taskId=${opts.taskId ?? "-"} role=${opts.roleId ?? "-"}`);
+  }, thresholdMs);
+  timer.unref?.();
+  try {
+    return await opts.promise;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** W2：判断 ts 程序返回值是否为 AgentToolResult 形态（能力对象 asAction 直接返回结果） */
+function isAgentToolResultLike(v: unknown): v is AgentToolResult {
+  return !!v && typeof v === "object" && typeof (v as { ok?: unknown }).ok === "boolean";
+}
+
+/** W3：runPtcProgram raw 上的 done 信号 → 终止结果 */
+function doneResultFromSignal(
+  input: AgentTaskInput & AgentLoopOptions,
+  raw: { ok: boolean; error?: { code?: string; message?: string; result?: unknown; summary?: unknown } },
+  steps: number,
+): AgentTaskResult | undefined {
+  if (!raw.ok && raw.error?.code === PTH_DONE_SIGNAL_CODE) {
+    const result = raw.error.result;
+    const summary = typeof raw.error.summary === "string" ? raw.error.summary : undefined;
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result ?? null).slice(0, 200) });
+    return { ok: true, value: result, summary, steps: steps + 1 };
+  }
+  return undefined;
+}
+
+/** W3：AgentToolResult 上的 done 信号（ts.run/ts.eval 执行器透传）→ 终止结果 */
+function doneResultFromToolResult(
+  input: AgentTaskInput & AgentLoopOptions,
+  result: AgentToolResult,
+  steps: number,
+): AgentTaskResult | undefined {
+  if (!result.ok && result.code === PTH_DONE_SIGNAL_CODE) {
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result.doneResult ?? null).slice(0, 200) });
+    return { ok: true, value: result.doneResult, summary: result.doneSummary, steps: steps + 1 };
+  }
+  return undefined;
+}
+
+/** W3-2：伪终止护栏——检测 `return {done:true}` / 注释「提交 done」并回填一次提示（不阻断） */
+function pseudoDoneGuardSuffix(tool: string, result: AgentToolResult): string {
+  if (tool !== "ts.run" && tool !== "ts.eval") return "";
+  if (!result.ok) return "";
+  const value = result.value as { done?: unknown } | null | undefined;
+  const hasDoneTrue = !!value && typeof value === "object" && !Array.isArray(value) && value.done === true;
+  const textHint = typeof result.stdout === "string" && /提交 done|done\s*[:：]?\s*true/i.test(result.stdout);
+  if (hasDoneTrue || textHint) {
+    return "\n[done 提示] done 是函数调用：在 ts 程序内使用 await done(result, summary?) 提交最终产物，不要 return { done: true }。";
+  }
+  return "";
+}
+
+/** W2：tool-call 投影执行（tool → asAction 代码 → runPtcProgram）。返回 undefined 表示继续循环。 */
+async function executeProjectedTool(args: {
+  input: AgentTaskInput & AgentLoopOptions;
+  tool: string;
+  toolArgs: Record<string, unknown>;
+  messages: AgentLoopMessage[];
+  steps: number;
+  toolCallId?: string;
+  stepStart: number;
+}): Promise<AgentTaskResult | undefined> {
+  const { input, tool, toolArgs, messages, steps, toolCallId, stepStart } = args;
+  const wrap = AGENT_CAPABILITY_AS_ACTION[tool] ?? AGENT_CAPABILITY_AS_ACTION[tool.replace(/_/g, ".")];
+  if (!wrap) return undefined;
+  const code = wrap(toolArgs);
+  input.logger?.(`[agent] step=${steps + 1} projected-tool ${tool} → ts 程序`);
+  const { raw } = await runPtcProgram({
+    code,
+    cwd: input.taskWorkspace ?? "/tmp",
+    ts: input.kernel.ts,
+    caps: input.capabilityInject,
+    allowedCapabilities: input.role?.capabilities ? new Set(input.role.capabilities) : undefined,
+    registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
+  });
+  const doneSignal = doneResultFromSignal(input, raw as never, steps);
+  if (doneSignal) return doneSignal;
+  if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
+    return { ok: true, value: null, steps: steps + 1, warning: raw.error.message };
+  }
+  let result: AgentToolResult;
+  if (!raw.ok) {
+    result = { ok: false, error: raw.error?.message ?? "ts execute failed", code: raw.error?.code };
+  } else if (isAgentToolResultLike(raw.value)) {
+    result = raw.value;
+  } else {
+    result = { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text };
+  }
+  if (!result.ok && result.code === "HUMAN_APPROVAL_PENDING" && result.requestId) {
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
+    return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: result.requestId } };
+  }
+  try {
+    input.kernel.ts.registerResult?.(`result_${steps + 1}`, {
+      tool,
+      ok: result.ok,
+      value: result.ok ? result.value : undefined,
+      stdout: (result.stdout ?? "").slice(0, 2000),
+      error: result.ok ? undefined : result.error,
+    });
+  } catch { /* mock 容忍 */ }
+  emitToolStep({
+    input,
+    messages,
+    tool,
+    args: toolArgs,
+    result,
+    steps,
+    toolCallId,
+    durationMs: Date.now() - stepStart,
+    includeStderr: true,
+    suffix: result.truncated ? " (truncated)" : "",
+  });
+  input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: toolStepSummary(result, true).slice(0, 500), capabilityId: tool });
+  return undefined;
+}
 
 /** 构建 agent system prompt：角色人设 + 工具协议 + 能力文档 + PTC 程序模式引导 + 输出要求 */
 /** PTH Worker 世界观（2026-08-09——参考 pi 系统提示词/AGENTS.md 功能：身份/工作流/框架事实/约束）。
@@ -37,6 +179,18 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  * 详细规则文档化（memory kind='pth-worker-system'——受保护——lazy 可查）。 */
 async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promise<AgentTaskResult> {
   const { llm, kernel, caps } = input;
+  // W3：done 函数化——ts 程序内 `await done(result, summary?)` 即终止并提交结果。
+  // 实现：抛带 result/summary 的信号错误，agent-loop 在 runPtcProgram 出口统一拦截。
+  const loopDone = (result: unknown, summary?: string): Promise<never> => {
+    const err = new Error("pth-done") as Error & { code?: string; result?: unknown; summary?: string };
+    err.code = PTH_DONE_SIGNAL_CODE;
+    err.result = result;
+    err.summary = summary;
+    throw err;
+  };
+  const capabilityInject = input.capabilityInject ?? {};
+  if (!capabilityInject["done"]) capabilityInject["done"] = loopDone;
+  input.capabilityInject = capabilityInject;
   // 参数走配置中心（Phase 2——perf.set 运行时生效；env 兜底）
   const maxSteps = input.maxSteps ?? configNumber("PTH_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS);
   const timeoutMs = input.timeoutMs ?? configNumber("PTH_AGENT_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
@@ -51,28 +205,15 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
   const allowlist = input.toolAllowlist && input.toolAllowlist.length > 0
     ? new Set(input.toolAllowlist.map((name) => normalizeToolName(name)))
     : undefined;
-  let system = await buildAgentSystemPrompt(input.role, input.task.title, {
-    // 2026-08-14 T2：仅显式 env 覆盖才传入——缺省交由角色类策略（规划系 eager/其余 lazy）
-    mode: (() => {
-      const m = pthConfig().str("PTH_AGENT_MODE");
-      return (m === "lazy" || m === "eager" ? m : undefined) as "eager" | "lazy" | undefined;
-    })(),
-    // 2026-08-15 审计 MEDIUM：非 ASP 模式 prompt 工具面与 schema 同源（剔除 ASP-only）
+  const { system, prelude } = await buildAgentLoopSystem({
+    role: input.role,
+    task: input.task,
+    goal: input.goal,
+    publisherClarification: input.publisherClarification,
     asp: aspMode,
-    ...(allowlist ? { allowlist: [...allowlist] } : {}),
-    memory: (caps as { memory?: { query(sql: string): Promise<Array<{ content: string }>> } }).memory,
+    allowlist,
+    caps,
   });
-  // 生命周期 P0：根目标段（system prompt 恒定——不进消息数组，压缩压不掉）
-  if (input.goal && input.goal.trim() !== "") {
-    system = `${system}\n\n【根目标】${input.goal.trim()}`;
-  }
-  // 生命周期 P1：发布者澄清（pause 恢复重跑时注入——答案作为新事实）
-  if (input.publisherClarification && input.publisherClarification.trim() !== "") {
-    system = `${system}\n\n【发布者澄清】${input.publisherClarification.trim()}`;
-  }
-  if (aspMode) system = `${system}\n\n${ASP_BLOCK}`;
-  // 静态环境注入（②）：任务开始时拉环境预置（toolstore 文件 + 记忆概览）——LLM 一上来就知道可用资产
-  const prelude = await buildEnvironmentPrelude(caps);
 
   // 消息策略（2026-08-09 架构修正——用户裁决：OpenAI 格式 API 用原生 tool_calls，
   // 不是文本 JSON 动作解析）：
@@ -84,64 +225,39 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     { role: "user", content: `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}` },
   ];
   (input as { __messages?: unknown }).__messages = messages;   // 压缩包装器读取（同一引用——循环内持续 push）
+  // 2026-08-25 W-d：上下文快照采集（压缩前全量 + 结束最终态——修补"循环内压缩后历史彻底丢失"）。
+  // PTH_TRANSCRIPT_CONTEXT=off 时零拷贝零采集；runAgentTask 包装器归一化进 result.contextCapture。
+  const contextCaptureEnabled = config().get("PTH_TRANSCRIPT_CONTEXT") !== "off";
+  type RawContextSnapshot = { at: string; reason: "compaction" | "final"; step?: number; messages: unknown[] };
+  const contextSnapshots: RawContextSnapshot[] = [];
+  if (contextCaptureEnabled) {
+    (input as { __contextSnapshots?: unknown }).__contextSnapshots = contextSnapshots;
+  }
+  const captureContextSnapshot = (reason: "compaction" | "final", step?: number): void => {
+    if (!contextCaptureEnabled) return;
+    contextSnapshots.push({
+      at: new Date().toISOString(),
+      reason,
+      ...(step !== undefined ? { step } : {}),
+      messages: JSON.parse(JSON.stringify(messages)) as unknown[],
+    });
+  };
   const staticTools = toolsToSchema(input.role?.actionTools, { asp: aspMode });
 
   // ── N14 P2：注册表可见集并入工具面（§3.5 执行缝 = 静态 TOOL_SCHEMAS ∪ 注册表可见集）──
-  // 快照冻结（T3 防线——任务开始装载，任务中途注册不生效）+ 预算守卫（§3.3——注册面超限裁减，静态面不动）
-  // + 名冲突静态面优先（builtin 条目只承担治理面，执行仍走 AGENT_TOOLS 静态表——Q4 裁决执行不动）。
-  // P2 自决：注册工具面 ASP 空间无关（全空间可见）——空间级投放留待后续细化。
-  const registryByName = new Map<string, ToolRegSpec>();
-  const registrySchemas: Array<{ name: string; description: string; parameters: { type: "object"; properties: Record<string, unknown>; required: string[] } }> = [];
-  if (input.toolRegistry && input.role?.id) {
-    const visible = visibleRegistryTools(input.toolRegistry, input.role.id);
-    const budget = configNumber("PTH_TOOL_FACE_BUDGET", 24);
-    const { allowed, dropped } = checkToolFaceBudget(staticTools.length, visible, budget);
-    if (dropped.length > 0) {
-      input.logger?.(`[tool-reg] 工具面预算守卫（≤${budget}）：注册工具裁减 ${dropped.join("/")}——走合并/退役提案（N14 §3.3）`);
-    }
-    const staticNames = new Set(staticTools.map((t) => t.name));
-    for (const spec of allowed) {
-      const schema = registryToolToSchema(spec);
-      if (staticNames.has(schema.name)) continue;
-      registryByName.set(spec.name, spec);   // 键 = 点形真相源名（executeStep 归一 下划线→点 后查表）
-      // 下划线命名可达性别名（调用面名归一后下划线名否则不可达；名称序先到先得不覆盖——确定性）
-      const dotAlias = spec.name.replace(/_/g, ".");
-      if (dotAlias !== spec.name && !registryByName.has(dotAlias)) registryByName.set(dotAlias, spec);
-      registrySchemas.push(schema);
-    }
-    if (registrySchemas.length > 0) {
-      input.logger?.(`[tool-reg] 快照 ${input.toolRegistry.version}：注册工具面 +${registrySchemas.length}（${registrySchemas.map((s) => s.name).join("/")}）`);
-    }
-  }
-
-  // ── 工具面（2026-08-14 T3 裁决：废弃 pick_tools 动态注入——结构化动作空间+记忆空间
-  //    已减少同时暴露的工具数；工具面 = 空间面 ∩ 角色白名单，不再动态收窄）──
-  /** 当前轮 LLM 调用实际工具面 */
-  function currentTools(aspCurrent: string): import("@earendil-works/pi-ai").Tool[] {
-    const base = aspMode
-      ? toolsForSpace(aspCurrent, input.role?.actionTools)
-      : [...staticTools];
-    // 同名工具去重（OpenAI 对重复工具名 400）；N14 P2：注册表可见集并入（空间无关）
-    const all = [...new Map([...base, ...registrySchemas].map((t) => [t.name, t])).values()];
-    // TCE P5：Tool 层生成器产物（per-tool 工具面——manifest 策展）
-    for (const extra of input.extraTools ?? []) {
-      if (!all.some((t) => t.name === extra.name)) {
-        all.push({ name: extra.name, description: extra.description, parameters: extra.parameters });
-      }
-    }
-    // N28 T6：非 ASP 面不含 done（仅 ASP meta 面有）——冻结 union 恒含 pinned done，schema 需同步暴露。
-    if (allowlist?.has("done") && !all.some((t) => normalizeToolName(t.name) === "done")) {
-      const done = toolSchemaFor("done");
-      if (done) all.push(done);
-    }
-    // 生命周期 P1：pause 同 done 一样是固定循环控制工具——冻结 union 恒含，schema 需同步暴露。
-    if (allowlist?.has("pause") && !all.some((t) => normalizeToolName(t.name) === "pause")) {
-      const pause = toolSchemaFor("pause");
-      if (pause) all.push(pause);
-    }
-    // N28 T6：schema 暴露与执行授权同源——冻结 union ∩ 当前 space face。
-    return allowlist ? all.filter((t) => allowlist.has(normalizeToolName(t.name))) : all;
-  }
+  // 快照冻结/预算守卫/下划线别名/currentTools 已抽到 agent-loop-tool-face.ts。
+  const { registryByName, currentTools } = buildRegistryToolFace(
+    {
+      role: input.role,
+      toolRegistry: input.toolRegistry,
+      toolAllowlist: input.toolAllowlist,
+      extraTools: input.extraTools,
+      logger: input.logger,
+      asp: aspMode,
+    },
+    staticTools,
+    allowlist,
+  );
 
   const start = Date.now();
   let steps = 0;
@@ -185,8 +301,16 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
 
     // 生命周期 P3：循环内压缩（任务中续跑——CONTINUATION_TEMPLATE；失败容忍不阻断）
     if (steps > 2 && shouldCompressInLoop(messages, configNumber("PTH_AGENT_CONTEXT_WINDOW", 128_000))) {
-      const compressed = await compressContext({ llm }, { messages, template: CONTINUATION_TEMPLATE, taskTitle: input.task.title });
+      const compressed = await withWaitPoint({
+        kind: "context.compact",
+        step: steps + 1,
+        taskId: input.taskId,
+        roleId: input.role?.id,
+        logger: input.logger,
+        promise: compressContext({ llm }, { messages, template: CONTINUATION_TEMPLATE, taskTitle: input.task.title }),
+      });
       if (compressed) {
+        captureContextSnapshot("compaction", steps + 1);   // 清空前先留全量快照
         const recent = messages.slice(-4);
         messages.length = 0;
         messages.push({ role: "system", content: system });
@@ -199,7 +323,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
 
     // ASP：工具面随当前空间动态计算（语言工具仅本空间可调用）
     const tools = currentTools(currentSpace());
-    const res = await complete(tools);
+    const res = await withWaitPoint({
+      kind: "llm.complete",
+      step: steps + 1,
+      taskId: input.taskId,
+      roleId: input.role?.id,
+      logger: input.logger,
+      promise: complete(tools),
+    });
     if (typeof res === "string") {
       if (res.startsWith("__llm_error__")) {
         input.onTrace?.({ type: "finish", ok: false, steps: steps + 1, error: res.slice(14) });
@@ -218,7 +349,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     // 原生 tool_calls：结构化调用（OpenAI 格式——非文本解析）
     if (res.toolCalls && res.toolCalls.length > 0) {
       for (const tc of res.toolCalls) {
-        const r = await executeStep({ tool: tc.name, args: tc.arguments, thought: undefined }, tc.id);
+        const r = await withWaitPoint({
+          kind: `tool:${tc.name}`,
+          step: steps + 1,
+          taskId: input.taskId,
+          roleId: input.role?.id,
+          logger: input.logger,
+          promise: executeStep({ tool: tc.name, args: tc.arguments, thought: undefined }, tc.id),
+        });
         if (r !== undefined) {
           // 序列完整性（2026-08-14 B1）：提前终止时，未回填的调用补合成 tool 消息——
           // 防止 assistant(tool_calls) 悬挂（DeepSeek v4 校验每个 tool_calls 必须有对应 tool 响应）
@@ -444,7 +582,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       const summary = typeof args["summary"] === "string" ? args["summary"] : undefined;
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: true });
       // finish trace（task.done 活动事件源——trigger 引擎/console --follow 的完成信号——之前断链只在失败路径发）
-      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result).slice(0, 200) });
+      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result ?? null).slice(0, 200) });
       return { ok: true, value: result, summary, steps: steps + 1 };
     }
 
@@ -492,6 +630,20 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         routeDriftGuard.step({ roleId: input.role?.id, tool, steps: steps + 1 }, false);
       }
     }
+    // W2：tool-call 投影主路——已注入的能力（dev/write/debug）走 asAction 代码投影。
+    // loop 宿主工具（done/pause/asp/cache/memory.index）与 tool-reg 注册工具保持原执行缝。
+    const projectedKey = AGENT_CAPABILITY_AS_ACTION[executorKey] ? executorKey : executorKey.replace(/_/g, ".");
+    const hasProjection = Object.prototype.hasOwnProperty.call(AGENT_CAPABILITY_AS_ACTION, projectedKey);
+    const isLoopHostTool = executorKey === "done" || executorKey === "pause" || executorKey === "asp.cd" || executorKey === "asp.index" || executorKey === "memory.index" || executorKey.startsWith("cache.");
+    const projectedRoot = executorKey.split(".")[0]!;
+    if (
+      hasProjection && !isLoopHostTool &&
+      input.capabilityInject && typeof input.capabilityInject[projectedRoot] === "object" &&
+      !(registryByName.size > 0 && (registryByName.has(executorKey) || registryByName.has(executorKey.replace(/_/g, "."))))
+    ) {
+      return executeProjectedTool({ input, tool: executorKey, toolArgs: args, messages, steps, toolCallId, stepStart });
+    }
+
     let executor = AGENT_TOOLS[executorKey as keyof typeof AGENT_TOOLS];
     // N14 P2：注册表分发（静态表未命中时）——builtin 态回指 AGENT_TOOLS 执行器（归并标准路径）；
     // program/agent 态走注册执行缝（下方独立分发）
@@ -508,88 +660,18 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       }
     }
     if (!executor && regSpec) {
-      // TCE P3：tool-reg program/agent 执行缝先过 Command 层门控（收编 governance hole）。
-      if (input.commandGateway && input.commandContext) {
-        const decision = await input.commandGateway.decide({
-          surface: "agent-tool",
-          toolCall: { tool, args: args ?? {} },
-          ctx: input.commandContext,
-        });
-        if (decision.kind === "deny") {
-          messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-            content: `[授权] ${tool} 拒绝：${decision.reason}` });
-          input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: Date.now() - stepStart, resultPreview: "CommandGateway 拒绝" });
-          return undefined;
-        }
-        if (decision.kind === "await-approval") {
-          input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
-          return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: decision.requestId } };
-        }
-      }
-      const regExec = regSpec.executor;
-      if (regExec.type === "program") {
-        // program 态：固化 ts 程序（无 LLM）——args 注入为 const 绑定，源程序 return 值即结果
-        const code = `const args = ${JSON.stringify(args ?? {})};\n${regExec.source}`;
-        input.logger?.(`[agent] step=${steps + 1} tool-reg program ${regSpec.name}（tool:${regSpec.name}@v${regSpec.version}）`);
-        const { raw } = await runPtcProgram({
-          code, cwd: input.taskWorkspace ?? "/tmp", ts: kernel.ts, caps: input.capabilityInject,
-          registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
-        });
-        // W8 P2 同款：tasks.await 挂起信号 → 软终止（value=null + warning）
-        if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
-          input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
-          return { ok: true, value: null, steps: steps + 1, warning: raw.error.message };
-        }
-        const result: AgentToolResult = raw.ok
-          ? { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text }
-          : { ok: false, error: raw.error?.message ?? "tool-reg program 执行失败" };
-        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-        const summary = result.ok
-          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-          : `error: ${result.error ?? "unknown"}`;
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
-        return undefined;
-      }
-      // agent 态：穿透 runChild 同款缝（深度限 1——子 kernel 不注入穿透/投递端口）
-      if (regExec.type !== "agent") {
-        // builtin 态 ref 未解析（asp-inline:* 等）——执行面不走注册通道（防御：正常路径已在上方归并）
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `tool-reg builtin ${regSpec.name} 的执行器引用 ${regExec.ref} 不在 AGENT_TOOLS 表（ASP 内联工具请切到对应空间后直接调用）` });
-        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "builtin ref 未解析" });
-        return undefined;
-      }
-      const exec = input.toolRegExec;
-      if (!exec?.runChild || !exec.caller) {
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool,
-          content: `tool-reg agent 态执行缝未装配（toolRegExec.runChild/caller 缺失）——${regSpec.name} 暂不可调用` });
-        input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: false, durationMs: 0, resultPreview: "agent 态执行缝未装配" });
-        return undefined;
-      }
-      const text = [
-        `【注册工具调用】tool:${regSpec.name}（agent 态——子 agent ${regExec.role}）`,
-        "",
-        "【调用参数】",
-        JSON.stringify(args ?? {}, null, 2),
-      ].join("\n");
-      input.logger?.(`[agent] step=${steps + 1} tool-reg agent ${regSpec.name} → ${regExec.role}`);
-      const r = await exec.runChild({
-        childRoleId: regExec.role,
-        title: `tool:${regSpec.name}`,
-        text,
-        inputContract: regExec.input ?? "（未声明——调用参数 JSON 自描述）",
-        outputContract: regExec.output ?? "（未声明——done.result 即产物）",
-        skillId: `tool:${regSpec.name}`,
-        caller: exec.caller,
+      // Tool-Reg v2 command adapter / CommandGateway / program / agent 执行缝已抽到
+      // agent-loop-registry-execution.ts（保持主循环薄分发）。
+      return executeRegisteredTool({
+        input,
+        tool,
+        args,
+        regSpec,
+        messages,
+        steps,
+        toolCallId,
+        stepStart,
       });
-      const result: AgentToolResult = r.ok
-        ? { ok: true, value: r.value, stdout: truncate(JSON.stringify(r.value ?? null), 2000).text }
-        : { ok: false, error: r.error ?? "tool-reg agent 执行失败" };
-      input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-      const summary = result.ok
-        ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-        : `error: ${result.error ?? "unknown"}`;
-      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
-      return undefined;
     }
     if (!executor) {
       // 能力函数被当动作工具输出（收敛兼容）：自动降级为 ts 程序执行。
@@ -601,9 +683,13 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         // PTC 统一执行缝（2026-08-14 A1 Phase 2——执行+注册收敛进 ptc/runner；
         // Phase 3 条目 12——任务级 caps 装配随缝注入）
         const { raw } = await runPtcProgram({
-          code, cwd: "/tmp", ts: kernel.ts, caps: input.capabilityInject,
+          code, cwd: input.taskWorkspace ?? "/tmp", ts: kernel.ts, caps: input.capabilityInject,
+          allowedCapabilities: input.role?.capabilities ? new Set(input.role.capabilities) : undefined,
           registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
         });
+        // W3：done 信号 → 直接终止并提交结果
+        const doneSignal = doneResultFromSignal(input, raw as never, steps);
+        if (doneSignal) return doneSignal;
         // W8 P2：tasks.await 挂起信号 → 软终止（value=null + warning）→ runner 落 retryable requeue
         if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
           input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
@@ -612,11 +698,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         const result: AgentToolResult = raw.ok
           ? { ok: true, value: raw.value, stdout: truncate(JSON.stringify(raw.value ?? null), 2000).text }
           : { ok: false, error: raw.error?.message ?? "ts execute failed" };
-        input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
-        const summary = result.ok
-          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-          : `error: ${result.error ?? "unknown"}`;
-        messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}` });
+        emitToolStep({ input, messages, tool, args, result, steps, toolCallId, durationMs: Date.now() - stepStart });
         return undefined;
       }
       // 未知工具回填引导（2026-08-13：不再直接失败——给模型纠错机会——
@@ -648,6 +730,9 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         { kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore, space: aspMode ? aspSession.currentSpace : undefined, ptcCaps: input.capabilityInject, commandGateway: input.commandGateway, commandContext: input.commandContext },
         args,
       );
+      // W3：ts.run/ts.eval 内 done 信号 → 直接终止并提交结果
+      const doneSignal = doneResultFromToolResult(input, result, steps);
+      if (doneSignal) return doneSignal;
       // W8 P2：ts.run/eval 内 tasks.await 挂起 → 软终止释放认领（retryable requeue）
       if (!result.ok && result.code === TASK_AWAIT_SUSPENDED_CODE) {
         input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: result.error });
@@ -658,7 +743,6 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: "HUMAN_APPROVAL_PENDING" });
         return { ok: true, value: null, steps: steps + 1, humanApproval: { requestId: result.requestId } };
       }
-      input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: result.ok, args: JSON.stringify(args).slice(0, 300) });
       // 结果注册表（ts 核内 results 对象——用户裁决）：每步工具结果自动注册供程序引用
       const resultKey = `result_${steps + 1}`;
       try {
@@ -673,11 +757,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         /* 注册失败不阻断（mock kernel 无 registerResult） */
       }
       // 轨迹摘要（截断防膨胀）
-      const summary = result.quiet
-        ? "[quiet] 静默执行（无输出）"
-        : result.ok
-          ? (result.stdout ?? JSON.stringify(result.value ?? null)).slice(0, 500)
-          : `error: ${result.error ?? (result.stderr?.trim() ? result.stderr : "unknown")}`;
+      const summary = toolStepSummary(result, true);
       // 负结果收敛窗口（S6 死循环机制——2026-08-13）：同工具族+同目标连续负结果
       // N=3 回填引导（该路径已确认不可用→换策略）、N=15 强制终止（2026-08-15 D2：5→15）
       const neg = isNegativeResult(result);
@@ -699,7 +779,20 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       const guideSuffix = loopCheck.action === "guide"
         ? `\n[收敛] 检测到连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——该路径已确认不可用——不要继续探测/重试同一目标——换策略（优先查 capability-index/ext-registry 权威列表，替代盲探测）。`
         : "";
-      messages.push({ role: "tool", toolCallId: toolCallId ?? `tc-${steps + 1}`, toolName: tool, content: `step ${steps + 1} [${tool}]: ${summary}${result.truncated ? " (truncated)" : ""}${guideSuffix}` });
+      const doneGuardSuffix = pseudoDoneGuardSuffix(tool, result);
+      emitToolStep({
+        input,
+        messages,
+        tool,
+        args,
+        result,
+        steps,
+        toolCallId,
+        durationMs: Date.now() - stepStart,
+        includeStderr: true,
+        quietSummary: summary,
+        suffix: `${result.truncated ? " (truncated)" : ""}${guideSuffix}${doneGuardSuffix}`,
+      });
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
       input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500) });
       if (loopCheck.action === "terminate") {
@@ -736,5 +829,19 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       );
     }
   } catch { /* 压缩失败容忍——任务结果为主 */ }
+  // 2026-08-25 W-d：归一化上下文快照——final 快照在此捕获；system 常量在顶层只存一次，
+  // snapshots 内 messages 剔除 system（压缩重建时反复 push 同一 system，去重不丢信息）。
+  try {
+    const rawSnapshots = (input as { __contextSnapshots?: Array<{ at: string; reason: "compaction" | "final"; step?: number; messages: Array<{ role: string; content?: unknown }> }> }).__contextSnapshots;
+    if (rawSnapshots) {
+      const finalMessages = (input as { __messages?: Array<{ role: string; content?: unknown }> }).__messages ?? [];
+      rawSnapshots.push({ at: new Date().toISOString(), reason: "final", messages: JSON.parse(JSON.stringify(finalMessages)) as Array<{ role: string; content?: unknown }> });
+      const systemMsg = finalMessages.find((m) => m.role === "system");
+      result.contextCapture = {
+        ...(typeof systemMsg?.content === "string" ? { system: systemMsg.content } : {}),
+        snapshots: rawSnapshots.map((s) => ({ ...s, messages: s.messages.filter((m) => m.role !== "system") })) as AgentContextCapture["snapshots"],
+      };
+    }
+  } catch { /* 快照失败容忍——任务结果为主 */ }
   return result;
 }

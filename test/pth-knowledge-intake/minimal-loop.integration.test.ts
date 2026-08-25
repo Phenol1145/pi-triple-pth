@@ -113,7 +113,7 @@ function dispositionCounts(revisions: readonly { disposition: string }[]): Recor
 
 // ─── L7 台账（正向分母 + 组合层负向 sentinel 的实测计数） ──────────────
 
-/** 与 `scripts/eval-n29-minimal-intake.ts` 的 `N29_LEDGER_VERSION` 必须一致。 */
+/** 与 `scripts/eval/eval-n29-minimal-intake.ts` 的 `N29_LEDGER_VERSION` 必须一致。 */
 const LEDGER_VERSION = "n29-minimal-intake-ledger/1";
 const LEDGER_PATH = process.env["N29_INTAKE_LEDGER"] ?? "";
 

@@ -40,6 +40,19 @@ export interface JobRunContext<TValue> {
   cleanup(): void;
 }
 
+/** 公共 sha256 hex（6 个 professional adapter 与 job-runner 共用同一实现）。 */
+export function sha256hex(s: Uint8Array | string): string {
+  return createHash("sha256").update(s).digest("hex");
+}
+
+/** 公共 cancel 标记翻转：job 未在 running 表内返回 false，否则置 cancelled 并返回 true。 */
+export function cancelJob(running: Map<string, { cancelled: boolean }>, jobId: string): boolean {
+  const state = running.get(jobId);
+  if (!state) return false;
+  state.cancelled = true;
+  return true;
+}
+
 export function createJobRunContext<TValue>(deps: JobRunContextDeps<TValue>): JobRunContext<TValue> {
   const clock = deps.clock ?? (() => new Date());
   const startedAt = clock();
@@ -49,8 +62,6 @@ export function createJobRunContext<TValue>(deps: JobRunContextDeps<TValue>): Jo
   let outputBytes = 0;
   const state = { cancelled: false };
   deps.running.set(deps.request.jobId, state);
-
-  const sha256hex = (s: Uint8Array | string): string => createHash("sha256").update(s).digest("hex");
 
   const finish = (
     status: ProfessionalJobResult["status"],

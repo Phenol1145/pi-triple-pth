@@ -3,7 +3,7 @@ import { buildBuiltinCatalog } from "../../src/pth/catalog/adapters/builtin-cata
 import { createRoleRoutingPolicy, setRuntimeCatalog } from "../../src/pth/catalog/role-routing-policy.js";
 import { createSpaceLookup } from "../../src/pth/catalog/space-lookup.js";
 import { BUILTIN_SPACE_DEFS } from "../../src/pth/impls/spaces/builtin-spaces.js";
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../src/pth/impls/roles/default-roles.js";
+import { DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../../src/pth/impls/roles/default-roles.js";
 import { PROFESSIONAL_ROLES } from "@away_from/pth-kernel-execution";
 import { installDefaultRoles } from "../helpers";
 
@@ -18,7 +18,7 @@ describe("P3-2：catalog 注入等价性", () => {
 
   it("catalog 角色键与内置角色全量一致", () => {
     const catalog = buildBuiltinCatalog();
-    const expected = [ORIGIN_ROLE, ...DEFAULT_ROLES, ...MID_ROLES, ...GOVERNANCE_ROLES, ...PROFESSIONAL_ROLES].map((r) => r.id);
+    const expected = [...DEFAULT_ROLES, ...MID_ROLES, ...GOVERNANCE_ROLES, ...PROFESSIONAL_ROLES].map((r) => r.id);
     expect(new Set(catalog.roleIds())).toEqual(new Set(expected));
   });
 

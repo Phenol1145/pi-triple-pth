@@ -1,4 +1,5 @@
 import { Redis } from "ioredis";
+import { randomUUID } from "node:crypto";
 import { detectPlatform, createLogger } from "@away_from/infra";
 import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { createKernelMetrics } from "./observability/kernel-metrics.js";
@@ -368,12 +369,34 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   // P2-5：grant-bound 知识 broker（PTH_EXECUTION_GRANT_SECRET 与 sandbox 共用同一签名密钥；
   // 未配置 → /kernel/knowledge 503 fail-closed，token 化 memory-bridge 兼容通道不受影响）
   const executionGrantSecret = pthConfig().str("PTH_EXECUTION_GRANT_SECRET");
-  const knowledgeBroker = kernelRuntime && executionGrantSecret
+  const executionGrantService = executionGrantSecret
+    ? createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: executionGrantSecret }) })
+    : null;
+  const knowledgeBroker = kernelRuntime && executionGrantService
     ? createPthKnowledgeBroker({
-        grantService: createExecutionGrantService({ keyProvider: createHmacGrantKeyProvider({ secret: executionGrantSecret }) }),
+        grantService: executionGrantService,
         dataWorld: kernelRuntime.dataWorld,
       })
     : null;
+
+  // W3：terminal reject 终态外推（activityHub → engine.emitExternalEvent → EventBus → SSE）
+  if (kernelRuntime && engine) {
+    kernelRuntime.activityHub.subscribe((e) => {
+      if (e.kind !== "task.terminal-reject") return;
+      engine.emitExternalEvent({
+        eventId: randomUUID(),
+        eventType: "task.terminal-reject",
+        payload: {
+          taskId: e.taskId ?? "",
+          role: e.role ?? "",
+          reason: e.detail ?? "",
+          traceId: e.taskId ? `task:${e.taskId}` : "",
+        },
+        source: "pth-kernel",
+        tenantId: "default",
+      });
+    });
+  }
 
   // N33 Task 5：intake 手动控制面（operator console 的订阅创建/run 触发窄端点）。
   // 需要 kernel（pg pool）+ 已验签 TrustPolicy（PTH_TRUST_POLICY_MANIFEST/KEYRING）；
@@ -409,7 +432,7 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
 
   // N33 Task 3：/api/v1/observe/{workers,memory/*,config,roles} 由 server.ts 内
   // registerSystemInspectionRoutes 注册（facade 从 kernelRuntime.pool/batchManager 装配）。
-  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime, knowledgeBroker, intakeManualControl });
+  const server = await createServer({ redis, engine, toolPlatform, metrics, logger, port, programs: programStore, fallback: fallbackStore, sandboxMonitor, sessionStore, debugGateway, audit, kernelRuntime, knowledgeBroker, intakeManualControl, executionGrantService });
   await server.listen({ port, host: "0.0.0.0" });
   logger.info({ port, event: "server_listening" });
 

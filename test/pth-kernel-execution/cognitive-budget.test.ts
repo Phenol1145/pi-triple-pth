@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CognitiveBudgetLedger } from "@away_from/pth-kernel-execution";
 import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "@away_from/pth-contracts";
-import { N28_WORKERS } from "../../scripts/n28-feasibility-fixture.js";
+import { N28_WORKERS } from "../../scripts/tools/n28-feasibility-fixture.js";
 
 describe("CognitiveBudgetLedger", () => {
   const ledgerFor = (budget = N28_FEASIBILITY_BUDGET.task) => new CognitiveBudgetLedger({

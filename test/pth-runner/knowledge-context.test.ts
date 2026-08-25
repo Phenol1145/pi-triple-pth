@@ -21,7 +21,7 @@ import { createKnowledgeBroker } from "../../src/pth/execution/knowledge-broker.
 import {
   N28_DOMAIN_IDS, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS,
   n28AuthorizedCorpus, n28DirectoryInputs,
-} from "../../scripts/n28-feasibility-fixture.js";
+} from "../../scripts/tools/n28-feasibility-fixture.js";
 
 const baseInput: KnowledgeContextInput = {
   tenantId: "tenant-a",

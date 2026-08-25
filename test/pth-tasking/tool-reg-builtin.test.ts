@@ -49,12 +49,12 @@ describe("N14 P0：存量登记器（Q4 一次性全登记）", () => {
   });
 
   it("visibility 现状推导：声明并集 + 隐式全面角色单独成列", () => {
-    expect(implicitFullFaceRoles()).toEqual(["controller", "origin", "sensor"]);
+    expect(implicitFullFaceRoles()).toEqual(["controller", "sensor"]);
     // dev.write 只有 dev 族角色：coder + debug-case-writer
     expect(deriveVisibilityRoles("dev.write")).toEqual(["coder", "debug-case-writer"]);
     // debug.attach 仅 debug-case-writer
     expect(deriveVisibilityRoles("debug.attach")).toEqual(["debug-case-writer"]);
-    // ts.run：除 planner（只读）与 writer（文档族）外的全部声明角色；origin 不在内（隐式全面）
+    // ts.run：除 planner（只读）与 writer（文档族）外的全部声明角色；origin 已退役不在内
     const tsRun = deriveVisibilityRoles("ts.run");
     expect(tsRun).toContain("developer");
     expect(tsRun).toContain("coder");

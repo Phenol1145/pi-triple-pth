@@ -81,7 +81,7 @@ describe("dev-task-ts 模板", () => {
 
 /**
  * N29 L1（§1.6 P0-4）：外部内容只能进 private draft——模板不得 direct official。
- * 反例来源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
+ * 反例来源：docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 1 Step 5。
  */
 describe("N29 P0-4：模板不得 direct official", () => {
   const reconParams = {

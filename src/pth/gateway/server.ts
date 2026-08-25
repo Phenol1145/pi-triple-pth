@@ -28,7 +28,7 @@ import type { FallbackRequestStore } from "../fallback/index.js";
 import type { SandboxHealthMonitor } from "../impls/kernels/index.js";
 import type { AuditWriter } from "../observability/index.js";
 import { createPthGatewayFacade, type PthGatewayFacadeInput } from "../application/index.js";
-import type { KnowledgeBroker } from "../execution/index.js";
+import type { KnowledgeBroker, ExecutionGrantService } from "../execution/index.js";
 
 export async function createServer(deps: {
   redis: Redis;
@@ -57,6 +57,8 @@ export async function createServer(deps: {
   knowledgeBroker?: KnowledgeBroker | null;
   /** N33 Task 5：intake 手动控制面（可选——未装配则 /intake/* 503） */
   intakeManualControl?: IntakeManualControlService | null;
+  /** W2：plan grant 签发服务（modification-plan 批准时使用；可选——未装配则批准 modification-plan 报错） */
+  executionGrantService?: ExecutionGrantService | null;
 }) {
   const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
 
@@ -84,7 +86,7 @@ export async function createServer(deps: {
     registerDebugRoutes(app, { gatewayFactory: deps.debugGateway, audit: deps.audit });
   }
   if (deps.kernelRuntime) {
-    const facade = createPthGatewayFacade(deps.kernelRuntime);
+    const facade = createPthGatewayFacade(deps.kernelRuntime, undefined, deps.executionGrantService ?? undefined);
     const systemInspection = new SystemInspectionFacade(deps.kernelRuntime.pool, {
       batchManager: deps.kernelRuntime.batchManager,
       configCenter: config(),

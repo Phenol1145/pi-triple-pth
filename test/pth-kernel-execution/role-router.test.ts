@@ -18,7 +18,10 @@ describe("role router v2（角色标签制——分选器唯一标准）", () =>
     expect(routeTaskRole({ id: "t-1", tags: ["analysis"] })).toBe("analyst");
     expect(routeTaskRole({ id: "t-1", tags: ["code"] })).toBe("developer");
     expect(routeTaskRole({ id: "t-1", tags: ["test"] })).toBe("tester");
-    expect(routeTaskRole({ id: "t-1", tags: ["origin"] })).toBe("origin");
+  });
+
+  it("origin 标签已退役——不再路由（2026-08-24 三源重构）", () => {
+    expect(() => routeTaskRole({ id: "t-1", tags: ["origin"] })).toThrow(/无路由依据/);
   });
 
   it("模糊匹配废止：testing 不命中 test（无路由依据 → throw）", () => {

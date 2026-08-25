@@ -3,8 +3,8 @@ import { installDefaultRoles } from "../helpers";
 
 /**
  * N14 P1：sensor 三新点位（tool-face / tool-single / rule——0.17.4 四层次观测缺口）。
- * 设计：docs/pth/n14-sensor-controller-four-dims.md §2.1/§2.3——
- * 治理族叶子（parent=sensor，gen=2），组织权排除自动继承（sensor: 前缀），
+ * 设计：docs/pth/design/n14-sensor-controller-four-dims.md §2.1/§2.3——
+ * 治理族叶子（parent=sensor，gen=1——2026-08-24 三源重构顺移 -1），组织权排除自动继承（sensor: 前缀），
  * 谱系可见、默认不进 batch、PTH_WORKER_ROLES 显式启用。
  */
 beforeAll(() => {
@@ -19,9 +19,9 @@ describe("N14 P1：sensor 三新点位注册（builtin-roles）", () => {
     for (const id of NEW_SENSORS) {
       const r = GOVERNANCE_ROLES.find((g) => g.id === id);
       expect(r, `${id} 应在 GOVERNANCE_ROLES`).toBeDefined();
-      // 谱系：gen=2 挂 sensor
+      // 谱系：gen=1 挂 sensor（2026-08-24 三源重构顺移 -1）
       expect(r!.parent).toBe("sensor");
-      expect(r!.generation).toBe(2);
+      expect(r!.generation).toBe(1);
       // 治理族约束：观测面 capabilities（obs 无 manage——只观测不调节）
       expect(r!.capabilities).toContain("obs");
       expect(r!.capabilities).not.toContain("manage");
@@ -29,8 +29,8 @@ describe("N14 P1：sensor 三新点位注册（builtin-roles）", () => {
       expect(r!.actionTools).toEqual(["execTs", "execPy", "execBash", "nav", "cache"]);
       expect(r!.acceptanceRole).toBe("read-only");
       expect(r!.output).toBe("observation");
-      // prompt 承诺任务类型与产物契约（optimizer-suggestion draft）
-      expect(r!.prompt).toContain("optimizer-suggestion");
+      // prompt 承诺任务类型与产物契约（observation-report——三源重构 W1）
+      expect(r!.prompt).toContain("observation-report");
       expect(r!.prompt).toContain("draft");
     }
   });

@@ -14,7 +14,7 @@ import {
   N28_WORKERS,
   n28AuthorizedCorpus,
   n28DirectoryInputs,
-} from "../../scripts/n28-feasibility-fixture.js";
+} from "../../scripts/tools/n28-feasibility-fixture.js";
 
 let nowMs = Date.parse("2030-01-01T00:00:00.000Z");
 const clock = () => new Date(nowMs);

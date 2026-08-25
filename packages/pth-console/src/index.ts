@@ -34,9 +34,14 @@ export {
   cmdKernelBatchAdd,
   cmdKernelBatchRemove,
   cmdKernelBatchWorker,
+  cmdKernelWorkerActivity,
+  cmdKernelWorkerContext,
   cmdKernelStatus,
 } from "./commands/kernel.js";
 export {
+  GENERATED_SECRET_KEYS,
+  normalizeWorkspacesPath,
+  renderSecretsFile,
   runPthUp,
   runPthDown,
   runPthStatus,

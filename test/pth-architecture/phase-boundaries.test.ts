@@ -7,7 +7,7 @@ import {
   collectBoundaryViolations,
   loadBoundaryBaseline,
   type BoundaryViolation,
-} from "../../scripts/pth-boundaries-core.js";
+} from "../../scripts/check/pth-boundaries-core.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -82,7 +82,7 @@ export async function handler(kernel: KernelRuntime) {
 describe("pth boundary checker: production baseline", () => {
   it("records current violations explicitly in baseline and fails only on NEW violations", async () => {
     const src = path.join(REPO_ROOT, "src", "pth");
-    const baseline = await loadBoundaryBaseline(path.join(REPO_ROOT, "scripts", "pth-boundaries.baseline.json"));
+    const baseline = await loadBoundaryBaseline(path.join(REPO_ROOT, "scripts", "check", "pth-boundaries.baseline.json"));
     const current = await collectBoundaryViolations(src);
 
     // 基线 = 已入账违规台账；阶段推进时逐项清零并同步收紧基线（当前 P0-5 后可为空）。
@@ -95,7 +95,7 @@ describe("pth boundary checker: production baseline", () => {
 
 it("exports baseline JSON matching script comparison schema", async () => {
   const baseline = JSON.parse(
-    await readFile(path.join(REPO_ROOT, "scripts", "pth-boundaries.baseline.json"), "utf8"),
+    await readFile(path.join(REPO_ROOT, "scripts", "check", "pth-boundaries.baseline.json"), "utf8"),
   ) as BoundaryViolation[];
   for (const v of baseline) {
     expect(typeof v.rule).toBe("string");

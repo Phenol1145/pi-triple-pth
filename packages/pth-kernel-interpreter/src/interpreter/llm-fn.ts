@@ -229,10 +229,10 @@ async function directOpenAiComplete(
 
   const start = Date.now();
   const ctrl = new AbortController();
+  // W1：超时覆盖必须持续到 body 读取完成（headers 已回但 body 流停滞时 `res.text()` 不再无限挂起）
   const timer = setTimeout(() => ctrl.abort(), opts?.timeoutMs ?? 60_000);
-  let res: Response;
   try {
-    res = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -243,53 +243,53 @@ async function directOpenAiComplete(
       }),
       signal: ctrl.signal,
     });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`directComplete ${res.status}: ${text.slice(0, 200)}`);
+    const json = JSON.parse(text) as {
+      choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
+      usage?: {
+        prompt_tokens?: number; completion_tokens?: number;
+        // DeepSeek 缓存字段（2026-08-12 审计 HIGH-3 修复：direct 路径此前不读缓存——命中率永久 0）；
+        // OpenAI 兼容格式 prompt_tokens_details.cached_tokens 同步兼容
+        prompt_cache_hit_tokens?: number; prompt_cache_miss_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
+    };
+    const cacheReadTokens = json.usage?.prompt_cache_hit_tokens ?? json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    const cacheWriteTokens = json.usage?.prompt_cache_miss_tokens ?? 0;
+    const msg = json.choices?.[0]?.message as {
+      content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
+      reasoning_content?: string | null;
+    } | undefined;
+    // 2026-08-15 筛查 MEDIUM-4/LOW-4：arguments 解析后必须对象化（null/数组/字符串 → {}）；
+    // 缺 function/id 的畸形 tool_call 直接丢弃——不二次解引用 provider 缺失字段
+    const toolCalls = (msg?.tool_calls ?? []).flatMap((tc) => {
+      const rawArgs = (() => {
+        try { return JSON.parse(tc?.function?.arguments ?? "{}"); }
+        catch { return {}; }
+      })();
+      const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
+        ? rawArgs as Record<string, unknown>
+        : {};
+      if (typeof tc?.id !== "string" || typeof tc?.function?.name !== "string") return [];
+      return [{ id: tc.id, name: tc.function.name, arguments: args }];
+    });
+    if (depsMetric) depsMetric({ provider: String(model.provider), model: model.id, durationMs: Date.now() - start, inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0, cacheReadTokens, cacheWriteTokens });
+    return {
+      content: msg?.content ?? "",
+      model: model.id,
+      usage: {
+        inputTokens: json.usage?.prompt_tokens ?? 0,
+        outputTokens: json.usage?.completion_tokens ?? 0,
+        cacheReadTokens,   // 2026-08-12 审计 HIGH-3：direct 路径补缓存字段（此前 agent loop 永远 0%）
+        cacheWriteTokens,
+      },
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+      ...(msg?.reasoning_content ? { thinking: msg.reasoning_content } : {}),
+    };
   } finally {
     clearTimeout(timer);
   }
-  const text = await res.text();
-  if (!res.ok) throw new Error(`directComplete ${res.status}: ${text.slice(0, 200)}`);
-  const json = JSON.parse(text) as {
-    choices?: Array<{ message?: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
-    usage?: {
-      prompt_tokens?: number; completion_tokens?: number;
-      // DeepSeek 缓存字段（2026-08-12 审计 HIGH-3 修复：direct 路径此前不读缓存——命中率永久 0）；
-      // OpenAI 兼容格式 prompt_tokens_details.cached_tokens 同步兼容
-      prompt_cache_hit_tokens?: number; prompt_cache_miss_tokens?: number;
-      prompt_tokens_details?: { cached_tokens?: number };
-    };
-  };
-  const cacheReadTokens = json.usage?.prompt_cache_hit_tokens ?? json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-  const cacheWriteTokens = json.usage?.prompt_cache_miss_tokens ?? 0;
-  const msg = json.choices?.[0]?.message as {
-    content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>;
-    reasoning_content?: string | null;
-  } | undefined;
-  // 2026-08-15 筛查 MEDIUM-4/LOW-4：arguments 解析后必须对象化（null/数组/字符串 → {}）；
-  // 缺 function/id 的畸形 tool_call 直接丢弃——不二次解引用 provider 缺失字段
-  const toolCalls = (msg?.tool_calls ?? []).flatMap((tc) => {
-    const rawArgs = (() => {
-      try { return JSON.parse(tc?.function?.arguments ?? "{}"); }
-      catch { return {}; }
-    })();
-    const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
-      ? rawArgs as Record<string, unknown>
-      : {};
-    if (typeof tc?.id !== "string" || typeof tc?.function?.name !== "string") return [];
-    return [{ id: tc.id, name: tc.function.name, arguments: args }];
-  });
-  if (depsMetric) depsMetric({ provider: String(model.provider), model: model.id, durationMs: Date.now() - start, inputTokens: json.usage?.prompt_tokens ?? 0, outputTokens: json.usage?.completion_tokens ?? 0, cacheReadTokens, cacheWriteTokens });
-  return {
-    content: msg?.content ?? "",
-    model: model.id,
-    usage: {
-      inputTokens: json.usage?.prompt_tokens ?? 0,
-      outputTokens: json.usage?.completion_tokens ?? 0,
-      cacheReadTokens,   // 2026-08-12 审计 HIGH-3：direct 路径补缓存字段（此前 agent loop 永远 0%）
-      cacheWriteTokens,
-    },
-    ...(toolCalls.length > 0 ? { toolCalls } : {}),
-    ...(msg?.reasoning_content ? { thinking: msg.reasoning_content } : {}),
-  };
 }
 
 // direct 路径计量：模块级 depsMetric（createLlmFn 构造时注入——onMetric 同源）

@@ -24,7 +24,7 @@ export interface IndexMemoryLocator {
   readonly value: string;
 }
 
-/** 设计 `docs/pth/n32-v13-professional-computing-design.md` §5.1 最小记录。 */
+/** 设计 `docs/pth/design/n32-v13-professional-computing-design.md` §5.1 最小记录。 */
 export interface IndexMemoryRecord {
   readonly entryId: string;
   readonly sourceId: string;

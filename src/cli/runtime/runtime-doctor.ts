@@ -4,13 +4,20 @@
  * 三态：pass（通过）/ warn（警告，不阻断）/ fail（阻断，给出修复命令）。
  * 所有外部命令经可注入 runner（默认 spawn），单测可完全离线。
  */
-import { spawn } from "node:child_process";
 import { access, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { constants } from "node:fs";
 import { createConnection } from "node:net";
 import { parseSecretsEnvFile } from "./runtime-secrets.js";
+import { createSpawnRunner } from "./spawn-runner.js";
 import { validatePthConfig } from "@away_from/pth-config";
+import {
+  CONTAINER_RUNTIMES,
+  detectContainerRuntime,
+  runtimeCapabilities,
+  type ContainerRuntime,
+} from "./targets/detect.js";
+import { DEPLOY_TARGET_IDS, parseUrlHostPort } from "./targets/index.js";
 
 export type DoctorStatus = "pass" | "warn" | "fail";
 
@@ -60,20 +67,7 @@ export const DOCTOR_PROFILES = ["core", "tools", "lean4", "u8", "jupyter", "full
 export type DoctorProfile = (typeof DOCTOR_PROFILES)[number];
 
 function defaultRunner(): DoctorRunner {
-  return (cmd, argv, opts) =>
-    new Promise<DoctorRunResult>((resolvePromise) => {
-      const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"] });
-      let stdout = "";
-      let stderr = "";
-      child.stdout?.setEncoding("utf8");
-      child.stderr?.setEncoding("utf8");
-      child.stdout?.on("data", (chunk: string) => { stdout += chunk; });
-      child.stderr?.on("data", (chunk: string) => { stderr += chunk; });
-      child.on("error", (e) => resolvePromise({ code: -1, stdout, stderr: String(e.message ?? e) }));
-      child.on("close", (code) => resolvePromise({ code: code ?? -1, stdout, stderr }));
-      if (opts?.input !== undefined) child.stdin?.end(opts.input);
-      else child.stdin?.end();
-    });
+  return createSpawnRunner();
 }
 
 function argValue(args: string[], name: string): string | undefined {
@@ -116,6 +110,45 @@ async function portProbe(port: number): Promise<{ occupied: boolean; owner?: str
   return { occupied: true, ...(owner ? { owner } : {}) };
 }
 
+async function tcpReachable(host: string, port: number, timeoutMs = 2_000): Promise<boolean> {
+  return new Promise<boolean>((resolvePromise) => {
+    const socket = createConnection({ host, port, timeout: timeoutMs });
+    socket.once("connect", () => { socket.destroy(); resolvePromise(true); });
+    socket.once("timeout", () => { socket.destroy(); resolvePromise(false); });
+    socket.once("error", () => resolvePromise(false));
+  });
+}
+
+async function colimaHostAddressingStatus(runner: DoctorRunner): Promise<{ status: DoctorStatus; message: string; fix?: string }> {
+  const result = await runner("colima", ["status"]);
+  if (result.code !== 0) {
+    return {
+      status: "warn",
+      message: "colima status 不可用/不可判定",
+      fix: "colima status 手动确认 host 寻址；或 colima stop && colima start --network-address",
+    };
+  }
+  const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  const hasAddress = /networkaddress|network-address|network address|host\.docker\.internal/.test(text);
+  const explicitOff = /networkaddress\s*:\s*(?:none|off|false)?\s*$/mi.test(text)
+    || /network:\s*(?:none|off|false)/.test(text);
+  if (explicitOff) {
+    return {
+      status: "fail",
+      message: "colima host 寻址未开启",
+      fix: "colima stop && colima start --network-address",
+    };
+  }
+  if (hasAddress) {
+    return { status: "pass", message: "colima host 寻址已开启" };
+  }
+  return {
+    status: "warn",
+    message: "colima host 寻址状态不可判定",
+    fix: "colima status 手动确认；或 colima stop && colima start --network-address",
+  };
+}
+
 async function isExecutable(path: string): Promise<boolean> {
   try {
     await access(path, constants.X_OK);
@@ -128,9 +161,12 @@ async function isExecutable(path: string): Promise<boolean> {
 export async function runDoctor(args: string[], options: DoctorOptions = {}): Promise<DoctorReport> {
   if (args.includes("--help") || args.includes("-h")) {
     console.log([
-      "用法: pth doctor [--profile core|tools|lean4|u8|jupyter|full] [--json]",
-      "  --profile X   体检剖面（默认 core）",
-      "  --json        输出 JSON 报告",
+      "用法: pth doctor [--profile core|tools|lean4|u8|jupyter|full] [--target local-container|local-process] [--runtime <id>] [--sandbox process|none] [--json]",
+      "  --profile X    体检剖面（默认 core）",
+      "  --target T     部署 target（默认 local-container）",
+      "  --runtime <id> 覆盖容器运行时检测（desktop|orbstack|colima|rancher-desktop|docker-generic|apple-container|none）",
+      "  --sandbox M    local-process 的 sandbox 模式（process|none，默认 process）",
+      "  --json         输出 JSON 报告",
       "退出码：0=通过/仅警告，1=有阻断项",
     ].join("\n"));
     return { ok: true, profile: "core", items: [] };
@@ -141,22 +177,71 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
   const runner = options.runner ?? defaultRunner();
   const items: DoctorItem[] = [];
 
+  const runtimeOverride = argValue(args, "--runtime");
+  if (runtimeOverride !== undefined && !CONTAINER_RUNTIMES.includes(runtimeOverride as ContainerRuntime)) {
+    throw new Error(`unknown runtime: ${runtimeOverride}（可选 ${CONTAINER_RUNTIMES.join("|")}）`);
+  }
+  const target = argValue(args, "--target") ?? "local-container";
+  if (!DEPLOY_TARGET_IDS.includes(target as (typeof DEPLOY_TARGET_IDS)[number])) {
+    throw new Error(`unknown target: ${target}（可选 ${DEPLOY_TARGET_IDS.join("|")}）`);
+  }
+  const isLocalProcess = target === "local-process";
+  const sandboxMode = argValue(args, "--sandbox") ?? "process";
+
   const add = (check: string, status: DoctorStatus, message: string, fix?: string) => {
     items.push(fix === undefined ? { check, status, message } : { check, status, message, fix });
   };
 
-  // 1) docker / compose
+  // 1) docker / compose（local-process 不要求 docker）
   const docker = await runner("docker", ["version"]);
   if (docker.code !== 0) {
-    add("docker", "fail", "docker 不可用", "安装/启动 Docker 后再试");
+    if (isLocalProcess) add("docker", "warn", "docker 不可用（local-process 不需要）");
+    else add("docker", "fail", "docker 不可用", "安装/启动 Docker 后再试");
   } else {
     add("docker", "pass", "docker 可用");
   }
   const compose = await runner("docker", ["compose", "version"]);
   if (compose.code !== 0) {
-    add("docker-compose", "fail", "docker compose 插件不可用", "安装 Docker Compose v2");
+    if (isLocalProcess) add("docker-compose", "warn", "docker compose 不可用（local-process 不需要）");
+    else add("docker-compose", "fail", "docker compose 插件不可用", "安装 Docker Compose v2");
   } else {
     add("docker-compose", "pass", "docker compose 可用");
+  }
+
+  // 1.5) container runtime（W1；--runtime 覆盖检测结果；local-process 不依赖容器运行时）
+  let containerRuntime: ContainerRuntime | undefined;
+  if (!isLocalProcess) {
+    if (runtimeOverride !== undefined) {
+      containerRuntime = runtimeOverride as ContainerRuntime;
+      add("container-runtime", "pass", `容器运行时覆盖: ${containerRuntime}`);
+    } else {
+      const detected = await detectContainerRuntime(runner);
+      containerRuntime = detected.runtime;
+      if (detected.runtime === "apple-container") {
+        add(
+          "container-runtime",
+          "fail",
+          "apple-container 无 compose/internal 网络原语，本期不支持",
+          "请安装 Docker Desktop / OrbStack / Colima 任一",
+        );
+      } else if (detected.runtime !== "none") {
+        const caps = runtimeCapabilities(detected.runtime);
+        const gateway = caps.hostGateway === "yes" ? "✔" : caps.hostGateway === "colima-caveat" ? "⚠" : "✘";
+        add(
+          "container-runtime",
+          "pass",
+          `容器运行时: ${detected.runtime}（compose ${caps.compose ? "✔" : "✘"} · host-gateway ${gateway}）`,
+          detected.evidence.join("；"),
+        );
+      }
+      // detected.runtime === "none"：不新增项，沿用上方 docker fail（避免重复）
+    }
+
+    // 1.6) colima host 寻址（仅 colima + lean4/u8 profile 触发；不可判定一律 warn）
+    if (containerRuntime === "colima" && (wants(profile, "lean4") || wants(profile, "u8"))) {
+      const colima = await colimaHostAddressingStatus(runner);
+      add("colima-host-addressing", colima.status, colima.message, colima.fix);
+    }
   }
 
   // 2) secrets
@@ -181,10 +266,10 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
     }
   }
 
-  // 3) PTH_WORKSPACES_HOST
-  const workspacesHost = env.PTH_WORKSPACES_HOST;
+  // 3) PTH_WORKSPACES_HOST（env 优先，secrets 文件回退——W0 收口）
+  const workspacesHost = env.PTH_WORKSPACES_HOST || secrets.PTH_WORKSPACES_HOST;
   if (!workspacesHost) {
-    add("workspaces", "fail", "PTH_WORKSPACES_HOST 未设置（compose :? 必填）", "export PTH_WORKSPACES_HOST=/abs/path/to/workspaces");
+    add("workspaces", "fail", "PTH_WORKSPACES_HOST 未设置（compose :? 必填）", "pth init --workspaces /abs/path/to/workspaces");
   } else {
     try {
       await access(workspacesHost, constants.W_OK);
@@ -206,19 +291,22 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
   // 4) 端口
   const ports: Array<[string, number]> = [["port-3000", 3000]];
   if (wants(profile, "jupyter")) ports.push(["port-8888", 8888]);
+  if (isLocalProcess && sandboxMode !== "none") ports.push(["port-8080", 8080]);
   for (const [check, port] of ports) {
     const probe = await portProbe(port);
     if (!probe.occupied) add(check, "pass", `端口 ${port} 空闲`);
     else add(check, "warn", `端口 ${port} 被占用${probe.owner ? `（${probe.owner}）` : ""}`, `lsof -i :${port} 查看占用进程`);
   }
 
-  // 5) 镜像
-  const images: Array<[string, string, string]> = [["image-engine", "pi-triple-pth:latest", "docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml build"]];
-  if (wants(profile, "jupyter")) images.push(["image-jupyter", "pi-triple-jupyter:dev", "docker compose -p pi-triple-jupyter -f deploy/services/jupyter/docker-compose.yaml build"]);
-  for (const [check, image, fix] of images) {
-    const inspected = await runner("docker", ["image", "inspect", image]);
-    if (inspected.code !== 0) add(check, "warn", `镜像缺失: ${image}`, fix);
-    else add(check, "pass", `镜像存在: ${image}`);
+  // 5) 镜像（local-process 不需要容器镜像）
+  if (!isLocalProcess) {
+    const images: Array<[string, string, string]> = [["image-engine", "pi-triple-pth:latest", "docker compose --env-file deploy/.env.pth.secrets -f deploy/docker-compose.yaml build"]];
+    if (wants(profile, "jupyter")) images.push(["image-jupyter", "pi-triple-jupyter:dev", "docker compose -p pi-triple-jupyter -f deploy/services/jupyter/docker-compose.yaml build"]);
+    for (const [check, image, fix] of images) {
+      const inspected = await runner("docker", ["image", "inspect", image]);
+      if (inspected.code !== 0) add(check, "warn", `镜像缺失: ${image}`, fix);
+      else add(check, "pass", `镜像存在: ${image}`);
+    }
   }
 
   // 6) lean4
@@ -260,40 +348,90 @@ export async function runDoctor(args: string[], options: DoctorOptions = {}): Pr
     }
   }
 
-  // 9) 数据层可达性（仅观察态；未启动不阻断）
+  // 9) 数据层可达性（container：仅观察态；local-process：外部供给 TCP 探活）
   const envFile = join(repoRoot, "deploy", ".env.pth.secrets");
-  const composeFile = join(repoRoot, "deploy", "docker-compose.yaml");
-  const ps = await runner("docker", ["compose", "--env-file", envFile, "-f", composeFile, "ps", "--format", "json"]);
-  const running = new Set<string>();
-  for (const line of ps.stdout.split("\n").map((s) => s.trim()).filter(Boolean)) {
-    try {
-      const entry = JSON.parse(line) as { Service?: string; Name?: string; State?: string };
-      const name = entry.Service ?? entry.Name ?? "";
-      if (name && (entry.State === "running" || entry.State === "Up")) running.add(name);
-    } catch {
-      // 忽略无法解析的行
+  if (isLocalProcess) {
+    // 9a) 兼容矩阵
+    if (wants(profile, "tools") || wants(profile, "jupyter")) {
+      const hints = [wants(profile, "tools") ? "--without tools" : "", wants(profile, "jupyter") ? "--without jupyter" : ""].filter(Boolean).join(" / ");
+      add("target-compat", "fail", "local-process 不支持 tools/jupyter", `使用 ${hints} 排除`);
     }
-  }
-  if (running.size === 0) {
-    add("data-layer", "warn", "数据层未运行（doctor 只体检；拉起由 pth up 编排）", "pth up --profile core");
-  } else {
-    const probes: Array<[string, string[]]> = [];
-    if (running.has("postgres")) probes.push(["postgres", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "postgres", "pg_isready", "-U", "pth", "-d", "pth"]]);
-    if (running.has("redis")) probes.push(["redis", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "redis", "sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]]);
-    if (running.has("sandbox")) probes.push(["sandbox", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "sandbox", "sh", "-c", "curl -sf http://localhost:8080/health"]]);
-    if (probes.length === 0) {
-      add("data-layer", "warn", "数据层无 postgres/redis/sandbox 运行项", "pth up --profile core");
-    } else {
-      let allOk = true;
-      for (const [name, argv] of probes) {
-        const result = await runner("docker", argv);
-        if (result.code === 0) add(`data-${name}`, "pass", `${name} 探活通过`);
-        else {
-          allOk = false;
-          add(`data-${name}`, "warn", `${name} 探活失败`, "docker compose logs <service> 排查");
-        }
+    // 9b) engine/sandbox dist（仓库 checkout 边界）
+    const distChecks: Array<[string, string]> = [
+      ["engine-dist", join(repoRoot, "dist", "pth", "main.js")],
+    ];
+    if (sandboxMode !== "none") distChecks.push(["sandbox-dist", join(repoRoot, "packages", "pth-sandbox", "dist", "main.js")]);
+    for (const [check, distPath] of distChecks) {
+      try {
+        await access(distPath);
+        add(check, "pass", `dist 存在: ${distPath}`);
+      } catch {
+        add(check, "fail", `dist 缺失: ${distPath}`, "npm run build（local-process v1 仅支持仓库 checkout）");
       }
-      if (allOk) add("data-layer", "pass", "已运行的数据层服务探活通过");
+    }
+    // 9c) 外部数据层 URL TCP 探活
+    const urlChecks: Array<[string, string, number]> = [
+      ["redis", "REDIS_URL", 6379],
+      ["postgres", "DATABASE_URL", 5432],
+    ];
+    let allDataOk = true;
+    for (const [name, key, defaultPort] of urlChecks) {
+      const raw = env[key] ?? secrets[key];
+      if (!raw) {
+        allDataOk = false;
+        add(`data-${name}`, "fail", `${key} 缺失`, `deploy/.env.pth.secrets 填写 ${key}`);
+        continue;
+      }
+      let parsed: { host: string; port: number };
+      try {
+        parsed = parseUrlHostPort(raw, defaultPort);
+      } catch {
+        allDataOk = false;
+        add(`data-${name}`, "fail", `${key} 无法解析: ${raw}`, "修正 URL 格式（redis://host:port 或 postgresql://user:pass@host:port/db）");
+        continue;
+      }
+      const reachable = await tcpReachable(parsed.host, parsed.port);
+      if (reachable) add(`data-${name}`, "pass", `${name} TCP 可达（${parsed.host}:${parsed.port}）`);
+      else {
+        allDataOk = false;
+        add(`data-${name}`, "fail", `${name} TCP 不可达（${parsed.host}:${parsed.port}）`, "启动本机服务或修正 URL");
+      }
+    }
+    if (allDataOk) add("data-layer", "pass", "外部数据层探活通过");
+  } else {
+    const composeFile = join(repoRoot, "deploy", "docker-compose.yaml");
+    const ps = await runner("docker", ["compose", "--env-file", envFile, "-f", composeFile, "ps", "--format", "json"]);
+    const running = new Set<string>();
+    for (const line of ps.stdout.split("\n").map((s) => s.trim()).filter(Boolean)) {
+      try {
+        const entry = JSON.parse(line) as { Service?: string; Name?: string; State?: string };
+        const name = entry.Service ?? entry.Name ?? "";
+        if (name && (entry.State === "running" || entry.State === "Up")) running.add(name);
+      } catch {
+        // 忽略无法解析的行
+      }
+    }
+    if (running.size === 0) {
+      add("data-layer", "warn", "数据层未运行（doctor 只体检；拉起由 pth up 编排）", "pth up --profile core");
+    } else {
+      const probes: Array<[string, string[]]> = [];
+      if (running.has("postgres")) probes.push(["postgres", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "postgres", "pg_isready", "-U", "pth", "-d", "pth"]]);
+      if (running.has("redis")) probes.push(["redis", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "redis", "sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]]);
+      if (running.has("sandbox")) probes.push(["sandbox", ["compose", "--env-file", envFile, "-f", composeFile, "exec", "-T", "sandbox", "sh", "-c", "curl -sf http://localhost:8080/health"]]);
+      if (probes.length === 0) {
+        add("data-layer", "warn", "数据层无 postgres/redis/sandbox 运行项", "pth up --profile core");
+      } else {
+        let allOk = true;
+        for (const [name, argv] of probes) {
+          const result = await runner("docker", argv);
+          if (result.code === 0) add(`data-${name}`, "pass", `${name} 探活通过`);
+          else {
+            allOk = false;
+            add(`data-${name}`, "warn", `${name} 探活失败`, "docker compose logs <service> 排查");
+          }
+        }
+        if (allOk) add("data-layer", "pass", "已运行的数据层服务探活通过");
+      }
     }
   }
 

@@ -102,5 +102,5 @@ PTH 内部错误统一为：
 
 - `POST /api/v1/kernel/tasks/:id/answer`：人工回答 paused 任务。
 - `GET /api/v1/kernel/tasks?status=paused`：待回答问题箱。
-- `POST /api/v1/human-requests` 及响应/取消：通用人工审核（详见 [workflow-trigger-human-review-correction-plan](workflow-trigger-human-review-correction-plan.md)）。
-- `POST /api/v1/kernel/notebook/execute`：ExecutionTarget 路由（详见 [execution-target-matrix-plan](execution-target-matrix-plan.md)）。
+- `POST /api/v1/human-requests` 及响应/取消：通用人工审核（详见 [workflow-trigger-human-review-correction-plan](plan/workflow-trigger-human-review-correction-plan.md)）。
+- `POST /api/v1/kernel/notebook/execute`：ExecutionTarget 路由（详见 [execution-target-matrix-plan](plan/execution-target-matrix-plan.md)）。

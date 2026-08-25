@@ -1,12 +1,14 @@
 import { createPgPool, applySchema, createDataWorld } from "@away_from/pth-kernel-storage";
 import { DEFAULT_TENANT_ID } from "@away_from/pth-memory";
 import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver } from "../catalog/index.js";
-import { BatchManager, toKernelActivityEvent, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles, checkTaskRouting, routeTaskRole, parseWorkerRoleRecovery, parseSpaceRecovery, ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES, PROFESSIONAL_ROLES, TaskResolver, evaluateAndScale, loadScalerConfig, registerSystemTriggers, createKernelLogger } from "@away_from/pth-kernel-execution";
+import { BatchManager, toKernelActivityEvent, parseRoleWeights, expandRoleWeights, registerWorkerRole, allWorkerRoles, allKnownRoles, setDefaultRoles, setProfessionalRoles, checkTaskRouting, routeTaskRole, parseWorkerRoleRecovery, parseSpaceRecovery, TaskResolver, evaluateAndScale, loadScalerConfig, registerSystemTriggers, createKernelLogger } from "@away_from/pth-kernel-execution";
+import { loadDefaultRoleSets } from "../catalog/index.js";
 import { getEventBus } from "@away_from/pth-kernel-interpreter";
 import { createPenetrationDiscoveryService, TaskControlService, PgTaskQueries } from "../tasking/index.js";
 import { pthConfig } from "@away_from/pth-config";
 import type pg from "pg";
 import type { ExecutionBackendRegistry } from "../execution/index.js";
+import { createPlanImplementationDeriver } from "../execution/index.js";
 
 export interface KernelRuntimeOptions {
   /** obs 观测请求解析器（batch obs-req → 主进程 metrics/batches 数据） */
@@ -163,9 +165,11 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   await applySchema(pool);
 
   // 2026-08-13 审计 P2：内置角色在装配层注入（核心 worker-cluster 不再 import 实现层）
-  setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  // Role Catalog W1：角色内容来自 catalog/data/roles 卡片，分类沿用内置四类 id 集合。
+  const catalogRoles = loadDefaultRoleSets();
+  setDefaultRoles(catalogRoles.defaultRoles, catalogRoles.midRoles, catalogRoles.governanceRoles);
   // Task 3：五个专业角色进入 known lineage/显式权重解析（不进缺省单副本循环）
-  setProfessionalRoles(PROFESSIONAL_ROLES);
+  setProfessionalRoles(catalogRoles.professionalRoles);
   // 2026-08-15 拆分：记忆包不 import core——空间查询由装配层注入；
   // 内置空间注册移出 space-registry 模块（断 core 实现层环）
   const { setSpaceLookup } = await import("@away_from/pth-memory");
@@ -464,7 +468,7 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
 
   // trigger 统一化（2026-08-16）：全部系统控制环收编为 trigger 调度指令（原生 action）。
   // claim-reaper / batch-watchdog / flow-resolver / optimizer-deopt-sweep / batch-scaler /
-  // origin-escalation / memory-sweep 在此集中注册；PerfAutopilot 在 main.ts 注册（依赖 metrics registry）。
+  // memory-sweep 在此集中注册；PerfAutopilot 在 main.ts 注册（依赖 metrics registry）。
   // 周期 env 语义与旧硬定时器一致：PTH_CLAIM_REAP_MS / PTH_WATCHDOG_INTERVAL_MS /
   // PTH_RESOLVER_INTERVAL_MS / PTH_VERIFY_SWEEP_MS / PTH_BATCH_SCALE_INTERVAL_MS。
   const claimTimeoutMs = resolveClaimTimeoutMs();
@@ -476,6 +480,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
   const penetrationDiscovery = createPenetrationDiscoveryService({
     queryReadOnly: (sql) => dataWorld.queryReadOnly(sql),
     memory: dataWorld.memory,
+    log: (m) => assemblyLogger.info(m),
+  });
+  // W2：modification-plan 实施任务派生（official 事件 → 按 implementation.kind 发布 actuator/developer 任务）
+  const planImplementation = createPlanImplementationDeriver({
+    memory: dataWorld.memory as never,
+    publish: (input) => dataWorld.tasks.publish(input as never),
     log: (m) => assemblyLogger.info(m),
   });
   registerSystemTriggers(triggerEngine, {
@@ -527,6 +537,13 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
       intervalMs: pthConfig().num("PTH_PENETRATION_DISCOVERY_INTERVAL_MS"),
       discover: () => penetrationDiscovery.discover(),
     },
+    // B10：观测-调节调度源（sensor 七点/controller 九点周期派单，契约含 A/B 基线窗边界）
+    governanceLoop: {
+      enabled: pthConfig().str("PTH_GOVERNANCE_LOOP") === "on",
+      intervalSec: pthConfig().num("PTH_GOVERNANCE_LOOP_INTERVAL_SECONDS"),
+      baselineWindow: pthConfig().num("PTH_GOVERNANCE_BASELINE_WINDOW"),
+    },
+    planImplementation,
     log: (m) => assemblyLogger.info(m),
   });
 

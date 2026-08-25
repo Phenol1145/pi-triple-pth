@@ -167,6 +167,24 @@ describe("batch manager", () => {
     await mgr.killBatch(handle.id);   // 清理出 map
     expect((await mgr.listBatches()).some((x) => x.id === handle.id)).toBe(false);
   });
+
+  it("W-b：status 心跳携带 activity → BatchStatus 暴露在飞活动", async () => {
+    const actPath = join(dir, "activity-batch.mjs");
+    await writeFile(actPath, `
+      process.send?.({ type: "status", tasks: [], ts: Date.now(), activity: [
+        { role: "developer", taskId: "t1", step: 2, tool: "ts.run", startedAt: 100, lastActivityAt: 200 },
+      ] });
+      process.on("message", (msg) => { if (msg.type === "shutdown") process.exit(0); });
+    `);
+    const mgr = new BatchManager({ batchProcessPath: actPath });
+    const handle = await mgr.spawnBatch();
+    await new Promise((r) => setTimeout(r, 150));
+    const b = (await mgr.listBatches()).find((x) => x.id === handle.id)!;
+    expect(b.activity).toEqual([
+      { role: "developer", taskId: "t1", step: 2, tool: "ts.run", startedAt: 100, lastActivityAt: 200 },
+    ]);
+    await mgr.killBatch(handle.id);
+  });
 });
 
 describe("N28 T2：replica 级控制传输/关联（BatchManager）", () => {

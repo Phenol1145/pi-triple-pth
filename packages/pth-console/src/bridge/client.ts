@@ -488,6 +488,21 @@ export class PthClient {
     return (await res.json()) as Record<string, unknown>;
   }
 
+  /** W-a/W-b：worker 活动记录（在飞心跳 + 历史 transcript） */
+  async workerActivity(role: string, sinceSec = 60, limit = 50): Promise<{ role: string; sinceSec: number; inflight: unknown[]; history: unknown[] }> {
+    const q = `?sinceSec=${sinceSec}&limit=${limit}`;
+    const res = await this.request(`/api/v1/kernel/workers/${encodeURIComponent(role)}/activity${q}`, { method: "GET", headers: this.headers() });
+    if (!res.ok) await this.throwError(res, "worker 活动查询失败");
+    return (await res.json()) as { role: string; sinceSec: number; inflight: unknown[]; history: unknown[] };
+  }
+
+  /** W-c：worker 在飞上下文查询 */
+  async workerContext(role: string, last = 10): Promise<{ role: string; tasks: unknown[] }> {
+    const res = await this.request(`/api/v1/kernel/workers/${encodeURIComponent(role)}/context?last=${last}`, { method: "GET", headers: this.headers() });
+    if (!res.ok) await this.throwError(res, "worker 上下文查询失败");
+    return (await res.json()) as { role: string; tasks: unknown[] };
+  }
+
   /** 启动 n 个 batch（支持 profile：role/copies/weights——⑤强化/均衡模式） */
   async batchAddProfile(count = 1, opts: { role?: string; copies?: number; weights?: string } = {}): Promise<{ spawned: number; mode: string; batches: Array<{ id: string; pid: number; workers?: string[] }> }> {
     const body: Record<string, unknown> = { count };

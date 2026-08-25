@@ -66,7 +66,7 @@ module.exports = /** @type {PthExtFactory} */ async function factory(ctx) {
 
 - **类型面**：`toolstore/extensions/sdk.d.ts`（PthExtContext/PthExtFactoryResult/PthExtFactory）——
   扩展里 `/// <reference path="../sdk.d.ts" />` + `// @ts-check` 获得类型提示与检查。
-- **验证工具**：`npm run ext:check`（或 `npx tsx scripts/ext-check.ts [扩展id...]`）——
+- **验证工具**：`npm run ext:check`（或 `npx tsx scripts/tools/ext-check.ts [扩展id...]`）——
   ① manifest 校验 ② tsc checkJs 类型检查 ③ 真实装载冒烟（tools 空参调用不炸）
   ④ manifest contracts 与实现对齐。
 - **装载失败必现**：ExtRegistry 默认 onError 记 `console.error`（不静默）；

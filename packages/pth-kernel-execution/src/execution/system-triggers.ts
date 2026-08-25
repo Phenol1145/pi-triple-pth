@@ -20,10 +20,29 @@ export const SYSTEM_ACTION = {
   batchScale: "batch.scale",
   penetrationDiscovery: "penetration.discovery",
   pauseSweep: "pause.sweep",
+  planImplementation: "plan.implementation",
 } as const;
+
+/** B10：sensor 七观测点 / controller 九调节点 */
+const SENSOR_ROLE_IDS = [
+  "sensor:worker-opt", "sensor:system-opt", "sensor:resource", "sensor:memory",
+  "sensor:tool-face", "sensor:tool-single", "sensor:rule",
+] as const;
+
+const CONTROLLER_ROLE_IDS = [
+  "controller:router", "controller:worker-opt", "controller:pth-opt", "controller:resource",
+  "controller:memory", "controller:adversarial", "controller:tool-face", "controller:tool-single", "controller:rule",
+] as const;
 
 export interface SystemTriggerDeps {
   env?: NodeJS.ProcessEnv;
+  /** B10：sensor/controller 治理回路调度源（enabled 时注册周期派单 trigger） */
+  governanceLoop?: {
+    enabled: boolean;
+    intervalSec: number;
+    /** A/B 优化周期基线窗轮数 n；任务文本中作为边界契约传给 sensor/controller */
+    baselineWindow?: number;
+  };
   /** claim 回收（tasks.recoverStaleClaims） */
   recoverStaleClaims?: (timeoutMs: number) => Promise<number>;
   /** claim 超时阈值（ms） */
@@ -44,6 +63,8 @@ export interface SystemTriggerDeps {
   scaler?: { enabled: boolean; intervalMs: number; evaluate: () => Promise<unknown> };
   /** 穿透稳定边自动发现巡检（B1） */
   penetrationDiscovery?: { enabled: boolean; intervalMs: number; discover: () => Promise<unknown> };
+  /** W2：modification-plan 实施任务派生（modification-plan.approved 事件 → 按 implementation.kind 发布任务） */
+  planImplementation?: (planId: string) => Promise<{ published: number }>;
   /** 生命周期 P1：pause 超时/预算巡检（escalate 超时或超限 paused 任务） */
   pauseSweep?: () => Promise<number>;
   /** pause 巡检周期（ms；缺省 60s） */
@@ -61,16 +82,45 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
   const log = deps.log ?? ((m: string) => console.log(m));
 
   // ── 任务链（workflow 形态：事件 trigger → 任务发布）────────────────
-  // Origin 升级链（2026-08-10 任务池纯化 D3）：terminal reject → retask 转写 origin 标签。
-  engine.addSystemTrigger({
-    name: "origin-escalation",
-    event: "task.rejected",
-    task: { title: "", text: "", retask: true, tags: ["origin"] },
-    enabled: true,
-  });
+  // 2026-08-24 三源重构：Origin 升级链已移除（W1）——terminal reject 不再自动重发布，
+  // 终态外推由 W3 的 events 通道承接。
   // 记忆维护巡检（B1/N7）：schedule trigger → memory-keeper 巡检任务（提案经监督批准）。
   const memorySweep = buildMemorySweepTrigger(env);
   if (memorySweep) engine.addSystemTrigger(memorySweep);
+
+  // B10：观测-调节调度源（2026-08-24 backlog B10）——周期向 sensor 七点位 / controller 九点位派单。
+  // 派单契约内嵌 A/B 优化周期边界：n 轮基线窗 / n+1~2n 轮实验窗（baselineWindow）。
+  if (deps.governanceLoop?.enabled) {
+    const intervalSec = deps.governanceLoop.intervalSec > 0 ? deps.governanceLoop.intervalSec : 24 * 60 * 60;
+    const n = deps.governanceLoop.baselineWindow ?? 10;
+    const boundary = `A/B 优化周期边界：前 ${n} 轮为基线窗；变更生效后第 ${n + 1}~${2 * n} 轮为实验窗；两窗对比后裁决 keep/rollback。`;
+    for (const role of SENSOR_ROLE_IDS) {
+      engine.addSystemTrigger({
+        name: `governance-loop-${role.replace(/:/g, "-")}`,
+        schedule: { everySec: intervalSec },
+        task: {
+          title: `${role} 周期性观测任务`,
+          text: `按治理回路周期执行 ${role} 职责（见角色文档）。${boundary}只产出 observation-report（draft——监督层流转），不开处方。`,
+          role,
+          tags: ["governance", "observe"],
+        },
+        enabled: true,
+      });
+    }
+    for (const role of CONTROLLER_ROLE_IDS) {
+      engine.addSystemTrigger({
+        name: `governance-loop-${role.replace(/:/g, "-")}`,
+        schedule: { everySec: intervalSec },
+        task: {
+          title: `${role} 周期性调节任务`,
+          text: `按治理回路周期执行 ${role} 职责（见角色文档）。${boundary}读取对应 sensor 的 observation-report，只产出 modification-plan（draft——监督层流转），不直接实施。`,
+          role,
+          tags: ["governance", "regulate"],
+        },
+        enabled: true,
+      });
+    }
+  }
 
   // skill 维护提案对抗性审核派发（L2——2026-08-18 用户裁决 Q2 事件驱动编排）：
   // memory-keeper skills.maintain.propose 落库即发 skill.proposal.created 事件（detail=提案 id）
@@ -89,6 +139,7 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
         "③ 裁决：skills.review('{{detail}}', 'pass', '<理由>') 或 skills.review('{{detail}}', 'reject', '<缺口清单>')；",
         "只读审核——不执行维护（批准与执行走监督通道）。",
       ].join("\n"),
+      role: "controller:adversarial",
       tags: ["adversarial"],
     },
     enabled: true,
@@ -111,6 +162,7 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
         "③ 裁决：tools.review('{{detail}}', 'pass', '<理由>') 或 tools.review('{{detail}}', 'reject', '<缺口清单>')；",
         "只读审核——不执行注册（批准与执行走监督通道）。",
       ].join("\n"),
+      role: "controller:adversarial",
       tags: ["adversarial"],
     },
     enabled: true,
@@ -206,6 +258,20 @@ export function registerSystemTriggers(engine: TriggerEngine, deps: SystemTrigge
       name: "penetration-discovery",
       schedule: { everySec: deps.penetrationDiscovery.intervalMs / 1000 },
       action: { type: SYSTEM_ACTION.penetrationDiscovery },
+      enabled: true,
+    });
+  }
+
+  // W2：modification-plan 实施派生（事件驱动——approval 落 official 后按 implementation.kind 发布实施任务）。
+  if (deps.planImplementation) {
+    engine.registerAction(SYSTEM_ACTION.planImplementation, async (ctx) => {
+      const planId = ctx.vars.detail ?? "";
+      if (planId) await deps.planImplementation!(planId);
+    });
+    engine.addSystemTrigger({
+      name: "modification-plan-implementation",
+      event: "modification-plan.approved",
+      action: { type: SYSTEM_ACTION.planImplementation },
       enabled: true,
     });
   }

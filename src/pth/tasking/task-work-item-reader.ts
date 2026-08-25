@@ -9,6 +9,7 @@
  */
 
 import {
+  isPlainRecord,
   validateDomainBinding,
   type DomainBinding,
   type DomainId,
@@ -24,12 +25,6 @@ export interface TaskWorkRow {
   payload: unknown;
   assigned_role: string | null;
   work_mode?: string | null;
-}
-
-function isPlainRecord(v: unknown): v is Record<string, unknown> {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
-  const proto = Object.getPrototypeOf(v) as unknown;
-  return proto === Object.prototype || proto === null;
 }
 
 function parseDomains(payload: unknown): DomainId[] | null {

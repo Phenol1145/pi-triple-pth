@@ -253,7 +253,7 @@ export class Refiner {
   private provenanceOf(input: RefineInput, content: string): KnowledgeProvenance {
     return {
       sourceTaskId: input.task.id,
-      producerRole: input.role ?? input.task.claimed_by ?? "origin",
+      producerRole: input.role ?? input.task.claimed_by ?? "unknown",
       producerModel: this.deps.model ?? "deepseek-v4-flash",
       sourceRefs: this.sourceRefsOf(input),
       contentHash: createHash("sha256").update(content).digest("hex"),
@@ -372,7 +372,7 @@ export class Refiner {
     const diffTask = taskOf("differentiation");
     const diff = result.ok && diffTask ? result.differentiation : undefined;
     if (diff?.differentiable && diff.subtasks.length > 0) {
-      const parent = diff.suggestedRole?.parent || input.role || input.task.claimed_by || "origin";
+      const parent = diff.suggestedRole?.parent || input.role || input.task.claimed_by || "unknown";
       const id = `diff-${hash(input.task.id + parent + diff.subtasks.map((s) => s.type).join(",")).slice(0, 12)}`;
       const diffContent = JSON.stringify({
         taskId: input.task.id,

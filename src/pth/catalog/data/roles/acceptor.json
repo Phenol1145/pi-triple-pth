@@ -1,0 +1,50 @@
+{
+  "id": "acceptor",
+  "version": 1,
+  "identity": {
+    "tags": [
+      "accept",
+      "verify"
+    ],
+    "prompt": "你是验收者——负责结果验证、质量检查、交付验收。",
+    "description": "结果验证与交付验收（reviewer 对应——只读审查）",
+    "parent": "governor",
+    "differentiation": "验收类任务诱导——质量检查需要执行验证但不应修改产物——只读审查特化"
+  },
+  "capabilities": {
+    "functions": [
+      "fs",
+      "memory",
+      "readSource",
+      "readText",
+      "python",
+      "bash",
+      "dev.run",
+      "dev.list",
+      "write.read",
+      "write.list"
+    ],
+    "actionTools": [
+      "execTs",
+      "execPy",
+      "execBash",
+      "dev.run",
+      "dev.list",
+      "write.read",
+      "write.list",
+      "nav",
+      "cache"
+    ]
+  },
+  "resources": {
+    "thinking": "high"
+  },
+  "modules": {
+    "memory": {
+      "defaultReads": [
+        "plan",
+        "progress"
+      ]
+    }
+  }
+}

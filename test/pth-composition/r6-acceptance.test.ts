@@ -1,7 +1,7 @@
 /**
  * R6 组合验收（N27 wave-4 最后一棒）——真实 PostgreSQL 全链 + 七类故障注入。
  *
- * 覆盖契约 docs/pth/n27-r6-contract.md §4.1 与 §4.2：
+ * 覆盖契约 docs/pth/contract/n27-r6-contract.md §4.1 与 §4.2：
  *   claim → context → commit → outbox（同事务）→ drainer → scoped draft candidate
  *   → VerificationPlan → domain+adversarial verdict → promotion（CAS+plan 绑定）
  *   → official → 生产 retrieve 命中；

@@ -15,7 +15,7 @@
  *  - side effect 只在 `upd.rowCount === 1` 时于同一事务内 enqueue，CAS 未命中直接返回 upd；
  *  - 无法确定服务端 tenant scope 时 fail closed（committed:false，零 side effect）。
  *
- * N29 再验收 P0-1（docs/pth/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
+ * N29 再验收 P0-1（docs/pth/report/n29-minimal-intake-reacceptance-feedback.md §3 P0-1 / §8 条件 1）：
  *  - side effect 的 outbox tenant **只由聚合上下文盖章**——三条 CAS 都 `RETURNING tenant_id`，
  *    用刚通过 CAS 的 `tasks.tenant_id` 落 outbox；调用方自报值不再是事实源；
  *  - 自报 tenant ≠ 聚合 tenant：开事务前 fail closed（committed:false，任一 tenant 零 outbox），
@@ -37,6 +37,7 @@ import type {
   TaskCommitOptions,
   TaskCommitSideEffect,
   TaskLease,
+  TaskLeaseReference,
   TaskOutcome,
   TaskRepository,
   TaskWorkItem,
@@ -178,7 +179,28 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
       });
     },
 
-    async recoverExpired(nowArg) {
+    async renewLease(ref: TaskLeaseReference, opts?: { ttlMs?: number }) {
+      const ttlMs = opts?.ttlMs ?? leaseTtlMs;
+      const expiresAt = new Date(now().getTime() + ttlMs);
+      const res = await pool.query(
+        `UPDATE tasks SET
+           lease_expires_at = $4,
+           updated_at = now()
+         WHERE id = $1
+           AND lease_id = $2
+           AND lease_generation = $3
+           AND status = 'claimed'
+           AND lease_expires_at IS NOT NULL
+         RETURNING lease_expires_at`,
+        [ref.taskId, ref.leaseId, ref.generation, expiresAt],
+      );
+      if ((res.rowCount ?? 0) !== 1) return { renewed: false };
+      const row = res.rows[0] as { lease_expires_at: Date };
+      return { renewed: true, deadlineAt: new Date(row.lease_expires_at).toISOString() };
+    },
+
+    async recoverExpired(nowArg, graceMs = 60_000) {
+      const threshold = new Date(nowArg.getTime() - graceMs);
       const res = await pool.query(
         `UPDATE tasks SET
            status = 'pending',
@@ -190,7 +212,7 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
          WHERE status = 'claimed'
            AND lease_expires_at IS NOT NULL
            AND lease_expires_at < $1`,
-        [nowArg],
+        [threshold],
       );
       return res.rowCount ?? 0;
     },

@@ -521,6 +521,42 @@ export function registerKernelRoutes(app: FastifyInstance, facade: PthGatewayFac
     return facade.listBatchesWithAlive();
   });
 
+  // ── worker 活动记录 + 在飞上下文（W-a/W-b/W-c 监督查询面）─────────
+  // GET /api/v1/kernel/workers/:role/activity?sinceSec=60&limit=50
+  app.get("/api/v1/kernel/workers/:role/activity", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const { role } = req.params as { role: string };
+    if (!/^[a-z0-9:-]+$/.test(role)) {
+      return reply.status(400).send({ error: "role 格式非法（仅允许 a-z0-9:-）" });
+    }
+    const q = req.query as { sinceSec?: string; limit?: string };
+    const sinceSec = Math.min(Math.max(Math.floor(Number(q.sinceSec ?? 60)) || 60, 1), 86_400);
+    const limit = Math.min(Math.max(Math.floor(Number(q.limit ?? 50)) || 50, 1), 200);
+    try {
+      return await facade.workerActivity(role, sinceSec, limit);
+    } catch {
+      // 查询面失败必须降级空结果，不 500 阻断监督面。
+      return { role, sinceSec, inflight: [], history: [] };
+    }
+  });
+
+  // GET /api/v1/kernel/workers/:role/context?last=10
+  app.get("/api/v1/kernel/workers/:role/context", async (req, reply) => {
+    if (!facade) return unavailable(reply);
+    const { role } = req.params as { role: string };
+    if (!/^[a-z0-9:-]+$/.test(role)) {
+      return reply.status(400).send({ error: "role 格式非法（仅允许 a-z0-9:-）" });
+    }
+    const q = req.query as { last?: string };
+    const last = Math.min(Math.max(Math.floor(Number(q.last ?? 10)) || 10, 1), 100);
+    try {
+      return await facade.workerContext(role, last);
+    } catch {
+      // 查询面失败必须降级空结果。
+      return { role, tasks: [] };
+    }
+  });
+
   // ── 运行状态全景（监控面板铺垫）───────────────────────────
   app.get("/api/v1/kernel/status", async (req, reply) => {
     if (!facade) return unavailable(reply);

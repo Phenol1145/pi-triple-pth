@@ -19,6 +19,7 @@ export * from "./knowledge-intake.js";
 export * from "./knowledge-intake-attestation.js";
 export * from "./runtime-observation.js";
 export * from "./work-mode.js";
+export * from "./worker-kind.js";
 export * from "./professional-computing.js";
 export * from "./notebook-guide.js";
 export * from "./knowledge-fingerprint.js";

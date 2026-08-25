@@ -36,6 +36,16 @@ export interface WorkerAuthoritativeProjection {
   } | null;
 }
 
+/** W-b：心跳携带的在飞活动条目（role 维度；taskId/step/tool 来自 TaskLoop activeTask）。 */
+export interface WorkerActivity {
+  role: string;
+  taskId: string;
+  step?: number;
+  tool?: string;
+  startedAt: number;
+  lastActivityAt: number;
+}
+
 // 与 Task 5 stats.ts 的 BatchStatusLike 契约对齐（id/workers/currentTasks 字段兼容，可直喂 collectStats）
 export interface BatchStatus {
   id: string;
@@ -56,6 +66,8 @@ export interface BatchStatus {
   /** N28 T2：feasibility 模式心跳自报的副本状态（off 模式子进程不上报 → []）。
    *  N33 复验收 P1-2：feasibility 心跳额外携带 authoritative 责任区/工作集有界投影。 */
   replicas?: Array<WorkerReplicaStatus & { authoritative?: WorkerAuthoritativeProjection | null }>;
+  /** W-b：心跳自报的在飞活动（老版本/未上报时不新增键，兼容旧形状）。 */
+  activity?: WorkerActivity[];
 }
 
 export interface BatchManagerDeps {
@@ -98,6 +110,10 @@ export class BatchManager {
     pendingRemovalCtl: Map<string, Array<(status: { state?: string; error?: string; accepted?: boolean }) => void>>;
     /** N28 T2：feasibility 模式心跳自报的副本状态（off 模式保持 []）。 */
     replicas: WorkerReplicaStatus[];
+    /** W-b：心跳自报的在飞活动（role 维度；空数组 = 无可观察活动）。 */
+    activity: WorkerActivity[];
+    /** W-c：worker-context-query 请求等待表（requestId → resolve；5s 超时结算）。 */
+    pendingQueries: Map<string, (tasks: unknown[]) => void>;
   }>();
 
   constructor(private deps: BatchManagerDeps) {}
@@ -124,13 +140,17 @@ export class BatchManager {
     });
     getEventBus().emit("batch.spawn", { batchId: id, workers });
     const record: (typeof this.batches) extends Map<string, infer V> ? V : never = {
-      id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now(), pendingCtl: new Map(), pendingRemovalCtl: new Map(), replicas: [],
+      id, child, workers, currentTasks: new Map<string, string>(), lastHeartbeat: Date.now(), pendingCtl: new Map(), pendingRemovalCtl: new Map(), replicas: [], activity: [], pendingQueries: new Map(),
     };
     child.on("message", (msg: any) => {
       if (msg?.type === "status" && Array.isArray(msg.tasks)) {
         record.currentTasks = new Map(msg.tasks.map((t: any) => [t.workerId, t.taskId]));
         record.replicas = Array.isArray(msg.replicas)
           ? (msg.replicas as Array<WorkerReplicaStatus & { authoritative?: WorkerAuthoritativeProjection | null }>)
+          : [];
+        // W-b：心跳携带的在飞活动落档（老版本子进程不上报 → 保持空）。
+        record.activity = Array.isArray(msg.activity)
+          ? (msg.activity as WorkerActivity[])
           : [];
         // H6（watchdog v2）：status 消息即心跳——记录最近到达时间（batch-process 每 2s 上报）
         record.lastHeartbeat = typeof msg.ts === "number" ? msg.ts : Date.now();
@@ -188,6 +208,13 @@ export class BatchManager {
         if (waiters?.length) {
           record.pendingRemovalCtl.delete(key);
           for (const w of waiters) w({ state: "removed" });
+        }
+      } else if (msg?.type === "worker-context-result" && typeof msg.requestId === "string") {
+        // W-c：worker-context-query 回执结算（无等待者则忽略——可能已超时）。
+        const resolve = record.pendingQueries.get(msg.requestId);
+        if (resolve) {
+          record.pendingQueries.delete(msg.requestId);
+          resolve(Array.isArray(msg.tasks) ? msg.tasks : []);
         }
       } else if (msg?.type === "log" && this.deps.logger) {
         // 日志体系 T3：batch 子进程日志经 IPC 转发 → 主进程统一打标（component/pid）
@@ -402,6 +429,33 @@ export class BatchManager {
     return this.workerCtl(batchId, { type: "worker-add", role, copies }, "added");
   }
 
+  /** W-c：按需查询 batch 内某 role 的在飞上下文（IPC 往返；5s 超时降级空数组）。 */
+  async queryWorkerContext(batchId: string, role: string, opts: { last?: number } = {}): Promise<unknown[]> {
+    const rec = this.batches.get(batchId);
+    if (!rec) return [];
+    const requestId = randomUUID();
+    const last = Math.min(Math.max(Math.floor(opts.last ?? 10) || 10, 1), 100);
+    return new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const finish = (tasks: unknown[]) => {
+        if (timer) clearTimeout(timer);
+        rec.pendingQueries.delete(requestId);
+        resolve(tasks);
+      };
+      rec.pendingQueries.set(requestId, finish);
+      timer = setTimeout(() => finish([]), 5000);
+      try {
+        if (!rec.child.connected || rec.child.exitCode !== null) {
+          finish([]);
+          return;
+        }
+        rec.child.send({ type: "worker-context-query", requestId, role, last });
+      } catch {
+        finish([]);
+      }
+    });
+  }
+
   async killBatch(id: string): Promise<void> {
     const rec = this.batches.get(id);
     if (!rec) return;
@@ -460,6 +514,8 @@ export class BatchManager {
         ...(rec.lastCpuSystem !== undefined ? { cpuSystemUs: rec.lastCpuSystem } : {}),
         // off 模式不上报 replicas → 不新增键（legacy 形状兼容）；feasibility 才暴露。
         ...(rec.replicas.length > 0 ? { replicas: rec.replicas } : {}),
+        // W-b：老版本子进程不上报 activity → 不新增键（旧形状逐字节兼容）。
+        ...(rec.activity.length > 0 ? { activity: rec.activity } : {}),
       });
     }
     return out;

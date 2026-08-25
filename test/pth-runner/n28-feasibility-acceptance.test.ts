@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideN28Acceptance, parseVitestSkipManifest, type N28AcceptanceEnvelope } from "../../scripts/accept-n28-feasibility.js";
+import { decideN28Acceptance, parseVitestSkipManifest, type N28AcceptanceEnvelope } from "../../scripts/accept/accept-n28-feasibility.js";
 
 function gate(overrides: Partial<N28AcceptanceEnvelope["focused"]> = {}): N28AcceptanceEnvelope["focused"] {
   return {
@@ -26,7 +26,7 @@ function passingEnvelope(overrides: Partial<N28AcceptanceEnvelope> = {}): N28Acc
     contractDisposition: {
       version: "v1.2", approved: true,
       approvalSource: "user-selected-option-in-reacceptance-session",
-      amendmentDoc: "docs/pth/n28-task7-contract.md",
+      amendmentDoc: "docs/pth/contract/n28-task7-contract.md",
       amendmentClause: "## 12. 人工批准修订 v1.2（恢复 35 文件 typecheck）",
       typecheckScope: "tsconfig.n28.json (4 scripts + 31 focused tests)",
     },

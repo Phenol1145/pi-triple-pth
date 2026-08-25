@@ -5,6 +5,11 @@ import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { WorkerRole } from "./worker-cluster.js";
 import type { AgentToolResult } from "./agent-tools.js";
+import type { CommandFeedback } from "./command-feedback.js";
+import type { CommandAdapterRegistry } from "./tool-command-adapters.js";
+import type { UnifiedExecutionDispatcher } from "./execution-command.js";
+import { PTH_DONE_SIGNAL_CODE } from "./agent-tool-types.js";
+export { PTH_DONE_SIGNAL_CODE };
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
@@ -24,6 +29,8 @@ export interface AgentLoopOptions {
   kernel: WorkerKernel;
   /** capability 白名单（web/state/fs/memory）——与 vm 注入同一份 */
   caps: Record<string, unknown>;
+  /** W0：当前任务 id（停滞告警定位；缺省仅 role/step） */
+  taskId?: string;
   maxSteps?: number;
   timeoutMs?: number;
   logger?: (msg: string) => void;
@@ -59,17 +66,47 @@ export interface AgentLoopOptions {
     readonly description: string;
     readonly parameters: Record<string, unknown>;
   }>;
+  /** Wave 2：Tool-Reg v2 command adapter registry（缺省 = 回退旧 executor 路径） */
+  adapterRegistry?: CommandAdapterRegistry;
+  /** Wave 2：Execute 层统一分发器（adapter 授权后执行；缺省 = 回退旧 executor 路径） */
+  executionDispatcher?: UnifiedExecutionDispatcher;
 }
 
 /** 运行过程轨迹事件（结构化——transcript body 事件数组） */
 export type AgentTraceEvent =
   | { type: "llm-call"; step: number; toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }>; contentPreview: string; thinking?: string; usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number } }
   | { type: "tool-call"; step: number; tool: string; args: Record<string, unknown> }
-  | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string }
+  | { type: "tool-result"; step: number; tool: string; ok: boolean; durationMs: number; resultPreview: string; adapterId?: string; execKind?: "language" | "external" | "internal" | "agent"; target?: string; errorClass?: string; errorCode?: string; retryable?: boolean; feedback?: CommandFeedback; capabilityId?: string }
   | { type: "guard"; step: number; guard: "repeat-action" | "empty-done" | "empty-reply" | "unknown-tool" | "negative-loop" | "route-drift"; kind: "hit" | "guide" | "soft" | "hard"; count: number; limit: number }
   | { type: "finish"; ok: boolean; steps: number; error?: string; warning?: string; valuePreview?: string }
   | { type: "compression"; inputChars: number; outputChars: number }
-  | { type: "cognitive-working-set"; phase: "start" | "finish"; taskId: string; directorySnapshotId: string; workerId: string; toolNames: string[]; memoryEntryIds: string[]; skillIndexIds: string[]; activeSkillIds: string[]; usage: { memoryEntries: number; memoryChars: number; skillIndexEntries: number; activeSkills: number; skillChars: number; tools: number }; omitted: Record<string, number>; retrievalTraceIds: string[] };
+  | { type: "cognitive-working-set"; phase: "start" | "finish"; taskId: string; directorySnapshotId: string; workerId: string; toolNames: string[]; memoryEntryIds: string[]; skillIndexIds: string[]; activeSkillIds: string[]; usage: { memoryEntries: number; memoryChars: number; skillIndexEntries: number; activeSkills: number; skillChars: number; tools: number }; omitted: Record<string, number>; retrievalTraceIds: string[] }
+  | { type: "pulse-translate"; step: number; ok: boolean; error?: string; codeLength?: number }
+  | { type: "pulse-result"; step: number; ok: boolean; error?: string; code?: string; durationMs: number; valuePreview?: string }
+  | { type: "ptc-program"; step: number; iteration: number; program: string; reason?: string }
+  | { type: "ptc-result"; step: number; iteration: number; ok: boolean; error?: string; errorClass?: string; errorCode?: string; retryable?: boolean; valuePreview?: string; stdoutPreview?: string; durationMs: number };
+
+/**
+ * 任务上下文快照（2026-08-25 上下文持久化 W-d）：system 常量在顶层只存一次；
+ * snapshots 内 messages 已剔除 system 消息。reason=compaction 是压缩前的完整历史
+ * （修补"循环内压缩 messages.length=0 后历史彻底丢失"的洞）；reason=final 是任务结束时的最终上下文。
+ */
+export interface AgentContextCapture {
+  system?: string;
+  snapshots: Array<{
+    at: string;
+    reason: "compaction" | "final";
+    step?: number;
+    messages: Array<{
+      role: string;
+      content: string;
+      toolCallId?: string;
+      toolName?: string;
+      thinking?: string;
+      toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    }>;
+  }>;
+}
 
 export type AgentTaskResult =
   | {
@@ -79,10 +116,12 @@ export type AgentTaskResult =
       steps: number;
       warning?: string;
       compression?: import("./context-compaction.js").CompactionResult | null;
+      /** 上下文快照（PTH_TRANSCRIPT_CONTEXT=off 时缺省） */
+      contextCapture?: AgentContextCapture;
       /** pause 循环控制信号：agent 向发布者提问，任务进入 paused 状态等待回答。 */
       pause?: { question: string; context?: Record<string, unknown> };
       /** TCE P3：人类批准挂起信号（CommandGateway await-approval） */
       humanApproval?: { requestId: string };
     }
-  | { ok: false; error: string; steps: number; compression?: import("./context-compaction.js").CompactionResult | null };
+  | { ok: false; error: string; steps: number; compression?: import("./context-compaction.js").CompactionResult | null; contextCapture?: AgentContextCapture };
 

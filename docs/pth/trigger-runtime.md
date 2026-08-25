@@ -3,7 +3,7 @@
 > 建立：2026-08-16（trigger 统一化改造）。
 > 原则：事件唤醒与周期唤醒统一为一条 trigger 调度指令；trigger 只负责唤醒原生动作或发布任务，
 > 不拥有完整 Workflow Run。有限工作图与跨轮反馈采用
-> [N31 统一 Workflow DAG 薄腰](./n31-unified-workflow-dag-design.md)中的定义。
+> [N31 统一 Workflow DAG 薄腰](./design/n31-unified-workflow-dag-design.md)中的定义。
 
 ## 1. 核心模型
 

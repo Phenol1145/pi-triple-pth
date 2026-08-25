@@ -19,7 +19,7 @@ const MAX_SAMPLES = 1_800;
 const MAX_AGE_MS = 3_600_000;
 const FINAL_NOW = (SAMPLE_COUNT - 1) * SAMPLE_PERIOD_MS;
 
-// ─── 台账（供 scripts/eval-n30-runtime-observatory.ts 计算精确分母与 P50/P95/P99）──
+// ─── 台账（供 scripts/eval/eval-n30-runtime-observatory.ts 计算精确分母与 P50/P95/P99）──
 const LEDGER_VERSION = "n30-runtime-observatory-ledger/1";
 const resourceLatencyMs: number[] = [];
 const activityLatencyMs: number[] = [];

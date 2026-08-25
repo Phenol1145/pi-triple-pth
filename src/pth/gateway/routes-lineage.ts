@@ -12,9 +12,10 @@ import type { FastifyInstance } from "fastify";
 import type { PthGatewayFacade } from "../application/index.js";
 import {
   buildRoleLineage, renderRoleLineage, allLineageRoles, registerWorkerRole,
-  type WorkerRole,
+  type WorkerRole, type RoleLineageNode,
 } from "../kernel/index.js";
 import { buildRoleDoc } from "../kernel/index.js";
+import { validateRoleRegistration } from "../execution/index.js";
 
 const KERNEL_UNAVAILABLE = { error: "kernel unavailable", reason: "DATABASE_URL 未配置或 pg 不可达" };
 
@@ -36,8 +37,8 @@ export function registerLineageRoutes(app: FastifyInstance, facade: PthGatewayFa
   app.get("/api/v1/kernel/lineage", async (_req, reply) => {
     if (!facade) return unavailable(reply);
     const roles = allLineageRoles();
-    const tree = buildRoleLineage(roles);
-    const toJson = (n: ReturnType<typeof buildRoleLineage>): unknown => ({
+    const roots = buildRoleLineage(roles);
+    const toJson = (n: RoleLineageNode): unknown => ({
       id: n.role.id,
       generation: n.role.generation ?? null,
       thinking: n.role.thinking ?? null,
@@ -46,8 +47,8 @@ export function registerLineageRoutes(app: FastifyInstance, facade: PthGatewayFa
       children: n.children.map(toJson),
     });
     return {
-      tree: toJson(tree),
-      text: renderRoleLineage(tree),
+      tree: roots.map(toJson),
+      text: renderRoleLineage(roots),
       roles: roles.map((r) => ({
         id: r.id, parent: r.parent ?? null, generation: r.generation ?? null,
         thinking: r.thinking ?? null, acceptanceRole: r.acceptanceRole ?? null,
@@ -87,9 +88,13 @@ export function registerLineageRoutes(app: FastifyInstance, facade: PthGatewayFa
     }
 
     // 2. 构造新角色（parent 代数+1——固定标签从 subtasks 派生——overrides 优先）
-    const parentId = suggested?.parent || content.parent || "origin";
-    const parentRole = allLineageRoles().find((r) => r.id === parentId);
-    const generation = (parentRole?.generation ?? 0) + 1;
+    // 2026-08-24 三源重构：森林无唯一默认根——批准必须显式声明合法 parent。
+    const parentId = suggested?.parent || content.parent;
+    const parentRole = parentId ? allLineageRoles().find((r) => r.id === parentId) : undefined;
+    if (!parentId || !parentRole) {
+      return reply.status(400).send({ error: "proposal 缺合法 parent——三源森林无默认根，必须显式指定已注册父角色", proposalId });
+    }
+    const generation = (parentRole.generation ?? 0) + 1;
     const derivedTags = (content.subtasks ?? []).map((s) => s.type).filter(Boolean).slice(0, 4);
     const tags = Array.isArray(overrides.tags)
       ? (overrides.tags as unknown[]).map(String).filter(Boolean)
@@ -113,6 +118,12 @@ export function registerLineageRoutes(app: FastifyInstance, facade: PthGatewayFa
       generation,
       differentiation: suggested?.rationale ?? content.rationale ?? `任务 ${content.taskId ?? "?"} 分化诱导`,
     };
+
+    // 2b. 守恒注册闸（W4）：L2 + produces 硬校验
+    const gateError = validateRoleRegistration(newRole, allLineageRoles());
+    if (gateError) {
+      return reply.status(400).send({ error: gateError, proposalId });
+    }
 
     // 3. 主进程注册（路由面——routeTaskRole 即刻可路由）
     try {

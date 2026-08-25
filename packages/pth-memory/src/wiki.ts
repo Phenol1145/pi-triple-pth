@@ -2,7 +2,7 @@
  * wiki.ts —— 百科（pth-wiki）写入词表校验（2026-08-15 B5 / 账本 N1b）。
  *
  * 写侧污染防线：worker 面写 kind=pth-wiki 前必须通过词表一致性校验。
- * 系统 seed（scripts/seed-wiki.ts）直写 store 不经此校验。
+ * 系统 seed（scripts/seed/seed-wiki.ts）直写 store 不经此校验。
  *
  * 校验规则（保守 fail-closed）：
  *   1. id 必须是 wiki:<term>；

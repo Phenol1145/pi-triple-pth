@@ -35,7 +35,7 @@ import {
 import { createTaskWorkingSetPolicy } from "../../src/pth/runner/index.js";
 import { createWorkerReplica } from "@away_from/pth-kernel-execution";
 import { CognitiveBudgetLedger } from "@away_from/pth-kernel-execution";
-import { runV13SabotageProbes, V13_SABOTAGE_GATES } from "../../scripts/v13-authority-gates.js";
+import { runV13SabotageProbes, V13_SABOTAGE_GATES } from "../../scripts/tools/v13-authority-gates.js";
 
 const TENANT = "tenant-a";
 const HASH = `sha256:${"a".repeat(64)}`;

@@ -33,7 +33,7 @@ function baseDeps(over: Record<string, unknown> = {}) {
 }
 
 describe("system-triggers（trigger 统一化：系统级调度指令注册中心）", () => {
-  it("恒注册：origin-escalation + memory-sweep + claim/watchdog/resolver/optimizer + skill/tool-proposal-review 八个 trigger", () => {
+  it("恒注册：memory-sweep + claim/watchdog/resolver/optimizer + skill/tool-proposal-review 七个 trigger（origin-escalation 已随三源重构移除）", () => {
     const { system, engine } = captureEngine();
     registerSystemTriggers(engine as never, baseDeps());
     const names = system.map((t) => t.name).sort();
@@ -43,13 +43,10 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
       "flow-resolver",
       "memory-maintenance-sweep",
       "optimizer-deopt-sweep",
-      "origin-escalation",
       "skill-proposal-review",
       "tool-proposal-review",
     ].sort());
-    // workflow 链：origin 事件触发；memory 巡检 schedule
-    expect(system.find((t) => t.name === "origin-escalation")?.event).toBe("task.rejected");
-    expect(system.find((t) => t.name === "origin-escalation")?.task?.retask).toBe(true);
+    // memory 巡检 schedule
     expect(system.find((t) => t.name === "memory-maintenance-sweep")?.schedule?.everySec).toBe(24 * 60 * 60);
     // 控制环：schedule + 原生 action（resolver 2s；其余 30s）
     for (const name of ["claim-reaper", "batch-watchdog", "flow-resolver", "optimizer-deopt-sweep"]) {
@@ -62,12 +59,37 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     expect(system.find((t) => t.name === "optimizer-deopt-sweep")?.schedule?.everySec).toBe(30);
   });
 
+  it("B10：governanceLoop enabled → sensor 7 + controller 9 周期派单 trigger 全部注册且内嵌 A/B 边界", () => {
+    const { system, engine } = captureEngine();
+    registerSystemTriggers(engine as never, baseDeps({
+      governanceLoop: { enabled: true, intervalSec: 3600, baselineWindow: 10 },
+    }));
+    const governance = system.filter((t) => t.name.startsWith("governance-loop-"));
+    expect(governance).toHaveLength(16);
+    expect(governance.every((t) => t.schedule?.everySec === 3600)).toBe(true);
+    const sensor = governance.find((t) => t.name === "governance-loop-sensor-worker-opt")!;
+    expect(sensor.task?.role).toBe("sensor:worker-opt");
+    expect(sensor.task?.text).toContain("前 10 轮为基线窗");
+    const controller = governance.find((t) => t.name === "governance-loop-controller-router")!;
+    expect(controller.task?.role).toBe("controller:router");
+    expect(controller.task?.text).toContain("modification-plan");
+  });
+
   it("条件注册：PTH_MEMORY_SWEEP_SECONDS=0 → 无 memory trigger；optimizer off → 无 deopt trigger；scaler 默认关 → 无 batch-scaler", () => {
     const { system, engine } = captureEngine();
     registerSystemTriggers(engine as never, baseDeps({ env: { PTH_MEMORY_SWEEP_SECONDS: "0" }, optimizerSweep: { enabled: false, intervalMs: 30_000, broadcast: () => 0 } }));
     expect(system.some((t) => t.name === "memory-maintenance-sweep")).toBe(false);
     expect(system.some((t) => t.name === "optimizer-deopt-sweep")).toBe(false);
     expect(system.some((t) => t.name === "batch-scaler")).toBe(false);
+  });
+
+  it("条件注册：planImplementation 提供 → modification-plan-implementation 事件 action 注册（W2）", () => {
+    const { system, actions, engine } = captureEngine();
+    registerSystemTriggers(engine as never, baseDeps({ planImplementation: async () => ({ published: 0 }) }));
+    const t = system.find((x) => x.name === "modification-plan-implementation")!;
+    expect(t.event).toBe("modification-plan.approved");
+    expect(t.action?.type).toBe(SYSTEM_ACTION.planImplementation);
+    expect(actions.has(SYSTEM_ACTION.planImplementation)).toBe(true);
   });
 
   it("条件注册：scaler enabled → batch-scaler schedule + batch.scale action", () => {
@@ -101,6 +123,7 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     registerSystemTriggers(engine as never, baseDeps());
     const t = system.find((x) => x.name === "skill-proposal-review")!;
     expect(t.event).toBe("skill.proposal.created");
+    expect(t.task?.role).toBe("controller:adversarial");
     expect(t.task?.tags).toEqual(["adversarial"]);
     // {{detail}} 事件变量（提案 id）注入任务文本——审核角色据此 query + review
     expect(t.task?.text).toContain("{{detail}}");
@@ -113,6 +136,7 @@ describe("system-triggers（trigger 统一化：系统级调度指令注册中�
     registerSystemTriggers(engine as never, baseDeps());
     const t = system.find((x) => x.name === "tool-proposal-review")!;
     expect(t.event).toBe("tool.proposal.created");
+    expect(t.task?.role).toBe("controller:adversarial");
     expect(t.task?.tags).toEqual(["adversarial"]);
     expect(t.task?.text).toContain("{{detail}}");
     expect(t.task?.text).toContain("tools.review");

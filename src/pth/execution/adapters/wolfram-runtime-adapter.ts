@@ -16,9 +16,8 @@ import { pthConfig } from "@away_from/pth-config";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createHash } from "node:crypto";
 import type { ExecutionBackend } from "@away_from/shared/execution";
-import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn } from "../exec-via-backend.js";
+import { execViaBackend, resolveExecutionBackend, unavailableAdapterExec, type AdapterExecFn, type AdapterExecResult } from "../exec-via-backend.js";
 import {
   isWolframJobSpecStructurallyValid,
   type ArtifactRef,
@@ -28,23 +27,12 @@ import {
   type WolframJobSpec,
 } from "@away_from/pth-contracts";
 import type { ProfessionalRuntimeAdapter } from "../professional-runtime.js";
-import { createJobRunContext } from "./job-runner.js";
+import { cancelJob, createJobRunContext, sha256hex } from "./job-runner.js";
 import type { ProfessionalArtifactPort } from "@away_from/pth-contracts";
 
-export interface WolframExecResult {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  timedOut: boolean;
-  error?: string;
-}
 
-export type WolframExecFn = (
-  cmd: string,
-  args: readonly string[],
-  opts: { cwd?: string; timeoutMs?: number; maxOutputBytes?: number },
-) => Promise<WolframExecResult>;
+export type WolframExecResult = AdapterExecResult;
+export type WolframExecFn = AdapterExecFn;
 
 export interface WolframJobValue {
   readonly operation: WolframJobSpec["operation"];
@@ -86,7 +74,6 @@ export function createWolframRuntimeAdapter(deps: CreateWolframRuntimeAdapterDep
   const maxOutputBytes = deps.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const running = new Map<string, { cancelled: boolean }>();
 
-  const sha256hex = (s: Uint8Array | string) => createHash("sha256").update(s).digest("hex");
 
   function makeExec(): WolframExecFn {
     if (deps.exec) return deps.exec;
@@ -203,10 +190,7 @@ export function createWolframRuntimeAdapter(deps: CreateWolframRuntimeAdapterDep
   }
 
   async function cancel(jobId: string): Promise<boolean> {
-    const state = running.get(jobId);
-    if (!state) return false;
-    state.cancelled = true;
-    return true;
+    return cancelJob(running, jobId);
   }
 
   return { id: "wolfram", probe, execute, cancel };

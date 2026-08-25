@@ -1,7 +1,7 @@
 /**
  * tasking/tool-reg-builtin.ts —— N14 P0 存量登记器（2026-08-18，Q4 裁决：一次性全登记）。
  *
- * 依据 docs/pth/n14-sensor-controller-four-dims.md §3.6：
+ * 依据 docs/pth/design/n14-sensor-controller-four-dims.md §3.6：
  *   存量硬编码工具全部登记为 builtin 条目（executor.ref = 执行器键）——
  *   **执行完全不动**（仍走硬编码函数表——零行为变化），条目承担治理面
  *   （description 三要素统一 / 可见性声明 / 包归属 / 版本起点 v1）；
@@ -11,7 +11,7 @@
  *   PTC_TOOL_DEFS 键集（名称/包归属/三要素齐备 + 执行器引用可解析）。
  *
  * 消费方：
- *   - scripts/seed-tool-reg.ts（幂等 seed 脚本——seed-wiki 同款）；
+ *   - scripts/seed/seed-tool-reg.ts（幂等 seed 脚本——seed-wiki 同款）；
  *   - test/pth-tasking/tool-reg-builtin.test.ts（对账钉测试）。
  *
  * 数量事实（2026-08-18 盘点——N14 设计文档写 35 为 B6 退役前旧数）：
@@ -24,14 +24,14 @@
 import { PTC_TOOL_DEFS } from "@away_from/pth-kernel-interpreter";
 import { ASP_ONLY_TOOLS, TOOL_GROUPS, expandToolGroups } from "@away_from/pth-kernel-execution";
 import { AGENT_TOOLS } from "@away_from/pth-kernel-execution";
-import { DEFAULT_ROLES, GOVERNANCE_ROLES, MID_ROLES, ORIGIN_ROLE } from "@away_from/pth-kernel-execution";
+import { DEFAULT_ROLES, GOVERNANCE_ROLES, MID_ROLES } from "@away_from/pth-kernel-execution";
 import { buildToolRegContent, type ToolRegSpec } from "@away_from/pth-memory";
 
 /** done 的工具包归属（固定协议——不在任何工具族内） */
 export const TOOL_REG_CORE_PACK = "core";
 
-/** 全部内置角色（登记推导面——ORIGIN + MID + DEFAULT + GOVERNANCE） */
-const ALL_BUILTIN_ROLES = [ORIGIN_ROLE, ...MID_ROLES, ...DEFAULT_ROLES, ...GOVERNANCE_ROLES];
+/** 全部内置角色（登记推导面——MID + DEFAULT + GOVERNANCE） */
+const ALL_BUILTIN_ROLES = [...MID_ROLES, ...DEFAULT_ROLES, ...GOVERNANCE_ROLES];
 
 /**
  * 隐式全面角色（未声明 actionTools——filterToolSchemas 缺省全量，向后兼容规则）。
@@ -80,6 +80,7 @@ export function buildBuiltinToolRegSpec(name: string): ToolRegSpec {
     description: { anchor: def.anchor, whenToUse: def.whenToUse, effect: def.effect },
     parameters: { type: "object", properties: def.properties, required: def.required },
     executor: { type: "builtin", ref: builtinExecutorRef(def.name) },
+    command: `builtin:${builtinExecutorRef(def.name)}`,
     visibility: { roles: deriveVisibilityRoles(def.name), pack: toolPackOf(def.name) },
   };
 }
@@ -126,6 +127,7 @@ export function reconcileBuiltinToolRegs(specs: ToolRegSpec[]): ToolRegReconcile
     if (!def) continue;   // 多条目已在上面记录
     if (s.executor.type !== "builtin") { issues.push(`${s.name}：executor 应为 builtin（存量登记）`); continue; }
     const ref = s.executor.ref;
+    if (s.command !== `builtin:${ref}`) issues.push(`${s.name}：command 应为 builtin:${ref}（Tool-Reg v2）`);
     if (ASP_ONLY_TOOLS.has(s.name)) {
       if (ref !== `asp-inline:${s.name}`) issues.push(`${s.name}：ASP-only 条目 ref 应为 asp-inline:${s.name}（实 ${ref}）`);
     } else if (!(ref in AGENT_TOOLS)) {
@@ -167,7 +169,7 @@ export function builtinToolRegRow(spec: ToolRegSpec, implicitFullFace: string[])
       executorType: spec.executor.type,
       implicitFullFace,
       source: "PTC_TOOL_DEFS（存量全登记——Q4 裁决）",
-      seeder: "scripts/seed-tool-reg.ts",
+      seeder: "scripts/seed/seed-tool-reg.ts",
     },
   };
 }

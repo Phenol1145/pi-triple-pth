@@ -1,12 +1,14 @@
+import { pthConfig } from "@away_from/pth-config";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
 import type { WorkerRole } from "@away_from/pth-kernel-execution";
 import type { TaskWorkspaceManager } from "@away_from/pth-kernel-execution";
-import type { TaskOutcome, TaskRepository, TenantScope, TaskDispatchContext } from "@away_from/pth-contracts";
+import type { TaskOutcome, TaskRepository, TenantScope, TaskDispatchContext, TaskLease, TaskWorkItem, TaskSuspension } from "@away_from/pth-contracts";
+import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
 import { TaskDispatcher } from "../tasking/index.js";
 import { TaskOutcomeCommitter } from "../tasking/index.js";
 import { BoundedBackgroundQueue } from "../tasking/index.js";
-import { AgentTaskRunner } from "../runner/index.js";
+import { AgentTaskRunner, defaultRunnerConfig } from "../runner/index.js";
 import { createAuditObserver } from "../runner/index.js";
 import { createTranscriptObserver } from "../runner/index.js";
 import { createActivityObserver } from "../runner/index.js";
@@ -15,19 +17,64 @@ import { createNotifierObserver } from "../runner/index.js";
 import { buildRefineSideEffects } from "../runner/index.js";
 import { createOptimizerObserver } from "../runner/index.js";
 import { buildScorecard, computeTimeReuse } from "@away_from/pth-kernel-execution";
-import { translateTask } from "@away_from/pth-kernel-execution";
-import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
-import { runAgentTask } from "@away_from/pth-kernel-execution";
 import { getEventBus } from "@away_from/pth-kernel-interpreter";
 import { publishDebugCaseTask } from "@away_from/pth-kernel-interpreter";
 import { notifyTaskDone, classifyReason } from "./task-loop-helpers.js";
 import { readWorkItemDomainBinding, readWorkItemDomains, type ObserverFailureRecord } from "../tasking/index.js";
 import type { TaskLoopDeps } from "./task-loop-types.js";
 export type { TaskLoopDeps } from "./task-loop-types.js";
-import { pthConfig } from "@away_from/pth-config";
+
+/** legacy Task → TaskLease（兼容路径：无 repository 时仍可委托 AgentTaskRunner）。 */
+function legacyTaskLease(task: Task, roleId: string, ws: { tenant: string; dir: string }): TaskLease {
+  const tenantId = task.tenantId ?? "default";
+  const scope: TenantScope = {
+    tenantId,
+    principalId: task.createdBy || `worker:${roleId}`,
+    roles: [roleId],
+    traceId: ((task.payload ?? {}) as { traceId?: string }).traceId ?? `legacy-${task.id}`,
+  };
+  return {
+    taskId: task.id,
+    leaseId: task.leaseId ?? `legacy-${task.id}`,
+    generation: task.leaseGeneration ?? 1,
+    scope,
+    roleId,
+    workspace: { tenantId, workspaceId: `task:${task.id}`, taskId: task.id },
+    deadlineAt: task.leaseExpiresAt?.toISOString() ?? new Date(Date.now() + 60_000).toISOString(),
+  };
+}
+
+/** legacy Task → TaskWorkItem（兼容路径）。 */
+function legacyTaskWorkItem(task: Task, roleId: string, ws: { tenant: string; dir: string }): TaskWorkItem {
+  const tenantId = task.tenantId ?? "default";
+  const scope: TenantScope = {
+    tenantId,
+    principalId: task.createdBy || `worker:${roleId}`,
+    roles: [roleId],
+    traceId: ((task.payload ?? {}) as { traceId?: string }).traceId ?? `legacy-${task.id}`,
+  };
+  const domains = readWorkItemDomains(task.payload);
+  const domainBinding = readWorkItemDomainBinding(task.payload, domains);
+  return {
+    taskId: task.id,
+    scope,
+    title: task.title,
+    text: task.text,
+    tags: task.tags,
+    payload: task.payload ?? {},
+    assignedRole: roleId,
+    domains,
+    ...(domainBinding ? { domainBinding } : {}),
+    workMode: task.workMode ?? "run",
+  };
+}
 
 export class TaskLoop {
-  constructor(private deps: TaskLoopDeps) {}
+  constructor(private deps: TaskLoopDeps) {
+    // W0-2：batch 进程级 watchdog——每 30s 输出在飞任务（空闲零噪音）
+    this.watchdogTimer = setInterval(() => this.watchdogTick(), 30_000);
+    this.watchdogTimer.unref?.();
+  }
 
   /** runOnce：执行一轮认领。返回 true = 本轮有任务执行（调用方可自驱动下一轮——吞吐优化） */
   // worker 级控制（2026-08-09 单大 batch 控制面）：pause=暂停认领（保留状态）/
@@ -36,12 +83,60 @@ export class TaskLoop {
   private get bus() { return getEventBus(); }
   private paused = false;
   private stopped = false;
+  private activeTask?: { taskId: string; roleId: string; startedAt: number; lastActivityAt: number; currentStep?: number; tool?: string };
+  /** W-c：在飞任务实时上下文读取器（llm-agent 经 onContextReady 注入；惰性读取 __messages）。 */
+  private liveContextGetter?: () => unknown;
+  private watchdogTimer?: ReturnType<typeof setInterval>;
 
   pause(): void { this.paused = true; }
   resume(): void { this.paused = false; }
-  stop(): void { this.stopped = true; }
+  stop(): void {
+    this.stopped = true;
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer);
+    this.watchdogTimer = undefined;
+  }
   get isPaused(): boolean { return this.paused; }
   get isStopped(): boolean { return this.stopped; }
+
+  /** W-b：返回 activeTask 副本（无在飞任务返回 undefined）。 */
+  getActiveTask(): { taskId: string; roleId: string; startedAt: number; lastActivityAt: number; currentStep?: number; tool?: string } | undefined {
+    const t = this.activeTask;
+    return t ? { ...t } : undefined;
+  }
+
+  /** W-c：读取当前在飞任务的实时上下文（无 getter 或未就绪时返回 undefined）。 */
+  getLiveContext(): unknown {
+    return this.liveContextGetter?.();
+  }
+
+  private watchdogTick(): void {
+    const t = this.activeTask;
+    if (!t) return;
+    const now = Date.now();
+    const idleMs = now - t.lastActivityAt;
+    const runningMs = now - t.startedAt;
+    const msg = `[batch-watchdog] in-flight task=${t.taskId} role=${t.roleId} step=${t.currentStep ?? "-"} tool=${t.tool ?? "-"} runningMs=${runningMs} idleMs=${idleMs}`;
+    this.deps.logger?.child?.("watchdog")?.warn?.(msg, { taskId: t.taskId, roleId: t.roleId, runningMs, idleMs });
+  }
+
+  private trackTaskStart(taskId: string, roleId: string): void {
+    const now = Date.now();
+    this.activeTask = { taskId, roleId, startedAt: now, lastActivityAt: now };
+    // 新任务开始时不沿用上一个任务的上下文读取器。
+    this.liveContextGetter = undefined;
+  }
+
+  private trackTaskActivity(step?: number, tool?: string): void {
+    if (!this.activeTask) return;
+    this.activeTask.lastActivityAt = Date.now();
+    if (step !== undefined) this.activeTask.currentStep = step;
+    if (tool !== undefined) this.activeTask.tool = tool;
+  }
+
+  private clearTaskTracking(): void {
+    this.activeTask = undefined;
+    this.liveContextGetter = undefined;
+  }
 
   /** N28 T2：有 replica 时给活动/审计事件补 workerId；无 replica 时返回空对象（旧形状逐字节不变）。 */
   private workerStamp(): { workerId?: string } {
@@ -85,6 +180,18 @@ export class TaskLoop {
       this.deps.drainSideEffects?.();
     } catch {
       // drain 触发失败不阻断 claim（drainer timer 兜底）
+    }
+    // W2：周期回收孤儿 claim（开关 PTH_TASK_LEASE_RECOVERY=off 回退现状）
+    if (this.deps.repository && pthConfig().str("PTH_TASK_LEASE_RECOVERY") !== "off") {
+      try {
+        const graceMs = pthConfig().num("PTH_TASK_LEASE_RECOVERY_GRACE_MS", 60_000);
+        const recovered = await this.deps.repository.recoverExpired(new Date(), graceMs);
+        if (recovered > 0) {
+          this.deps.logger?.child?.("taskloop")?.warn?.(`[lease] recovered ${recovered} orphan claimed tasks`, { recovered });
+        }
+      } catch (e) {
+        this.deps.logger?.child?.("taskloop")?.warn?.(`[lease] periodic recovery failed: ${(e as Error).message}`);
+      }
     }
     const { taskStore, role } = this.deps;
     // 1. peek：只读获取候选（不锁定）
@@ -132,6 +239,7 @@ export class TaskLoop {
       // N28 T2：per-candidate cycle——每候选执行前查状态；busy/stopped 不认领下一候选。
       if (this.deps.replica && this.deps.replica.snapshot().state !== "idle") break;
       this.deps.replica?.startTask(task.id);
+      this.trackTaskStart(task.id, role.id);
       try {
       const ws = await workspaceMgr.allocate(task.id, task.tenantId ?? "default");
       this.stampTaskDispatchContext(task);
@@ -139,6 +247,8 @@ export class TaskLoop {
       const trig = (task.payload as { triggeredBy?: { depth?: number; triggerId?: string } } | undefined)?.triggeredBy;
       const chain = { chainDepth: Number(trig?.depth ?? 0), ...(trig?.triggerId ? { triggerId: trig.triggerId } : {}) };
       const traceEvents: import("@away_from/pth-kernel-execution").AgentTraceEvent[] = [];
+      // 2026-08-25 W-d：任务上下文快照汇集（runner 写入——transcript-observer 落盘）
+      const contextSnapshots: unknown[] = [];
       const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
       const runner = new AgentTaskRunner({
         kernel: this.deps.kernel,
@@ -146,6 +256,7 @@ export class TaskLoop {
         workspace: { taskId: task.id, tenant: ws.tenant, dir: ws.dir },
         llm: this.deps.llm,
         caps: this.deps.agentCaps,
+        contextSink: contextSnapshots,
         toolRegStore: this.deps.toolRegStore,   // N14 P2：注册表快照读取口
         toolRegRunChild: this.deps.toolRegRunChild,   // N14 P2：agent 态执行缝
         knowledgeContextProvider: this.deps.knowledgeContextProvider,   // K3：任务知识上下文（claim 后一次性快照）
@@ -161,10 +272,18 @@ export class TaskLoop {
         professionalGrantTtlMs: this.deps.professionalGrantTtlMs,
         commandGateway: this.deps.commandGateway,
         extraTools: this.deps.extraTools,
-        onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
+        adapterRegistry: this.deps.adapterRegistry,
+        executionDispatcher: this.deps.executionDispatcher,
+        // W-c：agent 循环的实时消息数组经惰性 getter 暴露给 TaskLoop（首个 await 后才就绪）。
+        onContextReady: (getter) => { this.liveContextGetter = getter; },
+        onStep: (s) => {
+          this.trackTaskActivity(s.n, s.tool);
+          taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs });
+        },
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {
           traceEvents.push(e);
+          if (e.type === "llm-call" || e.type === "tool-result") this.trackTaskActivity(e.step, e.type === "tool-result" ? e.tool : undefined);
           if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
           else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
           else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
@@ -251,7 +370,7 @@ export class TaskLoop {
         buildSideEffects: this.deps.refiner && sideEffectOutbox
           ? (evt) => buildRefineSideEffects({ kernel: this.deps.kernel, roleId: role.id }, evt)
           : undefined,
-        context: { task, ws, chain, execStart, traceEvents },
+        context: { task, ws, chain, execStart, traceEvents, contextSnapshots },
         logger: (m) => taskLogger?.warn?.(m),
       });
       const scope: TenantScope = {
@@ -267,6 +386,7 @@ export class TaskLoop {
       }
       did = did || res.ran > 0;
       } finally {
+        this.clearTaskTracking();
         this.deps.replica?.finishTask(task.id);
       }
     }
@@ -313,7 +433,7 @@ export class TaskLoop {
     await this.archive(task, ws, result);
   }
 
-  /** terminal reject 统一出口（Origin 升级链事件源——task.rejected 活动事件供 trigger 消费） */
+  /** terminal reject 统一出口（task.rejected 活动事件供 trigger/事件面消费——2026-08-24 三源重构后不再有 Origin 兜底） */
   private async rejectTerminal(task: Task, reason: string, chain: { chainDepth: number; triggerId?: string }, metricReason?: string): Promise<void> {
     const { role, taskStore } = this.deps;
     const affected = await taskStore.reject(role.id, task.id, reason, { terminal: true });
@@ -330,6 +450,8 @@ export class TaskLoop {
       try { await audit.write({ eventType: "task_rejected", actor: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id, taskId: task.id, ...this.workerStamp(), payload: { reason: reason.slice(0, 300), ...(this.deps.replica ? { roleId: role.id } : {}) } }); } catch { /* 审计容错 */ }
     }
     this.deps.onActivity?.({ kind: "task.rejected", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...this.workerStamp(), ...chain });
+    // W3：终态 reject 外推（主进程订阅 activityHub → engine.emitExternalEvent → SSE）
+    this.deps.onActivity?.({ kind: "task.terminal-reject", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 300), ...this.workerStamp(), ...chain });
     this.deps.onTaskMetric?.({ type: "status", status: "rejected" });
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: metricReason ?? classifyReason(reason) });
   }
@@ -351,6 +473,23 @@ export class TaskLoop {
     this.deps.onActivity?.({ kind: "task.requeued", taskId: task.id, role: role.id, ok: false, detail: reason.slice(0, 120), ...this.workerStamp(), ...chain });
     this.deps.onTaskMetric?.({ type: "status", status: "requeued" });
     this.deps.onTaskMetric?.({ type: "reject-reason", reason: "soft-terminated" });
+  }
+
+  /** W2：实施任务 done 契约——payload.implementationPlanHash 存在时，done.result.planHash 必须一致。 */
+  private implementationPlanHashOf(task: Task): string | null {
+    const payload = (task.payload ?? {}) as { implementationPlanHash?: unknown };
+    return typeof payload.implementationPlanHash === "string" ? payload.implementationPlanHash : null;
+  }
+
+  private validateImplementationDone(task: Task, result: { value?: unknown }): string | null {
+    const expected = this.implementationPlanHashOf(task);
+    if (!expected) return null;
+    const value = result.value;
+    const planHash = (value as { planHash?: unknown } | null | undefined)?.planHash;
+    if (typeof planHash !== "string" || planHash !== expected) {
+      return `实施任务 done.result.planHash 缺失或不匹配（期望 ${expected}）`;
+    }
+    return null;
   }
 
   /** P3.6（2026-08-15）：developer 修复任务完成后自动派发 debug-case-writer——
@@ -391,132 +530,105 @@ export class TaskLoop {
     this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...this.workerStamp(), ...chain });
     kernel.reset();                          // 任务级状态隔离
     this.stampTaskDispatchContext(task);
+    this.trackTaskStart(task.id, role.id);
     try {
-      // 任务池纯化（2026-08-10 D1）：任务池只面向自然语言——agent 循环为唯一执行路径。
-      // （混合池是调试期临时形态；直连 kernel 的 TS 操作走 /kernel/exec 通道，不占任务池）
-      // 降级链：PTH_AGENT_MODE=off 或无 agentCaps → 一次性转译（translateTask）；无 llm → terminal reject。
-      const agentMode = pthConfig().str("PTH_AGENT_MODE") !== "off";
-      let code: string | null = null;
+      // Wave 4 收敛：legacy 路径统一委托 AgentTaskRunner（与 dispatched 路径共享同一执行入口）。
+      const runnerConfig = defaultRunnerConfig();
+      const lease = legacyTaskLease(task, role.id, ws);
+      const work = legacyTaskWorkItem(task, role.id, ws);
+      const traceEvents: import("@away_from/pth-kernel-execution").AgentTraceEvent[] = [
+        { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },
+      ];
+      (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;
+      // sandbox grant 动态绑定（legacy 兼容路径保留——N28 T2 断言依赖）
+      (kernel as { setExecutionGrantContext?(ctx: { taskId: string; tenantId: string; principalId?: string }): void })
+        .setExecutionGrantContext?.({
+          taskId: task.id,
+          tenantId: task.tenantId ?? "system",
+          principalId: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id,
+        });
       let agentResult: { value: unknown; summary?: string; steps: number } | null = null;
       let cacheStore: import("@away_from/pth-kernel-execution").CacheStore | undefined;   // 任务完成点取利用率（N3）
-      if (agentMode && this.deps.llm && this.deps.agentCaps) {
-          // 任务工作区 = 正式工作区（workspaceMgr.allocate 的 ws.dir——archive 归档同一目录——
-          // fs.task 白名单含 /tasks/ ✓——agent 产物随归档持久化——不丢）
-          const taskWorkspace: string | undefined = ws?.dir;
-          // 运行过程保留（2026-08-09）：轨迹事件收集 → 任务结束写 transcript（结构化审计/复现）
-          const traceEvents: import("@away_from/pth-kernel-execution").AgentTraceEvent[] = [
-            { type: "llm-call", step: 0, contentPreview: task.text.slice(0, 500) },  // 任务程序（起点）
-          ];
-          (this as unknown as { lastTraceEvents?: unknown[] }).lastTraceEvents = traceEvents;  // refine 任务 3 输入
-          // 随身缓存（ASP——任务级行李）：元空间级状态——agent-loop 元工具与 ts vm 注入同源
-          const { CacheStore } = await import("@away_from/pth-kernel-execution");
-          cacheStore = new CacheStore();
-          const cs = cacheStore;   // 闭包内非空收窄（TS 控制流不穿透闭包）
-          // 任务级能力装配（2026-08-14 A1 Phase 3 条目 12）：cache 注入收敛进 runner——
-          // 不再直调 injectCapability；agent-loop 透传，每 ts 程序执行前统一装配（与越界预检同一机制）
-          const capabilityInject: Record<string, unknown> = {
-            cache: {
-              get: (k: string) => cs.get(k),
-              keys: () => cs.keys(),
-              load: (k: string, c: string) => cs.load(k, String(c), "ts-program"),
-              cancel: (k: string) => cs.cancel(k),
-              index: () => cs.index(),
-              utilization: () => cs.utilization(),
-            },
-          };
-          // sandbox grant 动态绑定：本任务 taskId/tenantId 下发给 kernel 工厂（worker 级兜底 → 任务级）
-          (kernel as { setExecutionGrantContext?(ctx: { taskId: string; tenantId: string; principalId?: string }): void })
-            .setExecutionGrantContext?.({
-              taskId: task.id,
-              tenantId: task.tenantId ?? "system",
-              principalId: this.deps.replica ? `worker:${this.deps.replica.ref.workerId}` : role.id,
-            });
-          // N14 P2：任务开始冻结 tool-reg 快照（T3 防线）+ agent 态执行缝透传
-          const toolRegistry = this.deps.toolRegStore
-            ? await (await import("@away_from/pth-kernel-interpreter")).loadToolRegSnapshot(this.deps.toolRegStore, { tenantId: task.tenantId ?? "default" })
-            : undefined;
-          const r = await runAgentTask({
-            llm: this.deps.llm, kernel, caps: this.deps.agentCaps,
-            task: { title: task.title, text: task.text },
-            taskWorkspace,
-            toolstore: (kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
-            role,
-            asp: pthConfig().str("PTH_ASP_MODE") === "on",   // ASP 状态机（compose 默认 on——全件落地）
-            sessionRef: (kernel as unknown as { sessionRef?: { current: { currentSpace: string } | null } }).sessionRef,
-            cache: cs,
-            capabilityInject,
-            toolRegistry,
-            toolRegExec: this.deps.toolRegRunChild
-              ? { runChild: this.deps.toolRegRunChild, caller: { taskId: task.id, roleId: role.id, tenantId: task.tenantId ?? "default", delivery: null } }
-              : undefined,
-            onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
-            logger: (m) => taskLogger?.info(m),
-            onTrace: (e) => {
-              traceEvents.push(e);
-              // 活动事件流（实时——console --follow）：llm step（token 用量）/工具调用/完成
-              if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
-              else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
-              else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
-            },
-          });
-          // 完成后持久化轨迹（transcript——task_id 关联）
-          try {
-            await this.deps.transcripts?.create({
-              taskId: task.id,
-              agentId: role.id,
-              body: traceEvents,
-              // 压缩产物优先（CoT 总结——评估读者不碰全量轨迹）；无压缩回退 200c 预览
-              summary: r.compression?.text ?? (r.ok ? (r.value !== undefined && r.value !== null ? JSON.stringify(r.value).slice(0, 200) : (r.summary ?? "")?.slice(0, 200)) : (r.error ?? "").slice(0, 200)),
-            });
-          } catch (e) {
-            taskLogger?.warn?.(`[transcript] agent 轨迹写入失败: ${(e as Error).message}`);
-          }
-          taskLogger?.info("agent task finished", { ok: r.ok, steps: r.steps });
-          if (!r.ok) {
-            await this.rejectTerminal(task, r.error, chain);
-            taskLogger?.error(r.error);
-            return;
-          }
-          // 完成标准强制（done 引导的系统级保障——2026-08-09）：agent 结束但无产物。
-          // D5：软终止/警告闭合（maxSteps/重复/负结果循环）→ 回池重试（claims_count 兜底）；
-          // 无 warning 的空产物仍是终态 reject（agent-no-output）。
-          if (r.value === undefined || r.value === null) {
-            if (r.warning) {
-              const reason = `soft-terminated: ${r.warning}`;
-              await this.requeue(task, reason, chain);
-              taskLogger?.warn(reason, { steps: r.steps });
-              return;
-            }
-            const reason = "agent-no-output: agent 完成但未产出结果（done 未带 result）";
-            await this.rejectTerminal(task, reason, chain);
-            taskLogger?.error(reason, { steps: r.steps });
-            return;
-          }
-          agentResult = { value: r.value, summary: r.summary, steps: r.steps };
-      } else if (this.deps.llm) {
-        // 降级通道（agent-off / 无 caps）：NL→TS 一次性转译后直执行
-        const t = await translateTask({ llm: this.deps.llm }, { title: task.title, text: task.text });
-        if (!t.ok) {
-          await this.rejectTerminal(task, t.error, chain, "nl-translate-failed");
-          taskLogger?.error(t.error);
-          return;
-        }
-        code = t.code;
-        taskLogger?.info("nl task translated", { codeLen: code.length });
-      } else {
-        // 无 llm：纯化后任务池无直执行路径——terminal reject（调试执行走 /kernel/exec）
-        const reason = "no-llm: 任务池为自然语言池（agent/translate 均需 LLM）——直连执行请走 /kernel/exec 通道";
-        await this.rejectTerminal(task, reason, chain, "no-llm");
-        taskLogger?.error(reason);
+      let result: { ok: boolean; value?: unknown; stdout?: string; stderr?: string; durationMs: number; language: string; error?: { message: string; code?: string } } | null = null;
+      const runner = new AgentTaskRunner({
+        kernel,
+        role,
+        workspace: { taskId: task.id, tenant: ws.tenant, dir: ws.dir },
+        llm: this.deps.llm,
+        caps: this.deps.agentCaps,
+        config: runnerConfig,
+        toolRegStore: this.deps.toolRegStore,
+        toolRegRunChild: this.deps.toolRegRunChild,
+        knowledgeContextProvider: this.deps.knowledgeContextProvider,
+        replica: this.deps.replica?.ref,
+        verifiedReadScopeFactory: this.deps.verifiedReadScopeFactory,
+        memoryDirectory: this.deps.memoryDirectory,
+        cognitiveWorkingSetProvider: this.deps.cognitiveWorkingSetProvider,
+        cognitiveResponsibilityMode: this.deps.cognitiveResponsibilityMode,
+        authorizedReads: this.deps.authorizedReads,
+        professionalRegistry: this.deps.professionalRuntimeRegistry,
+        professionalArtifacts: this.deps.professionalArtifacts,
+        professionalGrantService: this.deps.professionalGrantService,
+        professionalGrantTtlMs: this.deps.professionalGrantTtlMs,
+        commandGateway: this.deps.commandGateway,
+        extraTools: this.deps.extraTools,
+        adapterRegistry: this.deps.adapterRegistry,
+        executionDispatcher: this.deps.executionDispatcher,
+        // W-c：legacy 路径同样注册实时上下文 getter（agent 消息数组惰性读取）。
+        onContextReady: (getter) => { this.liveContextGetter = getter; },
+        logger: (m) => taskLogger?.info(m),
+        onTrace: (e) => {
+          traceEvents.push(e);
+          if (e.type === "llm-call" || e.type === "tool-result") this.trackTaskActivity(e.step, e.type === "tool-result" ? e.tool : undefined);
+          if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
+          else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
+          else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
+        },
+      });
+      const outcome = await runner.run({ lease, work });
+      if (!outcome || !("status" in outcome)) {
+        // TaskSuspension：legacy 兼容路径没有独立 suspension 处理器，统一 requeue。
+        const suspension = outcome as TaskSuspension;
+        const reason = suspension?.kind === "publisher-question"
+          ? `publisher-question: ${suspension.question}`
+          : suspension?.kind === "human"
+            ? `human-approval: ${suspension.requestId}`
+            : "task-suspension";
+        await this.requeue(task, reason, chain);
         return;
       }
-      const result = agentResult
-        ? { ok: true, value: agentResult.value, stdout: agentResult.summary ?? "", stderr: "", durationMs: Date.now() - execStart, language: "agent" }
-        : (await runPtcProgram({ code: code!, cwd: ws.dir, ts: kernel.ts })).raw;
+      if (outcome.status === "cancelled") {
+        await this.requeue(task, `cancelled: ${outcome.error?.message ?? "cancelled"}`, chain);
+        return;
+      }
+      if (outcome.status === "rejected") {
+        if (outcome.retryable || outcome.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+          await this.requeue(task, `${outcome.error?.code ?? "rejected"}: ${outcome.error?.message ?? "retryable"}`, chain);
+          return;
+        }
+        const reason = outcome.error?.code === "agent-failed"
+          ? outcome.error?.message ?? "agent failed"
+          : `${outcome.error?.code ?? "rejected"}: ${outcome.error?.message ?? "rejected"}`;
+        await this.rejectTerminal(task, reason, chain, outcome.error?.code);
+        return;
+      }
+      const value = (outcome.result as { value?: unknown } | undefined)?.value;
+      const summary = (outcome.result as { summary?: string } | undefined)?.summary ?? "";
+      const steps = (outcome.result as { steps?: number } | undefined)?.steps ?? 0;
+      agentResult = { value, summary, steps };
+      result = { ok: true, value, stdout: summary, stderr: "", durationMs: Date.now() - execStart, language: "agent" };
       const execMs = Date.now() - execStart;
       // 性能计量（SPEC L1）：TS 主执行计入 kernel exec（python/bash 由 metered 包装计）
       this.deps.onTaskMetric?.({ type: "exec", language: "ts", durationMs: execMs, ok: result.ok });
       if (!result.ok) {
+        // W8 P2 收敛（Wave 4）：legacy TaskLoop 对 task-await-suspended 也按 retryable requeue，
+        // 不再作为终态 execution-failed。
+        if (result.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
+          const reason = `task-await-suspended: ${result.error.message}`;
+          await this.requeue(task, reason, chain);
+          taskLogger?.warn(reason);
+          return;
+        }
         // 执行失败（语法/运行时错误——interpreter 返回 ok:false 不抛）：按 reject 处理，
         // 不得标记 completed（试运行发现：SyntaxError 任务被 submit 为 completed，语义错误）。
         await this.rejectTerminal(task, `execution-failed: ${result.error?.message ?? "unknown"}`, chain);
@@ -529,6 +641,15 @@ export class TaskLoop {
         return;
       }
       this.bus.emit("task.execute.end", { taskId: task.id, role: role.id, ok: true, durationMs: Date.now() - execStart });
+      const implError = this.validateImplementationDone(task, result);
+      if (implError) {
+        await this.rejectTerminal(task, implError, chain);
+        await this.invokeArchive(task, ws, result);
+        taskLogger?.error(implError, { durationMs: Date.now() - execStart });
+        notifyTaskDone({ taskId: task.id, role: role.id, status: "rejected", error: implError });
+        this.bus.emit("task.reject", { taskId: task.id, role: role.id, reason: implError, durationMs: Date.now() - execStart });
+        return;
+      }
       const affected = await taskStore.submit(role.id, task.id, { ref: result });
       if (affected === 0) {
         // 审计 H5：认领已不属于本 worker（任务被回收重领）——结果静默丢失，告警审计
@@ -608,6 +729,8 @@ export class TaskLoop {
     } catch (e) {
       await this.rejectTerminal(task, `execution-crashed: ${(e as Error).message}`, chain);
       taskLogger?.error(`task crashed: ${(e as Error).message}`);
+    } finally {
+      this.clearTaskTracking();
     }
   }
 

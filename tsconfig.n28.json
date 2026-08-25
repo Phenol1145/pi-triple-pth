@@ -5,17 +5,25 @@
     "noEmit": true,
     "declaration": false,
     "paths": {
-      "@away_from/infra": ["./packages/infra/src/index.ts"],
-      "@away_from/shared": ["./packages/shared/src/index.ts"],
-      "@away_from/pth-memory": ["./packages/pth-memory/src/index.ts"],
-      "@away_from/pth-sandbox": ["./packages/pth-sandbox/src/index.ts"]
+      "@away_from/infra": [
+        "./packages/infra/src/index.ts"
+      ],
+      "@away_from/shared": [
+        "./packages/shared/src/index.ts"
+      ],
+      "@away_from/pth-memory": [
+        "./packages/pth-memory/src/index.ts"
+      ],
+      "@away_from/pth-sandbox": [
+        "./packages/pth-sandbox/src/index.ts"
+      ]
     }
   },
   "files": [
-    "scripts/n28-feasibility-fixture.ts",
-    "scripts/n28-feasibility-harness.ts",
-    "scripts/eval-n28-feasibility.ts",
-    "scripts/accept-n28-feasibility.ts",
+    "scripts/tools/n28-feasibility-fixture.ts",
+    "scripts/tools/n28-feasibility-harness.ts",
+    "scripts/eval/eval-n28-feasibility.ts",
+    "scripts/accept/accept-n28-feasibility.ts",
     "test/pth-contracts/cognitive-responsibility.test.ts",
     "test/pth-kernel-execution/worker-cluster.test.ts",
     "test/pth-kernel-execution/role-lineage.test.ts",
@@ -48,5 +56,8 @@
     "test/pth-runner/n28-feasibility-evaluator.test.ts",
     "test/pth-runner/n28-feasibility-acceptance.test.ts"
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

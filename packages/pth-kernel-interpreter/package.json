@@ -1,6 +1,6 @@
 {
   "name": "@away_from/pth-kernel-interpreter",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,11 +15,11 @@
   ],
   "dependencies": {
     "@away_from/infra": "^1.6.0",
-    "@away_from/pth-config": "^1.6.0",
-    "@away_from/pth-contracts": "^1.6.0",
-    "@away_from/pth-kernel-storage": "^1.6.0",
-    "@away_from/pth-memory": "^1.6.1",
-    "@away_from/pth-sandbox": "^1.6.3",
+    "@away_from/pth-config": "^1.8.0",
+    "@away_from/pth-contracts": "^1.8.0",
+    "@away_from/pth-kernel-storage": "^1.8.0",
+    "@away_from/pth-memory": "^1.8.0",
+    "@away_from/pth-sandbox": "^1.8.0",
     "@earendil-works/pi-ai": "^0.82.1",
     "zod": "^4.0.0"
   }

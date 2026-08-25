@@ -39,7 +39,7 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
   （常驻服务，如 jupyter）由本仓实现；`docker exec` 仅保留为 `pth tools debug` 逃生舱。
 - `ptl hub` 语法已退役；engine 交互用 `pth …`；容器运维用 `pth up`/`pth tools`/`pth services`（`ptl stack` deprecated）；本地执行器用 `pth local-exec`；本地 pi 调试用 `ptl program dev …`；`ptl tui` 已废弃（前端 = `pth web` / JupyterLab）。
 - P6 已实现（2026-08-22）：`pth doctor` / `pth up --profile|--all` / `pth down --all` /
-  `pth status --all` 是统一运维入口（设计：`docs/pth/p6-pth-cli-runtime-profiles-design.md`）。
+  `pth status --all` 是统一运维入口（设计：`docs/pth/design/p6-pth-cli-runtime-profiles-design.md`）。
 - PTL `/container` 命令族 deprecated：一个版本兼容期内转发到 `pth tools`，随后删除。
 - PTL 安装/测试不得触发 engine 源码下载。
 
@@ -91,7 +91,7 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
 
 1. 定位/边界变更先改本矩阵（三仓同源同步）；
 2. 同步各仓 README 定位句与导航；
-3. 涉及代码边界的，同步 `scripts/check-product-boundaries.ts` 与
+3. 涉及代码边界的，同步 `scripts/check/check-product-boundaries.ts` 与
    `docs/pth/module-ownership.md`（PTH 仓）/ `docs/ptl/architecture.md`（PTL 仓）；
 4. 执行面协议变更同步 `docs/execution-surface-v1-design.md` 与
    `docs/fracta-engine-execution-topology.md`（三仓同源）及

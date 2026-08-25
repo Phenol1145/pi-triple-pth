@@ -17,6 +17,8 @@ import {
   type KnowledgeServiceAuth,
   type KnowledgeVerificationRepo,
 } from "../../execution/index.js";
+import { validateModificationPlanContent, issuePlanGrant, type ExecutionGrantService } from "../../execution/index.js";
+import { MODIFICATION_PLAN_KIND } from "@away_from/pth-kernel-execution";
 import { buildRestrictedKnowledgeQuery } from "../../execution/index.js";
 import type { KnowledgeVerdict } from "../../execution/index.js";
 import {
@@ -102,6 +104,10 @@ export interface PthGatewayFacade {
   batchWorkers(id: string, action: "pause" | "resume" | "remove" | "add", role: string, copies: number): Promise<boolean>;
   /** N28 复核 Layer3：workerId 级副本控制（feasibility 模式）。 */
   batchReplica(id: string, action: "pause" | "resume" | "remove", workerId: string): Promise<boolean>;
+  /** W-a/W-b：worker 活动记录查询（在飞心跳 + 历史 transcript）。 */
+  workerActivity(role: string, sinceSec: number, limit: number): Promise<{ role: string; sinceSec: number; inflight: unknown[]; history: unknown[] }>;
+  /** W-c：worker 在飞上下文查询（合并全部含该 role 的 batch；超时/失败降级空）。 */
+  workerContext(role: string, last: number): Promise<{ role: string; tasks: unknown[] }>;
   removeBatches(count: number): Promise<number>;
   listBatchesWithAlive(): Promise<Array<Record<string, unknown>>>;
   listJobs(): Promise<Array<Record<string, unknown>>>;
@@ -120,8 +126,9 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   #verificationRepo: KnowledgeVerificationRepo;
   #observation: RuntimeObservationFacade;
   #humanInteraction: PgHumanInteractionService;
+  #planGrantService?: ExecutionGrantService;
 
-  constructor(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo) {
+  constructor(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo, planGrantService?: ExecutionGrantService) {
     this.#kernel = kernel;
     this.#control = new TaskControlService({
       store: kernel.dataWorld.tasks,
@@ -133,6 +140,7 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     this.#humanInteraction = new PgHumanInteractionService(
       new PgHumanInteractionRepository(kernel.pool),
     );
+    this.#planGrantService = planGrantService;
   }
 
   bridgeQuery(sql: string, tenantId: string, space: string): Promise<Array<Record<string, unknown> | null>> {
@@ -318,6 +326,30 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
       if (!executed.ok) return executed;
       return executed;
     }
+    // W2：modification-plan 审批（controller 提案 → 监督批准 → 签发 plan grant → 事件驱动实施派生）
+    if (proposal?.kind === MODIFICATION_PLAN_KIND) {
+      let content: unknown = {};
+      try { content = JSON.parse(String(proposal.content ?? "{}")); } catch { return { ok: false, error: "modification-plan content 非法 JSON" }; }
+      const parsed = validateModificationPlanContent(content);
+      if (!parsed.ok) return parsed;
+      if (!this.#planGrantService) {
+        return { ok: false, error: "plan grant service unavailable（PTH_EXECUTION_GRANT_SECRET 未配置）" };
+      }
+      const planHash = parsed.plan.planHash;
+      const grant = issuePlanGrant(this.#planGrantService, planHash, DEFAULT_TENANT_ID);
+      await memory.update(id, {
+        status: "official",
+        meta: { ...(proposal.meta ?? {}), approved: true, approvedAt: Date.now(), planHash, planGrant: grant },
+      });
+      this.#kernel.activityHub.publish({
+        kind: "modification-plan.approved",
+        taskId: "",
+        role: "platform-admin",
+        detail: id,
+        at: Date.now(),
+      });
+      return { ok: true, id, status: "official", planHash, note: "modification-plan 已批准并签发 plan grant（实施任务经事件派生）" };
+    }
     const { applyMemoryAdminProposal } = await import("@away_from/pth-memory");
     return applyMemoryAdminProposal(memory, id);
   }
@@ -379,6 +411,50 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     if (action === "pause") return this.#kernel.batchManager.pauseReplica(id, workerId);
     if (action === "resume") return this.#kernel.batchManager.resumeReplica(id, workerId);
     return this.#kernel.batchManager.removeReplica(id, workerId);
+  }
+
+  async workerActivity(role: string, sinceSec: number, limit: number): Promise<{ role: string; sinceSec: number; inflight: unknown[]; history: unknown[] }> {
+    // 在飞：聚合全部 batch 心跳 activity 中属于该 role 的条目（查询面只读）。
+    const inflight: unknown[] = [];
+    try {
+      const batches = await this.#kernel.batchManager.listBatches();
+      for (const b of batches) {
+        const acts = (b as { activity?: Array<Record<string, unknown>> }).activity ?? [];
+        for (const a of acts) {
+          if (a.role === role) inflight.push(a);
+        }
+      }
+    } catch { /* 在飞查询失败降级为空，不影响历史面 */ }
+    // 历史：transcript 时间窗内任务级记录（失败降级空数组）。
+    let history: unknown[] = [];
+    try {
+      const since = new Date(Date.now() - sinceSec * 1000);
+      const rows = await this.#kernel.dataWorld.transcripts.listRecent({ since, agentId: role, limit });
+      history = rows.map((r) => ({
+        taskId: r.task_id ?? null,
+        at: r.created_at ?? null,
+        summary: r.summary ?? "",
+        events: Array.isArray(r.body) ? r.body.length : 0,
+        hasContext: r.context != null,
+      }));
+    } catch { /* 历史查询失败降级为空 */ }
+    return { role, sinceSec, inflight, history };
+  }
+
+  async workerContext(role: string, last: number): Promise<{ role: string; tasks: unknown[] }> {
+    // 遍历 batch 列表，找含该 role 的 batch 并发查询；超时/失败/无匹配全部降级空。
+    const tasks: unknown[] = [];
+    try {
+      const batches = await this.#kernel.batchManager.listBatches();
+      const matches = batches.filter((b) => b.workers.includes(role));
+      for (const b of matches) {
+        try {
+          const res = await this.#kernel.batchManager.queryWorkerContext(b.id, role, { last });
+          if (Array.isArray(res)) tasks.push(...res);
+        } catch { /* 单 batch 查询失败不影响其他 batch */ }
+      }
+    } catch { /* batch 列表失败降级空 */ }
+    return { role, tasks };
   }
 
   async removeBatches(count: number): Promise<number> {
@@ -473,6 +549,6 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
   }
 }
 
-export function createPthGatewayFacade(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo): PthGatewayFacade {
-  return new PthGatewayFacadeImpl(kernel, verificationRepo);
+export function createPthGatewayFacade(kernel: PthGatewayFacadeInput, verificationRepo?: KnowledgeVerificationRepo, planGrantService?: ExecutionGrantService): PthGatewayFacade {
+  return new PthGatewayFacadeImpl(kernel, verificationRepo, planGrantService);
 }

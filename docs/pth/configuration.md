@@ -32,30 +32,33 @@ pth config export       # 输出 ptl config set pth.url/pth.token（PTL 迁移�
 npm run check:pth-config -- --report  # schema 统计 + compose 覆盖度报告
 ```
 
-## 3. 分类速览（108 键）
+## 3. 分类速览（153 键）
 
 | group | 数量 | 说明 |
 |---|---|---|
 | agent | 5 | agent 模式/模型/步骤/超时 |
 | optimizer | 6 | JIT 窗口/apply 策略/verify 复测 |
 | autopilot | 8 | R1–R4 阈值与周期 |
-| scaler | 8 | batch 扩缩/强化 |
-| control-loop | 5 | claim/watchdog/resolver/memory-sweep trigger 周期 |
+| scaler | 10 | batch 扩缩/强化 |
+| control-loop | 7 | claim/watchdog/resolver/memory-sweep trigger 周期 |
 | kernel | 9 | 语言模式/池/会话 |
 | compiled | 5 | 编译核缓存/并发/超时 |
 | memory | 2 | 记忆桥 URL/token |
 | guard | 6 | 连续失败阈值（runtime） |
 | cache | 2 | cache-store 上限（runtime） |
-| model | 4 | modelRouter/NL/stub |
-| path | 14 | 源码根/工作区/通知/沙箱路径 |
-| mode | 6 | ASP/refine/skill 策略/batch 标志/N28 认知责任模式 |
+| model | 5 | modelRouter/NL/stub/PTC 模型 |
+| path | 29 | 源码根/工作区/通知/沙箱路径 |
+| mode | 24 | 执行模式/ASP/refine/skill 策略/batch 标志/N28 认知责任模式 |
 | observability | 4 | metrics 周期/日志 |
-| worker | 5 | workload/workspace UID/GID/N28 batch ID |
+| worker | 6 | workload/workspace UID/GID/N28 batch ID |
+| execution | 6 | Execute/Command/Tool 层配置 |
 | secret | 8 | grant/共享密钥/桥 token/PG/Redis/LLM key |
-| infra | 8 | DATABASE/REDIS/DATA_DIR/SANDBOX_URL 等 |
-| cli | 5 | PTH_API/TOKEN/CREATED_BY/URL/PLATFORM |
+| infra | 7 | DATABASE/REDIS/DATA_DIR/SANDBOX_URL 等 |
+| cli | 4 | PTH_API/TOKEN/CREATED_BY/URL |
 
 `runtime=true` 的键可经 `perf.set({key,value})` 运行时调整（重启失效；ALTER SYSTEM 持久化留 v2）。
+
+执行模式统一入口为 `PTH_EXEC_MODE`（`tool-call`/`asp`/`ptc`/`pulse`），旧 `PTH_AGENT_MODE`/`PTH_ASP_MODE` 仅作兼容别名；详细语义见 [execution-modes-and-tool-reg-v2-design](./design/execution-modes-and-tool-reg-v2-design.md) 与 [部署文档](./deployment.md)。TCE 权限口径以 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 为准。
 
 N28 T2 新增两键（默认关闭/空，legacy 行为不变）：`PTH_COGNITIVE_RESPONSIBILITY_MODE=off`
 （可选 `feasibility` 确定性切片）与 `PTH_BATCH_ID=""`（BatchManager 注入的 batch 实例 ID）。

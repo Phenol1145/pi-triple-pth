@@ -33,6 +33,7 @@ function fakeCtx(overrides: Record<string, unknown> = {}) {
     toolstore: { readText: async () => "", list: async () => [] },
     strategiesDir: "/tmp/pth-sdk-test-strategies",
     sessionRef: { current: null },
+    planGrantVerify: () => ({ ok: true } as const),
     ...overrides,
   } as never;
 }
@@ -42,13 +43,25 @@ describe("管理 SDK（2026-08-12 第二步）——manage 扩展", () => {
     const ext = buildExtensions(fakeCtx());
     const manage = (ext.capabilities as Record<string, unknown>)["manage"] as Record<string, unknown>;
     expect(manage).toBeDefined();
-    const params = manage["params"] as { get: () => Record<string, unknown>; set: (o: { key: string; value: string | number }) => { ok: boolean } };
+    const params = manage["params"] as { get: () => Record<string, unknown>; set: (o: { key: string; value: string | number; planHash?: string; planGrant?: unknown }) => { ok: boolean } };
     // set→get 验证（测试进程 env 无 PTH_ 参数——配置中心启动快照为空——不依赖 env）
-    const r = params.set({ key: "PTH_BATCH_TICK_MS", value: 500 });
+    const r = params.set({ key: "PTH_BATCH_TICK_MS", value: 500, planHash: "test-plan", planGrant: {} });
     expect(r.ok).toBe(true);
     expect(params.get()["PTH_BATCH_TICK_MS"]).toBe("500");
     // 非 PTH_* 拒绝
-    expect(params.set({ key: "EVIL", value: "1" }).ok).toBe(false);
+    expect(params.set({ key: "EVIL", value: "1", planHash: "test-plan", planGrant: {} }).ok).toBe(false);
+  });
+
+  it("W2：manage.params.set 无 planHash/planGrant 拒绝（即时生效类必须携 plan grant）", async () => {
+    const ext = buildExtensions(fakeCtx());
+    const manage = (ext.capabilities as Record<string, unknown>)["manage"] as Record<string, unknown>;
+    const params = manage["params"] as { set: (o: { key: string; value: string | number; planHash?: string; planGrant?: unknown }) => { ok: boolean; error?: string } };
+    const missingHash = params.set({ key: "PTH_BATCH_TICK_MS", value: 500 });
+    expect(missingHash.ok).toBe(false);
+    expect(missingHash.error).toContain("planHash");
+    const missingGrant = params.set({ key: "PTH_BATCH_TICK_MS", value: 500, planHash: "test-plan" });
+    expect(missingGrant.ok).toBe(false);
+    expect(missingGrant.error).toContain("planGrant");
   });
 
   it("manage.resource.config：重启级参数 → draft（kind=resource-config）", async () => {
@@ -73,7 +86,7 @@ describe("管理 SDK（2026-08-12 第二步）——manage 扩展", () => {
     const manage = (ext.capabilities as Record<string, unknown>)["manage"] as Record<string, unknown>;
     const scheme = manage["scheme"] as {
       publish: (o: { id?: string; name: string; params: Record<string, string> }) => Promise<{ ok: boolean; id?: string; error?: string }>;
-      apply: (o: { id: string }) => Promise<{ ok: boolean }>;
+      apply: (o: { id: string; planHash?: string; planGrant?: unknown }) => Promise<{ ok: boolean }>;
       list: () => Promise<unknown[]>;
     };
     const bad = await scheme.publish({ name: "s1", params: { EVIL: "1" } });
@@ -87,7 +100,7 @@ describe("管理 SDK（2026-08-12 第二步）——manage 扩展", () => {
     const pub = await scheme.publish({ id: "strategy-s1.v2", name: "s1", params: { PTH_BATCH_TICK_MS: "700" } });
     expect(pub.ok).toBe(true);
     expect((await scheme.list()).length).toBeGreaterThanOrEqual(1);
-    const apply = await scheme.apply({ id: pub.id! });
+    const apply = await scheme.apply({ id: pub.id!, planHash: "test-plan", planGrant: {} });
     expect(apply.ok).toBe(true);
   });
 
@@ -255,9 +268,8 @@ describe("token 缓存命中率链路（2026-08-12 用户问询补齐）", () =>
       { type: "finish", ok: true, steps: 2 },
     ]);
     expect(sc.tokens).toEqual({ input: 1500, output: 150, cacheRead: 1100, cacheWrite: 200 });
-    // 命中率 = 1100 / (1100 + 1500 - 1100 - 200) = 1100/400 = 73.3%
-    const fresh = sc.tokens.input - sc.tokens.cacheRead - sc.tokens.cacheWrite;
-    expect(Math.round((sc.tokens.cacheRead / (sc.tokens.cacheRead + fresh)) * 100)).toBe(85);
+    // 命中率 = cacheRead / input = 1100/1500 = 73.3%（2026-08-25 口径修复：input 已含缓存部分）
+    expect(Math.round((sc.tokens.cacheRead / sc.tokens.input) * 100)).toBe(73);
   });
 
   it("obs.callpoint 查询含 cache_hit_pct（观测面）", async () => {

@@ -1,7 +1,7 @@
 /**
  * fetch-broker.ts — N29 Task 4：policy-bound artifact acquisition（SourceFetchBroker 实现）。
  *
- * 契约事实源：docs/pth/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 4；
+ * 契约事实源：docs/pth/plan/n29-minimal-knowledge-intake-loop-feedback-plan.md §5 Task 4；
  * 类型事实源：src/pth/contracts/knowledge-intake.ts（SourceAcquisitionEnvelope / AcquireSourceInput）。
  *
  * 不可缩减的抓取边界（全部 fail closed，任何一条不成立即拒绝且不产出 envelope）：

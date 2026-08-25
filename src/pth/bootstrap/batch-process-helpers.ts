@@ -29,6 +29,10 @@ export class BatchTaskLoop {
   stop(): void { this.inner.stop(); }
   get isPaused(): boolean { return this.inner.isPaused; }
   get isStopped(): boolean { return this.inner.isStopped; }
+  /** W-b：在飞任务副本（心跳 activity 用）。 */
+  getActiveTask(): ReturnType<TaskLoop["getActiveTask"]> { return this.inner.getActiveTask(); }
+  /** W-c：实时上下文读取（worker-context-query 用）。 */
+  getLiveContext(): unknown { return this.inner.getLiveContext(); }
 }
 
 /** K2 Phase 2：从同一份生成数据构建 catalog 快照（与 assembly 同源同版本）。 */

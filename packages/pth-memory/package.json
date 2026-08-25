@@ -1,6 +1,6 @@
 {
   "name": "@away_from/pth-memory",
-  "version": "1.6.2",
+  "version": "1.8.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

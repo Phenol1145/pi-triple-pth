@@ -406,9 +406,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_tenant_idempotency
   ON tasks(tenant_id, idempotency_key)
   WHERE idempotency_key IS NOT NULL;
 
--- Workflow / Trigger / Human Review（docs/pth/workflow-trigger-human-review-correction-plan.md）：
+-- Workflow / Trigger / Human Review（docs/pth/plan/workflow-trigger-human-review-correction-plan.md）：
 -- 任务可进入 waiting-human 状态等待人工响应。
--- 生命周期 P0（docs/pth/task-lifecycle-and-context-design.md §3）：任务可进入 paused 状态等待发布者澄清。
+-- 生命周期 P0（docs/pth/design/task-lifecycle-and-context-design.md §3）：任务可进入 paused 状态等待发布者澄清。
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
 ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
   CHECK (status IN ('pending','claimed','submitted','completed','rejected','escalated','waiting-human','paused'));
@@ -486,8 +486,12 @@ CREATE TABLE IF NOT EXISTS transcripts (
   body JSONB NOT NULL DEFAULT '[]',
   summary TEXT,
   artifact_path TEXT,
+  context JSONB,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- 2026-08-25 W-d：transcripts.context（任务上下文快照——压缩前+结束时）
+ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS context JSONB;
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id BIGSERIAL PRIMARY KEY,

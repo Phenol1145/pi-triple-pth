@@ -108,7 +108,26 @@ export class TsInterpreter implements Interpreter {
     } catch (e) {
       const err = e as Error;
       const code = (err as { code?: string }).code;
-      return { ok: false, error: { message: err.message, stack: err.stack, ...(code ? { code } : {}) }, durationMs: Date.now() - start };
+      // 2026-08-25 W3 修复：信号型错误（带 code）的载荷属性必须随错误跨界——
+      // done 信号的 result/summary 此前被丢弃，下游 JSON.stringify(undefined).slice 崩溃。
+      // 仅保留可 JSON 序列化的 result/summary（防循环引用炸穿错误通道）。
+      const carrier = err as { result?: unknown; summary?: unknown };
+      const jsonSafe = (v: unknown): { ok: true; v: unknown } | { ok: false } => {
+        try { JSON.stringify(v); return { ok: true, v }; } catch { return { ok: false }; }
+      };
+      const result = carrier.result !== undefined ? jsonSafe(carrier.result) : undefined;
+      const summary = carrier.summary !== undefined ? jsonSafe(carrier.summary) : undefined;
+      return {
+        ok: false,
+        error: {
+          message: err.message,
+          stack: err.stack,
+          ...(code ? { code } : {}),
+          ...(result?.ok ? { result: result.v } : {}),
+          ...(summary?.ok ? { summary: summary.v } : {}),
+        },
+        durationMs: Date.now() - start,
+      };
     }
   }
 

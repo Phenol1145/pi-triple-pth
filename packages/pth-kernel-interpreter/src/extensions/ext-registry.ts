@@ -9,7 +9,7 @@
  *
  * 扩展开发 SDK（2026-08-12 完善——toolstore/extensions/sdk.d.ts 类型面 + 标准通道）：
  *   - 类型：sdk.d.ts 导出 PthExtContext/PthExtFactoryResult——扩展作者 /// reference 引用 +
- *     // @ts-check 获得类型提示；scripts/ext-check.ts 做类型检查 + 装载冒烟
+ *     // @ts-check 获得类型提示；scripts/tools/ext-check.ts 做类型检查 + 装载冒烟
  *   - 标准通道：ctx.exec（子进程）/ ctx.http.get（fetch 封装）/ ctx.db.query（只读白名单）——
  *     替代扩展内裸 import node 模块（new Function 环境无 require）
  *   - 错误可见性：loadAll 默认 onError 记日志（不静默）；evalFactory 语法错误提示

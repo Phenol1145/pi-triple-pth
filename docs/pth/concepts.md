@@ -116,9 +116,9 @@
 
 | 控制论角色 | 职责 | PTH 落点 |
 |---|---|---|
-| **传感器（sensor）** | 测量系统状态 | sensor 族（worker-opt / system-opt / memory / resource）——obs.callpoint 上报 + scorecard 聚合快照 |
-| **控制器（controller）** | 比较设定值与实测——计算控制量 | controller 族×5——裁决 official / reject / merge |
-| **执行器（actuator）** | 控制量作用于系统 | actuator——把 official 提案落为实际修改（代码/参数/角色注册） |
+| **传感器（sensor）** | 只观测与评估系统运行情况，产出 `observation-report`（事实+严重度+证据链），不开处方 | sensor 族（worker-opt / system-opt / memory / resource / tool-face / tool-single / rule）——obs.* 上报 + scorecard 聚合快照 |
+| **控制器（controller）** | 读取 sensor 的 observation-report，提出可审核的 `modification-plan`（draft），不直接实施、不自行批准 | controller 族（router / worker-opt / pth-opt / resource / memory / tool-face / tool-single / rule / adversarial） |
+| **执行器（actuator）** | 承接实际工作负载；实施 official 方案（按 implementation 路由派生的实施任务，结果落 implementation-report） | actuator 四族根（executor / explorer / governor / researcher） |
 | **设定值（setpoint）** | 期望状态 | 优化目标：步数↓ 失败率↓ 成本↓ 时间复用率↑ |
 | **人在回路（supervisor）** | 防控制器失控 | 审批面 A/B/C——控制量不自动生效 |
 
@@ -451,7 +451,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 | ✅ 源码拆解重实现 | 拿到生态工具源码→分析其实现→用 PTH 交互核语言重写——变成 PTH 原生能力函数——彻底无外部依赖 |
 
 **源码拆解的收益**：
-- 工具进入 PTH 原生治理（capabilities 白名单 / 状态隔离 / EXEC_TOOL_CAP）
+- 工具进入 PTH 原生治理（capabilities 白名单 / 状态隔离 / 静态审核；`EXEC_TOOL_CAP` 按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 退役中）
 - 可审查可修改（安全边界——审计可覆盖）
 - 与描述三要素/缓存/scorecard 全链路兼容
 - 无协议开销、无外部进程依赖
@@ -464,7 +464,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 1. **分类**——知识型（skill：指令/流程知识）vs 工具型（plugin/extension/MCP：可调用能力）
 2. **转化**——知识型：SKILL.md → memory 条目（锚点+原文——role-doc 式）；工具型：**拆解源码→用交互核语言重实现**（工具 + **场景化描述三要素**——0.9.2 锚点标准——否则工具不可用）
-3. **门控**——capabilities 白名单 + EXEC_TOOL_CAP（安全边界）
+3. **门控**——capabilities 白名单 + 静态审核（安全边界；`EXEC_TOOL_CAP` 按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 退役中）
 
 #### 0.13.3 现状映射
 
@@ -581,7 +581,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 #### 0.16.1 谱系是类型树，不是实例树
 
-- worker 谱系（Origin → actuator → executor → developer → coder）描述**类型**——每个节点是 worker 类型（角色定义）；
+- worker 谱系（三源森林：actuator → executor → developer → coder；sensor → sensor:*；controller → controller:*）描述**类型**——每个节点是 worker 类型（角色定义）；
 - 实例 = batch 副本（类型 × 副本数，PTH_WORKER_ROLES 配比）——进程生命周期独立（fork/回收/扩缩容）；
 - **子 worker 类型 = rlm() 持久化 agent 的等效物**：类型持久存在（可寻址、可续派、可恢复），
   **按需添加**（分化提案 → 裁决 → 注册——即 rlm 的 spawn 语义落在类型层，不在会话层）；
@@ -592,7 +592,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   actuator 组织四族、executor 组织 developer/writer、developer 组织 coder/tester、tester 组织 debug-case-writer、explorer 组织 scout/spider、researcher 组织 analyst/memory-keeper、analyst 组织 prospector/solver、prospector 组织 predictor——递归向下；
 - **规划/设计类补充**：planner（组织知识专有——plan/design）与 governor（oversight）获得**跨子树组织补充权**
   （可组织非自己子树的执行类型——如 planner 组织 developer 做方案落地）；
-- origin 保持全树组织权（根）；
+- 三源根（actuator / sensor / controller）各自组织自己的子树；sensor / controller 治理面不走 delegate（manage/trigger API）；
 - 组织权 = 任务投递权的来源（0.16.2）——谁能向哪个类型投递任务，由组织权判定。
 
 #### 0.16.4 分拆 worker 的工具面收口（2026-08-17 用户概念补充）
@@ -631,7 +631,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
   由 **PTL 任务派发逻辑**决定；
 - **设计已完成（2026-08-17 W8）**：入口**强制显式路由**（无缺省入口）；父→子投递用
   `tasks.delegate/await`；回流为**事件驱动 requeue**（子终态 → 父任务 requeue + `payload.childResult`）；
-  组织权违规调用即拒绝；完整契约与分阶段见 [w8-task-dispatch-design.md](./w8-task-dispatch-design.md)。
+  组织权违规调用即拒绝；完整契约与分阶段见 [w8-task-dispatch-design.md](./design/w8-task-dispatch-design.md)。
   **P0 契约已实施**：`payload.delivery` 单键存 TaskDelivery；外部入口盖
   `{path:[assignedRole], lineageId:taskId}` 章；终态写 `payload.result`（64KiB 截断/失败摘要）。
   **P1 delegate/await 已实施**：组织权矩阵（直接子类型 + planner/governor 执行族补充权 +
@@ -739,7 +739,7 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 
 #### 0.17.6 N14 设计落地（2026-08-18——四维细分 + 工具注册通道）
 
-> 完整设计：[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)。
+> 完整设计：[n14-sensor-controller-four-dims.md](./design/n14-sensor-controller-four-dims.md)。
 > 用户裁决：**Q1 增补式**（环向点位保留，四维缺口新增）/ **Q2 执行体三态**
 > （program ts 固化 + builtin 代码内置 + agent LLM 子 agent）/ **Q3 skill 同构治理**
 > （staged 流复用：提案 → 对抗性审核 → 批准 → 注册生效）。
@@ -767,9 +767,9 @@ AI 要机械化处理大量数据 → 读入缓存夹（load）→ 后续步骤�
 ### 0.18 学科域组合（2026-08-18——v1.2 改进稿）
 
 > 原「每个学科静态物化为 `WorkerRole`」方案经审稿否决（证据见
-> [N16 问题反馈](./n16-v1.2-role-expansion-review.md)）；学科目录内容保留，
+> [N16 问题反馈](./report/n16-v1.2-role-expansion-review.md)）；学科目录内容保留，
 > 实施方式改为**角色 × 学科域组合**。完整设计：
-> [角色 × 学科域组合与 PTH Knowledge](./n16-v1.2-role-domain-composition-design.md)。
+> [角色 × 学科域组合与 PTH Knowledge](./design/n16-v1.2-role-domain-composition-design.md)。
 
 - **四维任务级组合**：Worker Assignment = Operational Role（怎么工作）+
   Discipline Scope[]（懂什么）+ Knowledge Context（本任务获准读取的版本化证据包）+
@@ -881,11 +881,11 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | **worker**〔旧〕 | 角色实例（进程循环：peek → claim → run）——无状态上下文（任务结束清零——0.10.4） | worker-cluster |
 | **worker 生命周期**〔旧〕 | fork 子进程 / 热上线广播 / 重启恢复（role-register 幂等） | worker-cluster · assembly |
 | **batch**〔旧〕 | worker 拓扑：角色×副本数（7×1 默认 / PTH_WORKER_ROLES 配比）——同角色单副本=串行 | batch-process |
-| **谱系（lineage）**〔旧〕 | 角色父子分化树（origin → actuator/controller/sensor 三支 → n 级——2026-08-14 类型树修理：executor/explorer/governor/researcher 收敛为 actuator 子类型）——权威源=official proposal | routes-lineage |
+| **谱系（lineage）**〔旧〕 | 三源森林角色父子分化树（actuator / sensor / controller 三根 → 各子树 n 级——2026-08-24 三源重构：Origin 退役）——权威源=official proposal | routes-lineage |
 | **分化（differentiation）**〔旧〕 | 新角色从父角色派生——提案 → 裁决 → 注册 | worker-cluster |
 | **worker-index**〔旧〕 | 可用角色清单（注入规划系 + 记忆条目——路由/协作依据——0.9 锚点实例） | worker-cluster |
 | **类型树（type tree）**〔新〕 | worker 谱系的语义澄清（2026-08-14 0.16.1）——谱系描述**类型**（节点=角色定义），实例=batch 副本；类型持久、按需分化添加 = rlm() 持久化 agent 的等效物 | worker-cluster |
-| **任务投递（rlm 等效）**〔新〕 | 高级 worker 以**任务投递**方式实现对子 worker 类型的调用（rlm() 等效——子类型 = 持久化 agent，父 = 投递方；2026-08-14 0.16.2）；入口类型由 PTL 派发逻辑决定（未设计——Origin 仅为示例） | PTL 派发逻辑（待设计） |
+| **任务投递（rlm 等效）**〔新〕 | 高级 worker 以**任务投递**方式实现对子 worker 类型的调用（rlm() 等效——子类型 = 持久化 agent，父 = 投递方；2026-08-14 0.16.2）；入口类型由 PTL 派发逻辑决定（三源森林中 actuator 为默认执行入口示例） | PTL 派发逻辑（待设计） |
 | **穿透（penetration）**〔新〕 | 优化循环发现稳定高效派发路径 → 注册成特殊 skill → 父**直接调用子 agent**（跳过逐级派发/任务池往返，减少传播损耗——2026-08-14 0.16.3）；穿透 = 类型树上的固化捷径边 = 编译后的 rlm 调用点 | 待建 |
 | **Operational Role（操作角色）**〔新·v1.2〕 | 对任务类型、产物与协作权作出稳定承诺的角色（analyst/solver/reviewer 等）；工作方式维度——与学科域组合使用，不复制学科分类 | n16-v1.2-role-domain-composition-design.md |
 | **Discipline Catalog（学科目录）**〔新·v1.2〕 | 不可变、确定排序、允许多父的学科 DAG 快照（level=category/discipline/sub-discipline）；目录规模与常驻 worker 规模分离 | n16-v1.2-role-domain-composition-design.md |
@@ -899,7 +899,7 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | 类型 | 定义 | 治理 | 锚点形态 | 现有 kind |
 |---|---|---|---|---|
 | **设定（setting）**〔桥〕 | 系统不可变核心档案 | 修改走审批面（protected） | id 即锚点（role-doc:developer） | role-doc · capability-index · worker-index · pth-worker-system · worker-role · space-reg · project-map |
-| **百科（wiki）**〔桥〕 | 术语解释——词表一致性 | 写入需词表校验（矛盾检测——§10 N1b） | 术语即锚点 | ✅ pth-wiki（2026-08-13 条目化——scripts/seed-wiki.ts 幂等可重跑） |
+| **百科（wiki）**〔桥〕 | 术语解释——词表一致性 | 写入需词表校验（矛盾检测——§10 N1b） | 术语即锚点 | ✅ pth-wiki（2026-08-13 条目化——scripts/seed/seed-wiki.ts 幂等可重跑） |
 | **skill**〔桥〕 | 独立不可变知识条目——系统化描述怎么做某件事（SOP）。四段式（W1）：场景锚点三要素 + Procedure（每步标注调用代价）+ Pitfalls + Verification；写后冻结（B4-1）；维护 = memory-keeper 专项 | 场景锚点三要素 · 两级检索（Phase 2） | 🏗️ Phase 1 已落（2026-08-15——格式模板 + 3 条角色 SOP 种子；skills.get/清单属 Phase 2） |
 | **日志（log）**〔桥〕 | 系统运行过程记录 | 只增 + 聚合/归档（T7） | 时间/任务锚点 | scorecard · transcript · audit · obs · task-insight |
 
@@ -966,9 +966,9 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | **scorecard**〔旧〕 | 每任务计分卡（步数/tokens/失败率/cacheRead/timeReuse）——外环数据根基 | worker-scorecard |
 | **scorecard 聚合快照**〔旧〕 | 审批面 B——原子 upsert 聚合视图 | memory-store-pg |
 | **观测（obs）**〔旧〕 | sensor 上报通道（obs.callpoint / aggregate 优先） | obs.ts |
-| **传感器（sensor）**〔旧〕 | 观测者（2026-08-14 升格真实类型——gen=1 挂 Origin，sensor:worker-opt/system-opt/resource/memory 四观测点收敛其下） | default-roles |
-| **控制器（controller）**〔旧〕 | 裁决者（2026-08-14 升格真实类型——gen=1 挂 Origin，controller:router/worker-opt/pth-opt/resource/memory 五调节点收敛其下）——official/reject/merge | default-roles |
-| **执行器（actuator）** | 把 official 提案落为实际修改（2026-08-14 类型树修理：actuator 类型实装——executor/explorer/governor/researcher 四族收敛其下，控制论三元组 sensor/controller/actuator 齐） | default-roles |
+| **传感器（sensor）**〔旧〕 | 观测者（2026-08-24 三源重构：三源 gen0 根之一——只观测评估，产物 `observation-report`，不开处方；sensor:worker-opt/system-opt/resource/memory/tool-face/tool-single/rule 收敛其下） | default-roles |
+| **控制器（controller）**〔旧〕 | 调节者（2026-08-24 三源重构：三源 gen0 根之一——读取 observation-report，产物 `modification-plan` draft，只提案不实施；controller:router/worker-opt/pth-opt/resource/memory/tool-face/tool-single/rule/adversarial 收敛其下） | default-roles |
+| **执行器（actuator）** | 执行者（2026-08-24 三源重构：三源 gen0 根之一——承接实际工作负载并实施 official 方案；executor/explorer/governor/researcher 四族收敛其下） | default-roles |
 | **提案（proposal）**〔旧〕 | 调节建议——draft → 裁决 → official；类型学：differentiation（角色）/ optimizer-suggestion（JIT）/ 资源方案 | optimizer-loop |
 | **审批面（A/B/C）**〔旧〕 | 人工闸门：A 代码层 / B scorecard 快照 / C 角色注册 | gateway · 监督层 |
 | **控制论外环**〔旧〕 | 慢环——sensor 聚合 → controller 裁决 → 审批面 → actuator 应用（批次/小时级） | optimizer-loop |
@@ -1009,7 +1009,7 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | **产物交付（artifacts）**〔旧〕 | 产物归档到卷 → 宿主机提取（docker cp）——协作交付物 | task-loop archive |
 | **hook（pth-notify）**〔旧〕 | PTH 完成/失败 → POST → PTL 扩展 → 通知+会话消息注入（subagent 式唤醒） | task-loop · 扩展 |
 | **扩展（ext）**〔旧〕 | toolstore 插件——capability 注入（经 caps 白名单门控） | ext-registry |
-| **扩展安全边界**〔旧〕 | EXEC_TOOL_CAP 门控——ext 能力与执行核映射校验 | capability |
+| **扩展安全边界**〔旧〕 | EXEC_TOOL_CAP 门控——ext 能力与执行核映射校验（按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md) 收敛为注入 + 静态审核） | capability |
 | **监督层（人）**〔旧〕 | 审批面裁决者——协作主体（不在自动化环内——0.7.1 人在回路） | 审批面 A/B/C |
 | **异步模式**〔旧〕 | 派发不阻塞主会话——推送唤醒 | pth-cli · hook |
 | **渐进降输入**〔废止〕 | ~~任务文本只写核心意图~~（2026-08-14 T9 裁决：协作模型重写——见下条） | — |
@@ -1147,7 +1147,7 @@ v0.9（动作面/权限/任务池纯化）
 | T9 | 渐进降输入 vs 任务理解质量 | "最短指令"下界——核心意图必须完整到可分派 | ✅ 已裁决（2026-08-14）：**协作模型重写**——PTL 侧理解用户全部需求→产出概念设计→PTH 生成实施方案（渐进降输入废止） |
 | T10 | 环间同对象仲裁 | JIT 环与控制环作用于同一角色/空间——无仲裁机制 | ✅ 已裁决（2026-08-14）：暂缓观察——obs 观测到同对象冲突实例后按目标级写锁实装 |
 
-> **2026-08-14 用户裁决全部完成**——决策源 `docs/pth/tension-decisions.json`（结构化录入器 scripts/adjudicate-tensions.ts 产出）；
+> **2026-08-14 用户裁决全部完成**——决策源 `docs/pth/tension-decisions.json`（结构化录入器 scripts/tools/adjudicate-tensions.ts 产出）；
 > T2/T5/T7 按推荐 A 落地（用户问询澄清后未重录——可随时否决回滚）。
 
 ### 8.2 概念债务
@@ -1217,11 +1217,11 @@ v0.9（动作面/权限/任务池纯化）
 
 | # | 新概念/机制 | 理论坐标 | 缺口 | 承接/关联 | 状态 |
 |---|---|---|---|---|---|
-| N1 | 百科记忆类型（词表条目化） | 0.9 · 域 B | ✅ 已实装（2026-08-13——kind=pth-wiki + scripts/seed-wiki.ts——87 条落库，幂等可重跑） | memory.query 按 anchors 检索 · 术语即锚点 | ✅ 已实装 |
+| N1 | 百科记忆类型（词表条目化） | 0.9 · 域 B | ✅ 已实装（2026-08-13——kind=pth-wiki + scripts/seed/seed-wiki.ts——87 条落库，幂等可重跑） | memory.query 按 anchors 检索 · 术语即锚点 | ✅ 已实装 |
 | N1b | 百科写入矛盾检测（词表校验） | 0.9 · 域 B | ✅ 已落（2026-08-15——`wiki.ts validateWikiWrite`：id/术语锚点/三要素/重复定义；memory.write 写 pth-wiki 前强制校验） | 污染防线（写侧断言）· N1 治理列 | ✅ 已落 |
 | N2 | skill 记忆类型（工作流 SOP 一等化） | 0.9 · 0.13 · 域 B | Phase 1–4 已全落：四段式格式 + 种子注入（developer/scout/memory-keeper + N14 四层 opt + **N17 A5 叶子×8**）；两级检索；maintain 仅 memory-keeper + 不可变语义 + staged 审核流/controller:adversarial（L2）；`parseSkillMarkdown` 映射 | 不可变知识条目（B4-1）· 0.13 外部 skill 映射（Phase 4） | ✅ 已完成（A5 补齐叶子种子） |
 | N3 | 数据缓存使用追踪（cacheUtilization） | 0.12 · 域 E/域 D | ✅ 已实装（2026-08-13——get 命中标记 used→utilization()→scorecard+聚合快照+cache-waste 热点+sensor 观测维度；测试 10 全绿） | scorecard 新指标 · sensor 观测（数据流效率） | ✅ 已实装 |
-| N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 分支 ✅（`importSkillMarkdown`）；MCP 分支 ✅（2026-08-18 N17 D1——`parseMcpBundle`/`mcpToolToSpec`/`importMcpTools` → tool-proposal draft 治理注册；`scripts/import-mcp-bundle.ts` + `manage.tool.importMcp`） | ext-registry（agent-reach 已验证） | ✅ 已完成（两分支均落） |
+| N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 分支 ✅（`importSkillMarkdown`）；MCP 分支 ✅（2026-08-18 N17 D1——`parseMcpBundle`/`mcpToolToSpec`/`importMcpTools` → tool-proposal draft 治理注册；`scripts/tools/import-mcp-bundle.ts` + `manage.tool.importMcp`） | ext-registry（agent-reach 已验证） | ✅ 已完成（两分支均落） |
 | N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | ✅ 已落（2026-08-15——`obs.resource()`：container cgroup + pg activity/database/slow + storage + batches；`pgStat` 新增慢查询视图） | controller:resource 角色已有 | ✅ 已落 |
 | N6 | 复测（verify）一等化 | 0.7.2 · 域 D | ~~verifyAfterWindow 标志已有；独立复测任务未一等化~~ ✅ 已实装（2026-08-14 B2）：apply 派发独立复测任务（受控复现）→ 证据三通道结算（verify-task＞organic＞global）→ 超时零进展 verify_expired 诚实闭合 + 独立巡检定时器 | optimizer-apply baseline/deopt | ✅ 已实装 |
 | N7 | 记忆归档执行 | 0.9 · 域 B | ✅ 已实装（2026-08-14 T7 执行端 + 2026-08-15 B1 定期触发：`memory-sweep-trigger.ts` 默认每天巡检，提案经监督批准） | sensor:memory / controller:memory 已有 | ✅ 已实装 |
@@ -1231,9 +1231,9 @@ v0.9（动作面/权限/任务池纯化）
 | N11 | 可预测性地图（predictability map） | 0.14 · 全域 | 无对应机制——伪世界模型猜想的落地接口：分尺度可预测性注册 + 相变预警 | 外部数据源接入（sensor 外环） · JIT 环（错误预测→修规则） | 💭 猜想·未启动 |
 | N12 | 护栏统一抽象（guard-registry） | 0.7 · 0.14 · 域 E | ✅ 已实装（2026-08-14——guardrails.ts 注册表：ConsecutiveGuard 三段式 + 豁免矩阵 + `PTH_GUARD_*` 阈值配置化；agent-loop 五计数器收敛，行为逐字保留；9 新测试） | agent-loop 五计数器 → guardrails.ts 注册表 | ✅ 已实装（二期已随 N14 落：P1 scorecard 观测 + obs.guards；P3 controller:rule 调节面——`manage.params.set` 热调 + SOP） |
 | N13 | 思考路径图重建器（trace reconstruction） | 0.15 · 域 D | ✅ 已落（2026-08-15——`thinking-path.ts`：发现链/决策链/意图链 + 重复探测/盲试 + 记忆/工具缺口） | transcript 轨迹 · CoT 压缩产物 · refiner | ✅ 已落 |
-| N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计 + 实施全部完成（2026-08-18——[n14-sensor-controller-four-dims.md](./n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP（manage.tool.* + 治理流 + 真实 tool-function 晋升首跑） | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ P0–P3 已落（GOVERNANCE_ROLES 13→16；首跑 `fn-wx7wk7`/`fn-v2u2if` 晋升验证） |
-| N15 | **穿透预算/发现/护栏 JIT**（B1/B2/A4——2026-08-18） | 0.16.3 · 0.7 | ✅ **已落（2026-08-18——[n15-lane-b1-b2-a4-design.md](./n15-lane-b1-b2-a4-design.md)）**：B2 穿透执行预算经济化（单次/累计步数预算 + `penetration-edge` 边级计量面）/ B1 穿透稳定边自动发现（proposal→监督批准→skill:penetrate 注册）/ A4 护栏 JIT（guard-kill-spike 热点→`guard-config` 审批热调→复测/deopt 回滚） | 穿透执行面 · optimizer-hotspots · guardrails | ✅ 三车道已落（合并顺序 B2→B1→A4） |
-| N16 | **v1.2 学科域组合**（0.18 角色×学科域 + Knowledge 加固） | 0.18 · 域 C/域 B | 🆕 审稿裁决完成（2026-08-18）：原「静态物化 188 角色」冻结（[review](./n16-v1.2-role-expansion-review.md) 实证 P0×5 + P1×5 + P2×3）；采纳 [组合设计](./n16-v1.2-role-domain-composition-design.md)——184 researcher 节点转 Discipline Catalog，4 非 researcher 独立评审；实施序 Phase 0 → 1a → 1b → 2 → 3 → 4 → 5（双域试点） | researcher 谱系 · 0.16.1 类型树 · 0.9/0.10 知识治理 · W4 SOP | 🆕 设计裁决完成（K0–K5 车道见 parallel-lanes） |
+| N14 | **sensor/controller 四维细分 + 分层 SOP**（0.17.4 落地） | 0.17 · 域 D | ✅ **设计 + 实施全部完成（2026-08-18——[n14-sensor-controller-four-dims.md](./design/n14-sensor-controller-four-dims.md)）**：增补式 +6 点位（tool-face/tool-single/rule × sensor/controller）；tool-reg 注册通道契约（执行体三态 program/builtin/agent + skill 同构治理 + 可见性窄投放/预算守卫/快照版本化）；分层 SOP×4；分期 P0 契约 → P1 观测（N12 二期同落）→ P2 执行缝 → P3 调节与 SOP（manage.tool.* + 治理流 + 真实 tool-function 晋升首跑） | 0.7 环 · sensor/controller 谱系 · W4 skill 创建时机 | ✅ P0–P3 已落（GOVERNANCE_ROLES 13→16；首跑 `fn-wx7wk7`/`fn-v2u2if` 晋升验证） |
+| N15 | **穿透预算/发现/护栏 JIT**（B1/B2/A4——2026-08-18） | 0.16.3 · 0.7 | ✅ **已落（2026-08-18——[n15-lane-b1-b2-a4-design.md](./design/n15-lane-b1-b2-a4-design.md)）**：B2 穿透执行预算经济化（单次/累计步数预算 + `penetration-edge` 边级计量面）/ B1 穿透稳定边自动发现（proposal→监督批准→skill:penetrate 注册）/ A4 护栏 JIT（guard-kill-spike 热点→`guard-config` 审批热调→复测/deopt 回滚） | 穿透执行面 · optimizer-hotspots · guardrails | ✅ 三车道已落（合并顺序 B2→B1→A4） |
+| N16 | **v1.2 学科域组合**（0.18 角色×学科域 + Knowledge 加固） | 0.18 · 域 C/域 B | 🆕 审稿裁决完成（2026-08-18）：原「静态物化 188 角色」冻结（[review](./report/n16-v1.2-role-expansion-review.md) 实证 P0×5 + P1×5 + P2×3）；采纳 [组合设计](./design/n16-v1.2-role-domain-composition-design.md)——184 researcher 节点转 Discipline Catalog，4 非 researcher 独立评审；实施序 Phase 0 → 1a → 1b → 2 → 3 → 4 → 5（双域试点） | researcher 谱系 · 0.16.1 类型树 · 0.9/0.10 知识治理 · W4 SOP | 🆕 设计裁决完成（K0–K5 车道见 parallel-lanes） |
 
 > **2026-08-13 验收批次（N1/N3/N9 实机验收——双角色制）**：4 执行任务（memory-stats/tester×3）+ 1 acceptor 汇总——5/5 completed、4/4 ✅（验收结论：新功能验收通过）。实测证据：scorecard.cacheUtilization 明细（300/200→0.667；562/0→0）、聚合快照 sumCacheLoaded 862/sumCacheUsed 200、pth-wiki 87 条锚点检索命中、sandbox /usr/local/bin/ptl v0.11.0（pit 已移除）。
 >
@@ -1268,8 +1268,8 @@ v0.9（动作面/权限/任务池纯化）
 ## 2026-08 落地摘要（TCE / 任务生命周期）
 
 - 任务生命周期：`TaskDelivery.goal`（根目标逐字传播）、`paused` 状态（worker 向发布者提问）、`tasks.answer` / HTTP answer。
-- TCE 三层：Tool → Command → Execute；`CommandGateway` 三态决策，`EXEC_TOOL_CAP` / capability-policy 统一门控。
+- TCE 三层：Tool → Code → Execute（[ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md)）；一切入口归一化为代码，Code 层做能力调用集静态审核 ⊆ 角色能力集；`CommandGateway` 命令对象形态按计划退役，`EXEC_TOOL_CAP` / capability-policy 表驱动授权收敛为「注入 + 静态审核」。
 - Tool 层：manifest `argsSchema`/`argvTemplate` 策展 19 工具；`tool-layer-generator` 生成工具面。
 - 上下文：循环内压缩（`CONTINUATION_TEMPLATE`）与 scorecard 新增 pause/compression 信号。
 
-详细设计：[task-lifecycle-and-context-design](task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](llm-tool-notebook-unified-execution-backend-plan.md)
+详细设计：[task-lifecycle-and-context-design](design/task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](plan/llm-tool-notebook-unified-execution-backend-plan.md)

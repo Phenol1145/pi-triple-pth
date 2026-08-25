@@ -14,3 +14,4 @@ export {
   PthConfig,
 } from "./config-center.js";
 export type { ConfigCenter, ConfigIssue } from "./config-center.js";
+export { parseEnvFile } from "./env-file.js";

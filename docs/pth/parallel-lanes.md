@@ -24,7 +24,7 @@
 | 2026-08-18 | **A2 一等工具注册通道** | ✅ **开通道**——schema+执行器注册进工具面 + 审批治理；工具面优化层有真实承接（0.3.6 并联代偿落地第一步；D1 MCP 拆解价值翻倍）。L1 按完整四层次设计 | L1（后续 D1） |
 | 2026-08-18 | R1 发布时机 | **等 L2/L3 合并后一起发 v1.1.3**（L3 已 done `982631e` 待合并；L2 进行中） | L4 |
 | 2026-08-18 | R2 发布范围 | **全量发布**（release.sh --npm --docker --gh：npm 8 包 topo 序 + docker 回归 + GitHub release 附 tgz） | L4 |
-| 2026-08-18 | **L1 设计裁决 Q1/Q2/Q3** | Q1 **增补式**细分（环向保留+四维缺口新增）/ Q2 **执行体三态**（program+builtin+agent——用户 custom「2+3」）/ Q3 **skill 同构治理**。产出：`docs/pth/n14-sensor-controller-four-dims.md`（分期 P0-P3 已全部实施落成——同日收尾批） | L1（后续 N14 实施批） |
+| 2026-08-18 | **L1 设计裁决 Q1/Q2/Q3** | Q1 **增补式**细分（环向保留+四维缺口新增）/ Q2 **执行体三态**（program+builtin+agent——用户 custom「2+3」）/ Q3 **skill 同构治理**。产出：`docs/pth/design/n14-sensor-controller-four-dims.md`（分期 P0-P3 已全部实施落成——同日收尾批） | L1（后续 N14 实施批） |
 | 2026-08-18 | L2 Q1 staged write 行为 | **拒绝 + 引导 propose**（不自动转提案——worker 必经治理入口） | L2 |
 | 2026-08-18 | L2 Q2 审核任务编排 | **事件驱动自动派发**——capability 提案落库发 `skill.proposal.created` → trigger `skill-proposal-review` 自动派 controller:adversarial 审核任务（治理任务源新模式——同类可复用） | L2 |
 | 2026-08-18 | **L1 Q4 存量归并** | **一次性全登记**——35 件硬编码工具全登记为 builtin 条目（执行不动、条目做治理面；TOOL_SCHEMAS 降级为执行器索引；P0 扩量：登记器 seed + 双写对账测试）。补录：`e719f04`（设计文档 §3.6） | L1（N14 P0） |
@@ -33,7 +33,7 @@
 
 | Lane | 任务 | 主要文件域 | 分支 / worktree | 状态 | 认领（会话·日期） | 产出/备注 |
 |---|---|---|---|---|---|---|
-| **L1** | **N14 设计：sensor/controller 四维细分 + 分层 SOP + 一等工具注册通道设计**（0.17.4 落地；A2 已裁开通道——按完整四层次：工具面/单工具/记忆/规则；细分含 SOP 四段式草案；通道含注册契约+审批治理设计） | `docs/pth/concepts.md`、`builtin-roles.ts`、`skill` 格式、`docs/pth/` | `lane/l1-n14-design` / `.worktrees/l1` | **done** | 主会话-L1·2026-08-18 | ✅ **已合并 main（2026-08-18 主会话-L4 代合——docs-only 无冲突）**：`docs/pth/n14-sensor-controller-four-dims.md` + concepts 0.17.6/词表/N14 行；合并后全量 1988 绿/tsc/boundaries/config；✅ **P0–P3 实施已全部落成（2026-08-18 收尾批）**：P0 `2dce081` / P1 `d230f96` / P2 `008f85c` / P3 本批（controller 三点位 + manage.tool.* + tool-proposal 治理流 + SOP×4 + 真实晋升首跑） |
+| **L1** | **N14 设计：sensor/controller 四维细分 + 分层 SOP + 一等工具注册通道设计**（0.17.4 落地；A2 已裁开通道——按完整四层次：工具面/单工具/记忆/规则；细分含 SOP 四段式草案；通道含注册契约+审批治理设计） | `docs/pth/concepts.md`、`builtin-roles.ts`、`skill` 格式、`docs/pth/` | `lane/l1-n14-design` / `.worktrees/l1` | **done** | 主会话-L1·2026-08-18 | ✅ **已合并 main（2026-08-18 主会话-L4 代合——docs-only 无冲突）**：`docs/pth/design/n14-sensor-controller-four-dims.md` + concepts 0.17.6/词表/N14 行；合并后全量 1988 绿/tsc/boundaries/config；✅ **P0–P3 实施已全部落成（2026-08-18 收尾批）**：P0 `2dce081` / P1 `d230f96` / P2 `008f85c` / P3 本批（controller 三点位 + manage.tool.* + tool-proposal 治理流 + SOP×4 + 真实晋升首跑） |
 | **L2** | **A3：skill staged 审核流接线**（`PTH_SKILL_WRITE_POLICY=staged`：提案 → controller:adversarial 对抗性审核 → 监督批准 → memory-keeper 执行；配置项与角色已有，链路未闭） | `packages/pth-memory/src/skills.ts`、`src/pth/impls/kernels/capability.ts`、相关测试 | `lane/l2-staged-flow` / `.worktrees/l2` | **done** | 主会话·2026-08-18 | ✅ 产出 `e08ac2a`（lane 分支已推送）：propose 发 `skill.proposal.created` 事件 + trigger `skill-proposal-review` 事件驱动派审核任务 + staged write 引导 propose + 端到端 4 例（全链 pass/reject/审核面收窄）+ trigger 注册断言 6→7；全量 1985 绿/tsc(根+memory)/boundaries/config——**✅ 已合并 main（merge commit `1f8c6c9`，2026-08-18 主会话-L4 代合）**。概念记录（归并 concepts.md）：**N2 Phase 3 staged 流已闭**；Q1/Q2 裁决见决策栏。注意：staged 需显式开启 + controller:adversarial 入 batch 配比 |
 | **L3** | **C1：worker 子进程健康/卡死检测**（§9 L2 缺口——IPC metric 只有耗时）**+ E2 文档同步**（§8.2 agentic 测试集 checkbox 勾除、§9 L3 标注 N5 已补齐） | `batch-manager.ts`、obs、`docs/pth/concepts.md` §9 表（仅 L3 行——经 L1 协调） | `lane/l3-health-docs` / `.worktrees/l3` | **done** | 主会话-L3·2026-08-18 | ✅ 产出 `982631e`（lane 分支已推送）：心跳自报 rss/cpu + listBatches/obs.batches 健康面（healthy/stale/dead + lag + 阈值 PTH_BATCH_HEALTH_STALE_MS）+ 3 测试；§8.2 checkbox/§9 L2·L3 行同步；全量 1982 绿/tsc/boundaries/config(108 键)——**✅ 已合并 main（2026-08-18 主会话-L4 代合）** |
 | **L4** | **E1：v1.1.3 发布**（8 commit 未发版：W8×4 + flaky 修复 + 0.16.4 + 0.16.3 + 0.17 文档；走仓库 release 流程——版本号/changelog/徽章/tag） | `package.json`、CHANGELOG/发布文档、README 徽章 | `lane/l4-release` / `.worktrees/l4` | **done** | 主会话（本线程）·2026-08-18 | ✅ 预备 `2866707`（lane 分支已推送）：版本 1.1.3 全 bump（根+7 子包+lock）+ `docs/releases/v1.1.3.md` 草稿（L2/L3 两节占位）+ deployment/docs 索引同步；✅ **v1.1.3 已全量发布**（2026-08-18）：L3→L2 串行合并（244 文件/1988 绿）→ 发布说明定稿 → release.sh --npm --docker --gh 全过（npm 8 包 1.1.3 dist-tags 验证✓ / docker 健康+冒烟✓ / GH release+tag v1.1.3+tgz 附件✓）；途中修 release.sh 阶段 6 三坑（compose 路径/env-file/sandbox 同构构建）+ postgres 卷保数据改密（用户裁决） |
@@ -41,7 +41,7 @@
 | **B1** | **N15 B1：穿透稳定边自动发现**（`penetration-proposal` → 监督批准 → `skill:penetrate:<child>` 注册） | `tasking/penetration-discovery.ts`（新）、`system-triggers.ts`、`assembly.ts`、`pth-gateway-facade.ts` | `lane/b1-penetration-discovery` / `.worktrees/b1` | **done** | 主会话·子代理·2026-08-18 | ✅ `d5a3019`——**已合并 main**：discovery 巡检 + 治理链 + gateway 同流；全量绿 |
 | **A4** | **N15 A4：护栏 JIT**（guard-kill-spike 热点 → `guard-config` 审批热调 → 复测/deopt 回滚） | `optimizer-hotspots/loop/apply.ts`、`guardrails.ts` | `lane/a4-guard-jit` / `.worktrees/a4` | **done** | 主会话·子代理·2026-08-18 | ✅ `0feeaff`——**已合并 main**：白名单热调 + fail-closed 基线 + deopt 回滚；全量绿 |
 | **A5** | **N17 A5：叶子角色四段式 SOP 种子×8**（writer/coder/debug-case-writer/acceptor/planner/spider/solver/predictor——注入 prompt-docs） | `packages/pth-memory/src/skill-format.ts`、`src/pth/kernel/prompt-docs.ts` | `lane/a5-leaf-sops` / `.worktrees/a5` | **done** | 主会话·子代理·2026-08-18 | ✅ `b09ed8f`——**已合并 main**：SEED_LEAF_SOPS×8 + 注入循环；全量绿 |
-+| **D1** | **N17 D1：MCP 拆解→tool-proposal 批量治理导入**（mcp-tool-bundle-v1 → parse/spec/importMcpTools + manage.tool.importMcp + import 脚本） | `src/pth/tasking/mcp-decompose.ts`（新）、`src/pth/kernel/extensions/manage.ts`、`scripts/import-mcp-bundle.ts`（新） | `lane/d1-mcp-decompose` / `.worktrees/d1` | **done** | 主会话·子代理·2026-08-18 | ✅ `3628d71`——**已合并 main**：draft 提案批量落库 + tool.proposal.created 自动审核；全量绿 |
++| **D1** | **N17 D1：MCP 拆解→tool-proposal 批量治理导入**（mcp-tool-bundle-v1 → parse/spec/importMcpTools + manage.tool.importMcp + import 脚本） | `src/pth/tasking/mcp-decompose.ts`（新）、`src/pth/kernel/extensions/manage.ts`、`scripts/tools/import-mcp-bundle.ts`（新） | `lane/d1-mcp-decompose` / `.worktrees/d1` | **done** | 主会话·子代理·2026-08-18 | ✅ `3628d71`——**已合并 main**：draft 提案批量落库 + tool.proposal.created 自动审核；全量绿 |
 
 > 车道池（下批候选）：A5 叶子角色 seed skill ✅（N17——8 条叶子 SOP 已落）；D1 MCP 拆解
 > ✅（N17——mcp-tool-bundle-v1 → tool-proposal 治理注册）。B1/B2/A4/N17 A5/N17 D1 均已落——
@@ -52,9 +52,9 @@
 ## v1.2 车道（角色 × 学科域组合——审稿后路线切换）
 
 > 2026-08-18 审稿裁决：原 N16 V1–V5（批量静态物化 188 个 WorkerRole）**冻结**。
-> 问题证据：[N16 问题反馈评审](./n16-v1.2-role-expansion-review.md)（P0×5 / P1×5 / P2×3）。
-> 采纳设计：[角色 × 学科域组合与 PTH Knowledge](./n16-v1.2-role-domain-composition-design.md)。
-> 学科目录内容保留为输入：[N16 原稿](./n16-v1.2-role-expansion.md)。
+> 问题证据：[N16 问题反馈评审](./report/n16-v1.2-role-expansion-review.md)（P0×5 / P1×5 / P2×3）。
+> 采纳设计：[角色 × 学科域组合与 PTH Knowledge](./design/n16-v1.2-role-domain-composition-design.md)。
+> 学科目录内容保留为输入：[N16 原稿](./design/n16-v1.2-role-expansion.md)。
 
 ### 决策栏（v1.2 修订）
 
@@ -81,7 +81,7 @@
 > K2 已落：`853b426`（TaskWorkItem.domains + DisciplineResolver + 发布盖章 + claim 映射）→ 已合并 main。
 > K3 已落：`4ee2b40`（KnowledgeContextProvider + runner 注入 + broker search/get official 门槛）→ 已合并 main。
 > K4 已落：`5fe95b1`（knowledge-verdicts/promotion + adversarial/memory-keeper 能力 + verify/promote 路由）→ 已合并 main。
-> K5 已落：真实任务试点（报告 `docs/pth/k5-pilot-report.md`；任务 `f2aee2ff`/`9ec54497` 完成，K4 链真机通过）。
+> K5 已落：真实任务试点（报告 `docs/pth/report/k5-pilot-report.md`；任务 `f2aee2ff`/`9ec54497` 完成，K4 链真机通过）。
 > K5-eval 已落：`75ea7e8`（source registry 12 + knowledge 24 + 60 冻结题 + 评测器；离线与 live 均为 recallAt3/At5/evidence = 1.0/1.0/1.0）。
 > K1a 已落：`f4c760d`（PgMemoryStore tenant 隔离 + KnowledgeBroker official/tenant/hit + skills.list official）→ 已合并 main（`7d00b90`）。
 >
@@ -113,7 +113,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | **R4** | P0-4/P0-5/P1-5 真事务 outbox：同事务 enqueue + claim lease/token/CAS + observer durable failure | `lane/r4-transactional-outbox` / `.worktrees/r4` | **done** | 主会话·2026-08-18 |
 | **R3** | P0-3/P1-1/P1-2 verification 绑定：持久 VerificationPlan + service 授权 + 严格 revision + Domain 子集 binding | `lane/r3-verification-binding` / `.worktrees/r3` | **done** | 主会话·子代理·2026-08-18 |
 | **R5** | P1-3/P1-4 生产评测：生产端口评测 + 全语料覆盖 + no-answer/冲突/跨版本/holdout + EvidenceRef 全链 | `lane/r5-production-evaluation` / `.worktrees/r5` | **done** | 主会话·子代理·2026-08-18 |
-| **R6** | 组合验收：崩溃/并发/跨租户全链重跑（claim→context→commit→outbox→candidate→verification→promotion→retrieve） | 主会话直接执行 | **done** | 主会话·2026-08-18 | ✅ `test/pth-composition/r6-acceptance.test.ts`（真实 PG 8/8）+ `scripts/r6-composition-acceptance.ts` + 最终复验报告 `docs/pth/v1.2-acceptance-fix-revalidation-final.md`——**ACCEPTED（P0-1..P0-5、P1-1..P1-5 全 PASS）**；全量 270 files / 2300 绿 + 9 既有 skip；lint 绿；K5 离线/live 24/24 + mutation 1.0 |
+| **R6** | 组合验收：崩溃/并发/跨租户全链重跑（claim→context→commit→outbox→candidate→verification→promotion→retrieve） | 主会话直接执行 | **done** | 主会话·2026-08-18 | ✅ `test/pth-composition/r6-acceptance.test.ts`（真实 PG 8/8）+ `scripts/accept/r6-composition-acceptance.ts` + 最终复验报告 `docs/pth/report/v1.2-acceptance-fix-revalidation-final.md`——**ACCEPTED（P0-1..P0-5、P1-1..P1-5 全 PASS）**；全量 270 files / 2300 绿 + 9 既有 skip；lint 绿；K5 离线/live 24/24 + mutation 1.0 |
 
 > Wave 划分：wave1 = R1/R2/R4 并行；wave2 = R3；wave3 = R5；wave4 = R6。每 wave 串行合并回 main，合并前全量 vitest + lint 绿。
 
@@ -137,7 +137,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 | 2026-08-18 | **C2 授权探针分母** | 32 = 8 面 × 4 失效；第 8 面 = KnowledgeContext build | T4/T5/T7 |
 | 2026-08-18 | **C3 legacy fail-closed** | 未注入 layered=旧路径不变；已注入但无 worker 绑定/Directory-envelope 不匹配 → 零 wave 调用 | T4 |
 | 2026-08-18 | **C4 ASP 模式取法** | 计划不改；实现按现状 `pthConfig().str("PTH_ASP_MODE")==="on"` 适配 | T6 |
-| 2026-08-18 | **结构快照工具** | `scripts/n28-structure-snapshot.ts` + 基线 `n28-structure-baseline.json/.md`（645 文件 / 1275 导入边）；每 lane 合并后 `--check` 对照契约 §3 复核漂移 → 确认后以单独 docs commit `--update` 刷新 | T1–T7 |
+| 2026-08-18 | **结构快照工具** | `scripts/tools/n28-structure-snapshot.ts` + 基线 `n28-structure-baseline.json/.md`（645 文件 / 1275 导入边）；每 lane 合并后 `--check` 对照契约 §3 复核漂移 → 确认后以单独 docs commit `--update` 刷新 | T1–T7 |
 | 2026-08-19 | **C5 snapshot 键** | 实现改为恒定输出 `currentTaskId`（无任务=undefined）；计划 Step 3 代码已同步 | T2 |
 | 2026-08-19 | **C6 toolsDescription allowlist** | 允许 T6 多动 `agent-tools.ts`（契约 §3 漏列；计划 Step 2 要求 prompt 只列冻结 union） | T6 |
 
@@ -155,7 +155,7 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 
 > Wave 划分：**T1→T2→T3→T4→T5→T6→T7 严格串行**（每 lane 合并回 main 后下一 lane 从新 main 出发）。
 > T7 例外允许计划规定的两次提交（evaluator 实现提交 + 报告提交）。契约逐条见
-> `docs/pth/n28-task{n}-contract.md`；跨 lane 裁决见 `docs/pth/n28-lane-contract-rulings.md`。
+> `docs/pth/n28-task{n}-contract.md`；跨 lane 裁决见 `docs/pth/contract/n28-lane-contract-rulings.md`。
 
 ## fork 引导词（v1.2）
 
@@ -165,8 +165,8 @@ K0 → K1a → K1b → K2 → K3 → K4 → K5（每 lane 全量 vitest + lint �
 仓库 /Users/anzhize/pi-platform 的 lane V1（角色定义批）。先读 docs/pth/parallel-lanes.md
 全部（协议+决策栏+v1.2 车道），把车道表 V1 行标 claimed（填你的会话名+日期）并 commit push。
 工作目录 .worktrees/v1（分支 lane/v1-role-defs——若不存在先运行
-scripts/lane-worktrees.sh 初始化；依赖：ln -s ../../node_modules node_modules 快速起步）。
-任务：按 docs/pth/n16-v1.2-role-expansion.md 的设计，手写 41 个角色的完整定义：
+scripts/ops/lane-worktrees.sh 初始化；依赖：ln -s ../../node_modules node_modules 快速起步）。
+任务：按 docs/pth/design/n16-v1.2-role-expansion.md 的设计，手写 41 个角色的完整定义：
 - 5 个门类（gen=3）：formal-science / natural-science / social-science / humanities / applied-science
 - 32 个学科（gen=4）：见设计文档 §2 完整清单
 - 4 个非 researcher：debugger / reviewer / communicator / coordinator
@@ -183,7 +183,7 @@ gen=4 学科 capabilities=["fs","memory","readSource","readText","web","python",
 ```
 仓库 /Users/anzhize/pi-platform 的 lane V2（子学科生成批）。先读 docs/pth/parallel-lanes.md
 全部，把 V2 行标 claimed 并 commit push。工作目录 .worktrees/v2（分支
-lane/v2-subdisciplines——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+lane/v2-subdisciplines——scripts/ops/lane-worktrees.sh 初始化；ln -s ../../node_modules
 node_modules 起步）。任务：基于 V1 产出的 32 个学科 prompt，用模板化方式生成 112 个
 gen=5 子学科角色定义。模板参数见 n16-v1.2-role-expansion.md §4。每个子学科需：
 id / tags / prompt（父学科 prompt + 子学科专精段） / description / thinking="medium" /
@@ -197,7 +197,7 @@ capabilities（继承父学科） / actionTools / parent / generation=5 / differ
 ```
 仓库 /Users/anzhize/pi-platform 的 lane V3（SOP 批）。先读 docs/pth/parallel-lanes.md
 全部，把 V3 行标 claimed 并 commit push。工作目录 .worktrees/v3（分支
-lane/v3-sop——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+lane/v3-sop——scripts/ops/lane-worktrees.sh 初始化；ln -s ../../node_modules
 node_modules 起步）。任务：为所有角色（现有 15 + 新增 149 ≈ 164）编写四段式 SOP：
 场景锚点/何时用/效果/Procedure/Pitfalls/Verification。SOP 遵循 skill 四段式格式
 （concepts.md W1）。每个角色至少 1 条。产出：skills/ 目录 + memory_entries seed。
@@ -209,7 +209,7 @@ node_modules 起步）。任务：为所有角色（现有 15 + 新增 149 ≈ 1
 ```
 仓库 /Users/anzhize/pi-platform 的 lane V4（知识填充批）。先读 docs/pth/parallel-lanes.md
 全部，把 V4 行标 claimed 并 commit push。工作目录 .worktrees/v4（分支
-lane/v4-knowledge——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+lane/v4-knowledge——scripts/ops/lane-worktrees.sh 初始化；ln -s ../../node_modules
 node_modules 起步）。任务两件：① 百科扩展——按五大门类填充核心术语/概念/方法论到
 pth-wiki（seed-wiki 同款幂等脚本）；② 角色文档完善——每个角色的三要素
 （场景锚点/何时用/效果）注入 role-doc。产出：pth-wiki seed + role-doc 注入。
@@ -221,7 +221,7 @@ pth-wiki（seed-wiki 同款幂等脚本）；② 角色文档完善——每个�
 ```
 仓库 /Users/anzhize/pi-platform 的 lane V5（工程实施批）。先读 docs/pth/parallel-lanes.md
 全部，把 V5 行标 claimed 并 commit push。工作目录 .worktrees/v5（分支
-lane/v5-engineering——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+lane/v5-engineering——scripts/ops/lane-worktrees.sh 初始化；ln -s ../../node_modules
 node_modules 起步）。任务：① 合并 V1-V4 产出到 builtin-roles.ts 最终版本；
 ② 谱系完整性测试（所有 parent 存在/无循环/标签唯一性/组织权覆盖）；
 ③ 全量 vitest + tsc + boundaries 绿；④ 版本号 bump 到 1.2.0（根+7 子包+lock）；
@@ -237,11 +237,11 @@ README 徽章/测试总数只在合并时更新。遇分叉停下来给我选择
 仓库 /Users/anzhize/pi-platform 的 lane L1（设计批）。先读 docs/pth/parallel-lanes.md
 全部（协议+决策栏），把车道表 L1 行标 claimed（填你的会话名+日期）并 commit push。
 工作目录 .worktrees/l1（分支 lane/l1-n14-design——若不存在先运行
-scripts/lane-worktrees.sh 初始化；依赖：ln -s ../../node_modules node_modules 快速起步）。
+scripts/ops/lane-worktrees.sh 初始化；依赖：ln -s ../../node_modules node_modules 快速起步）。
 任务：N14 设计——按 0.17.4 四层次（工具面/单工具/记忆/规则）细分 sensor/controller
 （重组或增补观测调节点，每层配 skill 四段式 SOP 草案），并设计一等工具注册通道
 （A2 已裁开通道：schema+执行器注册+审批治理——参考 W8 P3 穿透接口位的契约先行模式）。
-产出：docs/pth/n14-sensor-controller-four-dims.md 设计文档 + concepts.md 概念录入
+产出：docs/pth/design/n14-sensor-controller-four-dims.md 设计文档 + concepts.md 概念录入
 （0.17 增补 + N14 行更新）。约束：本 lane 纯设计不改执行代码；遇分叉停下来给我选择题；
 做完更新账本标 done。
 ```
@@ -251,7 +251,7 @@ scripts/lane-worktrees.sh 初始化；依赖：ln -s ../../node_modules node_mod
 ```
 仓库 /Users/anzhize/pi-platform 的 lane L2（工程批）。先读 docs/pth/parallel-lanes.md
 全部，把 L2 行标 claimed 并 commit push。工作目录 .worktrees/l2（分支
-lane/l2-staged-flow——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+lane/l2-staged-flow——scripts/ops/lane-worktrees.sh 初始化；ln -s ../../node_modules
 node_modules 起步）。任务：A3——skill staged 审核流接线：PTH_SKILL_WRITE_POLICY=staged
 时打通「memory-keeper 提案 → controller:adversarial 对抗性审核（reviewSkillProposal）
 → 监督批准 → memory-keeper 执行」全链。现状：配置项（config/schema.ts:176）、角色、
@@ -265,7 +265,7 @@ tsc + check:pth-boundaries 绿；不改 README 徽章。遇分叉停下来给我
 ```
 仓库 /Users/anzhize/pi-platform 的 lane L3（工程批）。先读 docs/pth/parallel-lanes.md
 全部，把 L3 行标 claimed 并 commit push。工作目录 .worktrees/l3（分支
-lane/l3-health-docs——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+lane/l3-health-docs——scripts/ops/lane-worktrees.sh 初始化；ln -s ../../node_modules
 node_modules 起步）。任务两件：① C1 worker 子进程健康/卡死检测（§9 L2 缺口——
 IPC metric 现只有耗时：加心跳/存活观测，卡死判定与上报通道）；② E2 文档同步
 （concepts.md §8.2 agentic 测试集 checkbox 勾除——N10 已完成；§9 L3 行标注
@@ -279,7 +279,7 @@ N5 obs.resource 已补齐——只动这两处表格行，不碰 concepts.md 其
 ```
 仓库 /Users/anzhize/pi-platform 的 lane L4（发布批）。先读 docs/pth/parallel-lanes.md
 全部，把 L4 行标 claimed 并 commit push。工作目录 .worktrees/l4（分支
-lane/l4-release——scripts/lane-worktrees.sh 初始化；ln -s ../../node_modules
+lane/l4-release——scripts/ops/lane-worktrees.sh 初始化；ln -s ../../node_modules
 node_modules 起步）。任务：E1 v1.1.3 发布——盘点 main 上未发版的 8 个 commit
 （W8 P0-P3 任务派发、flaky 根治、0.16.4 工具面收口、0.16.3 穿透执行面、0.17 概念），
 走仓库既有 release 流程（版本号/changelog/徽章/tag——先调研仓库 release 惯例再动手）。

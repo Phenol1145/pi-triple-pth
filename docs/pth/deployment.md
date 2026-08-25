@@ -30,27 +30,33 @@ docker-compose.yaml
 ## 2. 安装步骤
 
 ### 2.1 前置
-- Docker + Docker Compose v2（`docker compose version` 确认）
+- local-container（默认）：Docker + Docker Compose v2（`docker compose version` 确认）
 - 仓库 clone：`git clone https://github.com/Phenol1145/pi-triple-pth.git && cd pi-triple-pth`
-- `PTH_WORKSPACES_HOST`：宿主 workspaces 绝对路径——compose 里 `:?` 必填，engine/sandbox/
-  本地执行器/jupyter 共享同一目录；Linux 宿主注意目录属主（容器 node uid=1000）。
+- workspaces 绝对路径：`pth init --workspaces /abs/path/to/workspaces` 自动写入
+  `deploy/.env.pth.secrets`（compose `:?` 必填；engine/sandbox/本地执行器/jupyter 共享同一目录；
+  Linux 宿主注意目录属主——容器 node uid=1000）。
+- local-process（可选）：不需要 Docker，但需外部 Redis/Postgres 并在 env 文件填
+  `REDIS_URL` / `DATABASE_URL`。
 
-### 2.2 配置统一 secrets 文件（deploy/.env.pth.secrets）
+### 2.2 配置统一环境文件（deploy/.env.pth.secrets）
 
 ```bash
-pth init        # 复制 example + chmod 600（已有文件会拒绝，需 --force）
-# 或手动：cp deploy/.env.pth.secrets.example deploy/.env.pth.secrets
-# 编辑 deploy/.env.pth.secrets——替换全部 dev-only 值（该文件已 gitignore）
+pth init --workspaces /abs/path/to/workspaces
+# 默认自动把 7 个示例密钥替换为 64-hex 强随机值，并写入 PTH_WORKSPACES_HOST；
+# 已存在文件需 --force 覆盖；--no-generate 可保留模板值（旧行为）
 ```
 
-核心密钥 compose `:?` 强校验（缺任一拒绝启动）：`SANDBOX_SHARED_SECRET` /
-`PTH_EXECUTION_GRANT_SECRET` / `PTH_MEMORY_BRIDGE_TOKEN` / `POSTGRES_PASSWORD` /
-`REDIS_PASSWORD`。可选后端密钥（engine compose `${VAR:-}`，缺失不阻塞核心栈，只影响
-对应后端）：`LOCAL_EXEC_SHARED_SECRET`（宿主 local-lean/local-u8 与 engine 同值）、
-`JUPYTER_SERVICE_TOKEN`（jupyter 南面与 engine 同值；jupyter compose 自身 `:?`）。
-pi-kernel 的 `JUPYTER_ENGINE_TOKEN` 必须与 operator token 同源——时序见 §2.6。
-主进程还注入 `PTH_CONFIG_STRICT=1`：弱密钥（grant secret <32、shared/bridge token <16）与
-开发默认 token 直接 fail-fast。
+该文件是统一环境文件（密钥 + 宿主本地路径），已 gitignore。核心密钥 compose `:?` 强校验
+（缺任一拒绝启动）：`SANDBOX_SHARED_SECRET` / `PTH_EXECUTION_GRANT_SECRET` /
+`PTH_MEMORY_BRIDGE_TOKEN` / `POSTGRES_PASSWORD` / `REDIS_PASSWORD`。可选后端密钥（engine
+compose `${VAR:-}`，缺失不阻塞核心栈，只影响对应后端）：`LOCAL_EXEC_SHARED_SECRET`（宿主
+local-lean/local-u8 与 engine 同值）、`JUPYTER_SERVICE_TOKEN`（jupyter 南面与 engine 同值；
+jupyter compose 自身 `:?`）。pi-kernel 的 `JUPYTER_ENGINE_TOKEN` 必须与 operator token
+同源——时序见 §2.6。主进程还注入 `PTH_CONFIG_STRICT=1`：弱密钥（grant secret <32、
+shared/bridge token <16）与开发默认 token 直接 fail-fast。
+
+> local-process 使用同一文件，另需在尾部追加 `REDIS_URL` / `DATABASE_URL`（`pth init`
+> 会打印该提示；doctor 会 TCP 探活校验）。
 
 ```bash
 # 记忆桥 token（必填）：写入 Redis auth:token:<token> →
@@ -63,13 +69,14 @@ pi-kernel 的 `JUPYTER_ENGINE_TOKEN` 必须与 operator token 同源——时序
 ### 2.3 拉起（推荐：`pth up` 一条命令）
 
 ```bash
-export PTH_WORKSPACES_HOST=/abs/path/to/workspaces   # 前置必填（见 §2.1）
 pth up
 # 内部：up -d postgres redis → 等 healthy → up -d pi-platform sandbox → 等 healthy
 #       → 生成 64-hex operator token（tenantId=ops, role=platform-admin）写入 Redis
 #       → 验证 /health + /api/v1/self/version → 打印 PTH_API/PTH_TOKEN
 pth status        # 栈健康 + API /health
 ```
+
+> `PTH_WORKSPACES_HOST` 已由 `pth init --workspaces` 写入 env 文件，无需再 export。
 
 手动等价命令（依赖顺序：先数据层，再应用层）：
 
@@ -102,7 +109,7 @@ curl -s -X POST http://localhost:3000/api/v1/kernel/tasks \
 #   → 返回 id + pending；~15s 后查 status 应为 completed，结果 sum5050=5050
 
 # ③ 安全确认（sandbox 零敏感）
-bash scripts/check-sandbox-env.sh pi-platform-sandbox-1   # 容器名以 docker compose ps 输出为准
+bash scripts/check/check-sandbox-env.sh pi-platform-sandbox-1   # 容器名以 docker compose ps 输出为准
 ```
 
 token 写入 Redis：`pth up` 默认已自动种入 operator token（tenant=ops, role=platform-admin）；
@@ -116,11 +123,12 @@ token 写入 Redis：`pth up` 默认已自动种入 operator token（tenant=ops,
 ```bash
 npm install -g @away_from/pth-cli@1.6.2
 pth --version
-pth init && pth up      # 在目标部署目录执行；PTH_WORKSPACES_HOST 必设
+pth init --workspaces /abs/path/to/workspaces && pth up   # 默认 local-container
 ```
 
 > 注意：`@away_from/pth-cli@1.6.2` 起包内含 `deploy/services/jupyter/` 与
 > `deploy/runtime-profiles.json`；1.6.1 及更早版本不含 jupyter 部署物。
+> **local-process v1 仅支持仓库 checkout**（npm 包不含 engine/sandbox dist）。
 
 ### 2.6 完整运行时（P6 统一入口）
 
@@ -176,6 +184,47 @@ pth services status && pth tools status
 
 手工反向（core 栈为一次 compose down 的原子组）：`pth down`（engine+sandbox+pg/redis）
 → `pth services down jupyter` → `pth tools down` → `pth services down local-lean local-u8`。
+
+## 2.7 部署 target（local-container / local-process）
+
+target 与 profile 正交：profile 决定“起哪些组件”，target 决定“在哪/怎么跑”。
+不带 `--target` 时严格等于既有 local-container 行为。
+
+### local-container（默认）
+
+- 运行时指纹由 `pth doctor` 自动检测：Docker Desktop / OrbStack / Colima /
+  Rancher Desktop / docker-generic；Apple container（`container` CLI）本期显式不支持。
+- 可用 `--runtime <id>` 覆盖检测结果（逃生舱）。
+- Colima 运行 local-lean/local-u8 时，`pth doctor` 会检查 host 寻址
+  （`colima status` 解析；不可判定为 warn 不误伤）。明确未开启时修复：
+  `colima stop && colima start --network-address`。
+
+```bash
+pth doctor --profile full
+pth up --target local-container --profile full
+pth status --all
+```
+
+### local-process（无 Docker 单机信任域）
+
+- **信任域声明**：首次 `up` 需交互确认，或直接 `--yes-i-know`（非 TTY 必须带该 flag）。
+  无容器隔离、sandbox 零出口契约不成立、`PTH_CONFIG_STRICT` 默认降为 `0`。
+- **sandbox 两档**：`--sandbox process`（默认，本地 node 子进程跑
+  `packages/pth-sandbox`，保留 kernel/exec 端口契约）；`--sandbox none`（关闭 sandbox，
+  `PTH_PYTHON_MODE/BASH_MODE=kernel` + `PTH_EXEC_SANDBOX_ALIAS=off`）。
+- **外部数据层**：`REDIS_URL` / `DATABASE_URL` 由外部供给，`doctor` TCP 探活；
+  up/down 不托管生命周期。
+- **兼容矩阵**：local-process × tools/jupyter 直接报错（`--without tools` / `--without jupyter`）；
+  lean4/u8 放行（宿主执行器天然本地）。
+- **仓库 checkout 边界**：v1 仅支持仓库 checkout（`npm run build` 后
+  `dist/pth/main.js` 与 `packages/pth-sandbox/dist/main.js`）；npm 全局包支持 = backlog。
+
+```bash
+# 先构建并准备外部 Redis/Postgres，然后在 env 文件填 REDIS_URL / DATABASE_URL
+pth doctor --target local-process --profile core --sandbox process
+pth up --target local-process --profile core --sandbox process --yes-i-know
+pth down --target local-process --profile core
+```
 
 ## 3. 性能参数全表（PTH_*）
 
@@ -340,11 +389,11 @@ env 与运行时 SET 的关系：启动时 env 快照载入 → 运行时 SET �
 
 ## 6. 容器抽象（v0.7 历史注记）
 
-> **状态（2026-08-22）**：本节描述的 `pth.deployment.json` 事实源 + `pth.deploy/` 渲染目录 +
+> **状态（2026-08-27）**：本节描述的 `pth.deployment.json` 事实源 + `pth.deploy/` 渲染目录 +
 > `ptl stack` 运维族已被后续裁决取代——容器生命周期统一归 `pth up`/`pth tools`/
-> `pth services`（`ptl stack` deprecated）；`pth up` 直接执行 `deploy/docker-compose.yaml`，
-> `pth.deployment.json` 现为配置核对对照物（`scripts/check-pth-config.ts`），不存在
-> `pth.deploy/` 目录。保留本节仅作容器后端抽象的演进背景。
+> `pth services`（`ptl stack` deprecated）；`pth up` 直接执行 `deploy/docker-compose.yaml`。
+> **`deploy/pth.deployment.json` 已删除**（W4 拍板；`scripts/check/check-pth-config.ts` 对照源只留
+> `docker-compose.yaml`），不存在 `pth.deploy/` 目录。保留本节仅作容器后端抽象的演进背景。
 
 历史意图：声明式部署描述 `pth.deployment.json` 为事实源——`docker-compose.yaml` 降级为历史参考（docker 后端渲染产物在 `pth.deploy/`）。**容器后端抽象**——允许不同容器技术：
 
@@ -402,12 +451,14 @@ ptl stack exec <svc> -- <cmd>  # 容器内执行
 - PTH 内核体系：`docs/pth/kernel.md` · `docs/pth/architecture.md`
 - 安全边界（sandbox 零敏感）：`docs/pth/kernel.md`（sandbox 域）· `docs/pth/sandbox-security-operations.md`
 - 安全运维（密钥轮换 / session-drain / 回滚）：`docs/pth/sandbox-security-operations.md`
-- 环境检查：`scripts/check-sandbox-env.sh`
+- 环境检查：`scripts/check/check-sandbox-env.sh`
 
 ## 2026-08 落地摘要（TCE / 任务生命周期）
 
 - `PTH_ASP_MODE` 默认 `off`（平铺为主验证路径）。
+- 新增执行模式统一入口：`PTH_EXEC_MODE`（`tool-call`/`asp`/`ptc`/`pulse`）；`PTH_PTC_MAX_ITERATIONS`、`PTH_PTC_MODEL`、`PTH_PTC_TIMEOUT_MS`。
+- TCE 口径按 [ADR-0004](../adr/0004-tce-code-layer-ptc-capability-first.md)：C 是 Code，能力接口第一性；`CommandGateway` 为过渡实现，按计划退役。
 - 新增配置：`PTH_TASK_PAUSE_TIMEOUT_MS`、`PTH_TASK_PAUSE_SWEEP_MS`、`PTH_AGENT_CONTEXT_WINDOW`。
 - tool-manifest 19 工具已策展 `argsSchema`/`argvTemplate`。
 
-详细设计：[task-lifecycle-and-context-design](task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](llm-tool-notebook-unified-execution-backend-plan.md)
+详细设计：[task-lifecycle-and-context-design](design/task-lifecycle-and-context-design.md) · [llm-tool-notebook-unified-execution-backend-plan](plan/llm-tool-notebook-unified-execution-backend-plan.md)

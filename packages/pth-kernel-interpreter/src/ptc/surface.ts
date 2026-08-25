@@ -277,6 +277,51 @@ export function capabilityRoots(): string[] {
   return [...new Set(Object.keys(PTC_CAPABILITIES).map((n) => n.split(".")[0]!))];
 }
 
+const CAPABILITY_ROOT_SET = new Set(capabilityRoots());
+
+function isAllowedCapability(allowed: ReadonlySet<string> | undefined, root: string, method: string): boolean {
+  if (!allowed || allowed.size === 0) return true; // 未声明 = 兼容旧路径
+  const full = `${root}.${method}`;
+  return allowed.has(root) || allowed.has(full);
+}
+
+/**
+ * W3：方法级能力调用集提取——`root.method(...)` 与角色能力集比对。
+ * 返回缺失的能力调用（如 `["debug.attach"]`）。
+ * 保守策略：只检查「能力根 + 成员调用」形态；局部变量/非能力根/非调用不误伤。
+ */
+export function findOutOfBoundsCalls(
+  code: string,
+  knownGlobals: ReadonlySet<string>,
+  allowedCapabilities?: ReadonlySet<string>,
+): string[] {
+  const stripped0 = stripNonCode(code);
+  const stripped = stripped0.replace(/!\./g, ".").replace(/!\(/g, "(");
+  const safe = new Set<string>();
+  collectSafeNames(stripped, safe);
+  const missing = new Set<string>();
+
+  // 能力根成员调用：root.method( / root?.method( / root["method"](（字符串键——保守只收点形）
+  const memberCallRe = /(?<![\w$).])([A-Za-z_$][\w$]*)\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*\(/g;
+  for (const m of stripped.matchAll(memberCallRe)) {
+    const root = m[1]!;
+    const method = m[2]!;
+    if (!CAPABILITY_ROOT_SET.has(root)) continue;
+    if (!knownGlobals.has(root) || safe.has(root)) continue;
+    if (!isAllowedCapability(allowedCapabilities, root, method)) {
+      missing.add(`${root}.${method}`);
+    }
+  }
+
+  return [...missing];
+}
+
+/** W3：方法级越界引导消息（列出缺失能力调用） */
+export function buildCapabilityGuidance(missing: string[]): string {
+  const uniq = [...new Set(missing)];
+  return `[契约] ts 程序调用了角色未授权的能力 ${uniq.map((c) => '"' + c + '"').join("、")}——能力面越界（编译前拒绝，未执行）。可用能力根：${capabilityRoots().join(" / ")}。若为拼写错误请修正后重试。`;
+}
+
 /** 越界引导消息（编译前拒绝——列出可用能力根） */
 export function buildSurfaceGuidance(roots: string[]): string {
   const uniq = [...new Set(roots)];

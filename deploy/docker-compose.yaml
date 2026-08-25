@@ -35,6 +35,11 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       - PI_ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - PI_OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # DeepSeek 执行通道（2026-08-25 冒烟接线）：PI_PLATFORM_PROVIDER/MODEL 供 ModelRouter 选定默认模型；
+      # DEEPSEEK_API_KEY 供 interpreter llm-fn 直连路径（directComplete 读 env）。凭据本体在 agent-dir auth.json。
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - PI_PLATFORM_PROVIDER=${PI_PLATFORM_PROVIDER:-}
+      - PI_PLATFORM_MODEL=${PI_PLATFORM_MODEL:-}
       - LOG_LEVEL=info
       - PI_CODING_AGENT_DIR=/data/agent-dir
       - AGENT_LAB_DB_PATH=/data/agent-lab/agent-lab.db

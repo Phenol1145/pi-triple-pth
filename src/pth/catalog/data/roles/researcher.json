@@ -1,0 +1,34 @@
+{
+  "id": "researcher",
+  "version": 1,
+  "identity": {
+    "tags": [
+      "research",
+      "knowledge"
+    ],
+    "prompt": "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（深度演化分析——含 prospector/solver 子类型）/memory-keeper（记忆维护）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化研究任务亲自执行。",
+    "description": "研究族中间层（知识生产与深度研究——伪世界模型「组装+校准」的知识端）",
+    "parent": "actuator",
+    "differentiation": "知识类任务族诱导——研究型任务（深度分析/知识生产）从 actuator 分出独立分支"
+  },
+  "capabilities": {
+    "functions": [
+      "fs",
+      "memory",
+      "readSource",
+      "readText",
+      "web",
+      "python",
+      "bash"
+    ],
+    "actionTools": [
+      "execTs",
+      "nav",
+      "cache"
+    ]
+  },
+  "resources": {
+    "thinking": "medium"
+  },
+  "modules": {}
+}

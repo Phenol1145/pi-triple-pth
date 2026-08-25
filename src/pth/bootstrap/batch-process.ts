@@ -1,86 +1,54 @@
+/**
+ * batch-process.ts —— batch 子进程组合根（P2-9：按装配段抽 section-assembler 到 bootstrap/batch/）。
+ *
+ * 本文件只做编排：host-bootstrap → tool-face → dataWorld/catalog → professional runtime →
+ * modelRouter → feasibility-runtime → ipc-control → intake → outbox-drainer → runchild-budget →
+ * createWorker/runtime 组装 → 轮询宿主 → 心跳上报。业务语义与装配顺序与原单文件版一致。
+ */
+
 import { mkdir, readFile } from "node:fs/promises";
 import { resolve as resolvePath, relative as relativePath, isAbsolute, sep } from "node:path";
-import { createPgPool } from "@away_from/pth-kernel-storage";
-import { applySchema } from "@away_from/pth-kernel-storage";
 import { createDataWorld } from "@away_from/pth-kernel-storage";
-import { DISCIPLINE_DEFINITIONS, DisciplineCatalogBuilder, createDisciplineResolver, type DisciplineCatalogSnapshot } from "../catalog/index.js";
-import { createWorkerKernel, createWorkerKernelWithManager, createKernelManager } from "../impls/kernels/index.js";
-import type { InterpreterResult } from "@away_from/pth-kernel-interpreter";
-import type { Task } from "@away_from/pth-kernel-storage";
-import { parseRoleWeights, expandRoleWeights, registerWorkerRole, knownRoleById, allWorkerRoles, setDefaultRoles, setProfessionalRoles } from "@away_from/pth-kernel-execution";
-import { DEFAULT_TENANT_ID, isVisible, setSpaceLookup } from "@away_from/pth-memory";
+import { createDisciplineResolver } from "../catalog/index.js";
+import { createWorkerKernelWithManager, createKernelManager } from "../impls/kernels/index.js";
+import { parseRoleWeights, expandRoleWeights, registerWorkerRole, setDefaultRoles, setProfessionalRoles } from "@away_from/pth-kernel-execution";
+import { setSpaceLookup } from "@away_from/pth-memory";
 import { spaceRegistry } from "@away_from/pth-kernel-interpreter";
 import { registerBuiltinSpaces } from "@away_from/pth-kernel-execution";
 import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
-import { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "@away_from/pth-kernel-execution";
-import { PROFESSIONAL_ROLES } from "@away_from/pth-kernel-execution";
-import { getEventBus } from "@away_from/pth-kernel-interpreter";
-import { isForwardableKernelEvent, toKernelActivityEvent } from "@away_from/pth-kernel-execution";
-import { TaskLoop, type TaskLoopDeps } from "./task-loop.js";
-import { createKnowledgeContextProvider } from "../runner/index.js";
+import { loadDefaultRoleSets } from "../catalog/index.js";
+import { createKernelModelRouter } from "@away_from/pth-kernel-execution";
+import { createLlmFn } from "@away_from/pth-kernel-interpreter";
+import { Refiner, Optimizer } from "@away_from/pth-kernel-execution";
+import { createToolstore } from "@away_from/pth-kernel-interpreter";
+import { loadKernelConfig } from "@away_from/pth-kernel-interpreter";
+import { pthConfig } from "@away_from/pth-config";
+import type { WorkerRole, WorkerReplica } from "@away_from/pth-kernel-execution";
 import {
   createPgTaskRepository,
   TaskControlService,
   PgTaskQueries,
   allowedDelegationTargets,
-  childBudgetFor,
   createPenetrationRunner,
-  penetrationBudgetError,
-  recordPenetrationUse,
-  type PenetrationBudgetConfig,
-  type PenetrationLedger,
 } from "../tasking/index.js";
-import { PgSideEffectOutbox, createSideEffectDrainer } from "@away_from/pth-kernel-storage";
 import { DefaultTaskWorkspaceManager } from "@away_from/pth-kernel-execution";
-import { archiveTask, type ArchiveDeps } from "@away_from/pth-kernel-execution";
-import { createKernelModelRouter } from "@away_from/pth-kernel-execution";
-import { createLlmFn } from "@away_from/pth-kernel-interpreter";
-import { Refiner, type RefineInput } from "@away_from/pth-kernel-execution";
-import { Optimizer } from "@away_from/pth-kernel-execution";
-import { createToolstore } from "@away_from/pth-kernel-interpreter";
-import { createKernelLogger } from "@away_from/pth-kernel-execution";
-import { loadKernelConfig } from "@away_from/pth-kernel-interpreter";
-import { pthConfig } from "@away_from/pth-config";
-import { runAgentTask } from "@away_from/pth-kernel-execution";
+import type { ArchiveDeps } from "@away_from/pth-kernel-execution";
 import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
 import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
-import { roleDefinitionRevision, type WorkerReplica } from "@away_from/pth-kernel-execution";
-import type { WorkerControlMessage, WorkerSlot } from "./worker-slot-runtime.js";
-import { N28_FEASIBILITY_BUDGET, type CognitiveBudget, type ProfessionalRuntimeLock, type WorkerReplicaRef } from "@away_from/pth-contracts";
-import { assembleProfessionalRuntimeRegistry, createProfessionalArtifactPort, type ProfessionalRuntimeAdapterFactory } from "./professional-runtime-adapters.js";
-import { assertMemoryDirectoryResponsibilityCapacity, buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createKnowledgeBroker, createLayeredKnowledgeRetriever, createVerifiedTaskReadScopeFactory, filterKnowledgeEntriesByQueryText, rankKnowledgeEntries, regionEntryIds, responsibilitiesForWorker, type DirectoryEntryInput, type KnowledgeMemoryEntry, type LayeredSearchWaveInput, type LayeredSearchWaveResult, type MemoryDirectorySnapshot, type VerifiedTaskReadScopeFactory } from "../execution/index.js";
-import { KNOWLEDGE_CONTEXT_KINDS } from "../runner/index.js";
-import { createAuthorizedStateReadPort, createAuthorizedTaskReadFactory, createCognitiveWorkingSetProvider, createScopedSkillPort, expandTaskReadGrantCapabilities, type AuthorizedTaskReadFactory } from "../runner/index.js";
-// N29 Task 6：intake 内环装配（PTH_KNOWLEDGE_INTAKE_MODE=off 时完全不实例化）。
-import {
-  createAdversarialReviewProcessor,
-  createDomainReviewProcessor,
-  createIntakeExtractProcessor,
-} from "../runner/index.js";
-import {
-  createKnowledgeIngestor,
-  createKnowledgeIntakeDueScanner,
-  createKnowledgeIntakeService,
-  createPolicyBoundSourceFetchBroker,
-  INTAKE_STAGE_OUTBOX_KINDS,
-  loadVerifiedTrustPolicy,
-  type KnowledgeIntakeDueScanner,
-  type TrustPolicyKeyring,
-} from "../execution/index.js";
-import { createKnowledgeIntakeRepository } from "@away_from/pth-kernel-storage";
-import {
-  assertIntakeFullAcceptance,
-  selectIntakeStageHandlers,
-  type IntakeAcceptanceEnvelopeLike,
-  type IntakeMode,
-} from "./intake-mode-gates.js";
-import type { SideEffectDrainerHandlers } from "@away_from/pth-kernel-storage";
-import type { TrustPolicyManifest } from "@away_from/pth-contracts";
-import type { SkillStoreLike } from "@away_from/pth-memory";
-import type { RoleDefinition } from "@away_from/pth-kernel-execution";
+import type { ProfessionalRuntimeLock } from "@away_from/pth-contracts";
+import { assembleProfessionalRuntimeRegistry, createProfessionalArtifactPort } from "./professional-runtime-adapters.js";
+import { buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createPlanGrantVerify } from "../execution/index.js";
+import { bootstrapBatchHost } from "./batch/host-bootstrap.js";
+import { assembleToolFace } from "./batch/tool-face.js";
+import { assembleCognitiveResponsibility, buildAssemblyWorkerSpecs, makeWorkerSlot } from "./batch/feasibility-runtime.js";
+import { createKernelDisposer, installBatchIpcControl, startBatchStatusReporter } from "./batch/ipc-control.js";
+import { assembleKnowledgeIntake } from "./batch/intake.js";
+import { assembleOutboxDrainer } from "./batch/outbox-drainer.js";
+import { createPenetrationBudgetState, createPenetrationRunChild, type PenetrationRunChildSharedDeps } from "./batch/runchild-budget.js";
+import type { AuthoritativeWorkingSets, BatchControlState, BatchLoopEntry, IntakeTrigger } from "./batch/context.js";
 import type { RunBatchProcessDeps } from "./batch-process-types.js";
 export type { RunBatchProcessDeps } from "./batch-process-types.js";
-import { BatchTaskLoop, buildDisciplineCatalogSnapshot, refineInputFromPayload } from "./batch-process-helpers.js";
+import { BatchTaskLoop, buildDisciplineCatalogSnapshot } from "./batch-process-helpers.js";
 
 
 /**
@@ -89,78 +57,15 @@ import { BatchTaskLoop, buildDisciplineCatalogSnapshot, refineInputFromPayload }
  * 外部接口（runOnce/pause/resume/stop/isPaused/isStopped）与旧继承版一致。
  */
 export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> {
-  // P1：runner Host 与 API Host 共用同一 bootstrap manifest + 执行后端注册表
-  // （fork worker 前 fail-closed：非法 descriptor / route typo / strict+required 探测失败）。
-  const { loadBootstrapConfig } = await import("./bootstrap-config.js");
-  const { buildPthHost, isStrictExecutionEnv } = await import("./pth-host.js");
-  const { probeExecutionBackends } = await import("../execution/index.js");
-  const host = await buildPthHost(loadBootstrapConfig().manifest);
-  const startupLogger = createKernelLogger({
-    ipcSend: (msg) => { try { process.send?.(msg); } catch { /* IPC 不可用 */ } },
+  // ── 装配段：host-bootstrap（P1：runner Host 与 API Host 共用同一 bootstrap manifest +
+  // 执行后端注册表；sandbox 接线；PG 池 + schema）──────────────────────────────────
+  const { host, batchLogger, sandboxKernelUrl, sandboxKernelSecret, pool } = await bootstrapBatchHost({
+    databaseUrl: deps.databaseUrl,
   });
-  const batchLogger = startupLogger.child("batch", { pid: process.pid });
-  for (const warning of host.executionWarnings) {
-    batchLogger.warn(warning);
-  }
-  await probeExecutionBackends(host.backends, {
-    strict: isStrictExecutionEnv(),
-    timeoutMs: pthConfig().num("PTH_EXEC_BACKEND_PROBE_TIMEOUT_MS"),
-    logger: {
-      warn: (message) => batchLogger.warn(message),
-      error: (message) => batchLogger.error(message),
-    },
-  });
-  // kernel sandbox 接线：sandbox descriptor 优先（url/token），旧 env 兜底。
-  const sandboxBackend = host.backends.get("sandbox");
-  const sandboxKernelUrl = sandboxBackend?.descriptor.url ?? pthConfig().str("PTH_SANDBOX_KERNEL_URL");
-  const sandboxKernelSecret = sandboxBackend?.descriptor.tokenEnv !== undefined
-    ? (process.env[sandboxBackend.descriptor.tokenEnv] ?? "")
-    : pthConfig().str("SANDBOX_SHARED_SECRET");
-  // 内存优化：连接池收紧（7 角色 worker 并发 ≤7——max 8 够；默认 10 冗余）
-  // PTH_PG_POOL_MAX 可覆盖（batch 数多时 PG 连接总量 = pool_max × batches 需核算）
-  const pool = await createPgPool({ connectionString: deps.databaseUrl, max: pthConfig().num("PTH_PG_POOL_MAX") });
-  await applySchema(pool);
-  // TCE P5：先加载 tool manifest（per-tool schema/argvTemplate；缺失放行空）
-  let manifestTools: import("../tools/index.js").ToolDefinition[] = [];
-  const toolDomain = new Map<string, string>();
-  let extraTools: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }> | undefined;
-  try {
-    const { validateToolManifest, buildToolLayerFromManifest } = await import("../tools/index.js");
-    const manifestPath = resolvePath(pthConfig().str("PTH_TOOL_TOOLS_DIR") || "deploy/tool-containers", "tool-manifest.json");
-    const raw = JSON.parse(await readFile(manifestPath, "utf8"));
-    const manifest = validateToolManifest(raw);
-    manifestTools = Object.values(manifest.domains).flatMap((d) => d.tools);
-    for (const [domain, d] of Object.entries(manifest.domains)) {
-      for (const t of d.tools) toolDomain.set(t.name, domain);
-    }
-    extraTools = buildToolLayerFromManifest(manifest);
-  } catch { /* manifest 未就绪/不可解析——工具面保持既有静态面 */ }
 
-  // TCE P3/P5：worker 侧 CommandGateway（语言工具授权 + per-tool 翻译；失败降级 legacy 直执行）
-  let commandGateway: import("@away_from/pth-kernel-execution").CommandGateway | undefined;
-  try {
-    const { buildExecutionTargetRegistry, CommandGatewayImpl, createHumanApprovalGateway } = await import("../execution/index.js");
-    const { createToolTranslator } = await import("../tools/index.js");
-    const built = buildExecutionTargetRegistry({ backendRegistry: host.backends, strict: isStrictExecutionEnv() });
-    const { PgHumanInteractionService, PgHumanInteractionRepository } = await import("../interaction/index.js");
-    const humanService = new PgHumanInteractionService(new PgHumanInteractionRepository(pool));
-    commandGateway = new CommandGatewayImpl({
-      targetRegistry: built.registry,
-      roleCapabilities: (roleId) => knownRoleById(roleId)?.capabilities,
-      humanApprovalGateway: createHumanApprovalGateway(humanService),
-      toolTranslator: createToolTranslator({
-        tools: manifestTools,
-        resolveTarget: (toolName) => {
-          const domain = toolDomain.get(toolName);
-          if (!domain) return undefined;
-          const backendId = `tools-${domain}`;
-          return host.backends.get(backendId) !== undefined ? backendId : undefined;
-        },
-      }),
-    });
-  } catch (e) {
-    batchLogger.warn(`[command-gateway] 装配失败（放行 legacy）: ${(e as Error).message}`);
-  }
+  // ── 装配段：tool-face（TCE P5 tool manifest + TCE P3 worker 侧 CommandGateway）────────
+  const { extraTools, commandGateway } = await assembleToolFace({ host, pool, batchLogger });
+
   // 2026-08-13 审计 P2：路由策略在装配层注入（存储层纯化）
   // P0-4：createDataWorld 是 legacy assembly-only 装配点——batch 子进程与 assembly 同源。
   // K3：catalog 快照与 K2 resolver 同源（同一 builder 产物），供 KnowledgeContextProvider ancestors 展开。
@@ -171,14 +76,18 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     createDisciplineResolver(catalog),
     { requireTenant: true },
   );
-  let knowledgeContextProvider = createKnowledgeContextProvider({
-    memory: dataWorld.memory,
-    catalog,
-    // K1a 同款可见性判定：pth-memory isVisible（spaceScope 沿空间树向下可见）。
-    isVisible: (meta, space) => isVisible(meta, space),
-  });
   // P1-6：batch 子进程启用 tasking dispatcher 路径（真实 lease claim/CAS commit）
   const taskRepository = createPgTaskRepository(pool);
+  // W2：启动即回收上代遗留孤儿 claim（开关 PTH_TASK_LEASE_RECOVERY=off 关闭）
+  if (pthConfig().str("PTH_TASK_LEASE_RECOVERY") !== "off") {
+    try {
+      const graceMs = pthConfig().num("PTH_TASK_LEASE_RECOVERY_GRACE_MS", 60_000);
+      const recovered = await taskRepository.recoverExpired(new Date(), graceMs);
+      if (recovered > 0) batchLogger.warn(`[lease] startup recovered ${recovered} orphan claimed tasks`, { recovered });
+    } catch (e) {
+      batchLogger.warn(`[lease] startup recovery failed: ${(e as Error).message}`);
+    }
+  }
   // W8 P1：任务投递服务（worker 工具面 tasks.delegate/await 的服务器端实现）
   const taskControl = new TaskControlService({ store: dataWorld.tasks, pool, queries: new PgTaskQueries(pool) });
   const workspaceMgr = new DefaultTaskWorkspaceManager({ basePath: deps.basePath, artifactPath: deps.artifactPath });
@@ -217,6 +126,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     // 无有效 grant 签名密钥时 professional.execute 不注入（LLM 面关闭），不阻塞普通任务。
     professionalGrantService = undefined;
   }
+  // W2：plan grant 校验闭包（与 professional grant 同密钥——manage 即时生效工具用）
+  const planGrantVerify = createPlanGrantVerify(professionalGrantService);
 
   // modelRouter：SDK ModelRuntime（自动加载 pi auth.json/models-store——deepseek 已配置）。
   // 真实 LLM 能力（转写/记忆任务依赖）；失败时不阻塞——v1 机械认领仍可用。
@@ -246,299 +157,40 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     }
   }
 
-  let paused = false;
-
-  /**
-   * N29 Task 6：due scanner 的 IPC trigger 句柄。装配在下方（drainer 之前）完成后写入；
-   * `PTH_KNOWLEDGE_INTAKE_MODE=off` 时永远为 undefined —— trigger 收到消息也只回 ran:false。
-   * 提前声明是为了让 `process.on("message")`（注册于装配之前）安全闭包引用，避免 TDZ。
-   */
-  const intakeTrigger: { run?: () => Promise<number> } = {};
-
+  // 控制面共享状态（ipc-control 段写入，tick/worker 装配读取）。
+  const controlState: BatchControlState = { paused: false };
+  const intakeTrigger: IntakeTrigger = {};
   // N28 T2：认知责任模式（默认 off=legacy 逐字节兼容）；feasibility 由确定性装配/harness 显式开启。
   const mode = pthConfig().str("PTH_COGNITIVE_RESPONSIBILITY_MODE") === "feasibility" ? "feasibility" as const : "off" as const;
   const batchId = pthConfig().str("PTH_BATCH_ID") || `batch:${process.pid}`;
   // N28 复核 Layer3：role 批量 remove 的最终回执聚合（全部 worker-removed 后发唯一 role removed）。
   const pendingRoleRemovals = new Map<string, Set<string>>();
   // N33 复验收 P1-2：feasibility worker 最近一次认知工作集账本快照（心跳时有界投影）。
-  const authoritativeWorkingSets = new Map<string, {
-    taskId: string;
-    directorySnapshotId: string;
-    snapshot: ReturnType<import("@away_from/pth-kernel-execution").CognitiveBudgetLedger["snapshot"]>;
-  }>();
+  const authoritativeWorkingSets: AuthoritativeWorkingSets = new Map();
 
-  // N28 T6 + 复核 Layer2：feasibility 模式 provider + 启动前责任容量硬闸（缺依赖=启动错误，绝不省略）。
-  let authorizedTaskReadFactory = deps.authorizedTaskReadFactory;
-  let verifiedReadScopeFactory = deps.verifiedReadScopeFactory;
-  const cognitiveWorkingSetProvider = mode === "feasibility"
-    ? (() => {
-        if (!deps.memoryDirectory || !deps.directoryEntries || !deps.knownDomainIds) {
-          throw new Error("feasibility mode requires memoryDirectory/directoryEntries/knownDomainIds");
-        }
-        assertMemoryDirectoryResponsibilityCapacity(deps.memoryDirectory, N28_FEASIBILITY_BUDGET.responsibility);
-        // P0-2 修复：生产 batch 构造并注入同一 layeredRetriever + layeredSearchWave，
-        // Broker 与 Context 共用同一 wave port/trace 语义；factory 未注入时用生产 grant service 自建。
-        const directory = deps.memoryDirectory;
-        const clock = () => new Date();
-        const layeredRetriever = createLayeredKnowledgeRetriever<KnowledgeMemoryEntry>(directory, {
-          knownDomainIds: deps.knownDomainIds,
-          entries: deps.directoryEntries,
-        }, { clock });
-        const layeredSearchWave = async (input: LayeredSearchWaveInput): Promise<LayeredSearchWaveResult<KnowledgeMemoryEntry>> => {
-          const regionSet = new Set(input.regionIds.flatMap((id) => regionEntryIds(directory, id)));
-          const all = await dataWorld.memory.retrieve({
-            anchors: [],
-            kinds: [...KNOWLEDGE_CONTEXT_KINDS],
-            status: ["official"],
-            tenantId: input.authorization.tenantId,
-          });
-          const authorized = all.filter((e) => isVisible(e.meta, input.authorization.space));
-          const inWave = input.candidateScope === "global" ? authorized : authorized.filter((e) => regionSet.has(e.id));
-          const matching = filterKnowledgeEntriesByQueryText(inWave, input.queryText, { strict: true });
-          const ranked = rankKnowledgeEntries(matching, { queryText: input.queryText, domains: [] });
-          return {
-            entries: ranked.slice(0, input.limit),
-            candidateCount: all.length,
-            visibleCount: inWave.length,
-            scannedCount: all.length,
-            completeForQuery: true,
-          };
-        };
-        knowledgeContextProvider = createKnowledgeContextProvider({
-          memory: dataWorld.memory,
-          catalog,
-          isVisible: (meta, space) => isVisible(meta, space),
-          layeredRetriever,
-          layeredSearchWave,
-          clock,
-        });
-        const grantService = createExecutionGrantService({
-          keyProvider: createHmacGrantKeyProvider({ secret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET") }),
-          clock,
-        });
-        verifiedReadScopeFactory ??= createVerifiedTaskReadScopeFactory({
-          grantService,
-          grantForTask: ({ lease, work, space, worker }) => {
-            const roleDef = knownRoleById(worker.role.roleId);
-            return grantService.issue({
-              lease,
-              scope: { ...work.scope, principalId: `worker:${worker.workerId}`, roles: [worker.role.roleId], space },
-              workspace: lease.workspace,
-              language: "ts",
-              capabilities: expandTaskReadGrantCapabilities(roleDef?.capabilities ?? []),
-              ttlMs: 120_000,
-            });
-          },
-        });
-        authorizedTaskReadFactory ??= createAuthorizedTaskReadFactory({
-          broker: createKnowledgeBroker({
-            grantService,
-            dataWorld: { queryReadOnly: dataWorld.queryReadOnly, memory: dataWorld.memory },
-            isVisible: (meta, space) => isVisible(meta, space),
-            layeredRetriever,
-            layeredSearchWave,
-            verifiedReadScopeAuthority: verifiedReadScopeFactory,
-            clock,
-          }),
-          skills: createScopedSkillPort({ store: dataWorld.memory as unknown as SkillStoreLike, isVisible: (meta, space) => isVisible(meta, space), clock }),
-          state: createAuthorizedStateReadPort({ memory: dataWorld.memory, isVisible: (meta, space) => isVisible(meta, space), clock }),
-          clock,
-        });
-        const baseProvider = createCognitiveWorkingSetProvider({ budget: N28_FEASIBILITY_BUDGET, resolveRoleBudget: deps.resolveRoleBudget });
-        // P1-2：同一 provider 每次 build 后记录账本快照，heartbeat 只投有界投影。
-        return {
-          build: async (input) => {
-            const built = await baseProvider.build(input);
-            authoritativeWorkingSets.set(input.worker.workerId, {
-              taskId: input.taskId,
-              directorySnapshotId: input.directorySnapshotId,
-              snapshot: built.ledger.snapshot(),
-            });
-            return built;
-          },
-        } as typeof baseProvider;
-      })()
-    : undefined;
+  // ── 装配段：feasibility-runtime（N28 T6 provider + 启动前责任容量硬闸；
+  // off 模式返回 legacy 默认 knowledgeContextProvider）────────────────────────────
+  const {
+    knowledgeContextProvider,
+    cognitiveWorkingSetProvider,
+    authorizedTaskReadFactory,
+    verifiedReadScopeFactory,
+  } = assembleCognitiveResponsibility({ deps, mode, dataWorld, catalog, authoritativeWorkingSets });
 
-  /** 退出前释放全部 worker kernel（sandbox acquire 归还——防池泄漏）——幂等 */
-  let disposed = false;
-  async function disposeAllKernels(): Promise<void> {
-    if (disposed) return;
-    disposed = true;
-    if (mode === "feasibility") {
-      // 共享 runtime 拥有唯一 slot/dispose 生命周期（包括 busy-remove 后置清理）。
-      await runtime.disposeAll();
-      return;
-    }
-    for (const l of loops) {
-      const k = (l as unknown as { kernel?: { dispose?: () => Promise<void> | void; abort?: () => Promise<void> } }).kernel;
-      // Phase 3 条目 11：先 abort in-flight 程序（程序级制动）再 dispose 资源——DSH 对照 ③
-      try { await k?.abort?.(); } catch { /* abort 容错 */ }
-      try { await k?.dispose?.(); } catch { /* dispose 容错 */ }
-    }
-  }
-  // 进程级兜底（2026-08-09 端到端：refine snapshot abort 未 catch 处杀 batch → watchdog 30s 循环）。
-  // 异步异常记日志不崩——sandbox 瞬时故障不应终止 batch（降级容忍——后续调用自动恢复）。
-  process.on("unhandledRejection", (reason) => {
-    batchLogger?.error(`[batch] unhandledRejection（容忍——不终止）: ${reason instanceof Error ? reason.message : String(reason)}`);
-  });
-  process.on("uncaughtException", (err) => {
-    batchLogger?.error(`[batch] uncaughtException（容忍——不终止）: ${err.message}`);
-  });
-
-  // 优雅退出：SIGTERM/SIGINT/disconnect/exit-message 统一先释放 kernel 再 exit（防 sandbox 池泄漏）
-  for (const sig of ["SIGTERM", "SIGINT"] as const) {
-    process.on(sig, () => { void disposeAllKernels().finally(() => process.exit(0)); });
-  }
-  const exitNow = (code: number) => () => process.exit(code);
-  process.on("exit", (code) => { if (!disposed) void disposeAllKernels().finally(() => exitNow(code)); });
-
-  process.on("message", async (msg: any) => {
-    if (msg?.type === "set-param" && typeof msg.key === "string") {
-      // 性能自持（v0.8）：主进程 autopilot 下发调参 → batch 进程内 config（perf 扩展同源）
-      try {
-        const { config } = require("@away_from/pth-kernel-interpreter") as typeof import("@away_from/pth-kernel-interpreter");
-        config().set(msg.key, msg.value);
-        batchLogger?.info?.(`[autopilot] set-param ${msg.key}=${msg.value}`);
-        process.send?.({ type: "param-status", batchPid: process.pid, key: msg.key, ok: true });
-      } catch (e) {
-        process.send?.({ type: "param-status", batchPid: process.pid, key: msg.key, ok: false, error: (e as Error).message });
-      }
-    } else if (msg?.type === "shutdown") {
-      void disposeAllKernels().finally(() => process.exit(0));
-    } else if (msg?.type === "pause") {
-      paused = true;
-    } else if (msg?.type === "resume") {
-      paused = false;
-    } else if (msg?.type === "worker-pause" && typeof msg.role === "string") {
-      if (mode === "feasibility") {
-        // 显式命名的 role 批量兼容操作：展开为逐 worker 控制，状态/事件仍由共享 runtime 产出。
-        for (const status of runtime.list().filter((s) => s.role.roleId === msg.role)) {
-          void runtime.handleControl({ type: "worker-pause", workerId: status.workerId });
-        }
-        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "paused" });
-      } else {
-        getEventBus().emit("worker.pause", { role: msg.role, batchPid: process.pid });
-        for (const l of loops) if (l.role.id === msg.role) l.pause();
-        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "paused" });
-      }
-    } else if (msg?.type === "worker-resume" && typeof msg.role === "string") {
-      if (mode === "feasibility") {
-        for (const status of runtime.list().filter((s) => s.role.roleId === msg.role)) {
-          void runtime.handleControl({ type: "worker-resume", workerId: status.workerId });
-        }
-        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "active" });
-      } else {
-        getEventBus().emit("worker.resume", { role: msg.role, batchPid: process.pid });
-        for (const l of loops) if (l.role.id === msg.role) l.resume();
-        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "active" });
-      }
-    } else if (msg?.type === "worker-remove" && typeof msg.role === "string") {
-      if (mode === "feasibility") {
-        const targets = runtime.list().filter((s) => s.role.roleId === msg.role).map((s) => s.workerId);
-        if (targets.length === 0) {
-          process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
-        } else {
-          pendingRoleRemovals.set(msg.role, new Set(targets));
-          for (const workerId of targets) {
-            void runtime.handleControl({ type: "worker-remove", workerId });
-          }
-        }
-      } else {
-        getEventBus().emit("worker.remove", { role: msg.role, batchPid: process.pid });
-
-        // 防御：tick 自驱动链与 splice 并发——map 回调可能拿到已移除的 undefined（竞态窗口）
-        const idxs = loops.map((l, i) => (l && l.role?.id === msg.role ? i : -1)).filter((i) => i >= 0);
-        for (const i of idxs.reverse()) {
-          const l = loops[i]!;
-          l.stop();
-          // Phase 3 条目 11：先 abort in-flight（角色移除时跑飞的程序立即制动）再 dispose 资源
-          const k = (l as unknown as { kernel?: { dispose?: () => void; abort?: () => Promise<void> } }).kernel;
-          try { void k?.abort?.(); } catch { /* abort 容错 */ }
-          try { k?.dispose?.(); } catch { /* dispose 容错 */ }
-          // 停复测巡检表（2026-08-14 N6——Optimizer.stop）
-          const opt = (l as unknown as { optimizer?: { stop?: () => void } }).optimizer;
-          try { opt?.stop?.(); } catch { /* 停表容错 */ }
-          loops.splice(i, 1);
-        }
-        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "removed" });
-      }
-    } else if (msg?.type === "worker-pause" && typeof msg.workerId === "string" && mode === "feasibility") {
-      const ack = await runtime.handleControl({ type: "worker-pause", workerId: msg.workerId });
-      process.send?.({ type: "worker-status", ...ack });
-    } else if (msg?.type === "worker-resume" && typeof msg.workerId === "string" && mode === "feasibility") {
-      const ack = await runtime.handleControl({ type: "worker-resume", workerId: msg.workerId });
-      process.send?.({ type: "worker-status", ...ack });
-    } else if (msg?.type === "worker-remove" && typeof msg.workerId === "string" && mode === "feasibility") {
-      const ack = await runtime.handleControl({ type: "worker-remove", workerId: msg.workerId });
-      process.send?.({ type: "worker-status", ...ack });
-    } else if (msg?.type === "role-register" && msg.role && typeof msg.role === "object") {
-      // 分化上线（lineage approve）：batch 内注册新角色 + 创建 worker（树生长——即刻接任务）。
-      // 2026-08-13 幂等修复：fork 子进程继承主进程 extraRoles——恢复角色热上线时已在——
-      // 直接 createWorker（旧逻辑 registerWorkerRole 抛"已存在"被 catch 吞——worker 不创建）
-      try {
-        const roleId = (msg.role as { id: string }).id;
-        if (!allWorkerRoles().some((r) => r.id === roleId)) {
-          registerWorkerRole(msg.role as never);
-        }
-        const roleDef = knownRoleById(roleId);
-        if (roleDef) {
-          const w = createWorker(roleDef);
-          if (mode === "feasibility") runtime.add(makeSlot(w));
-          process.send?.({ type: "worker-status", batchPid: process.pid, role: roleDef.id, state: "added", copies: 1, registered: true });
-        }
-      } catch (e) {
-        process.send?.({ type: "worker-status", batchPid: process.pid, role: (msg.role as { id?: string })?.id ?? "?", state: "error", error: (e as Error).message });
-      }
-    } else if (msg?.type === "worker-add" && typeof msg.role === "string") {
-      getEventBus().emit("worker.add", { role: msg.role, copies: msg.copies ?? 1, batchPid: process.pid });
-      const roleDef = knownRoleById(msg.role);
-      if (roleDef) {
-        const copies = Number(msg.copies ?? 1);
-        for (let i = 0; i < copies; i++) {
-          const w = createWorker(roleDef);
-          if (mode === "feasibility") runtime.add(makeSlot(w));
-        }
-        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "added", copies });
-      } else {
-        process.send?.({ type: "worker-status", batchPid: process.pid, role: msg.role, state: "error", error: "unknown role" });
-      }
-    } else if (msg?.type === "optimizer-sweep") {
-      // trigger 统一化：主进程 optimizer.deopt-sweep 下行——每 batch 只跑一次（checkDeopt 读共享 memory，无实例态）
-      const opt = loops
-        .map((l) => (l as unknown as { optimizer?: { sweep?: () => Promise<void> } }).optimizer)
-        .find((o) => Boolean(o?.sweep));
-      void opt?.sweep?.().catch((e: Error) => {
-        batchLogger?.warn?.(`[optimizer-sweep] 巡检失败: ${e.message}`);
-      });
-      process.send?.({ type: "optimizer-sweep-status", batchPid: process.pid, ran: Boolean(opt) });
-    } else if (msg?.type === "intake-due-scan") {
-      // N29 Task 6：trigger 只唤醒 due scanner（`Subscription.nextCrawlAt` 是唯一调度真相）。
-      // scanner 只建 run + `intake.fetch` outbox 行；阶段推进由生产 drainer 的 intake handler 完成。
-      const run = intakeTrigger.run;
-      if (!run) {
-        process.send?.({ type: "intake-due-scan-status", batchPid: process.pid, ran: false, reason: "intake mode off" });
-      } else {
-        try {
-          const created = await run();
-          process.send?.({ type: "intake-due-scan-status", batchPid: process.pid, ran: true, created });
-        } catch (e) {
-          batchLogger?.warn?.(`[intake] due scan 失败: ${(e as Error).message}`);
-          process.send?.({ type: "intake-due-scan-status", batchPid: process.pid, ran: true, error: (e as Error).message });
-        }
-      }
-    }
-  });
-  // 父进程退出（IPC 通道关闭）→ 自杀：不留孤儿 batch 继续轮询 DB（先释放 kernel）
-  process.on("disconnect", () => { void disposeAllKernels().finally(() => process.exit(0)); });
-
-  // trigger 统一化（事件桥上行）：子进程 EventBus → 主进程 ActivityHub（kernel-event IPC）。
-  // 白名单去重：task.claim/task.done/task.failed 已走既有 activity 通道，不重复转发（防 trigger 双触发）。
-  getEventBus().on("*", (evt) => {
-    if (!isForwardableKernelEvent(evt.type)) return;
-    try {
-      process.send?.({ kind: "kernel-event", event: toKernelActivityEvent(evt, process.pid) });
-    } catch { /* IPC 不可用——静默（活动流非关键路径） */ }
+  // ── 装配段：ipc-control（进程级兜底/优雅退出/控制面 message handler/EventBus 桥）。
+  // 注意：runtime/loops/createWorker 在下方才完成装配——accessor 惰性求值，TDZ 语义不变。 ──
+  const disposer = createKernelDisposer({ mode, getRuntime: () => runtime, getLoops: () => loops });
+  installBatchIpcControl({
+    mode,
+    batchLogger,
+    controlState,
+    intakeTrigger,
+    pendingRoleRemovals,
+    disposer,
+    getRuntime: () => runtime,
+    getLoops: () => loops,
+    createWorker: (role) => createWorker(role),
+    makeSlot: (w) => makeWorkerSlot(w),
   });
 
   const archiveDeps: ArchiveDeps = {
@@ -547,147 +199,15 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     emitCleanup: (info) => process.send?.({ type: "cleanup", taskId: info.taskId, artifactPath: info.artifactPath }),
   };
 
-  // ── N29 Task 6：Knowledge Intake 内环装配 ────────────────────────────────
-  // `PTH_KNOWLEDGE_INTAKE_MODE=off`（默认）时完全不装配：零 handler、零 scanner、零 LLM 客户端，
-  // 生产 drainer 的 handler 集合逐字节保持 N28 形状。draft/full 才装配，且任一前置缺失即
-  // **启动期 fail closed**（宁可起不来，不要半个不可信内环在跑）。
-  //
-  // 首轮（M0）连接器与申报属性固定为一个 bounded HTTPS/HTML source
-  // （plan §2 Global Constraints：一个 tenant / space / domain / subscription）。
-  const intakeMode = pthConfig().str("PTH_KNOWLEDGE_INTAKE_MODE").trim().toLowerCase();
-  const intakeStageHandlers: SideEffectDrainerHandlers = {};
-  let intakeDueScanner: KnowledgeIntakeDueScanner | undefined;
-  if (intakeMode === "draft" || intakeMode === "full") {
-    const manifestPath = pthConfig().str("PTH_TRUST_POLICY_MANIFEST");
-    const keyringPath = pthConfig().str("PTH_TRUST_POLICY_KEYRING");
-    if (!manifestPath || !keyringPath) {
-      throw new Error(
-        `PTH_KNOWLEDGE_INTAKE_MODE=${intakeMode} 需要 PTH_TRUST_POLICY_MANIFEST 与 PTH_TRUST_POLICY_KEYRING`
-        + "（人类签名 Trust Policy 是来源抓取与使用授权的唯一事实源）",
-      );
-    }
-    // P0-9 修复：full 模式必须出示绑定当前 commit 的 MIN_INNER_LOOP_GO 验收 attestation；
-    // 缺失/不绑定/非 GO 一律启动期 fail closed，不靠运维约定。
-    if (intakeMode === "full") {
-      const acceptancePath = pthConfig().str("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH");
-      const acceptancePublicKeyPath = pthConfig().str("PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PUBLIC_KEY_PATH");
-      if (!acceptancePath) {
-        throw new Error(
-          "PTH_KNOWLEDGE_INTAKE_MODE=full 需要 PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PATH"
-          + "（指向 decision=MIN_INNER_LOOP_GO 的验收 envelope；否则 full 不得启动）",
-        );
-      }
-      if (!acceptancePublicKeyPath) {
-        throw new Error(
-          "PTH_KNOWLEDGE_INTAKE_MODE=full 需要 PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PUBLIC_KEY_PATH"
-          + "（D-5：验收 envelope 必须由 CI/发布密钥签名并在启动时验签；否则 full 不得启动）",
-        );
-      }
-      const envelope = JSON.parse(await readFile(acceptancePath, "utf8")) as IntakeAcceptanceEnvelopeLike;
-      const acceptancePublicKeyPem = await readFile(acceptancePublicKeyPath, "utf8");
-      assertIntakeFullAcceptance(
-        envelope,
-        (process.env["PTH_BUILD_COMMIT"] ?? "").trim() || undefined,
-        { publicKeyPem: acceptancePublicKeyPem, requireSignature: true },
-      );
-    }
-    // 已验签 policy 在进程启动时加载一次；轮换需重启 batch（manifest 是不可变签名事实）。
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as TrustPolicyManifest;
-    const keyring = JSON.parse(await readFile(keyringPath, "utf8")) as TrustPolicyKeyring;
-    const verifiedPolicy = await loadVerifiedTrustPolicy(manifest, keyring);
-
-    const intakeRepository = createKnowledgeIntakeRepository(pool, {
-      // P0-3 approach A：未带运行时 attestation 的 policy 输入由仓库用只读 keyring 自行重新验签。
-      policyVerifier: (candidate) => loadVerifiedTrustPolicy(candidate, keyring),
-    });
-    const intakeStore = dataWorld.memory as unknown as Parameters<typeof createKnowledgeIngestor>[0]["store"];
-    const intakeLlm = createLlmFn({
-      modelRouter,
-      onMetric: (m) => {
-        try { process.send?.({ kind: "metric", metric: { ...m, kind: "llm", domain: "intake" } }); } catch { /* IPC 不可用 */ }
-      },
-    });
-    const declaredSource = { sourceType: "bounded-html", contentType: "text/html", license: "public-domain" } as const;
-    const intakeService = createKnowledgeIntakeService({
-      pool,
-      repository: intakeRepository,
-      store: dataWorld.memory as never,
-      policy: verifiedPolicy,
-      broker: createPolicyBoundSourceFetchBroker({ policy: verifiedPolicy, declaredSource }),
-      ingestor: createKnowledgeIngestor({ pool, store: intakeStore, intake: intakeRepository }),
-      extractor: createIntakeExtractProcessor({ llm: intakeLlm }),
-      domainReview: createDomainReviewProcessor({ llm: intakeLlm }),
-      adversarialReview: createAdversarialReviewProcessor({ llm: intakeLlm }),
-      // 四个职责分离的 principal（producer/domain/adversarial/promoter 必须互不相同）。
-      principals: {
-        producer: "intake:extractor",
-        domainReviewer: "intake:domain-reviewer",
-        adversarialReviewer: "intake:adversarial-reviewer",
-        promoter: "intake:promoter",
-      },
-      declared: declaredSource,
-    });
-    // 生产 drainer 注册的阶段 handler：intake.fetch / extract / review-domain /
-    // review-adversarial / promote —— 每个 handler 只处理一个 stage 并用 run CAS 提交下一步。
-    // P0-9 修复：draft 只到 private draft + open plan——剔除 promote handler
-    // （draft 模式下 intake.promote outbox 行没有消费者 → 若被误排会 dead-letter 而非晋升）。
-    Object.assign(
-      intakeStageHandlers,
-      selectIntakeStageHandlers(
-        intakeMode as IntakeMode,
-        intakeService.stageHandlers(),
-        INTAKE_STAGE_OUTBOX_KINDS.promote,
-      ),
-    );
-    // 变化重爬/撤销的依赖刷新 fan-out：**权威撤出已在 PG 事务内完成**（依赖边 stale +
-    // 旧 official → stale），本 outbox 行只是通知。L7 组合真正的下游刷新消费者之前，
-    // 这里注册一个结构化日志 sink：既不让行进 dead-letter 制造噪声，也不静默丢弃事实。
-    intakeStageHandlers[INTAKE_STAGE_OUTBOX_KINDS.dependencyRefresh] = async (payload) => {
-      const p = (payload ?? {}) as Record<string, unknown>;
-      const ids = Array.isArray(p.staleDependentIds) ? (p.staleDependentIds as unknown[]) : [];
-      batchLogger.info(
-        `[intake] dependency refresh：subscription=${String(p.subscriptionId)} reason=${String(p.reason)}`
-        + ` staleDependents=${ids.length}（${ids.slice(0, 8).join(",")}）`
-        + "——L7 将以真实刷新消费者替换本 sink",
-      );
-    };
-    intakeDueScanner = createKnowledgeIntakeDueScanner({
-      repository: intakeRepository,
-      logger: (m) => batchLogger.warn(m),
-    });
-    batchLogger.info(
-      `[intake] mode=${intakeMode} 已注册阶段 handler：${Object.keys(intakeStageHandlers).sort().join(", ")}`
-      + `；policy=${verifiedPolicy.manifest.policyId}@${verifiedPolicy.manifest.version}`,
-    );
-  }
-
-  // F5（6.1）：durable side-effect outbox + drainer。refine observer 只 enqueue 到 outbox；
-  // drainer 轮询消费（unref timer + task-loop claim 前 kick）。refineRefiners 在 createWorker
-  // 里按 roleId 注册各 worker 的 refiner，handler 按 payload.roleId 选取。
-  const sideEffectOutbox = new PgSideEffectOutbox(pool);
-  const refineRefiners = new Map<string, Pick<Refiner, "refine">>();
-  const sideEffectDrainer = createSideEffectDrainer({
-    outbox: sideEffectOutbox,
-    handlers: {
-      async refine(payload) {
-        const p = (payload ?? {}) as Record<string, unknown>;
-        const roleId = typeof p.roleId === "string" ? p.roleId : "";
-        const refiner = refineRefiners.get(roleId) ?? refineRefiners.values().next().value;
-        if (!refiner) throw new Error("refiner not available for outbox refine");
-        await refiner.refine(refineInputFromPayload(p));
-      },
-      // N29 Task 6：intake 阶段 handler（mode=off 时该展开为空——handler 集合不变）。
-      ...intakeStageHandlers,
-    },
-    logger: (m) => batchLogger.warn(m),
-    tickMs: pthConfig().num("PTH_OUTBOX_TICK_MS") || 2000,
+  // ── 装配段：intake（N29 Task 6 内环；off 时完全不实例化——handler 集合保持 N28 形状）──
+  const { stageHandlers: intakeStageHandlers, dueScanner: intakeDueScanner } = await assembleKnowledgeIntake({
+    pool, dataWorld, modelRouter, batchLogger,
   });
-  sideEffectDrainer.start();
-  const kickSideEffectDrainer = (): void => {
-    void sideEffectDrainer.drainOnce().catch((e) => {
-      batchLogger.warn(`side-effect drain kick failed: ${e instanceof Error ? e.message : String(e)}`);
-    });
-  };
+
+  // ── 装配段：outbox-drainer（F5 durable outbox + drainer；refine/intake handler 注册）──
+  const { sideEffectOutbox, refineRefiners, kickSideEffectDrainer } = assembleOutboxDrainer({
+    pool, batchLogger, intakeStageHandlers,
+  });
 
   /**
    * N29 Task 6：due scanner 唤醒（trigger 统一化——主进程 `intake.due-scan` 经 IPC 下行）。
@@ -713,20 +233,22 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // 不设置 → 默认 7 角色 ×1（原行为）。启动时解析一次——运行时改权重需 batch remove+add。
   const workerRoles = expandRoleWeights(parseRoleWeights(pthConfig().str("PTH_WORKER_ROLES")));
   // worker 注册表（worker 级控制面：pause/resume/remove/add——IPC 指令寻址）
-  const loops: Array<BatchTaskLoop & { role: import("@away_from/pth-kernel-execution").WorkerRole }> = [];
+  const loops: BatchLoopEntry[] = [];
 
-  // N15 B2：穿透执行预算账本（key = req.caller.taskId，单 batch 进程生命周期；
-  // 任务不跨 batch 进程迁移——与现有「穿透共享父任务工作区」假设一致）。
-  // 预算配置与 PTH_AGENT_MAX_STEPS 同语义：batch 进程配置中心快照，不逐调用热读。
-  const penetrationLedgers = new Map<string, PenetrationLedger>();
-  const penetrationBudgetCfg: PenetrationBudgetConfig = {
-    maxSteps: pthConfig().num("PTH_PENETRATION_MAX_STEPS"),
-    taskBudgetSteps: pthConfig().num("PTH_PENETRATION_TASK_BUDGET_STEPS"),
-    timeoutMs: pthConfig().num("PTH_PENETRATION_TIMEOUT_MS"),
+  // ── 装配段：runchild-budget（N15 B2 穿透预算账本 + runChild 嵌套子 agent 执行缝工厂）──
+  const runChildShared: PenetrationRunChildSharedDeps = {
+    budget: createPenetrationBudgetState(),
+    sandboxKernelUrl,
+    sandboxKernelSecret,
+    modelRouter,
+    dataWorld,
+    toolstore,
+    batchLogger,
+    planGrantVerify,
   };
 
   /** 创建并注册一个角色 worker（P3 动态 add 复用；remove 后 dispose kernel 回收 python 进程） */
-  const createWorker = (role: import("@away_from/pth-kernel-execution").WorkerRole, forcedReplica?: WorkerReplica) => {
+  const createWorker = (role: WorkerRole, forcedReplica?: WorkerReplica) => {
     // N28 T2：身份装配（off=legacy 双 principal；feasibility=worker:<uuid> 双面统一）。
     // feasibility 下经 assembleBatchRuntime 组合时传入其校验过的 replica；动态 add 用 helper 新建。
     const identity = assembleWorkerSlotIdentity({ mode, role, batchId });
@@ -739,150 +261,9 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       : role;
     // W8 P1：任务身份引用（task-loop 每任务盖章；delegate/await 调用者上下文）
     const taskContext: { current: import("@away_from/pth-contracts").TaskDispatchContext | null } = { current: null };
-    // 0.16.3 穿透执行面（2026-08-18 用户裁决：显式原语 tasks.penetrate / 深度限 1 /
-    // 失败报错由父决策 / 本批只做执行面）。runChild = 嵌套子 agent 执行缝：
-    // 建子 kernel（子角色能力面，无 taskControl/penetration——深度限 1）→ 嵌套
-    // runAgentTask（共享父任务工作区）→ dispose。校验编排在 tasking/penetration-runner。
-    // N14 P2：runChild 提取为独立闭包——穿透 runner 与 tool-reg agent 态执行缝共用同一实现
-    // （toolRegRunChild 进 TaskLoop deps；agent 态工具的授权 = tool-reg 条目治理审批本身）。
+    // 穿透 runChild 执行缝（runchild-budget 段）：穿透 runner 与 tool-reg agent 态执行缝共用同一实现。
     const parentKernelRef: { current?: { ts: unknown } } = {};
-    const runChildImpl: import("../tasking/index.js").PenetrationRunChild = async (req) => {
-            const started = Date.now();
-            // N15 B2：每次穿透调用前先过预算闸——累计耗尽立即失败（父可回退 tasks.delegate）
-            const ledgerKey = req.caller?.taskId ?? "unknown-task";
-            const ledger = penetrationLedgers.get(ledgerKey) ?? { calls: 0, steps: 0 };
-            const budgetResult = childBudgetFor(ledger, penetrationBudgetCfg);
-            if (!budgetResult.ok) {
-              return {
-                ok: false,
-                steps: ledger.steps,
-                error: `${budgetResult.error}（父任务 ${ledgerKey}）`,
-                durationMs: 0,
-              };
-            }
-            const budget = budgetResult.budget!;
-            const childRole = knownRoleById(req.childRoleId);
-            if (!childRole) {
-              return { ok: false, steps: 0, error: `穿透目标角色未注册: ${req.childRoleId}`, durationMs: 0 };
-            }
-            const childManager = createKernelManager({
-              pythonMode: pthConfig().str("PTH_PYTHON_MODE") as any,
-              bashMode: pthConfig().str("PTH_BASH_MODE") as any,
-              sandboxKernel: {
-                url: sandboxKernelUrl,
-                secret: sandboxKernelSecret,
-                grantSecret: pthConfig().str("PTH_EXECUTION_GRANT_SECRET"),
-                grantIdentity: {
-                  principalId: replica ? `worker:${replica.ref.workerId}` : `worker:${childRole.id}`,
-                  roleId: childRole.id,
-                  capabilities: childRole.capabilities ?? [],
-                },
-              },
-              kernelConfig: loadKernelConfig(process.env),
-              onKernelStderr: (language, line) => batchLogger.child(language === "python" ? "pykernel" : "bashkernel")?.warn(line.trim()),
-              onKernelMetric: (metric) => {
-                try { process.send?.({ kind: "metric", metric: { ...metric, domain: "penetration" } }); } catch { /* IPC 不可用 */ }
-              },
-            });
-            const childLlm = createLlmFn({
-              modelRouter,
-              onMetric: (m) => {
-                try { process.send?.({ kind: "metric", metric: { ...m, kind: "llm", domain: "penetration" } }); } catch { /* IPC 不可用 */ }
-              },
-            });
-            const childKernel = createWorkerKernelWithManager({
-              llm: childLlm, dataWorld, manager: childManager, toolstore,
-              roleFilter: childRole.capabilities,
-              memoryScope: childRole.memoryScope ? { role: childRole.id, scope: childRole.memoryScope } : undefined,
-              roleId: childRole.id,
-              // 深度限 1：不传 taskControl/penetration——嵌套子 agent 纯执行，不再派发/穿透
-              registerKernel: (language, interpreter) => childManager.registerKernel(language, interpreter as never),
-              readSource: pthConfig().str("PTH_SOURCE_ROOT")
-                ? (relPath) => import("@away_from/pth-kernel-interpreter").then((m) => m.createReadSource(pthConfig().str("PTH_SOURCE_ROOT"))(relPath))
-                : undefined,
-              taskWorkspaceResolve: (relPath) => {
-                const cwd = (childKernel.ts as unknown as { currentCwd?: string | null }).currentCwd;
-                if (!cwd || !cwd.includes("/tasks/")) throw new Error("fs.task: 任务工作区未就绪（非任务上下文）");
-                if (typeof relPath !== "string" || relPath.trim() === "" || relPath.includes("\0")) {
-                  throw new Error(`fs.task: 仅允许相对路径（拒绝: ${String(relPath).slice(0, 60)}）`);
-                }
-                const base = resolvePath(cwd);
-                const abs = resolvePath(base, relPath);
-                const rel = relativePath(base, abs);
-                if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-                  throw new Error(`fs.task: 路径越出任务工作区（拒绝: ${relPath.slice(0, 60)}）`);
-                }
-                return abs;
-              },
-            });
-            try {
-              // 共享父任务工作区（父 kernel ts.currentCwd——穿透调用发生在父任务程序内）
-              const parentCwd = (parentKernelRef.current?.ts as { currentCwd?: string | null } | undefined)?.currentCwd;
-              const r = await runAgentTask({
-                llm: childLlm, kernel: childKernel, caps: childKernel.capabilities,
-                task: { title: req.title, text: req.text },
-                taskWorkspace: parentCwd ?? undefined,
-                toolstore,
-                role: childRole,
-                // N15 B2：单次穿透预算（步数取 min(单次上限, 剩余累计额度)；超时取预算超时）
-                maxSteps: budget.maxSteps,
-                timeoutMs: budget.timeoutMs,
-                asp: pthConfig().str("PTH_ASP_MODE") === "on",
-                onTrace: (e) => {
-                  if (e.type === "finish") {
-                    try {
-                      process.send?.({
-                        kind: "activity",
-                        activity: {
-                          kind: "task.penetrate", taskId: req.caller.taskId, role: req.caller.roleId,
-                          ...(replica ? { workerId: replica.ref.workerId } : {}),
-                          ok: e.ok, step: e.steps,
-                          // N15 B2：软限命中标记（累计耗尽走预算闸失败路径，不进这里）
-                          budgetUsed: e.steps,
-                          budgetExceeded: e.steps >= budget.maxSteps,
-                          detail: `穿透 ${req.caller.roleId}→${req.childRoleId}（${req.skillId}）${e.ok ? "完成" : `失败: ${(e.error ?? "").slice(0, 80)}`}`,
-                          batchPid: process.pid, at: Date.now(),
-                        },
-                      });
-                    } catch { /* IPC 不可用 */ }
-                  }
-                },
-              });
-              const durationMs = Date.now() - started;
-              // N15 B2：无论成败都按实际 steps 结算（防重试放大）；单次命中 maxSteps 不额外扣满
-              penetrationLedgers.set(ledgerKey, recordPenetrationUse(ledger, r.steps));
-              const budgetExceeded = r.steps >= budget.maxSteps;
-              // 调用级成败（r.ok 是 agent-loop 层；done.result 缺失时父任务仍收失败——
-              // 边级 okCalls 与父任务最终语义一致，防 B1 成功率口径虚高）
-              const childOk = r.ok && r.value !== undefined && r.value !== null;
-              // N15 B2：边级计量聚合（B1 地基）——成功/失败都计；incrementAggregate 缺失时 skip 不报错
-              try {
-                await dataWorld.memory.incrementAggregate?.(
-                  `penetration-edge:${req.caller.roleId}->${req.childRoleId}`,
-                  "penetration-edge",
-                  [req.caller.roleId, req.childRoleId, "penetration-edge"],
-                  {
-                    calls: 1,
-                    okCalls: childOk ? 1 : 0,
-                    sumSteps: r.steps,
-                    sumDurationMs: durationMs,
-                    sumBudgetExceeded: budgetExceeded ? 1 : 0,
-                  },
-                  { parent: req.caller.roleId, child: req.childRoleId, ts: Date.now() },
-                  { tenantId: req.caller.tenantId ?? DEFAULT_TENANT_ID },
-                );
-              } catch {
-                /* 计量聚合容错（降级：预算照常结算，聚合行缺失不阻断穿透） */
-              }
-              if (!r.ok) return { ok: false, steps: r.steps, error: r.error ?? "子 agent 执行失败", durationMs };
-              if (r.value === undefined || r.value === null) {
-                return { ok: false, steps: r.steps, error: r.warning ? `soft-terminated: ${r.warning}` : "子 agent 未产出结果（done 未带 result）", durationMs };
-              }
-              return { ok: true, value: r.value, summary: r.summary, steps: r.steps, durationMs };
-            } finally {
-              childKernel.dispose();
-            }
-    };
+    const runChildImpl = createPenetrationRunChild(runChildShared, { replica, parentKernelRef });
     const penetration = canDelegate
       ? createPenetrationRunner({
           memory: dataWorld.memory,
@@ -926,6 +307,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       roleFilter: effectiveRole.capabilities,
       memoryScope: role.memoryScope ? { role: role.id, scope: role.memoryScope } : undefined,
       roleId: role.id,
+      produces: role.produces,
+      planGrantVerify,
       taskControl: canDelegate ? taskControl : undefined,
       penetration,
       // L2：能力面活动事件上报（skill.proposal.created——与 loop 同一 IPC 转发通道）
@@ -1044,6 +427,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       professionalRuntimeRegistry,
       professionalArtifacts,
       professionalGrantService,
+      professionalGrantTtlMs: pthConfig().num("PTH_PROFESSIONAL_GRANT_TTL_MS", 1_800_000),
       // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
       llm,
       // agent 循环的 capability 白名单（与 vm 注入同一份）
@@ -1058,52 +442,19 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     if (mode !== "feasibility") {
       (loop as unknown as { kernel?: unknown }).kernel = kernel;   // remove 时 dispose 用
       (loop as unknown as { optimizer?: { stop?: () => void } }).optimizer = optimizer;   // remove 时停复测巡检表
-      (loop as unknown as { role?: import("@away_from/pth-kernel-execution").WorkerRole }).role = role;  // remove 寻址用
-      loops.push(loop as BatchTaskLoop & { role: import("@away_from/pth-kernel-execution").WorkerRole });
+      (loop as unknown as { role?: WorkerRole }).role = role;  // remove 寻址用
+      loops.push(loop as BatchLoopEntry);
     }
     return { loop, kernel, optimizer, replica, role: effectiveRole };
   };
 
   // N28 T2：feasibility 模式唯一 slot 运行时（off 模式完全不实例化新控制面）。
-  const makeSlot = (w: ReturnType<typeof createWorker>): WorkerSlot => {
-    if (!w.replica) throw new Error("feasibility slot requires replica");
-    return {
-      replica: w.replica,
-      role: w.role,
-      loop: {
-        runOnce: () => w.loop.runOnce(),
-        pause: () => w.loop.pause(),
-        resume: () => w.loop.resume(),
-        stop: () => w.loop.stop(),
-      },
-      dispose: async () => {
-        try { w.optimizer?.stop?.(); } catch { /* 停表容错 */ }
-        try { await w.kernel.abort?.(); } catch { /* abort 容错 */ }
-        try { await w.kernel.dispose?.(); } catch { /* dispose 容错 */ }
-      },
-    };
-  };
-
-  // P0-1 修复：feasibility 下 workerSpecs 必须来自 Directory 的 exact WorkerReplicaRef（UUID 一致）；
-  // role revision 按生产 catalog role 重算，未知 Directory 角色 fail-closed。
-  const assemblyWorkerSpecs = mode === "feasibility"
-    ? deps.workerSpecs ?? (deps.memoryDirectory?.workers ?? []).map((directoryWorker) => {
-        const roleDef = knownRoleById(directoryWorker.role.roleId);
-        if (!roleDef) throw new Error(`unknown directory worker role: ${directoryWorker.role.roleId}`);
-        return {
-          role: roleDef,
-          requestedReplica: {
-            ...directoryWorker,
-            role: { roleId: directoryWorker.role.roleId, revision: roleDefinitionRevision(roleDef) },
-          },
-        };
-      })
-    : workerRoles.map((role) => ({ role }));
+  const assemblyWorkerSpecs = buildAssemblyWorkerSpecs({ mode, deps, workerRoles });
   const runtime = assembleBatchRuntime({
     mode,
     batchId,
     workerSpecs: assemblyWorkerSpecs,
-    buildSlot: ({ role, replica }) => makeSlot(createWorker(role, replica)),
+    buildSlot: ({ role, replica }) => makeWorkerSlot(createWorker(role, replica)),
     emit: (event) => {
       try {
         process.send?.(event);
@@ -1129,7 +480,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   // （吞吐优化：串行任务零轮询等待——0.58s/任务 的轮询延迟消除）；
   // 空闲（无候选）退避回 intervalMs timer，避免空转查询 PG。
   const tick = async (): Promise<void> => {
-    if (paused) return;
+    if (controlState.paused) return;
     // 快照遍历（worker-remove 的 splice 并发安全——过滤已移除项）
     const snapshot = loops.filter((l): l is typeof l => Boolean(l));
     const did = await Promise.all(snapshot.map((l) => l.runOnce()));
@@ -1145,65 +496,25 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
     const timer = setInterval(tick, intervalMs);
     void timer;
   }
-  // 每轮后发 status 给主进程（v1：tasks 占位空——BatchManager 消费 {type,tasks} 契约）
-  // H6（watchdog v2）：ts 字段 = 心跳时间戳（主进程 watchdog 据此探测挂死）
-  // 2026-08-18 L3：资源自报随心跳（rss/cpu——主进程 listBatches/obs.batches 健康面数据源）
-  // N28 T2：feasibility 模式心跳投影必须来自共享 runtime（不读第二份 slots 数组）；off 保持旧形状。
-  const statusTimer = setInterval(() => {
-    const mem = process.memoryUsage();
-    const cpu = process.cpuUsage();
-    if (mode === "feasibility") {
-      const directory = deps.memoryDirectory;
-      process.send?.(runtime.heartbeat(
-        { ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system },
-        (workerId) => {
-          const responsibilities = directory ? responsibilitiesForWorker(directory, workerId) : [];
-          const working = authoritativeWorkingSets.get(workerId);
-          return {
-            responsibilities: responsibilities.map((r) => ({ regionId: r.regionId, kind: r.kind, priority: r.priority, regionRevision: r.regionRevision })),
-            regionWeights: Object.fromEntries(responsibilities.map((r) => {
-              const region = directory?.regions.find((x) => x.regionId === r.regionId);
-              return [r.regionId, region?.estimatedWeight ?? 0] as const;
-            })),
-            workingSet: working
-              ? {
-                  taskId: working.taskId,
-                  directorySnapshotId: working.directorySnapshotId,
-                  entryIds: working.snapshot.memoryEntryIds,
-                  skillIndexIds: working.snapshot.skillIndexIds,
-                  activeSkillIds: working.snapshot.activeSkillIds,
-                  toolNames: working.snapshot.toolNames,
-                  counts: {
-                    memoryEntries: working.snapshot.usage.memoryEntries,
-                    skillIndexEntries: working.snapshot.usage.skillIndexEntries,
-                    activeSkills: working.snapshot.usage.activeSkills,
-                    tools: working.snapshot.usage.tools,
-                  },
-                  usage: working.snapshot.usage,
-                  omitted: working.snapshot.omitted,
-                }
-              : null,
-          };
-        },
-      ));
-    } else {
-      process.send?.({ type: "status", tasks: [], ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system });
-    }
-  }, 2000);
-  // keep-alive（试运行发现修正）：pg 连接池在 Node 24 下不 hold 事件循环（socket 默认 unref），
-  // 空闲且仅剩 unref 定时器时进程会立即退出——batch 必须保持存活直到主进程显式 shutdown。
-  // 保持定时器引用（不 unref）：进程生命周期与 batch 运行绑定，由 killBatch 的 shutdown 消息
-  // 优雅终止（或 5s SIGKILL 兜底）。
-  void statusTimer;
+  // ── 装配段：ipc-control（心跳上报——2s status timer；keep-alive 见模块注释）─────────
+  void startBatchStatusReporter({
+    mode,
+    getRuntime: () => runtime,
+    getLoops: () => loops,
+    memoryDirectory: deps.memoryDirectory,
+    authoritativeWorkingSets,
+  });
 }
 
 // 入口判断：env 标志为主（strip-types/transform-types 下 argv[1] 是绝对路径，endsWith 不可靠），
 // argv 兜底兼容直接 node 运行。
 if (pthConfig().str("PTH_BATCH_PROCESS") === "1" || process.argv[1]?.endsWith("batch-process.ts")) {
   // 2026-08-13 审计 P2：fork 子进程独立入口——自注入内置角色（父进程注入不跨进程）
-  setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);
+  // Role Catalog W1：角色内容来自 catalog/data/roles 卡片。
+  const catalogRoles = loadDefaultRoleSets();
+  setDefaultRoles(catalogRoles.defaultRoles, catalogRoles.midRoles, catalogRoles.governanceRoles);
   // Task 3：专业角色进入 known lineage/显式权重解析（不进缺省单副本循环）
-  setProfessionalRoles(PROFESSIONAL_ROLES);
+  setProfessionalRoles(catalogRoles.professionalRoles);
   // 2026-08-15 拆分：fork 子进程同样注册内置空间 + 注入空间查询（记忆包不 import core）
   registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });

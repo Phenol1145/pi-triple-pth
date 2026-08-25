@@ -3,13 +3,14 @@
  * pth-cli —— PTH 任务派发 CLI（2026-08-12：消除裸 curl 派发摩擦）
  *
  * 用法（pth <cmd> ...）：
- *   pth init [--force]                          # 初始化 deploy/.env.pth.secrets
+ *   pth init [--generate|--no-generate] [--workspaces <path>] [--force]  # 初始化统一 env 文件
  *   pth up [--rebuild] [--no-seed-token]        # compose 拉起 PTH 全栈并验证
  *   pth up --profile core|tools|lean4|u8|jupyter|full [--with a,b] [--without a,b]  # P6 统一编排
+ *   pth up --target local-container|local-process [--runtime <id>] [--sandbox process|none]  # 部署 target
  *   pth down [--volumes]                        # 停止 PTH 栈
  *   pth status [--port <n>]                     # 栈健康（带 taskId 仍查任务）
  *   pth status --all                             # 栈 + tools + services + runtime 聚合
- *   pth doctor [--profile X] [--json]            # 宿主机前置体检（P6-1）
+ *   pth doctor [--profile X] [--target T] [--runtime <id>] [--sandbox M] [--json]  # 宿主机前置体检（P6-1）
  *   pth logs [service] [--tail n] [--follow]    # 查看容器日志
  *   pth submit <任务描述> [--role <角色>] [--tags a,b] [--title <标题>] [--file <路径>]
  *   pth submit --template <模板id> [--param key=value]... [--tags a,b]
@@ -165,8 +166,9 @@ async function wait(): Promise<void> {
 
 async function roles(): Promise<void> {
   const { allKnownRoles, setDefaultRoles } = await import("@away_from/pth-kernel-execution");
-  const { ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } = await import("../pth/impls/roles/default-roles.js");
-  setDefaultRoles(ORIGIN_ROLE, DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES);   // 2026-08-13 审计 P2：CLI 本地角色面同样走注入
+  const { loadDefaultRoleSets } = await import("../pth/catalog/index.js");
+  const catalogRoles = loadDefaultRoleSets();
+  setDefaultRoles(catalogRoles.defaultRoles, catalogRoles.midRoles, catalogRoles.governanceRoles);   // 2026-08-13 审计 P2：CLI 本地角色面同样走注入
   console.log("可派发角色（--role 指定；governance 需 PTH_WORKER_ROLES 显式启用进 batch）:");
   for (const r of allKnownRoles()) {
     console.log(`  ${r.id.padEnd(22)} tags=[${r.tags.join(",")}]  ${r.description ?? ""}`);
@@ -265,6 +267,11 @@ async function kernelCommand(): Promise<void> {
       if (args[0] === "worker") return mod.cmdKernelBatchWorker(args.slice(1), flags);
       console.log("  用法: pth kernel batch add [n] | remove [n] | worker <pause|resume|remove|add> <batchId> <role> [copies]");
       return;
+    case "worker":
+      if (args[0] === "activity") return mod.cmdKernelWorkerActivity(args.slice(1), flags);
+      if (args[0] === "context") return mod.cmdKernelWorkerContext(args.slice(1), flags);
+      console.log("  用法: pth kernel worker activity <role> [--since 60] [--limit 50] | context <role> [--last 10]");
+      return;
     case "status":
       return mod.cmdKernelStatus(args, flags);
     default:
@@ -278,6 +285,8 @@ async function kernelCommand(): Promise<void> {
         "  pth kernel batch add [n]                     启动 batch",
         "  pth kernel batch remove [n]                  停止 batch",
         "  pth kernel batch worker …                    批量 worker 控制",
+        "  pth kernel worker activity <role>            查询 worker 活动（在飞+历史）",
+        "  pth kernel worker context <role>             查询 worker 在飞上下文",
         "  pth kernel status                            运行状态全景",
       ].join("\n"));
   }
@@ -419,7 +428,7 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log(`用法: pth <init|up|down|status|logs|doctor|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|config|web|tools|services|local-exec> ...\n  生命周期: pth init / doctor / up / status / logs / down\n  P6 编排: pth doctor [--profile X] [--json]\n            pth up --profile core|tools|lean4|u8|jupyter|full [--with a,b] [--without a,b]\n            pth status --all\n  工具容器: pth tools list|up|down|status|logs|run|verify|debug|build|pull · pth services status|logs\n  本地执行器: pth local-exec [--port p]（profile=host · execution/v1.1）\n  任务派发: pth submit "任务描述" --role developer --tags implement\n            pth submit --template recon-doc --param url=https://x --param entryId=y\n            pth wait <taskId>\n  程序面:   pth program submit <dir> | run <name> | list\n  回退请求: pth request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: pth observe <sessions|session|trace|events>\n            pth debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            pth job submit|status|fetch · kernel tasks|batch|templates|status\n  其他:     pth roles · config · web [--port <n>]`);
+      console.log(`用法: pth <init|up|down|status|logs|doctor|submit|program|request|requests|respond|observe|debug|bench|job|console|lineage|trigger|kernel|handoff|wait|roles|config|web|tools|services|local-exec> ...\n  生命周期: pth init / doctor / up / status / logs / down\n  P6 编排: pth doctor [--profile X] [--target T] [--runtime <id>] [--sandbox M] [--json]\n            pth up --profile core|tools|lean4|u8|jupyter|full [--with a,b] [--without a,b]\n            pth up --target local-container|local-process [--runtime <id>] [--sandbox process|none]\n            pth status --all\n  工具容器: pth tools list|up|down|status|logs|run|verify|debug|build|pull · pth services status|logs\n  本地执行器: pth local-exec [--port p]（profile=host · execution/v1.1）\n  任务派发: pth submit "任务描述" --role developer --tags implement\n            pth submit --template recon-doc --param url=https://x --param entryId=y\n            pth wait <taskId>\n  程序面:   pth program submit <dir> | run <name> | list\n  回退请求: pth request "<描述>" --slot <s> · requests · respond <id> <dir>\n  观测运维: pth observe <sessions|session|trace|events>\n            pth debug [sandbox|<sessionId>] · bench · console · lineage · trigger\n            pth job submit|status|fetch · kernel tasks|batch|worker|templates|status\n  其他:     pth roles · config · web [--port <n>]`);
   }
 }
 

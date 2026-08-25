@@ -458,6 +458,22 @@ export class AgentEngine {
     return buildCustomToolsFor(this as unknown as AgentEngineAssetHost, tenantId);
   }
 
+  /** sdkCreateSession 公共 base opts（session/system/recovery 三路径共用，避免装配漂移）。 */
+  private buildSessionBaseOpts(
+    tenantId: string,
+    opts: { cwd: string; model: ReturnType<ModelRouter["resolve"]>; thinkingLevel: string; sessionManager: SessionManager },
+  ): Record<string, unknown> {
+    return {
+      cwd: opts.cwd,
+      model: opts.model,
+      thinkingLevel: opts.thinkingLevel,
+      modelRuntime: this.modelRouter.getRuntime(),
+      sessionManager: opts.sessionManager,
+      tools: this.toolPlatform.getAllowedTools(tenantId),
+      customTools: this.buildCustomTools(tenantId),
+    };
+  }
+
   private getAgentDir(): string {
     return agentDirOf(this as unknown as AgentEngineAssetHost);
   }

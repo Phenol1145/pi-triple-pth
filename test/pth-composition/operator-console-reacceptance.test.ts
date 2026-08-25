@@ -145,7 +145,7 @@ describe("N33 reacceptance P0 evidence（loopback HTTP + DTO adapter）", () => 
     expect(configRow.defaultValue).toBe("***");
     expect(configRow.runtimeMutable).toBe(true);
 
-    config.ingestRoles(toBrowserRoles([{ roleId: "assembly-engineer", revision: "role-sha256:r", parent: "developer", generation: 4, tags: ["code"], capabilities: ["memory"], thinking: "medium", acceptanceRole: "read-only" }]).items);
+    config.ingestRoles(toBrowserRoles([{ roleId: "assembly-engineer", revision: "role-sha256:r", parent: "developer", generation: 3, tags: ["code"], capabilities: ["memory"], thinking: "medium", acceptanceRole: "read-only" }]).items);
     expect(config.view().roles[0]).toMatchObject({ id: "assembly-engineer", revision: "role-sha256:r" });
   });
 

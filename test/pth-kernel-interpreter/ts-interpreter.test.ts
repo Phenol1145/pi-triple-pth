@@ -271,3 +271,21 @@ describe("ts interpreter——程序级制动（A1 Phase 3 条目 11 abort 契�
     itp.dispose();
   });
 });
+
+describe("信号型错误的载荷跨界（2026-08-25 W3 修复）", () => {
+  it("带 code/result/summary 的抛错完整保留载荷", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    const res = await itp.execute(`const e = new Error("pth-done"); e.code = "pth-done"; e.result = { answer: 42 }; e.summary = "完成"; throw e;`);
+    expect(res.ok).toBe(false);
+    expect(res.error?.code).toBe("pth-done");
+    expect((res.error as { result?: unknown })?.result).toEqual({ answer: 42 });
+    expect((res.error as { summary?: unknown })?.summary).toBe("完成");
+  });
+
+  it("无载荷的错误不带 result/summary 键", async () => {
+    const itp = new TsInterpreter({ capabilities: {} });
+    const res = await itp.execute(`throw new Error("plain")`);
+    expect(res.ok).toBe(false);
+    expect(res.error && "result" in res.error).toBe(false);
+  });
+});

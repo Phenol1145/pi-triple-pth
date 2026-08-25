@@ -5,6 +5,9 @@
  * memory/obs/manage/tasks.* 等）按本表判定所需 capability 与批准语义。
  * 策展原则：obs 免批准（只读观测）；manage 自带 draft 语义（Command 层识别，不重复发起人工批准）；
  * 写类逐个策展（dev/write/memory.write 等需要对应写能力）。
+ *
+ * W4（ADR-0004）：表驱动授权退役中。方法级静态审核（PTC_CAPABILITIES + role.capabilities）
+ * 已接管 dev/write/debug 等能力门控；本表仅作为兼容 shim 保留给 CommandGateway 旧路径。
  */
 
 export interface InternalCapabilityPolicy {

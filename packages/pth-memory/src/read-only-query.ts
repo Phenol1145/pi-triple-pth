@@ -54,7 +54,7 @@ function extractTables(sql: string): string[] {
 }
 
 /** 噪声掩码（与 stripSqlNoise 同规则但保持长度）：字符串/注释/dollar-quote 内容 → 空格。 */
-function maskSqlNoise(sql: string): string {
+export function maskSqlNoise(sql: string): string {
   const out = sql.split("");
   let i = 0;
   const fill = (from: number, to: number) => { for (let k = from; k < to; k++) out[k] = " "; };
@@ -65,6 +65,19 @@ function maskSqlNoise(sql: string): string {
       while (i < sql.length) {
         if (sql[i] === "'") {
           if (sql[i + 1] === "'") { i += 2; continue; }
+          i++;
+          break;
+        }
+        i++;
+      }
+      fill(start, i);
+      continue;
+    }
+    if (ch === '"') {
+      const start = i++;
+      while (i < sql.length) {
+        if (sql[i] === '"') {
+          if (sql[i + 1] === '"') { i += 2; continue; }
           i++;
           break;
         }

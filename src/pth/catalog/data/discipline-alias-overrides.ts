@@ -2,7 +2,7 @@
  * catalog/data/discipline-alias-overrides.ts — 生产域别名覆盖（F4 AB-06）。
  *
  * 覆盖 programming-languages 与 materials-science 两个既有 discipline id；
- * aliases 追加去重（大小写不敏感）后由 scripts/build-discipline-catalog.ts 在生成
+ * aliases 追加去重（大小写不敏感）后由 scripts/gen/build-discipline-catalog.ts 在生成
  * DISCIPLINE_DEFINITIONS 时合并；names 为可选的 names 覆盖。
  * 生产 assembly/batch/evaluator 都使用同一份生成数据。
  */

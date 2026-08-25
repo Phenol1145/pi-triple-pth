@@ -1,5 +1,7 @@
 # PTH 设计张力裁决清单（T1–T10）
 
+> 2026-08-24 三源重构：optimizer-suggestion 语义废止、sensor/controller/actuator 升 gen 0——详见 `three-source-lineage-and-capacity-conservation-design.md`。
+
 > 来源：`concepts.md` §8.1「自相矛盾检查——待用户裁决」（2026-08-13）。
 > 每条张力拆为：双方依据 / 代码现状 / 裁决选项（★=推荐）/ 影响面。
 > 裁决方式：直接回复 `T1-A, T2-A, ...`，或在本文件各条「我的选择」处填写；裁决结果回填 `concepts.md` §8.1 状态列后，本清单归档。

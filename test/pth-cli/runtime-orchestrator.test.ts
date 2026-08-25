@@ -284,6 +284,83 @@ describe("orchestrateDown", () => {
   });
 });
 
+describe("target 分派", () => {
+  it("--target local-container 与无 target 的 core 编排调用序列一致", async () => {
+    async function runOnce(repoRoot: string, args: string[]): Promise<{ calls: string[]; order: string[] }> {
+      const calls: string[] = [];
+      const order: string[] = [];
+      const runner: CommandRunner = async (cmd, argv, opts) => {
+        calls.push(`${cmd} ${argv.join(" ")}`);
+        return healthyRunner(repoRoot)(cmd, argv, opts);
+      };
+      await orchestrateUp(args, {
+        repoRoot,
+        env: { PTH_WORKSPACES_HOST: repoRoot },
+        runner,
+        profiles: DEFAULT_RUNTIME_PROFILES,
+        doctor: async () => ({ ok: true, profile: "core", items: [] }),
+        ...makeFakes({
+          order,
+          services: async () => {},
+          tools: async () => {},
+          pthUp: async (a) => {
+            const normalized = a.map((x) => (/^[0-9a-f]{64}$/.test(x) ? "<token>" : x));
+            order.push(`pthUp ${normalized.join(" ")}`);
+          },
+          pthDown: async () => {},
+          pthStatus: async () => {},
+        }),
+      });
+      return { calls, order };
+    }
+
+    const repoRoot = await makeRepo();
+    const baseline = await runOnce(repoRoot, ["--profile", "core"]);
+    const targeted = await runOnce(repoRoot, ["--target", "local-container", "--profile", "core"]);
+    expect(targeted.calls).toEqual(baseline.calls);
+    expect(targeted.order).toEqual(baseline.order);
+  });
+
+  it("--target bogus 报错并列出合法值", async () => {
+    const repoRoot = await makeRepo();
+    await expect(orchestrateUp(["--target", "bogus", "--profile", "core"], {
+      repoRoot,
+      env: { PTH_WORKSPACES_HOST: repoRoot },
+      runner: healthyRunner(repoRoot),
+      profiles: DEFAULT_RUNTIME_PROFILES,
+      doctor: async () => ({ ok: true, profile: "core", items: [] }),
+      ...makeFakes({
+        order: [],
+        services: async () => {},
+        tools: async () => {},
+        pthUp: async () => {},
+        pthDown: async () => {},
+        pthStatus: async () => {},
+      }),
+    })).rejects.toThrow(/unknown target.*local-container/);
+  });
+
+  it("local-process 与 tools/jupyter 组合 fail-fast", async () => {
+    const repoRoot = await makeRepo();
+    await expect(orchestrateUp(["--target", "local-process", "--profile", "full", "--yes-i-know"], {
+      repoRoot,
+      env: { PTH_WORKSPACES_HOST: repoRoot },
+      runner: healthyRunner(repoRoot),
+      profiles: DEFAULT_RUNTIME_PROFILES,
+      doctor: async () => ({ ok: true, profile: "full", items: [] }),
+      localProcessAckFile: join(repoRoot, "ack"),
+      ...makeFakes({
+        order: [],
+        services: async () => {},
+        tools: async () => {},
+        pthUp: async () => {},
+        pthDown: async () => {},
+        pthStatus: async () => {},
+      }),
+    })).rejects.toThrow(/local-process 不支持组件: tools, jupyter/);
+  });
+});
+
 describe("orchestrateStatusAll", () => {
   it("聚合 core/services/tools/runtime 注册态与 engine status", async () => {
     const repoRoot = await makeRepo();
