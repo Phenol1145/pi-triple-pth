@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeImportCycles } from "../../scripts/check-import-cycles.js";
+import { analyzeImportCycles } from "../../scripts/check/check-import-cycles.js";
 
 describe("PTH import cycle gate", () => {
   it("static-runtime import graph has zero SCCs", async () => {

@@ -3,6 +3,7 @@
 > 触发：代码审计与大型文件拆分收尾后，对仓库整体结构做一次系统盘点。
 > 范围：**诊断 + 方案**——本文件不搬动任何代码文件；所有物理重组项须经评审后单独执行。
 > 关联：`docs/pth/report/code-audit-2026-08-24.md`（文件级审计）、`docs/pth/module-ownership.md`、`docs/pth/architecture.md`。
+> 执行状态：**P0 文档纠偏 + P1/P2 scripts/test/杂散整理已完成（2026-08-25，v1.8.0 维护批次）**；P3 待专项评审。
 
 ## 1. 现状快照（量化）
 
@@ -66,7 +67,7 @@ tsc 不搬非 TS 文件，但两处运行时依赖相对路径资产：
 1. `role-catalog-loader.ts` 读 `catalog/data/roles/*.json`（42 张角色卡）——dist 缺失导致容器 bootstrap fail-closed；
 2. `execution-target-registry.ts` 读 `deploy/executor-matrix.json`——Dockerfile 未拷。
 
-修复：新增 `scripts/copy-runtime-assets.mjs`（挂入根 `build` 脚本与 Dockerfile 构建链）+ Dockerfile runtime 段补拷 `executor-matrix.json`。教训：**凡 `import.meta.url` 相对路径读资产，必须有对应构建期拷贝步骤**；建议 P4 阶段加机械化检查（扫描 `fileURLToPath(import.meta.url)` + fs 读的组合）。
+修复：新增 `scripts/tools/copy-runtime-assets.mjs`（挂入根 `build` 脚本与 Dockerfile 构建链）+ Dockerfile runtime 段补拷 `executor-matrix.json`。教训：**凡 `import.meta.url` 相对路径读资产，必须有对应构建期拷贝步骤**；建议 P4 阶段加机械化检查（扫描 `fileURLToPath(import.meta.url)` + fs 读的组合）。
 
 ## 3. 目标结构叙事（一句话版）
 

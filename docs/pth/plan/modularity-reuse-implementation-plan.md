@@ -25,14 +25,14 @@
 让“新增循环依赖”在 CI/lint 阶段直接失败，防止 P0 修完后回潮。
 
 ### 任务
-1. 新增 `scripts/check-import-cycles.ts`
+1. 新增 `scripts/check/check-import-cycles.ts`
    - 扫描 `src/pth/**`、`packages/*/src/**`、`src/cli/**` 的 git 跟踪 TS/TSX 文件
    - 解析静态 `import/export from` 与动态 `import()`，分别建图
    - 检测 SCC：
      - `static-runtime`（静态非 type import）必须为 0
      - `static-all` 与 `dynamic` 环输出 warning 或单独报告，不阻塞（当前仍有 type/dynamic 环）
    - 支持 `--update` 只读输出基线（便于后续逐步收紧）
-2. `package.json` 增加 `"check:import-cycles": "tsx scripts/check-import-cycles.ts"`
+2. `package.json` 增加 `"check:import-cycles": "tsx scripts/check/check-import-cycles.ts"`
 3. `lint` 脚本追加 `npm run check:import-cycles`
 4. 补充 `test/pth-architecture/import-cycles.test.ts`，调用同一扫描函数，断言 static-runtime SCC = 0
 

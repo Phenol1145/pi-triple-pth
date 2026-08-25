@@ -77,8 +77,8 @@ execution/index.ts
 ### 整文件重复（跟踪文件，3 组）
 
 - `deps/packages/shared/src/presence.ts` ≡ `ptl/extensions/_shared/presence.ts`
-- `pth/scripts/check-doc-links.ts` ≡ `ptl/scripts/check-doc-links.ts`
-- `pth/scripts/check-product-boundaries.ts` ≡ `ptl/scripts/check-product-boundaries.ts`
+- `pth/scripts/check/check-doc-links.ts` ≡ `ptl/scripts/check/check-doc-links.ts`
+- `pth/scripts/check/check-product-boundaries.ts` ≡ `ptl/scripts/check/check-product-boundaries.ts`
 
 其中 check 脚本属于拆仓 `copyBoth` 有意复制，但仍是双份维护成本；`presence.ts` 建议收敛。
 

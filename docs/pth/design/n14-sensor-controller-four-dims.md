@@ -257,10 +257,10 @@ agent-loop 工具解析 = **静态 TOOL_SCHEMAS ∪ 注册表可见集**（按 r
 
 | 期 | 内容 | 量级 |
 |---|---|---|
-| **P0 契约** ✅ 已落（2026-08-18） | `tool-reg` 条目格式 + `__tool_spec__` 校验 + memory-policy PROMPT_KINDS 增补 + **存量登记器**（PTC_TOOL_DEFS 33 件 builtin 条目 seed，幂等——`scripts/seed-tool-reg.ts`；数量订正：33=AGENT_TOOLS 27 键含 done + ASP-only 6，本文 35 为 B6 退役前旧数）+ **双写一致性对账测试**（§3.6——穿透 P3 同款接口位先行，**可独立成批**） | 中（原小——Q4 裁决扩量） |
+| **P0 契约** ✅ 已落（2026-08-18） | `tool-reg` 条目格式 + `__tool_spec__` 校验 + memory-policy PROMPT_KINDS 增补 + **存量登记器**（PTC_TOOL_DEFS 33 件 builtin 条目 seed，幂等——`scripts/seed/seed-tool-reg.ts`；数量订正：33=AGENT_TOOLS 27 键含 done + ASP-only 6，本文 35 为 B6 退役前旧数）+ **双写一致性对账测试**（§3.6——穿透 P3 同款接口位先行，**可独立成批**） | 中（原小——Q4 裁决扩量） |
 | **P1 观测** ✅ 已落（2026-08-18） | sensor 三新点位（builtin-roles + prompt）+ guardrails 计数进 scorecard（N12 二期观测面）——`d230f96` | 中 |
 | **P2 通道执行缝** ✅ 已落（2026-08-18） | 注册表驱动动态工具面（快照版本化 + 预算守卫）+ program 执行器（ts 核）+ agent 态接穿透 runChild + `PTH_TOOL_WRITE_POLICY` 配置——`008f85c` | 大 |
-| **P3 调节与 SOP** ✅ 已落（2026-08-18） | controller 三新点位（tool-face/tool-single/rule，GOVERNANCE_ROLES 13→16）+ manage.tool.* 调节面（预算守卫 + manual/staged 双策略）+ 四条 SOP 固化（SEED_OPT_SOPS 落库）+ 晋升管线首跑（真实 tool-function `fn-wx7wk7→tool:toolfn_anchor_stats` / `fn-v2u2if→tool:toolfn_anchors_of` 经提案→对抗审核→批准→注册全链，ts 核执行 + 快照可见验证——`scripts/n14-p3-tool-promotion.ts`） | 中 |
+| **P3 调节与 SOP** ✅ 已落（2026-08-18） | controller 三新点位（tool-face/tool-single/rule，GOVERNANCE_ROLES 13→16）+ manage.tool.* 调节面（预算守卫 + manual/staged 双策略）+ 四条 SOP 固化（SEED_OPT_SOPS 落库）+ 晋升管线首跑（真实 tool-function `fn-wx7wk7→tool:toolfn_anchor_stats` / `fn-v2u2if→tool:toolfn_anchors_of` 经提案→对抗审核→批准→注册全链，ts 核执行 + 快照可见验证——`scripts/tools/n14-p3-tool-promotion.ts`） | 中 |
 
 ## 7. 验收要点（实施时钉测试）
 

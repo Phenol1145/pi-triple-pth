@@ -34,8 +34,8 @@ Suite(套件) → Scenario(场景) → Driver(驱动) × ExecPolicy(执行策略
 | 资产 | 位置 | 复用方式 |
 |---|---|---|
 | `pth bench`（7 硬编码任务，归档 `.perf-bench/`，list/compare） | `packages/pth-console/src/commands/bench.ts` | 迁移为 `core.json` 套件；CLI 薄壳重写（行为零回归） |
-| 指标化评测（阈值 + 退出码） | `scripts/eval-k5-pilot.ts` + `pilot-evaluator.ts` | 阈值门禁模式 → Baseline Gate |
-| 进程内全生产装配 + 确定性 LLM（outcome/toolsByTurn/traces/usage 采集） | `scripts/n28-feasibility-harness.ts` | L0 in-process driver 的装配模式 |
+| 指标化评测（阈值 + 退出码） | `scripts/eval/eval-k5-pilot.ts` + `pilot-evaluator.ts` | 阈值门禁模式 → Baseline Gate |
+| 进程内全生产装配 + 确定性 LLM（outcome/toolsByTurn/traces/usage 采集） | `scripts/tools/n28-feasibility-harness.ts` | L0 in-process driver 的装配模式 |
 | 指标基础设施（L0/L1/LLM/L2/L3，prom-client） | `src/pth/observability/kernel-metrics.ts`、`metrics-observer.ts` | `/metrics` 抓取 → system 快照 + metric-delta grader |
 | `buildScorecard(traceEvents)`（反模式/利用率聚合） | `pth-kernel-execution`（已导出；gateway trace 路由已随轨迹返回 scorecard） | RunRecord.trace.scorecard；`scorecard` grader |
 | **观察策略/活动因子**（声明式 matcher + p50/p95/p99 聚合 + 热路径预算；`getPathValue`/`matchObservationCondition`） | `pth-kernel-execution/observation-strategy.ts` | **测量定义层**（§3）；grader 路径/匹配原语全部复用 |

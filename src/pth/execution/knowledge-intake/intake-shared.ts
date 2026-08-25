@@ -209,7 +209,7 @@ export interface KnowledgeIntakeSubscriptionService {
   /**
    * 安装已验签 policy 的审计镜像并创建 probing Subscription。
    *
-   * 这是 ops 入口（`scripts/pth-intake-subscribe.ts`）唯一允许调用的写路径：
+   * 这是 ops 入口（`scripts/tools/pth-intake-subscribe.ts`）唯一允许调用的写路径：
    * 不签发/修改 policy、不直接 INSERT 表、不直接发布 Task。
    * 请求 URI 必须先通过 `authorizeFetch()` **和** `authorizeUse()`（domain 维度），
    * 任一未 allow 即 fail closed，不创建任何订阅。

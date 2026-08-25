@@ -899,7 +899,7 @@ N14 扩展治理侧（sensor/controller 四维细分 + 工具注册通道），N
 | 类型 | 定义 | 治理 | 锚点形态 | 现有 kind |
 |---|---|---|---|---|
 | **设定（setting）**〔桥〕 | 系统不可变核心档案 | 修改走审批面（protected） | id 即锚点（role-doc:developer） | role-doc · capability-index · worker-index · pth-worker-system · worker-role · space-reg · project-map |
-| **百科（wiki）**〔桥〕 | 术语解释——词表一致性 | 写入需词表校验（矛盾检测——§10 N1b） | 术语即锚点 | ✅ pth-wiki（2026-08-13 条目化——scripts/seed-wiki.ts 幂等可重跑） |
+| **百科（wiki）**〔桥〕 | 术语解释——词表一致性 | 写入需词表校验（矛盾检测——§10 N1b） | 术语即锚点 | ✅ pth-wiki（2026-08-13 条目化——scripts/seed/seed-wiki.ts 幂等可重跑） |
 | **skill**〔桥〕 | 独立不可变知识条目——系统化描述怎么做某件事（SOP）。四段式（W1）：场景锚点三要素 + Procedure（每步标注调用代价）+ Pitfalls + Verification；写后冻结（B4-1）；维护 = memory-keeper 专项 | 场景锚点三要素 · 两级检索（Phase 2） | 🏗️ Phase 1 已落（2026-08-15——格式模板 + 3 条角色 SOP 种子；skills.get/清单属 Phase 2） |
 | **日志（log）**〔桥〕 | 系统运行过程记录 | 只增 + 聚合/归档（T7） | 时间/任务锚点 | scorecard · transcript · audit · obs · task-insight |
 
@@ -1147,7 +1147,7 @@ v0.9（动作面/权限/任务池纯化）
 | T9 | 渐进降输入 vs 任务理解质量 | "最短指令"下界——核心意图必须完整到可分派 | ✅ 已裁决（2026-08-14）：**协作模型重写**——PTL 侧理解用户全部需求→产出概念设计→PTH 生成实施方案（渐进降输入废止） |
 | T10 | 环间同对象仲裁 | JIT 环与控制环作用于同一角色/空间——无仲裁机制 | ✅ 已裁决（2026-08-14）：暂缓观察——obs 观测到同对象冲突实例后按目标级写锁实装 |
 
-> **2026-08-14 用户裁决全部完成**——决策源 `docs/pth/tension-decisions.json`（结构化录入器 scripts/adjudicate-tensions.ts 产出）；
+> **2026-08-14 用户裁决全部完成**——决策源 `docs/pth/tension-decisions.json`（结构化录入器 scripts/tools/adjudicate-tensions.ts 产出）；
 > T2/T5/T7 按推荐 A 落地（用户问询澄清后未重录——可随时否决回滚）。
 
 ### 8.2 概念债务
@@ -1217,11 +1217,11 @@ v0.9（动作面/权限/任务池纯化）
 
 | # | 新概念/机制 | 理论坐标 | 缺口 | 承接/关联 | 状态 |
 |---|---|---|---|---|---|
-| N1 | 百科记忆类型（词表条目化） | 0.9 · 域 B | ✅ 已实装（2026-08-13——kind=pth-wiki + scripts/seed-wiki.ts——87 条落库，幂等可重跑） | memory.query 按 anchors 检索 · 术语即锚点 | ✅ 已实装 |
+| N1 | 百科记忆类型（词表条目化） | 0.9 · 域 B | ✅ 已实装（2026-08-13——kind=pth-wiki + scripts/seed/seed-wiki.ts——87 条落库，幂等可重跑） | memory.query 按 anchors 检索 · 术语即锚点 | ✅ 已实装 |
 | N1b | 百科写入矛盾检测（词表校验） | 0.9 · 域 B | ✅ 已落（2026-08-15——`wiki.ts validateWikiWrite`：id/术语锚点/三要素/重复定义；memory.write 写 pth-wiki 前强制校验） | 污染防线（写侧断言）· N1 治理列 | ✅ 已落 |
 | N2 | skill 记忆类型（工作流 SOP 一等化） | 0.9 · 0.13 · 域 B | Phase 1–4 已全落：四段式格式 + 种子注入（developer/scout/memory-keeper + N14 四层 opt + **N17 A5 叶子×8**）；两级检索；maintain 仅 memory-keeper + 不可变语义 + staged 审核流/controller:adversarial（L2）；`parseSkillMarkdown` 映射 | 不可变知识条目（B4-1）· 0.13 外部 skill 映射（Phase 4） | ✅ 已完成（A5 补齐叶子种子） |
 | N3 | 数据缓存使用追踪（cacheUtilization） | 0.12 · 域 E/域 D | ✅ 已实装（2026-08-13——get 命中标记 used→utilization()→scorecard+聚合快照+cache-waste 热点+sensor 观测维度；测试 10 全绿） | scorecard 新指标 · sensor 观测（数据流效率） | ✅ 已实装 |
-| N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 分支 ✅（`importSkillMarkdown`）；MCP 分支 ✅（2026-08-18 N17 D1——`parseMcpBundle`/`mcpToolToSpec`/`importMcpTools` → tool-proposal draft 治理注册；`scripts/import-mcp-bundle.ts` + `manage.tool.importMcp`） | ext-registry（agent-reach 已验证） | ✅ 已完成（两分支均落） |
+| N4 | 生态转化 pipeline（skill 条目化 / MCP 拆解） | 0.13 · 域 B/域 F | skill 分支 ✅（`importSkillMarkdown`）；MCP 分支 ✅（2026-08-18 N17 D1——`parseMcpBundle`/`mcpToolToSpec`/`importMcpTools` → tool-proposal draft 治理注册；`scripts/tools/import-mcp-bundle.ts` + `manage.tool.importMcp`） | ext-registry（agent-reach 已验证） | ✅ 已完成（两分支均落） |
 | N5 | 资源环采集（perf-autopilot） | 0.7.3 · 域 D · §9 | ✅ 已落（2026-08-15——`obs.resource()`：container cgroup + pg activity/database/slow + storage + batches；`pgStat` 新增慢查询视图） | controller:resource 角色已有 | ✅ 已落 |
 | N6 | 复测（verify）一等化 | 0.7.2 · 域 D | ~~verifyAfterWindow 标志已有；独立复测任务未一等化~~ ✅ 已实装（2026-08-14 B2）：apply 派发独立复测任务（受控复现）→ 证据三通道结算（verify-task＞organic＞global）→ 超时零进展 verify_expired 诚实闭合 + 独立巡检定时器 | optimizer-apply baseline/deopt | ✅ 已实装 |
 | N7 | 记忆归档执行 | 0.9 · 域 B | ✅ 已实装（2026-08-14 T7 执行端 + 2026-08-15 B1 定期触发：`memory-sweep-trigger.ts` 默认每天巡检，提案经监督批准） | sensor:memory / controller:memory 已有 | ✅ 已实装 |

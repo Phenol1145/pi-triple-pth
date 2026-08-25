@@ -1,6 +1,6 @@
 # N28 项目结构基线
 
-> 由 `scripts/n28-structure-snapshot.ts --update` 生成；JSON 事实源：
+> 由 `scripts/tools/n28-structure-snapshot.ts --update` 生成；JSON 事实源：
 > `docs/pth/n28-structure-baseline.json`。
 > 每次 lane 合并回 main 后，合并者先 `--check` 对照 lane 契约 §3 文件域复核漂移，
 > 再以单独 docs commit `--update` 刷新本基线。

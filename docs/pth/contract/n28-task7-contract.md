@@ -21,17 +21,17 @@
 | `VerifiedTaskReadScope`、`VerifiedTaskReadScopeFactory`、`createLayeredKnowledgeRetriever()`、`LayeredRetrievalRequest`、per-call `searchWave` port、`PendingRetrievalTrace`、KnowledgeBroker/KnowledgeContextProvider 中的 optional layered 路径 | `src/pth/execution/layered-knowledge-retriever.ts`、`src/pth/execution/authorization/verified-task-read-scope.ts`、`src/pth/execution/knowledge-broker.ts`、`src/pth/runner/knowledge-context.ts` | T4 |
 | `CognitiveBudgetLedger`、`CognitiveBudgetExceededError`、scope-bound canonical state reads、`AuthorizedTaskReadFactory`、`createTaskWorkingSetPolicy()`、`createBudgetedTaskCapabilities()`、确定性 `snapshot()` | `src/pth/kernel/execution/cognitive-budget.ts`、`src/pth/runner/authorized-task-reads.ts`、`src/pth/runner/authorized-state-reads.ts`、`src/pth/runner/cognitive-working-set.ts` | T5 |
 | optional `CognitiveWorkingSetProvider`、agent-loop `toolAllowlist`、execution-time hidden-tool rejection、TaskOutcome usage/trace 中的 final working-set snapshot | `src/pth/kernel/execution/agent-loop-types.ts`、`src/pth/kernel/execution/agent-loop.ts`、`src/pth/kernel/execution/agent-loop-guards.ts`、`src/pth/runner/cognitive-working-set.ts`、`src/pth/bootstrap/task-loop-types.ts`、`src/pth/bootstrap/task-loop.ts` | T6 |
-| 冻结 corpus、worker refs、regions、responsibilities、gold queries；共享 harness 及其可选 `sabotage` 参数 | `scripts/n28-feasibility-fixture.ts`、`scripts/n28-feasibility-harness.ts` | T3/T6 |
+| 冻结 corpus、worker refs、regions、responsibilities、gold queries；共享 harness 及其可选 `sabotage` 参数 | `scripts/tools/n28-feasibility-fixture.ts`、`scripts/tools/n28-feasibility-harness.ts` | T3/T6 |
 
 ## 3. 实施范围
 
 | 文件（Create/Modify 逐字列全） | 改动 |
 |---|---|
-| `scripts/eval-n28-feasibility.ts` | Create |
-| `scripts/accept-n28-feasibility.ts` | Create |
+| `scripts/eval/eval-n28-feasibility.ts` | Create |
+| `scripts/accept/accept-n28-feasibility.ts` | Create |
 | `tsconfig.n28.json` | Create |
-| `scripts/n28-feasibility-harness.ts` | Modify |
-| `scripts/n28-feasibility-fixture.ts` | Modify |
+| `scripts/tools/n28-feasibility-harness.ts` | Modify |
+| `scripts/tools/n28-feasibility-fixture.ts` | Modify |
 | `test/pth-runner/n28-feasibility-evaluator.test.ts` | Create |
 | `test/pth-runner/n28-feasibility-acceptance.test.ts` | Create |
 | `docs/pth/report/n28-feasibility-report.md` | Create after execution |
@@ -72,7 +72,7 @@
 7. **Skip manifest 冻结**：`N28_ACCEPTED_BASELINE_SKIPS = [{ file: "test/pth-execution/sandbox-security.integration.test.ts", tests: 9 }] as const`；解析只认 Vitest JSON `testResults[].assertionResults[]` 中 `pending`/`skipped`/`todo`/`disabled`，路径相对化并统一 `/`，聚合重复文件、去零计数、按仓库相对路径排序；拒绝未知 JSON shape，不回退 stdout 或 `numPendingTests`。
 8. **环境不可用只来自 preflight 四类探针**：`postgres`/`redis`/`sandbox`/`toolchain`，且必须在命令执行前运行；gate 一旦 `started=true`，非零退出永远是 NO-GO，不得把已执行失败测试改标为环境问题。
 9. **实验预算照抄设计/计划**：`maxRegions=3`、`maxPrimaryWeight=80`、`maxSecondaryWeight=40`（overlap + fallback）、`maxMemoryEntries=8`、`maxMemoryChars=4096`、`maxSkillIndexEntries=8`、`maxActiveSkills=4`、`maxSkillChars=8192`、`maxTools=16`；static 与 ToolReg 共享同一 `maxTools` 上限；不得宣布为生产默认值。
-10. **可复现与边界**：两次 evaluator 输出 byte-identical；JSON 不含时间戳/随机 ID/机器路径；Vitest 与 CLI 都从 `scripts/n28-feasibility-fixture.ts` 取冻结 corpus 等输入且互不 import；evaluator import 与 sabotage 分支不得进入 `src/pth/**`；`tsconfig.n28.json` 文件清单按裁决 C7 收窄（N28 专有文件），source path overrides 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明。
+10. **可复现与边界**：两次 evaluator 输出 byte-identical；JSON 不含时间戳/随机 ID/机器路径；Vitest 与 CLI 都从 `scripts/tools/n28-feasibility-fixture.ts` 取冻结 corpus 等输入且互不 import；evaluator import 与 sabotage 分支不得进入 `src/pth/**`；`tsconfig.n28.json` 文件清单按裁决 C7 收窄（N28 专有文件），source path overrides 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明。
 
 ## 7. 非目标
 
@@ -136,13 +136,13 @@ npm run lint
 ```
 
 ```bash
-TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval-n28-feasibility.ts > /tmp/n28-run-1.json
-TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval-n28-feasibility.ts > /tmp/n28-run-2.json
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval/eval-n28-feasibility.ts > /tmp/n28-run-1.json
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval/eval-n28-feasibility.ts > /tmp/n28-run-2.json
 diff -u /tmp/n28-run-1.json /tmp/n28-run-2.json
 ```
 
 ```bash
-TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept-n28-feasibility.ts --output /tmp/n28-acceptance.json
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept/accept-n28-feasibility.ts --output /tmp/n28-acceptance.json
 ```
 
 关键断言点（Expected）：
@@ -253,7 +253,7 @@ TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept-n28-feasibi
 | skip manifest 冻结 9（`test/pth-execution/sandbox-security.integration.test.ts`，9 tests） | `parseVitestSkipManifest` 单测（POSIX/macOS 绝对路径归一化一致）+ acceptance 决策测试 |
 | 报告必须含免责句：「This result validates the reversible in-memory orchestration model; it does not validate PG durability, automatic partitioning, autoscaling, real-LLM retrieval quality, or production default thresholds.」 | `docs/pth/report/n28-feasibility-report.md` 内容对账 |
 | GO 只授权写生产化计划，禁止 ADR/schema | 计划 Step 9 原文 + report/commit 内容 review |
-| 合并者额外 review：CLI 入口有 `import.meta.url` guard | `scripts/eval-n28-feasibility.ts` 与 `scripts/accept-n28-feasibility.ts` 均含 `import.meta.url === pathToFileURL(process.argv[1]).href` guard；acceptance 测试导入纯决策函数不得递归启动 driver |
+| 合并者额外 review：CLI 入口有 `import.meta.url` guard | `scripts/eval/eval-n28-feasibility.ts` 与 `scripts/accept/accept-n28-feasibility.ts` 均含 `import.meta.url === pathToFileURL(process.argv[1]).href` guard；acceptance 测试导入纯决策函数不得递归启动 driver |
 | 合并者额外 review：`tsconfig.n28.json` 文件清单与裁决 C7 收窄后清单一致 | 人工比对（4 个 scripts + vertical/evaluator/acceptance 三测试）；source paths 覆盖 clean-checkout 依赖闭包，不替换为 workspace `dist` 声明 |
 | 合并者额外 review：评估两次运行 byte-identical | Step 6 `diff -u` 无输出 + envelope `evaluator.byteIdentical === true` |
 | 合并者额外 review：env unavailable 只能来自 preflight 四类探针 | `CommandGateEvidence.unavailableReason` 仅含 `postgres`/`redis`/`sandbox`/`toolchain`；代码 review `probeAcceptedN27Environment()` |
@@ -266,7 +266,7 @@ TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept-n28-feasibi
 
 1. **判定纯度与冻结常量**：evaluator 判定只能从 metrics 机械推导，不得接受独立 hypothesis 布尔；非空分母精确冻结（`workerLifecycle=6`、`directoryInvariant=8`、`authorization=32`、`surfaceComparison=12`、`batchRuntime=1`、`stoppedSlotCleanup=2`、`heartbeatIdentity=4`、`auditIdentity=3`、`grantIdentity=3`、`directoryDeterminism=1`、`visibility=14`、`hiddenDispatch=1`、`gold=12`、`generatedBudget=1000`、`generatedResponsibility=1000`）；6 个 sabotage 哨兵映射逐字冻结；`decideN28Feasibility` 与 `decideN28Acceptance` 的全部 GO 条件已逐条写进 §8.2，未缩窄或放宽。
 2. **终审与报告边界**：evaluator 判定是 provisional；只有 `accept-n28-feasibility.ts` 可发 GO；报告必须含免责句；GO 只授权写生产化计划，禁止 ADR/schema。
-3. **CLI 与类型配置**：`scripts/eval-n28-feasibility.ts` 与 `scripts/accept-n28-feasibility.ts` 的 CLI 入口均有 `import.meta.url` guard（Vitest 导入不触发驱动）；`tsconfig.n28.json` 文件清单与计划 Step 5 逐字一致。
+3. **CLI 与类型配置**：`scripts/eval/eval-n28-feasibility.ts` 与 `scripts/accept/accept-n28-feasibility.ts` 的 CLI 入口均有 `import.meta.url` guard（Vitest 导入不触发驱动）；`tsconfig.n28.json` 文件清单与计划 Step 5 逐字一致。
 4. **可复现性**：评估两次运行 byte-identical（`diff` 无输出，envelope `byteIdentical=true`）；JSON 无时间戳/随机 ID/机器路径。
 5. **环境诚实性**：`env unavailable` 只能来自 preflight 四类探针（postgres/redis/sandbox/toolchain），且必须在命令执行前；gate 一旦 `started=true`，非零退出永远是 `NO-GO`；skip manifest 冻结 9（sandbox-security 文件）且无新 skip。
 

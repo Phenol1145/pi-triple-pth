@@ -43,7 +43,7 @@ W4 收尾追加全量串行基线：`npm test -- --maxWorkers=1`
 - launcher（init/up/down/status/logs）当前**无测试文件**；测试集中在 `test/pth-cli/runtime-*.test.ts`。
 - `packages/pth-sandbox/src/main.ts` 是独立 server 入口；`PTH_COMPILED_CACHE_DIR` schema 默认
   `/data/compiled-cache/c`（容器路径，local-process 必须 preset 覆盖）。
-- npm CLI 包（`scripts/build-pth-cli-package.sh`）**不含** engine 与 pth-sandbox 的 dist
+- npm CLI 包（`scripts/gen/build-pth-cli-package.sh`）**不含** engine 与 pth-sandbox 的 dist
   → local-process v1 仅支持仓库 checkout（见 W3.7 边界）。
 
 ---
@@ -300,7 +300,7 @@ unset PTH_WORKSPACES_HOST; node dist/cli/pth-cli.js doctor   # workspaces 项 pa
 
 ### 任务
 
-1. **删除 `deploy/pth.deployment.json`**（已拍板）；`scripts/check-pth-config.ts` 的
+1. **删除 `deploy/pth.deployment.json`**（已拍板）；`scripts/check/check-pth-config.ts` 的
    `COMPOSE_FILES` 只留 `deploy/docker-compose.yaml`；`npm run check:pth-config` 绿。
 2. **`docs/pth/deployment.md`**：
    - §2 安装步骤重写（init --generate / workspaces 收口 / target 概念）；

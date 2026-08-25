@@ -8,7 +8,7 @@
   - 包含 `programming-languages` / `materials-science` 两域 aliases（从
     `pilot-domain-overrides.ts` 迁入，内容不变）；
   - 导出 `PRODUCTION_DOMAIN_ALIAS_OVERRIDES`。
-- `scripts/build-discipline-catalog.ts` 生成时合并 overrides（aliases 追加去重、names 覆盖）；
+- `scripts/gen/build-discipline-catalog.ts` 生成时合并 overrides（aliases 追加去重、names 覆盖）；
   **删除 `pilot-domain-overrides.ts` 与 `buildPilotCatalog()`**——评测器与生产 assembly/batch
   都使用同一份 `DISCIPLINE_DEFINITIONS` + `DisciplineCatalogBuilder`。
 - `discipline-catalog.ts` 的 `computeVersion` 扩展：`id:level:parents:names.zh-CN:aliases:
@@ -64,7 +64,7 @@
 
 ## 6. 脚本与报告
 
-- `scripts/eval-k5-pilot.ts`：默认离线 + `--live`；输出全部指标；退出码按
+- `scripts/eval/eval-k5-pilot.ts`：默认离线 + `--live`；输出全部指标；退出码按
   domainRecallAt3≥0.9、knowledgeRecallAt5≥0.9、evidenceCoverage≥0.95、
   hardNegativePassRate=1.0、multiDomainResolution=1.0、distractorTop3Rate≥0.9；
 - 更新 `docs/pth/report/k5-eval-report.md`：标注生产 Catalog/生产 ranking/DB evidence 的实测值；

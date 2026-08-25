@@ -1,6 +1,6 @@
 {
   "name": "@away_from/pth-kernel-storage",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,8 +14,8 @@
     "dist"
   ],
   "dependencies": {
-    "@away_from/pth-contracts": "^1.6.0",
-    "@away_from/pth-memory": "^1.6.1",
+    "@away_from/pth-contracts": "^1.8.0",
+    "@away_from/pth-memory": "^1.8.0",
     "pg": "^8.22.0"
   }
 }

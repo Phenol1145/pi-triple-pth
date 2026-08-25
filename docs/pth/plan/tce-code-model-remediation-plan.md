@@ -101,7 +101,7 @@
 
 **内容**：
 - Code 层审核埋点：deny/await-approval 率 → obs 数据源（sensor:rule 消费面）
-- `scripts/check-tce-coverage.ts`：每个工具/能力必须有契约声明（lint 链新档）
+- `scripts/check/check-tce-coverage.ts`：每个工具/能力必须有契约声明（lint 链新档）
 - 文档：concepts.md TCE 段改写（Tool→Code→Execute）、CONTEXT.md 释义同步、release notes
 - 审计文档 §2 标注 superseded by 本计划完成态
 

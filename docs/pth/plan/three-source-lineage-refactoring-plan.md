@@ -180,7 +180,7 @@
 
 | 文件 | 改动 |
 |---|---|
-| `scripts/check-role-conservation.ts`（新建） | ① 从 builtin-roles + tool-reg 快照计算各角色 `effcap`（T=承诺任务类型 / A=capabilities 并集 / D=spaceScope·defaultReads·produces / O=delegation-policy 推导——四元组口径按设计 §6.2）；② **L1 覆盖对账**：每 generation 并集 vs C（C = tool-reg 注册工具全集 ∪ 角色承诺任务类型全集 ∪ 数据空间全集）——漏覆盖 fail-fast；③ **L2 倒挂检测**：`cap(c) ⊀ effcap(p)` fail-fast（按四元组逐维判定——D/O 维按集合包含）；④ **重复度报告**（Q7——兄弟 A 维 Jaccard 重叠度排序输出，不 fail）；⑤ 输出分「错误 / 质量指标」两档，exit code 区分 |
+| `scripts/check/check-role-conservation.ts`（新建） | ① 从 builtin-roles + tool-reg 快照计算各角色 `effcap`（T=承诺任务类型 / A=capabilities 并集 / D=spaceScope·defaultReads·produces / O=delegation-policy 推导——四元组口径按设计 §6.2）；② **L1 覆盖对账**：每 generation 并集 vs C（C = tool-reg 注册工具全集 ∪ 角色承诺任务类型全集 ∪ 数据空间全集）——漏覆盖 fail-fast；③ **L2 倒挂检测**：`cap(c) ⊀ effcap(p)` fail-fast（按四元组逐维判定——D/O 维按集合包含）；④ **重复度报告**（Q7——兄弟 A 维 Jaccard 重叠度排序输出，不 fail）；⑤ 输出分「错误 / 质量指标」两档，exit code 区分 |
 | lint 接入 | `package.json` lint 链加 `check-role-conservation`（与 check-pth-config 同档） |
 | `src/pth/gateway/routes-lineage.ts`（注册闸） | 分化/注册提案批准闸加 L1–L3 校验：新角色必须是父能力真子集、produces 声明合法、兄弟并集不破覆盖 |
 | 存量记忆迁移 | 一次性迁移（启动迁移或脚本——择轻者）：`kind=optimizer-suggestion` 条目 meta 标注 `migratedFrom:"optimizer-suggestion"` + 按内容语义归kind（含方案结构字段 → modification-plan；纯观测 → observation-report；不确定 → 保留原 kind + 标注，人工分流） |

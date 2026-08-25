@@ -56,7 +56,7 @@ Phase E（全量门禁 + 发布）
 
 **任务**
 1. 运行 `npx vitest run test/unit/docs-manifest.test.ts test/unit/version.test.ts` 拿到精确 diff。
-2. 对 docs-manifest：以 `collectDocsEntries()` 为准重新生成 `docs/docs-manifest.json`，或修正 `scripts/build-docs-manifest.ts` 的分类映射；两者必须一致且 `collectDocLinkIssues` 为空。
+2. 对 docs-manifest：以 `collectDocsEntries()` 为准重新生成 `docs/docs-manifest.json`，或修正 `scripts/gen/build-docs-manifest.ts` 的分类映射；两者必须一致且 `collectDocLinkIssues` 为空。
 3. 对 version：确认已发布的 `@away_from/framework` 版本后，统一 root/framework 版本号；若 framework `1.6.1` 已发布，root 同步到 `1.6.1`，否则 framework 回退到 `1.6.0`。
 4. 跑 ptl `npm run lint` 和全量单测，确认 2 个失败消失且无新失败。
 
@@ -84,8 +84,8 @@ Phase E（全量门禁 + 发布）
 ### A3. pth/ptl 跨仓重复脚本
 
 **问题**
-- `pth/scripts/check-doc-links.ts` 与 `ptl/scripts/check-doc-links.ts` 完全一致。
-- `pth/scripts/check-product-boundaries.ts` 与 `ptl/scripts/check-product-boundaries.ts` 完全一致。
+- `pth/scripts/check/check-doc-links.ts` 与 `ptl/scripts/check/check-doc-links.ts` 完全一致。
+- `pth/scripts/check/check-product-boundaries.ts` 与 `ptl/scripts/check/check-product-boundaries.ts` 完全一致。
 
 **任务**
 1. 先给两份脚本加“内容一致”同步守卫测试（类似 `ext-shared-sync.test.ts`），防止继续漂移。
@@ -325,7 +325,7 @@ Phase E（全量门禁 + 发布）
 
 > ✅ 已完成（2026-08-23）：`check:pth-boundaries` 当前违规 0 条；为缺失模块补齐 `index.ts`，并迁移全部跨模块深路径到各模块 barrel。
 
-1. 扩展 `scripts/pth-boundaries-core.ts`：把 `cross-module-private-import` 从 gateway/application-gateway 扩展到整个 `src/pth` 的跨模块深路径。
+1. 扩展 `scripts/check/pth-boundaries-core.ts`：把 `cross-module-private-import` 从 gateway/application-gateway 扩展到整个 `src/pth` 的跨模块深路径。
 2. 迁移剩余深路径到各模块 `index.ts`；组合根/bootstrap 的显式装配可保留白名单。
 3. 目标：`check:pth-boundaries` 违规数从 0 开始，不新增；存量深路径逐步清零。
 

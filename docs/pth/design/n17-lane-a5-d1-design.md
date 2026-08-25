@@ -12,7 +12,7 @@
 | 车道 | 内容 | 主要文件域 |
 |---|---|---|
 | **A5** | 全部 actuator 叶子角色（无子类型的 worker 角色）补齐四段式 SOP 种子并注入 prompt-docs | `packages/pth-memory/src/skill-format.ts`、`src/pth/kernel/prompt-docs.ts` |
-| **D1** | MCP 工具包（已拆解重实现源码 + JSON schema）→ 校验/生成 ToolRegSpec → tool-proposal draft 批量落库；`manage.tool.importMcp` 入口 + `scripts/import-mcp-bundle.ts` | `src/pth/tasking/mcp-decompose.ts`（新）、`src/pth/kernel/extensions/manage.ts`、`scripts/import-mcp-bundle.ts`（新） |
+| **D1** | MCP 工具包（已拆解重实现源码 + JSON schema）→ 校验/生成 ToolRegSpec → tool-proposal draft 批量落库；`manage.tool.importMcp` 入口 + `scripts/tools/import-mcp-bundle.ts` | `src/pth/tasking/mcp-decompose.ts`（新）、`src/pth/kernel/extensions/manage.ts`、`scripts/tools/import-mcp-bundle.ts`（新） |
 
 合并序：A5 → D1（独立可交换；D1 不依赖 A5，A5 不依赖 D1——按 A5 先合并只为 review 顺序）。
 
@@ -162,9 +162,9 @@ importMcp: async (opts: { bundle?: unknown }) => {
 - `doc` 字符串补一行说明 `manage.tool.importMcp({bundle})`；
 - 事件复用 `tool.proposal.created`（触发既有 `tool-proposal-review` 自动审核）。
 
-### 2.5 脚本 `scripts/import-mcp-bundle.ts`
+### 2.5 脚本 `scripts/tools/import-mcp-bundle.ts`
 
-- 用法：`DATABASE_URL=… npx tsx scripts/import-mcp-bundle.ts <bundle.json> [--dry-run]`
+- 用法：`DATABASE_URL=… npx tsx scripts/tools/import-mcp-bundle.ts <bundle.json> [--dry-run]`
 - 读文件 → `parseMcpBundle` → 每条 `mcpToolToSpec` 打印三要素/参数/source 长度；
 - `--dry-run` 只校验不写库；真跑用 `PgMemoryStore` + `importMcpTools` 落 draft 提案，
   打印 proposal id（后续走既有 `/api/v1/kernel/memory-admin/approve` 批准）。

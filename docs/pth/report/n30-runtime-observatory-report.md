@@ -16,7 +16,7 @@
 
 ## 1. Eval 双跑（字节一致性）
 
-`node --import tsx scripts/eval-n30-runtime-observatory.ts` 连续两次：
+`node --import tsx scripts/eval/eval-n30-runtime-observatory.ts` 连续两次：
 
 | 项 | 结果 |
 |---|---|

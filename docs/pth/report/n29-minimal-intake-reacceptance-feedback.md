@@ -254,9 +254,9 @@ eligible principals；[knowledge-verdicts.ts](../../../src/pth/execution/knowled
 
 ### P1-3：现有 acceptance sentinel 会漏掉具体旁路
 
-[eval-n29-minimal-intake.ts](../../../scripts/eval-n29-minimal-intake.ts) `:155-160,204-209` 的
+[eval-n29-minimal-intake.ts](../../../scripts/eval/eval-n29-minimal-intake.ts) `:155-160,204-209` 的
 cross-tenant/direct-official 观测主要依赖测试名和既有正向计数；
-[accept-n29-minimal-intake.ts](../../../scripts/accept-n29-minimal-intake.ts) `:156-168` 对一类 sentinel 只要求
+[accept-n29-minimal-intake.ts](../../../scripts/accept/accept-n29-minimal-intake.ts) `:156-168` 对一类 sentinel 只要求
 至少一个 matcher passed，并不要求每个冻结旁路都有独立用例。
 
 所以 `crossTenantIsolation=1` 与 `emptyEvidence=4` 可以保持绿色，同时 side-effect tenant、raw store official、

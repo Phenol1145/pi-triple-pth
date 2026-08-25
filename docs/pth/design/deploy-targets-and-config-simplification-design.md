@@ -23,12 +23,12 @@
 |---|---|---|
 | 配置真相源 | ~100 键 schema（group/scope/secret/runtime 标注） | `packages/pth-config/src/schema.ts` |
 | 运行时配置 | ConfigCenter：env+默认值合并、快照打码、runtime set、explain | `packages/pth-config/src/config-center.ts` |
-| 防回潮 | 禁 `process.env.PTH_*` 直读；compose 键覆盖率统计（对照 `docker-compose.yaml` + `pth.deployment.json`） | `scripts/check-pth-config.ts` |
+| 防回潮 | 禁 `process.env.PTH_*` 直读；compose 键覆盖率统计（对照 `docker-compose.yaml` + `pth.deployment.json`） | `scripts/check/check-pth-config.ts` |
 | secrets | `pth init` 仅复制 example + chmod 600；7 个 dev-only 值需手改；5 个核心密钥 compose `:?` fail-closed | `deploy/.env.pth.secrets(.example)` |
 | 编排 | `pth up --profile core\|tools\|lean4\|u8\|jupyter\|full`；顺序 doctor→secrets→数据层→可选组件→engine→verify | `src/cli/runtime/runtime-orchestrator.ts` |
 | 体检 | docker/compose、secrets、端口、镜像、宿主 facts（PATH_HAS_LEAN/U8_BUILT/PTH_WORKSPACES_HOST） | `src/cli/runtime/runtime-doctor.ts` |
 | compose | 4 服务（postgres/redis/pi-platform/sandbox）+ 双网络 + 限额；dev 叠加手工 `-f` | `deploy/docker-compose{,.dev}.yaml` |
-| 分发 | npm 包 `@away_from/pth-cli`（裁剪 dist + deploy/） | `scripts/build-pth-cli-package.sh` |
+| 分发 | npm 包 `@away_from/pth-cli`（裁剪 dist + deploy/） | `scripts/gen/build-pth-cli-package.sh` |
 | 历史双源 | `pth.deployment.json` 已被裁决废弃，仅作 check 对照物（deployment.md §6 注记） | `deploy/pth.deployment.json` |
 | 可复用执行面 | `local-spawn-backend`（execution/v1.1 host spawn 后端）已存在；`PTH_EXEC_SANDBOX_ALIAS=off` 可关 sandbox 自动合成；`PTH_PYTHON_MODE=kernel` 为代码内默认（本地 REPL 池）；`packages/pth-sandbox/src/main.ts` 是独立 server 入口 | 各对应源文件 |
 

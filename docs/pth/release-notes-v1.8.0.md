@@ -1,7 +1,7 @@
-# PTH v1.8.0 发布说明（草稿）
+# PTH v1.8.0 发布说明
 
-> 状态：草稿
-> 分支：`feat/pth-exec-unified`
+> 状态：正式发布
+> 分支：`main`（由 `feat/pth-exec-unified` 合并）
 > 上游设计：[execution-modes-and-tool-reg-v2-design](./design/execution-modes-and-tool-reg-v2-design.md)
 
 ## 亮点

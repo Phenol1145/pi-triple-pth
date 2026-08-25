@@ -46,8 +46,8 @@
 | `src/pth/runner/knowledge-context.ts` | `KnowledgeContextEntry.evidence` 从 `meta.provenance` 改为结构化 `KnowledgeEvidenceRef[]`（从 `meta.evidence` 读取；旧条目无 evidence 时明确标记 `evidence: []` 且不得伪装成 provenance） |
 | `src/pth/execution/knowledge-broker.ts` | retrieve/search 返回的 entry 保持 `meta.evidence` 原样透出（Broker 不改写）；新增/对齐 EvidenceRef 校验辅助（如需要） |
 | `src/pth/catalog/pilot-evaluator.ts` | 删除手写 resolve/filter/rank 管线，改为调用生产 `KnowledgeContextProvider`（传入真实 PgMemoryStore/生产 Catalog）；按生产返回的 entries/evidence 判分 |
-| `scripts/eval-k5-pilot.ts` | live 评测走生产端口；输出矩阵按 query 类型分组（standard/no-answer/irrelevant/conflict/version/visibility/holdout） |
-| `scripts/seed-k5-pilot.ts` | 为 `meta.evidence` 补 `sourceVersion` + `artifactHash`（从 source registry/snapshot 取）；校验 EvidenceRef 形状 |
+| `scripts/eval/eval-k5-pilot.ts` | live 评测走生产端口；输出矩阵按 query 类型分组（standard/no-answer/irrelevant/conflict/version/visibility/holdout） |
+| `scripts/seed/seed-k5-pilot.ts` | 为 `meta.evidence` 补 `sourceVersion` + `artifactHash`（从 source registry/snapshot 取）；校验 EvidenceRef 形状 |
 | `src/pth/catalog/data/pilot-eval-queries.ts` | 题集扩到全语料覆盖 + 新题型，见 §4.2 |
 
 ## 4. 设计裁决要点

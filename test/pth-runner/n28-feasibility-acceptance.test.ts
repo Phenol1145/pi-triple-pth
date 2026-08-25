@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decideN28Acceptance, parseVitestSkipManifest, type N28AcceptanceEnvelope } from "../../scripts/accept-n28-feasibility.js";
+import { decideN28Acceptance, parseVitestSkipManifest, type N28AcceptanceEnvelope } from "../../scripts/accept/accept-n28-feasibility.js";
 
 function gate(overrides: Partial<N28AcceptanceEnvelope["focused"]> = {}): N28AcceptanceEnvelope["focused"] {
   return {

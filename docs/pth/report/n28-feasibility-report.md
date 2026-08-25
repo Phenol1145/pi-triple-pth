@@ -3,7 +3,7 @@
 > 日期：2026-08-22
 > evaluated commit：`d4f363dc69b15a9811e214b106e44f27ad45389a`
 > 最终决定：**GO**（provisional evaluator 与 acceptance envelope 均为 GO）
-> 决定来源：`scripts/accept-n28-feasibility.ts`（唯一终审权威）
+> 决定来源：`scripts/accept/accept-n28-feasibility.ts`（唯一终审权威）
 > 完整权威 envelope：`docs/pth/n28-feasibility-envelope.json`
 
 ## 0. 结论
@@ -21,7 +21,7 @@ GO 只授权编写生产化实施计划（persistent lease/Region 表/outbox 投
 > Phase C/D 为结构重构（kernel 子包拆分、大文件拆分、barrel 纪律），未改变 N28 合同语义；
 > 当前 HEAD `f9b7afa` 全量门禁再次通过：lint（含 import-cycles/boundaries）exit 0、build exit 0、
 > `npm test` 297 files / 2619 passed / 58 frozen skipped / 0 failed。若后续需要把 full/intake 或
-> N28 生产化 gate 绑定到新 commit，应重新运行 `scripts/accept-n28-feasibility.ts` 生成新 envelope。
+> N28 生产化 gate 绑定到新 commit，应重新运行 `scripts/accept/accept-n28-feasibility.ts` 生成新 envelope。
 
 | 门禁 | 结果 |
 |---|---|

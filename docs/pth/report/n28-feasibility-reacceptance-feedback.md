@@ -101,7 +101,7 @@ memory.retrieve / memory.query / state rows。H5 的“单 Worker 可检索记�
 
 ### P0-3：H2 的真实扫描结果被常量覆盖
 
-[eval-n28-feasibility.ts](../../../scripts/eval-n28-feasibility.ts) `:332-370` 会计算 ownerless Region
+[eval-n28-feasibility.ts](../../../scripts/eval/eval-n28-feasibility.ts) `:332-370` 会计算 ownerless Region
 和 projection 中的正文复制数；但 `evaluateN28Feasibility()` 在 `:905-917` 展开 `...gold` 后再次写入：
 
 ```ts
@@ -196,7 +196,7 @@ Task 4 合同要求 candidate 是授权前候选范围，visible 是授权后、
 
 ### P1-4：Acceptance driver 的 mixed-gate 判定优先级仍不正确
 
-[accept-n28-feasibility.ts](../../../scripts/accept-n28-feasibility.ts) `:187-205` 先判断是否有 unavailable /
+[accept-n28-feasibility.ts](../../../scripts/accept/accept-n28-feasibility.ts) `:187-205` 先判断是否有 unavailable /
 not-started gate；只要存在，就直接返回 `EVALUATION-INCOMPLETE`，不会优先处理其他已启动 gate 的非零退出。
 
 本轮沙箱内首次运行实际出现 `fullRegression=unavailable`、`lint=started/exit 1`，最终被标记为

@@ -1,6 +1,6 @@
 {
   "name": "@away_from/pth-cli",
-  "version": "1.6.6",
+  "version": "1.8.0",
   "type": "module",
   "description": "pth CLI —— FRACTA engine 产品面（栈/容器/服务/本地执行器/任务派发）",
   "bin": {
@@ -14,10 +14,10 @@
     "deploy"
   ],
   "dependencies": {
-    "@away_from/pth-console": "^1.6.0",
+    "@away_from/pth-console": "^1.8.0",
     "@away_from/shared": "^1.6.0"
   },
   "scripts": {
-    "build": "bash ../../scripts/build-pth-cli-package.sh"
+    "build": "bash ../../scripts/gen/build-pth-cli-package.sh"
   }
 }

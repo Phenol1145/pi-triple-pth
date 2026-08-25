@@ -113,7 +113,7 @@ export function runPilotEval(input: {
 
 ## 3. 脚本
 
-- `scripts/seed-k5-pilot.ts`：`DATABASE_URL=… npx tsx scripts/seed-k5-pilot.ts [--check]`
+- `scripts/seed/seed-k5-pilot.ts`：`DATABASE_URL=… npx tsx scripts/seed/seed-k5-pilot.ts [--check]`
   ——把 PILOT_SOURCES 与 PILOT_KNOWLEDGE 落 PgMemoryStore：
   - sources：kind=`knowledge-source`、status=official、tenant=default、id=`pilot-source:<id>`
     （非 provenance 门禁 kind，meta 存全量 source）；
@@ -121,7 +121,7 @@ export function runPilotEval(input: {
     meta.provenance 用 `buildKnowledgeProvenance` 生成（sourceTaskId=`k5-eval-seed`、
     producerRole=`k5-pilot-seed`、producerModel=`curated`、sourceRefs=evidence locators）；
     幂等（内容相同跳过）；
-- `scripts/eval-k5-pilot.ts`：`[--live]` 默认离线（用内存 knowledge）输出指标表；
+- `scripts/eval/eval-k5-pilot.ts`：`[--live]` 默认离线（用内存 knowledge）输出指标表；
   `--live` 时从 PgMemoryStore 按 K3 provider 规则检索后计算同样指标；
 - 退出码：domainRecallAt3 ≥ 0.9 且 knowledgeRecallAt5 ≥ 0.9 且 evidenceCoverage ≥ 0.95 → 0；
   否则 1（报告缺口明细）。

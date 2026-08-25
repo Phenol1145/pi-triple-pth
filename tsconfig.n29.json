@@ -5,17 +5,25 @@
     "noEmit": true,
     "declaration": false,
     "paths": {
-      "@away_from/infra": ["./packages/infra/src/index.ts"],
-      "@away_from/shared": ["./packages/shared/src/index.ts"],
-      "@away_from/pth-memory": ["./packages/pth-memory/src/index.ts"],
-      "@away_from/pth-sandbox": ["./packages/pth-sandbox/src/index.ts"]
+      "@away_from/infra": [
+        "./packages/infra/src/index.ts"
+      ],
+      "@away_from/shared": [
+        "./packages/shared/src/index.ts"
+      ],
+      "@away_from/pth-memory": [
+        "./packages/pth-memory/src/index.ts"
+      ],
+      "@away_from/pth-sandbox": [
+        "./packages/pth-sandbox/src/index.ts"
+      ]
     }
   },
   "files": [
-    "scripts/eval-n29-minimal-intake.ts",
-    "scripts/accept-n29-minimal-intake.ts",
-    "scripts/sign-n29-acceptance.ts",
-    "scripts/n29-canary-gpe-wikipedia.ts",
+    "scripts/eval/eval-n29-minimal-intake.ts",
+    "scripts/accept/accept-n29-minimal-intake.ts",
+    "scripts/accept/sign-n29-acceptance.ts",
+    "scripts/tools/n29-canary-gpe-wikipedia.ts",
     "test/pth-knowledge-intake/trust-policy.test.ts",
     "test/pth-knowledge-intake/knowledge-intake-pg.test.ts",
     "test/pth-knowledge-intake/fetch-broker.test.ts",
@@ -37,5 +45,8 @@
     "test/pth-kernel-assembly/intake-mode-gates.test.ts",
     "test/pth-runner/n29-minimal-intake-acceptance.test.ts"
   ],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

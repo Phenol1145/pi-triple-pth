@@ -2,7 +2,7 @@
 
 > 全量文档清单由 `npm run docs:manifest` 生成 `docs/docs-manifest.json`（category/status 的机器可读事实源）。
 > 本文件是**人读入口索引**：只收录当前活跃的主线文档与里程碑；历史设计稿（n14–n24 车道系列、v1.2 验收系列、k5 系列等）请查 manifest `status=historical`。
-> 登记纪律：新增文档须能被 `scripts/build-docs-manifest.ts` 正确分类，并在本索引择区登记。
+> 登记纪律：新增文档须能被 `scripts/gen/build-docs-manifest.ts` 正确分类，并在本索引择区登记。
 > 历史 SPEC/plan 链接（superpowers 等）保留指向旧仓归档：https://github.com/Phenol1145/pi-triple
 
 ## 仓库定位与协议

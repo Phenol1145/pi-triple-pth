@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ext-check（手动——仓库无 scripts/ext-check.ts）：按 PTH 装载通道语义验证 asm-kernel
+ * ext-check（手动——仓库无 scripts/tools/ext-check.ts）：按 PTH 装载通道语义验证 asm-kernel
  *  1. 与 ext-registry/ext-capability 同款 new Function 包装 eval（module/exports + index.js）
  *  2. factory(ctx) → 校验 {tools, kernels, create} 契约
  *  3. 工具冒烟：status / simulate（探索核）+ build/run（生产核 aarch64 原生——真实 as/ld）

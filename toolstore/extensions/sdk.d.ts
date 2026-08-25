@@ -4,7 +4,7 @@
  * 用法：扩展 index.ts 顶部加
  *   /// <reference path="./sdk.d.ts" />
  *   // @ts-check
- * 获得类型提示与检查（scripts/ext-check.ts 会做类型检查 + 装载冒烟）。
+ * 获得类型提示与检查（scripts/tools/ext-check.ts 会做类型检查 + 装载冒烟）。
  *
  * 注意：index.ts 运行于 JS 环境（new Function eval）——禁止 TS 语法（as/interface/类型标注）——
  * 类型只用 JSDoc 注释标注（类型检查用、运行期剥离）。

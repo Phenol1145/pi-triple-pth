@@ -56,7 +56,7 @@
 ## 4. 车道纪律（沿用 parallel-lanes.md）
 
 1. 开工先读 `docs/pth/parallel-lanes.md` 全部 + 本计划 + 本 lane 分契约；把 lane 行标 claimed 并 commit push。
-2. 工作目录 `.worktrees/<lane>` / 分支 `lane/<lane>-*`（`scripts/lane-worktrees.sh` 初始化；`ln -s ../../node_modules node_modules` 快速起步）。
+2. 工作目录 `.worktrees/<lane>` / 分支 `lane/<lane>-*`（`scripts/ops/lane-worktrees.sh` 初始化；`ln -s ../../node_modules node_modules` 快速起步）。
 3. 只改本契约列出的文件与测试；不改 `concepts.md` / `parallel-lanes.md` 热点（合并时由合并者统一归并）/ `TODO.md` / `README` 徽章。
 4. lane 内跑定向测试 + 真实 PG 探针；合并前由合并者跑全量门槛。
 5. 遇真实分叉停下来出选择题，裁决结果记入账本决策栏。

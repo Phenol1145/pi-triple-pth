@@ -10,7 +10,7 @@
   `meta.provenance` 缺失 → 拒绝（不再看 meta 根字段）。
 - `knowledge-provenance.ts` 增 `provenanceFromMeta(meta)`（纯函数，兼容读取）。
 - `canPromote` / refiner 已用嵌套，不变。
-- `scripts/seed-k5-pilot.ts`：删除顶层平铺六字段，只写 `meta.provenance`（N23 偏差 2 的
+- `scripts/seed/seed-k5-pilot.ts`：删除顶层平铺六字段，只写 `meta.provenance`（N23 偏差 2 的
   workaround 移除）。
 - 测试：真实 PG 链路 `draft domain-fact（meta.provenance）→ verdicts → promote → official`
   成功；顶层平铺不再被接受（新增负向）。

@@ -91,7 +91,7 @@ pi-triple-ptl ──── pth CLI / HTTP API v1 ────▶ pi-triple-pth�
 
 1. 定位/边界变更先改本矩阵（三仓同源同步）；
 2. 同步各仓 README 定位句与导航；
-3. 涉及代码边界的，同步 `scripts/check-product-boundaries.ts` 与
+3. 涉及代码边界的，同步 `scripts/check/check-product-boundaries.ts` 与
    `docs/pth/module-ownership.md`（PTH 仓）/ `docs/ptl/architecture.md`（PTL 仓）；
 4. 执行面协议变更同步 `docs/execution-surface-v1-design.md` 与
    `docs/fracta-engine-execution-topology.md`（三仓同源）及

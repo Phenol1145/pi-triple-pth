@@ -11,7 +11,7 @@
  *   PTC_TOOL_DEFS 键集（名称/包归属/三要素齐备 + 执行器引用可解析）。
  *
  * 消费方：
- *   - scripts/seed-tool-reg.ts（幂等 seed 脚本——seed-wiki 同款）；
+ *   - scripts/seed/seed-tool-reg.ts（幂等 seed 脚本——seed-wiki 同款）；
  *   - test/pth-tasking/tool-reg-builtin.test.ts（对账钉测试）。
  *
  * 数量事实（2026-08-18 盘点——N14 设计文档写 35 为 B6 退役前旧数）：
@@ -169,7 +169,7 @@ export function builtinToolRegRow(spec: ToolRegSpec, implicitFullFace: string[])
       executorType: spec.executor.type,
       implicitFullFace,
       source: "PTC_TOOL_DEFS（存量全登记——Q4 裁决）",
-      seeder: "scripts/seed-tool-reg.ts",
+      seeder: "scripts/seed/seed-tool-reg.ts",
     },
   };
 }

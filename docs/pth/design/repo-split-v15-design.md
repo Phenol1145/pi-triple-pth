@@ -76,8 +76,8 @@
 ## 5. 拆分路径与 copyBoth
 
 - `repo-split-v15-manifest.json` 给出每个仓的 `filterRepoPaths`（可直接喂 `git filter-repo --path …`）。
-- `copyBoth`：`tsconfig.base.json`、`scripts/build-docs-manifest.ts`、`scripts/check-doc-links.ts`、
-  `scripts/lane-worktrees.sh` 等三仓共用工具，拆后复制而非移动。
+- `copyBoth`：`tsconfig.base.json`、`scripts/gen/build-docs-manifest.ts`、`scripts/check/check-doc-links.ts`、
+  `scripts/ops/lane-worktrees.sh` 等三仓共用工具，拆后复制而非移动。
 - 三仓都要重建自己的根 `package.json / tsconfig.json / vitest.config.ts / README.md / CI`；
   旧仓保留完整历史后 archive。
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
-import { collectBoundaryViolations } from "../../scripts/pth-boundaries-core.js";
+import { collectBoundaryViolations } from "../../scripts/check/pth-boundaries-core.js";
 import { buildPthHost } from "../../src/pth/bootstrap/pth-host.js";
 import { DEFAULT_MODULE_MANIFEST } from "../../src/pth/bootstrap/module-manifest.js";
 

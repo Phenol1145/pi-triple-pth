@@ -243,7 +243,7 @@ PTH = 服务器端任务内核：任务池 → 角色路由 → worker 执行 �
 }
 
 
-// ============ 项目全貌（project-map——单源生成器——scripts/gen-project-map.ts 复用） ============
+// ============ 项目全貌（project-map——单源生成器——scripts/gen/gen-project-map.ts 复用） ============
 
 /** 目录职责映射（静态——新目录需补充——保持与 repo 同步） */
 export const PROJECT_DIR_DUTY: Record<string, string> = {
@@ -275,7 +275,7 @@ export const PROJECT_DIR_DUTY: Record<string, string> = {
   "packages/pth-sandbox": "沙箱域包——内核契约/持久内核运行时/编译核/gdb/沙箱客户端与宿主",
   "packages/pth-kernel-storage": "持久化基座单包——PG 数据世界（任务/转录/审计）+ session/ 会话平面（Redis）",
   "packages/pth-kernel-interpreter": "解释器包——ts 核（PTC vm）/llm-fn/toolstore/exec-channel",
-  "packages/pth-kernel-execution": "内核执行包——execution/logger/prompt-docs/exec-channel/agent-loop",
+  "packages/pth-kernel-execution": "内核执行层——execution/logger/prompt-docs/exec-channel/agent-loop",
   "packages/pth-console": "console/client/protocol/web——pth CLI 命令 + 人类操作台",
   "packages/pth-cli": "pth CLI 打包壳——dist + deploy/ 拷贝，无 src",
   "toolstore": "代码库/扩展/文档存储——extensions/tests/templates",
@@ -323,7 +323,7 @@ async function walkProject(dir: string, depth: number, maxDepth: number): Promis
   return out;
 }
 
-/** 生成项目全貌 markdown（单源——injectProjectMap 与 scripts/gen-project-map.ts 共用） */
+/** 生成项目全貌 markdown（单源——injectProjectMap 与 scripts/gen/gen-project-map.ts 共用） */
 export async function buildProjectMap(): Promise<string> {
   const roots = ["src", "packages", "toolstore", "extensions"];
   const parts: string[] = [];

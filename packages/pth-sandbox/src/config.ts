@@ -1,7 +1,7 @@
 /**
  * pth-sandbox 配置单点（模块专项 ③ 配置收口）。
  *
- * 规则：本包内除本文件外禁止直读 `process.env.PTH_*`（scripts/check-pth-config.ts 机器强制）。
+ * 规则：本包内除本文件外禁止直读 `process.env.PTH_*`（scripts/check/check-pth-config.ts 机器强制）。
  * 键名与默认值对齐 src/pth/config/schema.ts（107 键唯一真相源）；
  * 个别 sandbox 侧运行默认与 host 侧不同（如 PTH_MEMORY_BRIDGE）以本文件注释为准。
  */

@@ -1,7 +1,7 @@
 # 模块归属与产品边界（PTL / PTH）
 
 > 依据：`docs/fracta-engine-execution-topology.md`（三仓同步的执行拓扑基线）与各仓 README。
-> 本文件回答“哪个目录属于哪个产品、允许怎么 import”，由各仓 `scripts/check-product-boundaries.ts` 机械校验。
+> 本文件回答“哪个目录属于哪个产品、允许怎么 import”，由各仓 `scripts/check/check-product-boundaries.ts` 机械校验。
 > v1.5 拆仓后：PTL 代码在 `pi-triple-ptl`，PTH 代码在本仓，公共能力在 `pi-triple-deps`。
 
 ## 1. 产品归属
@@ -41,7 +41,7 @@
 - Phase 0 完成：原 `ptl hub` 的 PTH 交互命令迁入 `packages/pth-console/src/commands/`（`pth` CLI 承接）；PTL 本地能力落位 `pi-triple-ptl` 的 `framework/src/program-dev/` 与 `framework/src/stack/`；framework 不再依赖 `@away_from/pth-console`。
 - 产品边界检查器仍把 `packages/pth-console/src/bridge/**`、`operator-console/**` 标记为 `transitional` 观察清单，迁移收尾后可移除。
 - 过渡区数量、文件清单在 `check-product-boundaries.ts` 输出中显示，便于迁移进度追踪。
-- `packages/pth-cli` 是纯打包壳（无 src），由 `scripts/build-pth-cli-package.sh` 填充 dist，属预期结构。
+- `packages/pth-cli` 是纯打包壳（无 src），由 `scripts/gen/build-pth-cli-package.sh` 填充 dist，属预期结构。
 
 ## 3.5 AgentEngine 独立化标记
 

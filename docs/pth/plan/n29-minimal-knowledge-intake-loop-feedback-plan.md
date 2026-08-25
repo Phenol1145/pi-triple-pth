@@ -425,7 +425,7 @@ interface KnowledgeIngestor {
 - `src/pth/execution/knowledge-intake/index.ts` — Knowledge Intake 内部公开面。
 - `src/pth/kernel/storage/knowledge-intake-pg.ts` — PG repository 与事务。
 - `src/pth/runner/intake-processors.ts` — extract/domain/adversarial processor adapters。
-- `scripts/pth-intake-subscribe.ts` — 只安装已验签 policy 并经正式 service 创建 probing Subscription 的 ops 入口。
+- `scripts/tools/pth-intake-subscribe.ts` — 只安装已验签 policy 并经正式 service 创建 probing Subscription 的 ops 入口。
 - `test/pth-knowledge-intake/trust-policy.test.ts`
 - `test/pth-knowledge-intake/knowledge-intake-pg.test.ts`
 - `test/pth-knowledge-intake/fetch-broker.test.ts`
@@ -804,7 +804,7 @@ git commit -m "feat(intake): ingest exact evidence through separated verificatio
 **Files:**
 - Create: `src/pth/execution/knowledge-intake/service.ts`
 - Create: `src/pth/execution/knowledge-intake/due-scanner.ts`
-- Create: `scripts/pth-intake-subscribe.ts`
+- Create: `scripts/tools/pth-intake-subscribe.ts`
 - Modify: `src/pth/execution/knowledge-intake/index.ts`
 - Modify: `src/pth/bootstrap/batch-process.ts`
 - Modify: `packages/pth-memory/src/schema.ts`
@@ -835,7 +835,7 @@ Expected: FAIL，service/handlers 尚未接线。
 scanner 只调用 repository `createDueRuns()`；Trigger 仅 kick scanner。进程重启后由 PG `nextCrawlAt`、
 expired run lease 与 pending/expired outbox 恢复。
 
-`scripts/pth-intake-subscribe.ts` 只能加载并验证 signed manifest，然后调用同一 application service 创建
+`scripts/tools/pth-intake-subscribe.ts` 只能加载并验证 signed manifest，然后调用同一 application service 创建
 probing Subscription；不得签发/修改 policy、直接 INSERT 表或直接发布 Task。
 
 - [ ] **Step 5: 实现 change/stale/supersedes**
@@ -853,7 +853,7 @@ Expected: 全部 PASS、无 skip。
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/pth/execution/knowledge-intake src/pth/bootstrap/batch-process.ts scripts/pth-intake-subscribe.ts packages/pth-memory/src test/pth-knowledge-intake/minimal-loop.integration.test.ts test/pth-runner/knowledge-context.test.ts test/pth-execution/knowledge-broker.test.ts
+git add src/pth/execution/knowledge-intake src/pth/bootstrap/batch-process.ts scripts/tools/pth-intake-subscribe.ts packages/pth-memory/src test/pth-knowledge-intake/minimal-loop.integration.test.ts test/pth-runner/knowledge-context.test.ts test/pth-execution/knowledge-broker.test.ts
 git commit -m "feat(intake): close recrawl stale and supersedes loop"
 ```
 
@@ -861,7 +861,7 @@ git commit -m "feat(intake): close recrawl stale and supersedes loop"
 
 **Files:**
 - Modify: `test/pth-knowledge-intake/minimal-loop.integration.test.ts`
-- Create: `scripts/accept-n29-minimal-intake.ts`
+- Create: `scripts/accept/accept-n29-minimal-intake.ts`
 - Create: `tsconfig.n29.json`
 - Create: `docs/pth/n29-minimal-intake-acceptance.json`
 - Create: `docs/pth/report/n29-minimal-intake-report.md`
@@ -893,7 +893,7 @@ aggregate+outbox commit 后/handler 前、handler 写结果后/outbox complete �
 是 `evaluatedCommit`；driver 不得评估一个尚未包含自身或测试的旧 SHA。
 
 ```bash
-git add test/pth-knowledge-intake/minimal-loop.integration.test.ts scripts/accept-n29-minimal-intake.ts tsconfig.n29.json
+git add test/pth-knowledge-intake/minimal-loop.integration.test.ts scripts/accept/accept-n29-minimal-intake.ts tsconfig.n29.json
 git commit -m "test(intake): add minimal loop acceptance machinery"
 ```
 

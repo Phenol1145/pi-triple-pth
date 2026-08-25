@@ -30,7 +30,7 @@ claim → context → commit → outbox → candidate → verification → promo
 | 文件 | 改动 |
 |---|---|
 | `test/pth-composition/r6-acceptance.test.ts`（或等价 vitest 组合套件） | 端到端组合场景 + 故障注入 |
-| `scripts/r6-composition-acceptance.ts`（可选） | 手动/CI 可跑的脚本封装，输出证据表 |
+| `scripts/accept/r6-composition-acceptance.ts`（可选） | 手动/CI 可跑的脚本封装，输出证据表 |
 | `docs/pth/report/v1.2-acceptance-fix-revalidation-final.md` | 最终复验报告（矩阵格式，见 §5） |
 | `docs/pth/parallel-lanes.md` + `TODO.md` | 验收通过后允许更新账本状态（本 lane 例外；不得在验收前标 done） |
 

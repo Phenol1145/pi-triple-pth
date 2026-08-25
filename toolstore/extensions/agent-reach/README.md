@@ -24,4 +24,4 @@ spider-web / spider-github 角色通过 PTH 工具面调用。
 - 不修改 ~/.agents/skills/agent-reach/（只读参照）。
 
 ## 自测
-scripts/ext-check.ts agent-reach（装载冒烟 + manifest 校验 + 类型检查）。
+scripts/tools/ext-check.ts agent-reach（装载冒烟 + manifest 校验 + 类型检查）。

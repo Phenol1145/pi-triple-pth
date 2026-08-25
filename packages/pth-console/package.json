@@ -1,6 +1,6 @@
 {
   "name": "@away_from/pth-console",
-  "version": "1.6.4",
+  "version": "1.8.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,7 +15,7 @@
     "test:e2e:update": "playwright test --update-snapshots"
   },
   "dependencies": {
-    "@away_from/pth-config": "^1.6.0",
+    "@away_from/pth-config": "^1.8.0",
     "@away_from/shared": "^1.7.6"
   },
   "devDependencies": {

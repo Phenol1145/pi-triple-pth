@@ -26,7 +26,7 @@
 | Create: `src/pth/execution/memory-directory.ts` | 新建确定性内存 Directory：`MemoryDirectorySnapshot`、`buildMemoryDirectorySnapshot()`、`assertMemoryDirectorySnapshotIntegrity()`、`assertMemoryDirectoryResponsibilityCapacity()`、`responsibilitiesForWorker()`、`membershipsForEntry()`、`regionEntryIds()` |
 | Modify: `src/pth/execution/knowledge-broker.ts` | `KnowledgeMemoryEntry` 增加可选顶层 `tenantId?: string`；Broker adapter 保留 repository 返回的顶层 tenant，不镜像进 `meta` |
 | Modify: `src/pth/execution/index.ts` | 增加 `export * from "./memory-directory.js";` |
-| Create: `scripts/n28-feasibility-fixture.ts` | 生成恰好 100 条 authorized official entries + 7 行 authorization/visibility 探针矩阵；冻结 `N28_ROLE`/`N28_ROLE_LOAD_POLICIES`/`N28_DOMAIN_IDS`/`N28_WORKERS`/`N28_REGIONS`/`N28_RESPONSIBILITIES` 与 `n28TrapCorpus()` |
+| Create: `scripts/tools/n28-feasibility-fixture.ts` | 生成恰好 100 条 authorized official entries + 7 行 authorization/visibility 探针矩阵；冻结 `N28_ROLE`/`N28_ROLE_LOAD_POLICIES`/`N28_DOMAIN_IDS`/`N28_WORKERS`/`N28_REGIONS`/`N28_RESPONSIBILITIES` 与 `n28TrapCorpus()` |
 | Create: `test/pth-execution/memory-directory.test.ts` | 7 个定向测试：重叠不复制、四类覆盖与 unclassified、确定性、责任容量、fail-closed 拒绝、完整性校验、新 official 进 unclassified |
 | Create: `test/pth-execution/memory-type-classifier.test.ts` | 四类映射、未知 kind、`MemoryRegion.selector.memoryTypes` 查询 |
 
@@ -45,7 +45,7 @@
 
 与计划 L637–L1104 逐步骤对齐；任何冲突以计划步骤为规范。
 
-- **Step 1**：`KnowledgeMemoryEntry` 增补可选顶层 `tenantId?: string`，Broker adapter 保留 repository 顶层 tenant 且不镜像进 `meta`；新建 `memory-type-classifier.ts`（冻结映射见 §4）并配套 classifier 测试；新建 `scripts/n28-feasibility-fixture.ts` 生成恰好 100 条 authorized official entries + 7 行探针矩阵。Expected：fixture 与分类器可用，`n28DirectoryInputs` 对未知 kind 抛错。
+- **Step 1**：`KnowledgeMemoryEntry` 增补可选顶层 `tenantId?: string`，Broker adapter 保留 repository 顶层 tenant 且不镜像进 `meta`；新建 `memory-type-classifier.ts`（冻结映射见 §4）并配套 classifier 测试；新建 `scripts/tools/n28-feasibility-fixture.ts` 生成恰好 100 条 authorized official entries + 7 行探针矩阵。Expected：fixture 与分类器可用，`n28DirectoryInputs` 对未知 kind 抛错。
 - **Step 2**：编写失败的重叠、覆盖与确定性测试（7 个 `MemoryDirectory` 用例，断言点见 §8.1）。Expected：测试先于实现存在并冻结本 lane 行为。
 - **Step 3**：运行 `npx vitest run test/pth-execution/memory-directory.test.ts`。Expected：FAIL because `memory-directory.ts` does not exist。
 - **Step 4**：实现 selector 匹配、重叠 membership 与稳定 snapshot hashing：`matches()` 组间 AND/组内 OR、`stable()` 确定性排序、`deepFreeze()` 冻结输出、builder 的 fail-closed 校验与 `estimatedWeight` 重算、完整性/容量断言。Expected：实现与 Step 2 冻结测试一致，不自行放宽任何抛错条件。

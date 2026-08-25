@@ -109,7 +109,7 @@ curl -s -X POST http://localhost:3000/api/v1/kernel/tasks \
 #   → 返回 id + pending；~15s 后查 status 应为 completed，结果 sum5050=5050
 
 # ③ 安全确认（sandbox 零敏感）
-bash scripts/check-sandbox-env.sh pi-platform-sandbox-1   # 容器名以 docker compose ps 输出为准
+bash scripts/check/check-sandbox-env.sh pi-platform-sandbox-1   # 容器名以 docker compose ps 输出为准
 ```
 
 token 写入 Redis：`pth up` 默认已自动种入 operator token（tenant=ops, role=platform-admin）；
@@ -392,7 +392,7 @@ env 与运行时 SET 的关系：启动时 env 快照载入 → 运行时 SET �
 > **状态（2026-08-27）**：本节描述的 `pth.deployment.json` 事实源 + `pth.deploy/` 渲染目录 +
 > `ptl stack` 运维族已被后续裁决取代——容器生命周期统一归 `pth up`/`pth tools`/
 > `pth services`（`ptl stack` deprecated）；`pth up` 直接执行 `deploy/docker-compose.yaml`。
-> **`deploy/pth.deployment.json` 已删除**（W4 拍板；`scripts/check-pth-config.ts` 对照源只留
+> **`deploy/pth.deployment.json` 已删除**（W4 拍板；`scripts/check/check-pth-config.ts` 对照源只留
 > `docker-compose.yaml`），不存在 `pth.deploy/` 目录。保留本节仅作容器后端抽象的演进背景。
 
 历史意图：声明式部署描述 `pth.deployment.json` 为事实源——`docker-compose.yaml` 降级为历史参考（docker 后端渲染产物在 `pth.deploy/`）。**容器后端抽象**——允许不同容器技术：
@@ -451,7 +451,7 @@ ptl stack exec <svc> -- <cmd>  # 容器内执行
 - PTH 内核体系：`docs/pth/kernel.md` · `docs/pth/architecture.md`
 - 安全边界（sandbox 零敏感）：`docs/pth/kernel.md`（sandbox 域）· `docs/pth/sandbox-security-operations.md`
 - 安全运维（密钥轮换 / session-drain / 回滚）：`docs/pth/sandbox-security-operations.md`
-- 环境检查：`scripts/check-sandbox-env.sh`
+- 环境检查：`scripts/check/check-sandbox-env.sh`
 
 ## 2026-08 落地摘要（TCE / 任务生命周期）
 

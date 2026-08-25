@@ -252,7 +252,7 @@ O(r) = children(r)                     # 逐级继承（0.16.1）
 
 ## 7. 可审计性（Q9 裁决：随重构一并实施）
 
-1. **静态校验器** `scripts/check-role-conservation.ts`：从 builtin-roles + tool-reg 快照计算
+1. **静态校验器** `scripts/check/check-role-conservation.ts`：从 builtin-roles + tool-reg 快照计算
    各 generation 的 effcap 并集与 C 对账——漏覆盖（有工具无任何角色承诺）/ 倒挂（子 ⊀ 父）fail-fast；
    兄弟重复度以报告形式输出（质量指标，不 fail）；进 lint 套件（与 check-pth-config 同档）；
 2. **注册时校验**（治理面）：分化/注册提案批准闸增加 L1–L3 校验——新角色必须是父能力真子集、
@@ -302,7 +302,7 @@ O(r) = children(r)                     # 逐级继承（0.16.1）
 | 终态通知 | terminal reject 转写逻辑删除；events 路由外推（PTL/operator console 可见） |
 | 记忆迁移 | 存量 `optimizer-suggestion` draft 标注迁移（一次性脚本/启动迁移） |
 | 谱系展示 | routes-lineage / worker-index 支持多根森林；generation 顺移 |
-| 校验器 | `scripts/check-role-conservation.ts` + lint 接入 + 钉死测试 |
+| 校验器 | `scripts/check/check-role-conservation.ts` + lint 接入 + 钉死测试 |
 | 文档 | `concepts.md` §0.7.1/§0.16.1 词条修订；N14/N16 等历史文档不改写、加沿革注记 |
 | 测试 | agent-tool-convergence 六例更新；新增守恒/边界/终态通知钉死测试 |
 

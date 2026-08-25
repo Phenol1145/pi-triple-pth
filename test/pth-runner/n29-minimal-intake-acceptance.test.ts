@@ -22,7 +22,7 @@ import {
   N29_REQUIRED_POSITIVES,
   summarizeVitest,
   type VitestAssertion,
-} from "../../scripts/eval-n29-minimal-intake.js";
+} from "../../scripts/eval/eval-n29-minimal-intake.js";
 import {
   decideN29Acceptance,
   deriveRealismGates,
@@ -31,7 +31,7 @@ import {
   type CommandGateEvidence,
   type N29AcceptanceEnvelope,
   type RealismGateEvidence,
-} from "../../scripts/accept-n29-minimal-intake.js";
+} from "../../scripts/accept/accept-n29-minimal-intake.js";
 
 const REPO_ROOT = "/repo";
 const HEAD = "a".repeat(40);

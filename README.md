@@ -3,8 +3,8 @@
 **Pi-Triple PTH —— FRACTA engine（engine）的当前代码名** —— engine 运行时：worker 实现 + 面向 LLM 的 interface；执行经 `execution/v1.1` 交外部执行面（sandbox / tool containers / 本地执行器 / jupyter 双面）。
 
 ![node](https://img.shields.io/badge/node-%3E%3D22-green)
-![tests](https://img.shields.io/badge/tests-2572-brightgreen)
-![version](https://img.shields.io/badge/version-1.6.0-blue)
+![tests](https://img.shields.io/badge/tests-2873-brightgreen)
+![version](https://img.shields.io/badge/version-1.8.0-blue)
 
 - **定位**：engine 派发任务 → batch worker（角色/循环/LLM interface）→ `execution/v1.1` 外部执行面 → 产物沉淀记忆。
 - **导航**：Quick Start · [模块](#模块) · [架构](#architecture) · [开发](#development) · [仓库定位](docs/POSITIONING.md) · [文档](#documentation)

@@ -1,7 +1,7 @@
 # developer 族工作能力 bench 评估（W0–W4 修复后）
 
 > 日期：2026-08-25 ｜ 对象：developer 及其直接子类型 coder / tester（assembly-engineer 为专业角色、debug-case-writer 为 tester 子类型，本批不覆盖）
-> 方法：`scripts/pth-bench-dev-family.ts`（bench HTTP 驱动 + 标签路由 + status/value 判分），每角色 5 个确定性小任务，三路并行；任务文本自包含、**无 done 机制提示**（兼作 W3 done 函数化后的自然收敛验收）。
+> 方法：`scripts/bench/pth-bench-dev-family.ts`（bench HTTP 驱动 + 标签路由 + status/value 判分），每角色 5 个确定性小任务，三路并行；任务文本自包含、**无 done 机制提示**（兼作 W3 done 函数化后的自然收敛验收）。
 > 运行环境：live 栈（含 W0–W4 修复镜像），默认 tool-call 模式。
 
 ## 1. 结果总览
@@ -73,7 +73,7 @@
 ## 5. 复跑
 
 ```bash
-PTH_TOKEN=... npx tsx scripts/pth-bench-dev-family.ts developer|coder|tester
+PTH_TOKEN=... npx tsx scripts/bench/pth-bench-dev-family.ts developer|coder|tester
 ```
 
 任务 ID（developer 重跑道）：e4984ed1 / 3665661c / 83d05592 / 04e6251e / fa072ae1。

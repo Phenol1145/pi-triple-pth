@@ -497,7 +497,7 @@ Create `batch-runtime-assembly.ts` with `assembleBatchRuntime(deps)` and `runBat
 the only production composition root for worker identities, slot runtime, TaskLoop, heartbeat/control and disposers. The
 latter owns IPC/control and polling; production passes `continuous=true`, while tests/harness pass `maxIterations` for a
 finite run. `runBatchProcess()` may keep PG/schema/config setup, but after creating adapters it must call these two exports—
-it cannot assemble workers or interpret worker control a second time. `scripts/n28-feasibility-harness.ts` later invokes the
+it cannot assemble workers or interpret worker control a second time. `scripts/tools/n28-feasibility-harness.ts` later invokes the
 same assembly/host with in-memory adapters. Thus H1 executes the production composition, not a source-text assertion.
 
 `assembleBatchRuntime(deps)` includes injectable
@@ -642,7 +642,7 @@ git commit -m "feat(pth): separate worker replica identity from roles"
 - Create: `src/pth/execution/memory-directory.ts`
 - Modify: `src/pth/execution/knowledge-broker.ts`
 - Modify: `src/pth/execution/index.ts`
-- Create: `scripts/n28-feasibility-fixture.ts`
+- Create: `scripts/tools/n28-feasibility-fixture.ts`
 - Create: `test/pth-execution/memory-directory.test.ts`
 - Create: `test/pth-execution/memory-type-classifier.test.ts`
 
@@ -666,7 +666,7 @@ adapter supplies an approved mapping. Export `MemoryTypeClassifier` and `classif
 adapter remains future work, but the feasibility vertical must call this production projection rather than hardcode
 `"wiki"`. Add classifier tests for all four types, an unknown kind, and a `MemoryRegion.selector.memoryTypes` query.
 
-Create `scripts/n28-feasibility-fixture.ts` with generators that produce exactly 100 authorized official entries plus a seven-row authorization/visibility probe matrix:
+Create `scripts/tools/n28-feasibility-fixture.ts` with generators that produce exactly 100 authorized official entries plus a seven-row authorization/visibility probe matrix:
 
 ```typescript
 import type { KnowledgeMemoryEntry } from "../src/pth/execution/knowledge-broker.js";
@@ -796,7 +796,7 @@ export function n28TrapCorpus(): N28KnowledgeEntry[] {
 import { describe, expect, it } from "vitest";
 import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "../../src/pth/contracts/index.js";
 import { assertMemoryDirectoryResponsibilityCapacity, assertMemoryDirectorySnapshotIntegrity, buildMemoryDirectorySnapshot, membershipsForEntry } from "../../src/pth/execution/memory-directory.js";
-import { N28_DOMAIN_IDS, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS, n28AuthorizedCorpus, n28DirectoryInputs, type N28KnowledgeEntry } from "../../scripts/n28-feasibility-fixture.js";
+import { N28_DOMAIN_IDS, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS, n28AuthorizedCorpus, n28DirectoryInputs, type N28KnowledgeEntry } from "../../scripts/tools/n28-feasibility-fixture.js";
 
 describe("MemoryDirectory", () => {
   it("references one cross-domain entry from multiple regions without copying it", () => {
@@ -1102,7 +1102,7 @@ Expected: PASS; membership count is exactly 100 and reordered inputs share a sna
 - [ ] **Step 6: Commit the in-memory directory**
 
 ```bash
-git add src/pth/execution/memory-type-classifier.ts src/pth/execution/memory-directory.ts src/pth/execution/knowledge-broker.ts src/pth/execution/index.ts scripts/n28-feasibility-fixture.ts test/pth-execution/memory-type-classifier.test.ts test/pth-execution/memory-directory.test.ts
+git add src/pth/execution/memory-type-classifier.ts src/pth/execution/memory-directory.ts src/pth/execution/knowledge-broker.ts src/pth/execution/index.ts scripts/tools/n28-feasibility-fixture.ts test/pth-execution/memory-type-classifier.test.ts test/pth-execution/memory-directory.test.ts
 git commit -m "feat(pth): add overlapping memory directory snapshot"
 ```
 
@@ -1118,7 +1118,7 @@ git commit -m "feat(pth): add overlapping memory directory snapshot"
 - Modify: `src/pth/execution/index.ts`
 - Modify: `src/pth/runner/knowledge-context.ts`
 - Modify: `src/pth/runner/agent-task-runner.ts`
-- Modify: `scripts/n28-feasibility-fixture.ts`
+- Modify: `scripts/tools/n28-feasibility-fixture.ts`
 - Create: `test/pth-execution/layered-knowledge-retriever.test.ts`
 - Create: `test/pth-execution/verified-task-read-scope.test.ts`
 - Modify: `test/pth-execution/knowledge-ranking.test.ts`
@@ -1182,7 +1182,7 @@ still happens exactly once; cheap brand/binding/deadline checks happen before ev
 
 - [ ] **Step 1: Make every fixture entry contain a unique searchable token and freeze 12 gold cases**
 
-In `scripts/n28-feasibility-fixture.ts`, change the row content to include its ID:
+In `scripts/tools/n28-feasibility-fixture.ts`, change the row content to include its ID:
 
 ```typescript
 const id = `${prefix}-${String(index + 1).padStart(2, "0")}`;
@@ -1259,7 +1259,7 @@ import {
   N28_WORKERS,
   n28AuthorizedCorpus,
   n28DirectoryInputs,
-} from "../../scripts/n28-feasibility-fixture.js";
+} from "../../scripts/tools/n28-feasibility-fixture.js";
 
 let nowMs = Date.parse("2030-01-01T00:00:00.000Z");
 const clock = () => new Date(nowMs);
@@ -1585,7 +1585,7 @@ Export `authorization/verified-task-read-scope.js` and `layered-knowledge-retrie
 assertion—never the private raw-grant mint. TaskLoop/batch assembly consume the barrel and may not reach into internal paths.
 
 ```bash
-git add src/pth/execution/authorization/verified-task-read-scope.ts src/pth/execution/layered-knowledge-retriever.ts src/pth/execution/knowledge-ranking.ts src/pth/execution/knowledge-broker.ts src/pth/execution/index.ts src/pth/runner/knowledge-context.ts src/pth/runner/agent-task-runner.ts scripts/n28-feasibility-fixture.ts test/pth-execution/knowledge-ranking.test.ts test/pth-execution/verified-task-read-scope.test.ts test/pth-execution/layered-knowledge-retriever.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts
+git add src/pth/execution/authorization/verified-task-read-scope.ts src/pth/execution/layered-knowledge-retriever.ts src/pth/execution/knowledge-ranking.ts src/pth/execution/knowledge-broker.ts src/pth/execution/index.ts src/pth/runner/knowledge-context.ts src/pth/runner/agent-task-runner.ts scripts/tools/n28-feasibility-fixture.ts test/pth-execution/knowledge-ranking.test.ts test/pth-execution/verified-task-read-scope.test.ts test/pth-execution/layered-knowledge-retriever.test.ts test/pth-execution/knowledge-broker.test.ts test/pth-runner/knowledge-context.test.ts
 git commit -m "feat(pth): add layered memory responsibility retrieval"
 ```
 
@@ -1615,7 +1615,7 @@ git commit -m "feat(pth): add layered memory responsibility retrieval"
 import { describe, expect, it } from "vitest";
 import { CognitiveBudgetLedger } from "../../src/pth/kernel/execution/cognitive-budget.js";
 import { N28_FEASIBILITY_BUDGET, checkResponsibilityCapacity } from "../../src/pth/contracts/index.js";
-import { N28_WORKERS } from "../../scripts/n28-feasibility-fixture.js";
+import { N28_WORKERS } from "../../scripts/tools/n28-feasibility-fixture.js";
 
 describe("CognitiveBudgetLedger", () => {
   const ledgerFor = (budget = N28_FEASIBILITY_BUDGET.task) => new CognitiveBudgetLedger({
@@ -2006,7 +2006,7 @@ git commit -m "feat(pth): enforce task cognitive working set budgets"
 - Modify: `src/pth/bootstrap/worker-slot-runtime.ts`
 - Modify: `src/pth/bootstrap/batch-runtime-assembly.ts`
 - Modify: `src/pth/bootstrap/batch-process.ts`
-- Create: `scripts/n28-feasibility-harness.ts`
+- Create: `scripts/tools/n28-feasibility-harness.ts`
 - Modify: `test/pth-runner/agent-task-runner.test.ts`
 - Modify: `test/pth-kernel-execution/agent-loop.test.ts`
 - Modify: `test/pth-kernel-execution/prompt-docs.test.ts`
@@ -2299,14 +2299,14 @@ startup error, never a warning or silent limit expansion. Add a vertical negativ
 zero polls, backing reads and LLM calls.
 
 Do **not** call the long-running, PG-dependent `runBatchProcess()` from the in-memory gate. Instead,
-`scripts/n28-feasibility-harness.ts` must call `assembleBatchRuntime()` and `runBatchHost({maxIterations: ...})` with
+`scripts/tools/n28-feasibility-harness.ts` must call `assembleBatchRuntime()` and `runBatchHost({maxIterations: ...})` with
 in-memory repository/store adapters. This keeps the branch finite and PG-free while executing the exact production
 composition for slot lifecycle, heartbeat/control, identity, TaskLoop, grant, Context, Broker and agent code.
 `runBatchProcess()` calls the same exports in continuous mode; no evaluation-only composition or control reducer is permitted.
 
 - [ ] **Step 6: Build the vertical integration test**
 
-Create `scripts/n28-feasibility-harness.ts` as the single public assembly used by this vertical test and Task 7's CLI. The test must use:
+Create `scripts/tools/n28-feasibility-harness.ts` as the single public assembly used by this vertical test and Task 7's CLI. The test must use:
 
 - four injected `workerSpecs` carrying the exact frozen `N28_ROLE` definition plus all four fixture `WorkerReplica` refs via
   the injected replica factory, so
@@ -2353,7 +2353,7 @@ Set guard before its otherwise valid executor is invoked.
 - [ ] **Step 8: Commit real agent integration**
 
 ```bash
-git add src/pth/kernel/execution/agent-loop-types.ts src/pth/kernel/execution/agent-loop.ts src/pth/kernel/execution/agent-loop-prompt.ts src/pth/kernel/execution/agent-loop-guards.ts src/pth/runner/authorized-task-reads.ts src/pth/runner/cognitive-working-set.ts src/pth/runner/knowledge-context.ts src/pth/runner/agent-task-runner.ts src/pth/bootstrap/task-loop-types.ts src/pth/bootstrap/task-loop.ts src/pth/bootstrap/worker-slot-runtime.ts src/pth/bootstrap/batch-runtime-assembly.ts src/pth/bootstrap/batch-process.ts scripts/n28-feasibility-harness.ts test/pth-runner/agent-task-runner.test.ts test/pth-kernel-execution/agent-loop.test.ts test/pth-kernel-execution/prompt-docs.test.ts test/pth-kernel-execution/agent-loop-working-set.integration.test.ts test/pth-runner/cognitive-responsibility.vertical.test.ts
+git add src/pth/kernel/execution/agent-loop-types.ts src/pth/kernel/execution/agent-loop.ts src/pth/kernel/execution/agent-loop-prompt.ts src/pth/kernel/execution/agent-loop-guards.ts src/pth/runner/authorized-task-reads.ts src/pth/runner/cognitive-working-set.ts src/pth/runner/knowledge-context.ts src/pth/runner/agent-task-runner.ts src/pth/bootstrap/task-loop-types.ts src/pth/bootstrap/task-loop.ts src/pth/bootstrap/worker-slot-runtime.ts src/pth/bootstrap/batch-runtime-assembly.ts src/pth/bootstrap/batch-process.ts scripts/tools/n28-feasibility-harness.ts test/pth-runner/agent-task-runner.test.ts test/pth-kernel-execution/agent-loop.test.ts test/pth-kernel-execution/prompt-docs.test.ts test/pth-kernel-execution/agent-loop-working-set.integration.test.ts test/pth-runner/cognitive-responsibility.vertical.test.ts
 git commit -m "feat(pth): enforce cognitive working set in agent runtime"
 ```
 
@@ -2362,11 +2362,11 @@ git commit -m "feat(pth): enforce cognitive working set in agent runtime"
 ### Task 7: Add a Reproducible Go/No-Go Evaluator and Record the Feasibility Result
 
 **Files:**
-- Create: `scripts/eval-n28-feasibility.ts`
-- Create: `scripts/accept-n28-feasibility.ts`
+- Create: `scripts/eval/eval-n28-feasibility.ts`
+- Create: `scripts/accept/accept-n28-feasibility.ts`
 - Create: `tsconfig.n28.json`
-- Modify: `scripts/n28-feasibility-harness.ts`
-- Modify: `scripts/n28-feasibility-fixture.ts`
+- Modify: `scripts/tools/n28-feasibility-harness.ts`
+- Modify: `scripts/tools/n28-feasibility-fixture.ts`
 - Create: `test/pth-runner/n28-feasibility-evaluator.test.ts`
 - Create: `test/pth-runner/n28-feasibility-acceptance.test.ts`
 - Create after execution: `docs/pth/report/n28-feasibility-report.md`
@@ -2380,7 +2380,7 @@ git commit -m "feat(pth): enforce cognitive working set in agent runtime"
 
 ```typescript
 import { describe, expect, it } from "vitest";
-import { METRIC_KEYS, decideN28Feasibility, evaluateN28Feasibility, validateN28FeasibilityMetrics, type N28FeasibilityMetrics } from "../../scripts/eval-n28-feasibility.js";
+import { METRIC_KEYS, decideN28Feasibility, evaluateN28Feasibility, validateN28FeasibilityMetrics, type N28FeasibilityMetrics } from "../../scripts/eval/eval-n28-feasibility.js";
 
 describe("N28 feasibility evaluator", () => {
   it("rejects a bad value for every metric, plus missing/non-finite fields", () => {
@@ -2550,9 +2550,9 @@ usage and omitted trace. These are observations from public components, not cons
 
 `evaluateN28Feasibility()` must instantiate the same public components as the vertical test. Do not reimplement ranking,
 visibility, budgeting or tool filtering inside the script. Both Vitest and CLI import the frozen corpus, worker refs,
-regions, responsibilities and gold queries from `scripts/n28-feasibility-fixture.ts`; neither imports the other.
+regions, responsibilities and gold queries from `scripts/tools/n28-feasibility-fixture.ts`; neither imports the other.
 All WorkerReplica IDs come from that fixture or an injected ID factory, so evaluator output contains no randomness.
-The optional `sabotage` argument exists only in `scripts/n28-feasibility-harness.ts`. It may alter a fixture input,
+The optional `sabotage` argument exists only in `scripts/tools/n28-feasibility-harness.ts`. It may alter a fixture input,
 dependency behavior or requested action, but it may not write a metric/hypothesis/counter directly. The same observers that
 measure the unsabotaged production component must detect the mutation. Fix the mapping: control target swap→H1, body field
 in Directory projection→H2, omitted global wave→H3, permissive scope-guard dependency→H4, omitted budget-wrapper
@@ -2651,7 +2651,7 @@ H6 also fails when the fake LLM receives a schema outside the frozen Tool face o
 
 - [ ] **Step 4: Define the final acceptance envelope and its decision tests**
 
-Create `scripts/accept-n28-feasibility.ts` and keep the evaluator verdict explicitly **provisional**. Define:
+Create `scripts/accept/accept-n28-feasibility.ts` and keep the evaluator verdict explicitly **provisional**. Define:
 
 ```typescript
 export interface CommandGateEvidence {
@@ -2680,7 +2680,7 @@ export interface N28AcceptanceEnvelope {
 }
 ```
 
-Freeze the only accepted pre-N28 skip manifest in `scripts/n28-feasibility-fixture.ts`:
+Freeze the only accepted pre-N28 skip manifest in `scripts/tools/n28-feasibility-fixture.ts`:
 
 ```typescript
 export const N28_ACCEPTED_BASELINE_SKIPS = [
@@ -2739,10 +2739,10 @@ First create the narrow typecheck config that both the TSX CLIs and the later N2
     }
   },
   "files": [
-    "scripts/n28-feasibility-fixture.ts",
-    "scripts/n28-feasibility-harness.ts",
-    "scripts/eval-n28-feasibility.ts",
-    "scripts/accept-n28-feasibility.ts",
+    "scripts/tools/n28-feasibility-fixture.ts",
+    "scripts/tools/n28-feasibility-harness.ts",
+    "scripts/eval/eval-n28-feasibility.ts",
+    "scripts/accept/accept-n28-feasibility.ts",
     "test/pth-contracts/cognitive-responsibility.test.ts",
     "test/pth-kernel-execution/worker-cluster.test.ts",
     "test/pth-kernel-execution/role-lineage.test.ts",
@@ -2783,7 +2783,7 @@ These source path overrides cover the clean-checkout dependency closure; do not 
 declarations.
 
 ```bash
-git add scripts/eval-n28-feasibility.ts scripts/accept-n28-feasibility.ts scripts/n28-feasibility-harness.ts scripts/n28-feasibility-fixture.ts tsconfig.n28.json test/pth-runner/n28-feasibility-evaluator.test.ts test/pth-runner/n28-feasibility-acceptance.test.ts
+git add scripts/eval/eval-n28-feasibility.ts scripts/accept/accept-n28-feasibility.ts scripts/tools/n28-feasibility-harness.ts scripts/tools/n28-feasibility-fixture.ts tsconfig.n28.json test/pth-runner/n28-feasibility-evaluator.test.ts test/pth-runner/n28-feasibility-acceptance.test.ts
 git commit -m "test(pth): add N28 feasibility evaluator"
 git rev-parse HEAD
 ```
@@ -2796,8 +2796,8 @@ commit and a fresh complete run.
 Run:
 
 ```bash
-TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval-n28-feasibility.ts > /tmp/n28-run-1.json
-TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval-n28-feasibility.ts > /tmp/n28-run-2.json
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval/eval-n28-feasibility.ts > /tmp/n28-run-1.json
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/eval/eval-n28-feasibility.ts > /tmp/n28-run-2.json
 diff -u /tmp/n28-run-1.json /tmp/n28-run-2.json
 ```
 
@@ -2870,7 +2870,7 @@ completed,” not GO and not an N28 functional failure. Record the environment b
 Run the final authority from the clean evaluated commit:
 
 ```bash
-TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept-n28-feasibility.ts --output /tmp/n28-acceptance.json
+TSX_TSCONFIG_PATH=tsconfig.n28.json node --import tsx scripts/accept/accept-n28-feasibility.ts --output /tmp/n28-acceptance.json
 ```
 
 The acceptance module exports one `N28_FOCUSED_TEST_FILES` array used to spawn the command; an acceptance unit test asserts

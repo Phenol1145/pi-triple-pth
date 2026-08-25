@@ -1,6 +1,6 @@
 {
   "name": "@away_from/pth-config",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,6 +14,6 @@
     "dist"
   ],
   "dependencies": {
-    "@away_from/pth-contracts": "^1.6.0"
+    "@away_from/pth-contracts": "^1.8.0"
   }
 }

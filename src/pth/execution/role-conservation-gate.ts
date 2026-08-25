@@ -4,7 +4,7 @@
  * 硬校验：
  *  - produces 声明合法（string[] 非空字符串）
  *  - L2：新角色 capabilities ⊆ 父角色 effcap
- *  L1/L3 由静态校验器 `scripts/check-role-conservation.ts` 报告/严格档承载。
+ *  L1/L3 由静态校验器 `scripts/check/check-role-conservation.ts` 报告/严格档承载。
  */
 
 import type { WorkerRole } from "@away_from/pth-kernel-execution";

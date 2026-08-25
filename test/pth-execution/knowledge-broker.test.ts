@@ -11,7 +11,7 @@ import { isVisible, setSpaceLookup } from "@away_from/pth-memory";
 import {
   N28_DOMAIN_IDS, N28_REGIONS, N28_RESPONSIBILITIES, N28_WORKERS,
   n28AuthorizedCorpus, n28DirectoryInputs, n28TrapCorpus,
-} from "../../scripts/n28-feasibility-fixture.js";
+} from "../../scripts/tools/n28-feasibility-fixture.js";
 
 const SECRET = "knowledge-broker-secret-0123456789";
 const key = createHmacGrantKeyProvider({ secret: SECRET });

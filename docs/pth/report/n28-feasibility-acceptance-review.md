@@ -82,13 +82,13 @@ Knowledge Intake 的后续设计。
 `directorySnapshotId` 与当前 MemoryDirectory 一致，否则返回 `cognitive-directory-trace-mismatch`。
 
 绿色 vertical 测试使用的是专用 harness provider，并在
-[n28-feasibility-harness.ts](../../../scripts/n28-feasibility-harness.ts) `:153-222` 直接构造
+[n28-feasibility-harness.ts](../../../scripts/tools/n28-feasibility-harness.ts) `:153-222` 直接构造
 `AgentTaskRunner`；它没有经过 `assembleBatchRuntime → runBatchHost → TaskLoop`。因此标准 batch CLI 尚不能
 启用该模式，现有 vertical 也没有验证真实 batch 端到端链路。
 
 ### P0-3：T7 评估器没有执行完整验收实验
 
-文件：[eval-n28-feasibility.ts](../../../scripts/eval-n28-feasibility.ts) `:324-345, 459-515`
+文件：[eval-n28-feasibility.ts](../../../scripts/eval/eval-n28-feasibility.ts) `:324-345, 459-515`
 
 当前评估器存在以下空观测或常量结果：
 
@@ -145,7 +145,7 @@ Worker UUID 已端到端贯通。
 
 ### P1-4：Acceptance driver 会产生错误的门禁状态
 
-文件：[accept-n28-feasibility.ts](../../../scripts/accept-n28-feasibility.ts) `:88-107, 139-179`
+文件：[accept-n28-feasibility.ts](../../../scripts/accept/accept-n28-feasibility.ts) `:88-107, 139-179`
 
 - 纯内存 focused suite 被错误绑定到 PostgreSQL preflight；PostgreSQL 不可用时，focused 根本不会启动；
 - focused 成功后直接把 `skipped=[]`，没有解析 JSON 报告确认零 skip；

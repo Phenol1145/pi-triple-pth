@@ -18,7 +18,7 @@
 | multiDomainResolution | **1.0000** | **1.0000** | = 1.0 |
 | distractorTop3Rate | **1.0000** | **1.0000** | ≥ 0.9 |
 
-- 离线 84/84 查询全部 pass；`--live` 为向运行中 PostgreSQL 用 `scripts/seed-k5-pilot.ts`
+- 离线 84/84 查询全部 pass；`--live` 为向运行中 PostgreSQL 用 `scripts/seed/seed-k5-pilot.ts`
   落库 36 条（source meta 含 `artifactHash`/`snapshotContent`，knowledge meta 含结构化
   `evidence` 与 canonical `provenance`）后、按生产路径（resolver → `rankKnowledgeEntries`
   → top5，evidence 只读 DB `meta.evidence`）实测，84/84 pass。

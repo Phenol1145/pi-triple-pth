@@ -9,7 +9,7 @@
 
 | Lane | 内容 | 分支 / worktree | 主要文件域 |
 |---|---|---|---|
-| **K0** | Phase 0 设计纠偏 | `lane/k0-v12-design` / `.worktrees/k0` | `src/pth/contracts/domains.ts`、`src/pth/catalog/discipline-catalog.ts`、`scripts/build-discipline-catalog.ts`、`src/pth/catalog/data/discipline-catalog-data.ts`（生成）、测试 |
+| **K0** | Phase 0 设计纠偏 | `lane/k0-v12-design` / `.worktrees/k0` | `src/pth/contracts/domains.ts`、`src/pth/catalog/discipline-catalog.ts`、`scripts/gen/build-discipline-catalog.ts`、`src/pth/catalog/data/discipline-catalog-data.ts`（生成）、测试 |
 | **K1a** | Phase 1a 知识正确性收口 | `lane/k1a-knowledge-hardening` / `.worktrees/k1a` | `packages/pth-memory/src/memory-store-pg.ts`、`src/pth/execution/knowledge-broker.ts`、`src/pth/impls/kernels/capability.ts`（skills.list 过滤）、相关测试 |
 
 合并序：K0 → K1a。
@@ -67,7 +67,7 @@ export interface DomainBinding {
     `counts(): { category, discipline, subDiscipline, total }`。
 - 本模块**只放契约与结构**，不 import 百科/知识正文/数据库。
 
-### 1.3 数据生成 `scripts/build-discipline-catalog.ts`
+### 1.3 数据生成 `scripts/gen/build-discipline-catalog.ts`
 
 - 事实源：`docs/pth/design/n16-v1.2-role-expansion.md` 的 §2.1–§2.5 五张角色表（§2.6 非
   researcher **不导入**——它们是角色候选，不是 domain）。

@@ -102,7 +102,7 @@ ln -s /opt/mytools/hello.sh ~/.config/pth/commands/hello
 
 # 项目内
 mkdir -p .pth/commands
-ln -s ../../scripts/deploy-check.py .pth/commands/deploy-check
+ln -s ../../scripts/tools/deploy-check.py .pth/commands/deploy-check
 ```
 
 之后：

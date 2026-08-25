@@ -3,7 +3,7 @@
 > 日期：2026-08-22
 > evaluated commit：`21befb4d02b3bb6f0e46e1b0f3ad4b538d34957e`
 > 最终决定：**MIN_INNER_LOOP_GO**（§8 十二项重新验收条件全部满足；driver exit 0）
-> 决定来源：`scripts/accept-n29-minimal-intake.ts`（唯一终审权威）
+> 决定来源：`scripts/accept/accept-n29-minimal-intake.ts`（唯一终审权威）
 > 完整权威 envelope：`docs/pth/n29-minimal-intake-acceptance.json`
 > 上位复核：[n29-minimal-intake-reacceptance-feedback.md](./n29-minimal-intake-reacceptance-feedback.md)
 > （独立符合性处置仍由复核方持有，本报告不替其改判）
@@ -33,7 +33,7 @@ exit 0。六项 realism gates 全部 satisfied：
 > 最小内环语义；当前 HEAD `f9b7afa` 全量门禁再次通过：lint（含 import-cycles/boundaries）exit 0、
 > build exit 0、`npm test` 297 files / 2619 passed / 58 frozen skipped / 0 failed，且 G8/G10 等
 > 真实性用例在本次全量回归中继续通过。若后续要把 `PTH_KNOWLEDGE_INTAKE_MODE=full` 绑定到新 commit，
-> 应重新运行 `scripts/accept-n29-minimal-intake.ts` 并走 D-5 签名流程生成新 envelope。
+> 应重新运行 `scripts/accept/accept-n29-minimal-intake.ts` 并走 D-5 签名流程生成新 envelope。
 
 | 门禁 | 结果 |
 |---|---|
@@ -113,5 +113,5 @@ promotion=2、Broker+Context retrieval=4——全部 `ok=true`（envelope `posit
 HTTPS 来源上的组合成立，不构成来源发现外环、自动扩源、多域广度、生产默认阈值或持续运营的
 GO 宣告。生产默认值仍为 `off`；启用 `full` 必须另行经过部署审批，并由启动门
 `assertIntakeFullAcceptance()` 校验本 envelope 与当前 commit 的绑定，且 envelope 必须由
-CI/发布密钥签名（`scripts/sign-n29-acceptance.ts` + `PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PUBLIC_KEY_PATH`）
+CI/发布密钥签名（`scripts/accept/sign-n29-acceptance.ts` + `PTH_KNOWLEDGE_INTAKE_ACCEPTANCE_PUBLIC_KEY_PATH`）
 ——未签名/签名不符/commit 不符的 envelope 一律启动失败。

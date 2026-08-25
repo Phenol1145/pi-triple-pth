@@ -203,7 +203,7 @@ source、effective value、restart requirement 和 secret mask。
 
 ### P1-4：Evaluator 只证明源码标记存在
 
-[eval-n33-operator-console.ts](../../../scripts/eval-n33-operator-console.ts) 主要检查文件内容/标记与 focused 数量，没有
+[eval-n33-operator-console.ts](../../../scripts/eval/eval-n33-operator-console.ts) 主要检查文件内容/标记与 focused 数量，没有
 启动 Console server、加载浏览器模块、访问真实 PTH DTO 或执行断连重试。因此在本轮四个 P0 全部存在时仍输出
 PASS/byte-identical。
 

@@ -61,7 +61,7 @@
 - **Memory usage 类型收敛**：新增 `CognitiveUsage` 契约类型，`TaskWorkingSet.usage`、`WorkerWorkingSetInspection.usage`、`CognitiveBudgetLedger.snapshot().usage` 统一复用。
 - **Agent-loop step 输出收敛**：新增 `agent-loop-step.ts` 的 `emitToolStep` / `toolStepSummary`，替换 `agent-loop.ts` 与 `agent-loop-registry-execution.ts` 中重复的 onStep + summary + tool-message 三段式。
 - **isPlainRecord 收敛**：`tasking-utils.ts` 导出 `isPlainRecord`，`task-work-item-reader.ts` 改为复用，删除本地副本。
-- **重复扫描纳入 CI**：新增 `scripts/check-duplication.ts` 与 `npm run check:duplication`，已接入 `lint` 链（当前非阻断，报告 252 个跨文件重复块）。
+- **重复扫描纳入 CI**：新增 `scripts/check/check-duplication.ts` 与 `npm run check:duplication`，已接入 `lint` 链（当前非阻断，报告 252 个跨文件重复块）。
 
 ### 3.3 延后事项记录
 
