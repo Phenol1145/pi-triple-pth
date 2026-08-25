@@ -75,7 +75,7 @@ function doneResultFromSignal(
   if (!raw.ok && raw.error?.code === PTH_DONE_SIGNAL_CODE) {
     const result = raw.error.result;
     const summary = typeof raw.error.summary === "string" ? raw.error.summary : undefined;
-    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result).slice(0, 200) });
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result ?? null).slice(0, 200) });
     return { ok: true, value: result, summary, steps: steps + 1 };
   }
   return undefined;
@@ -88,7 +88,7 @@ function doneResultFromToolResult(
   steps: number,
 ): AgentTaskResult | undefined {
   if (!result.ok && result.code === PTH_DONE_SIGNAL_CODE) {
-    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result.doneResult).slice(0, 200) });
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result.doneResult ?? null).slice(0, 200) });
     return { ok: true, value: result.doneResult, summary: result.doneSummary, steps: steps + 1 };
   }
   return undefined;
@@ -582,7 +582,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       const summary = typeof args["summary"] === "string" ? args["summary"] : undefined;
       input.onStep?.({ n: steps + 1, tool, durationMs: Date.now() - stepStart, ok: true });
       // finish trace（task.done 活动事件源——trigger 引擎/console --follow 的完成信号——之前断链只在失败路径发）
-      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result).slice(0, 200) });
+      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result ?? null).slice(0, 200) });
       return { ok: true, value: result, summary, steps: steps + 1 };
     }
 

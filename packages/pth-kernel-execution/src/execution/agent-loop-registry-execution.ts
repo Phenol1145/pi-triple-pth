@@ -135,7 +135,7 @@ export async function executeRegisteredTool(ctx: RegistryExecutionContext): Prom
     // W3：tool-reg program 内 done 信号 → 直接终止并提交结果
     if (!raw.ok && raw.error?.code === PTH_DONE_SIGNAL_CODE) {
       const doneErr = raw.error as Error & { result?: unknown; summary?: unknown };
-      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(doneErr.result).slice(0, 200) });
+      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(doneErr.result ?? null).slice(0, 200) });
       return { ok: true, value: doneErr.result, summary: typeof doneErr.summary === "string" ? doneErr.summary : undefined, steps: steps + 1 };
     }
     // W8 P2 同款：tasks.await 挂起信号 → 软终止（value=null + warning）

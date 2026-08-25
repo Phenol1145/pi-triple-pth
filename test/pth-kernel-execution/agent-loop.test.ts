@@ -686,3 +686,44 @@ describe("W-d 上下文快照采集（contextCapture）", () => {
     }
   });
 });
+
+describe("W3 回归：done 信号无 result 不崩溃", () => {
+  it("程序内 done() 无参调用 → 正常完成（value=undefined，不抛 slice 崩溃）", async () => {
+    const doneHolder: { fn?: (result?: unknown, summary?: string) => Promise<never> } = {};
+    const tsState: Record<string, unknown> = { results: {}, context: {}, memory: {}, llm: {}, web: {}, fs: {}, env: {}, state: {}, python: {}, bash: {} };
+    const kernel = mockKernel();
+    kernel.ts = {
+      state: tsState,
+      execute: vi.fn(async (code: string) => {
+        if (code.includes("await done(")) {
+          try {
+            await doneHolder.fn?.();   // 无参——result/summary 均 undefined
+          } catch (e) {
+            const err = e as Error & { code?: string; result?: unknown; summary?: unknown };
+            return { ok: false, error: { message: err.message, code: err.code, ...(err.result !== undefined ? { result: err.result } : {}), ...(err.summary !== undefined ? { summary: err.summary } : {}) }, durationMs: 1, language: "ts" };
+          }
+        }
+        return { ok: true, value: null, durationMs: 1, language: "ts" };
+      }),
+      injectCapability: vi.fn((name: string, value: unknown) => {
+        if (name === "done") doneHolder.fn = value as (result?: unknown, summary?: string) => Promise<never>;
+        tsState[name] = value;
+      }),
+      registerResult: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+      snapshot: vi.fn(async () => ({ variables: [], functions: [], oversized: [] })),
+    } as any;
+    const llm = mockLlm([
+      { toolCalls: [{ name: "ts.run", arguments: { code: "await done()" } }] },
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" },
+      maxSteps: 3,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value ?? null).toBeNull();   // 无参 done：value 为 null/undefined，关键是不崩溃
+  });
+});
