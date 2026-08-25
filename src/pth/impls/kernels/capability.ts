@@ -211,7 +211,11 @@ export function buildCapabilities(deps: {
       dbQuery: (_table: string, sql: string) => deps.dataWorld.queryTemplate?.(sql) ?? Promise.resolve([]),
     }),
     llm: deps.llm,
-    web: { fetchText: wrapValidated("web.fetchText", createWebCapability().fetchText) },
+    // TCE 网络 V1 Wave 3：web.fetchText 进入 legacy implementation binding——
+    // 有 NetworkExecuteClient 时统一走 Execute fetch port；无 client（开发/测试）保留旧直连传输。
+    web: { fetchText: wrapValidated("web.fetchText", deps.networkExecute?.fetchText
+      ? (url: string, opts?: { maxBytes?: number; timeoutMs?: number }) => deps.networkExecute!.fetchText(url, opts)
+      : createWebCapability().fetchText) },
     ...(deps.networkExecute
       ? {
           net: {

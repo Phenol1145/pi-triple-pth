@@ -50,6 +50,21 @@ export interface NetworkExecuteGatewayDeps {
   readonly createOperationId?: () => string;
 }
 
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function mapTransportError(err: unknown, operationId: string): NetworkExecuteError {
   if (err instanceof NetworkExecuteError) return err;
   if (err instanceof WebTransportError) {
@@ -285,6 +300,51 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         ok: false,
         errorCode: mapped.networkError.code,
         artifactId: request.artifactRef.artifactId,
+      });
+      throw mapped;
+    }
+  }
+
+  async fetchText(
+    url: string,
+    opts: { maxBytes?: number; timeoutMs?: number } = {},
+    context?: NetworkOperationContextV1,
+  ): Promise<string> {
+    const ctx = context ?? this.buildContext("fetch");
+    const startedAt = this.now();
+    const startMs = Date.now();
+    try {
+      const result = await this.fetchTransport(url, {
+        // legacy web.fetchText 保留 HTTP/HTTPS-compatible；新 net.fetch 仍 HTTPS-only。
+        allowedProtocols: ["http:", "https:"],
+        maxBytes: opts.maxBytes ?? this.policyMaxFetchBytes(),
+        timeoutMs: opts.timeoutMs ?? 30_000,
+        maxRedirects: 5,
+        label: "web.fetchText",
+      });
+      const text = new TextDecoder().decode(result.rawBytes);
+      const ctype = result.headers["content-type"] ?? "";
+      const output = /html/i.test(ctype) ? stripHtml(text) : text;
+      this.traceRecorder.record({
+        operationId: ctx.operationId,
+        kind: "fetch",
+        profileId: ctx.profileId,
+        startedAt: startedAt.toISOString(),
+        durationMs: Date.now() - startMs,
+        ok: true,
+        finalUrl: result.finalUri,
+      });
+      return output;
+    } catch (err) {
+      const mapped = mapTransportError(err, ctx.operationId);
+      this.traceRecorder.record({
+        operationId: ctx.operationId,
+        kind: "fetch",
+        profileId: ctx.profileId,
+        startedAt: startedAt.toISOString(),
+        durationMs: Date.now() - startMs,
+        ok: false,
+        errorCode: mapped.networkError.code,
       });
       throw mapped;
     }

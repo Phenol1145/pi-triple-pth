@@ -10,7 +10,7 @@ export const ROLE_CAPABILITY_VOCABULARY: ReadonlySet<string> = new Set([
   "debug.attach", "debug.breakpoint", "debug.continue", "debug.detach", "debug.evaluate",
   "debug.sessions", "debug.snapshot", "debug.step",
   "dev.build", "dev.edit", "dev.list", "dev.run", "dev.save", "dev.write",
-  "env", "ext", "fs", "llm", "manage", "memory", "obs", "python", "readSource", "readText",
+  "env", "ext", "fs", "llm", "manage", "memory", "net.fetch", "net.search", "net.extract", "obs", "python", "readSource", "readText",
   "skills", "state", "tools", "web",
   "write.create", "write.edit", "write.list", "write.read", "write.save", "write.section",
 ]);

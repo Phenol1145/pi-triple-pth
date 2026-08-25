@@ -27,7 +27,7 @@ export const LEGACY_OPTIMIZER_SUGGESTION_KIND = "optimizer-suggestion" as const;
 export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "analyst", tags: ["analysis", "research", "deep-analysis"], prompt: "你是分析者——负责对复杂问题进行深度演化式分析：拆解问题→多假设推演→综合收敛→产出知识结论与研究报告。族内已有特化（按问题类型二分）：prospector（开放探索型——无定解/发散假设生成）/solver（封闭限制型——有约束/收敛推导）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化分析任务亲自执行。",
     description: "深度演化分析问题（researcher 族——按问题类型二分：开放探索/封闭限制两子类型）", thinking: "medium",
-    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "research",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "python", "bash"], output: "research",
     exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（backlog 差距 11——分析可双语言核验证）
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型（已分 prospector/solver）= 基本工具+投递
     parent: "researcher", generation: 2, differentiation: "研究类任务诱导——复杂问题深度演化分析需要 web 与数据能力的特化" },
@@ -35,18 +35,18 @@ export const DEFAULT_ROLES: WorkerRole[] = [
   // 开放探索型（无定解/发散）→ prospector；封闭限制型（有约束/收敛）→ solver
   { id: "prospector", tags: ["open-explore", "hypothesis", "prospect"], prompt: "你是勘探者——负责开放探索型问题：无定解、边界开放的探索。发散式生成假设、勘探可能解空间、发现新方向与新关联，产出假设集合与探索路径。",
     description: "开放探索型问题（analyst 子类型——无定解/发散假设生成/解空间勘探）", thinking: "medium",
-    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "hypothesis",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "python", "bash"], output: "hypothesis",
     exploreKernels: ["python", "bash"],   // 发散探索可双语言核对比验证假设
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型（已分 predictor）= 基本工具+投递
     parent: "analyst", generation: 3, differentiation: "开放探索型任务诱导——无定解/边界开放的探索需要发散假设生成与解空间勘探——从 analyst 分出开放探索专精" },
   { id: "solver", tags: ["closed-solve", "constraint", "solve"], prompt: "你是求解者——负责封闭限制型问题：有约束/定解、边界封闭的求解。收敛式推导、约束内求解、证据验证，产出确定的结论与验证结果。",
     description: "封闭限制型问题（analyst 子类型——有约束/收敛推导/证据验证）", thinking: "high",
-    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "conclusion",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "python", "bash"], output: "conclusion",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
     parent: "analyst", generation: 3, differentiation: "封闭限制型任务诱导——有约束/定解的求解需要收敛推导与证据验证——从 analyst 分出封闭求解专精" },
   { id: "predictor", tags: ["predict", "forecast", "extrapolate"], prompt: "你是预测者——负责预测类任务：在开放探索基础上对趋势、未来状态、结果分布做外推与预测。基于历史/证据外推未来，产出概率化预测与不确定性说明。",
     description: "预测外推（prospector 子类型——趋势/未来状态/结果分布预测）", thinking: "medium",
-    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "prediction",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "python", "bash"], output: "prediction",
     actionTools: ["execTs", "execPy", "execBash", "nav", "cache"],
     parent: "prospector", generation: 4, differentiation: "预测类任务诱导——开放探索中的趋势外推/未来预测是高频子模式——从 prospector 分出预测专精" },
   { id: "planner", tags: ["plan", "design"], prompt: "你是计划者——负责任务分解、方案设计、步骤规划。\n\n【计划产出格式（done.result 必遵）】\n{ \"subtasks\": [ {\"id\": \"s1\", \"type\": \"exploration\", \"dependsOn\": [], \"description\": \"...\"}, ... ] }\n- dependsOn 只标真实数据依赖（上游产出被下游消费才写）——无依赖子任务不串排（同层并行——时间复用率）。\n- 计划扁平化原则：先画依赖 DAG——只有真实依赖才串行；能并行的子任务放同一层。",
@@ -58,7 +58,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
   { id: "developer", tags: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。族内已有特化：coder（纯代码编写）/tester（功能测试）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化实现任务亲自执行。",
     description: "实现与开发（worker 对应——narrow coherent edits）", thinking: "high",
     // 权限 v2 R4：显式声明（缺省全量废止）——core+data 全量，无管理面
-    capabilities: ["python", "bash", "c", "fs", "web", "llm", "state", "ext", "env", "memory", "skills", "obs"],
+    capabilities: ["python", "bash", "c", "fs", "web", "net.search", "net.fetch", "net.extract", "llm", "state", "ext", "env", "memory", "skills", "obs"],
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型（已分 coder/tester）= 基本工具+投递（capabilities 不动——引导级收口，用户裁决 Q1）
     output: "implementation", defaultReads: ["context", "plan"], acceptanceRole: "writer",
     parent: "executor", generation: 2, differentiation: "实现类任务诱导——代码交付需要完整执行能力与写入权限" },
@@ -77,9 +77,9 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "readSource", "readText", "bash"], output: "context",
     actionTools: ["execTs", "execBash", "nav", "cache"],   // 2026-08-12 裁剪：bash 侦察为主 + ts 程序面（无 python——capabilities 无）
     parent: "explorer", generation: 2, differentiation: "侦察类任务诱导——快速信息收集不需要深推理——thinking low 特化换速度" },
-  { id: "spider", tags: ["crawl", "scrape", "fetch"], prompt: "你是信息抓取者——负责网页抓取、结构化信息采集、多源数据聚合。通过 web 能力与 ext.use(agent-reach) 抓取网页/平台内容，抽取结构化数据，压缩为 context 交接下游分析。",
+  { id: "spider", tags: ["crawl", "scrape", "fetch"], prompt: "你是信息抓取者——负责网页抓取、结构化信息采集、多源数据聚合。通过 net.search/net.fetch/net.extract 抓取网页/平台内容，抽取结构化数据，压缩为 context 交接下游分析。",
     description: "网页抓取与结构化采集（explorer 子类型——爬取/抓取专用）", thinking: "low", model: "deepseek-v4-flash",
-    capabilities: ["fs", "memory", "readSource", "readText", "web", "bash", "ext"], output: "context",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "bash", "ext"], output: "context",
     actionTools: ["execTs", "execBash", "nav", "cache"],   // 抓取=web/ext 能力在 ts 程序面 + bash（curl/jina）+导航
     parent: "explorer", generation: 2, differentiation: "抓取类任务诱导——网页/平台内容结构化采集需要 web+ext(agent-reach) 能力——从 explorer 分出爬取专精" },
   { id: "memory-keeper", tags: ["memory", "organize"], prompt: "你是记忆维护者——负责记忆整理、知识沉淀、索引维护。",
@@ -146,7 +146,7 @@ export const MID_ROLES: WorkerRole[] = [
     parent: "actuator", generation: 1, differentiation: "执行类任务族诱导——做事型任务（实现/构建/验证）从 actuator 分出独立分支" },
   { id: "explorer", tags: ["explore", "survey"], prompt: "你是探索者——信息族中间层。负责族内泛化的信息获取（未明确侦察/分析之分的探索任务）：快速定位信息源、收集并压缩上下文交接下游。族内已有特化：scout（快速侦察）/spider（网页抓取）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化探索任务亲自执行。",
     description: "信息族中间层（泛化信息获取）", thinking: "medium",
-    capabilities: ["fs", "memory", "readSource", "readText", "web", "bash"], output: "context",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "bash"], output: "context",
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 1, differentiation: "信息类任务族诱导——获取型任务（侦察/调研/分析）从 actuator 分出独立分支" },
   { id: "governor", tags: ["govern", "oversight"], prompt: "你是治理者——治理族中间层。负责族内泛化的质量与秩序任务（未明确规划/验收/记忆之分的治理任务）：审查现状、维护秩序、产出治理结论。族内已有特化：planner（规划）/acceptor（验收）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化治理任务亲自执行。",
@@ -157,7 +157,7 @@ export const MID_ROLES: WorkerRole[] = [
   // 2026-08-14 研究族（用户裁决）：研究/知识生产——explorer 管摄入、researcher 管研究产出、memory-keeper 管维护
   { id: "researcher", tags: ["research", "knowledge"], prompt: "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（深度演化分析——含 prospector/solver 子类型）/memory-keeper（记忆维护）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化研究任务亲自执行。",
     description: "研究族中间层（知识生产与深度研究——伪世界模型「组装+校准」的知识端）", thinking: "medium",
-    capabilities: ["fs", "memory", "readSource", "readText", "web", "python", "bash"], output: "context",
+    capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "python", "bash"], output: "context",
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 1, differentiation: "知识类任务族诱导——研究型任务（深度分析/知识生产）从 actuator 分出独立分支" },
 ];

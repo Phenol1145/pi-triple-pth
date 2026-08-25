@@ -18,7 +18,7 @@
  */
 
 export type PtcFamily =
-  | 'ts-local' | 'memory' | 'llm' | 'web' | 'net' | 'fs' | 'env' | 'state' | 'cache' | 'kernel' | 'seed' | 'tasks'
+  | 'ts-local' | 'memory' | 'llm' | 'web' | 'net' | 'reach' | 'fs' | 'env' | 'state' | 'cache' | 'kernel' | 'seed' | 'tasks'
   | 'dev' | 'write' | 'debug' | 'loop';
 
 /** PTC orchestration runtime（Code 层代理注入位置；不是 Execute 执行目标） */
@@ -198,6 +198,46 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     effect: '纯文本（HTML 剥标签；1MB/30s 上限）',
     validate: (args) => { requireString(args, 0, 'web.fetchText'); },
     asAction: (a) => `return await web.fetchText(${JSON.stringify(String(a.url ?? ''))});`,
+  },
+  // —— TCE 网络 V1 Wave 3：legacy 兼容投影（Tool→Code→net.*；不保留独立 I/O 执行体） ——
+  'web.get': {
+    name: 'web.get', family: 'web', codeHost: 'kernel-ts',
+    contractVersion: 'v1', effectKind: 'read-external',
+    discoveryChannels: { ptc: false, tool: 'optional', prompt: false },
+    params: '(url: string)',
+    returnType: 'Promise<FetchResponseV1>',
+    anchor: '旧 web.get 兼容投影——等价 net.fetch',
+    whenToUse: '存量 tool-call 兼容；新代码请用 net.fetch',
+    effect: '投影到 net.fetch（不保留独立执行体）',
+    validate: (args) => { requireString(args, 0, 'web.get'); },
+    asAction: (a) => `return await net.fetch({ schemaVersion: "net.fetch.request/v1", url: ${JSON.stringify(String(a.url ?? ''))} });`,
+  },
+  'reach.webSearch': {
+    name: 'reach.webSearch', family: 'reach', codeHost: 'kernel-ts',
+    contractVersion: 'v1', effectKind: 'read-external',
+    discoveryChannels: { ptc: false, tool: 'optional', prompt: false },
+    params: '(query: string, opts?: { n?: number; limit?: number })',
+    returnType: 'Promise<SearchResponseV1>',
+    anchor: '旧 reach.webSearch 兼容投影——等价 net.search',
+    whenToUse: '存量 tool-call 兼容；新代码请用 net.search',
+    effect: '投影到 net.search（不保留独立执行体）',
+    validate: (args) => { requireString(args, 0, 'reach.webSearch'); },
+    asAction: (a) => {
+      const limit = a.n ?? a.limit;
+      return `return await net.search({ schemaVersion: "net.search.request/v1", query: ${JSON.stringify(String(a.query ?? ''))}${limit !== undefined ? `, limit: ${JSON.stringify(Number(limit))}` : ''} });`;
+    },
+  },
+  'reach.webRead': {
+    name: 'reach.webRead', family: 'reach', codeHost: 'kernel-ts',
+    contractVersion: 'v1', effectKind: 'read-external',
+    discoveryChannels: { ptc: false, tool: 'optional', prompt: false },
+    params: '(url: string)',
+    returnType: 'Promise<ExtractedDocumentV1>',
+    anchor: '旧 reach.webRead 兼容投影——展开为 net.fetch + net.extract',
+    whenToUse: '存量 tool-call 兼容；新代码请用 net.fetch 后接 net.extract',
+    effect: '投影到 net.fetch + net.extract（要求两个 grant）',
+    validate: (args) => { requireString(args, 0, 'reach.webRead'); },
+    asAction: (a) => `const f = await net.fetch({ schemaVersion: "net.fetch.request/v1", url: ${JSON.stringify(String(a.url ?? ''))} }); return await net.extract({ schemaVersion: "net.extract.request/v1", artifactRef: f.artifact.ref, mode: "main-content" });`,
   },
   // —— TCE 网络 V1：net.* family（Tool→Code→Execute typed proxy）——
   'net.search': {

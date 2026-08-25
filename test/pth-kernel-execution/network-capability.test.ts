@@ -56,6 +56,10 @@ function fakeClient(calls: { kind: string; args: unknown }[]): NetworkExecuteCli
         trust: "processed-untrusted",
       };
     },
+    async fetchText(url) {
+      calls.push({ kind: "fetchText", args: url });
+      return "hello text";
+    },
   };
 }
 
@@ -67,11 +71,13 @@ describe("TCE 网络 V1 typed proxy", () => {
     const search = await net.search({ schemaVersion: "net.search.request/v1", query: "rust" });
     const fetch = await net.fetch({ schemaVersion: "net.fetch.request/v1", url: "https://example.com" });
     const extract = await net.extract({ schemaVersion: "net.extract.request/v1", artifactRef, mode: "main-content" });
+    const text = await net.fetchText("https://example.com");
 
-    expect(calls.map((c) => c.kind)).toEqual(["search", "fetch", "extract"]);
+    expect(calls.map((c) => c.kind)).toEqual(["search", "fetch", "extract", "fetchText"]);
     expect(search.schemaVersion).toBe("net.search.response/v1");
     expect(fetch.artifact.ref.sha256).toBe("abc");
     expect(extract.trust).toBe("processed-untrusted");
+    expect(text).toBe("hello text");
   });
 
   it("catalog 静态目录：net.* 均有 typed-proxy binding 与 Execute service", () => {

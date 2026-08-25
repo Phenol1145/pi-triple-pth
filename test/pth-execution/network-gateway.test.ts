@@ -155,6 +155,29 @@ describe("NetworkExecuteGateway Wave 2", () => {
     });
   });
 
+  it("fetchText legacy binding 允许 http/https 并返回纯文本", async () => {
+    const htmlBytes = new TextEncoder().encode("<html><body><h1>Hi</h1><p>World</p></body></html>");
+    const gateway = new NetworkExecuteGateway({
+      artifactStore: new InMemoryArtifactStore(),
+      extractor: createOfflineHtmlExtractor(),
+      fetchTransport: async (url) => ({
+        requestedUri: url,
+        finalUri: url,
+        redirectChain: [url],
+        status: 200,
+        headers: { "content-type": "text/html" },
+        rawBytes: htmlBytes,
+        byteLength: htmlBytes.byteLength,
+        hops: [],
+      }),
+      createOperationId: () => "op-fetchText",
+    });
+    const text = await gateway.fetchText("http://example.com");
+    expect(text).toContain("Hi");
+    expect(text).toContain("World");
+    expect(text).not.toContain("<h1>");
+  });
+
   it("extract 对同一 artifact 产生确定性 output hash", async () => {
     const store = new InMemoryArtifactStore();
     const html = "<html><head><title>T</title></head><body><p>hello world</p></body></html>";

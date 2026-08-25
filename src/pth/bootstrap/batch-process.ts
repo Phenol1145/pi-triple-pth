@@ -37,7 +37,7 @@ import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
 import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
 import type { ProfessionalRuntimeLock } from "@away_from/pth-contracts";
 import { assembleProfessionalRuntimeRegistry, createProfessionalArtifactPort } from "./professional-runtime-adapters.js";
-import { buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createPlanGrantVerify } from "../execution/index.js";
+import { buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createPlanGrantVerify, createDefaultNetworkExecuteGateway } from "../execution/index.js";
 import { bootstrapBatchHost } from "./batch/host-bootstrap.js";
 import { assembleToolFace } from "./batch/tool-face.js";
 import { assembleCognitiveResponsibility, buildAssemblyWorkerSpecs, makeWorkerSlot } from "./batch/feasibility-runtime.js";
@@ -261,6 +261,10 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       : role;
     // W8 P1：任务身份引用（task-loop 每任务盖章；delegate/await 调用者上下文）
     const taskContext: { current: import("@away_from/pth-contracts").TaskDispatchContext | null } = { current: null };
+    // TCE 网络 V1 Wave 3：每 worker 一个 Execute gateway（默认 raw-hit provider + 离线 extractor）。
+    const networkExecute = createDefaultNetworkExecuteGateway({
+      defaultContext: { roleId: effectiveRole.id },
+    });
     // 穿透 runChild 执行缝（runchild-budget 段）：穿透 runner 与 tool-reg agent 态执行缝共用同一实现。
     const parentKernelRef: { current?: { ts: unknown } } = {};
     const runChildImpl = createPenetrationRunChild(runChildShared, { replica, parentKernelRef });
@@ -406,6 +410,8 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       },
       // TCE P3：语言工具先过 CommandGateway 授权
       commandGateway,
+      // TCE 网络 V1 Wave 3：Execute gateway（net.* / web.fetchText legacy binding）
+      networkExecute,
       // TCE P5：per-tool 工具面（manifest 策展）
       extraTools,
       // N28 T2/T6：feasibility 依赖透传（off 全部 undefined）。

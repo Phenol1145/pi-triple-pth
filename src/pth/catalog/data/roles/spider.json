@@ -7,7 +7,7 @@
       "scrape",
       "fetch"
     ],
-    "prompt": "你是信息抓取者——负责网页抓取、结构化信息采集、多源数据聚合。通过 web 能力与 ext.use(agent-reach) 抓取网页/平台内容，抽取结构化数据，压缩为 context 交接下游分析。",
+    "prompt": "你是信息抓取者——负责网页抓取、结构化信息采集、多源数据聚合。通过 net.search/net.fetch/net.extract 抓取网页/平台内容，抽取结构化数据，压缩为 context 交接下游分析。",
     "description": "网页抓取与结构化采集（explorer 子类型——爬取/抓取专用）",
     "parent": "explorer",
     "differentiation": "抓取类任务诱导——网页/平台内容结构化采集需要 web+ext(agent-reach) 能力——从 explorer 分出爬取专精"
@@ -19,6 +19,9 @@
       "readSource",
       "readText",
       "web",
+      "net.search",
+      "net.fetch",
+      "net.extract",
       "bash",
       "ext"
     ],

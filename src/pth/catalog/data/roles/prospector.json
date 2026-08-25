@@ -19,6 +19,9 @@
       "readSource",
       "readText",
       "web",
+      "net.search",
+      "net.fetch",
+      "net.extract",
       "python",
       "bash"
     ],

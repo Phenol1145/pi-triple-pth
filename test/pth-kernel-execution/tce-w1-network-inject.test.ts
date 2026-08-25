@@ -51,6 +51,9 @@ function fakeNetworkClient(): NetworkExecuteClient {
         trust: "processed-untrusted",
       };
     },
+    async fetchText() {
+      return "hello text";
+    },
   };
 }
 

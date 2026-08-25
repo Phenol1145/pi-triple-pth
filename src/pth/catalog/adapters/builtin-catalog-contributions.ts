@@ -42,7 +42,7 @@ export function buildBuiltinCatalog(): RuntimeCatalogSnapshot {
     });
   }
   builder.setCapabilityPolicy({
-    allow: ["memory.read", "memory.write", "memory.query", "llm.complete", "web.fetchText", "fs.readText", "fs.readSource", "fs.list", "fs.task", "python.execute", "bash.execute", "c.build", "c.run", "dev.build", "dev.run", "write.create", "write.edit", "readSource", "readText", "state.recallFunctions", "state.recallInsights", "skills.list", "skills.get", "ext.use", "cache.get", "cache.load"],
+    allow: ["memory.read", "memory.write", "memory.query", "llm.complete", "web.fetchText", "net.search", "net.fetch", "net.extract", "fs.readText", "fs.readSource", "fs.list", "fs.task", "python.execute", "bash.execute", "c.build", "c.run", "dev.build", "dev.run", "write.create", "write.edit", "readSource", "readText", "state.recallFunctions", "state.recallInsights", "skills.list", "skills.get", "ext.use", "cache.get", "cache.load"],
     deny: [],
   });
   return builder.build();

@@ -20,6 +20,8 @@ export interface NetworkExecuteClient {
   search(request: SearchRequestV1, context?: NetworkOperationContextV1): Promise<SearchResponseV1>;
   fetch(request: FetchRequestV1, context?: NetworkOperationContextV1): Promise<FetchResponseV1>;
   extract(request: ExtractRequestV1, context?: NetworkOperationContextV1): Promise<ExtractedDocumentV1>;
+  /** legacy `web.fetchText` 兼容：同一 Execute fetch port，HTTP/HTTPS-compatible，返回纯文本。 */
+  fetchText(url: string, opts?: { maxBytes?: number; timeoutMs?: number }, context?: NetworkOperationContextV1): Promise<string>;
 }
 
 export interface NetworkCapabilityDeps {
@@ -30,6 +32,7 @@ export interface NetworkCapability {
   search(request: SearchRequestV1, context?: NetworkOperationContextV1): Promise<SearchResponseV1>;
   fetch(request: FetchRequestV1, context?: NetworkOperationContextV1): Promise<FetchResponseV1>;
   extract(request: ExtractRequestV1, context?: NetworkOperationContextV1): Promise<ExtractedDocumentV1>;
+  fetchText(url: string, opts?: { maxBytes?: number; timeoutMs?: number }, context?: NetworkOperationContextV1): Promise<string>;
 }
 
 export function createNetworkCapability(deps: NetworkCapabilityDeps): NetworkCapability {
@@ -37,5 +40,6 @@ export function createNetworkCapability(deps: NetworkCapabilityDeps): NetworkCap
     search: (request, context) => deps.client.search(request, context),
     fetch: (request, context) => deps.client.fetch(request, context),
     extract: (request, context) => deps.client.extract(request, context),
+    fetchText: (url, opts, context) => deps.client.fetchText(url, opts, context),
   };
 }
