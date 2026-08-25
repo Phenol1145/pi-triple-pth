@@ -14,7 +14,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const publicDir = join(root, "packages", "pth-console", "dist", "operator-console", "public");
 const manifestPath = join(publicDir, "asset-manifest.json");
 const ALLOWED_EXTENSIONS = new Set([".html", ".css", ".js", ".svg", ".ico", ".png", ".webp", ".woff", ".woff2"]);

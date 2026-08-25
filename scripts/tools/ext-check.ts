@@ -15,7 +15,7 @@ import { createToolstore } from "@away_from/pth-kernel-interpreter";
 import { ExtRegistry, buildStdExtChannels, type ExtContext } from "@away_from/pth-kernel-interpreter";
 import { classifyExtensionDir } from "../../src/pth/catalog/extensions/extension-policy.js";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const TOOLSTORE = path.join(ROOT, "toolstore");
 
 async function main(): Promise<number> {

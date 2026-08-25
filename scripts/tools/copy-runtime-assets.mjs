@@ -14,7 +14,7 @@ import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const src = join(root, "src", "pth", "catalog", "data", "roles");
 const dst = join(root, "dist", "pth", "catalog", "data", "roles");
 

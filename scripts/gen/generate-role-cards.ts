@@ -15,7 +15,7 @@ import type { RoleDefinition } from "@away_from/pth-kernel-execution";
 import type { RoleCardV1 } from "../../src/pth/catalog/role-definition-v1.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const outDir = join(here, "../src/pth/catalog/data/roles");
+const outDir = join(here, "../../src/pth/catalog/data/roles");
 
 function toCard(r: RoleDefinition): RoleCardV1 {
   return {

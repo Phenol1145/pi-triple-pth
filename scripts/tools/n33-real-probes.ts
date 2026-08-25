@@ -59,7 +59,7 @@ async function bootstrap(app: OperatorConsoleServer): Promise<string> {
 
 async function probeModuleGraph(): Promise<{ servedAssets: number; appImportCount: number; expectedAssets: number; expectedJsCount: number }> {
   const manifest = JSON.parse(
-    readFileSync(new URL("../packages/pth-console/dist/operator-console/public/asset-manifest.json", import.meta.url), "utf8"),
+    readFileSync(new URL("../../packages/pth-console/dist/operator-console/public/asset-manifest.json", import.meta.url), "utf8"),
   ) as Record<string, { path: string }>;
   const entries = Object.values(manifest).map((entry) => entry.path);
   const expectedAssets = entries.length;

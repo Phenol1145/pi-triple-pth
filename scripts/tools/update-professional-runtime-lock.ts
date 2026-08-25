@@ -18,7 +18,7 @@ import type {
   ProfessionalRuntimeLock,
 } from "@away_from/pth-contracts";
 
-const LOCK_PATH = fileURLToPath(new URL("../deploy/professional-runtime-lock.json", import.meta.url));
+const LOCK_PATH = fileURLToPath(new URL("../../deploy/professional-runtime-lock.json", import.meta.url));
 
 const REJECT_VERSION_RE = /(?:pre|rc|alpha|beta|nightly|dev|snapshot|preview)/i;
 

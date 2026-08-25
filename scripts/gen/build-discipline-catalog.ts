@@ -27,7 +27,7 @@ import {
   PRODUCTION_DOMAIN_ALIAS_OVERRIDES,
 } from "../../src/pth/catalog/data/discipline-alias-overrides.js";
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SOURCE_DOC = resolve(ROOT, "docs/pth/design/n16-v1.2-role-expansion.md");
 const OUT_FILE = resolve(ROOT, "src/pth/catalog/data/discipline-catalog-data.ts");
 

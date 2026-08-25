@@ -9,7 +9,7 @@
 set -u
 
 echo "── ① Dockerfile.sandbox 凭据字面量扫描 ──"
-DOCKERFILE="$(dirname "$0")/../packages/pth-sandbox/Dockerfile.sandbox"
+DOCKERFILE="$(dirname "$0")/../../packages/pth-sandbox/Dockerfile.sandbox"
 if [ ! -f "$DOCKERFILE" ]; then
   echo "❌ 目标 Dockerfile 缺失（拆分后位于 packages/pth-sandbox/）：$DOCKERFILE"
   exit 1
