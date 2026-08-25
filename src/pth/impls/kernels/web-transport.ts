@@ -183,11 +183,79 @@ export function assertPublicLiteralHost(hostname: string, label = DEFAULT_LABEL)
   }
 }
 
-/** 默认解析器：全量 A/AAAA 解析（verbatim 保留 IPv6 字面量）。 */
-export const defaultWebLookup: WebLookup = async (hostname) => {
+/** DoH 端点（仅作为系统 DNS 被 fake-ip/私网污染时的回退；结果仍经 SSRF 全量校验）。 */
+const DEFAULT_DOH_ENDPOINTS = ["https://1.1.1.1/dns-query", "https://dns.google/resolve"] as const;
+
+async function dohLookupOnce(hostname: string, endpoint: string, type: 1 | 28): Promise<ResolvedAddress[]> {
+  const response = await fetch(`${endpoint}?name=${encodeURIComponent(hostname)}&type=${type}`, {
+    headers: { accept: "application/dns-json" },
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) return [];
+  const data = (await response.json()) as { Answer?: Array<{ type: number; data: string }> };
+  return (data.Answer ?? [])
+    .filter((answer) => answer.type === type)
+    .map((answer) => ({ address: answer.data, family: type === 1 ? 4 : 6 }));
+}
+
+/** 默认 DoH 回退解析：A + AAAA；所有端点失败返回空数组。 */
+export const defaultDohLookup: WebLookup = async (hostname) => {
+  for (const endpoint of DEFAULT_DOH_ENDPOINTS) {
+    try {
+      const settled = await Promise.allSettled([
+        dohLookupOnce(hostname, endpoint, 1),
+        dohLookupOnce(hostname, endpoint, 28),
+      ]);
+      const addresses = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+      if (addresses.length > 0) return addresses;
+    } catch {
+      // 尝试下一个 DoH 端点
+    }
+  }
+  return [];
+};
+
+/** 系统解析器：全量 A/AAAA 解析（verbatim 保留 IPv6 字面量）。 */
+async function systemWebLookup(hostname: string): Promise<ResolvedAddress[]> {
   const resolved = await dnsPromises.lookup(hostname, { all: true, verbatim: true });
   return resolved.map((r) => ({ address: r.address, family: r.family }));
-};
+}
+
+export interface WebLookupFallbackOptions {
+  systemLookup?: WebLookup;
+  dohLookup?: WebLookup;
+}
+
+/**
+ * 默认解析器：先走系统 DNS；仅当系统 DNS 没有给出任何公网地址（例如本机 fake-ip
+ * 代理把公网域名解析到 198.18.0.0/15 或 ULA）或解析失败时，回退到 DoH 获取真实公网
+ * 地址。回退结果仍由调用方 resolvePublicAddresses 做完整 SSRF 校验，不放开私网。
+ */
+export function createWebLookupWithDohFallback(opts: WebLookupFallbackOptions = {}): WebLookup {
+  const systemLookup = opts.systemLookup ?? systemWebLookup;
+  const dohLookup = opts.dohLookup ?? defaultDohLookup;
+  return async (hostname) => {
+    let systemError: unknown;
+    try {
+      const addresses = await systemLookup(hostname);
+      if (addresses.length > 0 && addresses.some((a) => !isPrivateIpLiteral(a.address))) {
+        return addresses;
+      }
+    } catch (err) {
+      systemError = err;
+    }
+    try {
+      const addresses = await dohLookup(hostname);
+      if (addresses.length > 0) return addresses;
+    } catch {
+      // DoH 失败时继续走下面的原始错误/空结果路径
+    }
+    if (systemError !== undefined) throw systemError;
+    return [];
+  };
+}
+
+export const defaultWebLookup: WebLookup = createWebLookupWithDohFallback();
 
 /** DNS rebinding 防线：任一解析结果落在非公网段即整体拒绝（fail-closed）。 */
 export function assertPublicResolvedAddresses(
