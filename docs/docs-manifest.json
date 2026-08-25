@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-25T14:36:18.531Z",
+  "generatedAt": "2026-08-25T15:41:32.151Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -412,6 +412,12 @@
     },
     {
       "path": "docs/pth/design/task-lifecycle-and-context-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/tce-network-module-refactor-design.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
