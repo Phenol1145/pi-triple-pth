@@ -21,6 +21,7 @@ const FAMILY_SECTIONS: Array<{ families: PtcFamily[]; title: string }> = [
   { families: ["llm", "web", "env", "state", "cache", "ts-local"], title: "web/llm/state/ext/env" },
   { families: ["tasks"], title: "tasks" },
   { families: ["net"], title: "net（网络信息基础）" },
+  { families: ["reach"], title: "reach（legacy 兼容投影）" },
   { families: ["dev"], title: "dev（生产核·代码）" },
   { families: ["write"], title: "write（生产核·文档）" },
   { families: ["debug"], title: "debug（调试会话）" },

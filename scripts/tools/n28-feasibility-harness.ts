@@ -21,6 +21,7 @@ import { createAuthorizedStateReadPort } from "../../src/pth/runner/authorized-s
 import { createAuthorizedTaskReadFactory, createScopedSkillPort, expandTaskReadGrantCapabilities } from "../../src/pth/runner/authorized-task-reads.js";
 import { createCognitiveWorkingSetProvider } from "../../src/pth/runner/cognitive-working-set.js";
 import { AgentTaskRunner, type AgentTaskRunnerDeps } from "../../src/pth/runner/agent-task-runner.js";
+import type { NetworkExecuteClient } from "@away_from/pth-kernel-execution";
 import { N28_FEASIBILITY_BUDGET } from "@away_from/pth-contracts";
 import {
   N28_DOMAIN_IDS, N28_REGIONS, N28_REGIONS as REGIONS, N28_RESPONSIBILITIES, N28_ROLE,
@@ -44,6 +45,57 @@ export interface N28InMemoryBundle {
   grantService: ReturnType<typeof createExecutionGrantService>;
   clock: () => Date;
   runTask(input: { workerKey: keyof typeof N28_WORKERS; taskText: string; taskTitle?: string }): Promise<N28VerticalObservation>;
+}
+
+function fakeNetworkExecute(): NetworkExecuteClient {
+  const artifactRef = {
+    artifactId: "artifact-fake",
+    storageKind: "task-artifact" as const,
+    immutableLocator: "task-artifact://artifact-fake",
+    sha256: "0".repeat(64),
+    byteLength: 0,
+    mediaType: "text/plain",
+    retentionClass: "task" as const,
+  };
+  return {
+    async search() {
+      return {
+        schemaVersion: "net.search.response/v1",
+        operationId: "op-fake-search",
+        queryDigest: "sha256:q",
+        hits: [],
+        attempts: [],
+        partial: false,
+        stopReason: "provider-exhausted",
+      };
+    },
+    async fetch() {
+      return {
+        schemaVersion: "net.fetch.response/v1",
+        operationId: "op-fake-fetch",
+        requestedUrl: "https://example.com",
+        finalUrl: "https://example.com/",
+        redirectChain: [],
+        retrievedAt: "2030-01-01T00:00:00.000Z",
+        status: 200,
+        headers: {},
+        artifact: { ref: artifactRef },
+        transport: { policyVersion: "v1", bytesRead: 0, truncated: false },
+      };
+    },
+    async extract() {
+      return {
+        schemaVersion: "net.document/v1",
+        sourceArtifact: artifactRef,
+        processingChain: [],
+        warnings: [],
+        trust: "processed-untrusted",
+      };
+    },
+    async fetchText() {
+      return "";
+    },
+  };
 }
 
 export function createN28InMemoryBundle(): N28InMemoryBundle {
@@ -217,6 +269,7 @@ export function createN28InMemoryBundle(): N28InMemoryBundle {
         cognitiveWorkingSetProvider: provider,
         cognitiveResponsibilityMode: "feasibility",
         authorizedReads,
+        networkExecute: fakeNetworkExecute(),
         onTrace: (e) => traces.push(e),
       };
       const outcome = await new AgentTaskRunner(runnerDeps).run({ lease, work });
