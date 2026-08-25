@@ -2,7 +2,7 @@
 # 并行车道 worktree 初始化（2026-08-18 fork-session 协议——docs/pth/parallel-lanes.md）
 # 用法：scripts/ops/lane-worktrees.sh [l1|l2|l3|l4]（缺省全部）
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 # bash 3.2 兼容（macOS 默认 bash 无关联数组）——dir:branch 对
 LANE_PAIRS=(

@@ -11,7 +11,7 @@
 #   SANDBOX_SHARED_SECRET=<你的密钥> PTH_EXECUTION_GRANT_SECRET=<你的grant密钥> npm run verify:sandbox-build
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DOCKERFILE="$ROOT/packages/pth-sandbox/Dockerfile.sandbox"
 COMPOSE_FILE="$ROOT/deploy/docker-compose.yaml"
 

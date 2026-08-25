@@ -1,7 +1,7 @@
 #!/bin/bash
 # build-pth-cli-package.sh —— 从根 dist 裁剪 @away_from/pth-cli 发布面。
 set -euo pipefail
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 PKG="$ROOT/packages/pth-cli"
 rm -rf "$PKG/dist" "$PKG/deploy"
 mkdir -p "$PKG/dist/pth" "$PKG/dist/cli"
