@@ -1,0 +1,106 @@
+# PTH interface 模式 —— 用户补丁层
+# =================================
+# 组合顺序：@deepseek-ai/dsh-base → @deepseek-ai/dsh-headless → 本文件。
+# 本文件在 headless 之上做两件事：
+#   1. 禁用 dsh-base 里的全部模型面工具（只保留 pth_* 与 user-questions）；
+#   2. 插入 @pth/dsh-interface-plugin（提供 pth_* 工具 + PTH 使用手册）。
+#
+# 注意：同一行 id 后写覆盖先写；本文件的配置会整体替换对应行 config。
+
+# 保留 user-questions：它是操作员与 agent 之间的对话通道，
+# 在 headless 一次性执行中不影响，在交互会话中允许操作员澄清/确认。
+# 若希望彻底关闭，取消下面三行注释：
+# - id: user-questions
+#   disabled: true
+
+# ── 禁用全部非 PTH 模型面工具 ──────────────────────────────────────────
+# 以下行逐条对照 @deepseek-ai/dsh-base/cordis.patch.yml 中的模型面工具行。
+# interface 模式要求 agent 只持有 pth_* 工具，因此全部禁用。
+# （tool-result-pruner 不是模型面工具，保留用于裁剪大响应，避免超长 transcript 撑爆上下文。）
+
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- id: tool-jobs
+  disabled: true
+
+- id: tool-fs
+  disabled: true
+
+- id: tool-fs-search
+  disabled: true
+
+- id: tool-str-replace-editor
+  disabled: true
+
+- id: tool-skill
+  disabled: true
+
+# skill-filesystem 不是工具，但属于 skill 装载面；interface 模式不加载本地 skill。
+- id: skill-filesystem
+  disabled: true
+
+# agent-instructions 不是工具，但会把 AGENTS.md/CLAUDE.md 注入上下文；
+# 为让 agent 只看到 PTH 使用手册，这里一并禁用。
+- id: agent-instructions
+  disabled: true
+
+- id: tool-goal
+  disabled: true
+
+- id: plan-mode
+  disabled: true
+
+# 子代理相关工具全部禁用：interface 模式不派生子代理。
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: tool-subagent-report
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
+- id: tool-ralph
+  disabled: true
+
+- id: tool-todo
+  disabled: true
+
+- id: tool-web
+  disabled: true
+
+# ── 覆盖 headless 的 system-prompt persona ─────────────────────────────
+# headless bundle 给的默认 persona 是“coding agent”；interface 模式改成 PTH 前端。
+# PTH 使用手册正文由插件通过 systemPrompt.section 注入。
+- id: system-prompt
+  config:
+    persona: >-
+      你是 PTH（任务池管理系统）的前端 Agent，由 {{model}} 模型驱动。
+      你只使用 pth_* 工具来发布、查询、等待、取消 PTH 任务，以及排查 worker 状态。
+      你没有 shell、文件系统、子代理、搜索等通用工具；任务发布文本必须自包含。
+
+# ── 插入 PTH interface 插件 ────────────────────────────────────────────
+# 插件由 install.sh 安装为 profile 依赖（@pth/dsh-interface-plugin）。
+# tokenEnv 指向环境变量名，密钥不落盘。
+- insert:
+    - id: pth-interface
+      name: '@pth/dsh-interface-plugin'
+      config:
+        baseUrl: http://localhost:3000
+        tokenEnv: PTH_TOKEN
+        waitPollMs: 1000
+        waitTimeoutSec: 300
+        maxWaitTimeoutSec: 3600

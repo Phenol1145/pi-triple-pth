@@ -1,0 +1,17 @@
+{
+  "name": "@pth/dsh-interface-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PTH 任务池管理系统的 dsh interface 模式插件：只暴露 pth_* HTTP 工具与使用手册",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.1.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.1"
+  },
+  "license": "MIT"
+}

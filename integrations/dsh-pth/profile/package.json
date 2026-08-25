@@ -1,0 +1,14 @@
+{
+  "name": "dsh-profile-pth",
+  "private": true,
+  "description": "PTH interface 模式 profile：dsh agent 只持有 pth_* 工具与使用手册",
+  "dependencies": {},
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-headless"
+      ]
+    }
+  }
+}
