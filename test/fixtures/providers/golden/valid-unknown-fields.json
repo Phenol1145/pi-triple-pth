@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "custom-provider",
+      "name": "Custom Provider",
+      "baseUrl": "https://example.com/v1",
+      "api": "openai-completions",
+      "multiKey": false,
+      "refreshModels": false,
+      "x-vendor": "acme",
+      "models": [
+        {
+          "id": "custom-model",
+          "name": "Custom Model",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 8192,
+          "maxTokens": 2048,
+          "x-model-tag": "beta"
+        }
+      ]
+    }
+  ]
+}

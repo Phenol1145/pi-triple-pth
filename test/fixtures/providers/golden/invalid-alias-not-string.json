@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "alias-not-string",
+      "name": "Alias Not String",
+      "alias": ["ok", 42],
+      "baseUrl": "https://alias-not-string.example.com/v1",
+      "api": "openai-completions",
+      "multiKey": false,
+      "refreshModels": false,
+      "models": []
+    }
+  ]
+}

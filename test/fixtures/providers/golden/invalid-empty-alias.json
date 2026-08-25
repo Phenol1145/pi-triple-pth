@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "empty-alias",
+      "name": "Empty Alias",
+      "alias": [""],
+      "baseUrl": "https://empty-alias.example.com/v1",
+      "api": "openai-completions",
+      "multiKey": false,
+      "refreshModels": false,
+      "models": []
+    }
+  ]
+}

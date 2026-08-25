@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "Bad ID",
+      "name": "Bad Provider",
+      "baseUrl": "https://bad.example.com/v1",
+      "api": "openai-completions",
+      "multiKey": false,
+      "refreshModels": false,
+      "models": []
+    }
+  ]
+}

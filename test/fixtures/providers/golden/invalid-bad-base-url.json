@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "bad-url",
+      "name": "Bad URL",
+      "baseUrl": "ftp://example.com/v1",
+      "api": "openai-completions",
+      "multiKey": false,
+      "refreshModels": false,
+      "models": []
+    }
+  ]
+}

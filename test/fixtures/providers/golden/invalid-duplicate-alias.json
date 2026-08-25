@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "provider-a",
+      "name": "Provider A",
+      "alias": ["shared"],
+      "baseUrl": "https://a.example.com/v1",
+      "api": "openai-completions",
+      "multiKey": false,
+      "refreshModels": false,
+      "models": []
+    },
+    {
+      "id": "provider-b",
+      "name": "Provider B",
+      "alias": ["shared"],
+      "baseUrl": "https://b.example.com/v1",
+      "api": "openai-completions",
+      "multiKey": false,
+      "refreshModels": false,
+      "models": []
+    }
+  ]
+}

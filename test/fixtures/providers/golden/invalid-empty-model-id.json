@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "empty-model-id",
+      "name": "Empty Model ID",
+      "baseUrl": "https://empty-model-id.example.com/v1",
+      "api": "openai-completions",
+      "multiKey": false,
+      "refreshModels": false,
+      "models": [
+        {
+          "id": "",
+          "name": "Empty ID Model"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "providers": [
+    {
+      "id": "empty-api",
+      "name": "Empty API",
+      "baseUrl": "https://empty.example.com/v1",
+      "api": "",
+      "multiKey": false,
+      "refreshModels": false,
+      "models": []
+    }
+  ]
+}
