@@ -71,21 +71,21 @@ TCE W0–W5 已经统一了 dev/write/debug 等工具面，但网络面仍未完
 
 ### 5.1 新增 `net` family
 
-在 `PTC_CAPABILITIES` 中新增 `net` 能力族，同时保留 `web.fetchText` 作为兼容别名：
+在 `PTC_CAPABILITIES` 中以 `net` 作为唯一网络能力族；`web.fetchText` 仅保留为迁移期兼容别名，随引用清理后退役。
 
 | 能力 | 签名 | 宿主 | 后端 | 说明 |
 |---|---|---|---|---|
 | `net.fetch` | `(url, opts?)` | `kernel-ts` | `web-transport` | 受限只读 HTTP(S) GET，HTML 剥标签；取代 `web.fetchText` / `web.get` |
 | `net.read` | `(url)` | `kernel-ts` | `web-transport` → `https://r.jina.ai/<url>` | 通用网页阅读 → Markdown；保留 jina reader 语义 |
-| `net.search` | `(query, n?)` | `external-tool` / `kernel-ts` | Exa（mcporter）→ jina 搜索兜底 | 网页搜索；n 默认 5，范围 1–20 |
+| `net.search` | `(query, n?)` | `external-tool` / `kernel-ts` | 可配置后端（默认 Exa → jina） | 网页搜索；n 默认 5，范围 1–20 |
 | `net.githubSearch` | `(query, sort?, limit?)` | `external-tool` | `gh search repos` | GitHub 仓库搜索；结构化 JSON |
 | `net.biliSearch` | `(query, n?)` | `external-tool` | `bili search` | B 站搜索 |
 | `net.v2exHot` | `(n?)` | `kernel-ts` | V2EX 官方 API | 热门话题 |
 | `net.download` | `(url, opts?)` | `external-tool` | `yt-dlp`（network 域） | 视频/音频下载；默认按角色能力关闭 |
-| `net.doctor` | `()` | `external-tool` / toolstore | `agent-reach doctor` | 后端体检（运维面，可暂不进 agent 能力） |
-| `net.checkUpdate` | `()` | `external-tool` / toolstore | `agent-reach check-update` | 版本检查（运维面，可暂不进 agent 能力） |
+| `net.doctor` | `()` | `external-tool` / toolstore | `agent-reach doctor` | 后端体检（agent 可调用自检） |
+| `net.checkUpdate` | `()` | `external-tool` / toolstore | `agent-reach check-update` | 版本检查（agent 可调用） |
 
-> `net.doctor` / `net.checkUpdate` 偏向运维，是否进入 agent 能力面由后续评审决定；本设计先保留为扩展工具或 CLI 面。
+> 按 TCE 原则：`net.*` 是 engine 内 Code 层暴露给 agent 的**能力接口**；实际抓取/搜索/下载执行全部由 Execute 层路由到 **engine 外部**的 tool-container / 外部 CLI / 安全 HTTP 传输，engine 自身不直接持有后端实现细节。
 
 ### 5.2 `PtcCapabilityHost` 扩展
 
@@ -102,13 +102,17 @@ export type PtcCapabilityHost =
 
 ### 5.3 兼容投影
 
-- `web.fetchText`：保留为 `net.fetch` 的别名（`asAction` 指向 `net.fetch`，或继续直接实现）。
+用户已确认：**全部统一改名为 `net` 族**。
+
+- `web.fetchText`：迁移期保留为 `net.fetch` 的兼容别名；所有新文档/角色 prompt 使用 `net.fetch`，旧引用逐步清理后移除 `web.fetchText`。
 - `web.get`：tool-call schema 保留，但实现投影为 `net.fetch`。
 - `reach.webSearch` → `net.search`
 - `reach.webRead` → `net.read`
 - `reach.ghSearch` → `net.githubSearch`
 - `reach.biliSearch` → `net.biliSearch`
 - `reach.v2exHot` → `net.v2exHot`
+- `reach.doctor` → `net.doctor`
+- `reach.checkUpdate` → `net.checkUpdate`
 - `yt-dlp` → `net.download`
 
 ## 6. 统一能力实现
@@ -122,10 +126,12 @@ export interface NetworkCapabilityDeps {
   // HTTP 类统一走安全底座
   fetchText?: (url: string, opts?: { maxBytes?: number; timeoutMs?: number }) => Promise<string>;
   httpGet?: (url: string, opts?: { timeoutMs?: number; maxBytes?: number }) => Promise<{ ok: boolean; text?: string; status?: number; error?: string }>;
-  // 外部 CLI / tool-container 通道
+  // 外部 CLI / tool-container 通道（实际执行在 engine 外部）
   exec?: (cmd: string, args: string[], opts?: { timeoutMs?: number; maxOutputBytes?: number }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; error?: string }>;
   // yt-dlp 等 external tool 路由（按工具容器域）
   download?: (url: string, opts?: { timeoutMs?: number }) => Promise<unknown>;
+  // 搜索后端顺序配置（如 ["exa","jina"]）
+  searchBackends?: readonly string[];
 }
 
 export interface NetworkCapability {
@@ -136,6 +142,8 @@ export interface NetworkCapability {
   biliSearch(input: { query: string; n?: number }): Promise<AgentToolResult>;
   v2exHot(input?: { n?: number }): Promise<AgentToolResult>;
   download(input: { url: string; opts?: Record<string, unknown> }): Promise<AgentToolResult>;
+  doctor(): Promise<AgentToolResult>;
+  checkUpdate(): Promise<AgentToolResult>;
 }
 ```
 
@@ -143,18 +151,21 @@ export interface NetworkCapability {
 
 - `fetch`：直接复用 `createWebCapability().fetchText` 或 `web-transport`，行为与现状一致；
 - `read`：调用 `https://r.jina.ai/<url>`，走同一安全 HTTP 通道；
-- `search`：优先 `exec("mcporter", [...])` 调 Exa；失败后走 `https://s.jina.ai/<query>`；
-- `githubSearch` / `biliSearch`：走 `exec` 通道（gh / bili CLI）；
+- `search`：按 `searchBackends` 配置顺序尝试后端（默认 Exa → jina）；后端失败后按顺序回退，全部失败返回结构化错误；
+- `githubSearch` / `biliSearch`：走 `exec` 通道（gh / bili CLI，实际执行在 engine 外部）；
 - `v2exHot`：走安全 HTTP 通道；
-- `download`：走 tool-container `network` 域路由（yt-dlp），默认不注入。
+- `download`：走 tool-container `network` 域路由（yt-dlp），默认不注入；
+- `doctor` / `checkUpdate`：走 `exec` 通道调用 `agent-reach`，供 agent 自检后端与版本。
 
 ### 6.2 注入点
 
-- 在 `buildCapabilities` 中，`web` 对象改为 `net` 的别名或同时注入 `net`；
+- 在 `buildCapabilities` 中，`web` 对象迁移为 `net` 能力对象；`web.fetchText` 兼容别名指向 `net.fetch`；
 - 在 `task-capability-inject.ts` 中，按角色 `capabilities` 注入 `net` 对象的具体方法：
   - `allowed(caps, 'net.search')` 才注入 `search`；
   - `allowed(caps, 'net.download')` 才注入 `download`；
-  - 缺省不注入 = 角色无网络搜索能力。
+  - `allowed(caps, 'net.doctor')` 才注入 `doctor`；
+  - `allowed(caps, 'net.checkUpdate')` 才注入 `checkUpdate`；
+  - 缺省不注入 = 角色无对应网络能力。
 
 ### 6.3 静态审核
 
@@ -166,11 +177,12 @@ export interface NetworkCapability {
 
 | 能力 | Execute 目标 | 说明 |
 |---|---|---|
-| `net.fetch` / `net.read` / `net.v2exHot` | kernel-ts（`web-transport`） | 进程内安全 HTTP |
+| `net.fetch` / `net.read` / `net.v2exHot` | kernel-ts（`web-transport`） | engine 内安全 HTTP 传输；实际连接仍出网 |
 | `net.search` | external-tool（`agent-reach` / mcporter / jina） | 优先 CLI/工具容器，失败回退 HTTP |
 | `net.githubSearch` | external-tool（gh CLI） | 需要 gh 登录态，hostOnly 或工具容器 |
 | `net.biliSearch` | external-tool（bili CLI） | 需要 bili CLI |
 | `net.download` | external-tool（`network` 域 yt-dlp） | 按 tool-manifest 路由 |
+| `net.doctor` / `net.checkUpdate` | external-tool（`agent-reach` CLI） | agent 自检/版本检查 |
 
 `tool-registry.ts` / `tool-translator.ts` 增加 `net.*` 到工具容器/CLI 的映射；`scripts/check/check-tce-coverage.ts` 扩展为所有 `net.*` 必须存在契约声明。
 
@@ -251,9 +263,9 @@ export interface SearchAdapter {
 | 知识摄入被错误复用为普通网络能力 | fetch-broker 保持独立 Trust Policy 包裹层，只共享传输底座 |
 | 范围膨胀 | 非目标明确排除登录态平台、爬虫算法、完整 N26 外环 |
 
-## 12. 待确认决策点
+## 12. 已确认决策（2026-08-25）
 
-1. 能力命名用 `net.*` 还是 `web.*` 扩展？（本设计倾向 `net.*` + `web.fetchText` 兼容别名）
-2. `net.doctor` / `net.checkUpdate` 是否进入 agent 能力面，还是保留为 CLI/运维工具？
-3. `net.search` 的默认后端顺序：Exa → jina，是否保持不变？
-4. `net.download`（yt-dlp）是否需要进入 engine 能力面，还是继续仅 pth CLI/工具容器？
+1. **能力命名**：全部统一为 `net.*` 族；`web.fetchText` 仅作为迁移期兼容别名，最终随引用清理退役。
+2. **`net.doctor` / `net.checkUpdate`**：进入 agent 能力面，供 agent 自检后端与版本。
+3. **`net.search` 后端顺序**：可配置（默认 Exa → jina），通过配置决定尝试顺序。
+4. **`net.download`（yt-dlp）**：按 TCE 原则进入 agent 能力面，但实际执行始终由 Execute 层路由到 engine 外部的 tool-container（`network` 域）；默认不注入，只有显式角色能力才可用。
