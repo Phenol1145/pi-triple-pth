@@ -22,7 +22,7 @@ RUN npm ci
 
 COPY packages/ ./packages/
 COPY src/ ./src/
-COPY scripts/copy-framework-web-assets.mjs scripts/copy-runtime-assets.mjs ./scripts/
+COPY scripts/tools/copy-framework-web-assets.mjs scripts/tools/copy-runtime-assets.mjs ./scripts/tools/
 # 依赖拓扑序构建（与根 package.json build 脚本一致；shared/infra 为 npm 已发布包）：
 # contracts → config → memory → sandbox → kernel-storage → kernel-interpreter → kernel-execution → console → web → 根 tsc
 RUN npx tsc -p packages/pth-contracts \
@@ -34,9 +34,9 @@ RUN npx tsc -p packages/pth-contracts \
     && npx tsc -p packages/pth-kernel-execution \
     && npx tsc -p packages/pth-console \
     && npm run build:web -w @away_from/pth-console \
-    && node scripts/copy-framework-web-assets.mjs \
+    && node scripts/tools/copy-framework-web-assets.mjs \
     && npx tsc \
-    && node scripts/copy-runtime-assets.mjs
+    && node scripts/tools/copy-runtime-assets.mjs
 
 # ---- Runtime stage ----
 FROM node:22-slim
@@ -94,9 +94,9 @@ COPY --chown=node:node src/ ./src/
 COPY --chown=node:node config/ ./config/
 # 扩展代码库 + 策略 + 命名编译单元（/data/toolstore——compose 卷持久化；空卷首挂复制镜像内容）
 COPY --chown=node:node toolstore/ /data/toolstore/
-COPY --chown=node:node scripts/drain.sh ./scripts/
-COPY --chown=node:node scripts/seed-wiki.ts ./scripts/
-RUN chmod +x scripts/*.sh
+COPY --chown=node:node scripts/ops/drain.sh ./scripts/ops/
+COPY --chown=node:node scripts/seed/seed-wiki.ts ./scripts/seed/
+RUN chmod +x scripts/ops/*.sh
 
 # /data 目录创建即指定属主（GPT 文档 P0-①——install -d -o node——免递归 chown）
 RUN install -d -o node -g node /data/components /data/agent-dir /data/sessions /data/agent-lab /data/workspaces /data/platform /data/tenants /data/artifacts

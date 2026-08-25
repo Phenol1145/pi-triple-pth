@@ -17,12 +17,12 @@ RUN npm ci
 
 COPY packages/ ./packages/
 COPY src/ ./src/
-COPY scripts/copy-framework-web-assets.mjs ./scripts/
+COPY scripts/tools/copy-framework-web-assets.mjs ./scripts/tools/
 RUN npx tsc -p packages/pth-memory \
     && npx tsc -p packages/pth-sandbox \
     && npx tsc -p packages/pth-console \
     && npm run build:web -w @away_from/pth-console \
-    && node scripts/copy-framework-web-assets.mjs \
+    && node scripts/tools/copy-framework-web-assets.mjs \
     && npx tsc
 
 EXPOSE 3000
