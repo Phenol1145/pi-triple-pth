@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-25T06:42:41.533Z",
+  "generatedAt": "2026-08-25T07:08:03.147Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -520,6 +520,12 @@
     },
     {
       "path": "docs/pth/plan/execution-modes-and-tool-reg-v2-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/execution-reliability-fix-plan.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"

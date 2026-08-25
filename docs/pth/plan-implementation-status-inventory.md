@@ -59,6 +59,8 @@
 | 12 | **执行模式与 Tool-Reg v2 设计定稿** | `docs/pth/design/execution-modes-and-tool-reg-v2-design.md` | 草案修订版，仍有待评审决策点 | 执行模式统一、Command adapter、规范化优化循环 | 实现计划已按推荐口径落地；设计稿需与 ADR-0004（C=Code）对齐后定稿 |
 | 13 | **三源设计 §12 当前概要设计** | `docs/pth/design/three-source-lineage-and-capacity-conservation-design.md` | 占位未补充 | §12 由维护者补写当前概要设计 | 文档待办，非代码计划 |
 | 14 | **仓库结构诊断与重组 P0–P4** | `docs/pth/plan/repo-structure-diagnosis-and-reorganization-plan.md` | 诊断+方案已交付（2026-08-25），P0 待启动 | 文档纠偏（architecture/module-ownership/PROJECT_DIR_DUTY）→ 杂散归位 → scripts/test 分区 → src↔packages 收口评审 → 机械化保障 | P0-3/P0-4 最优先：PROJECT_DIR_DUTY 含 4 个不存在目录且注入 worker 提示词；P3 需先出 ADR |
+| 15 | **执行可靠性修复 W0–W4** | `docs/pth/plan/execution-reliability-fix-plan.md` | 计划已交付（2026-08-25），待评审开工 | F1 LLM 挂起停滞（llm-fn body 读取无超时 + 无单步超时）/ F2 孤儿 claim（recoverExpired 零调用 + 无心跳续约）/ F3 done 收敛困惑（done 未函数化）/ F4 grant TTL 核查 | 根因已代码级确认；施工序 W0→W2→W1→W3→W4；验收 = 基线任务组无提示复测 |
+| 16 | **N34 IDE 级编码/调试环境** | `docs/pth/design/n34-ide-coding-environment-design.md` | 设计稿待评审（2026-08-25） | DAP 泛化 → LSP 最小子集 → language pod → 观测增强 | 基线已建（`coding-performance-baseline-2026-08-25.md`）；Phase 3 对照依赖 bench |
 
 ## 5. 文档状态滞后 / 需回填
 
