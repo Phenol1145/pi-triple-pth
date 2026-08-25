@@ -189,16 +189,18 @@ export const obsExtension: TsReplExtension = {
               const a = JSON.parse(String(r.content)) as Record<string, number | undefined>;
               // 旧聚合行（pre-95a2d74）无缓存键——NaN 保护（2026-08-12 审计 LOW-12）
               const sumCacheRead = a.sumCacheRead ?? 0;
-              const sumCacheWrite = a.sumCacheWrite ?? 0;
               const sumTokIn = a.sumTokIn ?? 0;
-              const cacheHit = sumCacheRead + Math.max(0, sumTokIn - sumCacheRead - sumCacheWrite);
               return {
                 role: r.role,   // 2026-08-12 审计 MEDIUM-5 修复：归因取 meta->>'role'（content jsonb 无 role 键）
                 tasks: a.taskCount,
                 avg_steps: a.taskCount ? Math.round((((a.sumSteps ?? 0) / a.taskCount) * 10)) / 10 : 0,
                 avg_tokens_in: a.taskCount ? Math.round(sumTokIn / a.taskCount) : 0,
                 avg_cache_read: a.taskCount ? Math.round(sumCacheRead / a.taskCount) : 0,
-                cache_hit_pct: cacheHit > 0 ? Math.round((100 * sumCacheRead) / cacheHit) : 0,
+                // 2026-08-25 口径修复：DeepSeek/OpenAI 的 prompt_tokens 已含缓存部分
+                //（DeepSeek: prompt_tokens = hit + miss——cacheWrite 实为 miss 数）——
+                // 命中率 = cacheRead / input；旧公式按 Anthropic 语义（input 不含缓存）
+                // 在 DeepSeek 下退化为恒 100%。max 防异常数据 >100%。
+                cache_hit_pct: sumTokIn > 0 ? Math.round((100 * sumCacheRead) / Math.max(sumTokIn, sumCacheRead)) : 0,
                 avg_fails: a.taskCount ? Math.round((((a.sumFails ?? 0) / a.taskCount) * 100)) / 100 : 0,
                 gated_total: a.sumGated,
                 // 时间复用率（2026-08-13 监测量）：计划扁平度——sum/planCount 均值
@@ -216,13 +218,20 @@ export const obsExtension: TsReplExtension = {
           const rows = await ctx.dataWorld.queryReadOnly(
             // 2026-08-12 sensor:worker-opt 观测报告的基础设施缺陷：content 是 text 列——
             // jsonb 操作符（->>）对 text 非法——需 ::jsonb 转换（sensor 已上报并绕过）
-            // 2026-08-12：+ token 缓存命中率（cacheRead/(cacheRead+非缓存输入)——观测成本面）
+            // 2026-08-12：+ token 缓存命中率（观测成本面）
+            // 2026-08-25 口径修复：input 已含缓存部分（DeepSeek/OpenAI 语义——
+            // prompt_tokens = hit + miss，cacheWrite 实为 miss 数）——命中率 = cacheRead / input；
+            // 分母只计报告 cacheRead 的行（旧行不稀释）；GREATEST 防异常数据 >100%。
+            // 旧 Anthropic 语义公式在 DeepSeek 下恒 100%。
             `SELECT meta->>'role' AS role, count(*) AS tasks, round(avg((content::jsonb->>'steps')::int)::numeric, 1) AS avg_steps,
              round(avg(((content::jsonb->'tokens')->>'input')::bigint)::numeric, 0) AS avg_tokens_in,
              round(avg(((content::jsonb->'tokens')->>'cacheRead')::bigint)::numeric, 0) AS avg_cache_read,
              round(avg((content::jsonb->>'failedActions')::int)::numeric, 2) AS avg_fails,
-             CASE WHEN sum(((content::jsonb->'tokens')->>'cacheRead')::bigint) + sum(CASE WHEN ((content::jsonb->'tokens')->>'cacheRead')::bigint IS NOT NULL THEN (((content::jsonb->'tokens')->>'input')::bigint - ((content::jsonb->'tokens')->>'cacheRead')::bigint - ((content::jsonb->'tokens')->>'cacheWrite')::bigint) ELSE 0 END) > 0
-               THEN round(100.0 * sum(((content::jsonb->'tokens')->>'cacheRead')::bigint) / NULLIF(sum(((content::jsonb->'tokens')->>'cacheRead')::bigint) + sum(CASE WHEN ((content::jsonb->'tokens')->>'cacheRead')::bigint IS NOT NULL THEN (((content::jsonb->'tokens')->>'input')::bigint - ((content::jsonb->'tokens')->>'cacheRead')::bigint - ((content::jsonb->'tokens')->>'cacheWrite')::bigint) ELSE 0 END), 0), 1) END AS cache_hit_pct
+             CASE WHEN sum(CASE WHEN ((content::jsonb->'tokens')->>'cacheRead')::bigint IS NOT NULL THEN ((content::jsonb->'tokens')->>'input')::bigint ELSE 0 END) > 0
+               THEN round(100.0 * sum(((content::jsonb->'tokens')->>'cacheRead')::bigint)
+                 / GREATEST(
+                     sum(CASE WHEN ((content::jsonb->'tokens')->>'cacheRead')::bigint IS NOT NULL THEN ((content::jsonb->'tokens')->>'input')::bigint ELSE 0 END),
+                     sum(((content::jsonb->'tokens')->>'cacheRead')::bigint)), 1) END AS cache_hit_pct
              FROM memory_entries WHERE kind = 'task-scorecard'${where}
              GROUP BY meta->>'role' ORDER BY tasks DESC LIMIT 20`,
           );

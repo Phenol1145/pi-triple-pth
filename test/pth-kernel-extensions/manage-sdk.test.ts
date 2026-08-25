@@ -268,9 +268,8 @@ describe("token 缓存命中率链路（2026-08-12 用户问询补齐）", () =>
       { type: "finish", ok: true, steps: 2 },
     ]);
     expect(sc.tokens).toEqual({ input: 1500, output: 150, cacheRead: 1100, cacheWrite: 200 });
-    // 命中率 = 1100 / (1100 + 1500 - 1100 - 200) = 1100/400 = 73.3%
-    const fresh = sc.tokens.input - sc.tokens.cacheRead - sc.tokens.cacheWrite;
-    expect(Math.round((sc.tokens.cacheRead / (sc.tokens.cacheRead + fresh)) * 100)).toBe(85);
+    // 命中率 = cacheRead / input = 1100/1500 = 73.3%（2026-08-25 口径修复：input 已含缓存部分）
+    expect(Math.round((sc.tokens.cacheRead / sc.tokens.input) * 100)).toBe(73);
   });
 
   it("obs.callpoint 查询含 cache_hit_pct（观测面）", async () => {

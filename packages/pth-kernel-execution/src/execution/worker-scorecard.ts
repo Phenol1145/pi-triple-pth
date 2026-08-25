@@ -16,8 +16,9 @@ export interface WorkerScorecard {
   steps: number;
   /** 工具调用频率（tool → 次数） */
   toolFreq: Record<string, number>;
-  /** token 消耗汇总（cacheRead/cacheWrite = prompt 缓存命中/写入——2026-08-12 用户问询补齐；
-   *  cacheHitRate = cacheRead / (cacheRead + 非缓存输入)——token 缓存命中率观测） */
+  /** token 消耗汇总（cacheRead = prompt 缓存命中——2026-08-12 用户问询补齐；
+   *  2026-08-25 口径修复：input 已含缓存部分（DeepSeek: prompt_tokens = hit + miss，
+   *  miss 数记入 cacheWrite）——命中率 = cacheRead / input） */
   tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
   /** 失败动作数（tool-result ok:false） */
   failedActions: number;
