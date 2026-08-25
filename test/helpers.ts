@@ -1,3 +1,5 @@
+import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { getContainerRuntimeClient } from "testcontainers";
 import { DEFAULT_ROLES, MID_ROLES, GOVERNANCE_ROLES } from "../packages/pth-kernel-execution/src/execution/builtin-roles.js";
 import { setDefaultRoles, setProfessionalRoles } from "../packages/pth-kernel-execution/src/execution/worker-cluster.js";
 import { PROFESSIONAL_ROLES } from "../packages/pth-kernel-execution/src/execution/professional-roles.js";
@@ -19,6 +21,27 @@ export function installDefaultRoles(): void {
   setProfessionalRoles(PROFESSIONAL_ROLES);
   registerBuiltinSpaces(spaceRegistry);
   setSpaceLookup({ get: (id) => spaceRegistry.get(id) });
+}
+
+/**
+ * PG 测试数据库可用性：优先使用外部 TEST_DATABASE_URL，否则回退 Docker testcontainer。
+ * 这允许无 Docker 的 CI 通过注入 TEST_DATABASE_URL 跑真实 PostgreSQL 用例。
+ */
+export async function hasTestDatabase(): Promise<boolean> {
+  if (process.env.TEST_DATABASE_URL && process.env.TEST_DATABASE_URL.trim() !== "") return true;
+  try {
+    await getContainerRuntimeClient();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function startTestDatabase(): Promise<{ connectionString: string; stop: () => Promise<void> }> {
+  const external = process.env.TEST_DATABASE_URL?.trim();
+  if (external) return { connectionString: external, stop: async () => {} };
+  const container = await new PostgreSqlContainer("postgres:16-alpine").start();
+  return { connectionString: container.getConnectionUri(), stop: async () => container.stop() };
 }
 
 /**

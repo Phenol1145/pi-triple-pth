@@ -4,6 +4,7 @@ import { withTx } from "./pg.js";
 import type { DomainBinding } from "@away_from/pth-contracts";
 import {
   attachEntryDelivery,
+  canonicalEntrySpecDigest,
   encodeResultForPayload,
   TASK_MAX_CLAIMS,
 } from "@away_from/pth-contracts";
@@ -92,6 +93,11 @@ export interface TaskStore {
   /** 返回受影响行数（0 = 认领已不属于该 agent——审计 H5：任务可能已被回收重领） */
   submit(agentId: string, taskId: string, outputRef: unknown): Promise<number>;
   publish(input: PublishInput): Promise<Task>;
+  /**
+   * 持久化子任务委派 V1：在同一 PG 事务内发布任务（child creation + submission/dependency 原子）。
+   * 可选方法；TaskControlService 需要它来保证 delegate 的写原子性。
+   */
+  publishInTx?(client: pg.PoolClient, input: PublishInput): Promise<Task>;
   /** 按 id 取任务（retask 重发布——重发布需原任务正文） */
   getById(id: string): Promise<Task | null>;
   // 跨 spec 扩展（plan Task 5 标注）：负载统计 collectStats 依赖 pending 队列长度。
@@ -117,6 +123,53 @@ function pickExplicitDomains(inputDomains: string[] | undefined, payload: unknow
   return raw as string[];
 }
 
+function domainsOfPayload(payload: unknown): readonly string[] | undefined {
+  if (!isPlainRecord(payload)) return undefined;
+  const raw = payload["domains"];
+  return Array.isArray(raw) && raw.every((x): x is string => typeof x === "string") ? raw : undefined;
+}
+
+function goalOfPayload(payload: unknown): string | null {
+  if (!isPlainRecord(payload)) return null;
+  const delivery = payload["delivery"];
+  if (!isPlainRecord(delivery)) return null;
+  const goal = delivery["goal"];
+  return typeof goal === "string" && goal.trim() !== "" ? goal : null;
+}
+
+/** 入口幂等正文 digest（用 resolver 之后的有效 payload.domains 参与比较）。 */
+function incomingEntryDigest(input: PublishInput, payload: unknown): string {
+  return canonicalEntrySpecDigest({
+    title: input.title,
+    text: input.text,
+    tags: input.tags ?? [],
+    goal: input.goal ?? null,
+    domains: domainsOfPayload(payload),
+  });
+}
+
+function existingEntryDigest(row: Record<string, unknown>): string {
+  const payload = row["payload"];
+  const tags = Array.isArray(row["tags"]) ? (row["tags"] as unknown[]).filter((x): x is string => typeof x === "string") : [];
+  return canonicalEntrySpecDigest({
+    title: typeof row["title"] === "string" ? row["title"] : "",
+    text: typeof row["text"] === "string" ? row["text"] : "",
+    tags,
+    goal: goalOfPayload(payload),
+    domains: domainsOfPayload(payload),
+  });
+}
+
+/** 同 idempotencyKey 不同 canonical 正文 → 显式 conflict（不再静默返回旧任务）。 */
+function assertIdempotencyMatch(row: Record<string, unknown>, incomingDigest: string): void {
+  const existingDigest = existingEntryDigest(row);
+  if (existingDigest !== incomingDigest) {
+    const err = new Error("idempotencyKey conflict: 同 key 提交了不同正文（title/text/tags/goal/domains 不一致）") as Error & { statusCode?: number };
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
 export class PgTaskStore implements TaskStore {
   constructor(
     private pool: pg.Pool,
@@ -125,6 +178,14 @@ export class PgTaskStore implements TaskStore {
   ) {}
 
   async publish(input: PublishInput): Promise<Task> {
+    return this.publishWithClient(this.pool, input);
+  }
+
+  async publishInTx(client: pg.PoolClient, input: PublishInput): Promise<Task> {
+    return this.publishWithClient(client, input);
+  }
+
+  private async publishWithClient(client: Pick<pg.Pool, "query">, input: PublishInput): Promise<Task> {
     // 任务池纯化（2026-08-10 D5）：publish 唯一入口严格校验——未知标签/歧义/无路由依据
     // 一律拒绝（statusCode 400——fastify 映射；内部发布者同样受约束）。
     // 2026-08-13 审计 P2：校验/分配策略由装配层注入（DIP）——本层只存不判。
@@ -186,8 +247,12 @@ export class PgTaskStore implements TaskStore {
       throw err;
     }
     if (idempotencyKey) {
-      const existing = await this.pool.query(`SELECT * FROM tasks WHERE tenant_id = $1 AND idempotency_key = $2`, [tenantId, idempotencyKey]);
-      if (existing.rows[0]) return mapRow(existing.rows[0]);
+      const incomingDigest = incomingEntryDigest(input, payload);
+      const existing = await client.query(`SELECT * FROM tasks WHERE tenant_id = $1 AND idempotency_key = $2`, [tenantId, idempotencyKey]);
+      if (existing.rows[0]) {
+        assertIdempotencyMatch(existing.rows[0] as Record<string, unknown>, incomingDigest);
+        return mapRow(existing.rows[0]);
+      }
     }
     const workMode = input.workMode ?? "run";
     if (!isWorkMode(workMode)) {
@@ -196,7 +261,7 @@ export class PgTaskStore implements TaskStore {
       throw err;
     }
     try {
-      const res = await this.pool.query(
+      const res = await client.query(
         `INSERT INTO tasks (id, tenant_id, title, text, created_by, tags, payload, template_id, assigned_role, job_id, work_mode, idempotency_key)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          RETURNING *`,
@@ -206,8 +271,11 @@ export class PgTaskStore implements TaskStore {
     } catch (error) {
       // 并发同键：唯一索引兜底，返回已提交的首行（commit 成功但响应丢失时重试收敛到同一 task）。
       if (idempotencyKey && (error as { code?: string }).code === "23505") {
-        const existing = await this.pool.query(`SELECT * FROM tasks WHERE tenant_id = $1 AND idempotency_key = $2`, [tenantId, idempotencyKey]);
-        if (existing.rows[0]) return mapRow(existing.rows[0]);
+        const existing = await client.query(`SELECT * FROM tasks WHERE tenant_id = $1 AND idempotency_key = $2`, [tenantId, idempotencyKey]);
+        if (existing.rows[0]) {
+          assertIdempotencyMatch(existing.rows[0] as Record<string, unknown>, incomingEntryDigest(input, payload));
+          return mapRow(existing.rows[0]);
+        }
       }
       throw error;
     }

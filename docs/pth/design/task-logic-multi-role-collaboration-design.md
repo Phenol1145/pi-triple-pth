@@ -1,6 +1,7 @@
 # 任务逻辑整改：多角色共享任务设计（Multi-Role Shared Task）
 
-> 状态：**设计提案（待评审）**
+> 状态：**历史备选（V1 不采纳）**
+> 裁决：2026-08-26 复审决定基础版沿用一父多 child 的 durable delegation，不实施 participant/fanout；仅在出现 group 原子性、quorum/any、组级预算等硬需求时重开。详见[任务边界与 Code 层最小委派能力复审报告](../report/engine-task-boundary-and-minimal-code-submission-report-2026-08-26.md)。
 > 背景：当前任务分发是“单角色归属 + 顺序/树状拆分”；目标改为“一个任务同时派给多个指定 worker，每个 worker 拿到完整任务上下文”。
 > 关联：`docs/pth/orchestration.md`、`docs/pth/trigger-runtime.md`、`docs/pth/design/w8-task-dispatch-design.md`、`docs/pth/design/task-lifecycle-and-context-design.md`、`packages/pth-kernel-storage/src/schema.ts`、`packages/pth-kernel-execution/src/execution/{tag-registry,role-router,task-resolver,trigger-engine}.ts`、`src/pth/tasking/*`、`src/pth/bootstrap/task-loop.ts`。
 

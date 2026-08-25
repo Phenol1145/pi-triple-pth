@@ -116,6 +116,8 @@ export interface KernelRuntime {
   triggerEngine: import("@away_from/pth-kernel-execution").TriggerEngine;
   /** W8 P2 任务派发回流 notifier（子终态 → 父 childResult） */
   taskDispatchNotifier: import("../tasking/index.js").TaskDispatchNotifier;
+  /** 持久化子任务委派 V1：dependency 最终收敛器（事件丢失后唤醒 waiting parent） */
+  taskDependencyReconciler: import("../tasking/index.js").TaskDependencyReconciler;
   watchdog: KernelWatchdog;
   /** TaskResolver（任务池即工作流 T3）：独立解析循环 */
   resolver: import("@away_from/pth-kernel-execution").TaskResolver;
@@ -211,6 +213,12 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     logger: (m) => assemblyLogger.info(m),
   });
   taskDispatchNotifier.start();
+  const { TaskDependencyReconciler } = await import("../tasking/index.js");
+  const taskDependencyReconciler = new TaskDependencyReconciler({
+    pool,
+    logger: (m) => assemblyLogger.info(m),
+  });
+  taskDependencyReconciler.start();
   const batchManager = new BatchManager({
     batchProcessPath: resolveBatchProcessPath(opts.batchProcessPath),
     // batch 构成参数化：PTH_WORKER_ROLES 展开（副本重复）——与子进程自身解析一致
@@ -557,12 +565,14 @@ export async function createKernelRuntime(opts: KernelRuntimeOptions): Promise<K
     activityHub,
     triggerEngine,
     taskDispatchNotifier,
+    taskDependencyReconciler,
     watchdog,
     resolver,
     execChannel,
     shutdown: async () => {
       triggerEngine.stop();
       taskDispatchNotifier.stop();
+      taskDependencyReconciler.stop();
       watchdog.stop();
       offMainBus();
       // resolver 由 flow-resolver trigger 驱动——stop() 终止 resolveLoop（无自调度链）

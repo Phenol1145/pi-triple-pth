@@ -13,7 +13,7 @@
  *  - 取消信号：进入前 aborted 直接 cancelled；运行中 aborted 触发 kernel.abort()。
  */
 
-import type { TaskLease, TaskOutcome, TaskRunner, TaskSuspension, TaskWorkItem } from "@away_from/pth-contracts";
+import type { TaskDispatchContext, TaskLease, TaskOutcome, TaskRunner, TaskSuspension, TaskWorkItem } from "@away_from/pth-contracts";
 import { defaultRunnerConfig, type RunnerConfig } from "./runner-config.js";
 import type { AgentTaskRunnerDeps } from "./exec-modes/types.js";
 export type { AgentTaskRunnerDeps } from "./exec-modes/types.js";
@@ -23,6 +23,29 @@ import { runPulseMode } from "./exec-modes/pulse.js";
 
 function leaseRef(lease: TaskLease): TaskOutcome["lease"] {
   return { taskId: lease.taskId, leaseId: lease.leaseId, generation: lease.generation };
+}
+
+/** claim 后把服务器盖章的 lease 并入任务派发上下文（tasks.delegate 校验 Attempt/lease）。 */
+function buildRunDispatchContext(lease: TaskLease, work: TaskWorkItem, deps: AgentTaskRunnerDeps): TaskDispatchContext {
+  const payload = (work.payload ?? {}) as {
+    delivery?: TaskDispatchContext["delivery"];
+    dispatchWait?: TaskDispatchContext["dispatchWait"];
+    childResult?: TaskDispatchContext["childResult"];
+    childQuestion?: TaskDispatchContext["childQuestion"];
+  };
+  return {
+    taskId: lease.taskId,
+    roleId: work.assignedRole || deps.role.id,
+    tenantId: work.scope.tenantId,
+    ...(deps.replica ? { worker: deps.replica } : {}),
+    delivery: payload.delivery ?? null,
+    domains: work.domains ?? [],
+    ...(work.domainBinding ? { domainBinding: work.domainBinding } : {}),
+    dispatchWait: payload.dispatchWait,
+    childResult: payload.childResult,
+    childQuestion: payload.childQuestion,
+    lease: { taskId: lease.taskId, leaseId: lease.leaseId, generation: lease.generation },
+  };
 }
 
 export class AgentTaskRunner implements TaskRunner {
@@ -39,6 +62,13 @@ export class AgentTaskRunner implements TaskRunner {
 
     // 任务级状态隔离：reset 异步实现也等待完成（审计 P1-2）
     await this.deps.kernel.reset();
+
+    // 持久化子任务委派 V1：claim 后把服务器盖章 lease 并入任务派发上下文。
+    // task-loop 已在 run 前盖章 task/delivery/domains；这里补充 lease，供 delegate 校验 Attempt。
+    const kernelWithCtx = this.deps.kernel as unknown as {
+      setTaskDispatchContext?: (ctx: TaskDispatchContext | null) => void;
+    };
+    kernelWithCtx.setTaskDispatchContext?.(buildRunDispatchContext(lease, work, this.deps));
 
     // 运行中取消：触发程序级制动（kernel.abort 终止 in-flight），结果以 cancelled 收口
     let aborted = signal?.aborted ?? false;

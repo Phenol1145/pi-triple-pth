@@ -5,6 +5,7 @@
  */
 
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import { isTenantScopeStructurallyValid, type TenantScope } from "./identity.js";
 import type {
   ArtifactRef,
@@ -24,6 +25,78 @@ import {
 import { isArtifactRefStructurallyValid } from "./tasking-validation.js";
 
 const NON_EMPTY_STRING = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
+
+/**
+ * 持久化子任务委派 V1：稳定键排序序列化（canonical digest 基础）。
+ *
+ * 语义：
+ * - 对象键按字典序排序；
+ * - 数组保持顺序；
+ * - `undefined` 视为缺省，与 `null` 都编码为 `null`；
+ * - 字符串做 NFKC 归一化；
+ * - 数字/布尔按 JSON 编码；Date 编码为 ISO 字符串。
+ */
+export function stableSerialize(value: unknown): string {
+  if (value === undefined || value === null) return "null";
+  if (typeof value === "string") return JSON.stringify(value.normalize("NFKC"));
+  if (typeof value === "number" || typeof value === "boolean") return JSON.stringify(value);
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record)
+      .filter((k) => record[k] !== undefined)
+      .sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${stableSerialize(record[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(String(value));
+}
+
+/**
+ * 持久化子任务委派 V1：canonical delegate spec digest。
+ * 服务端用它校验 submissionKey 幂等；同 key 同 digest 返回同一 child，同 key 异 digest 冲突。
+ */
+export function canonicalDelegateSpecDigest(input: {
+  to: string;
+  title: string;
+  text: string;
+  context?: unknown;
+  domains?: readonly string[];
+  expect?: string | null;
+  dependency?: string;
+}): string {
+  const canonical = stableSerialize({
+    to: input.to,
+    title: input.title,
+    text: input.text,
+    context: input.context ?? null,
+    domains: input.domains ? [...input.domains] : null,
+    expect: input.expect ?? null,
+    dependency: input.dependency ?? "required",
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+/**
+ * 入口任务幂等冲突 digest：同一 idempotencyKey 必须对应同一 canonical 正文。
+ * 服务端用它阻止“同 key 不同正文静默取旧任务”（跨进程/重启/其他 client 也生效）。
+ */
+export function canonicalEntrySpecDigest(input: {
+  title: string;
+  text: string;
+  tags?: readonly string[];
+  goal?: string | null;
+  domains?: readonly string[];
+}): string {
+  const canonical = stableSerialize({
+    title: input.title,
+    text: input.text,
+    tags: input.tags ? [...input.tags] : null,
+    goal: input.goal ?? null,
+    domains: input.domains ? [...input.domains] : null,
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}
 
 /**
  * N29 再验收 P0-1：side effect 自报 tenant 与服务端盖章 tenant 是否冲突。

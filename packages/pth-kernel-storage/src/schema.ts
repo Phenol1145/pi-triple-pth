@@ -409,13 +409,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_tenant_idempotency
 -- Workflow / Trigger / Human Review（docs/pth/plan/workflow-trigger-human-review-correction-plan.md）：
 -- 任务可进入 waiting-human 状态等待人工响应。
 -- 生命周期 P0（docs/pth/design/task-lifecycle-and-context-design.md §3）：任务可进入 paused 状态等待发布者澄清。
+-- 持久化子任务委派 V1：waiting_dependency 表示父任务存在未终结 required child——不可认领、不可 completed。
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
 ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
-  CHECK (status IN ('pending','claimed','submitted','completed','rejected','escalated','waiting-human','paused'));
+  CHECK (status IN ('pending','claimed','submitted','completed','rejected','escalated','waiting-human','paused','waiting_dependency'));
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS paused_expires_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_tasks_paused
   ON tasks(tenant_id, status, paused_expires_at) WHERE status='paused';
+-- 持久化子任务委派 V1（M2/P2）：记录进入 waiting_dependency 的时间，waiting age 以此为准。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS waiting_dependency_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_tasks_waiting_dependency
+  ON tasks(tenant_id, status, waiting_dependency_at) WHERE status='waiting_dependency';
 
 -- 通用人工请求（HumanRequest 持久化；response JSONB 保存盖章后的 HumanResponse）。
 CREATE TABLE IF NOT EXISTS human_requests (
@@ -452,6 +457,44 @@ CREATE TABLE IF NOT EXISTS task_wait_gates (
   resolved_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_task_wait_gates_request ON task_wait_gates(request_id);
+
+-- 持久化子任务委派 V1（docs/pth/design/persistent-child-delegation-design.md）：
+-- task_submissions 负责“提交幂等”映射；task_dependencies 负责“生命周期真相”。
+CREATE TABLE IF NOT EXISTS task_submissions (
+  tenant_id       TEXT NOT NULL,
+  parent_task_id  TEXT NOT NULL,
+  child_task_id   TEXT NOT NULL,
+  submission_key  TEXT NOT NULL,
+  spec_digest     TEXT NOT NULL,
+  derived         BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, parent_task_id, submission_key),
+  UNIQUE (tenant_id, child_task_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_submissions_parent
+  ON task_submissions(tenant_id, parent_task_id);
+CREATE INDEX IF NOT EXISTS idx_task_submissions_child
+  ON task_submissions(tenant_id, child_task_id);
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  tenant_id        TEXT NOT NULL,
+  parent_task_id   TEXT NOT NULL,
+  child_task_id    TEXT NOT NULL,
+  submission_key   TEXT NOT NULL,
+  spec_digest      TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'pending'
+                   CHECK (status IN ('pending','satisfied','failed','cancelled')),
+  outcome_envelope JSONB,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, parent_task_id, submission_key),
+  UNIQUE (tenant_id, child_task_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_parent
+  ON task_dependencies(tenant_id, parent_task_id, status);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_child
+  ON task_dependencies(tenant_id, child_task_id);
 
 ${MEMORY_SCHEMA_SQL}
 

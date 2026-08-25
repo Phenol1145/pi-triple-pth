@@ -1,6 +1,7 @@
 # 任务逻辑整改实施方案：多角色共享任务
 
-> 状态：**待实施**
+> 状态：**暂停（V1 不执行）**
+> 裁决：本方案保留为未来 group primitive 的历史实施草案；当前版本不创建 `task_participants`、不改变 tag 路由、不扩展 Flow/Trigger。详见[任务边界与 Code 层最小委派能力复审报告](../report/engine-task-boundary-and-minimal-code-submission-report-2026-08-26.md)。
 > 前置设计：`docs/pth/design/task-logic-multi-role-collaboration-design.md`
 > 原则：每阶段可独立合并、独立回滚；先契约后实现；保持单角色任务兼容。
 

@@ -25,7 +25,7 @@ export const LEGACY_OPTIMIZER_SUGGESTION_KIND = "optimizer-suggestion" as const;
 //   thinking=推理深度 / capabilities=PTC 访问权限 / output=产出约定 / defaultReads=角色间产物约定
 //   / acceptanceRole=验收角色——谱系元数据声明（thinking 传 LLM/acceptanceRole done 限制后续实现）
 export const DEFAULT_ROLES: WorkerRole[] = [
-  { id: "analyst", tags: ["analysis", "research", "deep-analysis"], prompt: "你是分析者——负责对复杂问题进行深度演化式分析：拆解问题→多假设推演→综合收敛→产出知识结论与研究报告。族内已有特化（按问题类型二分）：prospector（开放探索型——无定解/发散假设生成）/solver（封闭限制型——有约束/收敛推导）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化分析任务亲自执行。",
+  { id: "analyst", tags: ["analysis", "research", "deep-analysis"], prompt: "你是分析者——负责对复杂问题进行深度演化式分析：拆解问题→多假设推演→综合收敛→产出知识结论与研究报告。族内已有特化（按问题类型二分）：prospector（开放探索型——无定解/发散假设生成）/solver（封闭限制型——有约束/收敛推导）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型（重跑时同 submissionKey 直接回收结果）；仅泛化分析任务亲自执行。",
     description: "深度演化分析问题（researcher 族——按问题类型二分：开放探索/封闭限制两子类型）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "python", "bash"], output: "research",
     exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（backlog 差距 11——分析可双语言核验证）
@@ -55,7 +55,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     capabilities: ["fs", "memory", "readSource", "readText"], output: "plan", defaultReads: ["context"], acceptanceRole: "read-only",
     actionTools: ["nav", "cache"],   // 2026-08-12 裁剪：只读推理——仅导航+随身缓存（无执行核）
     parent: "governor", generation: 2, differentiation: "规划类任务诱导——方案设计只需读取/推理——收窄为只读访问权限" },
-  { id: "developer", tags: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。族内已有特化：coder（纯代码编写）/tester（功能测试）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化实现任务亲自执行。",
+  { id: "developer", tags: ["implement", "code", "fix"], prompt: "你是开发者——负责代码实现、缺陷修复、技术交付。族内已有特化：coder（纯代码编写）/tester（功能测试）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型（重跑时同 submissionKey 直接回收结果）；仅泛化实现任务亲自执行。",
     description: "实现与开发（worker 对应——narrow coherent edits）", thinking: "high",
     // 权限 v2 R4：显式声明（缺省全量废止）——core+data 全量，无管理面
     capabilities: ["python", "bash", "c", "fs", "web", "net.search", "net.fetch", "net.extract", "llm", "state", "ext", "env", "memory", "skills", "obs"],
@@ -94,7 +94,7 @@ export const DEFAULT_ROLES: WorkerRole[] = [
     // 2026-08-12 裁剪：只读验收面——执行核 python/bash + dev.run/list（验证不写）+ write.read/list（审查不写）+ 导航/缓存
     actionTools: ["execTs", "execPy", "execBash", "dev.run", "dev.list", "write.read", "write.list", "nav", "cache"],
     parent: "governor", generation: 2, differentiation: "验收类任务诱导——质量检查需要执行验证但不应修改产物——只读审查特化" },
-  { id: "tester", tags: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。族内已有特化：debug-case-writer（调试用例——最小复现/回归/边界）——修复验证类任务用 tasks.delegate 派发给 debug-case-writer 并 tasks.await 回收用例产物。",
+  { id: "tester", tags: ["test", "qa", "verify-func"], prompt: "你是功能测试者——负责能力测试、上下文管理验证、memory 数据库使用验证、行为探索。族内已有特化：debug-case-writer（调试用例——最小复现/回归/边界）——修复验证类任务用 tasks.delegate 派发给 debug-case-writer（重跑时同 submissionKey 直接回收用例结果）。",
     exploreKernels: ["python", "bash"],   // 探索核 A/B 并存（功能验证可双语言核对比）
     description: "能力测试与行为验证（developer 子类型——功能测试）", thinking: "high",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash", "c"], acceptanceRole: "writer",
@@ -128,7 +128,7 @@ export const MID_ROLES: WorkerRole[] = [
   // 2026-08-24 三源重构（用户裁决）：Origin 退役——actuator/sensor/controller 升为三源 gen0 根。
   // actuator = 执行侧根（executor/explorer/governor/researcher 四族根）；
   // sensor = 观测侧根（sensor:* 七观测点根）；controller = 调节侧根（controller:* 九调节点根）
-  { id: "actuator", tags: ["actuate"], prompt: "你是执行器——三源森林的执行侧根（2026-08-24 三源重构：Origin 退役）。职责：① 承接实际工作负载——执行/信息/治理/研究四族根；② 实施 official 方案（按 implementation 路由派生的实施任务——逐字执行、不得改方，结果落 implementation-report）。族内四大分支：executor（执行——生产交付）/explorer（信息——侦察摄入）/governor（计划——规划治理）/researcher（研究——知识生产）。你不预设分支方向：按任务性质判断归属——用 tasks.delegate 把任务派发给合适的直接子类型、tasks.await 回收产物后汇总交付；仅无需下分的泛化任务才亲自执行。",
+  { id: "actuator", tags: ["actuate"], prompt: "你是执行器——三源森林的执行侧根（2026-08-24 三源重构：Origin 退役）。职责：① 承接实际工作负载——执行/信息/治理/研究四族根；② 实施 official 方案（按 implementation 路由派生的实施任务——逐字执行、不得改方，结果落 implementation-report）。族内四大分支：executor（执行——生产交付）/explorer（信息——侦察摄入）/governor（计划——规划治理）/researcher（研究——知识生产）。你不预设分支方向：按任务性质判断归属——用 tasks.delegate 把任务派发给合适的直接子类型（重跑时同 submissionKey 回收结果后汇总交付）；仅无需下分的泛化任务才亲自执行。",
     description: "执行器根（三源森林 actuator——执行/信息/治理/研究四族根）", thinking: "high",
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递（tasks 由 batch-process 按组织权注入）
     generation: 0, differentiation: "（三源之根——2026-08-24 三源重构：Origin 退役）" },
@@ -140,22 +140,22 @@ export const MID_ROLES: WorkerRole[] = [
     description: "调节器根（三源森林 controller——提案/调节侧）", thinking: "high",
     produces: [MODIFICATION_PLAN_KIND],
     generation: 0, differentiation: "（三源之根——2026-08-24 三源重构：Origin 退役）" },
-  { id: "executor", tags: ["execute", "deliver"], prompt: "你是执行者——执行族中间层。负责族内泛化的任务交付（未明确开发/测试之分的执行任务）：按任务需求组合执行能力完成并交付产物。族内已有特化：developer（实现——含 coder/tester 子类型）/writer（编写）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化交付任务亲自执行。",
+  { id: "executor", tags: ["execute", "deliver"], prompt: "你是执行者——执行族中间层。负责族内泛化的任务交付（未明确开发/测试之分的执行任务）：按任务需求组合执行能力完成并交付产物。族内已有特化：developer（实现——含 coder/tester 子类型）/writer（编写）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型（重跑时同 submissionKey 直接回收结果）；仅泛化交付任务亲自执行。",
     description: "执行族中间层（泛化任务交付）", thinking: "high", acceptanceRole: "writer",
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 1, differentiation: "执行类任务族诱导——做事型任务（实现/构建/验证）从 actuator 分出独立分支" },
-  { id: "explorer", tags: ["explore", "survey"], prompt: "你是探索者——信息族中间层。负责族内泛化的信息获取（未明确侦察/分析之分的探索任务）：快速定位信息源、收集并压缩上下文交接下游。族内已有特化：scout（快速侦察）/spider（网页抓取）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化探索任务亲自执行。",
+  { id: "explorer", tags: ["explore", "survey"], prompt: "你是探索者——信息族中间层。负责族内泛化的信息获取（未明确侦察/分析之分的探索任务）：快速定位信息源、收集并压缩上下文交接下游。族内已有特化：scout（快速侦察）/spider（网页抓取）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型（重跑时同 submissionKey 直接回收结果）；仅泛化探索任务亲自执行。",
     description: "信息族中间层（泛化信息获取）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "bash"], output: "context",
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 1, differentiation: "信息类任务族诱导——获取型任务（侦察/调研/分析）从 actuator 分出独立分支" },
-  { id: "governor", tags: ["govern", "oversight"], prompt: "你是治理者——治理族中间层。负责族内泛化的质量与秩序任务（未明确规划/验收/记忆之分的治理任务）：审查现状、维护秩序、产出治理结论。族内已有特化：planner（规划）/acceptor（验收）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化治理任务亲自执行。",
+  { id: "governor", tags: ["govern", "oversight"], prompt: "你是治理者——治理族中间层。负责族内泛化的质量与秩序任务（未明确规划/验收/记忆之分的治理任务）：审查现状、维护秩序、产出治理结论。族内已有特化：planner（规划）/acceptor（验收）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型（重跑时同 submissionKey 直接回收结果）；仅泛化治理任务亲自执行。",
     description: "治理族中间层（泛化质量与秩序）", thinking: "high", acceptanceRole: "read-only",
     capabilities: ["fs", "memory", "readSource", "readText", "python", "bash"],
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递
     parent: "actuator", generation: 1, differentiation: "治理类任务族诱导——秩序型任务（规划/验收/记忆维护）从 actuator 分出独立分支" },
   // 2026-08-14 研究族（用户裁决）：研究/知识生产——explorer 管摄入、researcher 管研究产出、memory-keeper 管维护
-  { id: "researcher", tags: ["research", "knowledge"], prompt: "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（深度演化分析——含 prospector/solver 子类型）/memory-keeper（记忆维护）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化研究任务亲自执行。",
+  { id: "researcher", tags: ["research", "knowledge"], prompt: "你是研究者——研究族中间层。负责族内泛化的研究与知识生产任务（未明确深度分析/知识条目化之分的任务）：深度调研、综合多源信息、产出知识结论与知识条目。族内已有特化：analyst（深度演化分析——含 prospector/solver 子类型）/memory-keeper（记忆维护）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型（重跑时同 submissionKey 直接回收结果）；仅泛化研究任务亲自执行。",
     description: "研究族中间层（知识生产与深度研究——伪世界模型「组装+校准」的知识端）", thinking: "medium",
     capabilities: ["fs", "memory", "readSource", "readText", "web", "net.search", "net.fetch", "net.extract", "python", "bash"], output: "context",
     actionTools: ["execTs", "nav", "cache"],   // 0.16.4 收口（2026-08-18）：内部类型 = 基本工具 + 直接子类型投递

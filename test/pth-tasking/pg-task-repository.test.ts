@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-import { getContainerRuntimeClient } from "testcontainers";
 import { createPgPool } from "@away_from/pth-kernel-storage";
 import { applySchema } from "@away_from/pth-kernel-storage";
 import {
@@ -8,19 +6,10 @@ import {
   type PgTaskRepository,
 } from "../../src/pth/tasking/adapters/pg-task-repository.js";
 import type { TenantScope, TaskOutcome } from "@away_from/pth-contracts";
+import { hasTestDatabase, startTestDatabase } from "../helpers.js";
 
-async function hasDocker(): Promise<boolean> {
-  if (process.env.PTH_TEST_NO_DOCKER === "1") return false;
-  try {
-    await getContainerRuntimeClient();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const dockerAvailable = await hasDocker();
-const suite = dockerAvailable ? describe : describe.skip;
+const dbAvailable = await hasTestDatabase();
+const suite = dbAvailable ? describe : describe.skip;
 
 const scope: TenantScope = { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "trace-1" };
 
@@ -39,7 +28,7 @@ async function insertTask(
 }
 
 suite("pg task repository（P1-2）", () => {
-  let container: StartedPostgreSqlContainer;
+  let stopDb: () => Promise<void>;
   let pool: Awaited<ReturnType<typeof createPgPool>>;
   let repo: PgTaskRepository;
 
@@ -53,15 +42,16 @@ suite("pg task repository（P1-2）", () => {
   }
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:16-alpine").start();
-    pool = await createPgPool({ connectionString: container.getConnectionUri() });
+    const db = await startTestDatabase();
+    stopDb = db.stop;
+    pool = await createPgPool({ connectionString: db.connectionString });
     await applySchema(pool);
     repo = createPgTaskRepository(pool, { leaseTtlMs: 60_000 });
   }, 120_000);
 
   afterAll(async () => {
     await pool.end();
-    await container.stop();
+    await stopDb();
   });
 
   it("claim 只发一个真实 lease 并返回 work item", async () => {
@@ -173,6 +163,29 @@ suite("pg task repository（P1-2）", () => {
 
     const [reclaimed] = await repo.claim(scope, "developer", ["task-recover"]);
     expect(reclaimed.lease.generation).toBe(2); // 单调递增
+  });
+
+  it("V1/P0：recoverExpired 对含 pending dependency 的过期 claimed 父任务恢复到 waiting_dependency", async () => {
+    await insertTask(pool, "task-recover-dep");
+    const [claimed] = await repo.claim(scope, "developer", ["task-recover-dep"]);
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status)
+       VALUES ('task-recover-child','tenant-a','child','x','repo-test','coder','pending')`,
+    );
+    await pool.query(
+      `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
+       VALUES ('tenant-a','task-recover-dep','task-recover-child','k-rec','d-rec','pending')`,
+    );
+    await pool.query(
+      `UPDATE tasks SET lease_expires_at = now() - interval '2 minutes' WHERE id = 'task-recover-dep'`,
+    );
+    const recovered = await repo.recoverExpired(new Date());
+    expect(recovered).toBe(1);
+    const row = await pool.query(
+      `SELECT status, waiting_dependency_at FROM tasks WHERE id = 'task-recover-dep'`,
+    );
+    expect(row.rows[0].status).toBe("waiting_dependency");
+    expect(row.rows[0].waiting_dependency_at).not.toBeNull();
   });
 
   it("renewLease CAS 续约：正确 lease 续期；错 generation 不续", async () => {
@@ -508,5 +521,54 @@ suite("pg task repository（P1-2）", () => {
     row = await pool.query("SELECT status, payload FROM tasks WHERE id = 'task-rejected-writeback'");
     expect(row.rows[0].status).toBe("rejected");
     expect(row.rows[0].payload.result).toEqual({ error: { code: "exec-failed", message: "syntax boom" } });
+  });
+
+  it("V1：存在 pending dependency 时 completed commit 被 fence 到 waiting_dependency", async () => {
+    await insertTask(pool, "task-fence-parent", "tenant-a", "developer");
+    await pool.query(
+      `INSERT INTO task_submissions (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, derived)
+       VALUES ('tenant-a','task-fence-parent','task-fence-child','k','d',false)`,
+    );
+    await pool.query(
+      `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
+       VALUES ('tenant-a','task-fence-parent','task-fence-child','k','d','pending')`,
+    );
+    const [claimed] = await repo.claim(scope, "developer", ["task-fence-parent"]);
+    const result = await repo.commit({
+      lease: claimed.lease,
+      status: "completed",
+      result: { value: 1 },
+      artifacts: [],
+      traceId: scope.traceId,
+    }, { scope: { tenantId: "tenant-a" } });
+    expect(result).toEqual({ committed: false });
+    const row = await pool.query(
+      `SELECT status, lease_id FROM tasks WHERE id = 'task-fence-parent'`,
+    );
+    expect(row.rows[0].status).toBe("waiting_dependency");
+    expect(row.rows[0].lease_id).toBeNull();
+  });
+
+  it("V1：pending dependency 存在时 retryable reject 也被 fence", async () => {
+    await insertTask(pool, "task-fence-retry", "tenant-a", "developer");
+    await pool.query(
+      `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
+       VALUES ('tenant-a','task-fence-retry','task-fence-retry-child','k','d','pending')`,
+    );
+    const [claimed] = await repo.claim(scope, "developer", ["task-fence-retry"]);
+    const result = await repo.commit({
+      lease: claimed.lease,
+      status: "rejected",
+      retryable: true,
+      error: { code: "soft", message: "later" },
+      artifacts: [],
+      traceId: scope.traceId,
+    }, { scope: { tenantId: "tenant-a" } });
+    expect(result).toEqual({ committed: false });
+    const row = await pool.query(
+      `SELECT status, lease_id FROM tasks WHERE id = 'task-fence-retry'`,
+    );
+    expect(row.rows[0].status).toBe("waiting_dependency");
+    expect(row.rows[0].lease_id).toBeNull();
   });
 });

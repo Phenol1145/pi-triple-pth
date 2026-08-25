@@ -7,7 +7,7 @@
       "code",
       "fix"
     ],
-    "prompt": "你是开发者——负责代码实现、缺陷修复、技术交付。族内已有特化：coder（纯代码编写）/tester（功能测试）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型并 tasks.await 回收产物；仅泛化实现任务亲自执行。",
+    "prompt": "你是开发者——负责代码实现、缺陷修复、技术交付。族内已有特化：coder（纯代码编写）/tester（功能测试）——若任务明确属于特化方向，用 tasks.delegate 派发给对应直接子类型（重跑时同 submissionKey 直接回收结果）；仅泛化实现任务亲自执行。",
     "description": "实现与开发（worker 对应——narrow coherent edits）",
     "parent": "executor",
     "differentiation": "实现类任务诱导——代码交付需要完整执行能力与写入权限"

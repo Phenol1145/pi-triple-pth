@@ -13,7 +13,10 @@ import { validateDomainBinding, type DomainBinding } from "./domains.js";
 import { isWorkMode } from "./work-mode.js";
 import type {
   ArtifactRef,
+  ChildOutcomeEnvelopeV1,
+  ChildTaskRefV1,
   DeliveryArtifactRef,
+  PublisherQuestionEnvelopeV1,
   TaskDelivery,
   TaskLease,
   TaskLeaseReference,
@@ -122,4 +125,54 @@ export function isTaskDeliveryStructurallyValid(v: unknown): v is TaskDelivery {
   if (d.artifactRef !== undefined && !isDeliveryArtifactRefStructurallyValid(d.artifactRef)) return false;
   if (d.goal !== undefined && !NON_EMPTY_STRING(d.goal)) return false;
   return true;
+}
+
+// ─── 持久化子任务委派 V1 结构校验 ─────────────────────────────────
+
+const SUBMISSION_KEY_PATTERN = /^[A-Za-z0-9:_@.-]+$/;
+const OUTCOME_STATUSES: readonly ChildOutcomeEnvelopeV1["status"][] = ["completed", "rejected", "cancelled", "escalated"];
+const CHILD_STATES: readonly ChildTaskRefV1["state"][] = ["submitted", "running", "paused", "terminal"];
+
+export function isSubmissionKeyValid(v: unknown): v is string {
+  return typeof v === "string" && v.length >= 1 && v.length <= 128 && SUBMISSION_KEY_PATTERN.test(v);
+}
+
+export function isRequiredDependency(v: unknown): v is "required" {
+  return v === undefined || v === "required";
+}
+
+export function isChildOutcomeEnvelopeStructurallyValid(v: unknown): v is ChildOutcomeEnvelopeV1 {
+  if (typeof v !== "object" || v === null) return false;
+  const o = v as Record<string, unknown>;
+  if (!OUTCOME_STATUSES.includes(o.status as ChildOutcomeEnvelopeV1["status"])) return false;
+  if (typeof o.summary !== "string") return false;
+  if (!Array.isArray(o.provenance) || !o.provenance.every((x) => typeof x === "string")) return false;
+  if (!Array.isArray(o.artifactRefs) || !o.artifactRefs.every((x) => typeof x === "string")) return false;
+  if (o.error !== undefined) {
+    const e = o.error as Record<string, unknown>;
+    if (typeof e !== "object" || e === null) return false;
+    if (typeof e.family !== "string" || typeof e.message !== "string") return false;
+    if (e.retryable !== false) return false;
+  }
+  return true;
+}
+
+export function isPublisherQuestionEnvelopeStructurallyValid(v: unknown): v is PublisherQuestionEnvelopeV1 {
+  if (typeof v !== "object" || v === null) return false;
+  const q = v as Record<string, unknown>;
+  return NON_EMPTY_STRING(q.questionId) && NON_EMPTY_STRING(q.prompt) && NON_EMPTY_STRING(q.childTaskId);
+}
+
+export function isChildTaskRefStructurallyValid(v: unknown): v is ChildTaskRefV1 {
+  if (typeof v !== "object" || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return (
+    NON_EMPTY_STRING(r.taskId) &&
+    isSubmissionKeyValid(r.submissionKey) &&
+    NON_EMPTY_STRING(r.roleId) &&
+    isNonEmptyStringArray(r.path) &&
+    CHILD_STATES.includes(r.state as ChildTaskRefV1["state"]) &&
+    (r.observation === undefined || isChildOutcomeEnvelopeStructurallyValid(r.observation)) &&
+    (r.question === undefined || isPublisherQuestionEnvelopeStructurallyValid(r.question))
+  );
 }

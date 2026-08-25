@@ -1,22 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { getContainerRuntimeClient } from "testcontainers";
 import { createPgPool } from "@away_from/pth-kernel-storage";
 import { applySchema } from "@away_from/pth-kernel-storage";
 import { TaskDispatchNotifier } from "../../src/pth/tasking/task-dispatch-notifier.js";
+import { hasTestDatabase, startTestDatabase } from "../helpers.js";
 
-async function hasDocker(): Promise<boolean> {
-  if (process.env.PTH_TEST_NO_DOCKER === "1") return false;
-  try {
-    await getContainerRuntimeClient();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const dockerAvailable = await hasDocker();
-const suite = dockerAvailable ? describe : describe.skip;
+const dbAvailable = await hasTestDatabase();
+const suite = dbAvailable ? describe : describe.skip;
 
 function fakeHub() {
   const handlers = new Set<(e: { kind?: string; taskId?: string }) => void>();
@@ -32,18 +21,19 @@ function fakeHub() {
 }
 
 suite("task-dispatch-notifier（W8 P2 事件驱动回流）", () => {
-  let container: PostgreSqlContainer;
+  let stopDb: () => Promise<void>;
   let pool: Awaited<ReturnType<typeof createPgPool>>;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:16-alpine").start();
-    pool = await createPgPool({ connectionString: container.getConnectionUri() });
+    const db = await startTestDatabase();
+    stopDb = db.stop;
+    pool = await createPgPool({ connectionString: db.connectionString });
     await applySchema(pool);
   }, 120_000);
 
   afterAll(async () => {
     await pool.end();
-    await container.stop();
+    await stopDb();
   });
 
   async function insertTask(id: string, status: string, payload: unknown): Promise<void> {
@@ -98,5 +88,92 @@ suite("task-dispatch-notifier（W8 P2 事件驱动回流）", () => {
       delivery: { path: ["developer"], lineageId: "n-root-child" },
     });
     expect(await notifier.handle("n-root-child")).toBe(false);
+  });
+
+  it("V1：child terminal 更新 dependency 并 requeue waiting_dependency 父任务", async () => {
+    const notifier = new TaskDispatchNotifier({ pool, activityHub: fakeHub() });
+    await insertTask("v1-parent", "waiting_dependency", {});
+    await insertTask("v1-child", "completed", {
+      delivery: {
+        parent: { taskId: "v1-parent", roleId: "developer", typePath: ["developer"] },
+        path: ["developer", "coder"],
+        lineageId: "v1-parent",
+        artifactRef: { kind: "file", id: "archive://v1-child/out" },
+      },
+      result: { value: 42, summary: "done" },
+    });
+    await pool.query(
+      `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
+       VALUES ('tenant-a','v1-parent','v1-child','k1','d1','pending')`,
+    );
+
+    expect(await notifier.handle("v1-child")).toBe(true);
+
+    const dep = await pool.query(
+      `SELECT status, outcome_envelope FROM task_dependencies WHERE child_task_id = 'v1-child'`,
+    );
+    expect(dep.rows[0].status).toBe("satisfied");
+    expect(dep.rows[0].outcome_envelope.status).toBe("completed");
+
+    const parent = await pool.query(
+      `SELECT status, payload FROM tasks WHERE id = 'v1-parent'`,
+    );
+    expect(parent.rows[0].status).toBe("pending");
+    expect(parent.rows[0].payload.childResult["v1-child"]).toMatchObject({ status: "completed", result: { value: 42 } });
+  });
+
+  it("V1/P0：child 快速终态时父任务仍 claimed——notifier 不得提前 requeue（防双 Attempt）", async () => {
+    const notifier = new TaskDispatchNotifier({ pool, activityHub: fakeHub() });
+    await insertTask("v1-p0-parent", "claimed", {});
+    await insertTask("v1-p0-child", "completed", {
+      delivery: {
+        parent: { taskId: "v1-p0-parent", roleId: "developer", typePath: ["developer"] },
+        path: ["developer", "coder"],
+        lineageId: "v1-p0-parent",
+      },
+      result: { value: 1 },
+    });
+    await pool.query(
+      `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
+       VALUES ('tenant-a','v1-p0-parent','v1-p0-child','k-p0','d-p0','pending')`,
+    );
+
+    expect(await notifier.handle("v1-p0-child")).toBe(true);
+
+    const dep = await pool.query(
+      `SELECT status FROM task_dependencies WHERE child_task_id = 'v1-p0-child'`,
+    );
+    expect(dep.rows[0].status).toBe("satisfied");
+    const parent = await pool.query(
+      `SELECT status FROM tasks WHERE id = 'v1-p0-parent'`,
+    );
+    // 父 Attempt 仍在运行，必须保持 claimed；等 commit 阶段再 fence 到 waiting_dependency。
+    expect(parent.rows[0].status).toBe("claimed");
+  });
+
+  it("V1：child rejected 且 dependency 更新为 failed，父任务仍 requeue", async () => {
+    const notifier = new TaskDispatchNotifier({ pool, activityHub: fakeHub() });
+    await insertTask("v1-parent-reject", "waiting_dependency", {});
+    await insertTask("v1-child-reject", "rejected", {
+      delivery: {
+        parent: { taskId: "v1-parent-reject", roleId: "developer", typePath: ["developer"] },
+        path: ["developer", "coder"],
+        lineageId: "v1-parent-reject",
+      },
+      result: { error: { code: "exec-failed", message: "boom" } },
+    });
+    await pool.query(
+      `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
+       VALUES ('tenant-a','v1-parent-reject','v1-child-reject','k2','d2','pending')`,
+    );
+
+    expect(await notifier.handle("v1-child-reject")).toBe(true);
+    const dep = await pool.query(
+      `SELECT status, outcome_envelope FROM task_dependencies WHERE child_task_id = 'v1-child-reject'`,
+    );
+    expect(dep.rows[0].status).toBe("failed");
+    expect(dep.rows[0].outcome_envelope.status).toBe("rejected");
+    const parent = await pool.query(`SELECT status FROM tasks WHERE id = 'v1-parent-reject'`);
+    expect(parent.rows[0].status).toBe("pending");
   });
 });

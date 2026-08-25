@@ -104,6 +104,47 @@ function stampedTenantOf(upd: pg.QueryResult): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
+/** 持久化子任务委派 V1：父任务是否存在未终结 required dependency。 */
+async function hasPendingDependencies(
+  client: pg.PoolClient,
+  tenantId: string,
+  parentTaskId: string,
+): Promise<boolean> {
+  const res = await client.query(
+    `SELECT 1 FROM task_dependencies
+     WHERE tenant_id = $1 AND parent_task_id = $2 AND status = 'pending'
+     LIMIT 1`,
+    [tenantId, parentTaskId],
+  );
+  return res.rows.length > 0;
+}
+
+/** 持久化子任务委派 V1：把未解决依赖的父任务 fence 到 waiting_dependency 并释放 lease。 */
+async function fenceToWaitingDependency(
+  client: pg.PoolClient,
+  taskId: string,
+  leaseId: string,
+  generation: number,
+  tenantId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE tasks SET
+       status = 'waiting_dependency',
+       waiting_dependency_at = now(),
+       claimed_by = NULL,
+       claimed_at = NULL,
+       lease_id = NULL,
+       lease_expires_at = NULL,
+       updated_at = now()
+     WHERE id = $1 AND lease_id = $2 AND lease_generation = $3
+       AND status = 'claimed'
+       AND tenant_id = $4
+       AND lease_expires_at IS NOT NULL
+       AND lease_expires_at > now()`,
+    [taskId, leaseId, generation, tenantId],
+  );
+}
+
 function toWorkItem(row: ClaimRow, scope: TenantScope): TaskWorkItem {
   const domains = readWorkItemDomains(row.payload);
   const domainBinding = readWorkItemDomainBinding(row.payload, domains);
@@ -201,9 +242,24 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
 
     async recoverExpired(nowArg, graceMs = 60_000) {
       const threshold = new Date(nowArg.getTime() - graceMs);
+      // 持久化子任务委派 V1/P0：过期 claimed 父任务若已有 pending dependency，
+      // 必须恢复到 waiting_dependency（不可认领）而不是 pending，避免子任务未终态时被重新 claim。
       const res = await pool.query(
         `UPDATE tasks SET
-           status = 'pending',
+           status = CASE
+             WHEN EXISTS (
+               SELECT 1 FROM task_dependencies d
+               WHERE d.tenant_id = tasks.tenant_id AND d.parent_task_id = tasks.id AND d.status = 'pending'
+             ) THEN 'waiting_dependency'
+             ELSE 'pending'
+           END,
+           waiting_dependency_at = CASE
+             WHEN EXISTS (
+               SELECT 1 FROM task_dependencies d
+               WHERE d.tenant_id = tasks.tenant_id AND d.parent_task_id = tasks.id AND d.status = 'pending'
+             ) THEN now()
+             ELSE NULL
+           END,
            claimed_by = NULL,
            claimed_at = NULL,
            lease_id = NULL,
@@ -233,6 +289,10 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
         // R4/P0-4：side-effect enqueue 与 task CAS commit 同一事务。
         const { result, artifactRef } = buildCompletedResultWriteback(outcome.result, outcome.artifacts);
         res = await withTx(pool, async (client) => {
+          if (await hasPendingDependencies(client, tenantId, taskId)) {
+            await fenceToWaitingDependency(client, taskId, leaseId, generation, tenantId);
+            return { rowCount: 0 } as pg.QueryResult;
+          }
           const upd = await client.query(
             `UPDATE tasks SET
                status = 'completed',
@@ -274,6 +334,10 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
         });
       } else if (outcome.retryable === true) {
         res = await withTx(pool, async (client) => {
+          if (await hasPendingDependencies(client, tenantId, taskId)) {
+            await fenceToWaitingDependency(client, taskId, leaseId, generation, tenantId);
+            return { rowCount: 0 } as pg.QueryResult;
+          }
           const upd = await client.query(
             `UPDATE tasks SET
                status = 'pending',

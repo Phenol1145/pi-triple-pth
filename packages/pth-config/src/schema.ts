@@ -132,6 +132,9 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_GOVERNANCE_BASELINE_WINDOW", "number", 10, "control-loop", "main", "A/B 优化周期基线窗轮数 n"),
   d("PTH_TASK_PAUSE_TIMEOUT_MS", "number", 24 * 60 * 60 * 1000, "control-loop", "both", "pause 超时（缺省 24h——超时 escalated）", { runtime: true }),
   d("PTH_TASK_PAUSE_SWEEP_MS", "number", 60_000, "control-loop", "main", "pause 巡检周期（超时/预算）", { runtime: true }),
+  d("PTH_TASK_MAX_CHILDREN_PER_PARENT", "number", 50, "control-loop", "both", "持久化子任务委派：同一父任务累计 child 硬上限（写入前 admission）", { runtime: true, min: 1, max: 10000 }),
+  d("PTH_TASK_MAX_OPEN_DEPENDENCIES_PER_PARENT", "number", 20, "control-loop", "both", "持久化子任务委派：同一父任务未决 required dependency 硬上限（写入前 admission）", { runtime: true, min: 1, max: 1000 }),
+  d("PTH_TASK_DEPENDENCY_RECONCILE_MS", "number", 30_000, "control-loop", "main", "持久化子任务委派：dependency reconciliation 周期（事件丢失后最终收敛）", { runtime: true }),
   d("PTH_TASK_LEASE_RECOVERY", "string", "on", "control-loop", "batch", "孤儿 claim 周期回收开关（off=回退现状，recoverExpired 不被调用）", { runtime: true }),
   d("PTH_TASK_LEASE_RECOVERY_GRACE_MS", "number", 60_000, "control-loop", "batch", "租约回收保护窗（lease_expires_at < now - grace 才回收）", { runtime: true }),
 

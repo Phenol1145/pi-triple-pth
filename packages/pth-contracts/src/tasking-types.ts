@@ -106,6 +106,13 @@ export interface TaskDelegateInput {
   context?: Record<string, unknown>;
   /** 回流预期：决定 await 返回内容（P2 按此裁剪） */
   expect?: "result" | "artifact" | "report";
+  /**
+   * 持久化子任务委派（V1）：父任务作用域内稳定、可复算的逻辑提交键。
+   * 缺省时由服务端按 canonical spec digest 派生，且标记 derived=true。
+   */
+  submissionKey?: string;
+  /** V1 仅允许 "required"；detached 不开放给普通 worker。 */
+  dependency?: "required";
 }
 
 export interface TaskDelegateResult {
@@ -113,6 +120,51 @@ export interface TaskDelegateResult {
   roleId: string;
   /** 子任务的派发路径（含自身类型） */
   path: readonly string[];
+  /** V1：父任务作用域内稳定提交键（显式或服务端派生）。 */
+  submissionKey: string;
+  /** 子任务当前可观察状态。 */
+  state: ChildTaskRefV1["state"];
+  /** 子任务终态后的有界结果信封（未终态时缺省）。 */
+  observation?: ChildOutcomeEnvelopeV1;
+  /** 子任务 paused 时回流给父的发布者问题（未暂停时缺省）。 */
+  question?: PublisherQuestionEnvelopeV1;
+}
+
+// ─── 持久化子任务委派 V1（docs/pth/design/persistent-child-delegation-design.md） ───
+
+export interface ChildTaskSubmissionV1 {
+  submissionKey: string;
+  to: string;
+  title: string;
+  text: string;
+  context?: Record<string, unknown>;
+  domains?: string[];
+  expect?: "result" | "artifact" | "report";
+  dependency?: "required";
+}
+
+export interface ChildOutcomeEnvelopeV1 {
+  status: "completed" | "rejected" | "cancelled" | "escalated";
+  summary: string;
+  provenance: readonly string[];
+  artifactRefs: readonly string[];
+  error?: { family: string; message: string; retryable: false };
+}
+
+export interface PublisherQuestionEnvelopeV1 {
+  questionId: string;
+  prompt: string;
+  childTaskId: string;
+}
+
+export interface ChildTaskRefV1 {
+  taskId: string;
+  submissionKey: string;
+  roleId: string;
+  path: readonly string[];
+  state: "submitted" | "running" | "paused" | "terminal";
+  observation?: ChildOutcomeEnvelopeV1;
+  question?: PublisherQuestionEnvelopeV1;
 }
 
 /** 当前执行中任务的服务器侧身份（task-loop 每任务盖章，worker 不可自报） */
@@ -134,6 +186,11 @@ export interface TaskDispatchContext {
   childResult?: Readonly<Record<string, TaskAwaitResult>>;
   /** 子任务 paused 问题（notifier 写入；task-loop 盖章进上下文——tasks.resume/answer 读） */
   childQuestion?: Readonly<Record<string, TaskChildQuestion>>;
+  /**
+   * 服务器盖章的当前 Attempt/lease 引用（dispatcher/runner 在 claim 后写入）。
+   * delegate 用它校验父任务仍由本 Attempt 持有，禁止取消/终态后继续创建 child。
+   */
+  lease?: Readonly<TaskLeaseReference>;
 }
 
 /** tasks.await 挂起信号错误码（interpreter error.code 透传；runner 据此落 retryable requeue） */

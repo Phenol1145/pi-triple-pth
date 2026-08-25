@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-25T18:07:21.451Z",
+  "generatedAt": "2026-08-25T19:57:30.087Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -243,6 +243,12 @@
       "status": "reference"
     },
     {
+      "path": "docs/pth/contract/provider-config-contract.md",
+      "category": "contracts",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/deployment.md",
       "category": "guides",
       "product": "pth",
@@ -387,6 +393,12 @@
       "status": "reference"
     },
     {
+      "path": "docs/pth/design/persistent-child-delegation-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/design/pth-bench-unified-design.md",
       "category": "designs",
       "product": "pth",
@@ -394,6 +406,12 @@
     },
     {
       "path": "docs/pth/design/pth-cli-command-registry-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/pth-provider-config-cli-design.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
@@ -609,6 +627,18 @@
       "status": "reference"
     },
     {
+      "path": "docs/pth/plan/persistent-child-delegation-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/plan/pth-provider-config-cli-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/plan/repo-structure-diagnosis-and-reorganization-plan.md",
       "category": "designs",
       "product": "pth",
@@ -676,6 +706,12 @@
     },
     {
       "path": "docs/pth/report/dev-family-bench-2026-08-25.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/engine-task-boundary-and-minimal-code-submission-report-2026-08-26.md",
       "category": "reports",
       "product": "pth",
       "status": "historical"
@@ -765,10 +801,34 @@
       "status": "historical"
     },
     {
+      "path": "docs/pth/report/network-module-construction-feedback-2026-08-26.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/network-module-construction-feedback-round-2-2026-08-26.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "active"
+    },
+    {
       "path": "docs/pth/report/phase1-deps-split-report.md",
       "category": "reports",
       "product": "pth",
       "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/pth-cli-provider-config-construction-feedback-2026-08-26.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/pth-cli-provider-config-construction-feedback-round-2-2026-08-26.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "active"
     },
     {
       "path": "docs/pth/report/role-lineage-runtime-derivation.md",
@@ -784,6 +844,18 @@
     },
     {
       "path": "docs/pth/report/system-construction-modeling-audit.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "active"
+    },
+    {
+      "path": "docs/pth/report/task-logic-construction-feedback-2026-08-26.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/task-logic-construction-feedback-round-2-2026-08-26.md",
       "category": "reports",
       "product": "pth",
       "status": "active"

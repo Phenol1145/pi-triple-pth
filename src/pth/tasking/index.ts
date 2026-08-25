@@ -12,6 +12,8 @@ export * from "./task-work-item-reader.js";
 export * from "./task-control-service.js";
 export * from "./task-queries.js";
 export * from "./task-dispatch-notifier.js";
+export * from "./task-dependency-reconciler.js";
+export * from "./task-dependency-metrics.js";
 export * from "./penetration-skill.js";
 export * from "./penetration-budget.js";
 export * from "./penetration-runner.js";

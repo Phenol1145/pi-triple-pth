@@ -9,11 +9,17 @@
 import type pg from "pg";
 import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
 import type { PublishInput } from "@away_from/pth-kernel-storage";
+import { withTx } from "@away_from/pth-kernel-storage";
 import {
   buildEntryDelivery,
+  canonicalDelegateSpecDigest,
+  isSubmissionKeyValid,
   isTaskDeliveryStructurallyValid,
   isWorkMode,
   TASK_AWAIT_SUSPENDED_CODE,
+  type ChildOutcomeEnvelopeV1,
+  type ChildTaskRefV1,
+  type PublisherQuestionEnvelopeV1,
   type TaskAwaitInput,
   type TaskAwaitResult,
   type TaskCancelResult,
@@ -29,6 +35,12 @@ import {
 } from "@away_from/pth-contracts";
 import type { DomainBinding } from "@away_from/pth-contracts";
 import { PgTaskQueries } from "./task-queries.js";
+import {
+  observeAdmissionRejected,
+  observeDependencyStatus,
+  observeSubmissionConflict,
+  observeTaskSubmission,
+} from "./task-dependency-metrics.js";
 import { allowedDelegationTargets } from "./delegation-policy.js";
 import { tagRegistry } from "@away_from/pth-kernel-execution";
 import { resolveTemplateTask } from "@away_from/pth-kernel-interpreter";
@@ -36,7 +48,7 @@ import { PtcContractError } from "@away_from/pth-kernel-interpreter";
 import { pthConfig } from "@away_from/pth-config";
 
 export interface TaskControlServiceDeps {
-  store: Pick<TaskStore, "publish">;
+  store: Pick<TaskStore, "publish" | "publishInTx">;
   pool: pg.Pool;
   queries: PgTaskQueries;
 }
@@ -52,6 +64,81 @@ function resultSummary(result: unknown): string | undefined {
   const r = result as { summary?: unknown; value?: { summary?: unknown } };
   const s = r.summary ?? r.value?.summary;
   return typeof s === "string" && s !== "" ? s : undefined;
+}
+
+const CHILD_STATE_BY_TASK_STATUS: Record<string, ChildTaskRefV1["state"]> = {
+  pending: "submitted",
+  submitted: "submitted",
+  claimed: "running",
+  paused: "paused",
+  "waiting-human": "paused",
+  completed: "terminal",
+  rejected: "terminal",
+  escalated: "terminal",
+  cancelled: "terminal",
+  "waiting_dependency": "submitted",
+};
+
+function childStateFromTaskStatus(status: string | null | undefined): ChildTaskRefV1["state"] {
+  if (!status) return "submitted";
+  return CHILD_STATE_BY_TASK_STATUS[status] ?? "submitted";
+}
+
+function childQuestionFromPayload(childTaskId: string, payload: unknown): PublisherQuestionEnvelopeV1 | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const p = payload as { pauseQuestion?: { question?: unknown } };
+  const q = p.pauseQuestion?.question;
+  if (typeof q !== "string" || q.trim() === "") return undefined;
+  return { questionId: childTaskId, prompt: q, childTaskId };
+}
+
+function delegateResultFromRow(input: {
+  taskId: string;
+  submissionKey: string;
+  roleId: string;
+  path: readonly string[];
+  childStatus?: string | null;
+  childPayload?: unknown;
+  outcomeEnvelope?: unknown;
+  artifactRef?: unknown;
+}): TaskDelegateResult {
+  const observation = childObservationFromDependency({
+    outcome_envelope: input.outcomeEnvelope,
+    child_status: input.childStatus ?? undefined,
+    payload: input.childPayload,
+    artifact_ref: input.artifactRef,
+  });
+  const question = childQuestionFromPayload(input.taskId, input.childPayload);
+  return {
+    taskId: input.taskId,
+    roleId: input.roleId,
+    path: input.path,
+    submissionKey: input.submissionKey,
+    state: childStateFromTaskStatus(input.childStatus),
+    ...(observation ? { observation } : {}),
+    ...(question ? { question } : {}),
+  };
+}
+
+function childObservationFromDependency(row: { outcome_envelope?: unknown; child_status?: string; payload?: unknown; artifact_ref?: unknown }): ChildOutcomeEnvelopeV1 | undefined {
+  if (row.outcome_envelope && typeof row.outcome_envelope === "object") {
+    return row.outcome_envelope as ChildOutcomeEnvelopeV1;
+  }
+  const status = row.child_status;
+  if (!status || !["completed", "rejected", "escalated"].includes(status)) return undefined;
+  const payload = row.payload ?? {};
+  const result = (payload as { result?: unknown }).result ?? null;
+  const errorObj = (result as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+  const artifactRef = row.artifact_ref as { id?: unknown } | null | undefined;
+  return {
+    status: status === "completed" ? "completed" : status === "escalated" ? "escalated" : (errorObj?.code === "cancelled" ? "cancelled" : "rejected"),
+    summary: resultSummary(result) ?? "",
+    provenance: [],
+    artifactRefs: artifactRef && typeof artifactRef.id === "string" ? [artifactRef.id] : [],
+    ...(errorObj && typeof errorObj.code === "string" && typeof errorObj.message === "string"
+      ? { error: { family: errorObj.code, message: errorObj.message, retryable: false as const } }
+      : {}),
+  };
 }
 
 /**
@@ -121,6 +208,12 @@ export class TaskControlService {
     }
     if (input.tags !== undefined && (!Array.isArray(input.tags) || input.tags.some((t) => typeof t !== "string" || t.trim() === ""))) {
       throw new PtcContractError("tasks.delegate", "tags 可选——若提供必须是字符串数组");
+    }
+    if (input.submissionKey !== undefined && !isSubmissionKeyValid(input.submissionKey)) {
+      throw new PtcContractError("tasks.delegate", "submissionKey 可选——若提供必须是 1..128 字符且仅含 [A-Za-z0-9:_@.-]");
+    }
+    if (input.dependency !== undefined && input.dependency !== "required") {
+      throw new PtcContractError("tasks.delegate", "dependency 仅支持 required（V1 不开放 detached）");
     }
 
     // F3：domains 显式子集收窄。body 的 domains 仅用于子集校验（不可自报最终 payload）；
@@ -242,18 +335,139 @@ export class TaskControlService {
     };
 
     const parentWorkMode = await this.resolveParentWorkMode(caller, scope);
-    const task = await this.deps.store.publish({
+    if (!this.deps.store.publishInTx) {
+      throw new PtcContractError("tasks.delegate", "当前 TaskStore 不支持事务内发布（publishInTx 缺失）——无法保证 child/submission/dependency 原子写入");
+    }
+
+    // 持久化子任务委派 V1：canonical spec digest + submissionKey 幂等。
+    const specDigest = canonicalDelegateSpecDigest({
+      to,
       title: finalTitle,
       text: finalText,
-      createdBy: `worker:${caller.roleId}`,
-      tenantId: scope.tenantId,
-      tags: finalTags,
-      payload,
-      workMode: parentWorkMode,
-      deliveryMode: "delegate",
-      delegateTarget: to,
+      context: input.context ?? null,
+      domains: childDomains,
+      expect: input.expect ?? null,
+      dependency: input.dependency ?? "required",
     });
-    return { taskId: task.id, roleId: to, path: delivery.path };
+    const submissionKey = input.submissionKey ?? `derived:${specDigest}`;
+    const derived = input.submissionKey === undefined;
+
+    return withTx(this.deps.pool, async (client) => {
+      // 并发同 key 收敛：同一 parent 的 delegate 在事务内串行化，避免 SELECT→INSERT 竞态。
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))`,
+        [scope.tenantId, caller.taskId],
+      );
+      // 持久化子任务委派 V1 P0：delegate 必须绑定服务器盖章的当前 Attempt/lease。
+      // 生产路径（AgentTaskRunner）总会写入 caller.lease；legacy/测试 caller 无 lease 时保持兼容。
+      if (caller.lease) {
+        const parentRes = await client.query(
+          `SELECT 1 FROM tasks
+           WHERE id = $1 AND tenant_id = $2
+             AND lease_id = $3 AND lease_generation = $4
+             AND status = 'claimed'
+             AND lease_expires_at IS NOT NULL AND lease_expires_at > now()
+           FOR UPDATE`,
+          [caller.taskId, scope.tenantId, caller.lease.leaseId, caller.lease.generation],
+        );
+        if ((parentRes.rowCount ?? 0) !== 1) {
+          throw new PtcContractError(
+            "tasks.delegate",
+            `父任务 lease 已失效/已终态/已被取消（task=${caller.taskId}）——不允许继续创建子任务`,
+          );
+        }
+      }
+      const existingRes = await client.query(
+        `SELECT
+           s.child_task_id, s.spec_digest, s.derived,
+           t.status AS child_status,
+           t.payload AS child_payload,
+           t.payload->'delivery'->'artifactRef' AS artifact_ref,
+           d.status AS dep_status,
+           d.outcome_envelope AS outcome_envelope
+         FROM task_submissions s
+         LEFT JOIN tasks t ON t.id = s.child_task_id AND t.tenant_id = s.tenant_id
+         LEFT JOIN task_dependencies d
+           ON d.tenant_id = s.tenant_id
+          AND d.parent_task_id = s.parent_task_id
+          AND d.submission_key = s.submission_key
+         WHERE s.tenant_id = $1 AND s.parent_task_id = $2 AND s.submission_key = $3`,
+        [scope.tenantId, caller.taskId, submissionKey],
+      );
+      const existing = existingRes.rows[0] as
+        | {
+            child_task_id: string;
+            spec_digest: string;
+            child_status?: string | null;
+            child_payload?: unknown;
+            artifact_ref?: unknown;
+            dep_status?: string | null;
+            outcome_envelope?: unknown;
+          }
+        | undefined;
+      if (existing) {
+        if (existing.spec_digest !== specDigest) {
+          observeSubmissionConflict();
+          throw new PtcContractError("tasks.delegate", `submissionKey conflict: ${submissionKey}（同 key 不同 canonical spec）`);
+        }
+        return delegateResultFromRow({
+          taskId: existing.child_task_id,
+          submissionKey,
+          roleId: to,
+          path: delivery.path,
+          childStatus: existing.child_status,
+          childPayload: existing.child_payload,
+          outcomeEnvelope: existing.outcome_envelope,
+          artifactRef: existing.artifact_ref,
+        });
+      }
+
+      // 写入前 admission：per-parent child 与 open dependency 硬上限。
+      const maxChildren = pthConfig().num("PTH_TASK_MAX_CHILDREN_PER_PARENT");
+      const childCount = await client.query(
+        `SELECT count(*)::int AS n FROM task_submissions WHERE tenant_id = $1 AND parent_task_id = $2`,
+        [scope.tenantId, caller.taskId],
+      );
+      if (Number((childCount.rows[0] as { n?: number } | undefined)?.n ?? 0) >= maxChildren) {
+        observeAdmissionRejected("child-limit");
+        throw new PtcContractError("tasks.delegate", `子任务数量超过上限 ${maxChildren}（parent=${caller.taskId}）`);
+      }
+      const maxOpen = pthConfig().num("PTH_TASK_MAX_OPEN_DEPENDENCIES_PER_PARENT");
+      const openCount = await client.query(
+        `SELECT count(*)::int AS n FROM task_dependencies WHERE tenant_id = $1 AND parent_task_id = $2 AND status = 'pending'`,
+        [scope.tenantId, caller.taskId],
+      );
+      if (Number((openCount.rows[0] as { n?: number } | undefined)?.n ?? 0) >= maxOpen) {
+        observeAdmissionRejected("open-dependency-limit");
+        throw new PtcContractError("tasks.delegate", `未决 required dependency 数量超过上限 ${maxOpen}（parent=${caller.taskId}）`);
+      }
+
+      const task = await this.deps.store.publishInTx!(client, {
+        title: finalTitle,
+        text: finalText,
+        createdBy: `worker:${caller.roleId}`,
+        tenantId: scope.tenantId,
+        tags: finalTags,
+        payload,
+        workMode: parentWorkMode,
+        deliveryMode: "delegate",
+        delegateTarget: to,
+      });
+      await client.query(
+        `INSERT INTO task_submissions (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, derived)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [scope.tenantId, caller.taskId, task.id, submissionKey, specDigest, derived],
+      );
+      await client.query(
+        `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
+         VALUES ($1, $2, $3, $4, $5, 'pending')`,
+        [scope.tenantId, caller.taskId, task.id, submissionKey, specDigest],
+      );
+      observeTaskSubmission(caller.roleId, to, derived);
+      // 持久化子任务委派 V1 P0：不在 delegate 内清 lease / 切 waiting_dependency。
+      // 父 Attempt 保持 claimed 直到 RoleRun 在安全边界退出；commit 见 pending dependency 时再 fence。
+      return { taskId: task.id, roleId: to, path: delivery.path, submissionKey, state: "submitted" };
+    });
   }
 
   /**
@@ -474,7 +688,7 @@ export class TaskControlService {
            jsonb_set(COALESCE(payload, '{}'::jsonb), '{dispatchWait}', COALESCE(payload->'dispatchWait', '{}'::jsonb), true),
            ARRAY['dispatchWait',$3]::text[], $4::jsonb, true),
          updated_at = now()
-       WHERE id = $1 AND tenant_id = $2 AND status IN ('pending','claimed','submitted')`,
+       WHERE id = $1 AND tenant_id = $2 AND status IN ('pending','claimed','submitted','waiting_dependency')`,
       [caller.taskId, scope.tenantId, taskId, JSON.stringify({ at })],
     );
     if ((registered.rowCount ?? 0) === 0) {
@@ -496,27 +710,43 @@ export class TaskControlService {
       throw new PtcContractError("tasks.cancel", `任务 ${taskId} 不存在或不属于当前租户`);
     }
     const errorSummary = JSON.stringify({ error: { code: "cancelled", message: "任务已取消" } });
-    const res = await this.deps.pool.query(
-      `WITH RECURSIVE lineage(id) AS (
-         SELECT id FROM tasks WHERE id = $1 AND tenant_id = $2
-         ${recursive ? `UNION
-         SELECT t.id FROM tasks t
-         JOIN lineage l ON t.tenant_id = $2 AND t.payload->'delivery'->'parent'->>'taskId' = l.id` : ""}
-       )
-       UPDATE tasks SET
-         status = 'rejected',
-         escalated_at = now(),
-         claimed_by = NULL,
-         claimed_at = NULL,
-         lease_id = NULL,
-         lease_expires_at = NULL,
-         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $3::jsonb, true),
-         updated_at = now()
-       WHERE id IN (SELECT id FROM lineage) AND tenant_id = $2 AND status IN ('pending','claimed','submitted')
-       RETURNING id`,
-      [taskId, scope.tenantId, errorSummary],
-    );
-    return { cancelled: res.rowCount ?? 0, taskIds: (res.rows as Array<{ id: string }>).map((r) => r.id) };
+    return withTx(this.deps.pool, async (client) => {
+      const res = await client.query(
+        `WITH RECURSIVE lineage(id) AS (
+           SELECT id FROM tasks WHERE id = $1 AND tenant_id = $2
+           ${recursive ? `UNION
+           SELECT d.child_task_id
+           FROM task_dependencies d
+           JOIN lineage l ON d.parent_task_id = l.id AND d.tenant_id = $2` : ""}
+         )
+         UPDATE tasks SET
+           status = 'rejected',
+           escalated_at = now(),
+           waiting_dependency_at = NULL,
+           claimed_by = NULL,
+           claimed_at = NULL,
+           lease_id = NULL,
+           lease_expires_at = NULL,
+           payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', $3::jsonb, true),
+           updated_at = now()
+         WHERE id IN (SELECT id FROM lineage) AND tenant_id = $2 AND status IN ('pending','claimed','submitted','waiting_dependency')
+         RETURNING id`,
+        [taskId, scope.tenantId, errorSummary],
+      );
+      const taskIds = (res.rows as Array<{ id: string }>).map((r) => r.id);
+      if (taskIds.length > 0) {
+        const depRes = await client.query(
+          `UPDATE task_dependencies SET
+             status = 'cancelled',
+             outcome_envelope = $3::jsonb,
+             updated_at = now()
+           WHERE tenant_id = $1 AND child_task_id = ANY($2::text[]) AND status IN ('pending','satisfied','failed')`,
+          [scope.tenantId, taskIds, JSON.stringify({ status: "cancelled", summary: "任务已取消", provenance: [], artifactRefs: [] })],
+        );
+        observeDependencyStatus("cancelled", depRes.rowCount ?? 0);
+      }
+      return { cancelled: res.rowCount ?? 0, taskIds };
+    });
   }
 
   /** 观测列表（全部状态、created_at 倒序）——保持 gateway 既有 JSON 形状，仅加租户过滤 */

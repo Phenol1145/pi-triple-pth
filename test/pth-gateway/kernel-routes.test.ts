@@ -22,11 +22,28 @@ function buildApp(kernel: KernelRuntime | null) {
   return app;
 }
 
+/** 让 fake pool 支持 withTx（BEGIN/COMMIT/ROLLBACK + release），供 cancel 等事务路径使用。 */
+function fakeTxClient(queryImpl: (sql: string, params?: unknown[]) => unknown) {
+  return {
+    query: async (sql: string, params?: unknown[]) => {
+      const trimmed = sql.trim();
+      if (trimmed === "BEGIN" || trimmed === "COMMIT" || trimmed === "ROLLBACK") return { rows: [] };
+      return queryImpl(sql, params);
+    },
+    release: async () => {},
+  };
+}
+
+function fakePoolWithTx(queryImpl: (sql: string, params?: unknown[]) => unknown) {
+  return {
+    query: async (sql: string, params?: unknown[]) => queryImpl(sql, params),
+    connect: async () => fakeTxClient(queryImpl),
+  };
+}
+
 function fakeKernel(overrides: Partial<KernelRuntime> = {}): KernelRuntime {
   return {
-    pool: {
-      query: async () => ({ rows: [{ status: "pending", n: 2 }, { status: "completed", n: 1 }] }),
-    } as any,
+    pool: fakePoolWithTx(async () => ({ rows: [{ status: "pending", n: 2 }, { status: "completed", n: 1 }] })) as any,
     dataWorld: {
       tasks: {
         publish: async (input: any) => ({ id: "t-1", ...input, status: "pending" }),
@@ -211,12 +228,10 @@ describe("kernel routes", () => {
 
     it("POST /api/v1/kernel/tasks/:id/cancel → 取消并支持递归传播（W8 P2）", async () => {
       const cancelApp = buildApp(fakeKernel({
-        pool: {
-          query: async (sql: string) => ({
-            rows: sql.startsWith("UPDATE") ? [{ id: "t-1" }] : [{ id: "t-1" }],
-            rowCount: sql.startsWith("UPDATE") ? 1 : 1,
-          }),
-        } as any,
+        pool: fakePoolWithTx(async (sql: string) => {
+          if (sql.includes("UPDATE task_dependencies")) return { rows: [], rowCount: 0 };
+          return { rows: [{ id: "t-1" }], rowCount: 1 };
+        }) as any,
       }));
       const res = await cancelApp.inject({
         method: "POST",

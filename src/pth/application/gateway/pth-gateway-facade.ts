@@ -39,6 +39,9 @@ export interface TaskCounts {
   completed: number;
   rejected: number;
   escalated: number;
+  paused: number;
+  waitingHuman: number;
+  waitingDependency: number;
   total: number;
 }
 
@@ -263,6 +266,9 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
       completed: counts.completed ?? 0,
       rejected: counts.rejected ?? 0,
       escalated: counts.escalated ?? 0,
+      paused: counts.paused ?? 0,
+      waitingHuman: counts["waiting-human"] ?? 0,
+      waitingDependency: counts.waiting_dependency ?? 0,
       total,
     };
   }

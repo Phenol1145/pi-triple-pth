@@ -82,6 +82,18 @@ _Avoid_: 内置子系统、内核功能
 kernel 层的确定性逐任务分派（tag-registry 精确匹配 / flow 显式角色），不经过任何 role。
 _Avoid_: 把类型判断、分流决策放进路由层
 
+**entry task submission（入口任务提交）**:
+外部 Agent 应用将用户真实需求澄清、冻结并编译成的自包含 engine 入口请求；它描述根目标、范围、约束与验收，不预写 engine 内部任务图。
+_Avoid_: 原始 User Request、worker 内部 child delegation、把外部应用称为 engine 调度器
+
+**durable child delegation（持久化子任务委派）**:
+RoleRun Code 在 engine 授权目标集合内声明直接子任务的唯一任务创建语义；engine 以父作用域稳定 key 幂等持久化 child 与 required dependency，并通过有界 outcome envelope 回流结果。
+_Avoid_: 通用 `tasks.submit`、fire-and-forget enqueue、list/claim/retry/lease 等任务管理权、跨 RoleRun 内存 Promise
+
+**dependency waiting（依赖等待）**:
+父任务存在未终结 required child 时的持久、不可认领状态；PG dependency 是真相源，事件只负责低延迟提示，恢复扫描保证最终唤醒。
+_Avoid_: 把等待父任务立即放回 pending 忙认领、让 worker 持有 lease 等待、用进程内事件代替持久状态
+
 **taxonomy differentiation（任务类型分化）**:
 类型体系演化的治理回路：controller:router 提出类型分化方案（modification-plan draft）→ 监督批准 → actuator 实施注册进 tag-registry——此后新类型由 routing 确定性分派。
 _Avoid_: 角色自主即时创建类型、LLM 逐任务自由分类

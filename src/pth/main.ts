@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { detectPlatform, createLogger } from "@away_from/infra";
 import { createMetrics, startRedisMetrics } from "./observability/metrics.js";
 import { createKernelMetrics } from "./observability/kernel-metrics.js";
+import { initTaskDependencyMetrics } from "./tasking/task-dependency-metrics.js";
 import { AuditWriter } from "./observability/audit.js";
 import { RedisSessionStore } from "@away_from/pth-kernel-storage";
 import { EnvCredentialProvider, WorkspaceManager, ModelRouter } from "@away_from/infra";
@@ -97,6 +98,8 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
   startRedisMetrics(redis, metrics);
   // 性能计量（SPEC L0/L1）：kernel 指标注册到同一 registry（/metrics 单端点聚合）
   const kernelMetrics = createKernelMetrics({ registry: metrics.registry });
+  // 持久化子任务委派 V1（M5）：任务提交/依赖/reconciliation 指标注册到同一 registry
+  initTaskDependencyMetrics(metrics.registry);
 
   const sessionStore = new RedisSessionStore(redis);
   // 设置面：RedisSettingsStore 已删（2026-08-14 A2 Phase 2——创建零消费的死接线；

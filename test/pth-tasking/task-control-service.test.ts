@@ -1,6 +1,5 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { getContainerRuntimeClient } from "testcontainers";
 import { createPgPool } from "@away_from/pth-kernel-storage";
 import { applySchema } from "@away_from/pth-kernel-storage";
 import { PgTaskStore } from "@away_from/pth-kernel-storage";
@@ -8,28 +7,20 @@ import { TaskControlService, TaskAwaitSuspendedError } from "../../src/pth/taski
 import { PgTaskQueries } from "../../src/pth/tasking/task-queries.js";
 import { readWorkItemDomainBinding, readWorkItemDomains } from "../../src/pth/tasking/task-work-item-reader.js";
 import { createPgTaskRepository } from "../../src/pth/tasking/adapters/pg-task-repository.js";
+import { TaskDispatchNotifier } from "../../src/pth/tasking/task-dispatch-notifier.js";
 import { checkTaskRouting, routeTaskRole } from "@away_from/pth-kernel-execution";
-import { installDefaultRoles } from "../helpers.js";
+import { hasTestDatabase, installDefaultRoles, startTestDatabase } from "../helpers.js";
+import { config } from "@away_from/pth-config";
 import type { TenantScope } from "@away_from/pth-contracts";
 
-async function hasDocker(): Promise<boolean> {
-  if (process.env.PTH_TEST_NO_DOCKER === "1") return false;
-  try {
-    await getContainerRuntimeClient();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const dockerAvailable = await hasDocker();
-const suite = dockerAvailable ? describe : describe.skip;
+const dbAvailable = await hasTestDatabase();
+const suite = dbAvailable ? describe : describe.skip;
 
 const scopeA: TenantScope = { tenantId: "tenant-a", principalId: "tenant:tenant-a:tenant-agent", roles: ["tenant-agent"], traceId: "trace-a" };
 const scopeB: TenantScope = { tenantId: "tenant-b", principalId: "tenant:tenant-b:tenant-agent", roles: ["tenant-agent"], traceId: "trace-b" };
 
 suite("task control service（P1-3）", () => {
-  let container: PostgreSqlContainer;
+  let stopDb: () => Promise<void>;
   let pool: Awaited<ReturnType<typeof createPgPool>>;
   let service: TaskControlService;
   let store: PgTaskStore;
@@ -37,8 +28,9 @@ suite("task control service（P1-3）", () => {
   let routedService: TaskControlService;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer("postgres:16-alpine").start();
-    pool = await createPgPool({ connectionString: container.getConnectionUri() });
+    const db = await startTestDatabase();
+    stopDb = db.stop;
+    pool = await createPgPool({ connectionString: db.connectionString });
     await applySchema(pool);
     installDefaultRoles();
     store = new PgTaskStore(pool);
@@ -49,7 +41,7 @@ suite("task control service（P1-3）", () => {
 
   afterAll(async () => {
     await pool.end();
-    await container.stop();
+    await stopDb();
   });
 
   it("publish：createdBy 只取服务器端 scope.principalId，body 字段不可覆盖", async () => {
@@ -101,7 +93,13 @@ suite("task control service（P1-3）", () => {
       caller,
       scopeA,
     );
-    expect(delegated).toEqual({ taskId: delegated.taskId, roleId: "coder", path: ["developer", "coder"] });
+    expect(delegated).toMatchObject({
+      taskId: delegated.taskId,
+      roleId: "coder",
+      path: ["developer", "coder"],
+      state: "submitted",
+      submissionKey: expect.stringMatching(/^derived:/),
+    });
 
     const row = await pool.query(
       "SELECT assigned_role, created_by, tags, payload FROM tasks WHERE id = $1",
@@ -174,7 +172,13 @@ suite("task control service（P1-3）", () => {
     // 用户裁决：assigned_role 服务端直接指定——MID（researcher）无已注册标签也可投递
     const actuator = { taskId: "act-1", roleId: "actuator", tenantId: "tenant-a", delivery: { path: ["actuator"], lineageId: "act-root" } };
     const mid = await routedService.delegate({ to: "researcher", title: "研究", text: "深度调研" }, actuator, scopeA);
-    expect(mid).toEqual({ taskId: mid.taskId, roleId: "researcher", path: ["actuator", "researcher"] });
+    expect(mid).toMatchObject({
+      taskId: mid.taskId,
+      roleId: "researcher",
+      path: ["actuator", "researcher"],
+      state: "submitted",
+      submissionKey: expect.stringMatching(/^derived:/),
+    });
     const midRow = await pool.query("SELECT assigned_role, payload FROM tasks WHERE id = $1", [mid.taskId]);
     expect(midRow.rows[0].assigned_role).toBe("researcher");
     expect(midRow.rows[0].payload.delivery.parent.roleId).toBe("actuator");
@@ -393,7 +397,7 @@ suite("task control service（P1-3）", () => {
     ).rejects.toThrow(/不存在或不属于当前租户/);
   });
 
-  it("W8 P2：取消传播——recursive 沿 delivery.parent 链取消全部未终态子任务", async () => {
+  it("W8 P2：取消传播——recursive 沿 task_dependencies 链取消全部未终态子任务", async () => {
     // 父→子→孙 三层派发树（父任务用真实行——delegate 需服务端身份）
     await pool.query(
       `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status)
@@ -409,6 +413,11 @@ suite("task control service（P1-3）", () => {
            'parent', jsonb_build_object('taskId', $1::text, 'roleId', 'coder', 'typePath', '["developer","coder"]'::jsonb),
            'path', '["developer","coder","tester"]'::jsonb,
            'lineageId', 'cancel-root')))`,
+      [child.taskId],
+    );
+    await pool.query(
+      `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
+       VALUES ('tenant-a', $1, 'grand-of-cancel', 'gc-key', 'gc-digest', 'pending')`,
       [child.taskId],
     );
 
@@ -457,5 +466,281 @@ suite("task control service（P1-3）", () => {
 
     const getCross = await q.get("pending-a", scopeB);
     expect(getCross).toBeNull();
+  });
+
+  it("V1：submissionKey 幂等、同 key 异 digest conflict、无 key 派生", async () => {
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, payload)
+       VALUES ('parent-v1','tenant-a','parent','x','worker:developer','developer','claimed',
+         jsonb_build_object('delivery', jsonb_build_object('path','["developer"]'::jsonb, 'lineageId','parent-v1')))`,
+    );
+    const caller = {
+      taskId: "parent-v1",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-v1" },
+    };
+
+    const first = await routedService.delegate(
+      { to: "coder", title: "实现", text: "v1", submissionKey: "search:q1" },
+      caller,
+      scopeA,
+    );
+    const second = await routedService.delegate(
+      { to: "coder", title: "实现", text: "v1", submissionKey: "search:q1" },
+      caller,
+      scopeA,
+    );
+    expect(second.taskId).toBe(first.taskId);
+    expect(second.submissionKey).toBe("search:q1");
+    const count = await pool.query(
+      `SELECT count(*)::int AS n FROM task_submissions WHERE parent_task_id = 'parent-v1'`,
+    );
+    expect(count.rows[0].n).toBe(1);
+
+    await expect(
+      routedService.delegate(
+        { to: "coder", title: "实现", text: "v1-changed", submissionKey: "search:q1" },
+        caller,
+        scopeA,
+      ),
+    ).rejects.toThrow(/submissionKey conflict/);
+
+    const derived = await routedService.delegate(
+      { to: "coder", title: "实现", text: "v1-derived" },
+      caller,
+      scopeA,
+    );
+    expect(derived.submissionKey).toMatch(/^derived:/);
+    const count2 = await pool.query(
+      `SELECT count(*)::int AS n FROM task_submissions WHERE parent_task_id = 'parent-v1'`,
+    );
+    expect(count2.rows[0].n).toBe(2);
+
+    const parentRow = await pool.query(
+      `SELECT status, lease_id FROM tasks WHERE id = 'parent-v1'`,
+    );
+    // P0：delegate 不再在调用内清 lease / 切 waiting_dependency——由 commit 安全边界统一 fence。
+    expect(parentRow.rows[0].status).toBe("claimed");
+    expect(parentRow.rows[0].lease_id).toBeNull();
+  });
+
+  it("V1/P0：delegate 绑定有效 lease——不切 waiting_dependency，父 Attempt 保持 claimed", async () => {
+    const leaseId = randomUUID();
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, lease_id, lease_generation, lease_expires_at, payload)
+       VALUES ('parent-lease-ok','tenant-a','parent','x','worker:developer','developer','claimed',$1,1,now() + interval '10 minutes',
+         jsonb_build_object('delivery', jsonb_build_object('path','["developer"]'::jsonb, 'lineageId','parent-lease-ok')))`,
+      [leaseId],
+    );
+    const caller = {
+      taskId: "parent-lease-ok",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-lease-ok" },
+      lease: { taskId: "parent-lease-ok", leaseId, generation: 1 },
+    };
+
+    const child = await routedService.delegate(
+      { to: "coder", title: "实现", text: "v1" },
+      caller,
+      scopeA,
+    );
+    expect(child.taskId).toBeTruthy();
+
+    const parent = await pool.query(
+      `SELECT status, lease_id, lease_generation, lease_expires_at FROM tasks WHERE id = 'parent-lease-ok'`,
+    );
+    expect(parent.rows[0].status).toBe("claimed");
+    expect(parent.rows[0].lease_id).toBe(leaseId);
+    expect(Number(parent.rows[0].lease_generation)).toBe(1);
+    expect(parent.rows[0].lease_expires_at).not.toBeNull();
+  });
+
+  it("V1/P0：delegate 绑定失效 lease/已取消父任务——拒绝且不创建 child", async () => {
+    const leaseId = randomUUID();
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, lease_id, lease_generation, lease_expires_at, payload)
+       VALUES ('parent-lease-bad','tenant-a','parent','x','worker:developer','developer','claimed',$1,1,now() + interval '10 minutes',
+         jsonb_build_object('delivery', jsonb_build_object('path','["developer"]'::jsonb, 'lineageId','parent-lease-bad')))`,
+      [leaseId],
+    );
+    const caller = {
+      taskId: "parent-lease-bad",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-lease-bad" },
+      lease: { taskId: "parent-lease-bad", leaseId: randomUUID(), generation: 1 },
+    };
+
+    await expect(
+      routedService.delegate({ to: "coder", title: "实现", text: "v1" }, caller, scopeA),
+    ).rejects.toThrow(/lease 已失效/);
+    const children = await pool.query(
+      `SELECT count(*)::int AS n FROM task_submissions WHERE parent_task_id = 'parent-lease-bad'`,
+    );
+    expect(children.rows[0].n).toBe(0);
+  });
+
+  it("M3：多次 delegate → commit fence → children terminal → parent replay 同 key 回收 → completed", async () => {
+    const leaseId = randomUUID();
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, lease_id, lease_generation, lease_expires_at, payload)
+       VALUES ('parent-m3','tenant-a','parent','x','worker:developer','developer','claimed',$1,1,now() + interval '10 minutes',
+         jsonb_build_object('delivery', jsonb_build_object('path','["developer"]'::jsonb, 'lineageId','parent-m3')))`,
+      [leaseId],
+    );
+    const caller = {
+      taskId: "parent-m3",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-m3" },
+      lease: { taskId: "parent-m3", leaseId, generation: 1 },
+    };
+
+    const c1 = await routedService.delegate(
+      { to: "coder", title: "child1", text: "x", submissionKey: "m3:1" },
+      caller,
+      scopeA,
+    );
+    const c2 = await routedService.delegate(
+      { to: "coder", title: "child2", text: "x", submissionKey: "m3:2" },
+      caller,
+      scopeA,
+    );
+    expect(c1.taskId).not.toBe(c2.taskId);
+    const afterDelegate = await pool.query(
+      `SELECT status FROM tasks WHERE id = 'parent-m3'`,
+    );
+    expect(afterDelegate.rows[0].status).toBe("claimed");
+
+    // RoleRun 正常结束，但存在 pending deps → commit fence 到 waiting_dependency（不 commit 终态）。
+    const repo = createPgTaskRepository(pool);
+    const fencedCommit = await repo.commit({
+      lease: { taskId: "parent-m3", leaseId, generation: 1 },
+      status: "completed",
+      result: { value: "parent partial" },
+      artifacts: [],
+      traceId: scopeA.traceId,
+    }, { scope: { tenantId: "tenant-a" } });
+    expect(fencedCommit.committed).toBe(false);
+    const fenced = await pool.query(
+      `SELECT status, waiting_dependency_at FROM tasks WHERE id = 'parent-m3'`,
+    );
+    expect(fenced.rows[0].status).toBe("waiting_dependency");
+    expect(fenced.rows[0].waiting_dependency_at).not.toBeNull();
+
+    // children terminal → notifier 回流并 requeue。
+    await pool.query(
+      `UPDATE tasks SET status = 'completed',
+         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', '{"value":1}'::jsonb, true)
+       WHERE id = $1`,
+      [c1.taskId],
+    );
+    await pool.query(
+      `UPDATE tasks SET status = 'completed',
+         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', '{"value":2}'::jsonb, true)
+       WHERE id = $1`,
+      [c2.taskId],
+    );
+    const notifier = new TaskDispatchNotifier({ pool, activityHub: { subscribe: () => () => {} } });
+    await notifier.handle(c1.taskId);
+    await notifier.handle(c2.taskId);
+    const requeued = await pool.query(
+      `SELECT status FROM tasks WHERE id = 'parent-m3'`,
+    );
+    expect(requeued.rows[0].status).toBe("pending");
+
+    // parent replay：同 submissionKey 回收同一 child，不重复创建。
+    const [claimed2] = await repo.claim(
+      { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "m3-replay" },
+      "developer",
+      ["parent-m3"],
+    );
+    expect(claimed2).toBeTruthy();
+    const replayCaller = {
+      ...caller,
+      lease: { taskId: claimed2!.lease.taskId, leaseId: claimed2!.lease.leaseId, generation: claimed2!.lease.generation },
+    };
+    const r1 = await routedService.delegate(
+      { to: "coder", title: "child1", text: "x", submissionKey: "m3:1" },
+      replayCaller,
+      scopeA,
+    );
+    const r2 = await routedService.delegate(
+      { to: "coder", title: "child2", text: "x", submissionKey: "m3:2" },
+      replayCaller,
+      scopeA,
+    );
+    expect(r1.taskId).toBe(c1.taskId);
+    expect(r2.taskId).toBe(c2.taskId);
+    const submissions = await pool.query(
+      `SELECT count(*)::int AS n FROM task_submissions WHERE parent_task_id = 'parent-m3'`,
+    );
+    expect(submissions.rows[0].n).toBe(2);
+
+    // parent 综合后 completed，无 pending deps → committed true。
+    const finalCommit = await repo.commit({
+      lease: { taskId: claimed2!.lease.taskId, leaseId: claimed2!.lease.leaseId, generation: claimed2!.lease.generation },
+      status: "completed",
+      result: { value: "final" },
+      artifacts: [],
+      traceId: scopeA.traceId,
+    }, { scope: { tenantId: "tenant-a" } });
+    expect(finalCommit.committed).toBe(true);
+    const finalRow = await pool.query(
+      `SELECT status FROM tasks WHERE id = 'parent-m3'`,
+    );
+    expect(finalRow.rows[0].status).toBe("completed");
+  });
+
+  it("V1：admission 超 child 上限拒绝且不创建", async () => {
+    config().set("PTH_TASK_MAX_CHILDREN_PER_PARENT", "2");
+    try {
+      await pool.query(
+        `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, payload)
+         VALUES ('parent-admission','tenant-a','parent','x','worker:developer','developer','claimed',
+           jsonb_build_object('delivery', jsonb_build_object('path','["developer"]'::jsonb, 'lineageId','parent-admission')))`,
+      );
+      const caller = {
+        taskId: "parent-admission",
+        roleId: "developer",
+        tenantId: "tenant-a",
+        delivery: { path: ["developer"], lineageId: "parent-admission" },
+      };
+      const before = Number((await pool.query(`SELECT count(*)::int AS n FROM tasks`)).rows[0].n);
+      await routedService.delegate({ to: "coder", title: "c1", text: "x", submissionKey: "a:1" }, caller, scopeA);
+      await routedService.delegate({ to: "coder", title: "c2", text: "x", submissionKey: "a:2" }, caller, scopeA);
+      await expect(
+        routedService.delegate({ to: "coder", title: "c3", text: "x", submissionKey: "a:3" }, caller, scopeA),
+      ).rejects.toThrow(/子任务数量超过上限/);
+      const after = Number((await pool.query(`SELECT count(*)::int AS n FROM tasks`)).rows[0].n);
+      expect(after).toBe(before + 2);
+    } finally {
+      config().set("PTH_TASK_MAX_CHILDREN_PER_PARENT", "50");
+    }
+  });
+
+  it("V1：并发同 key 同 spec 返回同一 child（advisory lock 收敛）", async () => {
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, payload)
+       VALUES ('parent-v1-concurrent','tenant-a','parent','x','worker:developer','developer','claimed',
+         jsonb_build_object('delivery', jsonb_build_object('path','["developer"]'::jsonb, 'lineageId','parent-v1-concurrent')))`,
+    );
+    const caller = {
+      taskId: "parent-v1-concurrent",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-v1-concurrent" },
+    };
+    const [a, b] = await Promise.all([
+      routedService.delegate({ to: "coder", title: "并发", text: "x", submissionKey: "concurrent:1" }, caller, scopeA),
+      routedService.delegate({ to: "coder", title: "并发", text: "x", submissionKey: "concurrent:1" }, caller, scopeA),
+    ]);
+    expect(a.taskId).toBe(b.taskId);
+    const count = await pool.query(
+      `SELECT count(*)::int AS n FROM task_submissions WHERE parent_task_id = 'parent-v1-concurrent'`,
+    );
+    expect(count.rows[0].n).toBe(1);
   });
 });
