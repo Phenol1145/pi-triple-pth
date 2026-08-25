@@ -56,6 +56,18 @@
 
 无 src，只有 package.json + deploy/ 拷贝 + dist 输出（由 `build-pth-cli-package.sh` 填充）。合法但反直觉——需在结构文档里显式说明，否则会被误判为"空包待删"。
 
+### D7：deploy/Dockerfile 未跟上 9 包拆分（2026-08-25 运行验证发现，已修复）
+
+Dockerfile 停留在 3 包时代：`npm ci` 前只拷 3 个 workspace 清单（根 package.json 的 9 个 `file:` 依赖缺目标必失败）、构建序缺 contracts/config/kernel-\*、runtime 段只拷 3 个包的 dist。8/22 的镜像是 9 包拆分（`6c65c73`，8/23）前的最后可用构建。已于 2026-08-25 修复并通过完整镜像构建验证。
+
+### D8：运行时数据资产不进 dist（2026-08-25 运行验证发现，已修复）
+
+tsc 不搬非 TS 文件，但两处运行时依赖相对路径资产：
+1. `role-catalog-loader.ts` 读 `catalog/data/roles/*.json`（42 张角色卡）——dist 缺失导致容器 bootstrap fail-closed；
+2. `execution-target-registry.ts` 读 `deploy/executor-matrix.json`——Dockerfile 未拷。
+
+修复：新增 `scripts/copy-runtime-assets.mjs`（挂入根 `build` 脚本与 Dockerfile 构建链）+ Dockerfile runtime 段补拷 `executor-matrix.json`。教训：**凡 `import.meta.url` 相对路径读资产，必须有对应构建期拷贝步骤**；建议 P4 阶段加机械化检查（扫描 `fileURLToPath(import.meta.url)` + fs 读的组合）。
+
 ## 3. 目标结构叙事（一句话版）
 
 > **packages/pth-\* = 可独立发布的内核域能力；src/pth = 产品组装层与运行宿主（HTTP/gateway/任务调度/装配）；src/cli = CLI 入口；scripts/test/docs 按用途单一约定分区。**

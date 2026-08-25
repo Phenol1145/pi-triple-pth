@@ -12,3 +12,4 @@ deploy/.env.pth.secrets
 .edu-*-work-*
 deploy/tool-containers/.compose.generated.yaml
 deploy/local-exec/u8/u8
+deploy/.env

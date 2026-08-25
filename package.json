@@ -14,7 +14,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist packages/pth-contracts/dist packages/pth-config/dist packages/pth-memory/dist packages/pth-sandbox/dist packages/pth-console/dist packages/pth-kernel-storage/dist packages/pth-kernel-interpreter/dist packages/pth-kernel-execution/dist",
-    "build": "tsc -p packages/pth-contracts && tsc -p packages/pth-config && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc -p packages/pth-kernel-storage && tsc -p packages/pth-kernel-interpreter && tsc -p packages/pth-kernel-execution && tsc -p packages/pth-console && npm run build:web -w @away_from/pth-console && node scripts/copy-framework-web-assets.mjs && tsc -p tsconfig.json",
+    "build": "tsc -p packages/pth-contracts && tsc -p packages/pth-config && tsc -p packages/pth-memory && tsc -p packages/pth-sandbox && tsc -p packages/pth-kernel-storage && tsc -p packages/pth-kernel-interpreter && tsc -p packages/pth-kernel-execution && tsc -p packages/pth-console && npm run build:web -w @away_from/pth-console && node scripts/copy-framework-web-assets.mjs && tsc -p tsconfig.json && node scripts/copy-runtime-assets.mjs",
     "pth:dev": "tsx watch src/pth/main.ts",
     "pth:start": "node dist/pth/main.js",
     "monitor": "node deploy/docker-monitor/server.js",
