@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-25T07:25:15.168Z",
+  "generatedAt": "2026-08-25T08:23:13.876Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -652,6 +652,12 @@
     },
     {
       "path": "docs/pth/report/coding-performance-baseline-2026-08-25.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/dev-family-bench-2026-08-25.md",
       "category": "reports",
       "product": "pth",
       "status": "historical"
