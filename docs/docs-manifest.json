@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-25T04:46:38.759Z",
+  "generatedAt": "2026-08-25T05:55:48.447Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -370,6 +370,12 @@
     },
     {
       "path": "docs/pth/design/n33-v13-ptl-operator-console-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
+      "path": "docs/pth/design/n34-ide-coding-environment-design.md",
       "category": "designs",
       "product": "pth",
       "status": "reference"
