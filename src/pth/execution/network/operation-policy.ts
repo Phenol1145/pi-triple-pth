@@ -12,6 +12,7 @@ import type {
   SearchRequestV1,
 } from "@away_from/pth-contracts";
 import { createNetworkExecuteError } from "./errors.js";
+import { containsSensitiveInput } from "./redaction.js";
 
 export interface OperationPolicyOptions {
   readonly profileId?: string;
@@ -22,6 +23,7 @@ export interface OperationPolicyOptions {
   readonly timeoutMs?: number;
   readonly requireHttps?: boolean;
   readonly denyUserinfo?: boolean;
+  readonly denySensitiveInput?: boolean;
   readonly allowedProtocols?: readonly string[];
 }
 
@@ -43,6 +45,7 @@ export class DefaultOperationPolicy implements OperationPolicy {
   private readonly timeoutMs: number;
   private readonly requireHttps: boolean;
   private readonly denyUserinfo: boolean;
+  private readonly denySensitiveInput: boolean;
   private readonly allowedProtocols: readonly string[];
 
   constructor(opts: OperationPolicyOptions = {}) {
@@ -54,6 +57,7 @@ export class DefaultOperationPolicy implements OperationPolicy {
     this.timeoutMs = opts.timeoutMs ?? 30_000;
     this.requireHttps = opts.requireHttps ?? true;
     this.denyUserinfo = opts.denyUserinfo ?? true;
+    this.denySensitiveInput = opts.denySensitiveInput ?? true;
     this.allowedProtocols = opts.allowedProtocols ?? (this.requireHttps ? ["https:"] : ["http:", "https:"]);
   }
 
@@ -67,6 +71,9 @@ export class DefaultOperationPolicy implements OperationPolicy {
     }
     if (request.limit !== undefined && request.limit > this.maxSearchHits) {
       throw createNetworkExecuteError("NET_POLICY_DENIED", `net.search: limit 超过策略上限 ${this.maxSearchHits}`, { operationId: ctx.operationId });
+    }
+    if (this.denySensitiveInput && containsSensitiveInput(request.query)) {
+      throw createNetworkExecuteError("NET_POLICY_DENIED", "net.search: query 含敏感键名（api_key/secret/token/password 等），已拒绝", { operationId: ctx.operationId });
     }
   }
 
@@ -84,6 +91,9 @@ export class DefaultOperationPolicy implements OperationPolicy {
     }
     if (this.denyUserinfo && (parsed.username !== "" || parsed.password !== "")) {
       throw createNetworkExecuteError("NET_POLICY_DENIED", "net.fetch: URL 不允许包含 userinfo/凭据", { operationId: ctx.operationId });
+    }
+    if (this.denySensitiveInput && containsSensitiveInput(parsed.search)) {
+      throw createNetworkExecuteError("NET_POLICY_DENIED", "net.fetch: URL query 含敏感键名（api_key/secret/token/password 等），已拒绝", { operationId: ctx.operationId });
     }
     if (request.maxBytes !== undefined && request.maxBytes > this.maxFetchBytes) {
       throw createNetworkExecuteError("NET_POLICY_DENIED", `net.fetch: maxBytes 超过策略上限 ${this.maxFetchBytes}`, { operationId: ctx.operationId });

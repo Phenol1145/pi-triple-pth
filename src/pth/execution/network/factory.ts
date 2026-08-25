@@ -20,6 +20,7 @@ export interface CreateDefaultNetworkExecuteGatewayOptions {
   readonly artifactStore?: NetworkExecuteGatewayDeps["artifactStore"];
   readonly fetchTransport?: NetworkExecuteGatewayDeps["fetchTransport"];
   readonly traceRecorder?: NetworkExecuteGatewayDeps["traceRecorder"];
+  readonly observability?: NetworkExecuteGatewayDeps["observability"];
 }
 
 export function createDefaultNetworkExecuteGateway(opts: CreateDefaultNetworkExecuteGatewayOptions = {}): NetworkExecuteGateway {
@@ -33,6 +34,7 @@ export function createDefaultNetworkExecuteGateway(opts: CreateDefaultNetworkExe
     extractor: createOfflineHtmlExtractor(),
     ...(opts.fetchTransport ? { fetchTransport: opts.fetchTransport } : {}),
     ...(opts.traceRecorder ? { traceRecorder: opts.traceRecorder } : {}),
+    ...(opts.observability ? { observability: opts.observability } : {}),
     ...(opts.defaultContext ? { defaultContext: opts.defaultContext } : {}),
   });
 }

@@ -71,7 +71,7 @@ export interface ArtifactStore {
 }
 
 /** 结构化 trace 条目（V1 最小面：operation 级 + attempts）。 */
-export type NetworkTraceKindV1 = "search" | "fetch" | "extract";
+export type NetworkTraceKindV1 = "search" | "fetch" | "extract" | "fetchText";
 
 export interface NetworkTraceEntryV1 {
   readonly operationId: string;
@@ -84,6 +84,12 @@ export interface NetworkTraceEntryV1 {
   readonly attempts?: readonly ProviderAttemptV1[];
   readonly artifactId?: string;
   readonly finalUrl?: string;
+  readonly bytesRead?: number;
+  readonly billableUnits?: number;
+  readonly providerIds?: readonly string[];
+  readonly publisherOrigins?: readonly string[];
+  readonly processorIds?: readonly string[];
+  readonly queryRedacted?: string;
 }
 
 export interface NetworkTraceRecorder {

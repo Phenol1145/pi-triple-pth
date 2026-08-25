@@ -14,6 +14,7 @@ import type {
 import { secureWebFetch } from "../safe-http-transport.js";
 import type { ProviderSearchOutcome, SearchProvider } from "../types.js";
 import { NetworkProviderError } from "../types.js";
+import { redactSensitiveInput } from "../redaction.js";
 
 export interface RawHitHtmlProviderOptions {
   readonly providerId?: string;
@@ -158,7 +159,7 @@ export class RawHitHtmlProvider implements SearchProvider {
       const durationMs = Date.now() - startMs;
       if (err instanceof NetworkProviderError) throw err;
       const message = err instanceof Error ? err.message : String(err);
-      throw new NetworkProviderError("NET_PROVIDER_UNAVAILABLE", `${this.providerId}: ${message}`);
+      throw new NetworkProviderError("NET_PROVIDER_UNAVAILABLE", `${this.providerId}: ${redactSensitiveInput(message)}`);
     }
   }
 }

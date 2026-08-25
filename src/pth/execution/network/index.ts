@@ -10,6 +10,8 @@ export * from "./budget.js";
 export * from "./provider-registry.js";
 export * from "./artifact-store.js";
 export * from "./trace.js";
+export * from "./observability.js";
+export * from "./redaction.js";
 export * from "./gateway.js";
 export * from "./factory.js";
 export * from "./providers/raw-hit-html.js";

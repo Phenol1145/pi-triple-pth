@@ -29,11 +29,13 @@ import { createNetworkExecuteError, NetworkExecuteError } from "./errors.js";
 import { DefaultOperationPolicy, type OperationPolicy } from "./operation-policy.js";
 import { DefaultProviderRegistry, type ProviderRegistry } from "./provider-registry.js";
 import { secureWebFetch, WebTransportError } from "./safe-http-transport.js";
-import type { NetworkTraceRecorder } from "./types.js";
+import type { NetworkTraceEntryV1, NetworkTraceRecorder } from "./types.js";
 import { createNoopNetworkTraceRecorder } from "./trace.js";
+import { NoopNetworkObservability, type NetworkObservability } from "./observability.js";
 import type { ArtifactStore } from "./types.js";
 import type { OfflineHtmlExtractor } from "./extractors/offline-html.js";
 import { NetworkProviderError } from "./types.js";
+import { redactSensitiveQuery } from "./redaction.js";
 
 export interface NetworkExecuteGatewayDeps {
   readonly registry?: ProviderRegistry;
@@ -42,6 +44,8 @@ export interface NetworkExecuteGatewayDeps {
   readonly artifactStore: ArtifactStore;
   readonly extractor: Pick<OfflineHtmlExtractor, "extract">;
   readonly traceRecorder?: NetworkTraceRecorder;
+  /** Wave 4：结构化观测聚合（缺省 no-op）。 */
+  readonly observability?: import("./observability.js").NetworkObservability;
   /** 测试/装配注入；缺省走 SafeHttpTransport。 */
   readonly fetchTransport?: typeof secureWebFetch;
   /** 固定任务上下文（taskId/roleId/tenantId）；operationId 与 profileId 由 gateway 填充。 */
@@ -96,6 +100,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
   private readonly artifactStore: ArtifactStore;
   private readonly extractor: Pick<OfflineHtmlExtractor, "extract">;
   private readonly traceRecorder: NetworkTraceRecorder;
+  private readonly observability: NetworkObservability;
   private readonly fetchTransport: typeof secureWebFetch;
   private readonly defaultContext: Partial<Omit<NetworkOperationContextV1, "operationId" | "profileId">>;
   private readonly now: () => Date;
@@ -108,6 +113,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
     this.artifactStore = deps.artifactStore;
     this.extractor = deps.extractor;
     this.traceRecorder = deps.traceRecorder ?? createNoopNetworkTraceRecorder();
+    this.observability = deps.observability ?? new NoopNetworkObservability();
     this.fetchTransport = deps.fetchTransport ?? secureWebFetch;
     this.defaultContext = deps.defaultContext ?? {};
     this.now = deps.now ?? (() => new Date());
@@ -184,7 +190,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
       errorCode = err instanceof NetworkExecuteError ? err.networkError.code : err instanceof NetworkProviderError ? err.code : "NET_PROVIDER_UNAVAILABLE";
       throw err;
     } finally {
-      this.traceRecorder.record({
+      this.recordTrace({
         operationId: ctx.operationId,
         kind: "search",
         profileId: ctx.profileId,
@@ -192,6 +198,10 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         durationMs: Date.now() - startMs,
         ok,
         attempts,
+        providerIds: [...new Set(attempts.map((a) => a.providerId))],
+        publisherOrigins: [...new Set(hits.map((h) => h.publisher.origin))],
+        billableUnits: attempts.reduce((sum, a) => sum + (a.billableUnits ?? 0), 0),
+        queryRedacted: redactSensitiveQuery(request.query),
         ...(errorCode ? { errorCode } : {}),
       });
     }
@@ -242,7 +252,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
           truncated: false,
         },
       };
-      this.traceRecorder.record({
+      this.recordTrace({
         operationId: ctx.operationId,
         kind: "fetch",
         profileId: ctx.profileId,
@@ -251,11 +261,12 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         ok: true,
         artifactId: ref.artifactId,
         finalUrl: result.finalUri,
+        bytesRead: result.byteLength,
       });
       return response;
     } catch (err) {
       const mapped = mapTransportError(err, ctx.operationId);
-      this.traceRecorder.record({
+      this.recordTrace({
         operationId: ctx.operationId,
         kind: "fetch",
         profileId: ctx.profileId,
@@ -279,7 +290,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
       if (!this.budget.tryConsumeExtractOutputChars(outputChars)) {
         throw createNetworkExecuteError("NET_SIZE_LIMIT", `net.extract: 超过任务 extract 输出预算（${outputChars} chars）`, { operationId: ctx.operationId });
       }
-      this.traceRecorder.record({
+      this.recordTrace({
         operationId: ctx.operationId,
         kind: "extract",
         profileId: ctx.profileId,
@@ -287,11 +298,12 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         durationMs: Date.now() - startMs,
         ok: true,
         artifactId: request.artifactRef.artifactId,
+        processorIds: [...new Set(doc.processingChain.map((p) => p.processorId))],
       });
       return doc;
     } catch (err) {
       const mapped = err instanceof NetworkExecuteError ? err : createNetworkExecuteError("NET_ARTIFACT_MISMATCH", err instanceof Error ? err.message : String(err), { operationId: ctx.operationId });
-      this.traceRecorder.record({
+      this.recordTrace({
         operationId: ctx.operationId,
         kind: "extract",
         profileId: ctx.profileId,
@@ -325,21 +337,22 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
       const text = new TextDecoder().decode(result.rawBytes);
       const ctype = result.headers["content-type"] ?? "";
       const output = /html/i.test(ctype) ? stripHtml(text) : text;
-      this.traceRecorder.record({
+      this.recordTrace({
         operationId: ctx.operationId,
-        kind: "fetch",
+        kind: "fetchText",
         profileId: ctx.profileId,
         startedAt: startedAt.toISOString(),
         durationMs: Date.now() - startMs,
         ok: true,
         finalUrl: result.finalUri,
+        bytesRead: result.byteLength,
       });
       return output;
     } catch (err) {
       const mapped = mapTransportError(err, ctx.operationId);
-      this.traceRecorder.record({
+      this.recordTrace({
         operationId: ctx.operationId,
-        kind: "fetch",
+        kind: "fetchText",
         profileId: ctx.profileId,
         startedAt: startedAt.toISOString(),
         durationMs: Date.now() - startMs,
@@ -348,6 +361,11 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
       });
       throw mapped;
     }
+  }
+
+  private recordTrace(entry: NetworkTraceEntryV1): void {
+    this.traceRecorder.record(entry);
+    this.observability.record(entry);
   }
 
   private buildContext(kind: "search" | "fetch" | "extract"): NetworkOperationContextV1 {
