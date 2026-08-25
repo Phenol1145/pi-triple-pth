@@ -261,10 +261,16 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       : role;
     // W8 P1：任务身份引用（task-loop 每任务盖章；delegate/await 调用者上下文）
     const taskContext: { current: import("@away_from/pth-contracts").TaskDispatchContext | null } = { current: null };
-    // TCE 网络 V1 Wave 3：每 worker 一个 Execute gateway（默认 raw-hit provider + 离线 extractor）。
-    const networkExecute = createDefaultNetworkExecuteGateway({
-      defaultContext: { roleId: effectiveRole.id },
-    });
+    // TCE 网络 V1 反馈 P0/P1：按任务创建 Execute gateway——每次任务拿到独立 InMemoryArtifactStore，
+    // 并把 taskId/tenantId/roleId 写入默认 operation context（服务端盖章，不由 LLM 自报）。
+    const networkExecuteFactory = (ctx: { taskId: string; tenantId: string; roleId: string }) =>
+      createDefaultNetworkExecuteGateway({
+        defaultContext: {
+          roleId: effectiveRole.id,
+          ...(ctx.taskId ? { taskId: ctx.taskId } : {}),
+          ...(ctx.tenantId ? { tenantId: ctx.tenantId } : {}),
+        },
+      });
     // 穿透 runChild 执行缝（runchild-budget 段）：穿透 runner 与 tool-reg agent 态执行缝共用同一实现。
     const parentKernelRef: { current?: { ts: unknown } } = {};
     const runChildImpl = createPenetrationRunChild(runChildShared, { replica, parentKernelRef });
@@ -411,7 +417,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       // TCE P3：语言工具先过 CommandGateway 授权
       commandGateway,
       // TCE 网络 V1 Wave 3：Execute gateway（net.* / web.fetchText legacy binding）
-      networkExecute,
+      networkExecuteFactory,
       // TCE P5：per-tool 工具面（manifest 策展）
       extraTools,
       // N28 T2/T6：feasibility 依赖透传（off 全部 undefined）。

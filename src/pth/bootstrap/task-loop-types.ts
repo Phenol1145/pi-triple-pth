@@ -39,6 +39,8 @@ export interface TaskLoopDeps {
   }) => void | Promise<void>;
   /** TCE 网络 V1 Wave 2：Execute 客户端（透传 AgentTaskRunner）。 */
   networkExecute?: NetworkExecuteClient;
+  /** TCE 网络 V1 反馈 P0/P1：按任务创建 Execute client（task-scoped gateway/store + task/tenant 盖章）。 */
+  networkExecuteFactory?: (ctx: { taskId: string; tenantId: string; roleId: string }) => NetworkExecuteClient;
   /** TCE P3：Command 层注入（语言工具先过 CommandGateway 授权）。 */
   commandGateway?: import("@away_from/pth-kernel-execution").CommandGateway;
   /** TCE P5：Tool 层生成器产物（per-tool 工具面）。 */

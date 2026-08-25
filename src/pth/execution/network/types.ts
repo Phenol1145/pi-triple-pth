@@ -80,6 +80,9 @@ export interface NetworkTraceEntryV1 {
   readonly startedAt: string;
   readonly durationMs: number;
   readonly ok: boolean;
+  readonly taskId?: string;
+  readonly tenantId?: string;
+  readonly roleId?: string;
   readonly errorCode?: string;
   readonly attempts?: readonly ProviderAttemptV1[];
   readonly artifactId?: string;

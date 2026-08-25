@@ -177,7 +177,9 @@ export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome
     taskWorkspace: deps.workspace.dir,
     toolstore: (kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
     roleCapabilities: role.capabilities,
-    ...(deps.networkExecute ? { networkExecute: deps.networkExecute } : {}),
+    ...(deps.networkExecuteFactory
+      ? { networkExecute: deps.networkExecuteFactory({ taskId: lease.taskId, tenantId: work.scope.tenantId, roleId: role.id }) }
+      : deps.networkExecute ? { networkExecute: deps.networkExecute } : {}),
     base: {
       cache: {
         get: (k: string) => cs.get(k),

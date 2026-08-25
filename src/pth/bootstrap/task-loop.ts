@@ -275,6 +275,7 @@ export class TaskLoop {
         adapterRegistry: this.deps.adapterRegistry,
         executionDispatcher: this.deps.executionDispatcher,
         networkExecute: this.deps.networkExecute,
+        networkExecuteFactory: this.deps.networkExecuteFactory,
         // W-c：agent 循环的实时消息数组经惰性 getter 暴露给 TaskLoop（首个 await 后才就绪）。
         onContextReady: (getter) => { this.liveContextGetter = getter; },
         onStep: (s) => {
@@ -576,6 +577,7 @@ export class TaskLoop {
         adapterRegistry: this.deps.adapterRegistry,
         executionDispatcher: this.deps.executionDispatcher,
         networkExecute: this.deps.networkExecute,
+        networkExecuteFactory: this.deps.networkExecuteFactory,
         // W-c：legacy 路径同样注册实时上下文 getter（agent 消息数组惰性读取）。
         onContextReady: (getter) => { this.liveContextGetter = getter; },
         logger: (m) => taskLogger?.info(m),

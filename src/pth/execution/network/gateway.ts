@@ -203,7 +203,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         billableUnits: attempts.reduce((sum, a) => sum + (a.billableUnits ?? 0), 0),
         queryRedacted: redactSensitiveQuery(request.query),
         ...(errorCode ? { errorCode } : {}),
-      });
+      }, ctx);
     }
   }
 
@@ -262,7 +262,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         artifactId: ref.artifactId,
         finalUrl: result.finalUri,
         bytesRead: result.byteLength,
-      });
+      }, ctx);
       return response;
     } catch (err) {
       const mapped = mapTransportError(err, ctx.operationId);
@@ -274,7 +274,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         durationMs: Date.now() - startMs,
         ok: false,
         errorCode: mapped.networkError.code,
-      });
+      }, ctx);
       throw mapped;
     }
   }
@@ -299,7 +299,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         ok: true,
         artifactId: request.artifactRef.artifactId,
         processorIds: [...new Set(doc.processingChain.map((p) => p.processorId))],
-      });
+      }, ctx);
       return doc;
     } catch (err) {
       const mapped = err instanceof NetworkExecuteError ? err : createNetworkExecuteError("NET_ARTIFACT_MISMATCH", err instanceof Error ? err.message : String(err), { operationId: ctx.operationId });
@@ -312,7 +312,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         ok: false,
         errorCode: mapped.networkError.code,
         artifactId: request.artifactRef.artifactId,
-      });
+      }, ctx);
       throw mapped;
     }
   }
@@ -346,7 +346,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         ok: true,
         finalUrl: result.finalUri,
         bytesRead: result.byteLength,
-      });
+      }, ctx);
       return output;
     } catch (err) {
       const mapped = mapTransportError(err, ctx.operationId);
@@ -358,14 +358,20 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
         durationMs: Date.now() - startMs,
         ok: false,
         errorCode: mapped.networkError.code,
-      });
+      }, ctx);
       throw mapped;
     }
   }
 
-  private recordTrace(entry: NetworkTraceEntryV1): void {
-    this.traceRecorder.record(entry);
-    this.observability.record(entry);
+  private recordTrace(entry: NetworkTraceEntryV1, ctx?: NetworkOperationContextV1): void {
+    const full: NetworkTraceEntryV1 = {
+      ...entry,
+      ...(ctx?.taskId ? { taskId: ctx.taskId } : {}),
+      ...(ctx?.tenantId ? { tenantId: ctx.tenantId } : {}),
+      ...(ctx?.roleId ? { roleId: ctx.roleId } : {}),
+    };
+    this.traceRecorder.record(full);
+    this.observability.record(full);
   }
 
   private buildContext(kind: "search" | "fetch" | "extract"): NetworkOperationContextV1 {

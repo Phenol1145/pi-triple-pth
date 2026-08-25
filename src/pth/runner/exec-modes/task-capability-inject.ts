@@ -17,6 +17,7 @@ import {
   type NetworkExecuteClient,
 } from "@away_from/pth-kernel-execution";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
+import { wrapValidated } from "@away_from/pth-kernel-interpreter";
 
 export interface TaskCapabilityInjectDeps {
   kernel: WorkerKernel;
@@ -86,6 +87,19 @@ export function buildTaskCapabilityInject(deps: TaskCapabilityInjectDeps): Recor
     const partial: Record<string, unknown> = {};
     for (const m of networkMethods) partial[m] = network[m];
     out["net"] = partial;
+  }
+
+  // TCE 网络 V1 反馈 P1-1：task-bound Execute client 存在时，web.fetchText 也走同一
+  // task-scoped gateway（带 taskId/tenantId/roleId 盖章），避免 legacy 路径绕过任务上下文。
+  if (deps.networkExecute && allowed(caps, "web.fetchText")) {
+    const existingWeb = typeof out["web"] === "object" && out["web"] !== null && !Array.isArray(out["web"])
+      ? out["web"] as Record<string, unknown>
+      : {};
+    out["web"] = {
+      ...existingWeb,
+      fetchText: wrapValidated("web.fetchText", (url: string, opts?: { maxBytes?: number; timeoutMs?: number }) =>
+        deps.networkExecute!.fetchText(url, opts)),
+    };
   }
 
   return out;
