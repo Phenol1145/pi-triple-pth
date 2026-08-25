@@ -857,12 +857,17 @@ PG + Redis + 文件/Artifact 的分平面方案。本报告进一步将网络信
 | task、role/grant snapshot、policy version、operation trace | PostgreSQL | 事务、审计、关联查询 |
 | provider attempt、预算、错误、hash、处理链 manifest | PostgreSQL 或既有持久审计面 | 可恢复、可归因，不存 secret |
 | SearchResponse | 默认不持久化全文；随 task result 或短期 trace | 避免把所有搜索结果变成永久知识 |
-| 普通 Search/Research raw page | task-scoped ephemeral ArtifactStore；必要时只在 PG 存 manifest | 大量网页不是权威状态 |
+| 普通 Search/Research raw page | lease-attempt-scoped ephemeral ArtifactStore；必要时只在 PG 存 manifest | 大量网页不是权威状态 |
 | Intake 小型有界 raw HTML/text | 继续使用现有 PG `BYTEA` | N29 已实现、减少 V1 新基础设施 |
 | 大 PDF、扫描、图片、音视频、provider raw dump | V1 拒绝/延后；未来 Object Store | 不适合行内存储与数据库备份 |
 | derived FTS/vector index | V1 不做；未来可重建索引 | 不是事实源 |
 | 热缓存、限流 token、短期锁 | Redis/内存 | 可丢、低延迟语义 |
 | 人类可编辑工作产物 | task workspace/files | 不是系统权威账本 |
+
+> **R2 裁决**：V1 artifact 为 **lease attempt scope**——同一 task 的 retry/pause/requeue 会创建新
+> gateway/store，旧 `artifactRef` 不可跨 Attempt 解析；Code 在重跑时需重新 `net.fetch`。
+> 若后续 persistent child delegation 需要跨 Attempt 复用网络产物，再引入最小 durable
+> artifact port（key 至少 tenantId/taskId/artifactId，并配 retention policy）。
 
 ### 10.2 ArtifactRef 从 V1 起稳定
 
@@ -1080,7 +1085,7 @@ call 数为 0。
 - 接一个 raw-hit SearchProvider；
 - 实现 `net.fetch` 的 public profile；
 - 接一个无网络 deterministic extractor；
-- 实现 task-scoped ArtifactStore adapter 和结构化 trace；
+- 实现 lease-attempt-scoped ArtifactStore adapter 和结构化 trace；
 - provider secrets 仅在 Execute 可见。
 
 完成标准：真实公开 HTTPS 的 `search → fetch → extract` 可以由一段 PTC Code 串联，任何一步失败

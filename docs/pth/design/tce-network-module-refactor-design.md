@@ -1,6 +1,6 @@
 # TCE 网络信息基础设施 V1 实施设计
 
-> 状态：**Wave 0-4 已实施；Wave 5 验收/文档收尾中**
+> 状态：**Wave 0-5 已实施；V1 受控试运行（R2：attempt-scope/生产 trace/live smoke 已收口；复杂研究留后续）**
 > 日期：2026-08-26
 > 上位约束：[ADR-0004：TCE 的 C 是 Code](../../adr/0004-tce-code-layer-ptc-capability-first.md)
 > 权威范围：[PTH 网络信息基础设施 V1 架构报告](../report/network-information-foundation-v1-architecture-report-2026-08-26.md)
@@ -128,7 +128,7 @@ Execute：NetworkProviderGateway
 | `SafeHttpTransport` | `src/pth/execution/network/safe-http-transport.ts` | 从 kernel 路径迁移 ownership；保留旧 import barrel 兼容 |
 | `SearchProvider` adapters | `src/pth/execution/network/providers/*` | 每个 provider typed、可替换、无品牌进入契约 |
 | `Extractor` adapters | `src/pth/execution/network/extractors/*` | 默认离线、无二次网络、确定性 output hash |
-| `ArtifactStore` adapters | `src/pth/execution/network/artifacts/*` | V1 task-scoped + PG-inline，未来 object |
+| `ArtifactStore` adapters | `src/pth/execution/network/artifact-store.ts` | V1 lease-attempt-scoped InMemory；未来 durable object |
 | `ProviderRegistry` / `OperationPolicy` / `Budget` | `src/pth/execution/network/*` | provider 身份、版本、配额、预算、retention |
 
 ### 5.2 安全底线
@@ -173,11 +173,16 @@ Execute：NetworkProviderGateway
 |---|---|
 | task/role/grant/policy/trace | PostgreSQL |
 | SearchResponse | 默认不持久化全文；随 task result 或短期 trace |
-| 普通 Search/Research raw page | task-scoped ephemeral ArtifactStore；PG 只存 manifest |
+| 普通 Search/Research raw page | lease-attempt-scoped ephemeral ArtifactStore；PG 只存 manifest |
 | Intake 小型有界 raw HTML/text | 继续 PG `BYTEA` |
 | 大 PDF/图片/音视频 | V1 拒绝/延后，未来 Object Store |
 
 从 V1 起统一返回 `ArtifactRefV1`，内容寻址、不可变、可重算 hash。
+
+> **R2 裁决**：V1 artifact 为 **lease attempt scope**。同一 task 的 retry/pause/requeue 会创建新
+> gateway/store，旧 `artifactRef` 不可跨 Attempt 解析；Code 在重跑时需重新 `net.fetch`。
+> 若后续 persistent child delegation 需要跨 Attempt 复用网络产物，再引入最小 durable
+> artifact port（key 至少 tenantId/taskId/artifactId，并配 retention policy）。
 
 ## 10. 实施 Wave
 
@@ -204,7 +209,7 @@ Execute：NetworkProviderGateway
 - 接一个 raw-hit SearchProvider；
 - 实现 `net.fetch` public profile；
 - 接无网络 deterministic extractor；
-- 实现 task-scoped ArtifactStore adapter 与结构化 trace。
+- 实现 lease-attempt-scoped ArtifactStore adapter 与结构化 trace。
 
 ### Wave 3：兼容投影与零散能力收编
 
