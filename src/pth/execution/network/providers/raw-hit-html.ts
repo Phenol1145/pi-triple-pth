@@ -107,6 +107,13 @@ export class RawHitHtmlProvider implements SearchProvider {
         maxBytes: this.maxBytes,
         timeoutMs: this.timeoutMs,
         label: `net.search.provider.${this.providerId}`,
+        // 默认 raw-hit HTML 端点对无浏览器特征 UA 容易返回 202/429；
+        // 这里使用最小 HTML 客户端特征（不携带任何凭据/cookie）。
+        headers: {
+          "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+          "accept": "text/html,application/xhtml+xml",
+          "accept-language": "en-US,en;q=0.9",
+        },
         acceptStatus: (status) => status === 200,
       });
       return new TextDecoder().decode(result.rawBytes);

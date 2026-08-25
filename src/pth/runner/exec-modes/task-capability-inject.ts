@@ -90,7 +90,7 @@ export function buildTaskCapabilityInject(deps: TaskCapabilityInjectDeps): Recor
   }
 
   // TCE 网络 V1 反馈 P1-1：task-bound Execute client 存在时，web.fetchText 也走同一
-  // task-scoped gateway（带 taskId/tenantId/roleId 盖章），避免 legacy 路径绕过任务上下文。
+  // lease-attempt-scoped gateway（带 taskId/tenantId/roleId 盖章），避免 legacy 路径绕过任务上下文。
   if (deps.networkExecute && allowed(caps, "web.fetchText")) {
     const existingWeb = typeof out["web"] === "object" && out["web"] !== null && !Array.isArray(out["web"])
       ? out["web"] as Record<string, unknown>

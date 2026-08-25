@@ -258,6 +258,12 @@ async function injectPiAiKeysFromAuth(): Promise<void> {
             if (t.type === "refine-duration") kernelMetrics.refineDuration(Number(t.durationMs ?? 0));
             else if (t.type === "refine-yield") kernelMetrics.refineYield(String(t.kind ?? "?"), Number(t.count ?? 0));
             else if (t.type === "refine-degraded") kernelMetrics.refineDegraded(String(t.reason ?? "?"));
+          } else if (t.domain === "network" && t.type === "operation") {
+            const kind = String(t.operationKind ?? "?");
+            const ok = Boolean(t.ok);
+            kernelMetrics.networkOperation(kind, Number(t.durationMs ?? 0), ok, t.errorCode ? String(t.errorCode) : undefined);
+            if (t.bytesRead !== undefined) kernelMetrics.networkBytes(kind, Number(t.bytesRead));
+            if (t.billableUnits !== undefined) kernelMetrics.networkBillableUnits(Number(t.billableUnits));
           }
         },
         // obs 观测请求（batch → 主进程）：metrics（prom registry）/ batches（BatchManager 状态）

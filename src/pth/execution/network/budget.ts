@@ -1,8 +1,8 @@
 /**
- * execution/network/budget.ts — Execute 层 Budget（task-scoped 简单计数）。
+ * execution/network/budget.ts — Execute 层 Budget（lease-attempt-scoped 简单计数）。
  *
- * V1 不做全局配额；Budget 实例按 gateway（通常 per task）创建，防止单任务
- * 无限消耗 provider/带宽/输出。
+ * V1 不做全局配额；Budget 实例按 gateway（每次 lease Attempt）创建，防止单次
+ * Attempt 无限消耗 provider/带宽/输出。
  */
 
 export interface NetworkBudgetLimits {

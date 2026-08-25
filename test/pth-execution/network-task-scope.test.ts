@@ -45,6 +45,32 @@ describe("TCE 网络 V1 反馈 P0/P1：task-scoped gateway 与上下文盖章", 
     expect(entry?.roleId).toBe("spider");
   });
 
+  it("同 task 不同 lease Attempt 的 artifactRef 不能跨 gateway 解析（attempt scope）", async () => {
+    const ctx = { taskId: "task-same", tenantId: "tenant-a", roleId: "spider" };
+    const storeA = new InMemoryArtifactStore();
+    const storeB = new InMemoryArtifactStore();
+    const attemptA = new NetworkExecuteGateway({
+      artifactStore: storeA,
+      extractor: createOfflineHtmlExtractor(),
+      defaultContext: ctx,
+      fetchTransport: async (url) => ({
+        requestedUri: url, finalUri: url, redirectChain: [url], status: 200,
+        headers: { "content-type": "text/html" }, rawBytes: new TextEncoder().encode("<p>a</p>"), byteLength: 10, hops: [],
+      }),
+      createOperationId: () => "op-attempt-a",
+    });
+    const attemptB = new NetworkExecuteGateway({
+      artifactStore: storeB,
+      extractor: createOfflineHtmlExtractor(),
+      defaultContext: ctx,
+      createOperationId: () => "op-attempt-b",
+    });
+    const fetched = await attemptA.fetch({ schemaVersion: "net.fetch.request/v1", url: "https://example.com" });
+    await expect(
+      attemptB.extract({ schemaVersion: "net.extract.request/v1", artifactRef: fetched.artifact.ref, mode: "main-content" }),
+    ).rejects.toMatchObject({ networkError: { code: "NET_ARTIFACT_MISMATCH" } });
+  });
+
   it("不同 gateway 的 ArtifactStore 互相隔离（task scope）", async () => {
     const storeA = new InMemoryArtifactStore();
     const storeB = new InMemoryArtifactStore();

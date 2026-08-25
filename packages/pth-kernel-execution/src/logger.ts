@@ -14,7 +14,7 @@
 export const LOG_COMPONENTS = [
   "gateway", "engine", "kernel", "batch", "worker", "taskloop",
   "resolver", "refiner", "pykernel", "bashkernel", "tskernel",
-  "toolstore", "watchdog", "chain", "recall",
+  "toolstore", "watchdog", "chain", "recall", "network",
 ] as const;
 
 export type LogComponent = (typeof LOG_COMPONENTS)[number];

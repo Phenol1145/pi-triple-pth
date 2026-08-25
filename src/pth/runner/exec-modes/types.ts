@@ -59,7 +59,7 @@ export interface AgentTaskRunnerDeps {
   extraTools?: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }>;
   /** TCE 网络 V1 Wave 2：Execute 客户端（net.* typed proxy 的 Execute 网关）。 */
   networkExecute?: NetworkExecuteClient;
-  /** TCE 网络 V1 反馈 P0/P1：按任务创建 Execute 客户端（task-scoped gateway/store + task/tenant 盖章）。 */
+  /** TCE 网络 V1 反馈 P0/P1：按 lease Attempt 创建 Execute 客户端（attempt-scoped gateway/store + task/tenant 盖章；跨 Attempt artifact 不承诺复用）。 */
   networkExecuteFactory?: (ctx: { taskId: string; tenantId: string; roleId: string }) => NetworkExecuteClient;
   /** Wave 2：Tool-Reg v2 command adapter registry（缺省 = 回退旧 executor 路径） */
   adapterRegistry?: import("@away_from/pth-kernel-execution").CommandAdapterRegistry;

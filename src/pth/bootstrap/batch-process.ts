@@ -37,7 +37,7 @@ import { assembleWorkerSlotIdentity } from "./worker-slot-assembly.js";
 import { assembleBatchRuntime, runBatchHost } from "./batch-runtime-assembly.js";
 import type { ProfessionalRuntimeLock } from "@away_from/pth-contracts";
 import { assembleProfessionalRuntimeRegistry, createProfessionalArtifactPort } from "./professional-runtime-adapters.js";
-import { buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createPlanGrantVerify, createDefaultNetworkExecuteGateway } from "../execution/index.js";
+import { buildMemoryDirectorySnapshot, createExecutionGrantService, createHmacGrantKeyProvider, createPlanGrantVerify, createTaskNetworkExecuteGatewayFactory } from "../execution/index.js";
 import { bootstrapBatchHost } from "./batch/host-bootstrap.js";
 import { assembleToolFace } from "./batch/tool-face.js";
 import { assembleCognitiveResponsibility, buildAssemblyWorkerSpecs, makeWorkerSlot } from "./batch/feasibility-runtime.js";
@@ -261,16 +261,16 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       : role;
     // W8 P1：任务身份引用（task-loop 每任务盖章；delegate/await 调用者上下文）
     const taskContext: { current: import("@away_from/pth-contracts").TaskDispatchContext | null } = { current: null };
-    // TCE 网络 V1 反馈 P0/P1：按任务创建 Execute gateway——每次任务拿到独立 InMemoryArtifactStore，
-    // 并把 taskId/tenantId/roleId 写入默认 operation context（服务端盖章，不由 LLM 自报）。
-    const networkExecuteFactory = (ctx: { taskId: string; tenantId: string; roleId: string }) =>
-      createDefaultNetworkExecuteGateway({
-        defaultContext: {
-          roleId: effectiveRole.id,
-          ...(ctx.taskId ? { taskId: ctx.taskId } : {}),
-          ...(ctx.tenantId ? { tenantId: ctx.tenantId } : {}),
-        },
-      });
+    // TCE 网络 V1 反馈 P0/P1 + R2：按 lease Attempt 创建 Execute gateway——每次任务
+    // 拿到独立 InMemoryArtifactStore，并把 taskId/tenantId/roleId 写入默认 operation
+    // context（服务端盖章，不由 LLM 自报）。R2 起同时接入结构化日志 trace 与
+    // IPC metric observability（主进程 Prometheus 聚合）。
+    const networkExecuteFactory = createTaskNetworkExecuteGatewayFactory({
+      logger: batchLogger,
+      onMetric: (metric) => {
+        try { process.send?.({ kind: "metric", metric }); } catch { /* IPC 不可用 */ }
+      },
+    });
     // 穿透 runChild 执行缝（runchild-budget 段）：穿透 runner 与 tool-reg agent 态执行缝共用同一实现。
     const parentKernelRef: { current?: { ts: unknown } } = {};
     const runChildImpl = createPenetrationRunChild(runChildShared, { replica, parentKernelRef });

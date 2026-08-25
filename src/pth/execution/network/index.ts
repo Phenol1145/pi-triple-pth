@@ -14,5 +14,6 @@ export * from "./observability.js";
 export * from "./redaction.js";
 export * from "./gateway.js";
 export * from "./factory.js";
+export * from "./production-adapters.js";
 export * from "./providers/raw-hit-html.js";
 export * from "./extractors/offline-html.js";

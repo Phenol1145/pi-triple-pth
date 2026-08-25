@@ -43,6 +43,10 @@ export interface KernelMetrics {
   memoryRetrieve(hit: boolean): void;
   /** L3 任务链（占位——TaskResolver 落地后填） */
   chainGenerated(): void;
+  /** L3 网络 Execute：operation 计数/失败码/延迟/字节/计费单位 */
+  networkOperation(kind: string, durationMs: number, ok: boolean, errorCode?: string): void;
+  networkBytes(kind: string, bytes: number): void;
+  networkBillableUnits(units: number): void;
   dispose(): void;
 }
 
@@ -94,6 +98,28 @@ export function createKernelMetrics(deps: { registry: Registry; intervalMs?: num
   const memoryEntries = new Gauge({ name: "pth_memory_entries", help: "Memory entries", labelNames: ["kind"] as const, registers: [registry] });
   const memoryRetrieve = new Counter({ name: "pth_memory_retrieve_total", help: "Memory retrieves", labelNames: ["hit"] as const, registers: [registry] });
   const chainGenerated = new Counter({ name: "pth_chain_generated_total", help: "Chain generated tasks", registers: [registry] });
+
+  // ── L3 网络 Execute（TCE 网络 V1 R2：provider/error/latency 聚合）──────────────
+  const networkOperationsTotal = new Counter({
+    name: "pth_network_operations_total", help: "Network Execute operations",
+    labelNames: ["kind", "ok"] as const, registers: [registry],
+  });
+  const networkFailuresTotal = new Counter({
+    name: "pth_network_failures_total", help: "Network Execute failures by error code",
+    labelNames: ["kind", "code"] as const, registers: [registry],
+  });
+  const networkDuration = new Histogram({
+    name: "pth_network_duration_seconds", help: "Network Execute operation duration",
+    labelNames: ["kind"] as const, buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30], registers: [registry],
+  });
+  const networkBytesTotal = new Counter({
+    name: "pth_network_bytes_total", help: "Network bytes read",
+    labelNames: ["kind"] as const, registers: [registry],
+  });
+  const networkBillableUnitsTotal = new Counter({
+    name: "pth_network_billable_units_total", help: "Network billable units",
+    registers: [registry],
+  });
 
   const timer = setInterval(() => { void sampleOnce().catch(() => {}); }, intervalMs);
   timer.unref?.();
@@ -157,6 +183,17 @@ export function createKernelMetrics(deps: { registry: Registry; intervalMs?: num
     memoryEntries(kind, count) { memoryEntries.set({ kind }, count); },
     memoryRetrieve(hit) { memoryRetrieve.inc({ hit: String(hit) }); },
     chainGenerated() { chainGenerated.inc(); },
+    networkOperation(kind, durationMs, ok, errorCode) {
+      networkOperationsTotal.inc({ kind, ok: String(ok) });
+      networkDuration.observe({ kind }, durationMs / 1000);
+      if (!ok && errorCode) networkFailuresTotal.inc({ kind, code: errorCode });
+    },
+    networkBytes(kind, bytes) {
+      if (bytes > 0) networkBytesTotal.inc({ kind }, bytes);
+    },
+    networkBillableUnits(units) {
+      if (units > 0) networkBillableUnitsTotal.inc(units);
+    },
     dispose() {
       clearInterval(timer);
       provider.stop();

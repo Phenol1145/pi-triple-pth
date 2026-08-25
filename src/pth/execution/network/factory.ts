@@ -1,8 +1,9 @@
 /**
  * execution/network/factory.ts — Wave 2 默认装配工厂。
  *
- * 供测试与后续 production wiring 使用；artifact store 是内存 task-scoped 实现，
- * 需要跨任务隔离时由调用方按任务创建新 gateway。
+ * 供测试与生产 wiring 使用；artifact store 是内存 **lease-attempt-scoped** 实现。
+ * 生产调用方必须按 lease Attempt 创建新 gateway（`networkExecuteFactory`），
+ * 同一 task 的 retry/pause/requeue 不承诺复用旧 artifactRef。
  */
 
 import { InMemoryArtifactStore } from "./artifact-store.js";
