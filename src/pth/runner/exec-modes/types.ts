@@ -3,7 +3,7 @@
  */
 import type { TaskLease, TaskOutcome, TaskWorkItem, WorkerReplicaRef } from "@away_from/pth-contracts";
 import type { WorkerKernel, LlmFn } from "@away_from/pth-kernel-interpreter";
-import type { WorkerRole } from "@away_from/pth-kernel-execution";
+import type { WorkerRole, NetworkExecuteClient } from "@away_from/pth-kernel-execution";
 import type { AgentTraceEvent } from "@away_from/pth-kernel-execution";
 import type { RunnerConfig } from "../runner-config.js";
 import type { TaskWorkspace } from "../task-workspace.js";
@@ -57,6 +57,8 @@ export interface AgentTaskRunnerDeps {
   commandGateway?: import("@away_from/pth-kernel-execution").CommandGateway;
   /** TCE P5：Tool 层生成器产物（per-tool 工具面）。 */
   extraTools?: ReadonlyArray<{ name: string; description: string; parameters: Record<string, unknown> }>;
+  /** TCE 网络 V1 Wave 2：Execute 客户端（net.* typed proxy 的 Execute 网关）。 */
+  networkExecute?: NetworkExecuteClient;
   /** Wave 2：Tool-Reg v2 command adapter registry（缺省 = 回退旧 executor 路径） */
   adapterRegistry?: import("@away_from/pth-kernel-execution").CommandAdapterRegistry;
   /** Wave 2：Execute 层统一分发器（adapter 授权后执行；缺省 = 回退旧 executor 路径） */

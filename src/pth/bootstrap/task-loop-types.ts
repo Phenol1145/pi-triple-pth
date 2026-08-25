@@ -3,8 +3,7 @@
  */
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
-import type { WorkerRole } from "@away_from/pth-kernel-execution";
-import type { TaskWorkspaceManager } from "@away_from/pth-kernel-execution";
+import type { WorkerRole, TaskWorkspaceManager, NetworkExecuteClient } from "@away_from/pth-kernel-execution";
 import type { TaskRepository } from "@away_from/pth-contracts";
 import type { KnowledgeContextProvider } from "../runner/index.js";
 import type { SideEffectOutboxPort } from "@away_from/pth-kernel-storage";
@@ -38,6 +37,8 @@ export interface TaskLoopDeps {
     work: import("@away_from/pth-contracts").TaskWorkItem;
     suspension: import("@away_from/pth-contracts").TaskSuspension;
   }) => void | Promise<void>;
+  /** TCE 网络 V1 Wave 2：Execute 客户端（透传 AgentTaskRunner）。 */
+  networkExecute?: NetworkExecuteClient;
   /** TCE P3：Command 层注入（语言工具先过 CommandGateway 授权）。 */
   commandGateway?: import("@away_from/pth-kernel-execution").CommandGateway;
   /** TCE P5：Tool 层生成器产物（per-tool 工具面）。 */

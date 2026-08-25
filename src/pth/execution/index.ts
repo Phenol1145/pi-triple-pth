@@ -40,6 +40,7 @@ export * from "./rebalance-planner.js";
 export * from "./authorization/verified-task-read-scope.js";
 export * from "./layered-knowledge-retriever.js";
 export * from "./knowledge-intake/index.js";
+export * from "./network/index.js";
 export * from "./adapters/assembly-runtime-adapter.js";
 export * from "./adapters/lean4-runtime-adapter.js";
 export * from "./adapters/wolfram-runtime-adapter.js";

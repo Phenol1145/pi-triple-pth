@@ -44,6 +44,7 @@ export async function runPtcMode(ctx: ExecModeContext): Promise<TaskOutcome | Ta
       toolstore: (deps.kernel as unknown as { toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore }).toolstore,
       roleCapabilities: deps.role.capabilities,
       base: deps.caps,
+      ...(deps.networkExecute ? { networkExecute: deps.networkExecute } : {}),
     }),
     allowedCapabilities: deps.role.capabilities ? new Set(deps.role.capabilities) : undefined,
     logger: deps.logger,

@@ -11,14 +11,15 @@ import type {
   ExtractRequestV1,
   FetchRequestV1,
   FetchResponseV1,
+  NetworkOperationContextV1,
   SearchRequestV1,
   SearchResponseV1,
 } from "@away_from/pth-contracts";
 
 export interface NetworkExecuteClient {
-  search(request: SearchRequestV1): Promise<SearchResponseV1>;
-  fetch(request: FetchRequestV1): Promise<FetchResponseV1>;
-  extract(request: ExtractRequestV1): Promise<ExtractedDocumentV1>;
+  search(request: SearchRequestV1, context?: NetworkOperationContextV1): Promise<SearchResponseV1>;
+  fetch(request: FetchRequestV1, context?: NetworkOperationContextV1): Promise<FetchResponseV1>;
+  extract(request: ExtractRequestV1, context?: NetworkOperationContextV1): Promise<ExtractedDocumentV1>;
 }
 
 export interface NetworkCapabilityDeps {
@@ -26,15 +27,15 @@ export interface NetworkCapabilityDeps {
 }
 
 export interface NetworkCapability {
-  search(request: SearchRequestV1): Promise<SearchResponseV1>;
-  fetch(request: FetchRequestV1): Promise<FetchResponseV1>;
-  extract(request: ExtractRequestV1): Promise<ExtractedDocumentV1>;
+  search(request: SearchRequestV1, context?: NetworkOperationContextV1): Promise<SearchResponseV1>;
+  fetch(request: FetchRequestV1, context?: NetworkOperationContextV1): Promise<FetchResponseV1>;
+  extract(request: ExtractRequestV1, context?: NetworkOperationContextV1): Promise<ExtractedDocumentV1>;
 }
 
 export function createNetworkCapability(deps: NetworkCapabilityDeps): NetworkCapability {
   return {
-    search: (request) => deps.client.search(request),
-    fetch: (request) => deps.client.fetch(request),
-    extract: (request) => deps.client.extract(request),
+    search: (request, context) => deps.client.search(request, context),
+    fetch: (request, context) => deps.client.fetch(request, context),
+    extract: (request, context) => deps.client.extract(request, context),
   };
 }
