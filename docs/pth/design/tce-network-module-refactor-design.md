@@ -179,9 +179,10 @@ Execute：NetworkProviderGateway
 
 从 V1 起统一返回 `ArtifactRefV1`，内容寻址、不可变、可重算 hash。
 
-> **R2 裁决**：V1 artifact 为 **lease attempt scope**。同一 task 的 retry/pause/requeue 会创建新
+> **R2/R3 裁决**：V1 artifact 为 **lease attempt scope**。同一 task 的 retry/pause/requeue 会创建新
 > gateway/store，旧 `artifactRef` 不可跨 Attempt 解析；Code 在重跑时需重新 `net.fetch`。
-> 若后续 persistent child delegation 需要跨 Attempt 复用网络产物，再引入最小 durable
+> R3 起 `net.fetch` 返回的 typed `ArtifactRefV1.retentionClass` 统一标记为 `ephemeral`，`task` 仅保留给
+> 可跨 Attempt 的 backend。若后续 persistent child delegation 需要跨 Attempt 复用网络产物，再引入最小 durable
 > artifact port（key 至少 tenantId/taskId/artifactId，并配 retention policy）。
 
 ## 10. 实施 Wave

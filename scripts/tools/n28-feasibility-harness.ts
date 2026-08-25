@@ -55,7 +55,7 @@ function fakeNetworkExecute(): NetworkExecuteClient {
     sha256: "0".repeat(64),
     byteLength: 0,
     mediaType: "text/plain",
-    retentionClass: "task" as const,
+    retentionClass: "ephemeral" as const,
   };
   return {
     async search() {

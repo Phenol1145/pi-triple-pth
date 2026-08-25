@@ -79,7 +79,7 @@ describe("TCE Wave 4 策略/可观测/类型隔离", () => {
     };
     const doc = {
       schemaVersion: "net.document/v1",
-      sourceArtifact: { artifactId: "a", storageKind: "task-artifact", immutableLocator: "a", sha256: "0", byteLength: 0, mediaType: "text/plain", retentionClass: "task" },
+      sourceArtifact: { artifactId: "a", storageKind: "task-artifact", immutableLocator: "a", sha256: "0", byteLength: 0, mediaType: "text/plain", retentionClass: "ephemeral" },
       processingChain: [],
       warnings: [],
       trust: "processed-untrusted",

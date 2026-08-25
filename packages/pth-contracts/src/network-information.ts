@@ -91,6 +91,16 @@ export interface FetchRequestV1 {
 }
 
 export type ArtifactStorageKindV1 = "inline-pg" | "task-artifact" | "object";
+
+/**
+ * ArtifactRefV1 的生命周期承诺。
+ *
+ * - `ephemeral`：内容仅存在于当前 lease Attempt 的 gateway/store 内；同一 task 的
+ *   retry/pause/requeue 会创建新 gateway，旧 ref 不可跨 Attempt 解析，Code 需重新
+ *   `net.fetch`。V1 的 `net.fetch` 产物统一返回该级别。
+ * - `task`：保留给可跨 Attempt、至少覆盖任务重放的 backend；V1 不提供实现。
+ * - `intake-durable`：Intake 权威/受管内容，按 N29/N26 retention policy 管理。
+ */
 export type ArtifactRetentionClassV1 = "ephemeral" | "task" | "intake-durable";
 
 export interface ArtifactRefV1 {

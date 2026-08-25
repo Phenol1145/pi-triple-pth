@@ -23,7 +23,7 @@ const artifactRef: ArtifactRefV1 = {
   sha256: "abc",
   byteLength: 3,
   mediaType: "text/plain",
-  retentionClass: "task",
+  retentionClass: "ephemeral",
 };
 
 function makeSearchRequest(query = "pth"): SearchRequestV1 {
@@ -138,6 +138,7 @@ describe("NetworkExecuteGateway Wave 2", () => {
     const res = await gateway.fetch(makeFetchRequest());
     expect(res.schemaVersion).toBe("net.fetch.response/v1");
     expect(res.artifact.ref.storageKind).toBe("task-artifact");
+    expect(res.artifact.ref.retentionClass).toBe("ephemeral");
     expect(res.artifact.ref.byteLength).toBe(bytes.byteLength);
     expect(res.artifact.ref.sha256).toHaveLength(64);
     expect(res.transport.truncated).toBe(false);
@@ -254,6 +255,12 @@ describe("RawHitHtmlProvider", () => {
 });
 
 describe("InMemoryArtifactStore", () => {
+  it("put 默认返回 lease-attempt-scoped ephemeral artifact", async () => {
+    const store = new InMemoryArtifactStore();
+    const ref = await store.put({ bytes: new TextEncoder().encode("abc"), mediaType: "text/plain" });
+    expect(ref.retentionClass).toBe("ephemeral");
+  });
+
   it("hash/length 不一致时拒绝读取", async () => {
     const store = new InMemoryArtifactStore();
     const ref = await store.put({ bytes: new TextEncoder().encode("abc"), mediaType: "text/plain" });

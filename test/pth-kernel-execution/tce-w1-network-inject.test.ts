@@ -11,7 +11,7 @@ const artifactRef = {
   sha256: "abc",
   byteLength: 4,
   mediaType: "text/plain",
-  retentionClass: "task",
+  retentionClass: "ephemeral",
 } as const;
 
 function fakeNetworkClient(): NetworkExecuteClient {

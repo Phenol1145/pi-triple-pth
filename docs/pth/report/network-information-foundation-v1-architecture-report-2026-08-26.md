@@ -641,6 +641,14 @@ interface FetchResponseV1 {
 }
 ```
 
+`ArtifactRefV1.retentionClass` 语义在 V1 冻结为：
+
+- `ephemeral`：内容只存在于当前 lease Attempt 的 gateway/store 内；同一 task 的 retry/pause/requeue
+  会创建新 gateway，旧 ref 不可跨 Attempt 解析，Code 需重新 `net.fetch`。**V1 的 `net.fetch` 产物统一
+  返回该级别。**
+- `task`：保留给可跨 Attempt、至少覆盖任务重放的 backend；V1 不提供实现。
+- `intake-durable`：Intake 权威/受管内容，按 N29/N26 retention policy 管理。
+
 `FetchRequestV1.url` 始终只是待校验输入，不能携带或覆盖 `networkClass/profile/policy`。无论 URL 来自
 用户、Code 还是 SearchHit，Gateway 都在任何 socket/provider 调用前执行相同的 userinfo、scheme、
 DNS/IP、internal suffix、sensitive query 和每跳 redirect 检查。
@@ -864,8 +872,9 @@ PG + Redis + 文件/Artifact 的分平面方案。本报告进一步将网络信
 | 热缓存、限流 token、短期锁 | Redis/内存 | 可丢、低延迟语义 |
 | 人类可编辑工作产物 | task workspace/files | 不是系统权威账本 |
 
-> **R2 裁决**：V1 artifact 为 **lease attempt scope**——同一 task 的 retry/pause/requeue 会创建新
-> gateway/store，旧 `artifactRef` 不可跨 Attempt 解析；Code 在重跑时需重新 `net.fetch`。
+> **R2/R3 裁决**：V1 artifact 为 **lease attempt scope**——同一 task 的 retry/pause/requeue 会创建新
+> gateway/store，旧 `artifactRef` 不可跨 Attempt 解析；Code 在重跑时需重新 `net.fetch`。R3 起
+> `net.fetch` 返回的 typed `ArtifactRefV1.retentionClass` 统一标记为 `ephemeral`，不再使用 `task`。
 > 若后续 persistent child delegation 需要跨 Attempt 复用网络产物，再引入最小 durable
 > artifact port（key 至少 tenantId/taskId/artifactId，并配 retention policy）。
 

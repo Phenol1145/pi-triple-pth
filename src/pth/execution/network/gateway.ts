@@ -228,7 +228,7 @@ export class NetworkExecuteGateway implements NetworkExecuteClient {
       const ref = await this.artifactStore.put({
         bytes: result.rawBytes,
         mediaType: result.headers["content-type"]?.split(";")[0]?.trim() ?? "application/octet-stream",
-        retentionClass: "task",
+        retentionClass: "ephemeral",
         sourceUrl: result.finalUri,
       });
       const response: FetchResponseV1 = {

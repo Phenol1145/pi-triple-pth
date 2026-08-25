@@ -21,7 +21,7 @@ const artifactRef = {
   sha256: "abc",
   byteLength: 123,
   mediaType: "text/html",
-  retentionClass: "task",
+  retentionClass: "ephemeral",
 } as const;
 
 describe("pth contracts: network-information V1", () => {
@@ -75,6 +75,9 @@ describe("pth contracts: network-information V1", () => {
   it("validates ArtifactRefV1 and FetchRequestV1/FetchResponseV1", () => {
     expect(isArtifactRefV1(artifactRef)).toBe(true);
     expect(isArtifactRefV1({ ...artifactRef, byteLength: -1 })).toBe(false);
+    expect(isArtifactRefV1({ ...artifactRef, retentionClass: "task" })).toBe(true);
+    expect(isArtifactRefV1({ ...artifactRef, retentionClass: "intake-durable" })).toBe(true);
+    expect(isArtifactRefV1({ ...artifactRef, retentionClass: "forever" })).toBe(false);
     expect(isFetchRequestV1({ schemaVersion: "net.fetch.request/v1", url: "https://example.com" })).toBe(true);
     expect(isFetchRequestV1({ schemaVersion: "net.fetch.request/v1", url: "" })).toBe(false);
 

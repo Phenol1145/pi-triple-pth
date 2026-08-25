@@ -20,7 +20,7 @@ export class InMemoryArtifactStore implements ArtifactStore {
   async put(input: ArtifactStorePutInput): Promise<ArtifactRefV1> {
     const sha256 = createHash("sha256").update(input.bytes).digest("hex");
     const artifactId = `artifact-${randomUUID()}`;
-    const retentionClass: ArtifactRetentionClassV1 = input.retentionClass ?? "task";
+    const retentionClass: ArtifactRetentionClassV1 = input.retentionClass ?? "ephemeral";
     const ref: ArtifactRefV1 = {
       artifactId,
       storageKind: "task-artifact",

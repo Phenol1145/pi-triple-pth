@@ -17,7 +17,7 @@ const artifactRef = {
   sha256: "abc",
   byteLength: 3,
   mediaType: "text/plain",
-  retentionClass: "task",
+  retentionClass: "ephemeral",
 };
 
 describe("TCE 网络 V1 acceptance matrix（确定性无网络）", () => {
@@ -66,6 +66,7 @@ describe("TCE 网络 V1 acceptance matrix（确定性无网络）", () => {
     const fetch = await gateway.fetch({ schemaVersion: "net.fetch.request/v1", url: "https://example.com/a" });
     expect(fetch.finalUrl).toBe("https://example.com/a");
     expect(fetch.artifact.ref.sha256).toHaveLength(64);
+    expect(fetch.artifact.ref.retentionClass).toBe("ephemeral");
     expect(fetch.transport.bytesRead).toBe(bytes.byteLength);
     const doc = await gateway.extract({ schemaVersion: "net.extract.request/v1", artifactRef: fetch.artifact.ref, mode: "main-content" });
     expect(doc.trust).toBe("processed-untrusted");

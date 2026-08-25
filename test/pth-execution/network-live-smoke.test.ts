@@ -24,5 +24,6 @@ describe.skipIf(!live)("network live smoke（opt-in）", () => {
     expect(res.schemaVersion).toBe("net.fetch.response/v1");
     expect(res.status).toBe(200);
     expect(res.artifact.ref.sha256).toHaveLength(64);
+    expect(res.artifact.ref.retentionClass).toBe("ephemeral");
   }, 30_000);
 });

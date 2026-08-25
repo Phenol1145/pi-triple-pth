@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-25T19:57:30.087Z",
+  "generatedAt": "2026-08-25T20:53:41.754Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -801,6 +801,12 @@
       "status": "historical"
     },
     {
+      "path": "docs/pth/report/network-live-smoke-record-2026-08-26.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
       "path": "docs/pth/report/network-module-construction-feedback-2026-08-26.md",
       "category": "reports",
       "product": "pth",
@@ -808,6 +814,12 @@
     },
     {
       "path": "docs/pth/report/network-module-construction-feedback-round-2-2026-08-26.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/network-module-construction-feedback-round-3-2026-08-26.md",
       "category": "reports",
       "product": "pth",
       "status": "active"

@@ -73,6 +73,7 @@ const DOC_OVERRIDES = new Map<string, { category: DocCategory; status: DocStatus
   ["system-construction-modeling-audit.md", { category: "reports", status: "active" }],
   ["modularity-reuse-audit.md", { category: "reports", status: "reference" }],
   ["plan-implementation-status-inventory.md", { category: "operations", status: "active" }],
+  ["network-module-construction-feedback-round-3-2026-08-26.md", { category: "reports", status: "active" }],
   // 执行模式 v2：实施计划 Wave 0–6 已收口（reference）；设计稿仍随 ADR-0004/TCE 对齐中（active）
   ["execution-modes-and-tool-reg-v2-design.md", { category: "designs", status: "active" }],
   ["execution-modes-and-tool-reg-v2-implementation-plan.md", { category: "designs", status: "reference" }],
