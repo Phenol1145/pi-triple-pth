@@ -176,4 +176,37 @@ suite("task-dispatch-notifier（W8 P2 事件驱动回流）", () => {
     const parent = await pool.query(`SELECT status FROM tasks WHERE id = 'v1-parent-reject'`);
     expect(parent.rows[0].status).toBe("pending");
   });
+
+  it("第三轮 P0：recursive cancel 后晚到 child terminal 不覆盖 cancelled dependency 或复活 parent", async () => {
+    const notifier = new TaskDispatchNotifier({ pool, activityHub: fakeHub() });
+    // 模拟 recursive cancel 已把父置 rejected、dependency 置 cancelled。
+    await insertTask("r3-cancel-parent", "rejected", {});
+    await insertTask("r3-cancel-child", "completed", {
+      delivery: {
+        parent: { taskId: "r3-cancel-parent", roleId: "developer", typePath: ["developer"] },
+        path: ["developer", "coder"],
+        lineageId: "r3-cancel-parent",
+      },
+      result: { value: "late success" },
+    });
+    await pool.query(
+      `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status, outcome_envelope)
+       VALUES ('tenant-a','r3-cancel-parent','r3-cancel-child','r3-cancel','r3-cancel-d','cancelled',
+         '{"status":"cancelled","summary":"任务已取消","provenance":[],"artifactRefs":[]}'::jsonb)`,
+    );
+
+    expect(await notifier.handle("r3-cancel-child")).toBe(false);
+
+    const dep = await pool.query(
+      `SELECT status, outcome_envelope FROM task_dependencies WHERE child_task_id = 'r3-cancel-child'`,
+    );
+    expect(dep.rows[0].status).toBe("cancelled");
+    expect(dep.rows[0].outcome_envelope.status).toBe("cancelled");
+
+    const parent = await pool.query(
+      `SELECT status, payload FROM tasks WHERE id = 'r3-cancel-parent'`,
+    );
+    expect(parent.rows[0].status).toBe("rejected");
+    expect(parent.rows[0].payload.childResult?.["r3-cancel-child"]).toBeUndefined();
+  });
 });

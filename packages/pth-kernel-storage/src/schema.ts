@@ -496,6 +496,16 @@ CREATE INDEX IF NOT EXISTS idx_task_dependencies_parent
 CREATE INDEX IF NOT EXISTS idx_task_dependencies_child
   ON task_dependencies(tenant_id, child_task_id);
 
+-- 持久化子任务委派 V1 第三轮 P0：Attempt 级依赖消费标记。
+-- created_lease_generation 记录首次创建该 dependency 的父 Attempt generation；
+-- consumed_lease_generation 记录首次通过 delegate 重放拿到终态 observation 的后续 Attempt generation。
+-- commit 时“无 pending”不再等于“已消费”：必须存在 consumed_lease_generation > created_lease_generation。
+ALTER TABLE task_dependencies ADD COLUMN IF NOT EXISTS created_lease_generation BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE task_dependencies ADD COLUMN IF NOT EXISTS consumed_lease_generation BIGINT;
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_consumption
+  ON task_dependencies(tenant_id, parent_task_id, created_lease_generation, consumed_lease_generation)
+  WHERE status IN ('satisfied','failed','cancelled');
+
 ${MEMORY_SCHEMA_SQL}
 
 -- 死表标注（2026-08-14 A2 探查 0.5）：lab_events/credit_tx 为 archive/agent-lab 遗留——

@@ -104,19 +104,65 @@ function stampedTenantOf(upd: pg.QueryResult): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-/** 持久化子任务委派 V1：父任务是否存在未终结 required dependency。 */
-async function hasPendingDependencies(
+/**
+ * 持久化子任务委派 V1 第三轮 P0：Attempt 级依赖提交门。
+ * - pending：仍有未终态 required dependency → 父必须进入 waiting_dependency；
+ * - unconsumed：required dependency 已终态，但还没有任何“后续 Attempt”通过 delegate 重放消费
+ *   终态 observation → 父不能直接 terminal，必须释放回 pending 等待重放；
+ * - ready：无 pending，且每个终态 dependency 都已被后续 Attempt 消费 → 允许 terminal。
+ */
+type DependencyGate = "pending" | "unconsumed" | "ready";
+
+async function dependencyGate(
   client: pg.PoolClient,
   tenantId: string,
   parentTaskId: string,
-): Promise<boolean> {
+): Promise<DependencyGate> {
   const res = await client.query(
-    `SELECT 1 FROM task_dependencies
-     WHERE tenant_id = $1 AND parent_task_id = $2 AND status = 'pending'
-     LIMIT 1`,
+    `SELECT
+       EXISTS (
+         SELECT 1 FROM task_dependencies
+         WHERE tenant_id = $1 AND parent_task_id = $2 AND status = 'pending'
+       ) AS has_pending,
+       EXISTS (
+         SELECT 1 FROM task_dependencies
+         WHERE tenant_id = $1 AND parent_task_id = $2
+           AND status IN ('satisfied','failed','cancelled')
+           AND (consumed_lease_generation IS NULL OR consumed_lease_generation <= created_lease_generation)
+       ) AS has_unconsumed`,
     [tenantId, parentTaskId],
   );
-  return res.rows.length > 0;
+  const row = res.rows[0] as { has_pending?: boolean; has_unconsumed?: boolean } | undefined;
+  if (row?.has_pending) return "pending";
+  if (row?.has_unconsumed) return "unconsumed";
+  return "ready";
+}
+
+/** 持久化子任务委派 V1 第三轮 P0：终态依赖已全部到达但尚未被后续 Attempt 消费时，
+ *  不能 fence 到 waiting_dependency（事件已发生过，不会再唤醒），直接释放回 pending 等重放。 */
+async function releaseToPending(
+  client: pg.PoolClient,
+  taskId: string,
+  leaseId: string,
+  generation: number,
+  tenantId: string,
+): Promise<void> {
+  await client.query(
+    `UPDATE tasks SET
+       status = 'pending',
+       waiting_dependency_at = NULL,
+       claimed_by = NULL,
+       claimed_at = NULL,
+       lease_id = NULL,
+       lease_expires_at = NULL,
+       updated_at = now()
+     WHERE id = $1 AND lease_id = $2 AND lease_generation = $3
+       AND status = 'claimed'
+       AND tenant_id = $4
+       AND lease_expires_at IS NOT NULL
+       AND lease_expires_at > now()`,
+    [taskId, leaseId, generation, tenantId],
+  );
 }
 
 /** 持久化子任务委派 V1：把未解决依赖的父任务 fence 到 waiting_dependency 并释放 lease。 */
@@ -289,8 +335,13 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
         // R4/P0-4：side-effect enqueue 与 task CAS commit 同一事务。
         const { result, artifactRef } = buildCompletedResultWriteback(outcome.result, outcome.artifacts);
         res = await withTx(pool, async (client) => {
-          if (await hasPendingDependencies(client, tenantId, taskId)) {
+          const gate = await dependencyGate(client, tenantId, taskId);
+          if (gate === "pending") {
             await fenceToWaitingDependency(client, taskId, leaseId, generation, tenantId);
+            return { rowCount: 0 } as pg.QueryResult;
+          }
+          if (gate === "unconsumed") {
+            await releaseToPending(client, taskId, leaseId, generation, tenantId);
             return { rowCount: 0 } as pg.QueryResult;
           }
           const upd = await client.query(
@@ -334,8 +385,13 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
         });
       } else if (outcome.retryable === true) {
         res = await withTx(pool, async (client) => {
-          if (await hasPendingDependencies(client, tenantId, taskId)) {
+          const gate = await dependencyGate(client, tenantId, taskId);
+          if (gate === "pending") {
             await fenceToWaitingDependency(client, taskId, leaseId, generation, tenantId);
+            return { rowCount: 0 } as pg.QueryResult;
+          }
+          if (gate === "unconsumed") {
+            await releaseToPending(client, taskId, leaseId, generation, tenantId);
             return { rowCount: 0 } as pg.QueryResult;
           }
           const upd = await client.query(

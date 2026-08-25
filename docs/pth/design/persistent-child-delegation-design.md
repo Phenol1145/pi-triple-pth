@@ -48,6 +48,7 @@ FRACTA engine 已经拥有角色化 worker、任务树、并发、租约、重�
 | submissionKey | 父任务作用域内稳定、可复算的逻辑提交键 |
 | waiting_dependency | 父任务存在未终结 required child 时的持久、不可认领状态 |
 | Outcome Envelope | child 终态后回流给父的有界结果信封 |
+| Dependency Consumption | 后续 Parent Attempt 通过 `tasks.delegate` 重放同 submissionKey 并取得终态 observation 的 Attempt 级标记 |
 
 必须避免的混用：
 
@@ -152,17 +153,22 @@ LLM 自行生成的 key 可能在重跑时漂移。V1 优先要求调用点使�
 12. child rejection 只表示依赖已终结并唤醒父，不自动 reject 父；
 13. timeout、escalation 与 lease recovery 由 engine 协议处理；
 14. task terminal、result、dependency transition 和 terminal outbox 保持事务一致；
-15. per-parent、per-lineage child 数量和未决依赖数有硬上限，拒绝无界任务扩增。
+15. per-parent、per-lineage child 数量和未决依赖数有硬上限，拒绝无界任务扩增；
+16. required dependency 首次创建时记录父 Attempt generation；终态后必须由**后续 Attempt** 通过
+    delegate 重放消费 observation，父 commit 才可 terminal——“无 pending dependency”不等于“已消费”。
 
 ## 7. 生命周期
 
 ```text
 Parent RoleRun #1
   → Code 提交 child A / B / C（各有稳定 submissionKey）
-  → engine 原子建立 required dependencies
+  → engine 原子建立 required dependencies，并记录 created_lease_generation
   → Parent 到达 done / dependency suspension point
-  → engine 发现未解决依赖，父任务进入 waiting_dependency
-  → 释放 parent lease，等待期不占 worker
+  → engine 检查 Attempt 级依赖门：
+    · 仍有 pending → 父任务进入 waiting_dependency，释放 lease，等待期不占 worker
+    · 无 pending 但存在未消费的 terminal dependency（如 child 在 commit 前已终态）→
+      直接释放 lease 并置 pending，等待后续 Attempt 重放，不依赖已错过的 notifier 事件
+    · 全部 terminal 且已被后续 Attempt 消费 → 才允许父 terminal
 
 Children A / B / C
   → 沿用正常 candidates / claim / lease / run / retry
@@ -176,8 +182,9 @@ Durable dependency resolver
 
 Parent RoleRun #2
   → 重放 delegate，按 submissionKey 取得当前状态/有界 outcome envelope
+  → engine 在 dependency 行记录 consumed_lease_generation（必须 > created_lease_generation）
   → Code/LLM 综合结果或提交下一轮 child
-  → required dependencies 全部解决后 done
+  → required dependencies 全部解决且全部被消费后 done
   → engine 提交父 Task 终态和 terminal outbox
 ```
 
@@ -194,7 +201,9 @@ Parent RoleRun #2
 9. recursive cancel 后拒绝所有晚到 child outcome；
 10. 进程内事件丢失不能改变依赖真相，reconciliation 必须最终唤醒父任务；
 11. admission 在 child 写入前执行，lineage 不得无界扩张；
-12. 产物通过不可变 artifactRef 回流，不提供共享可写 workspace。
+12. 产物通过不可变 artifactRef 回流，不提供共享可写 workspace；
+13. terminal dependency 只有被后续 Attempt 通过 delegate 重放消费后才放行父 terminal；
+    “无 pending dependency”不能替代“当前 Attempt 已消费 observation”的判定。
 
 ## 9. 失败语义
 
@@ -259,6 +268,8 @@ Parent RoleRun #2
 | child terminal | 父自动 requeue，并收到有界 outcome envelope |
 | 终态事件在进程重启时丢失 | reconciliation 依据 PG 真相最终唤醒父任务 |
 | required child 未终态时父 done | 父不得提前 terminal |
+| child 在父 commit 前已终态 | 父首次 commit 不得 terminal，释放回 pending 等待 replay |
+| replay 同 submissionKey 取得终态 observation | dependency 记录 consumed_lease_generation，随后综合 commit 成功 |
 | 单角色、无 child 的旧任务 | 行为完全兼容 |
 
 ## 14. 非目标

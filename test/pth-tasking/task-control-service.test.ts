@@ -694,6 +694,178 @@ suite("task control service（P1-3）", () => {
     expect(finalRow.rows[0].status).toBe("completed");
   });
 
+  it("第三轮 P0：child 在父 commit 前 completed → 首次 commit 不得 terminal，必须 replay 综合", async () => {
+    const leaseId = randomUUID();
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, lease_id, lease_generation, lease_expires_at, payload)
+       VALUES ('parent-r3-completed','tenant-a','parent','x','worker:developer','developer','claimed',$1,1,now() + interval '10 minutes',
+         jsonb_build_object('delivery', jsonb_build_object('path','["developer"]'::jsonb, 'lineageId','parent-r3-completed')))`,
+      [leaseId],
+    );
+    const caller = {
+      taskId: "parent-r3-completed",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-r3-completed" },
+      lease: { taskId: "parent-r3-completed", leaseId, generation: 1 },
+    };
+    const child = await routedService.delegate(
+      { to: "coder", title: "child", text: "x", submissionKey: "r3:completed" },
+      caller,
+      scopeA,
+    );
+    // child 在父 commit 前 completed，notifier 已把 dependency 置 satisfied，但父仍 claimed。
+    await pool.query(
+      `UPDATE tasks SET status = 'completed',
+         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', '{"value":1}'::jsonb, true)
+       WHERE id = $1`,
+      [child.taskId],
+    );
+    const notifier = new TaskDispatchNotifier({ pool, activityHub: { subscribe: () => () => {} } });
+    await notifier.handle(child.taskId);
+    const afterNotifier = await pool.query(
+      `SELECT status FROM tasks WHERE id = 'parent-r3-completed'`,
+    );
+    expect(afterNotifier.rows[0].status).toBe("claimed");
+
+    // 首次 commit：没有 pending 但存在未消费的 terminal dependency → 不得 terminal。
+    const repo = createPgTaskRepository(pool);
+    const first = await repo.commit({
+      lease: { taskId: "parent-r3-completed", leaseId, generation: 1 },
+      status: "completed",
+      result: { value: "parent partial" },
+      artifacts: [],
+      traceId: scopeA.traceId,
+    }, { scope: { tenantId: "tenant-a" } });
+    expect(first.committed).toBe(false);
+    const afterFirst = await pool.query(
+      `SELECT status, waiting_dependency_at, lease_id, payload FROM tasks WHERE id = 'parent-r3-completed'`,
+    );
+    expect(afterFirst.rows[0].status).toBe("pending");
+    expect(afterFirst.rows[0].waiting_dependency_at).toBeNull();
+    expect(afterFirst.rows[0].lease_id).toBeNull();
+    expect(afterFirst.rows[0].payload.result).toBeUndefined();
+
+    // 不依赖第二个 child event：parent 立即可重新 claim。
+    const [claimed2] = await repo.claim(
+      { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "r3-replay-completed" },
+      "developer",
+      ["parent-r3-completed"],
+    );
+    expect(claimed2).toBeTruthy();
+    expect(claimed2!.lease.generation).toBe(2);
+
+    // replay 同 submissionKey：返回同一 child + terminal observation，并记录后续 Attempt 消费。
+    const replayCaller = {
+      ...caller,
+      lease: { taskId: claimed2!.lease.taskId, leaseId: claimed2!.lease.leaseId, generation: claimed2!.lease.generation },
+    };
+    const replay = await routedService.delegate(
+      { to: "coder", title: "child", text: "x", submissionKey: "r3:completed" },
+      replayCaller,
+      scopeA,
+    );
+    expect(replay.taskId).toBe(child.taskId);
+    expect(replay.observation?.status).toBe("completed");
+    const submissions = await pool.query(
+      `SELECT count(*)::int AS n FROM task_submissions WHERE parent_task_id = 'parent-r3-completed'`,
+    );
+    expect(submissions.rows[0].n).toBe(1);
+    const dep = await pool.query(
+      `SELECT created_lease_generation, consumed_lease_generation
+       FROM task_dependencies WHERE parent_task_id = 'parent-r3-completed' AND submission_key = 'r3:completed'`,
+    );
+    expect(Number(dep.rows[0].created_lease_generation)).toBe(1);
+    expect(Number(dep.rows[0].consumed_lease_generation)).toBe(2);
+
+    // 综合后的最终 commit 成功。
+    const final = await repo.commit({
+      lease: { taskId: claimed2!.lease.taskId, leaseId: claimed2!.lease.leaseId, generation: claimed2!.lease.generation },
+      status: "completed",
+      result: { value: "final" },
+      artifacts: [],
+      traceId: scopeA.traceId,
+    }, { scope: { tenantId: "tenant-a" } });
+    expect(final.committed).toBe(true);
+    const finalRow = await pool.query(
+      `SELECT status, payload->'result' AS result FROM tasks WHERE id = 'parent-r3-completed'`,
+    );
+    expect(finalRow.rows[0].status).toBe("completed");
+    expect(finalRow.rows[0].result).toEqual({ value: "final" });
+  });
+
+  it("第三轮 P0：child 在父 commit 前 rejected → 首次 commit 不得 terminal，replay 拿到失败 observation", async () => {
+    const leaseId = randomUUID();
+    await pool.query(
+      `INSERT INTO tasks (id, tenant_id, title, text, created_by, assigned_role, status, lease_id, lease_generation, lease_expires_at, payload)
+       VALUES ('parent-r3-rejected','tenant-a','parent','x','worker:developer','developer','claimed',$1,1,now() + interval '10 minutes',
+         jsonb_build_object('delivery', jsonb_build_object('path','["developer"]'::jsonb, 'lineageId','parent-r3-rejected')))`,
+      [leaseId],
+    );
+    const caller = {
+      taskId: "parent-r3-rejected",
+      roleId: "developer",
+      tenantId: "tenant-a",
+      delivery: { path: ["developer"], lineageId: "parent-r3-rejected" },
+      lease: { taskId: "parent-r3-rejected", leaseId, generation: 1 },
+    };
+    const child = await routedService.delegate(
+      { to: "coder", title: "child", text: "x", submissionKey: "r3:rejected" },
+      caller,
+      scopeA,
+    );
+    await pool.query(
+      `UPDATE tasks SET status = 'rejected',
+         payload = jsonb_set(COALESCE(payload, '{}'::jsonb), '{result}', '{"error":{"code":"exec-failed","message":"boom"}}'::jsonb, true)
+       WHERE id = $1`,
+      [child.taskId],
+    );
+    const notifier = new TaskDispatchNotifier({ pool, activityHub: { subscribe: () => () => {} } });
+    await notifier.handle(child.taskId);
+
+    const repo = createPgTaskRepository(pool);
+    const first = await repo.commit({
+      lease: { taskId: "parent-r3-rejected", leaseId, generation: 1 },
+      status: "completed",
+      result: { value: "parent partial" },
+      artifacts: [],
+      traceId: scopeA.traceId,
+    }, { scope: { tenantId: "tenant-a" } });
+    expect(first.committed).toBe(false);
+    const afterFirst = await pool.query(
+      `SELECT status FROM tasks WHERE id = 'parent-r3-rejected'`,
+    );
+    expect(afterFirst.rows[0].status).toBe("pending");
+
+    const [claimed2] = await repo.claim(
+      { tenantId: "tenant-a", principalId: "worker:developer", roles: ["developer"], traceId: "r3-replay-rejected" },
+      "developer",
+      ["parent-r3-rejected"],
+    );
+    expect(claimed2).toBeTruthy();
+    const replayCaller = {
+      ...caller,
+      lease: { taskId: claimed2!.lease.taskId, leaseId: claimed2!.lease.leaseId, generation: claimed2!.lease.generation },
+    };
+    const replay = await routedService.delegate(
+      { to: "coder", title: "child", text: "x", submissionKey: "r3:rejected" },
+      replayCaller,
+      scopeA,
+    );
+    expect(replay.taskId).toBe(child.taskId);
+    expect(replay.observation?.status).toBe("rejected");
+    expect(replay.observation?.error?.message).toBe("boom");
+
+    const final = await repo.commit({
+      lease: { taskId: claimed2!.lease.taskId, leaseId: claimed2!.lease.leaseId, generation: claimed2!.lease.generation },
+      status: "completed",
+      result: { value: "degraded but synthesized" },
+      artifacts: [],
+      traceId: scopeA.traceId,
+    }, { scope: { tenantId: "tenant-a" } });
+    expect(final.committed).toBe(true);
+  });
+
   it("V1：admission 超 child 上限拒绝且不创建", async () => {
     config().set("PTH_TASK_MAX_CHILDREN_PER_PARENT", "2");
     try {

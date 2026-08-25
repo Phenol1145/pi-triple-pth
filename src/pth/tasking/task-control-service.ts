@@ -410,6 +410,23 @@ export class TaskControlService {
           observeSubmissionConflict();
           throw new PtcContractError("tasks.delegate", `submissionKey conflict: ${submissionKey}（同 key 不同 canonical spec）`);
         }
+        // 第三轮 P0：重放同 submissionKey 时，若 child 已终态，则记录“本 Attempt 已消费该 observation”。
+        // 只有后续 Attempt（consumed_lease_generation > created_lease_generation）才算消费，
+        // 创建 dependency 的同一 Attempt 不能把自己刚创建的 child 当作已综合。
+        const currentGeneration = caller.lease?.generation ?? 0;
+        if (
+          existing.child_status &&
+          ["completed", "rejected", "escalated"].includes(existing.child_status)
+        ) {
+          await client.query(
+            `UPDATE task_dependencies SET
+               consumed_lease_generation = GREATEST(COALESCE(consumed_lease_generation, 0), $4),
+               updated_at = now()
+             WHERE tenant_id = $1 AND parent_task_id = $2 AND submission_key = $3
+               AND status IN ('pending','satisfied','failed','cancelled')`,
+            [scope.tenantId, caller.taskId, submissionKey, currentGeneration],
+          );
+        }
         return delegateResultFromRow({
           taskId: existing.child_task_id,
           submissionKey,
@@ -459,9 +476,9 @@ export class TaskControlService {
         [scope.tenantId, caller.taskId, task.id, submissionKey, specDigest, derived],
       );
       await client.query(
-        `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status)
-         VALUES ($1, $2, $3, $4, $5, 'pending')`,
-        [scope.tenantId, caller.taskId, task.id, submissionKey, specDigest],
+        `INSERT INTO task_dependencies (tenant_id, parent_task_id, child_task_id, submission_key, spec_digest, status, created_lease_generation)
+         VALUES ($1, $2, $3, $4, $5, 'pending', $6)`,
+        [scope.tenantId, caller.taskId, task.id, submissionKey, specDigest, caller.lease?.generation ?? 0],
       );
       observeTaskSubmission(caller.roleId, to, derived);
       // 持久化子任务委派 V1 P0：不在 delegate 内清 lease / 切 waiting_dependency。
