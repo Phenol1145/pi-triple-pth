@@ -8,6 +8,8 @@ import type { AgentToolResult } from "./agent-tools.js";
 import type { CommandFeedback } from "./command-feedback.js";
 import type { CommandAdapterRegistry } from "./tool-command-adapters.js";
 import type { UnifiedExecutionDispatcher } from "./execution-command.js";
+import { PTH_DONE_SIGNAL_CODE } from "./agent-tool-types.js";
+export { PTH_DONE_SIGNAL_CODE };
 
 export interface AgentTaskInput {
   task: { title: string; text: string };
@@ -27,6 +29,8 @@ export interface AgentLoopOptions {
   kernel: WorkerKernel;
   /** capability 白名单（web/state/fs/memory）——与 vm 注入同一份 */
   caps: Record<string, unknown>;
+  /** W0：当前任务 id（停滞告警定位；缺省仅 role/step） */
+  taskId?: string;
   maxSteps?: number;
   timeoutMs?: number;
   logger?: (msg: string) => void;

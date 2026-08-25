@@ -12,7 +12,8 @@ import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { WorkerRole } from "./worker-cluster.js";
 import { AGENT_TOOLS, toolsToSchema, type AgentToolResult } from "./agent-tools.js";
 import { normalizeToolName, hasExecToolCapability, execToolCapFor } from "./agent-loop-prompt.js";
-import type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
+import { PTH_DONE_SIGNAL_CODE, type AgentTaskInput, type AgentLoopOptions, type AgentTaskResult, type AgentTraceEvent } from "./agent-loop-types.js";
+export { PTH_DONE_SIGNAL_CODE } from "./agent-loop-types.js";
 export type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
 import { isTsFamily, truncate, actionFingerprint, type RecentAction, toolFamily, normalizePathPattern, actionTarget, isNegativeResult, negativeLoopCheck, RECENT_RESULTS_WINDOW } from "./agent-loop-guards.js";
 export { PTH_WORKER_SYSTEM, buildAgentSystemPrompt, filterCapabilityDoc } from "./agent-loop-prompt.js";
@@ -33,10 +34,77 @@ import { emitToolStep, toolStepSummary, type AgentLoopMessage } from "./agent-lo
 
 const DEFAULT_MAX_STEPS = 10;
 const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_STALL_LOG_MS = 60_000;
+
+/** W0：等待点心跳——promise 挂起超过阈值后打一次 agent-stall warn（不改变时序语义） */
+async function withWaitPoint<T>(opts: {
+  kind: string;
+  step: number;
+  taskId?: string;
+  roleId?: string;
+  logger?: (msg: string) => void;
+  promise: Promise<T>;
+  thresholdMs?: number;
+}): Promise<T> {
+  const thresholdMs = opts.thresholdMs ?? configNumber("PTH_AGENT_STALL_LOG_MS", DEFAULT_STALL_LOG_MS);
+  let logged = false;
+  const timer = setTimeout(() => {
+    if (logged) return;
+    logged = true;
+    opts.logger?.(`[agent-stall] step=${opts.step} waiting=${opts.kind} elapsed=${thresholdMs}ms taskId=${opts.taskId ?? "-"} role=${opts.roleId ?? "-"}`);
+  }, thresholdMs);
+  timer.unref?.();
+  try {
+    return await opts.promise;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** W2：判断 ts 程序返回值是否为 AgentToolResult 形态（能力对象 asAction 直接返回结果） */
 function isAgentToolResultLike(v: unknown): v is AgentToolResult {
   return !!v && typeof v === "object" && typeof (v as { ok?: unknown }).ok === "boolean";
+}
+
+/** W3：runPtcProgram raw 上的 done 信号 → 终止结果 */
+function doneResultFromSignal(
+  input: AgentTaskInput & AgentLoopOptions,
+  raw: { ok: boolean; error?: { code?: string; message?: string; result?: unknown; summary?: unknown } },
+  steps: number,
+): AgentTaskResult | undefined {
+  if (!raw.ok && raw.error?.code === PTH_DONE_SIGNAL_CODE) {
+    const result = raw.error.result;
+    const summary = typeof raw.error.summary === "string" ? raw.error.summary : undefined;
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result).slice(0, 200) });
+    return { ok: true, value: result, summary, steps: steps + 1 };
+  }
+  return undefined;
+}
+
+/** W3：AgentToolResult 上的 done 信号（ts.run/ts.eval 执行器透传）→ 终止结果 */
+function doneResultFromToolResult(
+  input: AgentTaskInput & AgentLoopOptions,
+  result: AgentToolResult,
+  steps: number,
+): AgentTaskResult | undefined {
+  if (!result.ok && result.code === PTH_DONE_SIGNAL_CODE) {
+    input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(result.doneResult).slice(0, 200) });
+    return { ok: true, value: result.doneResult, summary: result.doneSummary, steps: steps + 1 };
+  }
+  return undefined;
+}
+
+/** W3-2：伪终止护栏——检测 `return {done:true}` / 注释「提交 done」并回填一次提示（不阻断） */
+function pseudoDoneGuardSuffix(tool: string, result: AgentToolResult): string {
+  if (tool !== "ts.run" && tool !== "ts.eval") return "";
+  if (!result.ok) return "";
+  const value = result.value as { done?: unknown } | null | undefined;
+  const hasDoneTrue = !!value && typeof value === "object" && !Array.isArray(value) && value.done === true;
+  const textHint = typeof result.stdout === "string" && /提交 done|done\s*[:：]?\s*true/i.test(result.stdout);
+  if (hasDoneTrue || textHint) {
+    return "\n[done 提示] done 是函数调用：在 ts 程序内使用 await done(result, summary?) 提交最终产物，不要 return { done: true }。";
+  }
+  return "";
 }
 
 /** W2：tool-call 投影执行（tool → asAction 代码 → runPtcProgram）。返回 undefined 表示继续循环。 */
@@ -62,6 +130,8 @@ async function executeProjectedTool(args: {
     allowedCapabilities: input.role?.capabilities ? new Set(input.role.capabilities) : undefined,
     registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
   });
+  const doneSignal = doneResultFromSignal(input, raw as never, steps);
+  if (doneSignal) return doneSignal;
   if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
     input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
     return { ok: true, value: null, steps: steps + 1, warning: raw.error.message };
@@ -109,6 +179,18 @@ async function executeProjectedTool(args: {
  * 详细规则文档化（memory kind='pth-worker-system'——受保护——lazy 可查）。 */
 async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promise<AgentTaskResult> {
   const { llm, kernel, caps } = input;
+  // W3：done 函数化——ts 程序内 `await done(result, summary?)` 即终止并提交结果。
+  // 实现：抛带 result/summary 的信号错误，agent-loop 在 runPtcProgram 出口统一拦截。
+  const loopDone = (result: unknown, summary?: string): Promise<never> => {
+    const err = new Error("pth-done") as Error & { code?: string; result?: unknown; summary?: string };
+    err.code = PTH_DONE_SIGNAL_CODE;
+    err.result = result;
+    err.summary = summary;
+    throw err;
+  };
+  const capabilityInject = input.capabilityInject ?? {};
+  if (!capabilityInject["done"]) capabilityInject["done"] = loopDone;
+  input.capabilityInject = capabilityInject;
   // 参数走配置中心（Phase 2——perf.set 运行时生效；env 兜底）
   const maxSteps = input.maxSteps ?? configNumber("PTH_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS);
   const timeoutMs = input.timeoutMs ?? configNumber("PTH_AGENT_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
@@ -202,7 +284,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
 
     // 生命周期 P3：循环内压缩（任务中续跑——CONTINUATION_TEMPLATE；失败容忍不阻断）
     if (steps > 2 && shouldCompressInLoop(messages, configNumber("PTH_AGENT_CONTEXT_WINDOW", 128_000))) {
-      const compressed = await compressContext({ llm }, { messages, template: CONTINUATION_TEMPLATE, taskTitle: input.task.title });
+      const compressed = await withWaitPoint({
+        kind: "context.compact",
+        step: steps + 1,
+        taskId: input.taskId,
+        roleId: input.role?.id,
+        logger: input.logger,
+        promise: compressContext({ llm }, { messages, template: CONTINUATION_TEMPLATE, taskTitle: input.task.title }),
+      });
       if (compressed) {
         const recent = messages.slice(-4);
         messages.length = 0;
@@ -216,7 +305,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
 
     // ASP：工具面随当前空间动态计算（语言工具仅本空间可调用）
     const tools = currentTools(currentSpace());
-    const res = await complete(tools);
+    const res = await withWaitPoint({
+      kind: "llm.complete",
+      step: steps + 1,
+      taskId: input.taskId,
+      roleId: input.role?.id,
+      logger: input.logger,
+      promise: complete(tools),
+    });
     if (typeof res === "string") {
       if (res.startsWith("__llm_error__")) {
         input.onTrace?.({ type: "finish", ok: false, steps: steps + 1, error: res.slice(14) });
@@ -235,7 +331,14 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     // 原生 tool_calls：结构化调用（OpenAI 格式——非文本解析）
     if (res.toolCalls && res.toolCalls.length > 0) {
       for (const tc of res.toolCalls) {
-        const r = await executeStep({ tool: tc.name, args: tc.arguments, thought: undefined }, tc.id);
+        const r = await withWaitPoint({
+          kind: `tool:${tc.name}`,
+          step: steps + 1,
+          taskId: input.taskId,
+          roleId: input.role?.id,
+          logger: input.logger,
+          promise: executeStep({ tool: tc.name, args: tc.arguments, thought: undefined }, tc.id),
+        });
         if (r !== undefined) {
           // 序列完整性（2026-08-14 B1）：提前终止时，未回填的调用补合成 tool 消息——
           // 防止 assistant(tool_calls) 悬挂（DeepSeek v4 校验每个 tool_calls 必须有对应 tool 响应）
@@ -566,6 +669,9 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
           allowedCapabilities: input.role?.capabilities ? new Set(input.role.capabilities) : undefined,
           registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
         });
+        // W3：done 信号 → 直接终止并提交结果
+        const doneSignal = doneResultFromSignal(input, raw as never, steps);
+        if (doneSignal) return doneSignal;
         // W8 P2：tasks.await 挂起信号 → 软终止（value=null + warning）→ runner 落 retryable requeue
         if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
           input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });
@@ -606,6 +712,9 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         { kernel, caps, taskWorkspace: input.taskWorkspace, toolstore: input.toolstore, space: aspMode ? aspSession.currentSpace : undefined, ptcCaps: input.capabilityInject, commandGateway: input.commandGateway, commandContext: input.commandContext },
         args,
       );
+      // W3：ts.run/ts.eval 内 done 信号 → 直接终止并提交结果
+      const doneSignal = doneResultFromToolResult(input, result, steps);
+      if (doneSignal) return doneSignal;
       // W8 P2：ts.run/eval 内 tasks.await 挂起 → 软终止释放认领（retryable requeue）
       if (!result.ok && result.code === TASK_AWAIT_SUSPENDED_CODE) {
         input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: result.error });
@@ -652,6 +761,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
       const guideSuffix = loopCheck.action === "guide"
         ? `\n[收敛] 检测到连续 ${loopCheck.count} 次负结果（${fam} · ${tgt}）——该路径已确认不可用——不要继续探测/重试同一目标——换策略（优先查 capability-index/ext-registry 权威列表，替代盲探测）。`
         : "";
+      const doneGuardSuffix = pseudoDoneGuardSuffix(tool, result);
       emitToolStep({
         input,
         messages,
@@ -663,7 +773,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         durationMs: Date.now() - stepStart,
         includeStderr: true,
         quietSummary: summary,
-        suffix: `${result.truncated ? " (truncated)" : ""}${guideSuffix}`,
+        suffix: `${result.truncated ? " (truncated)" : ""}${guideSuffix}${doneGuardSuffix}`,
       });
       input.logger?.(`[agent] step=${steps + 1} tool=${tool} ok=${result.ok} args=${JSON.stringify(args).slice(0, 300)}`);
       input.onTrace?.({ type: "tool-result", step: steps + 1, tool, ok: result.ok, durationMs: Date.now() - stepStart, resultPreview: summary.slice(0, 500) });

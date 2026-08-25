@@ -380,7 +380,7 @@ describe("AgentTaskRunner（P1-4）", () => {
       workspace: lease.workspace,
       language: "ts",
       capabilities: ["professional.execute"],
-      ttlMs: 120_000,
+      ttlMs: 1_800_000,
     });
 
     const opts = vi.mocked(runAgentTask).mock.calls[0]![0] as {

@@ -18,7 +18,7 @@ describe("PTC 统一执行缝（A1 Phase 2——ptc/runner）", () => {
     const { raw, assembled } = await runPtcProgram({ code: "const a=1;", exec: "program", ts });
     expect(raw.ok).toBe(true);
     expect(assembled.stdout).toBe('x\n返回值: {"a":1}');
-    expect(ts.execute).toHaveBeenCalledWith("const a=1;", { cwd: "/tmp", exec: "program" });
+    expect(ts.execute).toHaveBeenCalledWith("const a=1;", { cwd: "/tmp", timeoutMs: 300_000, exec: "program" });
   });
 
   it("single 组装：「结果:」前缀 + 2000 上限", async () => {
@@ -36,7 +36,13 @@ describe("PTC 统一执行缝（A1 Phase 2——ptc/runner）", () => {
   it("缺省 cwd=/tmp；exec 缺省不传（旧降级路径 auto 语义）", async () => {
     const ts = mockTs();
     await runPtcProgram({ code: "c", ts });
-    expect(ts.execute).toHaveBeenCalledWith("c", { cwd: "/tmp" });
+    expect(ts.execute).toHaveBeenCalledWith("c", { cwd: "/tmp", timeoutMs: 300_000 });
+  });
+
+  it("stepTimeoutMs 透传到 ts.execute（W1 单步超时）", async () => {
+    const ts = mockTs();
+    await runPtcProgram({ code: "c", ts, stepTimeoutMs: 1234 });
+    expect(ts.execute).toHaveBeenCalledWith("c", { cwd: "/tmp", timeoutMs: 1234 });
   });
 
   it("registerResult 钩子：成功/失败都注册（build 收 raw）", async () => {

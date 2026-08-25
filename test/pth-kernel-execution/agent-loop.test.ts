@@ -77,6 +77,49 @@ describe("runAgentTask（agent 循环）", () => {
     }
   });
 
+  it("W3：ts.run 程序内 await done(result) 直接终止并提交产物", async () => {
+    const doneHolder: { fn?: (result: unknown, summary?: string) => Promise<never> } = {};
+    const tsState: Record<string, unknown> = { results: {}, context: {}, memory: {}, llm: {}, web: {}, fs: {}, env: {}, state: {}, python: {}, bash: {}, done: undefined };
+    const kernel = mockKernel();
+    kernel.ts = {
+      state: tsState,
+      execute: vi.fn(async (code: string) => {
+        if (code.includes("await done(")) {
+          try {
+            await doneHolder.fn?.({ ok: true }, "done from ts");
+          } catch (e) {
+            const err = e as Error & { code?: string; result?: unknown; summary?: unknown };
+            return { ok: false, error: { message: err.message, code: err.code, result: err.result, summary: err.summary }, durationMs: 1, language: "ts" };
+          }
+        }
+        return { ok: true, value: { fromTs: true }, durationMs: 1, language: "ts" };
+      }),
+      injectCapability: vi.fn((name: string, value: unknown) => {
+        if (name === "done") doneHolder.fn = value as (result: unknown, summary?: string) => Promise<never>;
+        tsState[name] = value;
+      }),
+      registerResult: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+      snapshot: vi.fn(async () => ({ variables: [], functions: [], oversized: [] })),
+    } as any;
+    const llm = mockLlm([
+      { toolCalls: [{ name: "ts.run", arguments: { code: "await done({ ok: true }, 'done from ts')" } }] },
+    ]);
+    const r = await runAgentTask({
+      llm, kernel, caps: CAPS,
+      task: { title: "t", text: "x" },
+      role: { id: "developer", tags: [], labelPatterns: [], prompt: "你是开发者" },
+      maxSteps: 3,
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value).toEqual({ ok: true });
+      expect(r.summary).toBe("done from ts");
+      expect(r.steps).toBe(1);
+    }
+  });
+
   it("原生 tool_calls：结构化调用 bash + 文本回复完成", async () => {
     const kernel = mockKernel();
     const llm = mockLlm([

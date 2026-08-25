@@ -1,6 +1,7 @@
 /**
  * runner/exec-modes/llm-agent.ts —— PTH_EXEC_MODE=tool-call / asp 的 LLM agent 执行路径。
  */
+import { pthConfig } from "@away_from/pth-config";
 import { runAgentTask, taskToolUnion, canonicalExposureChars, type AgentTraceEvent } from "@away_from/pth-kernel-execution";
 import { visibleRegistryTools } from "@away_from/pth-kernel-interpreter";
 import type { TaskOutcome, TaskSuspension } from "@away_from/pth-contracts";
@@ -213,7 +214,7 @@ export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome
         workspace: lease.workspace,
         language: "ts",
         capabilities: ["professional.execute"],
-        ttlMs: deps.professionalGrantTtlMs ?? 120_000,
+        ttlMs: deps.professionalGrantTtlMs ?? pthConfig().num("PTH_PROFESSIONAL_GRANT_TTL_MS", 1_800_000),
       });
       capabilityInject["professional"] = createProfessionalTaskCapability({
         lease,
@@ -262,6 +263,7 @@ export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome
     kernel,
     caps: taskCaps,
     task: { title: work.title, text: taskText },
+    taskId: lease.taskId,
     ...(goal ? { goal } : {}),
     ...(publisherClarification ? { publisherClarification } : {}),
     taskWorkspace: deps.workspace.dir,

@@ -6,6 +6,9 @@
 
 import type { CommandFeedback } from "./command-feedback.js";
 
+/** W3：done 函数化信号码——ts 程序内 `await done(result)` 通过该 code 终止 agent loop */
+export const PTH_DONE_SIGNAL_CODE = "pth-done";
+
 export interface AgentToolResult {
   ok: boolean;
   value?: unknown;
@@ -23,4 +26,7 @@ export interface AgentToolResult {
   feedback?: CommandFeedback;
   /** TCE Wave 2：工具执行耗时（ms） */
   durationMs?: number;
+  /** W3：done 信号载荷（code=PTH_DONE_SIGNAL_CODE 时携带最终产物） */
+  doneResult?: unknown;
+  doneSummary?: string;
 }

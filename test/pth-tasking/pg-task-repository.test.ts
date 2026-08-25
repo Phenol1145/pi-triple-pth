@@ -162,7 +162,7 @@ suite("pg task repository（P1-2）", () => {
     const [claimed] = await repo.claim(scope, "developer", ["task-recover"]);
     expect(claimed.lease.generation).toBe(1);
     await pool.query(
-      `UPDATE tasks SET lease_expires_at = now() - interval '1 minute' WHERE id = 'task-recover'`,
+      `UPDATE tasks SET lease_expires_at = now() - interval '2 minutes' WHERE id = 'task-recover'`,
     );
     const recovered = await repo.recoverExpired(new Date());
     expect(recovered).toBe(1);
@@ -173,6 +173,41 @@ suite("pg task repository（P1-2）", () => {
 
     const [reclaimed] = await repo.claim(scope, "developer", ["task-recover"]);
     expect(reclaimed.lease.generation).toBe(2); // 单调递增
+  });
+
+  it("renewLease CAS 续约：正确 lease 续期；错 generation 不续", async () => {
+    await insertTask(pool, "task-renew");
+    const [claimed] = await repo.claim(scope, "developer", ["task-renew"]);
+    const before = await pool.query("SELECT lease_expires_at FROM tasks WHERE id = 'task-renew'");
+    const ok = await repo.renewLease({
+      taskId: claimed.lease.taskId,
+      leaseId: claimed.lease.leaseId,
+      generation: claimed.lease.generation,
+    });
+    expect(ok.renewed).toBe(true);
+    const after = await pool.query("SELECT lease_expires_at FROM tasks WHERE id = 'task-renew'");
+    expect(new Date(after.rows[0].lease_expires_at as Date).getTime()).toBeGreaterThan(
+      new Date(before.rows[0].lease_expires_at as Date).getTime(),
+    );
+
+    const bad = await repo.renewLease({
+      taskId: claimed.lease.taskId,
+      leaseId: claimed.lease.leaseId,
+      generation: claimed.lease.generation + 1,
+    });
+    expect(bad.renewed).toBe(false);
+  });
+
+  it("recoverExpired 保护窗：过期不足 grace 不回收", async () => {
+    await insertTask(pool, "task-grace");
+    const [claimed] = await repo.claim(scope, "developer", ["task-grace"]);
+    await pool.query(
+      `UPDATE tasks SET lease_expires_at = now() - interval '30 seconds' WHERE id = 'task-grace'`,
+    );
+    const recovered = await repo.recoverExpired(new Date()); // 默认 grace 60s → 30s 过期不回收
+    expect(recovered).toBe(0);
+    const row = await pool.query("SELECT status FROM tasks WHERE id = 'task-grace'");
+    expect(row.rows[0].status).toBe("claimed");
   });
 
   it("retryable reject 释放回队列（pending + lease 清空）", async () => {

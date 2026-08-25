@@ -212,8 +212,16 @@ export interface TaskRepository {
     roleId: string,
     taskIds: readonly string[],
   ): Promise<ReadonlyArray<{ lease: TaskLease; work: TaskWorkItem }>>;
-  /** 回收过期 claimed 行；返回回收行数。只清过期行且 generation 单调。 */
-  recoverExpired(now: Date): Promise<number>;
+  /**
+   * 续约当前 claim（CAS：lease_id + lease_generation + status='claimed'）。
+   * 返回 renewed:false 表示认领已被回收/跨 generation——调用方应停止续约。
+   */
+  renewLease(
+    ref: TaskLeaseReference,
+    opts?: { ttlMs?: number },
+  ): Promise<{ renewed: boolean; deadlineAt?: string }>;
+  /** 回收过期 claimed 行；返回回收行数。只清 `lease_expires_at < now - graceMs` 的行且 generation 单调。 */
+  recoverExpired(now: Date, graceMs?: number): Promise<number>;
   commit(outcome: TaskOutcome, opts?: TaskCommitOptions): Promise<{ committed: boolean }>;
 }
 

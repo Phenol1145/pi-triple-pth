@@ -37,6 +37,7 @@ import type {
   TaskCommitOptions,
   TaskCommitSideEffect,
   TaskLease,
+  TaskLeaseReference,
   TaskOutcome,
   TaskRepository,
   TaskWorkItem,
@@ -178,7 +179,28 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
       });
     },
 
-    async recoverExpired(nowArg) {
+    async renewLease(ref: TaskLeaseReference, opts?: { ttlMs?: number }) {
+      const ttlMs = opts?.ttlMs ?? leaseTtlMs;
+      const expiresAt = new Date(now().getTime() + ttlMs);
+      const res = await pool.query(
+        `UPDATE tasks SET
+           lease_expires_at = $4,
+           updated_at = now()
+         WHERE id = $1
+           AND lease_id = $2
+           AND lease_generation = $3
+           AND status = 'claimed'
+           AND lease_expires_at IS NOT NULL
+         RETURNING lease_expires_at`,
+        [ref.taskId, ref.leaseId, ref.generation, expiresAt],
+      );
+      if ((res.rowCount ?? 0) !== 1) return { renewed: false };
+      const row = res.rows[0] as { lease_expires_at: Date };
+      return { renewed: true, deadlineAt: new Date(row.lease_expires_at).toISOString() };
+    },
+
+    async recoverExpired(nowArg, graceMs = 60_000) {
+      const threshold = new Date(nowArg.getTime() - graceMs);
       const res = await pool.query(
         `UPDATE tasks SET
            status = 'pending',
@@ -190,7 +212,7 @@ export function createPgTaskRepository(pool: pg.Pool, opts: PgTaskRepositoryOpti
          WHERE status = 'claimed'
            AND lease_expires_at IS NOT NULL
            AND lease_expires_at < $1`,
-        [nowArg],
+        [threshold],
       );
       return res.rowCount ?? 0;
     },

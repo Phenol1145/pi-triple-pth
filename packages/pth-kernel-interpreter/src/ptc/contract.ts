@@ -550,11 +550,12 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
   },
   'done': {
     name: 'done', family: 'loop', host: 'loop',
-    params: '(input: { result: unknown; summary?: string })',
+    params: '(result: unknown, summary?: string)',
     returnType: 'Promise<{ ok: true }>',
     anchor: "任务完成——提交最终产出",
     whenToUse: "有实际产物（实现/文件/计算结果）或明确无法完成（说明原因）时",
     effect: "任务结案；result 为空会被拒绝并回填引导（ASP：仅元空间可用）",
+    asAction: (a) => `return await done(${JSON.stringify(a.result)}${a.summary !== undefined ? `, ${JSON.stringify(String(a.summary))}` : ''});`,
     toolSchema: { properties: {
       "result": {
         "description": "最终产出对象（任意 JSON）——必填；须为实际产物（实现代码/写入的文件/计算结果），不能为空对象/空数组/空字符串"

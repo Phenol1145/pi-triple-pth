@@ -78,6 +78,16 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   );
   // P1-6：batch 子进程启用 tasking dispatcher 路径（真实 lease claim/CAS commit）
   const taskRepository = createPgTaskRepository(pool);
+  // W2：启动即回收上代遗留孤儿 claim（开关 PTH_TASK_LEASE_RECOVERY=off 关闭）
+  if (pthConfig().str("PTH_TASK_LEASE_RECOVERY") !== "off") {
+    try {
+      const graceMs = pthConfig().num("PTH_TASK_LEASE_RECOVERY_GRACE_MS", 60_000);
+      const recovered = await taskRepository.recoverExpired(new Date(), graceMs);
+      if (recovered > 0) batchLogger.warn(`[lease] startup recovered ${recovered} orphan claimed tasks`, { recovered });
+    } catch (e) {
+      batchLogger.warn(`[lease] startup recovery failed: ${(e as Error).message}`);
+    }
+  }
   // W8 P1：任务投递服务（worker 工具面 tasks.delegate/await 的服务器端实现）
   const taskControl = new TaskControlService({ store: dataWorld.tasks, pool, queries: new PgTaskQueries(pool) });
   const workspaceMgr = new DefaultTaskWorkspaceManager({ basePath: deps.basePath, artifactPath: deps.artifactPath });
@@ -417,6 +427,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
       professionalRuntimeRegistry,
       professionalArtifacts,
       professionalGrantService,
+      professionalGrantTtlMs: pthConfig().num("PTH_PROFESSIONAL_GRANT_TTL_MS", 1_800_000),
       // 自然语言任务转译（NL→代码）：复用角色自身的 llm（与 refine 同源）
       llm,
       // agent 循环的 capability 白名单（与 vm 注入同一份）

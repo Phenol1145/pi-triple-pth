@@ -7,6 +7,7 @@
 import type { ToolRegSpec } from "@away_from/pth-memory";
 import { runPtcProgram } from "@away_from/pth-kernel-interpreter";
 import { TASK_AWAIT_SUSPENDED_CODE } from "@away_from/pth-contracts";
+import { PTH_DONE_SIGNAL_CODE } from "./agent-tool-types.js";
 import { truncate } from "./agent-loop-guards.js";
 import type { AgentTaskResult, AgentTaskInput, AgentLoopOptions } from "./agent-loop-types.js";
 import type { AgentToolResult } from "./agent-tools.js";
@@ -131,6 +132,12 @@ export async function executeRegisteredTool(ctx: RegistryExecutionContext): Prom
       code, cwd: input.taskWorkspace ?? "/tmp", ts: input.kernel.ts, caps: input.capabilityInject,
       registerResult: { key: `result_${steps + 1}`, build: (r) => ({ tool, ok: r.ok, value: r.ok ? r.value : undefined, error: r.ok ? undefined : r.error }) },
     });
+    // W3：tool-reg program 内 done 信号 → 直接终止并提交结果
+    if (!raw.ok && raw.error?.code === PTH_DONE_SIGNAL_CODE) {
+      const doneErr = raw.error as Error & { result?: unknown; summary?: unknown };
+      input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, valuePreview: JSON.stringify(doneErr.result).slice(0, 200) });
+      return { ok: true, value: doneErr.result, summary: typeof doneErr.summary === "string" ? doneErr.summary : undefined, steps: steps + 1 };
+    }
     // W8 P2 同款：tasks.await 挂起信号 → 软终止（value=null + warning）
     if (!raw.ok && raw.error?.code === TASK_AWAIT_SUSPENDED_CODE) {
       input.onTrace?.({ type: "finish", ok: true, steps: steps + 1, warning: raw.error.message });

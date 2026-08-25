@@ -126,7 +126,7 @@ ${Object.entries(schemas)
     .filter(([name]) => !allowed || allowed.has(name))
     .map(([name, s]) => `- ${name.replace(/\./g, "_")}: ${s.description}`)
     .join("\n")}
-- done: {result, summary?} —— 完成任务，result 为最终产出对象
+- done: 函数调用 await done(result, summary?) —— 完成任务，result 为最终产出对象（也可用 done 工具）
 - pause: {question, context?} —— 向发布者提问（规约/目标歧义时），任务暂停等待回答
 
 输出模式（mode 可选——控制回填带宽）：default=完整；value-only=只回 value（大数据省 token）；errors-only=成功只回 ok 失败回全错（快速试错）；quiet=静默（状态准备不污染轨迹）`;
@@ -140,7 +140,7 @@ export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON �
 - 【生产核·代码】dev.write/edit/build/run/save/list —— C 产物开发（asp.cd("dev")；编译类语言唯一入口）
 - 【调试】debug.attach/breakpoint/continue/step/snapshot/evaluate/detach/sessions —— C 调试会话（句柄化 sessionId——状态在 sandbox）
 - 【生产核·文档】write.create/edit/read/list/save/section —— 文档创作（asp.cd("write")；大纲→草稿→修订→定稿；section 章节组织）
-- done: {result, summary?} —— 完成任务，result 为最终产出对象
+- done: 函数调用 await done(result, summary?) —— 完成任务，result 为最终产出对象（也可用 done 工具）
 - pause: {question, context?} —— 向发布者提问（规约/目标歧义时），任务暂停等待回答
 
 输出模式（mode 可选——控制回填带宽）：default=完整；value-only=只回 value（大数据省 token）；errors-only=成功只回 ok 失败回全错（快速试错）；quiet=静默（状态准备不污染轨迹）`;

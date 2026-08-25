@@ -112,6 +112,29 @@ describe("direct 路径缓存字段（2026-08-12 审计 HIGH-3 修复）", () =>
   });
 });
 
+describe("W1：direct 路径 body 读取超时覆盖（2026-08-25 修复）", () => {
+  it("fetch headers 已回但 body 永不结束 → 按 timeoutMs 拒绝而非无限挂起", async () => {
+    vi.stubGlobal("fetch", async (_url: string, init: any) => {
+      return new Response(new ReadableStream({
+        start(controller) {
+          init.signal?.addEventListener?.("abort", () => {
+            controller.error(new DOMException("aborted", "AbortError"));
+          });
+          // 永不 enqueue/close——模拟连接半开 body 流停滞
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const llm = createLlmFn({ modelRouter: mockRouter(mockRuntime()) });
+    await expect(llm.complete(
+      [{ role: "user", content: "x" }],
+      { model: "deepseek-v4-flash", provider: "deepseek", tools: [{ name: "ts.run", description: "d", parameters: { type: "object", properties: {} } }], timeoutMs: 50 },
+    )).rejects.toThrow();
+    vi.unstubAllGlobals();
+    delete process.env.DEEPSEEK_API_KEY;
+  });
+});
+
 describe("B1 修复（2026-08-14）：reasoning_content 回传 + 序列补全", () => {
   const TOOL = [{ name: "probe", description: "d", parameters: { type: "object", properties: {} } }];
 

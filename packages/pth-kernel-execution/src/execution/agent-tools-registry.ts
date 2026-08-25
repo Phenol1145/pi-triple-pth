@@ -9,7 +9,8 @@ import { buildToolSchemas } from "@away_from/pth-kernel-interpreter";
 import { pthConfig } from "@away_from/pth-config";
 import { createDevCapability, createWriteCapability, createDebugCapability } from "./ptc/capabilities/index.js";
 import type { CommandGateway, CommandSecurityContext } from "./execution-command.js";
-import type { AgentToolResult } from "./agent-tool-types.js";
+import { PTH_DONE_SIGNAL_CODE, type AgentToolResult } from "./agent-tool-types.js";
+export { PTH_DONE_SIGNAL_CODE } from "./agent-tool-types.js";
 export type { AgentToolResult } from "./agent-tool-types.js";
 
 export interface AgentToolCtx {
@@ -231,7 +232,13 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     // PTC 统一执行缝（2026-08-14 A1 Phase 2——组装逻辑收敛进 ptc/runner；
     // Phase 3——caps 装配 + 越界预检进 runner）
     const { raw, assembled } = await runPtcProgram({ code: str(args, "code"), cwd: taskWorkspace ?? "/tmp", exec: "program", ts: kernel.ts, caps: ptcCaps });
-    if (!raw.ok) return { ok: false, error: raw.error?.message ?? "ts execute failed", code: raw.error?.code };
+    if (!raw.ok) {
+      if (raw.error?.code === PTH_DONE_SIGNAL_CODE) {
+        const doneErr = raw.error as Error & { result?: unknown; summary?: unknown };
+        return { ok: false, error: raw.error.message, code: raw.error.code, doneResult: doneErr.result, doneSummary: typeof doneErr.summary === "string" ? doneErr.summary : undefined };
+      }
+      return { ok: false, error: raw.error?.message ?? "ts execute failed", code: raw.error?.code };
+    }
     return applyOutputMode(
       { ok: true, value: raw.value, stdout: assembled.stdout, truncated: assembled.truncated },
       args["mode"],
@@ -243,7 +250,13 @@ export const AGENT_TOOLS: Record<AgentToolId, AgentTool> = {
     if (!auth.ok) return { ok: false, error: auth.error, code: auth.code };
     const { kernel, taskWorkspace, ptcCaps } = ctx;
     const { raw, assembled } = await runPtcProgram({ code: str(args, "code"), cwd: taskWorkspace ?? "/tmp", exec: "single", ts: kernel.ts, caps: ptcCaps });
-    if (!raw.ok) return { ok: false, error: raw.error?.message ?? "ts eval failed", code: raw.error?.code };
+    if (!raw.ok) {
+      if (raw.error?.code === PTH_DONE_SIGNAL_CODE) {
+        const doneErr = raw.error as Error & { result?: unknown; summary?: unknown };
+        return { ok: false, error: raw.error.message, code: raw.error.code, doneResult: doneErr.result, doneSummary: typeof doneErr.summary === "string" ? doneErr.summary : undefined };
+      }
+      return { ok: false, error: raw.error?.message ?? "ts eval failed", code: raw.error?.code };
+    }
     return applyOutputMode(
       { ok: true, value: raw.value, stdout: assembled.stdout, truncated: assembled.truncated },
       args["mode"],

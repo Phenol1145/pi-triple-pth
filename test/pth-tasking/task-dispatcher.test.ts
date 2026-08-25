@@ -39,6 +39,7 @@ describe("TaskDispatcher（P1-5）", () => {
     const repository: TaskRepository = {
       claim: vi.fn(async () => []),
       recoverExpired: vi.fn(async () => 0),
+      renewLease: vi.fn(async () => ({ renewed: true })),
       commit: vi.fn(async () => ({ committed: true })),
     };
     const dispatcher = new TaskDispatcher({ repository, committer: new TaskOutcomeCommitter(repository), runner });
@@ -53,6 +54,7 @@ describe("TaskDispatcher（P1-5）", () => {
     const repository: TaskRepository = {
       claim: vi.fn(async () => [{ lease, work: workFor("t1") }]),
       recoverExpired: vi.fn(async () => 0),
+      renewLease: vi.fn(async () => ({ renewed: true })),
       commit: vi.fn(async () => ({ committed: false })),
     };
     const observer = vi.fn();
@@ -76,6 +78,7 @@ describe("TaskDispatcher（P1-5）", () => {
     const repository: TaskRepository = {
       claim: vi.fn(async () => [{ lease, work: workFor("t1") }]),
       recoverExpired: vi.fn(async () => 0),
+      renewLease: vi.fn(async () => ({ renewed: true })),
       commit: vi.fn(async (outcome: TaskOutcome) => {
         commits.push(outcome);
         return { committed: true };
@@ -113,6 +116,7 @@ describe("TaskDispatcher（P1-5）", () => {
         { lease: lease2, work: workFor("t2") },
       ]),
       recoverExpired: vi.fn(async () => 0),
+      renewLease: vi.fn(async () => ({ renewed: true })),
       commit: vi.fn(async () => ({ committed: true })),
     };
     const dispatcher = new TaskDispatcher({ repository, committer: new TaskOutcomeCommitter(repository), runner });
@@ -130,6 +134,7 @@ describe("TaskDispatcher（P1-5）", () => {
     const repository: TaskRepository = {
       claim: vi.fn(async () => [{ lease: stale, work: workFor("stale") }]),
       recoverExpired: vi.fn(async () => 0),
+      renewLease: vi.fn(async () => ({ renewed: true })),
       commit: vi.fn(async () => ({ committed: true })),
     };
     const observer = vi.fn();
@@ -152,6 +157,7 @@ describe("TaskDispatcher（P1-5）", () => {
     const repository: TaskRepository = {
       claim: vi.fn(async () => [{ lease, work: workFor("t1") }]),
       recoverExpired: vi.fn(async () => 0),
+      renewLease: vi.fn(async () => ({ renewed: true })),
       commit: vi.fn(async () => ({ committed: true })),
     };
     const dispatcher = new TaskDispatcher({

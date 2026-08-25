@@ -1,3 +1,4 @@
+import { pthConfig } from "@away_from/pth-config";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { Task, TaskStore } from "@away_from/pth-kernel-storage";
 import type { WorkerRole } from "@away_from/pth-kernel-execution";
@@ -69,7 +70,11 @@ function legacyTaskWorkItem(task: Task, roleId: string, ws: { tenant: string; di
 }
 
 export class TaskLoop {
-  constructor(private deps: TaskLoopDeps) {}
+  constructor(private deps: TaskLoopDeps) {
+    // W0-2：batch 进程级 watchdog——每 30s 输出在飞任务（空闲零噪音）
+    this.watchdogTimer = setInterval(() => this.watchdogTick(), 30_000);
+    this.watchdogTimer.unref?.();
+  }
 
   /** runOnce：执行一轮认领。返回 true = 本轮有任务执行（调用方可自驱动下一轮——吞吐优化） */
   // worker 级控制（2026-08-09 单大 batch 控制面）：pause=暂停认领（保留状态）/
@@ -78,12 +83,44 @@ export class TaskLoop {
   private get bus() { return getEventBus(); }
   private paused = false;
   private stopped = false;
+  private activeTask?: { taskId: string; roleId: string; startedAt: number; lastActivityAt: number; currentStep?: number; tool?: string };
+  private watchdogTimer?: ReturnType<typeof setInterval>;
 
   pause(): void { this.paused = true; }
   resume(): void { this.paused = false; }
-  stop(): void { this.stopped = true; }
+  stop(): void {
+    this.stopped = true;
+    if (this.watchdogTimer) clearInterval(this.watchdogTimer);
+    this.watchdogTimer = undefined;
+  }
   get isPaused(): boolean { return this.paused; }
   get isStopped(): boolean { return this.stopped; }
+
+  private watchdogTick(): void {
+    const t = this.activeTask;
+    if (!t) return;
+    const now = Date.now();
+    const idleMs = now - t.lastActivityAt;
+    const runningMs = now - t.startedAt;
+    const msg = `[batch-watchdog] in-flight task=${t.taskId} role=${t.roleId} step=${t.currentStep ?? "-"} tool=${t.tool ?? "-"} runningMs=${runningMs} idleMs=${idleMs}`;
+    this.deps.logger?.child?.("watchdog")?.warn?.(msg, { taskId: t.taskId, roleId: t.roleId, runningMs, idleMs });
+  }
+
+  private trackTaskStart(taskId: string, roleId: string): void {
+    const now = Date.now();
+    this.activeTask = { taskId, roleId, startedAt: now, lastActivityAt: now };
+  }
+
+  private trackTaskActivity(step?: number, tool?: string): void {
+    if (!this.activeTask) return;
+    this.activeTask.lastActivityAt = Date.now();
+    if (step !== undefined) this.activeTask.currentStep = step;
+    if (tool !== undefined) this.activeTask.tool = tool;
+  }
+
+  private clearTaskTracking(): void {
+    this.activeTask = undefined;
+  }
 
   /** N28 T2：有 replica 时给活动/审计事件补 workerId；无 replica 时返回空对象（旧形状逐字节不变）。 */
   private workerStamp(): { workerId?: string } {
@@ -127,6 +164,18 @@ export class TaskLoop {
       this.deps.drainSideEffects?.();
     } catch {
       // drain 触发失败不阻断 claim（drainer timer 兜底）
+    }
+    // W2：周期回收孤儿 claim（开关 PTH_TASK_LEASE_RECOVERY=off 回退现状）
+    if (this.deps.repository && pthConfig().str("PTH_TASK_LEASE_RECOVERY") !== "off") {
+      try {
+        const graceMs = pthConfig().num("PTH_TASK_LEASE_RECOVERY_GRACE_MS", 60_000);
+        const recovered = await this.deps.repository.recoverExpired(new Date(), graceMs);
+        if (recovered > 0) {
+          this.deps.logger?.child?.("taskloop")?.warn?.(`[lease] recovered ${recovered} orphan claimed tasks`, { recovered });
+        }
+      } catch (e) {
+        this.deps.logger?.child?.("taskloop")?.warn?.(`[lease] periodic recovery failed: ${(e as Error).message}`);
+      }
     }
     const { taskStore, role } = this.deps;
     // 1. peek：只读获取候选（不锁定）
@@ -174,6 +223,7 @@ export class TaskLoop {
       // N28 T2：per-candidate cycle——每候选执行前查状态；busy/stopped 不认领下一候选。
       if (this.deps.replica && this.deps.replica.snapshot().state !== "idle") break;
       this.deps.replica?.startTask(task.id);
+      this.trackTaskStart(task.id, role.id);
       try {
       const ws = await workspaceMgr.allocate(task.id, task.tenantId ?? "default");
       this.stampTaskDispatchContext(task);
@@ -205,10 +255,14 @@ export class TaskLoop {
         extraTools: this.deps.extraTools,
         adapterRegistry: this.deps.adapterRegistry,
         executionDispatcher: this.deps.executionDispatcher,
-        onStep: (s) => taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs }),
+        onStep: (s) => {
+          this.trackTaskActivity(s.n, s.tool);
+          taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs });
+        },
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {
           traceEvents.push(e);
+          if (e.type === "llm-call" || e.type === "tool-result") this.trackTaskActivity(e.step, e.type === "tool-result" ? e.tool : undefined);
           if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
           else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
           else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
@@ -311,6 +365,7 @@ export class TaskLoop {
       }
       did = did || res.ran > 0;
       } finally {
+        this.clearTaskTracking();
         this.deps.replica?.finishTask(task.id);
       }
     }
@@ -454,6 +509,7 @@ export class TaskLoop {
     this.deps.onActivity?.({ kind: "task.claim", taskId: task.id, role: role.id, detail: task.title.slice(0, 100), ...this.workerStamp(), ...chain });
     kernel.reset();                          // 任务级状态隔离
     this.stampTaskDispatchContext(task);
+    this.trackTaskStart(task.id, role.id);
     try {
       // Wave 4 收敛：legacy 路径统一委托 AgentTaskRunner（与 dispatched 路径共享同一执行入口）。
       const runnerConfig = defaultRunnerConfig();
@@ -500,6 +556,7 @@ export class TaskLoop {
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {
           traceEvents.push(e);
+          if (e.type === "llm-call" || e.type === "tool-result") this.trackTaskActivity(e.step, e.type === "tool-result" ? e.tool : undefined);
           if (e.type === "llm-call") this.deps.onActivity?.({ kind: "agent.step", taskId: task.id, role: role.id, step: e.step, usage: e.usage, detail: `LLM 生成（${(e.toolCalls ?? []).map((t) => t.name).join(",") || "思考"}）`, ...this.workerStamp() });
           else if (e.type === "tool-result") this.deps.onActivity?.({ kind: "agent.tool", taskId: task.id, role: role.id, step: e.step, tool: e.tool, ok: e.ok, detail: e.resultPreview?.slice(0, 80), ...this.workerStamp() });
           else if (e.type === "finish") this.deps.onActivity?.({ kind: e.ok ? "task.done" : "task.failed", taskId: task.id, role: role.id, step: e.steps, ok: e.ok, detail: (e.error ?? e.valuePreview ?? "").slice(0, 100), ...this.workerStamp(), ...chain });
@@ -649,6 +706,8 @@ export class TaskLoop {
     } catch (e) {
       await this.rejectTerminal(task, `execution-crashed: ${(e as Error).message}`, chain);
       taskLogger?.error(`task crashed: ${(e as Error).message}`);
+    } finally {
+      this.clearTaskTracking();
     }
   }
 

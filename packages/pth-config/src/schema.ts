@@ -80,6 +80,8 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_AGENT_CONTEXT_WINDOW", "number", 128_000, "agent", "batch", "agent 上下文窗口（token 估计——循环内压缩触发阈值）", { runtime: true }),
   d("PTH_AGENT_TIMEOUT_MS", "number", 120_000, "agent", "batch", "agent 任务级超时（代码默认 120s；compose 3h）", { runtime: true }),
   d("PTH_AGENT_LLM_TIMEOUT_MS", "number", 30_000, "agent", "batch", "单次 LLM 调用超时", { runtime: true }),
+  d("PTH_AGENT_STALL_LOG_MS", "number", 60_000, "agent", "batch", "agent 等待点停滞告警阈值（超过打 agent-stall warn）", { runtime: true }),
+  d("PTH_AGENT_STEP_TIMEOUT_MS", "number", 300_000, "agent", "batch", "ts.run/ts.eval 单步执行超时（超时=工具失败回灌模型，不终止任务）", { runtime: true }),
 
   // ── optimizer / JIT ──────────────────────────────────────────────
   d("PTH_OPTIMIZER", "string", "on", "optimizer", "batch", "优化循环开关（off 关闭）", { runtime: true }),
@@ -127,6 +129,8 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_GOVERNANCE_BASELINE_WINDOW", "number", 10, "control-loop", "main", "A/B 优化周期基线窗轮数 n"),
   d("PTH_TASK_PAUSE_TIMEOUT_MS", "number", 24 * 60 * 60 * 1000, "control-loop", "both", "pause 超时（缺省 24h——超时 escalated）", { runtime: true }),
   d("PTH_TASK_PAUSE_SWEEP_MS", "number", 60_000, "control-loop", "main", "pause 巡检周期（超时/预算）", { runtime: true }),
+  d("PTH_TASK_LEASE_RECOVERY", "string", "on", "control-loop", "batch", "孤儿 claim 周期回收开关（off=回退现状，recoverExpired 不被调用）", { runtime: true }),
+  d("PTH_TASK_LEASE_RECOVERY_GRACE_MS", "number", 60_000, "control-loop", "batch", "租约回收保护窗（lease_expires_at < now - grace 才回收）", { runtime: true }),
 
   // ── kernel / 执行 ────────────────────────────────────────────────
   d("PTH_KERNEL_LAZY_SPAWN", "string", "1", "kernel", "batch", "懒 spawn（0=构造即起）", { runtime: true }),
@@ -244,6 +248,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
 
   // ── 部署 / CLI ───────────────────────────────────────────────────
   d("PTH_EXECUTION_GRANT_SECRET", "string", "", "secret", "both", "执行 grant 签名密钥（:? 必填；与 sandbox 同值）", { secret: true }),
+  d("PTH_PROFESSIONAL_GRANT_TTL_MS", "number", 1_800_000, "execution", "batch", "professional.execute 任务级 grant TTL（默认 30min；按任务时长可调）", { runtime: true }),
   d("PTH_TOKEN", "string", "test-token-123", "cli", "cli", "PTH CLI/API Bearer token（生产禁开发默认值）", { secret: true }),
   d("PTH_CREATED_BY", "string", "cli", "cli", "cli", "CLI 发布任务的 createdBy"),
   d("PTH_API", "string", "http://localhost:3000", "cli", "cli", "pth CLI 的 API 基址"),
