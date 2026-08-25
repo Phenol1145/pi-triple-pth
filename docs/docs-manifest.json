@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-25T05:55:48.447Z",
+  "generatedAt": "2026-08-25T06:42:41.533Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -640,6 +640,12 @@
     },
     {
       "path": "docs/pth/report/code-audit-2026-08-24.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
+    },
+    {
+      "path": "docs/pth/report/coding-performance-baseline-2026-08-25.md",
       "category": "reports",
       "product": "pth",
       "status": "historical"
