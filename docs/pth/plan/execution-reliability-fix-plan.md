@@ -1,6 +1,6 @@
 # 执行可靠性修复计划：F1 LLM 挂起停滞 / F2 孤儿 claim / F3 done 收敛困惑
 
-> 状态：**修复计划（待评审）**
+> 状态：**已实施（W0–W4，2026-08-25）**
 > 分支：`feat/pth-exec-unified`
 > 依据：`docs/pth/report/coding-performance-baseline-2026-08-25.md`（F1–F3 实跑证据）
 > 范围：F1/F2/F3 三项 + F4（grant TTL 匹配）顺带核查；F5（内核池容量）归 N34 Phase 1 独立池设计，F6 为任务模板提示项，均不在本计划。
