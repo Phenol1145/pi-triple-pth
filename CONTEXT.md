@@ -5,7 +5,7 @@ pi-triple-pth 仓库的领域术语表：engine 运行时上下文。边界归�
 ## Language
 
 **engine（FRACTA engine）**:
-产品运行时本体——唯一拥有 worker 实现与面向 LLM 的 interface；只构造 `ExecutionRequest` 并回收 `ExecutionResult`，自身永不实现执行。
+产品运行时本体——唯一拥有 worker 实现与面向 LLM 的 interface；可以承载无环境副作用的 PTC 编排运行时，但网络、外部进程、凭据和其他外部副作用必须经 typed proxy / `ExecutionRequest` 交给 Execute 执行面，engine 不实现这些基础服务。
 _Avoid_: platform（compose 服务名 `pi-platform` 是迁移前的代码名，文档里不用 platform 指产品）、PTH（当前代码名，品牌迁移后废弃）
 
 **worker**:
@@ -94,9 +94,41 @@ _Avoid_: 无基线的即时调参、凭单点观测裁决
 Tool → Code → Execute 三层（ADR-0004）：一切入口归一化为一段代码；Code 层 = 归一化 + 静态审核（能力调用集 ⊆ role 能力集）；Execute 层 = 代码到执行面的路由。PTC 能力接口第一性，tool-call 是适配投影。
 _Avoid_: Command 对象（命令对象形态已退役）、Tool→Command→Execute（旧释义）
 
+**PTC orchestration runtime（PTC 编排运行时）**:
+位于 engine 内的无环境副作用 Code runtime；负责 PTC 状态、控制流、静态审核和已授权 typed proxy。`kernel-ts` 是当前实现。网络 I/O、任意进程、provider 凭据和 artifact 副作用不归它所有。
+_Avoid_: 把 `kernel-ts` 称为网络后端；为了迁移基础服务而默认把整个 PTC runtime 迁出 engine
+
+**network primitive（网络原语）**:
+一次有界、typed、provider-neutral 的 `search` / `fetch` / `extract` 操作。复杂检索由 Code 组合这些原语形成，Execute 不提供隐藏的 `deepSearch` 黑盒。
+_Avoid_: 把研究计划、来源信任或长报告生成塞入单个网络能力
+
+**network operation profile（网络操作档）**:
+服务端冻结的一组 egress、来源、预算、能力和 retention 约束；V1 启用 `search-public`，`research-public` 只预留边界。`intake-authorized` 仅是 Intake 内部 trace 分类，授权仍来自已验签 Trust Policy/Subscription/Run。profile 由任务、role grant 与 policy 决定，不接受 LLM 自报。
+_Avoid_: 把 profile 当 role、全局 trust 标记、provider 配置或 Intake admission 决定
+
+**discovery provider / publisher source / processing intermediary**:
+网络信息处理链中的三个独立身份：provider 发现候选链接，publisher 实际发布内容，intermediary 负责抓取、渲染、解析或格式转换。三者必须分别留痕，搜索排名和处理中介都不授予 publisher 信任。
+_Avoid_: 用单个 `source` 字段混合搜索引擎、目标站点与 Jina/Firecrawl 等处理服务
+
+**language-capability catalog（语言—能力目录）**:
+由 OrchestrationSurface、CapabilityDefinition、CapabilityImplementation、ExecutionTarget/ExecuteService 与 role grant 共同派生的只读快照；按语言和按能力的索引是同一快照的两个投影。
+_Avoid_: 两套手写索引、把实现语言或 notebook 语言等同为 PTC 编排宿主、用 `run/eval` 代替能力发现
+
 **PTC 宿主语言**:
-可承载 PTC 程序模式的语言，门槛 = 交互性三条件：持久会话 / 可注入（授权即注入）/ 可静态审核。ts、python、bash 是宿主语言；非交互执行面（C/asm 编译、文档生产）包装为能力被宿主语言调用。
-_Avoid_: 把 dev/write 当独立语言空间（它们是能力，不是宿主）
+可承载 PTC 程序模式的编排语言，门槛 = 持久会话 / 可注入（授权即注入）/ 可静态审核。当前生产实现只有 ts；python/bash 目前是由 ts PTC proxy 调用的 execution language。ADR-0004 中 python/bash 成为宿主是目标态，须在各自具备三条件后才成立。
+_Avoid_: 把 NotebookLanguage、实现语言、dev/write 能力或 `run/eval` 逃生舱直接称为已落地 PTC 宿主
+
+**execution language（执行语言）**:
+由 ExecutionTarget 执行的程序语言；当前包括 ts/python/bash。它描述代码送往哪个语言运行时，不自动表示该语言拥有 PTC 注入、静态审核或领域能力目录。
+_Avoid_: 仅因 executor matrix 支持某语言，就宣称它是 orchestration host
+
+**implementation language（实现语言）**:
+某个 capability implementation 内部采用的开发/运行语言，例如 Python extractor 或 TS network adapter；对 LLM 的能力语义与 role 授权没有直接影响。
+_Avoid_: 用实现语言决定 capability identity，或把实现细节暴露成任意命令面
+
+**Execute service target（Execute 服务目标）**:
+承载 typed operation 的 Execute-owned 服务/端口，例如 network gateway 或 extractor；它不是现有面向 notebook 的 `ExecutionTargetDefinition`。能力实现通过判别式 binding 引用 Execute service 或既有 ExecutionTarget。
+_Avoid_: 把 network broker 伪装成支持 bash/ts 的 notebook target
 
 **agentic JIT（工作模式）**:
 含有 JIT 环参与的工作模式——任务执行的同时把反复出现的模式固化为持久工具（规则固化、skill、角色分化），后续同类任务由固化产物代偿；智力代偿阶梯第三级，与工具调用（单步代偿）、PTC 程序模式（临时工具，任务结束即弃）并列。现状产物是提示侧串联代偿；并联代偿（固化产物旁路 LLM 直接接管同类任务）待议。

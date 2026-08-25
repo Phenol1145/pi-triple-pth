@@ -1,271 +1,270 @@
-# TCE 网络模块整合重构设计（Tool → Code → Execute）
+# TCE 网络信息基础设施 V1 实施设计
 
-> 状态：**草案待评审**
-> 日期：2026-08-25
-> 关联：ADR-0004（TCE = Tool→Code→Execute，PTC 能力接口第一性）、`docs/pth/plan/tce-code-model-remediation-plan.md`（W0–W5 已完成）
-> 目标：把当前零散的网络访问/搜索功能统一收编为 PTC 能力族，消除平行工具面，并让 Execute 层按能力宿主统一路由。
+> 状态：**已对齐 V1 架构报告，待实施**
+> 日期：2026-08-26
+> 上位约束：[ADR-0004：TCE 的 C 是 Code](../../adr/0004-tce-code-layer-ptc-capability-first.md)
+> 权威范围：[PTH 网络信息基础设施 V1 架构报告](../report/network-information-foundation-v1-architecture-report-2026-08-26.md)
+> 本文取代先前 `tce-network-module-refactor-design.md` 草案；实施时以 V1 架构报告为范围裁决，本文只做落地映射。
 
-## 1. 背景与动机
+## 1. 范围
 
-当前网络相关能力散落在多个面：
+### 1.1 V1 核心
 
-| 面 | 模块/工具 | 形态 | 问题 |
-|---|---|---|---|
-| 引擎能力 | `web.fetchText` | PTC 能力 + kernel-ts 实现 | 只有单 URL 抓取，无搜索/结构化阅读/平台搜索 |
-| toolstore 扩展 | `web-fetch` → `web.get` | 独立 tool-call | 与 `web.fetchText` 功能重叠，未进 PTC 契约 |
-| toolstore 扩展 | `agent-reach` → `reach.*` | 独立 tool-call（Exa/jina/gh/bili/v2ex） | 不经过 Code 层静态审核，能力面未契约化 |
-| tool container | `network` 域 `yt-dlp` | external tool | 仅工具容器，无 PTC 契约投影 |
-| tool container | `secrets` 域 `agent-reach` | hostOnly CLI | 供宿主/CLI 使用，与扩展工具面关系不清晰 |
-| 知识摄入 | `fetch-broker` | 独立受信抓取 broker | 复用 `web-transport`，但未纳入统一能力模型 |
-| 来源发现 | `source-discovery.ts` | 骨架 | 设计中的 search adapter 未接入真实搜索 provider |
+- `net.search`：一次有界、provider-neutral 的公开网络/垂直检索；
+- `net.fetch`：一次有界、安全的公开 URL GET，返回 raw artifact 引用；
+- `net.extract`：对已有 artifact 做无网络、确定性的正文/元数据/链接解析。
 
-TCE W0–W5 已经统一了 dev/write/debug 等工具面，但网络面仍未完成同一收敛。这导致：
+### 1.2 V1 明确不做
 
-1. **双源/多源契约**：`web.fetchText`、`web.get`、`reach.*`、yt-dlp 各自维护参数和语义，缺乏单一真相源；
-2. **权限不统一**：`reach.*` 通过 `ext.use(agent-reach)` 直接执行，不走「注入 + 静态审核」单机制；
-3. **执行路由不统一**：HTTP 类、CLI 类、工具容器类网络能力没有统一宿主声明；
-4. **观测缺失**：网络能力调用没有统一埋点/审计入口。
+- 不注册 `net.read` 能力；“读取网页”只是 `net.fetch → net.extract` 的 Code 配方；
+- 不实现 `net.deepSearch`、ResearchPlanner、SearchFrontier、EvidenceLedger、多 Agent；
+- 不接通 Search/Research → Intake；
+- 不把 `source-discovery` / `auto-expansion` 接入生产装配；
+- 不暴露通用 `exec(cmd,args)` / `httpGet(url)` 给 agent。
 
-## 2. 目标
+### 1.3 V1-B（延后，不阻塞核心）
 
-- 以 **PTC 能力契约** 作为网络访问/搜索的单一真相源；
-- 所有网络 tool-call 面（`web.get`、`reach.*` 等）降级为能力契约的**投影/适配**；
-- 新增统一 `net.*` 能力族，覆盖：抓取、阅读、网页搜索、GitHub 搜索、B 站搜索、V2EX 热门、下载；
-- Execute 层明确每个网络能力的宿主：kernel-ts / external-tool / toolstore；
-- Knowledge Intake 的 `fetch-broker` 与通用网络能力共享同一安全底座，保留 Trust Policy 包裹层；
-- 不破坏既有 `web.fetchText` 行为与旧工具名兼容。
+- `net.download`（yt-dlp，固定 argv，默认不注入）；
+- `net.doctor` / `net.checkUpdate`（admin/health capability）；
+- GitHub / B 站 / V2EX 等垂直 provider。
 
-## 3. 非目标
+## 2. 分层架构
 
-- 不重写 `web-transport.ts` 的安全语义（SSRF/DNS pin/重定向/流式上限继续作为底座）；
-- 不实现新的搜索算法/爬虫；
-- 不把登录态平台（twitter/reddit/xhs/facebook/instagram/linkedin）纳入 v1；
-- 不改变 tool-container 内部实现；
-- 不做 N26 完整外环，只把现有骨架接入可扩展的 search adapter 缝。
-
-## 4. 现状盘点
-
-### 4.1 PTC 契约现状
-
-- `PTC_CAPABILITIES` 已有 `web.fetchText`（family=`web`，host 未显式声明，实为 kernel-ts）。
-- `PtcCapabilityHost` 目前只有：`kernel-ts`、`loop`、`sandbox-debug`、`toolstore`。
-- 没有 `external-tool` 宿主声明，因此工具容器类能力无法在契约层表达。
-
-### 4.2 toolstore 扩展现状
-
-- `web-fetch`：`web.get(url, maxBytes?)`，走 `ctx.http.get`。
-- `agent-reach`：`reach.webSearch` / `reach.webRead` / `reach.ghSearch` / `reach.biliSearch` / `reach.v2exHot` / `reach.doctor` / `reach.checkUpdate`，走 `ctx.exec` / `ctx.http`。
-
-### 4.3 工具容器现状
-
-- `network` 域：`yt-dlp`，`network=default`（可出网），engineVisible=true，默认关闭。
-- `secrets` 域：`agent-reach`、`chatgpt-share`，`network=default`，engineVisible=false，hostOnly=true。
-
-### 4.4 知识摄入现状
-
-- `src/pth/execution/knowledge-intake/fetch-broker.ts`：Trust Policy 约束的抓取 broker。
-- `source-discovery.ts` / `auto-expansion.ts`：来源发现/自动扩源骨架，尚无真实 search adapter。
-- `web-transport.ts`：被 `web.fetchText` 与 fetch-broker 共用。
-
-## 5. 目标能力模型
-
-### 5.1 新增 `net` family
-
-在 `PTC_CAPABILITIES` 中以 `net` 作为唯一网络能力族；`web.fetchText` 仅保留为迁移期兼容别名，随引用清理后退役。
-
-| 能力 | 签名 | 宿主 | 后端 | 说明 |
-|---|---|---|---|---|
-| `net.fetch` | `(url, opts?)` | `kernel-ts` | `web-transport` | 受限只读 HTTP(S) GET，HTML 剥标签；取代 `web.fetchText` / `web.get` |
-| `net.read` | `(url)` | `kernel-ts` | `web-transport` → `https://r.jina.ai/<url>` | 通用网页阅读 → Markdown；保留 jina reader 语义 |
-| `net.search` | `(query, n?)` | `external-tool` / `kernel-ts` | 可配置后端（默认 Exa → jina） | 网页搜索；n 默认 5，范围 1–20 |
-| `net.githubSearch` | `(query, sort?, limit?)` | `external-tool` | `gh search repos` | GitHub 仓库搜索；结构化 JSON |
-| `net.biliSearch` | `(query, n?)` | `external-tool` | `bili search` | B 站搜索 |
-| `net.v2exHot` | `(n?)` | `kernel-ts` | V2EX 官方 API | 热门话题 |
-| `net.download` | `(url, opts?)` | `external-tool` | `yt-dlp`（network 域） | 视频/音频下载；默认按角色能力关闭 |
-| `net.doctor` | `()` | `external-tool` / toolstore | `agent-reach doctor` | 后端体检（agent 可调用自检） |
-| `net.checkUpdate` | `()` | `external-tool` / toolstore | `agent-reach check-update` | 版本检查（agent 可调用） |
-
-> 按 TCE 原则：`net.*` 是 engine 内 Code 层暴露给 agent 的**能力接口**；实际抓取/搜索/下载执行全部由 Execute 层路由到 **engine 外部**的 tool-container / 外部 CLI / 安全 HTTP 传输，engine 自身不直接持有后端实现细节。
-
-### 5.2 `PtcCapabilityHost` 扩展
-
-```ts
-export type PtcCapabilityHost =
-  | 'kernel-ts'       // ts 核内 vm 对象（web-transport 等）
-  | 'loop'            // agent loop / session 宿主
-  | 'sandbox-debug'   // sandbox debug API
-  | 'toolstore'       // toolstore 扩展代码
-  | 'external-tool';  // 新增：tool-container / 外部 CLI
+```text
+Tool：net.search / net.fetch / net.extract tool schema
+  ↓ 投影为代码
+Code：PTC orchestration runtime（kernel-ts, engine-internal）
+  ├─ 静态审核：called capabilities ⊆ role grants
+  ├─ 持久任务状态
+  └─ 已授权 typed proxy（无 socket/credential/任意进程）
+  ↓ reviewed operation + grant
+Execute：NetworkProviderGateway
+  ├─ OperationPolicy / Budget / Retention
+  ├─ ProviderRegistry / SourcePolicy
+  ├─ SearchProvider adapter
+  ├─ SafeHttpTransport / Fetch adapter
+  ├─ offline Extractor adapter
+  ├─ fixed-template ExternalTool adapter
+  └─ Trace / ArtifactStore / structured errors
+  ↓
+公开搜索 API、公开站点、受控工具容器
 ```
 
-`external-tool` 表示该能力最终由 tool container 或宿主 CLI 执行；PTC 静态审核仍只审核能力调用本身，不透入 argv/命令内容。
+### 2.1 职责边界
 
-### 5.3 兼容投影
-
-用户已确认：**全部统一改名为 `net` 族**。
-
-- `web.fetchText`：迁移期保留为 `net.fetch` 的兼容别名；所有新文档/角色 prompt 使用 `net.fetch`，旧引用逐步清理后移除 `web.fetchText`。
-- `web.get`：tool-call schema 保留，但实现投影为 `net.fetch`。
-- `reach.webSearch` → `net.search`
-- `reach.webRead` → `net.read`
-- `reach.ghSearch` → `net.githubSearch`
-- `reach.biliSearch` → `net.biliSearch`
-- `reach.v2exHot` → `net.v2exHot`
-- `reach.doctor` → `net.doctor`
-- `reach.checkUpdate` → `net.checkUpdate`
-- `yt-dlp` → `net.download`
-
-## 6. 统一能力实现
-
-### 6.1 `createNetworkCapability`
-
-新增 `packages/pth-kernel-execution/src/execution/ptc/capabilities/network.ts`：
-
-```ts
-export interface NetworkCapabilityDeps {
-  // HTTP 类统一走安全底座
-  fetchText?: (url: string, opts?: { maxBytes?: number; timeoutMs?: number }) => Promise<string>;
-  httpGet?: (url: string, opts?: { timeoutMs?: number; maxBytes?: number }) => Promise<{ ok: boolean; text?: string; status?: number; error?: string }>;
-  // 外部 CLI / tool-container 通道（实际执行在 engine 外部）
-  exec?: (cmd: string, args: string[], opts?: { timeoutMs?: number; maxOutputBytes?: number }) => Promise<{ ok: boolean; stdout?: string; stderr?: string; error?: string }>;
-  // yt-dlp 等 external tool 路由（按工具容器域）
-  download?: (url: string, opts?: { timeoutMs?: number }) => Promise<unknown>;
-  // 搜索后端顺序配置（如 ["exa","jina"]）
-  searchBackends?: readonly string[];
-}
-
-export interface NetworkCapability {
-  fetch(input: { url: string; maxBytes?: number; timeoutMs?: number }): Promise<AgentToolResult>;
-  read(input: { url: string }): Promise<AgentToolResult>;
-  search(input: { query: string; n?: number }): Promise<AgentToolResult>;
-  githubSearch(input: { query: string; sort?: string; limit?: number }): Promise<AgentToolResult>;
-  biliSearch(input: { query: string; n?: number }): Promise<AgentToolResult>;
-  v2exHot(input?: { n?: number }): Promise<AgentToolResult>;
-  download(input: { url: string; opts?: Record<string, unknown> }): Promise<AgentToolResult>;
-  doctor(): Promise<AgentToolResult>;
-  checkUpdate(): Promise<AgentToolResult>;
-}
-```
-
-实现要点：
-
-- `fetch`：直接复用 `createWebCapability().fetchText` 或 `web-transport`，行为与现状一致；
-- `read`：调用 `https://r.jina.ai/<url>`，走同一安全 HTTP 通道；
-- `search`：按 `searchBackends` 配置顺序尝试后端（默认 Exa → jina）；后端失败后按顺序回退，全部失败返回结构化错误；
-- `githubSearch` / `biliSearch`：走 `exec` 通道（gh / bili CLI，实际执行在 engine 外部）；
-- `v2exHot`：走安全 HTTP 通道；
-- `download`：走 tool-container `network` 域路由（yt-dlp），默认不注入；
-- `doctor` / `checkUpdate`：走 `exec` 通道调用 `agent-reach`，供 agent 自检后端与版本。
-
-### 6.2 注入点
-
-- 在 `buildCapabilities` 中，`web` 对象迁移为 `net` 能力对象；`web.fetchText` 兼容别名指向 `net.fetch`；
-- 在 `task-capability-inject.ts` 中，按角色 `capabilities` 注入 `net` 对象的具体方法：
-  - `allowed(caps, 'net.search')` 才注入 `search`；
-  - `allowed(caps, 'net.download')` 才注入 `download`；
-  - `allowed(caps, 'net.doctor')` 才注入 `doctor`；
-  - `allowed(caps, 'net.checkUpdate')` 才注入 `checkUpdate`；
-  - 缺省不注入 = 角色无对应网络能力。
-
-### 6.3 静态审核
-
-- `PTC_CAPABILITIES` 注册 `net.*` 后，`ptc/surface.ts` 自动识别 `net.search()` 等调用；
-- 角色 `capabilities` 白名单控制可调用子集；
-- 参数级约束（如 `net.download` 默认关闭、`net.search` n 范围）在能力实现层和契约 validate 层双重校验。
-
-## 7. Execute 层路由
-
-| 能力 | Execute 目标 | 说明 |
+| 层 | 拥有 | 不拥有 |
 |---|---|---|
-| `net.fetch` / `net.read` / `net.v2exHot` | kernel-ts（`web-transport`） | engine 内安全 HTTP 传输；实际连接仍出网 |
-| `net.search` | external-tool（`agent-reach` / mcporter / jina） | 优先 CLI/工具容器，失败回退 HTTP |
-| `net.githubSearch` | external-tool（gh CLI） | 需要 gh 登录态，hostOnly 或工具容器 |
-| `net.biliSearch` | external-tool（bili CLI） | 需要 bili CLI |
-| `net.download` | external-tool（`network` 域 yt-dlp） | 按 tool-manifest 路由 |
-| `net.doctor` / `net.checkUpdate` | external-tool（`agent-reach` CLI） | agent 自检/版本检查 |
+| Tool | 能力发现、schema 投影、兼容别名 | 真实执行、provider 品牌、凭据 |
+| Code | PTC 状态、控制流、静态审核、typed proxy | 网络 socket、DNS、provider key、任意进程 |
+| Execute | egress、SSRF、限流、重试、provider、解析、artifact、trace | 研究策略、来源信任、Intake 写入 |
 
-`tool-registry.ts` / `tool-translator.ts` 增加 `net.*` 到工具容器/CLI 的映射；`scripts/check/check-tce-coverage.ts` 扩展为所有 `net.*` 必须存在契约声明。
+## 3. 与旧草案的关键修正
 
-## 8. Knowledge Intake 整合
-
-- `fetch-broker` 继续保留 Trust Policy / admission / raw artifact 语义，但底层传输统一调用 `web-transport`（现状已如此）；
-- 新增可选 `lookup` / `request` 注入缝已存在；未来可让 `net.fetch` 与 fetch-broker 共用同一安全传输模块；
-- `source-discovery.ts` 增加 `SearchAdapter` 端口：
-
-```ts
-export interface SearchAdapter {
-  search(query: string, opts?: { limit?: number }): Promise<Array<{ title: string; url: string; snippet?: string }>>;
-}
-```
-
-- 默认实现可先接 `net.search`；在未配置真实 provider 时返回空并保持 `EVALUATION-INCOMPLETE`，不伪造来源。
-
-## 9. Wave 实施计划
-
-### Wave A — 契约与类型（Contract）
-
-- `PtcCapabilityHost` 增加 `external-tool`；
-- `PTC_CAPABILITIES` 新增 `net.*` 条目（含 `toolSchema`、`asAction`、validate）；
-- `web.fetchText` 保留兼容，标记为 `net.fetch` 别名；
-- 新增 `ptc-network-contract.test.ts`：契约存在性、参数校验、asAction 投影。
-
-### Wave B — 统一能力实现（Implementation）
-
-- 新增 `network.ts` capability factory；
-- `buildCapabilities` / `task-capability-inject` 接入 `net`；
-- 新增 `network-capability.test.ts`：fake exec/http 后端覆盖全部方法；
-- 行为与现有 `web.fetchText` / `reach.*` 保持一致（输出/错误文案尽量不变）。
-
-### Wave C — 工具面投影（Adapter）
-
-- `web-fetch` 扩展改为 `web.get` → `net.fetch` 的薄投影；
-- `agent-reach` 扩展改为 `reach.*` → `net.*` 的薄投影；
-- AGENT_TOOLS 中旧工具保留兼容 shim，但实现指向 `net` 能力对象；
-- 新增 tool-call 投影测试：旧工具名调用后实际走 `net.*` 能力。
-
-### Wave D — Execute 路由与覆盖检查
-
-- `tool-registry` / `tool-translator` 增加 `net.download` → `network` 域、`net.githubSearch`/`net.biliSearch` → 对应 CLI；
-- `check-tce-coverage.ts` 纳入 `net.*`；
-- 工具容器 manifest 如需新增 bili/gh 等工具再评估（当前可先走宿主 CLI / agent-reach）。
-
-### Wave E — Knowledge Intake / 来源发现
-
-- `source-discovery.ts` 增加 `SearchAdapter` 端口；
-- 默认 adapter 接 `net.search`（或保留未配置空实现）；
-- 补充来源发现骨架测试。
-
-### Wave F — 文档与收尾
-
-- 更新 `docs/pth/concepts.md` / `docs/pth/architecture.md` / `docs/pth/module-ownership.md`；
-- 更新 `docs/fracta-engine-execution-topology.md` 网络工具矩阵；
-- 更新 release notes / plan inventory；
-- 全量 lint + test + build 绿。
-
-## 10. 验收标准
-
-1. `PTC_CAPABILITIES` 中所有 `net.*` 均有契约、`toolSchema`、`asAction`；
-2. `web.get`、`reach.*` 旧工具名仍可调用，但内部路由到 `net.*`；
-3. `web.fetchText` 行为不变；
-4. 角色未声明 `net.*` 时，ts 程序调用 `net.search` 被静态审核拒绝；
-5. `net.download` 默认不注入，只有显式 capability 才可用；
-6. Knowledge Intake 仍使用 hardened fetch broker，未因重构放宽 SSRF/Trust Policy；
-7. `npm run lint`、`npm test`、`npm run build` 全绿；
-8. TCE coverage 检查包含 `net.*`，无未契约网络工具。
-
-## 11. 风险与对策
-
-| 风险 | 对策 |
+| 旧草案 | V1 对齐后 |
 |---|---|
-| 旧工具名/行为回归 | Wave C 保留兼容 shim + 全量回归 + golden 测试 |
-| `net.search` 后端（Exa/jina/gh/bili）依赖外部登录态/网络 | 失败时返回结构化错误并提示 `net.doctor`；不阻断非网络任务 |
-| `external-tool` 宿主扩展影响静态审核 | 只新增宿主声明，不改变“不透入字符串参数”边界 |
-| 知识摄入被错误复用为普通网络能力 | fetch-broker 保持独立 Trust Policy 包裹层，只共享传输底座 |
-| 范围膨胀 | 非目标明确排除登录态平台、爬虫算法、完整 N26 外环 |
+| `PtcCapabilityHost` 增加 `external-tool` 表示路由 | 拆为 **`codeHost`**（proxy 在哪个编排 runtime 可用）与 **Execute binding**（实际发往哪个 Execute service / target） |
+| `net.read` 作为能力 | 不注册；`fetch + extract` 透明 Code 配方 |
+| `createNetworkCapability` 接受 `httpGet/exec` | 注入 typed ports / `NetworkExecuteClient`，禁止任意命令与任意 URL 通道 |
+| provider 品牌写在能力契约 | 契约 provider-neutral；品牌只在 adapter registry/config |
+| Exa→jina 自动 fallback | 仅在语义兼容 implementation 间 fallback，每次 attempt 留痕 |
+| `web.fetchText` 作为 `net.fetch` 别名 | legacy implementation binding + 独立 deprecation policy；新 `net.fetch` 默认 HTTPS-only |
+| 统一 `AgentToolResult` | search/fetch/extract 使用版本化 discriminated result |
+| Search 结果可能进入 Intake | 类型隔离；V1 不提供 Search→Intake 隐式转换 |
 
-## 12. 已确认决策（2026-08-25）
+## 4. 契约与能力定义
 
-1. **能力命名**：全部统一为 `net.*` 族；`web.fetchText` 仅作为迁移期兼容别名，最终随引用清理退役。
-2. **`net.doctor` / `net.checkUpdate`**：进入 agent 能力面，供 agent 自检后端与版本。
-3. **`net.search` 后端顺序**：可配置（默认 Exa → jina），通过配置决定尝试顺序。
-4. **`net.download`（yt-dlp）**：按 TCE 原则进入 agent 能力面，但实际执行始终由 Execute 层路由到 engine 外部的 tool-container（`network` 域）；默认不注入，只有显式角色能力才可用。
+### 4.1 版本化 wire contracts
+
+新增 `packages/pth-contracts/src/network-information.ts`，包含：
+
+- `SearchRequestV1` / `SearchHitV1` / `SearchResponseV1`
+- `FetchRequestV1` / `ArtifactRefV1` / `FetchResponseV1`
+- `ExtractRequestV1` / `ExtractedDocumentV1`
+- `NetworkOperationContextV1`
+- `ProviderAttemptV1`
+- 结构化错误码（`NET_CAPABILITY_DENIED`、`NET_POLICY_DENIED`、`NET_PRIVATE_ADDRESS` 等）
+
+关键不变量：
+
+- `queryDigest` 而非完整 query 进普通日志；
+- `discovery.providerId` 与 `publisher.origin` 分离；
+- `trust` 固定为 `public-untrusted` / `processed-untrusted`；
+- `ArtifactRefV1` 从 V1 起稳定，未来可切换对象存储。
+
+### 4.2 PTC 能力注册
+
+在 `PTC_CAPABILITIES` 增加 `net` family：
+
+| 能力 | 签名 | codeHost | Execute binding |
+|---|---|---|---|
+| `net.search` | `(query, opts?)` | `kernel-ts` | `execute-service:network-broker` |
+| `net.fetch` | `(url, opts?)` | `kernel-ts` | `execute-service:network-broker` |
+| `net.extract` | `(artifactRef, opts?)` | `kernel-ts` | `execute-service:extractor` |
+
+扩展 `PtcCapabilityDef`（或由 contracts canonical record 单向生成）：
+
+- `contractVersion`
+- `effect: "pure" | "read-external" | "write-artifact" | "admin"`
+- `discoveryChannels: { ptc, tool, prompt }`
+- `codeHost`
+- `toolSchema`
+
+`PTC_CAPABILITIES` 仍是 Tool/Code 单一事实源；`CapabilityImplementation` / `ExecuteServiceDefinition` 是 Execute 路由事实源。
+
+### 4.3 静态审核
+
+- `surface.ts` 识别 `net.search()` / `net.fetch()` / `net.extract()`；
+- 角色 grant 只允许 exact capability ID 或已声明 family grant；
+- 未知、歧义、alias 冲突必须 CI 失败；
+- 未授权调用在 Execute/provider 调用前被拒绝，backing call 数为 0。
+
+## 5. Execute 网络基础服务
+
+### 5.1 组件
+
+| 组件 | 位置 | 职责 |
+|---|---|---|
+| `NetworkExecuteGateway` | `src/pth/execution/network/gateway.ts` | 接收 typed request，执行 policy/budget/routing |
+| `SafeHttpTransport` | `src/pth/execution/network/safe-http-transport.ts` | 从 kernel 路径迁移 ownership；保留旧 import barrel 兼容 |
+| `SearchProvider` adapters | `src/pth/execution/network/providers/*` | 每个 provider typed、可替换、无品牌进入契约 |
+| `Extractor` adapters | `src/pth/execution/network/extractors/*` | 默认离线、无二次网络、确定性 output hash |
+| `ArtifactStore` adapters | `src/pth/execution/network/artifacts/*` | V1 task-scoped + PG-inline，未来 object |
+| `ProviderRegistry` / `OperationPolicy` / `Budget` | `src/pth/execution/network/*` | provider 身份、版本、配额、预算、retention |
+
+### 5.2 安全底线
+
+- 所有 URL 在 provider/socket 调用前做 userinfo、scheme、DNS/IP、internal suffix、敏感 query 检查；
+- 每次 redirect 重新校验；
+- 超限响应不产生完整 artifact，返回 `NET_SIZE_LIMIT`；
+- provider error/doctor/trace 不泄露 key、Authorization、cookie 或完整敏感 query。
+
+## 6. 注入与授权
+
+- `buildCapabilities`：将 `web` 对象迁移为 `net` typed proxy；`web.fetchText` 保留 legacy binding；
+- `task-capability-inject.ts`：按角色 `capabilities` 方法级注入 `net.search/fetch/extract`；
+- 未声明即“不存在”，不进入能力索引；
+- `net.download` / `net.doctor` / `net.checkUpdate` 默认不注入，V1-B 再启用。
+
+## 7. 兼容迁移
+
+| 旧入口 | V1 归宿 |
+|---|---|
+| `web.fetchText` | legacy implementation binding，复用同一 fetch port + deprecation policy；新 `net.fetch` 默认 HTTPS-only |
+| `web.get` | Tool→Code 投影到 `net.fetch`，不保留独立执行体 |
+| `reach.webSearch` | Tool→Code 投影到 `net.search` |
+| `reach.webRead` | 静态审核前展开为 `net.fetch` + `net.extract`；要求两个 grant |
+| `reach.ghSearch` / `biliSearch` / `v2exHot` | V1-B 垂直 provider；未迁移前显式标记 legacy |
+| `yt-dlp` | V1-B `net.download`，固定 argv、默认不注入 |
+| `reach.doctor` / `checkUpdate` | V1-B admin capability |
+
+兼容分支由服务端冻结的 implementation binding 选择，LLM 参数面不能出现 `legacy/allowHttp/compatibilityMode` 等开关。
+
+## 8. Search / Research / Intake 边界
+
+- V1 只启用 `search-public` profile；
+- `research-public` 仅冻结名称与安全边界，部署策略 unavailable；
+- `intake-authorized` 只是 Intake 内部 trace 分类，不能由 `net.*` 请求选择；
+- Intake 继续走 N29 内环：人类签名 Trust Policy → Subscription → quarantine → revision → 双核验 → CAS promotion；
+- `source-discovery` / `auto-expansion` 保持 feature-off，不纳入 V1 完成度。
+
+## 9. 存储
+
+| 数据 | V1 存储 |
+|---|---|
+| task/role/grant/policy/trace | PostgreSQL |
+| SearchResponse | 默认不持久化全文；随 task result 或短期 trace |
+| 普通 Search/Research raw page | task-scoped ephemeral ArtifactStore；PG 只存 manifest |
+| Intake 小型有界 raw HTML/text | 继续 PG `BYTEA` |
+| 大 PDF/图片/音视频 | V1 拒绝/延后，未来 Object Store |
+
+从 V1 起统一返回 `ArtifactRefV1`，内容寻址、不可变、可重算 hash。
+
+## 10. 实施 Wave
+
+### Wave 0：文档与边界校正
+
+- 将 `kernel-ts` 定义为 PTC orchestration runtime；
+- 旧 `PtcCapabilityHost` 迁移/改名为 `codeHost`，另建 Execute binding；
+- 冻结 `search-public` / `research-public` / Intake trace 分类；
+- `source-discovery` / `auto-expansion` 标记为实验骨架并保持关闭；
+- 收口 toolstore `agent-reach` 与 secrets CLI 两条旧路径。
+
+### Wave 1：契约与 Catalog
+
+- contracts 增加 Search/Fetch/Extract/Artifact/Trace/Error 类型；
+- `PTC_CAPABILITIES` 增加 `net` family 三个核心能力；
+- 定义 `CapabilityImplementation` / `ExecuteServiceDefinition` / TS invocation binding；
+- 从同一事实源生成 by-capability 与“TS 可调用能力”文档；
+- 用 fake Execute client 完成 contract/projection/static audit/injection 测试。
+
+### Wave 2：Execute 网络基础服务
+
+- 安全传输 ownership 移到 Execute 公共底座；
+- 实现 `NetworkExecuteGateway`、OperationPolicy、Budget、ProviderRegistry；
+- 接一个 raw-hit SearchProvider；
+- 实现 `net.fetch` public profile；
+- 接无网络 deterministic extractor；
+- 实现 task-scoped ArtifactStore adapter 与结构化 trace。
+
+### Wave 3：兼容投影与零散能力收编
+
+- `web.get` / `reach.*` 变为 Code projection；
+- `reach.webRead` 展开为 `fetch + extract`；
+- `web.fetchText` 进入 legacy implementation binding；
+- 更新 role/prompt 为精确 `net.*` grants；
+- 评估 GitHub/B 站/V2EX adapter；`yt-dlp` 保持固定 argv。
+
+### Wave 4：策略、来源与可观测
+
+- provider/source/egress/budget/retention policy；
+- provider/publisher/processor 三方留痕；
+- query redaction、敏感输入拒绝、凭据泄漏回归；
+- attempts/partial/stopReason/bytes/latency/billable units 观测；
+- Search/Research→Intake 类型隔离测试。
+
+### Wave 5：验收与文档收尾
+
+- TCE coverage 纳入所有 `net.*` 与 legacy projection；
+- 更新 concepts/architecture/module ownership/execution topology；
+- 跑 V1 acceptance matrix；
+- 记录基准：Code proxy 固定开销、provider 延迟、extract 吞吐、artifact 大小。
+
+## 11. 文件落点
+
+| 责任 | 建议位置 |
+|---|---|
+| wire/domain contracts | `packages/pth-contracts/src/network-information.ts` |
+| PTC capability definitions | `packages/pth-kernel-interpreter/src/ptc/contract.ts` |
+| capability binding contracts | `packages/pth-contracts/src/capability-catalog.ts` |
+| Code typed proxy | `packages/pth-kernel-execution/src/execution/ptc/capabilities/network-proxy.ts` |
+| Execute gateway | `src/pth/execution/network/gateway.ts` |
+| provider adapters | `src/pth/execution/network/providers/*` |
+| safe transport | `src/pth/execution/network/safe-http-transport.ts` |
+| extractor adapters | `src/pth/execution/network/extractors/*` |
+| artifact adapters | `src/pth/execution/network/artifacts/*` |
+| task injection | `src/pth/runner/exec-modes/task-capability-inject.ts` |
+
+目录名是实施建议，实际提交前按 package boundary 检查器确认依赖方向。
+
+## 12. 验收标准（V1）
+
+1. `net.*` tool schema 全部从 `PTC_CAPABILITIES` 派生；
+2. role 未声明 `net.search` 时静态审核失败，Execute/provider 调用数为 0；
+3. 一个真实 raw-hit provider 返回符合 `net.search.response/v1` 的结果；
+4. provider 空/限流/超时/认证失败分别有可区分 attempt/status；
+5. `net.fetch` 保存 final URL、redirect chain、media type、hash、byteLength；
+6. 超限响应不产生完整 artifact；
+7. `net.extract` 对同一 artifact/hash/processor 产生相同 output hash，且不发起网络；
+8. `reach.webRead` 投影在静态审核前展开为 `fetch + extract`，缺少任一 grant 都失败；
+9. Search/Research 类型不能传给 Intake EvidenceReference 校验器；
+10. `npm run lint`、`npm test`、`npm run build` 全绿。
+
+## 13. 非目标防膨胀
+
+V1 代码中不应出现：
+
+- `DeepSearchService` / 自动 `ResearchPlanner` / 多 Agent supervisor；
+- success-count source trust；
+- SearchResult 直接转 official/candidate；
+- 未实现语义的 `coverageScore=1` / `complete=true`；
+- 用 provider fallback 数量冒充“来源交叉验证”。

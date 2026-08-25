@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-25T15:41:32.151Z",
+  "generatedAt": "2026-08-25T18:07:21.451Z",
   "taxonomy": {
     "docs": [
       "index",
@@ -417,6 +417,12 @@
       "status": "reference"
     },
     {
+      "path": "docs/pth/design/task-logic-multi-role-collaboration-design.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/design/tce-network-module-refactor-design.md",
       "category": "designs",
       "product": "pth",
@@ -615,6 +621,12 @@
       "status": "active"
     },
     {
+      "path": "docs/pth/plan/task-logic-multi-role-collaboration-implementation-plan.md",
+      "category": "designs",
+      "product": "pth",
+      "status": "reference"
+    },
+    {
       "path": "docs/pth/plan/tce-code-model-remediation-plan.md",
       "category": "designs",
       "product": "pth",
@@ -745,6 +757,12 @@
       "category": "reports",
       "product": "pth",
       "status": "reference"
+    },
+    {
+      "path": "docs/pth/report/network-information-foundation-v1-architecture-report-2026-08-26.md",
+      "category": "reports",
+      "product": "pth",
+      "status": "historical"
     },
     {
       "path": "docs/pth/report/phase1-deps-split-report.md",
