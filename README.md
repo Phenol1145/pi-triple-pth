@@ -85,4 +85,5 @@ npm run test:e2e   # Playwright operator console
 ## Documentation
 
 - [docs/pth](./docs/pth) · [deployment](./docs/pth/deployment.md) · [configuration](./docs/pth/configuration.md) · [module-ownership](./docs/pth/module-ownership.md)
+- [dsh-pth-interface](https://github.com/Phenol1145/dsh-pth-interface) · [npm](https://www.npmjs.com/package/dsh-pth-interface) —— dsh interface 模式插件（独立项目）：agent 只持 pth_* 工具的 PTH 管理前端
 - [Phase 2 拆仓报告（主仓归档）](https://github.com/Phenol1145/pi-triple/blob/main/docs/pth/phase2-pth-split-report.md)
