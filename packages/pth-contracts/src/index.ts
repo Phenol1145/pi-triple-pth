@@ -24,3 +24,5 @@ export * from "./professional-computing.js";
 export * from "./notebook-guide.js";
 export * from "./knowledge-fingerprint.js";
 export * from "./system-inspection.js";
+export * from "./network-information.js";
+export * from "./capability-catalog.js";

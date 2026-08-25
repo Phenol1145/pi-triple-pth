@@ -61,6 +61,7 @@ export const TOOL_GROUPS: Record<string, string[]> = {
   execTs: ["ts.run", "ts.eval"],
   execPy: ["python.run", "python.eval"],
   execBash: ["bash.run", "bash.eval"],
+  net: ["net.search", "net.fetch", "net.extract"],
   dev: ["dev.write", "dev.edit", "dev.build", "dev.run", "dev.save", "dev.list"],
   debug: ["debug.attach", "debug.breakpoint", "debug.continue", "debug.step", "debug.snapshot", "debug.evaluate", "debug.detach", "debug.sessions"],
   write: ["write.create", "write.edit", "write.read", "write.list", "write.save", "write.section"],
@@ -137,6 +138,7 @@ export const AGENT_TOOLS_DESCRIPTION = `可用工具（每次输出一个 JSON �
 - ts.eval: {code, mode?} —— 【单表达式求值】一行查询/计算（不声明变量——表达式值即结果）：await memory.query(...) 统计等
 - python.run: {code, mode?} —— python 程序执行（_result = 值 回传）；python.eval: {code} —— 单表达式求值（值即结果）
 - bash.run: {command, mode?} —— 命令序列；bash.eval: {command} —— 单条命令
+- 【网络信息基础】net.search/fetch/extract —— 有界公开检索/安全抓取/离线解析（typed Execute proxy）
 - 【生产核·代码】dev.write/edit/build/run/save/list —— C 产物开发（asp.cd("dev")；编译类语言唯一入口）
 - 【调试】debug.attach/breakpoint/continue/step/snapshot/evaluate/detach/sessions —— C 调试会话（句柄化 sessionId——状态在 sandbox）
 - 【生产核·文档】write.create/edit/read/list/save/section —— 文档创作（asp.cd("write")；大纲→草稿→修订→定稿；section 章节组织）

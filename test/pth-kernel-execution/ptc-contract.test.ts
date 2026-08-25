@@ -21,6 +21,9 @@ describe("PTC 契约注册表（A1 Phase 1）", () => {
     expect(gen["memory.write"]!({ kind: "x", content: "y" })).toBe('return await memory.write({"kind":"x","content":"y"});');
     expect(gen["llm.complete"]!({ system: "S", user: "U" })).toBe('return await llm.complete([{ role: "system", content: "S" }, { role: "user", content: "U" }]);');
     expect(gen["web.fetchText"]!({ url: "http://x" })).toBe('return await web.fetchText("http://x");');
+    expect(gen["net.search"]!({ query: "q" })).toBe('return await net.search({"query":"q"});');
+    expect(gen["net.fetch"]!({ url: "https://example.com" })).toBe('return await net.fetch({"url":"https://example.com"});');
+    expect(gen["net.extract"]!({ artifactRef: { artifactId: "a" }, mode: "main-content" })).toBe('return await net.extract({"artifactRef":{"artifactId":"a"},"mode":"main-content"});');
     expect(gen["fs.readText"]!({ path: "p" })).toBe('return await fs.readText("p");');
     expect(gen["fs.list"]!({ dir: "d" })).toBe('return await fs.list();');
     expect(gen["fs.list"]!({})).toBe('return await fs.list();');
@@ -32,7 +35,7 @@ describe("PTC 契约注册表（A1 Phase 1）", () => {
 
   it("AGENT_CAPABILITY_AS_ACTION 即派生映射（单一真相源）", () => {
     expect(AGENT_CAPABILITY_AS_ACTION["memory.query"]!({ sql: "SELECT 1" })).toBe('return await memory.query("SELECT 1");');
-    expect(Object.keys(AGENT_CAPABILITY_AS_ACTION).length).toBe(36);   // 原 15 + dev/write/debug 20 项 + W3 done 1 项
+    expect(Object.keys(AGENT_CAPABILITY_AS_ACTION).length).toBe(39);   // 原 36 + net.search/fetch/extract 3 项
   });
 
   it("参数校验：非法调用抛 PtcContractError（结构化——capability 可读）", () => {

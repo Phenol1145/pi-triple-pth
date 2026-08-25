@@ -5,3 +5,4 @@
 export { createDevCapability, type DevCapability, type DevCapabilityDeps } from "./dev.js";
 export { createWriteCapability, type WriteCapability, type WriteCapabilityDeps } from "./write.js";
 export { createDebugCapability, type DebugCapability, type DebugCapabilityDeps } from "./debug.js";
+export { createNetworkCapability, type NetworkCapability, type NetworkCapabilityDeps, type NetworkExecuteClient } from "./network-proxy.js";

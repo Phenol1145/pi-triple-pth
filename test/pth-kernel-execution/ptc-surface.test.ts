@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { findOutOfBoundsRoots, buildSurfaceGuidance, capabilityRoots } from "@away_from/pth-kernel-interpreter";
+import { findOutOfBoundsRoots, findOutOfBoundsCalls, buildSurfaceGuidance, capabilityRoots } from "@away_from/pth-kernel-interpreter";
 
-const KNOWN = new Set(["memory", "llm", "web", "fs", "env", "state", "cache", "skills", "bash", "python", "results", "context"]);
+const KNOWN = new Set(["memory", "llm", "web", "net", "fs", "env", "state", "cache", "skills", "bash", "python", "results", "context"]);
 
 describe("能力面越界预检（A1 Phase 3 条目 9——ptc/surface）", () => {
   it("未知能力根 → 越界（拼写错误/未注入/幻视）", () => {
@@ -98,6 +98,15 @@ describe("能力面越界预检（A1 Phase 3 条目 9——ptc/surface）", () =
     expect(findOutOfBoundsRoots('const d = await fetch("http://x")', KNOWN)).toEqual(["fetch"]);
     expect(findOutOfBoundsRoots("process.env.PTH_X", KNOWN)).toEqual(["process"]);
     expect(findOutOfBoundsRoots("setTimeout(fn, 1)", KNOWN)).toEqual(["setTimeout"]);
+  });
+
+  it("TCE 网络 V1：net.* 根放行且方法级静态审核按 grant 拒绝", () => {
+    expect(findOutOfBoundsRoots('await net.search({ query: "q" })', KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots('await net.fetch({ url: "https://example.com" })', KNOWN)).toEqual([]);
+    expect(findOutOfBoundsRoots("await net.extract({ artifactRef: {}, mode: 'links' })", KNOWN)).toEqual([]);
+    expect(findOutOfBoundsCalls('await net.search({ query: "q" })', KNOWN, new Set(["net.search"]))).toEqual([]);
+    expect(findOutOfBoundsCalls('await net.search({ query: "q" })', KNOWN, new Set(["memory"]))).toEqual(["net.search"]);
+    expect(findOutOfBoundsCalls('await net.fetch({ url: "https://x" })', KNOWN, new Set(["net"]))).toEqual([]);
   });
 
   it("多根去重 + 顺序稳定", () => {

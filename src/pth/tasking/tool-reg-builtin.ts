@@ -14,11 +14,13 @@
  *   - scripts/seed/seed-tool-reg.ts（幂等 seed 脚本——seed-wiki 同款）；
  *   - test/pth-tasking/tool-reg-builtin.test.ts（对账钉测试）。
  *
- * 数量事实（2026-08-18 盘点——N14 设计文档写 35 为 B6 退役前旧数）：
- *   PTC_TOOL_DEFS 33 条 = AGENT_TOOLS 27 执行器（含 done 兜底执行器；done 另有
+ * 数量事实（2026-08-26 网络 V1 后盘点）：
+ *   PTC_TOOL_DEFS 37 条 = AGENT_TOOLS 28 执行器（含 done 兜底执行器；done 另有
  *   agent-loop 固定协议特殊处理——result 契约/ASP 元空间门控）+ ASP-only 6
- *   （asp.cd/asp.index/memory.index/cache.load/cache.index/cache.cancel——agent-loop ASP 内联执行）。
- *   ref 约定：27 键直引 AGENT_TOOLS；ASP-only 6 件 ref="asp-inline:<name>"。
+ *   （asp.cd/asp.index/memory.index/cache.load/cache.index/cache.cancel——agent-loop ASP 内联执行）
+ *   + capability-projection 3（net.search/net.fetch/net.extract——Tool→Code→Execute typed proxy）。
+ *   ref 约定：28 键直引 AGENT_TOOLS；ASP-only 6 件 ref="asp-inline:<name>"；
+ *   capability-projection 3 件 ref="capability:<name>"。
  */
 
 import { PTC_TOOL_DEFS } from "@away_from/pth-kernel-interpreter";
@@ -29,6 +31,13 @@ import { buildToolRegContent, type ToolRegSpec } from "@away_from/pth-memory";
 
 /** done 的工具包归属（固定协议——不在任何工具族内） */
 export const TOOL_REG_CORE_PACK = "core";
+
+/**
+ * TCE 网络 V1：capability-projection 工具（Tool→Code→Execute typed proxy）。
+ * 它们没有独立 AGENT_TOOLS 执行体；agent-loop 通过 AGENT_CAPABILITY_AS_ACTION 自动降级为
+ * ts 程序（net.* 能力函数）。tool-reg 用 `capability:<name>` 作为执行器引用，诚实表达“投影”。
+ */
+export const CAPABILITY_PROJECTION_TOOLS = new Set(["net.search", "net.fetch", "net.extract"]);
 
 /** 全部内置角色（登记推导面——MID + DEFAULT + GOVERNANCE） */
 const ALL_BUILTIN_ROLES = [...MID_ROLES, ...DEFAULT_ROLES, ...GOVERNANCE_ROLES];
@@ -55,6 +64,7 @@ export function toolPackOf(toolName: string): string {
  *   AGENT_TOOLS 键（含 done 兜底执行器）→ 键本身；ASP-only → asp-inline:<name>。
  */
 export function builtinExecutorRef(toolName: string): string {
+  if (CAPABILITY_PROJECTION_TOOLS.has(toolName)) return `capability:${toolName}`;
   if (ASP_ONLY_TOOLS.has(toolName)) return `asp-inline:${toolName}`;
   return toolName;
 }
@@ -64,10 +74,15 @@ export function deriveVisibilityRoles(toolName: string): string[] {
   const declared = ALL_BUILTIN_ROLES.filter((r) => r.actionTools && r.actionTools.length > 0);
   // done/pause 属固定协议段（toolsDescription 固定输出，不走工具族声明）——全声明角色可见
   if (toolName === "done" || toolName === "pause") return declared.map((r) => r.id).sort();
-  return declared
+  const explicit = declared
     .filter((r) => expandToolGroups(r.actionTools as string[]).includes(toolName))
     .map((r) => r.id)
     .sort();
+  if (explicit.length > 0) return explicit;
+  // TCE 网络 V1：新 projection 工具尚无显式 actionTools 投放前，先挂到隐式全量角色（这些角色
+  // 本来就因未声明 actionTools 而看到全量工具面），避免 tool-reg 空可见性；Wave 3 再收窄为 net.* grants。
+  if (CAPABILITY_PROJECTION_TOOLS.has(toolName)) return implicitFullFaceRoles();
+  return explicit;
 }
 
 /** 单条 PTC_TOOL_DEFS → builtin tool-reg spec（version 起点 1） */
@@ -128,10 +143,12 @@ export function reconcileBuiltinToolRegs(specs: ToolRegSpec[]): ToolRegReconcile
     if (s.executor.type !== "builtin") { issues.push(`${s.name}：executor 应为 builtin（存量登记）`); continue; }
     const ref = s.executor.ref;
     if (s.command !== `builtin:${ref}`) issues.push(`${s.name}：command 应为 builtin:${ref}（Tool-Reg v2）`);
-    if (ASP_ONLY_TOOLS.has(s.name)) {
+    if (CAPABILITY_PROJECTION_TOOLS.has(s.name)) {
+      if (ref !== `capability:${s.name}`) issues.push(`${s.name}：projection 条目 ref 应为 capability:${s.name}（实 ${ref}）`);
+    } else if (ASP_ONLY_TOOLS.has(s.name)) {
       if (ref !== `asp-inline:${s.name}`) issues.push(`${s.name}：ASP-only 条目 ref 应为 asp-inline:${s.name}（实 ${ref}）`);
     } else if (!(ref in AGENT_TOOLS)) {
-      issues.push(`${s.name}：ref "${ref}" 不在 AGENT_TOOLS 执行器表（新增硬编码工具必须接线执行器或登记为 ASP-only）`);
+      issues.push(`${s.name}：ref "${ref}" 不在 AGENT_TOOLS 执行器表（新增硬编码工具必须接线执行器或登记为 ASP-only/capability-projection）`);
     } else if (ref !== s.name) {
       issues.push(`${s.name}：builtin ref 应等于工具名（实 ${ref}）`);
     }

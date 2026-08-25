@@ -18,11 +18,21 @@
  */
 
 export type PtcFamily =
-  | 'ts-local' | 'memory' | 'llm' | 'web' | 'fs' | 'env' | 'state' | 'cache' | 'kernel' | 'seed' | 'tasks'
+  | 'ts-local' | 'memory' | 'llm' | 'web' | 'net' | 'fs' | 'env' | 'state' | 'cache' | 'kernel' | 'seed' | 'tasks'
   | 'dev' | 'write' | 'debug' | 'loop';
 
-/** 能力宿主声明（ADR-0004：一切入口归一为代码后的执行面归属） */
-export type PtcCapabilityHost = 'kernel-ts' | 'loop' | 'sandbox-debug' | 'toolstore';
+/** PTC orchestration runtime（Code 层代理注入位置；不是 Execute 执行目标） */
+export type PtcCodeHost = 'kernel-ts' | 'loop' | 'sandbox-debug' | 'toolstore';
+
+/** @deprecated 使用 PtcCodeHost / codeHost —— V1 已把“注入位置”与“Execute binding”拆开 */
+export type PtcCapabilityHost = PtcCodeHost;
+
+/** Execute binding：能力实际发往的 typed Execute service / execution target */
+export type PtcExecuteBinding =
+  | { readonly kind: 'execute-service'; readonly serviceId: string; readonly portVersion: string }
+  | { readonly kind: 'execution-target'; readonly targetId: string };
+
+export type PtcCapabilityEffectKind = 'pure' | 'read-external' | 'write-artifact' | 'admin';
 
 export interface PtcCapabilityDef {
   name: string;
@@ -43,8 +53,18 @@ export interface PtcCapabilityDef {
   asAction?: (args: Record<string, unknown>) => string;
   /** 契约注释（如 Phase 3 dispose 制动点标注） */
   note?: string;
-  /** 宿主声明（ADR-0004：kernel ts / loop / sandbox-debug / toolstore） */
-  host?: PtcCapabilityHost;
+  /** 契约版本（V1 网络能力固定 "v1"） */
+  contractVersion?: string;
+  /** 能力效果分类（TCE 静态目录；与三要素 effect 文案不同） */
+  effectKind?: PtcCapabilityEffectKind;
+  /** 发现通道（Tool/Code/prompt 面） */
+  discoveryChannels?: { readonly ptc: boolean; readonly tool: 'required' | 'optional' | 'forbidden'; readonly prompt: boolean };
+  /** Code 代理注入位置（ADR-0004：kernel ts / loop / sandbox-debug / toolstore） */
+  codeHost?: PtcCodeHost;
+  /** @deprecated 使用 codeHost */
+  host?: PtcCodeHost;
+  /** Execute binding（V1：能力实际发往哪个 typed Execute service / target） */
+  executeBinding?: PtcExecuteBinding;
   /** 工具投影 schema（tool-call 面由此派生——W0 消除 PTC_TOOL_DEFS 双源） */
   toolSchema?: {
     properties: Record<string, unknown>;
@@ -178,6 +198,95 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     effect: '纯文本（HTML 剥标签；1MB/30s 上限）',
     validate: (args) => { requireString(args, 0, 'web.fetchText'); },
     asAction: (a) => `return await web.fetchText(${JSON.stringify(String(a.url ?? ''))});`,
+  },
+  // —— TCE 网络 V1：net.* family（Tool→Code→Execute typed proxy）——
+  'net.search': {
+    name: 'net.search', family: 'net', codeHost: 'kernel-ts',
+    contractVersion: 'v1',
+    effectKind: 'read-external',
+    discoveryChannels: { ptc: true, tool: 'required', prompt: true },
+    executeBinding: { kind: 'execute-service', serviceId: 'network-broker', portVersion: 'v1' },
+    params: '(request: SearchRequestV1)',
+    returnType: 'Promise<SearchResponseV1>',
+    anchor: '公开网络检索（provider-neutral、有界、单次）',
+    whenToUse: '需要发现公开 URL/候选来源时——一次有界检索，不做研究规划',
+    effect: 'hits + attempts + cursor + partial/stopReason（query 原文不进普通日志）',
+    validate: (args) => {
+      const r = requireObject(args, 0, 'net.search');
+      if (typeof r.query !== 'string' || r.query.trim() === '') throw new PtcContractError('net.search', 'query 必须是非空字符串');
+      if (r.limit !== undefined && (typeof r.limit !== 'number' || !Number.isFinite(r.limit) || r.limit <= 0)) throw new PtcContractError('net.search', 'limit 必须为正数');
+      if (r.cursor !== undefined && typeof r.cursor !== 'string') throw new PtcContractError('net.search', 'cursor 若提供必须是字符串');
+      if (r.language !== undefined && typeof r.language !== 'string') throw new PtcContractError('net.search', 'language 若提供必须是字符串');
+      if (r.siteAllowlist !== undefined && !Array.isArray(r.siteAllowlist)) throw new PtcContractError('net.search', 'siteAllowlist 必须是数组');
+      if (r.siteDenylist !== undefined && !Array.isArray(r.siteDenylist)) throw new PtcContractError('net.search', 'siteDenylist 必须是数组');
+      if (r.sourceKinds !== undefined && !Array.isArray(r.sourceKinds)) throw new PtcContractError('net.search', 'sourceKinds 必须是数组');
+    },
+    asAction: (a) => `return await net.search(${JSON.stringify(a)});`,
+    toolSchema: { properties: {
+      "query": { "type": "string", "description": "检索 query（必填）" },
+      "limit": { "type": "number", "description": "结果数上限（服务端 clamp）" },
+      "cursor": { "type": "string", "description": "分页游标" },
+      "language": { "type": "string", "description": "语言提示（BCP-47）" },
+      "timeRange": { "type": "object", "description": "可选 {from?, to?} ISO 时间范围" },
+      "siteAllowlist": { "type": "array", "items": { "type": "string" }, "description": "站点白名单（hint）" },
+      "siteDenylist": { "type": "array", "items": { "type": "string" }, "description": "站点黑名单（hint）" },
+      "sourceKinds": { "type": "array", "items": { "type": "string" }, "description": "来源类型 hint，不是 trust" }
+    }, required: ["query"] },
+  },
+  'net.fetch': {
+    name: 'net.fetch', family: 'net', codeHost: 'kernel-ts',
+    contractVersion: 'v1',
+    effectKind: 'read-external',
+    discoveryChannels: { ptc: true, tool: 'required', prompt: true },
+    executeBinding: { kind: 'execute-service', serviceId: 'network-broker', portVersion: 'v1' },
+    params: '(request: FetchRequestV1)',
+    returnType: 'Promise<FetchResponseV1>',
+    anchor: '安全公开 URL GET，返回有界 raw artifact 引用',
+    whenToUse: '需要抓取公开页面/原始内容并保存 artifact 时',
+    effect: 'finalUrl + redirectChain + headers 子集 + hash + ArtifactRefV1（HTTPS-only 默认）',
+    validate: (args) => {
+      const r = requireObject(args, 0, 'net.fetch');
+      if (typeof r.url !== 'string' || r.url.trim() === '') throw new PtcContractError('net.fetch', 'url 必须是非空字符串');
+      if (r.maxBytes !== undefined && (typeof r.maxBytes !== 'number' || !Number.isFinite(r.maxBytes) || r.maxBytes <= 0)) throw new PtcContractError('net.fetch', 'maxBytes 必须为正数');
+      if (r.timeoutMs !== undefined && (typeof r.timeoutMs !== 'number' || !Number.isFinite(r.timeoutMs) || r.timeoutMs <= 0)) throw new PtcContractError('net.fetch', 'timeoutMs 必须为正数');
+      if (r.accept !== undefined && !Array.isArray(r.accept)) throw new PtcContractError('net.fetch', 'accept 必须是数组');
+    },
+    asAction: (a) => `return await net.fetch(${JSON.stringify(a)});`,
+    toolSchema: { properties: {
+      "url": { "type": "string", "description": "公开 URL（必填；HTTPS 默认）" },
+      "accept": { "type": "array", "items": { "type": "string" }, "description": "可接受的 MIME 提示" },
+      "maxBytes": { "type": "number", "description": "响应大小上限" },
+      "timeoutMs": { "type": "number", "description": "超时（毫秒）" },
+      "conditional": { "type": "object", "description": "可选 {etag?, lastModified?}" }
+    }, required: ["url"] },
+  },
+  'net.extract': {
+    name: 'net.extract', family: 'net', codeHost: 'kernel-ts',
+    contractVersion: 'v1',
+    effectKind: 'pure',
+    discoveryChannels: { ptc: true, tool: 'required', prompt: true },
+    executeBinding: { kind: 'execute-service', serviceId: 'extractor', portVersion: 'v1' },
+    params: '(request: ExtractRequestV1)',
+    returnType: 'Promise<ExtractedDocumentV1>',
+    anchor: '对已有 artifact 做无网络、确定性解析',
+    whenToUse: '把已抓取的 artifact 解析为正文/元数据/链接（不发起二次网络）',
+    effect: 'normalized document + processingChain + warnings（output hash 可重算）',
+    validate: (args) => {
+      const r = requireObject(args, 0, 'net.extract');
+      const ref = r.artifactRef;
+      if (!ref || typeof ref !== 'object' || Array.isArray(ref)) throw new PtcContractError('net.extract', 'artifactRef 必须是对象');
+      const a = ref as Record<string, unknown>;
+      if (typeof a.artifactId !== 'string' || a.artifactId.trim() === '') throw new PtcContractError('net.extract', 'artifactRef.artifactId 必须是非空字符串');
+      if (typeof a.sha256 !== 'string' || a.sha256.trim() === '') throw new PtcContractError('net.extract', 'artifactRef.sha256 必须是非空字符串');
+      if (typeof a.immutableLocator !== 'string' || a.immutableLocator.trim() === '') throw new PtcContractError('net.extract', 'artifactRef.immutableLocator 必须是非空字符串');
+      if (!['main-content', 'metadata', 'links', 'structured'].includes(String(r.mode))) throw new PtcContractError('net.extract', 'mode 仅支持 main-content/metadata/links/structured');
+    },
+    asAction: (a) => `return await net.extract(${JSON.stringify(a)});`,
+    toolSchema: { properties: {
+      "artifactRef": { "type": "object", "description": "ArtifactRefV1（必填）" },
+      "mode": { "type": "string", "enum": ["main-content", "metadata", "links", "structured"], "description": "解析模式" },
+      "maxOutputChars": { "type": "number", "description": "输出字符上限" }
+    }, required: ["artifactRef", "mode"] },
   },
   // —— 文件面 ——
   'fs.readText': {
@@ -345,11 +454,11 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
   },
   'tasks.delegate': {
     name: 'tasks.delegate', family: 'tasks',
-    params: '(input: { to: string; title: string; text: string; template?: string; params?: object; tags?: string[]; context?: object; expect?: "result"|"artifact"|"report" })',
-    returnType: 'Promise<{ taskId: string; roleId: string; path: string[] }>',
-    anchor: '父 worker 向直接子类型投递任务（0.16.4 投递原语）',
-    whenToUse: '把自包含子任务派发给直接子类型并立即拿回 taskId',
-    effect: '异步投递——服务端按调用者身份盖章 parent/path/lineageId，组织权违规调用即拒绝',
+    params: '(input: { to: string; title: string; text: string; template?: string; params?: object; tags?: string[]; context?: object; expect?: "result"|"artifact"|"report"; submissionKey?: string; dependency?: "required" })',
+    returnType: 'Promise<{ taskId: string; roleId: string; path: string[]; submissionKey: string; state: "submitted"|"running"|"paused"|"terminal"; observation?: { status: "completed"|"rejected"|"cancelled"|"escalated"; summary: string; provenance: string[]; artifactRefs: string[]; error?: { family: string; message: string; retryable: false } }; question?: { questionId: string; prompt: string; childTaskId: string } }>',
+    anchor: '父 worker 向直接子类型投递任务（0.16.4 投递原语；V1 持久化子任务委派）',
+    whenToUse: '把自包含子任务派发给直接子类型；同 submissionKey 重跑返回既有 child，不重复创建',
+    effect: '异步投递——服务端按调用者身份盖章 parent/path/lineageId，组织权违规调用即拒绝；required dependency 未终结时父任务进入 waiting_dependency',
     validate: (args) => {
       const e = requireObject(args, 0, 'tasks.delegate');
       if (typeof e.to !== 'string' || e.to.trim() === '') throw new PtcContractError('tasks.delegate', 'to 必须是非空字符串');
@@ -358,6 +467,12 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
       if (e.template !== undefined && typeof e.template !== 'string') throw new PtcContractError('tasks.delegate', 'template 可选——若提供必须是字符串');
       if (e.expect !== undefined && !['result', 'artifact', 'report'].includes(String(e.expect))) {
         throw new PtcContractError('tasks.delegate', 'expect 仅支持 result/artifact/report');
+      }
+      if (e.submissionKey !== undefined && (typeof e.submissionKey !== 'string' || e.submissionKey.trim() === '' || e.submissionKey.length > 128 || !/^[A-Za-z0-9:_@.-]+$/.test(e.submissionKey))) {
+        throw new PtcContractError('tasks.delegate', 'submissionKey 可选——若提供必须是 1..128 字符且仅含 [A-Za-z0-9:_@.-]');
+      }
+      if (e.dependency !== undefined && e.dependency !== 'required') {
+        throw new PtcContractError('tasks.delegate', 'dependency 仅支持 required');
       }
     },
     asAction: (a) => `return await tasks.delegate(${JSON.stringify(a)});`,
@@ -411,7 +526,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     effect: '扩展能力注入',
   },
   'python.run': {
-    name: 'python.run', family: 'kernel', host: 'kernel-ts',
+    name: 'python.run', family: 'kernel', codeHost: 'kernel-ts',
     params: '(input: { code: string; mode?: string })',
     returnType: 'Promise<InterpreterResult>',
     anchor: "python 程序——python 生态/数据计算的多语句执行",
@@ -434,7 +549,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["code"] },
   },
   'python.eval': {
-    name: 'python.eval', family: 'kernel', host: 'kernel-ts',
+    name: 'python.eval', family: 'kernel', codeHost: 'kernel-ts',
     params: '(input: { code: string; mode?: string })',
     returnType: 'Promise<InterpreterResult>',
     anchor: "python 单表达式——一行计算/查询",
@@ -457,7 +572,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["code"] },
   },
   'bash.run': {
-    name: 'bash.run', family: 'kernel', host: 'kernel-ts',
+    name: 'bash.run', family: 'kernel', codeHost: 'kernel-ts',
     params: '(input: { command: string; mode?: string })',
     returnType: 'Promise<InterpreterResult>',
     anchor: "bash 命令序列——环境操作/文件检查/管道",
@@ -480,7 +595,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["command"] },
   },
   'bash.eval': {
-    name: 'bash.eval', family: 'kernel', host: 'kernel-ts',
+    name: 'bash.eval', family: 'kernel', codeHost: 'kernel-ts',
     params: '(input: { command: string; mode?: string })',
     returnType: 'Promise<InterpreterResult>',
     anchor: "bash 单命令——ls/cat/grep 等简单探测",
@@ -503,7 +618,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["command"] },
   },
   'ts.run': {
-    name: 'ts.run', family: 'ts-local', host: 'kernel-ts',
+    name: 'ts.run', family: 'ts-local', codeHost: 'kernel-ts',
     params: '(input: { code: string; mode?: string })',
     returnType: 'Promise<InterpreterResult>',
     anchor: "ts 程序（程序模式——优先）——一个程序组合多能力",
@@ -526,7 +641,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["code"] },
   },
   'ts.eval': {
-    name: 'ts.eval', family: 'ts-local', host: 'kernel-ts',
+    name: 'ts.eval', family: 'ts-local', codeHost: 'kernel-ts',
     params: '(input: { code: string; mode?: string })',
     returnType: 'Promise<InterpreterResult>',
     anchor: "ts 单表达式——一行查询/计算",
@@ -549,7 +664,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["code"] },
   },
   'done': {
-    name: 'done', family: 'loop', host: 'loop',
+    name: 'done', family: 'loop', codeHost: 'loop',
     params: '(result: unknown, summary?: string)',
     returnType: 'Promise<{ ok: true }>',
     anchor: "任务完成——提交最终产出",
@@ -567,7 +682,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["result"] },
   },
   'pause': {
-    name: 'pause', family: 'loop', host: 'loop',
+    name: 'pause', family: 'loop', codeHost: 'loop',
     params: '(input: { question: string; context?: unknown })',
     returnType: 'Promise<{ ok: true }>',
     anchor: "向发布者提问——任务暂停等待澄清",
@@ -585,7 +700,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["question"] },
   },
   'dev.write': {
-    name: 'dev.write', family: 'dev', host: 'kernel-ts',
+    name: 'dev.write', family: 'dev', codeHost: 'kernel-ts',
     params: '(input: { path: string; code: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: { path: string }; stdout: string }>',
     anchor: "写代码——实现第一步",
@@ -607,7 +722,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await dev.write(${JSON.stringify(a)});`,
   },
   'dev.edit': {
-    name: 'dev.edit', family: 'dev', host: 'kernel-ts',
+    name: 'dev.edit', family: 'dev', codeHost: 'kernel-ts',
     params: '(input: { path: string; oldText: string; newText: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: { path: string }; stdout: string }>',
     anchor: "改代码——编译/运行报错后精修",
@@ -630,7 +745,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await dev.edit(${JSON.stringify(a)});`,
   },
   'dev.build': {
-    name: 'dev.build', family: 'dev', host: 'kernel-ts',
+    name: 'dev.build', family: 'dev', codeHost: 'kernel-ts',
     params: '(input: { path: string; cc?: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value?: unknown; stdout: string }>',
     anchor: "编译验证——写完代码检查语法",
@@ -650,7 +765,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await dev.build(${JSON.stringify(a)});`,
   },
   'dev.run': {
-    name: 'dev.run', family: 'dev', host: 'kernel-ts',
+    name: 'dev.run', family: 'dev', codeHost: 'kernel-ts',
     params: '(input: { path: string; cc?: string; timeoutMs?: number; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value?: unknown; stdout: string }>',
     anchor: "运行验证——编译+运行一步",
@@ -673,7 +788,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await dev.run(${JSON.stringify(a)});`,
   },
   'dev.save': {
-    name: 'dev.save', family: 'dev', host: 'kernel-ts',
+    name: 'dev.save', family: 'dev', codeHost: 'kernel-ts',
     params: '(input: { name: string; path: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: { name: string }; stdout: string }>',
     anchor: "交付保存——验证通过后",
@@ -693,7 +808,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await dev.save(${JSON.stringify(a)});`,
   },
   'dev.list': {
-    name: 'dev.list', family: 'dev', host: 'kernel-ts',
+    name: 'dev.list', family: 'dev', codeHost: 'kernel-ts',
     params: '(input?: { mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: string[]; stdout: string }>',
     anchor: "查看已有编译单元——实现前先查复用",
@@ -707,7 +822,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await dev.list(${JSON.stringify(a)});`,
   },
   'debug.attach': {
-    name: 'debug.attach', family: 'debug', host: 'sandbox-debug',
+    name: 'debug.attach', family: 'debug', codeHost: 'sandbox-debug',
     params: '(input: { code?: string; path?: string; cc?: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: { sessionId: string }; stdout: string }>',
     anchor: "调试第一步——dev.run 异常/崩溃时",
@@ -730,7 +845,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await debug.attach(${JSON.stringify(a)});`,
   },
   'debug.breakpoint': {
-    name: 'debug.breakpoint', family: 'debug', host: 'sandbox-debug',
+    name: 'debug.breakpoint', family: 'debug', codeHost: 'sandbox-debug',
     params: '(input: { sessionId: string; line: number; condition?: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: unknown; stdout: string }>',
     anchor: "设断点——attach 后",
@@ -753,7 +868,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await debug.breakpoint(${JSON.stringify(a)});`,
   },
   'debug.continue': {
-    name: 'debug.continue', family: 'debug', host: 'sandbox-debug',
+    name: 'debug.continue', family: 'debug', codeHost: 'sandbox-debug',
     params: '(input: { sessionId: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value?: unknown; stdout: string }>',
     anchor: "继续执行——设好断点后",
@@ -770,7 +885,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await debug.continue(${JSON.stringify(a)});`,
   },
   'debug.step': {
-    name: 'debug.step', family: 'debug', host: 'sandbox-debug',
+    name: 'debug.step', family: 'debug', codeHost: 'sandbox-debug',
     params: '(input: { sessionId: string; direction: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value?: unknown; stdout: string }>',
     anchor: "单步——定位具体行",
@@ -790,7 +905,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await debug.step(${JSON.stringify(a)});`,
   },
   'debug.snapshot': {
-    name: 'debug.snapshot', family: 'debug', host: 'sandbox-debug',
+    name: 'debug.snapshot', family: 'debug', codeHost: 'sandbox-debug',
     params: '(input: { sessionId: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: unknown; stdout: string }>',
     anchor: "变量全览——停住后首选",
@@ -807,7 +922,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await debug.snapshot(${JSON.stringify(a)});`,
   },
   'debug.evaluate': {
-    name: 'debug.evaluate', family: 'debug', host: 'sandbox-debug',
+    name: 'debug.evaluate', family: 'debug', codeHost: 'sandbox-debug',
     params: '(input: { sessionId: string; expr: string; frameId?: number; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: unknown; stdout: string }>',
     anchor: "表达式求值——snapshot 后验证假设",
@@ -830,7 +945,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await debug.evaluate(${JSON.stringify(a)});`,
   },
   'debug.detach': {
-    name: 'debug.detach', family: 'debug', host: 'sandbox-debug',
+    name: 'debug.detach', family: 'debug', codeHost: 'sandbox-debug',
     params: '(input: { sessionId: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; stdout: string }>',
     anchor: "释放会话——调完必调",
@@ -847,7 +962,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await debug.detach(${JSON.stringify(a)});`,
   },
   'debug.sessions': {
-    name: 'debug.sessions', family: 'debug', host: 'sandbox-debug',
+    name: 'debug.sessions', family: 'debug', codeHost: 'sandbox-debug',
     params: '(input?: { mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: unknown; stdout: string }>',
     anchor: "查看活动会话",
@@ -861,7 +976,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await debug.sessions(${JSON.stringify(a)});`,
   },
   'write.create': {
-    name: 'write.create', family: 'write', host: 'kernel-ts',
+    name: 'write.create', family: 'write', codeHost: 'kernel-ts',
     params: '(input: { path: string; content: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: { path: string }; stdout: string }>',
     anchor: "写文档——初稿一次写完",
@@ -881,7 +996,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await write.create(${JSON.stringify(a)});`,
   },
   'write.edit': {
-    name: 'write.edit', family: 'write', host: 'kernel-ts',
+    name: 'write.edit', family: 'write', codeHost: 'kernel-ts',
     params: '(input: { path: string; oldText: string; newText: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: { path: string }; stdout: string }>',
     anchor: "修订文档——改具体段落",
@@ -904,7 +1019,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await write.edit(${JSON.stringify(a)});`,
   },
   'write.read': {
-    name: 'write.read', family: 'write', host: 'kernel-ts',
+    name: 'write.read', family: 'write', codeHost: 'kernel-ts',
     params: '(input: { path: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: { path: string; length: number; truncated: boolean }; stdout: string }>',
     anchor: "读文档——验证/续写前",
@@ -921,7 +1036,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await write.read(${JSON.stringify(a)});`,
   },
   'write.list': {
-    name: 'write.list', family: 'write', host: 'kernel-ts',
+    name: 'write.list', family: 'write', codeHost: 'kernel-ts',
     params: '(input?: { mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: string[]; stdout: string }>',
     anchor: "看工作区已有文档——避免重复创建",
@@ -935,7 +1050,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await write.list(${JSON.stringify(a)});`,
   },
   'write.save': {
-    name: 'write.save', family: 'write', host: 'kernel-ts',
+    name: 'write.save', family: 'write', codeHost: 'kernel-ts',
     params: '(input: { path: string; name: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: { name: string }; stdout: string }>',
     anchor: "定稿保存——跨任务复用",
@@ -955,7 +1070,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await write.save(${JSON.stringify(a)});`,
   },
   'write.section': {
-    name: 'write.section', family: 'write', host: 'kernel-ts',
+    name: 'write.section', family: 'write', codeHost: 'kernel-ts',
     params: '(input: { path: string; op: string; title?: string; target?: string; before?: string; mode?: string })',
     returnType: 'Promise<{ ok: boolean; value: unknown; stdout: string }>',
     anchor: "长文档结构整理——章节拆合",
@@ -984,7 +1099,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     asAction: (a) => `return await write.section(${JSON.stringify(a)});`,
   },
   'asp.cd': {
-    name: 'asp.cd', family: 'loop', host: 'loop',
+    name: 'asp.cd', family: 'loop', codeHost: 'loop',
     params: '(input: { space: string })',
     returnType: 'Promise<{ ok: boolean; stdout: string }>',
     anchor: "空间切换——我的可达空间内切换注意力",
@@ -998,7 +1113,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: ["space"] },
   },
   'asp.index': {
-    name: 'asp.index', family: 'loop', host: 'loop',
+    name: 'asp.index', family: 'loop', codeHost: 'loop',
     params: '(input?: { mode?: string; space?: string })',
     returnType: 'Promise<{ ok: boolean; stdout: string }>',
     anchor: "空间地图——我的可达空间",
@@ -1020,7 +1135,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: [] },
   },
   'memory.index': {
-    name: 'memory.index', family: 'loop', host: 'loop',
+    name: 'memory.index', family: 'loop', codeHost: 'loop',
     params: '(input?: { tag?: string; id?: string })',
     returnType: 'Promise<{ ok: boolean; stdout: string }>',
     anchor: "记忆库地图——查询/统计第一步必用",
@@ -1038,7 +1153,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: [] },
   },
   'cache.load': {
-    name: 'cache.load', family: 'loop', host: 'loop',
+    name: 'cache.load', family: 'loop', codeHost: 'loop',
     params: '(input: { id?: string; ids?: string[]; tag?: string; key?: string; content?: string })',
     returnType: 'Promise<{ ok: boolean; stdout: string }>',
     anchor: "跨空间携带数据——离开空间前先存",
@@ -1071,7 +1186,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     }, required: [] },
   },
   'cache.index': {
-    name: 'cache.index', family: 'loop', host: 'loop',
+    name: 'cache.index', family: 'loop', codeHost: 'loop',
     params: '(input?: Record<string, never>)',
     returnType: 'Promise<{ ok: boolean; stdout: string }>',
     anchor: "查看随身缓存",
@@ -1080,7 +1195,7 @@ export const PTC_CAPABILITIES: Record<string, PtcCapabilityDef> = {
     toolSchema: { properties: {}, required: [] },
   },
   'cache.cancel': {
-    name: 'cache.cancel', family: 'loop', host: 'loop',
+    name: 'cache.cancel', family: 'loop', codeHost: 'loop',
     params: '(input: { key: string })',
     returnType: 'Promise<{ ok: boolean; stdout: string }>',
     anchor: "缓存释放",

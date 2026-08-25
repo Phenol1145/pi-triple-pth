@@ -18,7 +18,20 @@ describe("N14 P0：存量登记器（Q4 一次性全登记）", () => {
   it("34 条 builtin 条目 ≡ PTC_TOOL_DEFS 键集（顺序确定性）", () => {
     const { specs } = buildBuiltinToolRegEntries();
     expect(specs.map((s) => s.name)).toEqual(PTC_TOOL_DEFS.map((d) => d.name));
-    expect(specs).toHaveLength(34);   // 2026-08-14 N8：asp.create/destroy 退役（35→33）；生命周期 P1：pause 加入（33→34）
+    expect(specs).toHaveLength(37);   // 34 + net.search/fetch/extract 3 项
+  });
+
+  it("TCE 网络 V1：net.* 登记为 capability-projection（无独立 AGENT_TOOLS 执行体）", () => {
+    expect(builtinExecutorRef("net.search")).toBe("capability:net.search");
+    expect(builtinExecutorRef("net.fetch")).toBe("capability:net.fetch");
+    expect(builtinExecutorRef("net.extract")).toBe("capability:net.extract");
+    expect(toolPackOf("net.search")).toBe("net");
+    for (const name of ["net.search", "net.fetch", "net.extract"]) {
+      const spec = buildBuiltinToolRegSpec(name);
+      expect(spec.executor).toEqual({ type: "builtin", ref: `capability:${name}` });
+      expect(spec.command).toBe(`builtin:capability:${name}`);
+      expect(spec.visibility.roles.length).toBeGreaterThan(0);
+    }
   });
 
   it("执行器引用约定：28 键直引 AGENT_TOOLS（含 done/pause 兜底）/ ASP-only 6 件 asp-inline", () => {

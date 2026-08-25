@@ -10,9 +10,11 @@ import {
   createDevCapability,
   createWriteCapability,
   createDebugCapability,
+  createNetworkCapability,
   type DevCapability,
   type WriteCapability,
   type DebugCapability,
+  type NetworkExecuteClient,
 } from "@away_from/pth-kernel-execution";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 
@@ -21,6 +23,7 @@ export interface TaskCapabilityInjectDeps {
   taskWorkspace?: string;
   toolstore?: import("@away_from/pth-kernel-interpreter").Toolstore;
   debugApi?: { url: string; secret: string };
+  networkExecute?: NetworkExecuteClient;
   roleCapabilities?: readonly string[];
   base?: Record<string, unknown>;
 }
@@ -28,6 +31,7 @@ export interface TaskCapabilityInjectDeps {
 const DEV_METHODS: Array<keyof DevCapability> = ["write", "edit", "build", "run", "save", "list"];
 const WRITE_METHODS: Array<keyof WriteCapability> = ["create", "edit", "read", "list", "save", "section"];
 const DEBUG_METHODS: Array<keyof DebugCapability> = ["attach", "breakpoint", "continue", "step", "snapshot", "evaluate", "detach", "sessions"];
+const NETWORK_METHODS: Array<"search" | "fetch" | "extract"> = ["search", "fetch", "extract"];
 
 function allowed(caps: readonly string[] | undefined, method: string): boolean {
   if (!caps || caps.length === 0) return false; // 缺省全量只对旧路径兼容；TCE 下未声明 = 不注入
@@ -71,6 +75,17 @@ export function buildTaskCapabilityInject(deps: TaskCapabilityInjectDeps): Recor
     const partial: Record<string, unknown> = {};
     for (const m of debugMethods) partial[m] = debug[m];
     out["debug"] = partial;
+  }
+
+  const networkMethods = NETWORK_METHODS.filter((m) => allowed(caps, `net.${m}`));
+  if (networkMethods.length > 0) {
+    if (!deps.networkExecute) {
+      throw new Error(`net.* 能力已声明但未注入 NetworkExecuteClient（Wave 2 接线前不可用）: ${networkMethods.map((m) => `net.${m}`).join(", ")}`);
+    }
+    const network = createNetworkCapability({ client: deps.networkExecute });
+    const partial: Record<string, unknown> = {};
+    for (const m of networkMethods) partial[m] = network[m];
+    out["net"] = partial;
   }
 
   return out;

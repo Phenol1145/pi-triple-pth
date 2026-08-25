@@ -32,6 +32,7 @@ export function renderToolDescription(d: PtcToolDef): string {
 /** 工具契约顺序（prompt 文本顺序——golden 钉死；2026-08-14 N8：35→33；生命周期 P1：pause 加入→34） */
 const PTC_TOOL_ORDER = [
   "python.run", "python.eval", "bash.run", "bash.eval", "ts.run", "ts.eval", "done", "pause",
+  "net.search", "net.fetch", "net.extract",
   "dev.write", "dev.edit", "dev.build", "dev.run", "dev.save", "dev.list",
   "debug.attach", "debug.breakpoint", "debug.continue", "debug.step", "debug.snapshot",
   "debug.evaluate", "debug.detach", "debug.sessions",
@@ -40,7 +41,7 @@ const PTC_TOOL_ORDER = [
   "cache.load", "cache.index", "cache.cancel",
 ] as const;
 
-/** 工具契约注册表（34 条——由 PTC_CAPABILITIES.toolSchema 派生；顺序即 prompt 文本顺序） */
+/** 工具契约注册表（37 条——由 PTC_CAPABILITIES.toolSchema 派生；顺序即 prompt 文本顺序） */
 export const PTC_TOOL_DEFS: PtcToolDef[] = PTC_TOOL_ORDER.map((name) => {
   const def = PTC_CAPABILITIES[name];
   if (!def?.toolSchema) {

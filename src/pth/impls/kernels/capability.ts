@@ -26,6 +26,7 @@ import {
   type KnowledgeVerificationRepo,
 } from "../../execution/index.js";
 import { pthConfig } from "@away_from/pth-config";
+import { createNetworkCapability, type NetworkExecuteClient } from "@away_from/pth-kernel-execution";
 import {
   defaultWebLookup,
   defaultWebRequest,
@@ -118,6 +119,8 @@ export function buildCapabilities(deps: {
   taskContext?: { current: TaskDispatchContext | null };
   /** R3/P1-2：verification repo 注入缝（测试/非 PG 装配传内存 repo；缺省从 PgMemoryStore 派生） */
   verificationRepo?: KnowledgeVerificationRepo;
+  /** TCE 网络 V1：Execute 客户端（net.* typed proxy；Wave 2 前由 fake/client 注入） */
+  networkExecute?: NetworkExecuteClient;
   /**
    * Task 4：任务级 professional facade 不在本装配点创建（本装配点无 lease/grant/worker replica）。
    * 调用方可选传入一个已构造的 professional 命名空间（测试/特殊装配用）；
@@ -209,6 +212,15 @@ export function buildCapabilities(deps: {
     }),
     llm: deps.llm,
     web: { fetchText: wrapValidated("web.fetchText", createWebCapability().fetchText) },
+    ...(deps.networkExecute
+      ? {
+          net: {
+            search: wrapValidated("net.search", createNetworkCapability({ client: deps.networkExecute }).search),
+            fetch: wrapValidated("net.fetch", createNetworkCapability({ client: deps.networkExecute }).fetch),
+            extract: wrapValidated("net.extract", createNetworkCapability({ client: deps.networkExecute }).extract),
+          },
+        }
+      : {}),
     ...(deps.inspect ? { env: { inspect: wrapValidated("env.inspect", deps.inspect) } } : {}),
     // 召回能力（T6）：后续任务从记忆区召回工具函数/洞察——扁平化闭环（agent 状态 = 记忆文档）
     // 2026-08-15 筛查 H5：召回面同样按会话空间过滤（raw retrieve 会绕过可见性）
