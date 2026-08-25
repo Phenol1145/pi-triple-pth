@@ -12,7 +12,7 @@ import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
 import type { WorkerRole } from "./worker-cluster.js";
 import { AGENT_TOOLS, toolsToSchema, type AgentToolResult } from "./agent-tools.js";
 import { normalizeToolName, hasExecToolCapability, execToolCapFor } from "./agent-loop-prompt.js";
-import { PTH_DONE_SIGNAL_CODE, type AgentTaskInput, type AgentLoopOptions, type AgentTaskResult, type AgentTraceEvent } from "./agent-loop-types.js";
+import { PTH_DONE_SIGNAL_CODE, type AgentTaskInput, type AgentLoopOptions, type AgentTaskResult, type AgentTraceEvent, type AgentContextCapture } from "./agent-loop-types.js";
 export { PTH_DONE_SIGNAL_CODE } from "./agent-loop-types.js";
 export type { AgentTaskInput, AgentLoopOptions, AgentTaskResult, AgentTraceEvent } from "./agent-loop-types.js";
 import { isTsFamily, truncate, actionFingerprint, type RecentAction, toolFamily, normalizePathPattern, actionTarget, isNegativeResult, negativeLoopCheck, RECENT_RESULTS_WINDOW } from "./agent-loop-guards.js";
@@ -225,6 +225,23 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
     { role: "user", content: `任务描述：${input.task.text}\n\n${prelude ? `环境预置：\n${prelude}\n\n` : ""}` },
   ];
   (input as { __messages?: unknown }).__messages = messages;   // 压缩包装器读取（同一引用——循环内持续 push）
+  // 2026-08-25 W-d：上下文快照采集（压缩前全量 + 结束最终态——修补"循环内压缩后历史彻底丢失"）。
+  // PTH_TRANSCRIPT_CONTEXT=off 时零拷贝零采集；runAgentTask 包装器归一化进 result.contextCapture。
+  const contextCaptureEnabled = config().get("PTH_TRANSCRIPT_CONTEXT") !== "off";
+  type RawContextSnapshot = { at: string; reason: "compaction" | "final"; step?: number; messages: unknown[] };
+  const contextSnapshots: RawContextSnapshot[] = [];
+  if (contextCaptureEnabled) {
+    (input as { __contextSnapshots?: unknown }).__contextSnapshots = contextSnapshots;
+  }
+  const captureContextSnapshot = (reason: "compaction" | "final", step?: number): void => {
+    if (!contextCaptureEnabled) return;
+    contextSnapshots.push({
+      at: new Date().toISOString(),
+      reason,
+      ...(step !== undefined ? { step } : {}),
+      messages: JSON.parse(JSON.stringify(messages)) as unknown[],
+    });
+  };
   const staticTools = toolsToSchema(input.role?.actionTools, { asp: aspMode });
 
   // ── N14 P2：注册表可见集并入工具面（§3.5 执行缝 = 静态 TOOL_SCHEMAS ∪ 注册表可见集）──
@@ -293,6 +310,7 @@ async function runAgentTaskCore(input: AgentTaskInput & AgentLoopOptions): Promi
         promise: compressContext({ llm }, { messages, template: CONTINUATION_TEMPLATE, taskTitle: input.task.title }),
       });
       if (compressed) {
+        captureContextSnapshot("compaction", steps + 1);   // 清空前先留全量快照
         const recent = messages.slice(-4);
         messages.length = 0;
         messages.push({ role: "system", content: system });
@@ -811,5 +829,19 @@ export async function runAgentTask(input: AgentTaskInput & AgentLoopOptions): Pr
       );
     }
   } catch { /* 压缩失败容忍——任务结果为主 */ }
+  // 2026-08-25 W-d：归一化上下文快照——final 快照在此捕获；system 常量在顶层只存一次，
+  // snapshots 内 messages 剔除 system（压缩重建时反复 push 同一 system，去重不丢信息）。
+  try {
+    const rawSnapshots = (input as { __contextSnapshots?: Array<{ at: string; reason: "compaction" | "final"; step?: number; messages: Array<{ role: string; content?: unknown }> }> }).__contextSnapshots;
+    if (rawSnapshots) {
+      const finalMessages = (input as { __messages?: Array<{ role: string; content?: unknown }> }).__messages ?? [];
+      rawSnapshots.push({ at: new Date().toISOString(), reason: "final", messages: JSON.parse(JSON.stringify(finalMessages)) as Array<{ role: string; content?: unknown }> });
+      const systemMsg = finalMessages.find((m) => m.role === "system");
+      result.contextCapture = {
+        ...(typeof systemMsg?.content === "string" ? { system: systemMsg.content } : {}),
+        snapshots: rawSnapshots.map((s) => ({ ...s, messages: s.messages.filter((m) => m.role !== "system") })) as AgentContextCapture["snapshots"],
+      };
+    }
+  } catch { /* 快照失败容忍——任务结果为主 */ }
   return result;
 }

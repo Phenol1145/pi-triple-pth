@@ -61,6 +61,8 @@ export interface AgentTaskRunnerDeps {
   adapterRegistry?: import("@away_from/pth-kernel-execution").CommandAdapterRegistry;
   /** Wave 2：Execute 层统一分发器（adapter 授权后执行；缺省 = 回退旧 executor 路径） */
   executionDispatcher?: import("@away_from/pth-kernel-execution").UnifiedExecutionDispatcher;
+  /** 2026-08-25 W-d：任务上下文快照汇集槽（runner 写入 AgentContextCapture；task-loop 持有并随 transcript 落盘） */
+  contextSink?: unknown[];
 }
 
 export interface ExecModeContext {

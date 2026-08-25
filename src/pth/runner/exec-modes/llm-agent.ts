@@ -291,6 +291,9 @@ export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome
     },
   });
 
+  // 2026-08-25 W-d：上下文快照交给 task-loop 汇集（transcript-observer 随轨迹落盘）
+  if (r.contextCapture && deps.contextSink) deps.contextSink.push(r.contextCapture);
+
   if (cognitive) {
     const snapshot = cognitive.ledger.snapshot();
     const event = {

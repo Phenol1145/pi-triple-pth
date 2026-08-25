@@ -231,6 +231,8 @@ export class TaskLoop {
       const trig = (task.payload as { triggeredBy?: { depth?: number; triggerId?: string } } | undefined)?.triggeredBy;
       const chain = { chainDepth: Number(trig?.depth ?? 0), ...(trig?.triggerId ? { triggerId: trig.triggerId } : {}) };
       const traceEvents: import("@away_from/pth-kernel-execution").AgentTraceEvent[] = [];
+      // 2026-08-25 W-d：任务上下文快照汇集（runner 写入——transcript-observer 落盘）
+      const contextSnapshots: unknown[] = [];
       const taskLogger = this.deps.logger?.child("taskloop", { taskId: task.id, role: role.id });
       const runner = new AgentTaskRunner({
         kernel: this.deps.kernel,
@@ -238,6 +240,7 @@ export class TaskLoop {
         workspace: { taskId: task.id, tenant: ws.tenant, dir: ws.dir },
         llm: this.deps.llm,
         caps: this.deps.agentCaps,
+        contextSink: contextSnapshots,
         toolRegStore: this.deps.toolRegStore,   // N14 P2：注册表快照读取口
         toolRegRunChild: this.deps.toolRegRunChild,   // N14 P2：agent 态执行缝
         knowledgeContextProvider: this.deps.knowledgeContextProvider,   // K3：任务知识上下文（claim 后一次性快照）
@@ -349,7 +352,7 @@ export class TaskLoop {
         buildSideEffects: this.deps.refiner && sideEffectOutbox
           ? (evt) => buildRefineSideEffects({ kernel: this.deps.kernel, roleId: role.id }, evt)
           : undefined,
-        context: { task, ws, chain, execStart, traceEvents },
+        context: { task, ws, chain, execStart, traceEvents, contextSnapshots },
         logger: (m) => taskLogger?.warn?.(m),
       });
       const scope: TenantScope = {

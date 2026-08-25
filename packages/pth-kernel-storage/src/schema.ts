@@ -486,8 +486,12 @@ CREATE TABLE IF NOT EXISTS transcripts (
   body JSONB NOT NULL DEFAULT '[]',
   summary TEXT,
   artifact_path TEXT,
+  context JSONB,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- 2026-08-25 W-d：transcripts.context（任务上下文快照——压缩前+结束时）
+ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS context JSONB;
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id BIGSERIAL PRIMARY KEY,

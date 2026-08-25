@@ -86,6 +86,28 @@ export type AgentTraceEvent =
   | { type: "ptc-program"; step: number; iteration: number; program: string; reason?: string }
   | { type: "ptc-result"; step: number; iteration: number; ok: boolean; error?: string; errorClass?: string; errorCode?: string; retryable?: boolean; valuePreview?: string; stdoutPreview?: string; durationMs: number };
 
+/**
+ * 任务上下文快照（2026-08-25 上下文持久化 W-d）：system 常量在顶层只存一次；
+ * snapshots 内 messages 已剔除 system 消息。reason=compaction 是压缩前的完整历史
+ * （修补"循环内压缩 messages.length=0 后历史彻底丢失"的洞）；reason=final 是任务结束时的最终上下文。
+ */
+export interface AgentContextCapture {
+  system?: string;
+  snapshots: Array<{
+    at: string;
+    reason: "compaction" | "final";
+    step?: number;
+    messages: Array<{
+      role: string;
+      content: string;
+      toolCallId?: string;
+      toolName?: string;
+      thinking?: string;
+      toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+    }>;
+  }>;
+}
+
 export type AgentTaskResult =
   | {
       ok: true;
@@ -94,10 +116,12 @@ export type AgentTaskResult =
       steps: number;
       warning?: string;
       compression?: import("./context-compaction.js").CompactionResult | null;
+      /** 上下文快照（PTH_TRANSCRIPT_CONTEXT=off 时缺省） */
+      contextCapture?: AgentContextCapture;
       /** pause 循环控制信号：agent 向发布者提问，任务进入 paused 状态等待回答。 */
       pause?: { question: string; context?: Record<string, unknown> };
       /** TCE P3：人类批准挂起信号（CommandGateway await-approval） */
       humanApproval?: { requestId: string };
     }
-  | { ok: false; error: string; steps: number; compression?: import("./context-compaction.js").CompactionResult | null };
+  | { ok: false; error: string; steps: number; compression?: import("./context-compaction.js").CompactionResult | null; contextCapture?: AgentContextCapture };
 

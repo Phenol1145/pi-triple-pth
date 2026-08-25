@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { resetPthConfig } from "@away_from/pth-config";
 import { runAgentTask, filterCapabilityDoc } from "@away_from/pth-kernel-execution";
 import type { LlmFn } from "@away_from/pth-kernel-interpreter";
 import type { WorkerKernel } from "@away_from/pth-kernel-interpreter";
@@ -623,5 +624,65 @@ describe("B1 修复（2026-08-14）：reasoning_content 回传 + 多调用提前
     const msgs = input.__messages as Array<{ role: string; content?: string }>;
     const firstBatch = msgs.slice(3, 5);   // 首步 assistant 后的两个 tool 响应（[system, user, assistant, tool, tool]）
     expect(firstBatch.every((m) => m.role === "tool" && !m.content?.includes("未执行"))).toBe(true);
+  });
+});
+
+describe("W-d 上下文快照采集（contextCapture）", () => {
+  it("任务结束捕获 final 快照：system 顶层去重，snapshots 不含 system", async () => {
+    const kernel = mockKernel();
+    const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
+    const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 3 });
+    expect(r.ok).toBe(true);
+    const cap = r.contextCapture;
+    expect(cap).toBeDefined();
+    expect(typeof cap?.system).toBe("string");
+    expect(cap?.snapshots).toHaveLength(1);
+    const snap = cap!.snapshots[0]!;
+    expect(snap.reason).toBe("final");
+    expect(snap.messages.every((m) => m.role !== "system")).toBe(true);
+    expect(snap.messages.some((m) => m.role === "user" && m.content.includes("任务描述"))).toBe(true);
+    expect(snap.messages.some((m) => m.role === "assistant" || m.role === "tool")).toBe(true);
+  });
+
+  it("循环内压缩前捕获全量快照（compaction 快照含被丢弃历史）", async () => {
+    process.env.PTH_AGENT_CONTEXT_WINDOW = "100";   // 窗口极小 → steps>2 必触发压缩
+    resetPthConfig();   // 配置中心构造期合并 schema 键——改 env 后必须重建单例
+    try {
+      const kernel = mockKernel();
+      const llm = mockLlm([
+        { toolCalls: [{ name: "bash.run", arguments: { command: "a" } }] },
+        { toolCalls: [{ name: "bash.run", arguments: { command: "b" } }] },
+        { toolCalls: [{ name: "bash.run", arguments: { command: "c" } }] },
+        { content: "压缩摘要" },   // 循环内压缩的 LLM 调用消费
+        { toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] },
+      ]);
+      const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 8 });
+      expect(r.ok).toBe(true);
+      const snaps = r.contextCapture?.snapshots ?? [];
+      const compaction = snaps.filter((s) => s.reason === "compaction");
+      expect(compaction.length).toBeGreaterThanOrEqual(1);
+      // 压缩前历史：user(任务) + 3×(assistant+tool) = 7 条（system 已剔除）——被丢弃内容完整留痕
+      expect(compaction[0]!.messages.length).toBeGreaterThanOrEqual(7);
+      expect(compaction[0]!.messages.some((m) => m.role === "tool" && m.content.includes("bash:"))).toBe(true);
+      expect(snaps[snaps.length - 1]!.reason).toBe("final");
+    } finally {
+      delete process.env.PTH_AGENT_CONTEXT_WINDOW;
+      resetPthConfig();
+    }
+  });
+
+  it("PTH_TRANSCRIPT_CONTEXT=off：零采集（无 contextCapture）", async () => {
+    process.env.PTH_TRANSCRIPT_CONTEXT = "off";
+    resetPthConfig();
+    try {
+      const kernel = mockKernel();
+      const llm = mockLlm([{ toolCalls: [{ name: "done", arguments: { result: { ok: 1 } } }] }]);
+      const r = await runAgentTask({ llm, kernel, caps: CAPS, task: { title: "t", text: "x" }, maxSteps: 3 });
+      expect(r.ok).toBe(true);
+      expect(r.contextCapture).toBeUndefined();
+    } finally {
+      delete process.env.PTH_TRANSCRIPT_CONTEXT;
+      resetPthConfig();
+    }
   });
 });
