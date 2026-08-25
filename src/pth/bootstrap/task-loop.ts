@@ -84,6 +84,8 @@ export class TaskLoop {
   private paused = false;
   private stopped = false;
   private activeTask?: { taskId: string; roleId: string; startedAt: number; lastActivityAt: number; currentStep?: number; tool?: string };
+  /** W-c：在飞任务实时上下文读取器（llm-agent 经 onContextReady 注入；惰性读取 __messages）。 */
+  private liveContextGetter?: () => unknown;
   private watchdogTimer?: ReturnType<typeof setInterval>;
 
   pause(): void { this.paused = true; }
@@ -95,6 +97,17 @@ export class TaskLoop {
   }
   get isPaused(): boolean { return this.paused; }
   get isStopped(): boolean { return this.stopped; }
+
+  /** W-b：返回 activeTask 副本（无在飞任务返回 undefined）。 */
+  getActiveTask(): { taskId: string; roleId: string; startedAt: number; lastActivityAt: number; currentStep?: number; tool?: string } | undefined {
+    const t = this.activeTask;
+    return t ? { ...t } : undefined;
+  }
+
+  /** W-c：读取当前在飞任务的实时上下文（无 getter 或未就绪时返回 undefined）。 */
+  getLiveContext(): unknown {
+    return this.liveContextGetter?.();
+  }
 
   private watchdogTick(): void {
     const t = this.activeTask;
@@ -109,6 +122,8 @@ export class TaskLoop {
   private trackTaskStart(taskId: string, roleId: string): void {
     const now = Date.now();
     this.activeTask = { taskId, roleId, startedAt: now, lastActivityAt: now };
+    // 新任务开始时不沿用上一个任务的上下文读取器。
+    this.liveContextGetter = undefined;
   }
 
   private trackTaskActivity(step?: number, tool?: string): void {
@@ -120,6 +135,7 @@ export class TaskLoop {
 
   private clearTaskTracking(): void {
     this.activeTask = undefined;
+    this.liveContextGetter = undefined;
   }
 
   /** N28 T2：有 replica 时给活动/审计事件补 workerId；无 replica 时返回空对象（旧形状逐字节不变）。 */
@@ -258,6 +274,8 @@ export class TaskLoop {
         extraTools: this.deps.extraTools,
         adapterRegistry: this.deps.adapterRegistry,
         executionDispatcher: this.deps.executionDispatcher,
+        // W-c：agent 循环的实时消息数组经惰性 getter 暴露给 TaskLoop（首个 await 后才就绪）。
+        onContextReady: (getter) => { this.liveContextGetter = getter; },
         onStep: (s) => {
           this.trackTaskActivity(s.n, s.tool);
           taskLogger?.info(`agent step=${s.n} tool=${s.tool} ok=${s.ok}${s.args ? ` args=${s.args}` : ""}`, { durationMs: s.durationMs });
@@ -556,6 +574,8 @@ export class TaskLoop {
         extraTools: this.deps.extraTools,
         adapterRegistry: this.deps.adapterRegistry,
         executionDispatcher: this.deps.executionDispatcher,
+        // W-c：legacy 路径同样注册实时上下文 getter（agent 消息数组惰性读取）。
+        onContextReady: (getter) => { this.liveContextGetter = getter; },
         logger: (m) => taskLogger?.info(m),
         onTrace: (e) => {
           traceEvents.push(e);

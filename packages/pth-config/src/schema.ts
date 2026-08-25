@@ -84,6 +84,7 @@ export const PTH_CONFIG_SCHEMA: PthConfigDef[] = [
   d("PTH_AGENT_STEP_TIMEOUT_MS", "number", 300_000, "agent", "batch", "ts.run/ts.eval 单步执行超时（超时=工具失败回灌模型，不终止任务）", { runtime: true }),
   d("PTH_TRANSCRIPT_CONTEXT", "string", "on", "agent", "batch", "任务上下文快照持久化开关（on=压缩前+结束时快照随 transcript 落盘；off=不采集）", { runtime: true }),
   d("PTH_TRANSCRIPT_CONTEXT_MAX_CHARS", "number", 500_000, "agent", "batch", "单任务上下文快照持久化字符上限（超出按快照从旧到新丢弃，始终保留 final）", { runtime: true }),
+  d("PTH_WORKER_CONTEXT_MAX_CHARS", "number", 200_000, "agent", "batch", "worker 在飞上下文查询 IPC 投影字符上限（超出从旧到新丢消息并标 truncated）", { runtime: true }),
 
   // ── optimizer / JIT ──────────────────────────────────────────────
   d("PTH_OPTIMIZER", "string", "on", "optimizer", "batch", "优化循环开关（off 关闭）", { runtime: true }),

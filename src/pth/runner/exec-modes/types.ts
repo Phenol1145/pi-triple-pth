@@ -63,6 +63,8 @@ export interface AgentTaskRunnerDeps {
   executionDispatcher?: import("@away_from/pth-kernel-execution").UnifiedExecutionDispatcher;
   /** 2026-08-25 W-d：任务上下文快照汇集槽（runner 写入 AgentContextCapture；task-loop 持有并随 transcript 落盘） */
   contextSink?: unknown[];
+  /** W-c：实时上下文注册钩子——调用方经 getter 惰性读取 agent 循环消息数组（__messages）。 */
+  onContextReady?: (getter: () => unknown) => void;
 }
 
 export interface ExecModeContext {

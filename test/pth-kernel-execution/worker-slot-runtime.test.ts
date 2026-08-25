@@ -149,4 +149,28 @@ describe("WorkerSlotRuntime（生产组件——batch-process 与 harness 共用
       workingSet: { taskId: "t-1", entryIds: ["e-1"] },
     });
   });
+
+  it("W-b/W-c：activeLoops 暴露 role/getActiveTask/getLiveContext（feasibility 查询面）", () => {
+    const runtime = new WorkerSlotRuntime({ emit: () => {} });
+    const r = replica("10000000-0000-4000-8000-000000000036");
+    const active = { taskId: "task-x", roleId: "researcher", startedAt: 1, lastActivityAt: 2, step: 3, tool: "ts.run" };
+    const live = [{ role: "user", content: "hello" }];
+    runtime.add({
+      replica: r, role,
+      loop: {
+        runOnce: async () => false,
+        pause: () => {},
+        resume: () => {},
+        stop: () => {},
+        getActiveTask: () => active,
+        getLiveContext: () => live,
+      },
+      dispose: async () => {},
+    });
+    const loops = runtime.activeLoops();
+    expect(loops).toHaveLength(1);
+    expect(loops[0]).toMatchObject({ role: "researcher" });
+    expect(loops[0].getActiveTask()).toEqual(active);
+    expect(loops[0].getLiveContext()).toEqual(live);
+  });
 });

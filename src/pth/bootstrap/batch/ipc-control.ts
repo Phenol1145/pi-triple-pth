@@ -12,6 +12,7 @@
  */
 
 import { getEventBus } from "@away_from/pth-kernel-interpreter";
+import { pthConfig } from "@away_from/pth-config";
 import {
   allWorkerRoles,
   isForwardableKernelEvent,
@@ -23,7 +24,7 @@ import {
   responsibilitiesForWorker,
   type MemoryDirectorySnapshot,
 } from "../../execution/index.js";
-import type { WorkerSlot, WorkerSlotRuntime } from "../worker-slot-runtime.js";
+import type { WorkerLoopAccess, WorkerSlot, WorkerSlotRuntime } from "../worker-slot-runtime.js";
 import type {
   AuthoritativeWorkingSets,
   BatchControlState,
@@ -33,6 +34,63 @@ import type {
   IntakeTrigger,
 } from "./context.js";
 import type { WorkerRole } from "@away_from/pth-kernel-execution";
+
+/** W-c：在飞上下文的 IPC 传输投影（子进程侧有界化）。
+ *   - 只取最后 last 条（默认 10，上限 100）；
+ *   - 每条 content 截断 4000 字符；
+ *   - system 消息单独放 task 级 system 字段，消息列表剔除 system；
+ *   - 整体 JSON 超 PTH_WORKER_CONTEXT_MAX_CHARS 时从旧到新丢消息并标 truncated。 */
+function boundWorkerContext(raw: unknown, lastRaw: number): { system?: string; messages: Array<Record<string, unknown>>; truncated?: boolean } {
+  const last = Math.min(Math.max(Math.floor(lastRaw) || 10, 1), 100);
+  if (!Array.isArray(raw)) return { messages: [] };
+  const truncate = (v: unknown): string => {
+    const s = typeof v === "string" ? v : JSON.stringify(v ?? "");
+    return s.length > 4000 ? s.slice(0, 4000) : s;
+  };
+  const systemMsg = (raw as Array<Record<string, unknown>>).find((m) => m?.role === "system");
+  let system = systemMsg ? truncate(systemMsg.content) : undefined;
+  const messages: Array<Record<string, unknown>> = (raw as Array<Record<string, unknown>>)
+    .filter((m) => m?.role !== "system")
+    .slice(-last)
+    .map((m) => ({
+      role: String(m?.role ?? "unknown"),
+      content: truncate(m?.content),
+      ...(typeof m?.toolCallId === "string" ? { toolCallId: m.toolCallId } : {}),
+      ...(typeof m?.toolName === "string" ? { toolName: m.toolName } : {}),
+      ...(m?.thinking !== undefined ? { thinking: truncate(m.thinking) } : {}),
+    }));
+  const maxChars = pthConfig().num("PTH_WORKER_CONTEXT_MAX_CHARS", 200_000);
+  let truncated = false;
+  while (messages.length > 0 && JSON.stringify({ system, messages }).length > maxChars) {
+    messages.shift();
+    truncated = true;
+  }
+  // system 单独超限时也做兜底截断（查询通道只读，绝不让超长 payload 打爆 IPC）。
+  if (JSON.stringify({ system, messages }).length > maxChars && system !== undefined) {
+    const keep = Math.max(maxChars - JSON.stringify({ system: "", messages }).length, 0);
+    system = system.slice(0, keep);
+    truncated = true;
+  }
+  return {
+    ...(system !== undefined ? { system } : {}),
+    messages,
+    ...(truncated ? { truncated: true } : {}),
+  };
+}
+
+/** W-b/W-c：统一收集在飞 TaskLoop 的只读访问面（off=loops 数组；feasibility=共享 runtime slots）。 */
+function liveLoopAccess(input: {
+  mode: "off" | "feasibility";
+  getRuntime: () => WorkerSlotRuntime;
+  getLoops: () => BatchLoopEntry[];
+}): WorkerLoopAccess[] {
+  if (input.mode === "feasibility") return input.getRuntime().activeLoops();
+  return input.getLoops().map((l) => ({
+    role: l.role.id,
+    getActiveTask: () => l.getActiveTask(),
+    getLiveContext: () => l.getLiveContext(),
+  }));
+}
 
 /** 退出前释放全部 worker kernel（sandbox acquire 归还——防池泄漏）——幂等。 */
 export interface KernelDisposer {
@@ -236,6 +294,30 @@ export function installBatchIpcControl(deps: BatchIpcControlDeps): void {
           process.send?.({ type: "intake-due-scan-status", batchPid: process.pid, ran: true, error: (e as Error).message });
         }
       }
+    } else if (msg?.type === "worker-context-query" && typeof msg.role === "string" && typeof msg.requestId === "string") {
+      // W-c：按需在飞上下文查询——只读面，任何异常降级为空结果，绝不影响任务执行。
+      try {
+        const last = Number(msg.last ?? 10);
+        const tasks = liveLoopAccess(deps)
+          .filter((l) => l.role === msg.role && l.getActiveTask())
+          .map((l) => {
+            const active = l.getActiveTask()!;
+            const bounded = boundWorkerContext(l.getLiveContext(), last);
+            return {
+              role: l.role,
+              taskId: active.taskId,
+              ...(active.currentStep !== undefined ? { step: active.currentStep } : {}),
+              ...(active.tool !== undefined ? { tool: active.tool } : {}),
+              startedAt: active.startedAt,
+              lastActivityAt: active.lastActivityAt,
+              ...bounded,
+            };
+          });
+        process.send?.({ type: "worker-context-result", requestId: msg.requestId, tasks });
+      } catch (e) {
+        batchLogger?.warn?.(`[worker-context-query] 查询失败（降级空）: ${e instanceof Error ? e.message : String(e)}`);
+        process.send?.({ type: "worker-context-result", requestId: msg.requestId, tasks: [] });
+      }
     }
   });
   // 父进程退出（IPC 通道关闭）→ 自杀：不留孤儿 batch 继续轮询 DB（先释放 kernel）
@@ -265,16 +347,32 @@ export function installBatchIpcControl(deps: BatchIpcControlDeps): void {
 export function startBatchStatusReporter(input: {
   mode: "off" | "feasibility";
   getRuntime: () => WorkerSlotRuntime;
+  getLoops: () => BatchLoopEntry[];
   memoryDirectory: MemoryDirectorySnapshot | undefined;
   authoritativeWorkingSets: AuthoritativeWorkingSets;
 }): NodeJS.Timeout {
-  const { mode, getRuntime, memoryDirectory, authoritativeWorkingSets } = input;
+  const { mode, getRuntime, getLoops, memoryDirectory, authoritativeWorkingSets } = input;
+  const collectActivity = () => liveLoopAccess({ mode, getRuntime, getLoops })
+    .map((l) => {
+      const active = l.getActiveTask();
+      if (!active) return null;
+      return {
+        role: l.role,
+        taskId: active.taskId,
+        ...(active.currentStep !== undefined ? { step: active.currentStep } : {}),
+        ...(active.tool !== undefined ? { tool: active.tool } : {}),
+        startedAt: active.startedAt,
+        lastActivityAt: active.lastActivityAt,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
   return setInterval(() => {
     const mem = process.memoryUsage();
     const cpu = process.cpuUsage();
+    const activity = collectActivity();
     if (mode === "feasibility") {
       const directory = memoryDirectory;
-      process.send?.(getRuntime().heartbeat(
+      const heartbeat = getRuntime().heartbeat(
         { ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system },
         (workerId) => {
           const responsibilities = directory ? responsibilitiesForWorker(directory, workerId) : [];
@@ -305,9 +403,13 @@ export function startBatchStatusReporter(input: {
               : null,
           };
         },
-      ));
+      );
+      process.send?.({ ...heartbeat, ...(activity.length > 0 ? { activity } : {}) });
     } else {
-      process.send?.({ type: "status", tasks: [], ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system });
+      process.send?.({
+        type: "status", tasks: [], ts: Date.now(), rss: mem.rss, cpuU: cpu.user, cpuS: cpu.system,
+        ...(activity.length > 0 ? { activity } : {}),
+      });
     }
   }, 2000);
 }

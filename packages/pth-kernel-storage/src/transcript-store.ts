@@ -23,4 +23,21 @@ export class PgTranscriptStore {
     const res = await this.pool.query(`SELECT * FROM transcripts WHERE task_id = $1 ORDER BY created_at`, [taskId]);
     return res.rows;
   }
+
+  /** W-a：历史活动记录查询——按落盘时间倒序取 transcripts，可按 agent_id 过滤。 */
+  async listRecent(opts: { since: Date; agentId?: string; limit?: number }): Promise<Array<Record<string, unknown>>> {
+    const limit = Math.min(Math.max(Math.floor(opts.limit ?? 50), 1), 200);
+    const params: unknown[] = [opts.since];
+    let where = `created_at >= $1`;
+    if (opts.agentId !== undefined) {
+      params.push(opts.agentId);
+      where += ` AND agent_id = $${params.length}`;
+    }
+    params.push(limit);
+    const res = await this.pool.query(
+      `SELECT * FROM transcripts WHERE ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
+      params,
+    );
+    return res.rows as Array<Record<string, unknown>>;
+  }
 }

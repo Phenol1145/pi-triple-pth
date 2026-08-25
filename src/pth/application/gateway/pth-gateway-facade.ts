@@ -104,6 +104,10 @@ export interface PthGatewayFacade {
   batchWorkers(id: string, action: "pause" | "resume" | "remove" | "add", role: string, copies: number): Promise<boolean>;
   /** N28 复核 Layer3：workerId 级副本控制（feasibility 模式）。 */
   batchReplica(id: string, action: "pause" | "resume" | "remove", workerId: string): Promise<boolean>;
+  /** W-a/W-b：worker 活动记录查询（在飞心跳 + 历史 transcript）。 */
+  workerActivity(role: string, sinceSec: number, limit: number): Promise<{ role: string; sinceSec: number; inflight: unknown[]; history: unknown[] }>;
+  /** W-c：worker 在飞上下文查询（合并全部含该 role 的 batch；超时/失败降级空）。 */
+  workerContext(role: string, last: number): Promise<{ role: string; tasks: unknown[] }>;
   removeBatches(count: number): Promise<number>;
   listBatchesWithAlive(): Promise<Array<Record<string, unknown>>>;
   listJobs(): Promise<Array<Record<string, unknown>>>;
@@ -407,6 +411,50 @@ export class PthGatewayFacadeImpl implements PthGatewayFacade {
     if (action === "pause") return this.#kernel.batchManager.pauseReplica(id, workerId);
     if (action === "resume") return this.#kernel.batchManager.resumeReplica(id, workerId);
     return this.#kernel.batchManager.removeReplica(id, workerId);
+  }
+
+  async workerActivity(role: string, sinceSec: number, limit: number): Promise<{ role: string; sinceSec: number; inflight: unknown[]; history: unknown[] }> {
+    // 在飞：聚合全部 batch 心跳 activity 中属于该 role 的条目（查询面只读）。
+    const inflight: unknown[] = [];
+    try {
+      const batches = await this.#kernel.batchManager.listBatches();
+      for (const b of batches) {
+        const acts = (b as { activity?: Array<Record<string, unknown>> }).activity ?? [];
+        for (const a of acts) {
+          if (a.role === role) inflight.push(a);
+        }
+      }
+    } catch { /* 在飞查询失败降级为空，不影响历史面 */ }
+    // 历史：transcript 时间窗内任务级记录（失败降级空数组）。
+    let history: unknown[] = [];
+    try {
+      const since = new Date(Date.now() - sinceSec * 1000);
+      const rows = await this.#kernel.dataWorld.transcripts.listRecent({ since, agentId: role, limit });
+      history = rows.map((r) => ({
+        taskId: r.task_id ?? null,
+        at: r.created_at ?? null,
+        summary: r.summary ?? "",
+        events: Array.isArray(r.body) ? r.body.length : 0,
+        hasContext: r.context != null,
+      }));
+    } catch { /* 历史查询失败降级为空 */ }
+    return { role, sinceSec, inflight, history };
+  }
+
+  async workerContext(role: string, last: number): Promise<{ role: string; tasks: unknown[] }> {
+    // 遍历 batch 列表，找含该 role 的 batch 并发查询；超时/失败/无匹配全部降级空。
+    const tasks: unknown[] = [];
+    try {
+      const batches = await this.#kernel.batchManager.listBatches();
+      const matches = batches.filter((b) => b.workers.includes(role));
+      for (const b of matches) {
+        try {
+          const res = await this.#kernel.batchManager.queryWorkerContext(b.id, role, { last });
+          if (Array.isArray(res)) tasks.push(...res);
+        } catch { /* 单 batch 查询失败不影响其他 batch */ }
+      }
+    } catch { /* batch 列表失败降级空 */ }
+    return { role, tasks };
   }
 
   async removeBatches(count: number): Promise<number> {

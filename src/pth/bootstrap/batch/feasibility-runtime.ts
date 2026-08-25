@@ -181,6 +181,9 @@ export function makeWorkerSlot(w: CreatedWorker): WorkerSlot {
       pause: () => w.loop.pause(),
       resume: () => w.loop.resume(),
       stop: () => w.loop.stop(),
+      // W-b/W-c：feasibility 模式同样暴露在飞活动/实时上下文（心跳与 worker-context-query 共用）。
+      getActiveTask: () => w.loop.getActiveTask(),
+      getLiveContext: () => w.loop.getLiveContext(),
     },
     dispose: async () => {
       try { w.optimizer?.stop?.(); } catch { /* 停表容错 */ }

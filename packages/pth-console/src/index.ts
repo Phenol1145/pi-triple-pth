@@ -34,6 +34,8 @@ export {
   cmdKernelBatchAdd,
   cmdKernelBatchRemove,
   cmdKernelBatchWorker,
+  cmdKernelWorkerActivity,
+  cmdKernelWorkerContext,
   cmdKernelStatus,
 } from "./commands/kernel.js";
 export {

@@ -590,3 +590,51 @@ describe("N28 T2：replica 生命周期与身份戳记（TaskLoop）", () => {
     expect(replica.snapshot()).toMatchObject({ state: "paused", currentTaskId: undefined });
   });
 });
+
+describe("W-b/W-c：TaskLoop 在飞活动与实时上下文接线", () => {
+  const role = { id: "developer", tags: ["code"], prompt: "dev" };
+
+  it("getActiveTask/getLiveContext 与 onContextReady 惰性读取贯穿任务生命周期", async () => {
+    const task = { id: "t-wctx", text: "do x", title: "x" };
+    const store = mockTaskStore({
+      candidates: vi.fn(async () => [task]),
+      claimTopN: vi.fn(async () => [task]),
+    });
+    let release!: (v: unknown) => void;
+    mockedRunAgent.mockImplementation(async (input: any) => {
+      // 模拟 runAgentTaskCore 在首个 await 后才设置 __messages（惰性 getter 必须读到最新引用）。
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      input.__messages = [
+        { role: "system", content: "sys" },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "ok", toolCalls: [{ id: "c1", name: "ts.run", arguments: {} }] },
+      ];
+      await new Promise((resolve) => { release = resolve; });
+      return { ok: true, value: "done", summary: "s", steps: 1 } as never;
+    });
+    const loop = new TaskLoop(agentDeps(mockKernel(), role, store));
+    const run = loop.runOnce();
+    // 等待 agent 循环进入 runAgentTask（activeTask 已登记）。
+    const started = Date.now();
+    while (!loop.getActiveTask()) {
+      if (Date.now() - started > 2000) throw new Error("activeTask 未在任务执行期间登记");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const active = loop.getActiveTask();
+    expect(active).toMatchObject({ taskId: "t-wctx", roleId: "developer" });
+    // 等待 __messages 注入后，getLiveContext 应能读到同一引用内容。
+    const ctxStart = Date.now();
+    while (!Array.isArray(loop.getLiveContext())) {
+      if (Date.now() - ctxStart > 2000) throw new Error("liveContext 未就绪");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const ctx = loop.getLiveContext() as Array<{ role: string; content?: string }>;
+    expect(ctx).toHaveLength(3);
+    expect(ctx[0]).toMatchObject({ role: "system", content: "sys" });
+    expect(ctx[1]).toMatchObject({ role: "user", content: "hello" });
+    release({ ok: true, value: "done", summary: "s", steps: 1 });
+    await run;
+    expect(loop.getActiveTask()).toBeUndefined();
+    expect(loop.getLiveContext()).toBeUndefined();
+  });
+});

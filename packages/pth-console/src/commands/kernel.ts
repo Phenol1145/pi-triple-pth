@@ -306,6 +306,87 @@ export async function cmdKernelBatchWorker(passthrough: string[], _flags: Record
   }
 }
 
+export async function cmdKernelWorkerActivity(passthrough: string[], flags: Record<string, string>): Promise<void> {
+  // pth kernel worker activity <role> [--since 60s] [--limit 50]
+  const role = passthrough[0];
+  if (!role) {
+    console.log("  用法: pth kernel worker activity <role> [--since 60s] [--limit 50]");
+    process.exit(1);
+  }
+  const sinceSec = flags.since ? parseInt(flags.since, 10) || 60 : 60;
+  const limit = flags.limit ? parseInt(flags.limit, 10) || 50 : 50;
+  const client = requireClient();
+  try {
+    const res = await client.workerActivity(role, sinceSec, limit);
+    printPthBanner();
+    console.log(`  \x1b[1mworker 活动记录: ${role}\x1b[0m（近 ${res.sinceSec}s）`);
+    console.log("");
+    console.log("  \x1b[1m在飞任务\x1b[0m");
+    if (res.inflight.length === 0) {
+      console.log("    暂无在飞任务");
+    } else {
+      console.log(`  \x1b[2m${"TASK".padEnd(12)}${"STEP".padEnd(6)}${"TOOL".padEnd(18)}RUNNING\x1b[0m`);
+      for (const t of res.inflight as Array<Record<string, unknown>>) {
+        const runningMs = Date.now() - Number(t.lastActivityAt ?? Date.now());
+        console.log(`  \x1b[1m${String(t.taskId ?? "").slice(0, 10).padEnd(12)}\x1b[0m${String(t.step ?? "-").padEnd(6)}${String(t.tool ?? "-").padEnd(18)}${runningMs}ms`);
+      }
+    }
+    console.log("");
+    console.log("  \x1b[1m历史记录\x1b[0m");
+    if (res.history.length === 0) {
+      console.log("    暂无历史记录");
+    } else {
+      console.log(`  \x1b[2m${"TASK".padEnd(12)}${"AT".padEnd(24)}${"EVENTS".padEnd(8)}SUMMARY\x1b[0m`);
+      for (const h of res.history as Array<Record<string, unknown>>) {
+        const at = String(h.at ?? "").slice(0, 23).padEnd(24);
+        console.log(`  \x1b[1m${String(h.taskId ?? "").slice(0, 10).padEnd(12)}\x1b[0m${at}${String(h.events ?? 0).padEnd(8)}${String(h.summary ?? "").slice(0, 60)}`);
+      }
+    }
+    console.log("");
+  } catch (err: any) {
+    console.log(`\x1b[31m❌ worker 活动查询失败: ${err.message}\x1b[0m`);
+    process.exit(1);
+  }
+}
+
+export async function cmdKernelWorkerContext(passthrough: string[], flags: Record<string, string>): Promise<void> {
+  // pth kernel worker context <role> [--last 10]
+  const role = passthrough[0];
+  if (!role) {
+    console.log("  用法: pth kernel worker context <role> [--last 10]");
+    process.exit(1);
+  }
+  const last = flags.last ? parseInt(flags.last, 10) || 10 : 10;
+  const client = requireClient();
+  try {
+    const res = await client.workerContext(role, last);
+    printPthBanner();
+    console.log(`  \x1b[1mworker 在飞上下文: ${role}\x1b[0m（last=${last}）`);
+    if (res.tasks.length === 0) {
+      console.log("\n  无在飞上下文（该 role 无在飞任务或子进程未就绪）");
+      console.log("");
+      return;
+    }
+    for (const t of res.tasks as Array<Record<string, unknown>>) {
+      const msgs = Array.isArray(t.messages) ? t.messages as Array<Record<string, unknown>> : [];
+      console.log("");
+      console.log(`  \x1b[1m任务: ${String(t.taskId ?? "").slice(0, 12)}\x1b[0m  step=${t.step ?? "-"}  tool=${t.tool ?? "-"}  ${t.truncated ? "\x1b[33mtruncated\x1b[0m" : ""}`);
+      console.log(`    started: ${new Date(Number(t.startedAt)).toISOString()}  last: ${new Date(Number(t.lastActivityAt)).toISOString()}`);
+      if (t.system) console.log(`    system: ${String(t.system).slice(0, 80)}`);
+      console.log(`    messages: ${msgs.length} 条`);
+      for (const m of msgs.slice(0, 5)) {
+        const content = String(m.content ?? "").replace(/\n/g, " ").slice(0, 120);
+        console.log(`      [${String(m.role ?? "?")}] ${content}`);
+      }
+      if (msgs.length > 5) console.log(`      … 其余 ${msgs.length - 5} 条省略显示（CLI 仅预览）`);
+    }
+    console.log("");
+  } catch (err: any) {
+    console.log(`\x1b[31m❌ worker 上下文查询失败: ${err.message}\x1b[0m`);
+    process.exit(1);
+  }
+}
+
 export async function cmdKernelStatus(_passthrough: string[], _flags: Record<string, string>): Promise<void> {
   const client = requireClient();
   try {

@@ -500,6 +500,7 @@ export async function runBatchProcess(deps: RunBatchProcessDeps): Promise<void> 
   void startBatchStatusReporter({
     mode,
     getRuntime: () => runtime,
+    getLoops: () => loops,
     memoryDirectory: deps.memoryDirectory,
     authoritativeWorkingSets,
   });

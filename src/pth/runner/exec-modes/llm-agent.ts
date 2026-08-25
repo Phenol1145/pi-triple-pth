@@ -258,7 +258,7 @@ export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome
     deps.onTrace?.(event);
   }
 
-  const r = await runAgentTask({
+  const agentInput: Parameters<typeof runAgentTask>[0] = {
     llm: llm!,
     kernel,
     caps: taskCaps,
@@ -289,7 +289,11 @@ export async function runLlmAgentMode(ctx: ExecModeContext): Promise<TaskOutcome
       traceEvents.push(e);
       deps.onTrace?.(e);
     },
-  });
+  };
+  // W-c：实时上下文经惰性 getter 暴露（runAgentTaskCore 在首个 await 后才设置 __messages）。
+  deps.onContextReady?.(() => (agentInput as { __messages?: unknown }).__messages);
+
+  const r = await runAgentTask(agentInput);
 
   // 2026-08-25 W-d：上下文快照交给 task-loop 汇集（transcript-observer 随轨迹落盘）
   if (r.contextCapture && deps.contextSink) deps.contextSink.push(r.contextCapture);

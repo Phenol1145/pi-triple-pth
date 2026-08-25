@@ -22,10 +22,26 @@ export type WorkerSlotEvent =
   | { type: "worker-status"; workerId: string; state: string; accepted: boolean }
   | { type: "worker-removed"; workerId: string };
 
+/** W-b/W-c：worker 在飞活动/实时上下文的统一只读访问面（off loops 与 feasibility slots 共用）。 */
+export interface WorkerActiveTask {
+  taskId: string;
+  roleId: string;
+  startedAt: number;
+  lastActivityAt: number;
+  currentStep?: number;
+  tool?: string;
+}
+
+export interface WorkerLoopAccess {
+  role: string;
+  getActiveTask(): WorkerActiveTask | undefined;
+  getLiveContext(): unknown;
+}
+
 export interface WorkerSlot {
   replica: WorkerReplica;
   role: RoleDefinition;
-  loop: { runOnce(): Promise<boolean>; pause(): void; resume(): void; stop(): void };
+  loop: { runOnce(): Promise<boolean>; pause(): void; resume(): void; stop(): void; getActiveTask?(): WorkerActiveTask | undefined; getLiveContext?(): unknown };
   dispose: () => Promise<void>;
 }
 
@@ -148,6 +164,15 @@ export class WorkerSlotRuntime {
 
   list(): readonly WorkerReplicaStatus[] {
     return this.slots.map((slot) => slot.replica.snapshot());
+  }
+
+  /** W-b/W-c：向 IPC 控制面暴露 slot 内 TaskLoop 的只读访问面（活动/上下文查询共用）。 */
+  activeLoops(): WorkerLoopAccess[] {
+    return this.slots.map((slot) => ({
+      role: slot.role.id,
+      getActiveTask: () => slot.loop.getActiveTask?.(),
+      getLiveContext: () => slot.loop.getLiveContext?.(),
+    }));
   }
 
   async disposeAll(): Promise<void> {
