@@ -1,15 +1,15 @@
 # Provider 配置 Contract（providers.json）
 
-> 状态：已按第二轮施工反馈修正，进入合并前验证
-> 范围：`~/.pi-triple/providers.json` 的跨仓格式 contract
-> 消费方：`pi-platform/extensions/pit-providers`（reader）、`@away_from/pth-config`（writer/CLI）、dsh ops（薄封装）
+> 状态：第三轮验收通过；reader 已迁入本仓
+> 范围：`~/.pi-triple/providers.json` 的格式 contract
+> 消费方：`extensions/pit-providers`（reader，已从 pi-platform 迁入）、`@away_from/pth-config`（writer/CLI）、dsh ops（薄封装）
 > 关联设计：`docs/pth/design/pth-provider-config-cli-design.md`
 > 关联计划：`docs/pth/plan/pth-provider-config-cli-implementation-plan.md`
 
 ## 1. 目的
 
-本文件是 `providers.json` 的 **canonical contract**。PTH writer 与 pi-platform reader 都必须遵守；
-任何修改都必须同步 golden fixtures，并让两仓 conformance 测试通过。
+本文件是 `providers.json` 的 **canonical contract**。PTH writer 与本仓 reader（`extensions/pit-providers`）都必须遵守；
+pi-platform 已停止维护，不再作为独立消费方。任何修改都必须同步 golden fixtures，并让 writer/reader conformance 测试通过。
 
 ## 2. 文件位置
 
@@ -128,23 +128,23 @@ interface ModelCost {
 - symlink / 非普通文件 fail closed；
 - 新文件/备份权限 `0o600`。
 
-## 10. 跨仓 conformance
+## 10. Conformance
 
-两仓必须维护同一组 golden fixtures：
+本仓必须维护同一组 golden fixtures：
 
 ```text
-pi-triple-pth/test/fixtures/providers/golden/*.json
-pi-platform/test/fixtures/providers/golden/*.json
+test/fixtures/providers/golden/*.json
 ```
 
 每个 fixture 必须同时满足：
 
 - PTH writer：读取 → 修改 → 保存后仍通过校验；
-- pi-platform reader：`loadProviders()` 能成功加载且不丢字段。
+- reader（`extensions/pit-providers`）：`loadProviders()` 能成功加载且不丢字段；
+- dsh ops：通过 `pth config provider` 薄封装保持同一路径语义。
 
 ## 11. 变更流程
 
 1. 修改本 contract；
-2. 同步更新两仓 golden fixtures；
-3. 两仓 conformance 测试全部通过；
+2. 同步更新本仓 golden fixtures；
+3. writer/reader conformance 测试与 dsh 工具测试全部通过；
 4. 更新关联设计与计划文档。

@@ -2,14 +2,14 @@
 
 > 状态：设计定稿待评审（v3 —— 吸收施工反馈：跨仓 contract、路径、并发、权限、网络边界；PTH 侧已开始实施）
 > 范围：`pth config provider` 子命令族 + `@away_from/pth-config` provider 配置后端 + dsh ops 薄封装
-> 关联代码：`src/cli/pth-cli.ts`、`packages/pth-config/src/*`、`pi-platform/extensions/pit-providers/*`、`dsh-pth-interface/preset/pth-ops/*`
+> 关联代码：`src/cli/pth-cli.ts`、`packages/pth-config/src/*`、`extensions/pit-providers/*`（已从 pi-platform 迁入）、`dsh-pth-interface/preset/pth-ops/*`
 > 目标版本：pth CLI v1.8+ / dsh-pth-interface v0.7+
 
 ## 1. 背景与目标
 
-当前 LLM provider 注册配置存在 `~/.pi-triple/providers.json`，由 `pi-platform/extensions/pit-providers` 消费。该文件：
+当前 LLM provider 注册配置存在 `~/.pi-triple/providers.json`，由本仓 `extensions/pit-providers` 消费（已从 pi-platform 迁入，pi-platform 停止维护）。该文件：
 
-- 已有加载/校验逻辑（`pit-providers/registry.ts`），但只存在于 pi-platform；
+- 已有加载/校验逻辑（`extensions/pit-providers/registry.ts`），现已迁入本仓；
 - 没有独立 CLI 管理入口；
 - `pth config` 只能读 PTH 环境配置，不能写 `providers.json`；
 - dsh ops preset 没有向模型暴露 provider 配置能力。
@@ -39,27 +39,26 @@
 `providers.json` 的格式 contract 不能靠“人工镜像”维持。V1 采用以下策略：
 
 1. 本设计文档 + `docs/pth/contract/provider-config-contract.md` 是 **canonical contract**；
-2. PTH writer（`@away_from/pth-config`）与 pi-platform reader（`pit-providers`）都遵守同一 contract；
+2. PTH writer（`@away_from/pth-config`）与本仓 reader（`extensions/pit-providers`）都遵守同一 contract；
 3. 建立 **golden fixtures**：
-   - `pi-triple-pth/test/fixtures/providers/golden/*.json`
-   - `pi-platform/test/fixtures/providers/golden/*.json`
-4. 两仓 CI 都运行 conformance 测试：
-   - PTH：写入 golden fixture → 校验结果；
-   - pi-platform：用同一组 fixture 加载 → 必须全部通过；
-5. 后续若条件成熟，再把 validator 抽成共享包；V1 不阻塞在跨仓代码共享上。
+   - `test/fixtures/providers/golden/*.json`
+4. 本仓 CI 运行 writer/reader conformance 测试，dsh 工具测试验证薄封装：
+   - writer：写入 golden fixture → 校验结果；
+   - reader：用同一组 fixture 加载 → 必须全部通过；
+5. 后续若条件成熟，再把 validator 抽成共享包；V1 不阻塞在代码共享上。
 
 ### 3.2 版本语义
 
 | 概念 | 值/位置 |
 |---|---|
 | 文件格式版本 | 顶层 `version: 1`，固定不变 |
-| schema revision | 由 contract 文档版本和两仓 package version 记录，不写进 providers.json |
+| schema revision | 由 contract 文档版本和 package version 记录，不写进 providers.json |
 | validator 行为 | 由 contract 文档 + golden fixtures 锁定，不用 `version` 表达 |
 
 ### 3.3 未知字段策略
 
 **保留**：backend 加载时保留 provider/model 的未知字段，保存时原样写回；validator 不拒绝未知字段。
-这样避免 PTH writer 丢弃 pi-platform 未来可能新增的字段。
+这样避免 writer/reader 丢弃未来可能新增的字段。
 
 ### 3.4 唯一性规则
 
@@ -426,7 +425,7 @@ pth_config_provider(action, id?, json?, file?, yes?)
 
 | 编号 | 决策 |
 |---|---|
-| D1 | provider 配置后端放在 `@away_from/pth-config`；跨仓 contract 以文档 + golden fixtures 锁定，不靠人工镜像 |
+| D1 | provider 配置后端放在 `@away_from/pth-config`；reader 迁入 `extensions/pit-providers`；contract 以文档 + golden fixtures 锁定，不靠人工镜像 |
 | D2 | `pth config provider` 是本地文件 CLI，不依赖 PTH server |
 | D3 | `--data` 是机器接口的首选；`--file` 为人类/脚本便利；`--json` 仅表示输出 JSON |
 | D4 | `update` 的 `models` 整体替换，不做深度合并 |
@@ -458,7 +457,7 @@ pth_config_provider(action, id?, json?, file?, yes?)
 
 ## 12. 开放问题
 
-- 后续是否抽共享 validator 包，消除 golden fixtures 的跨仓复制成本；
+- 后续是否抽共享 validator 包，消除 golden fixtures 的复制成本；
 - 是否需要 `pth config provider model` 子命令族（models 增删改查）；
 - `provider test` 未来是否通过受控 Network Execute admin profile 实现；
 - 其他配置（env/trust/services）是否统一编入 `pth config`。

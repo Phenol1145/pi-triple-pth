@@ -1,6 +1,6 @@
 # pth config provider 配置 CLI 实施计划
 
-> 状态：实施中（PTH 侧 P0-P2 已完成；dsh 只读工具已接入；跨仓 conformance 已建立）
+> 状态：第三轮验收通过；reader 已迁入本仓（pi-platform 停止维护）
 > 范围：`pth config provider` 子命令族 + `@away_from/pth-config` provider 配置后端 + dsh ops 薄封装
 > 关联设计：`docs/pth/design/pth-provider-config-cli-design.md`
 > 施工反馈：`docs/pth/report/pth-cli-provider-config-construction-feedback-2026-08-26.md`
@@ -24,8 +24,8 @@
 | 文件 | 内容 |
 |---|---|
 | `docs/pth/contract/provider-config-contract.md` | canonical contract：格式版本、schema、唯一性、未知字段、merge 语义、路径 |
-| `test/fixtures/providers/golden/*.json`（pi-triple-pth） | PTH writer conformance fixtures |
-| `pi-platform/test/fixtures/providers/golden/*.json`（pi-platform） | pi-platform reader conformance fixtures |
+| `test/fixtures/providers/golden/*.json` | PTH writer conformance fixtures |
+| `extensions/pit-providers` + `test/pit-providers/golden-fixtures.test.ts` | reader conformance fixtures（已从 pi-platform 迁入） |
 
 ### 冻结内容
 
@@ -39,8 +39,8 @@
 ### 完成标准
 
 - contract 文档评审通过；
-- 两仓 golden fixtures 一致；
-- 两仓 conformance 测试计划明确。
+- 本仓 golden fixtures 与 reader conformance 测试一致；
+- writer/reader conformance 测试计划明确。
 
 ## P1：实现安全配置后端（packages/pth-config）
 
@@ -158,21 +158,21 @@ pth_config_provider(
 
 ## P4：跨仓验收
 
-**目标**：PTH、pi-platform、dsh 三仓定向验收全部通过。
+**目标**：PTH、dsh 两仓定向验收全部通过（pi-platform 已停止维护）。
 
 ### 验收项
 
 1. CLI 在临时目录跑完整 CRUD/backup/restore；
-2. pi-platform 用同一组 golden fixtures 加载全部通过；
+2. 本仓 reader（`extensions/pit-providers`）用同一组 golden fixtures 加载全部通过；
 3. dsh 只读和写入权限分别验证；
 4. 跑 PTH `npm run lint` / `npm test` / `npm run build` / `npm run check:docs-links`；
-5. 跑 pi-platform `pit-providers` registry 定向测试；
+5. 跑本仓 `extensions/pit-providers` conformance 测试；
 6. 跑 dsh syntax/package/接口测试。
 
 ### 完成判据
 
 - [ ] provider 文件格式有 canonical contract + golden fixtures；
-- [ ] PTH writer 与 pi-platform reader 使用同一组 golden fixtures；
+- [ ] PTH writer 与本仓 reader 使用同一组 golden fixtures；
 - [ ] CLI 路径和 consumer 路径完全一致；
 - [ ] 未知 `pth config` 子命令 fail closed；
 - [ ] add/update/remove/restore 在锁与 CAS 下不会丢并发更新；
@@ -183,13 +183,13 @@ pth_config_provider(
 - [ ] dsh 默认不获得 provider 写权限；
 - [ ] V1 不存在模型可控的任意 URL 请求通道；
 - [ ] 现有 `pth config` / `pth config export` 行为保持兼容；
-- [ ] PTH、pi-platform、dsh 三仓定向验收全部通过。
+- [ ] PTH、dsh 定向验收全部通过。
 
 ## 风险与缓解
 
 | 风险 | 缓解 |
 |---|---|
-| 跨仓 schema 漂移 | canonical contract + golden fixtures + 两仓 CI conformance |
+| schema 漂移 | canonical contract + golden fixtures + writer/reader conformance + dsh 工具测试 |
 | 路径不一致 | 不引入 `PTH_PROVIDERS_FILE` 公共覆盖，CLI 与 consumer 同一路径 |
 | 并发 lost update | lock + CAS + 原子写 + 目录 fsync |
 | symlink/权限逃逸 | `lstat` fail-closed + realpath 校验 + `0o600` |
